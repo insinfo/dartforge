@@ -8,9 +8,9 @@
 //! `references`).
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use crate::project::{Alvo, Concreto, Dono, Projeto, nome_base, palavra};
-use crate::refactorings::Contexto;
-use crate::refactorings_exec::{Estado, Severidade};
+use crate::project::{Target, Concrete, Owner, Project, base_name, word};
+use crate::refactorings::Context;
+use crate::refactorings_exec::{State, Severity};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId, FunctionKind, LibraryId, UnitId, VariableId};
 use dartforge_frontend::ast::{self, DeclKind, ExprKind};
@@ -18,178 +18,178 @@ use dartforge_intern::SymbolId;
 use std::collections::BTreeSet;
 use url::Url;
 
-/// Uma edição de texto: substituir `span` (bytes) de `uri` por `texto`.
+/// Uma edição de texto: substituir `span` (bytes) de `uri` por `text`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Edicao {
+pub struct Edit {
     pub uri: String,
     pub span: Span,
-    pub texto: String,
+    pub text: String,
 }
 
 /// O arquivo que acompanha a classe renomeada (o `RenameFile` no fim dos
 /// `documentChanges`, §12.1 passo 17).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RenomearArquivo {
+pub struct RenameFile {
     /// URI atual do arquivo.
     pub de: String,
     /// URI nova (mesmo diretório, `toFileName` do nome novo).
     pub para: String,
     /// O Dart não edita as diretivas aqui (vêm do `willRenameFiles`): vazio.
-    pub diretivas: Vec<Edicao>,
+    pub directives: Vec<Edit>,
 }
 
 /// O resultado do `rename`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Renomeacao {
-    pub edicoes: Vec<Edicao>,
-    pub arquivo: Option<RenomearArquivo>,
+pub struct Rename {
+    pub edits: Vec<Edit>,
+    pub file: Option<RenameFile>,
     /// `checkFinalConditions` com erro ou aviso (sem fatal): a mensagem do
     /// prompt `Rename Anyway`/`Cancel`, ou do `-32010` sem prompt.
-    pub aviso: Option<String>,
+    pub warning: Option<String>,
     /// Nada a renomear: a resposta é `null`.
-    pub nulo: bool,
+    pub null: bool,
 }
 
 /// A classe de refatoração (`RenameRefactoring.create`, §12.2).
 #[derive(Debug, Clone)]
-enum Classe {
+enum Class {
     /// `RenameUnitMemberRefactoringImpl`: o elemento de topo (o acessor de
     /// topo já trocado pela variável) ou o prefixo de um tipo.
-    MembroDeUnidade(Alvo),
-    Construtor(FunctionElementId),
+    UnitMember(Target),
+    Constructor(FunctionElementId),
     /// `RenameImportRefactoringImpl`: o import (pela posição em `imports`).
-    Import { biblioteca: LibraryId, indice: usize },
-    Rotulo { unidade: UnitId, declaracao: usize },
-    Biblioteca(LibraryId),
-    /// `RenameParameterRefactoringImpl`; `campo`: o `this.x` com campo.
-    Parametro { unidade: UnitId, declaracao: usize, campo: Option<VariableId> },
-    Local { unidade: UnitId, declaracao: usize },
-    ParametroDeTipo { unidade: UnitId, declaracao: usize },
-    MembroDeClasse { alvo: Alvo, classe: ClassId, concreto: Option<Concreto> },
-    MembroDeExtensao { alvo: Alvo, concreto: Option<Concreto> },
+    Import { library: LibraryId, index: usize },
+    Label { unit: UnitId, declaration: usize },
+    Library(LibraryId),
+    /// `RenameParameterRefactoringImpl`; `field`: o `this.x` com campo.
+    Parameter { unit: UnitId, declaration: usize, field: Option<VariableId> },
+    Local { unit: UnitId, declaration: usize },
+    TypeParameter { unit: UnitId, declaration: usize },
+    ClassMember { target: Target, class: ClassId, concrete: Option<Concrete> },
+    ExtensionMember { target: Target, concrete: Option<Concrete> },
 }
 
 /// O que o cursor renomeia: a classe, o intervalo do `prepareRename`, o
 /// nome antigo, a espécie e o nome qualificado (mensagens), e onde o
 /// elemento está (SDK, workspace).
 #[derive(Debug, Clone)]
-struct Pedido {
-    classe: Classe,
-    faixa: Span,
-    antigo: String,
-    especie: String,
-    qualificado: String,
-    biblioteca: Option<LibraryId>,
-    unidade: Option<UnitId>,
+struct Request {
+    class: Class,
+    range: Span,
+    old: String,
+    kind: String,
+    qualified: String,
+    library: Option<LibraryId>,
+    unit: Option<UnitId>,
 }
 
 /// As palavras reservadas (`KeywordStyle.reserved`).
-const RESERVADAS: &[&str] = &[
+const RESERVED: &[&str] = &[
     "assert", "break", "case", "catch", "class", "const", "continue", "default", "do", "else", "enum", "extends", "false", "final", "finally", "for", "if",
     "in", "is", "new", "null", "rethrow", "return", "super", "switch", "this", "throw", "true", "try", "var", "void", "while", "with",
 ];
 
 /// As embutidas e as pseudo (`isBuiltInOrPseudo`).
-const EMBUTIDAS: &[&str] = &[
+const INLINE: &[&str] = &[
     "Function", "abstract", "as", "augment", "covariant", "deferred", "dynamic", "export", "extension", "external", "factory", "get", "implements",
     "import", "interface", "late", "library", "mixin", "operator", "part", "required", "set", "static", "typedef", "async", "await", "base", "hide",
     "inout", "native", "of", "on", "out", "patch", "sealed", "show", "source", "sync", "when", "yield",
 ];
 
 /// `_validateIdentifier`.
-fn validar_identificador(id: &str, desc: &str, comeco: &str, embutido_permitido: bool) -> Estado {
+fn validate_identifier(id: &str, desc: &str, start: &str, inline_allowed: bool) -> State {
     if id != id.trim() {
-        return Estado::fatal(format!("{desc} must not start or end with a blank."));
+        return State::fatal(format!("{desc} must not start or end with a blank."));
     }
     if id.is_empty() {
-        return Estado::fatal(format!("{desc} must not be empty."));
+        return State::fatal(format!("{desc} must not be empty."));
     }
-    let embutido = EMBUTIDAS.contains(&id);
-    if embutido || RESERVADAS.contains(&id) {
-        if embutido && embutido_permitido {
-            return Estado::aviso("Avoid using built-in identifiers as names.");
+    let inlined = INLINE.contains(&id);
+    if inlined || RESERVED.contains(&id) {
+        if inlined && inline_allowed {
+            return State::warning("Avoid using built-in identifiers as names.");
         }
-        return Estado::fatal(format!("{desc} must not be a keyword."));
+        return State::fatal(format!("{desc} must not be a keyword."));
     }
     for c in id.chars() {
         if !(c.is_ascii_alphanumeric() || c == '_' || c == '$') {
-            return Estado::fatal(format!("{desc} must not contain '{c}'."));
+            return State::fatal(format!("{desc} must not contain '{c}'."));
         }
     }
     let b = id.as_bytes()[0];
     if !(b.is_ascii_alphabetic() || b == b'_' || b == b'$') {
-        return Estado::fatal(format!("{desc} must begin with {comeco}."));
+        return State::fatal(format!("{desc} must begin with {start}."));
     }
-    Estado::default()
+    State::default()
 }
 
 /// `_validateLowerCamelCase`.
-fn validar_minuscula(id: &str, desc: &str, embutido_permitido: bool) -> Estado {
+fn validate_lowercase(id: &str, desc: &str, inline_allowed: bool) -> State {
     let desc = format!("{desc} name");
-    let e = validar_identificador(id, &desc, "a lowercase letter or underscore", embutido_permitido);
+    let e = validate_identifier(id, &desc, "a lowercase letter or underscore", inline_allowed);
     if !e.ok() {
         return e;
     }
     let b = id.as_bytes()[0];
     if b == b'_' || b == b'$' {
-        return Estado::default();
+        return State::default();
     }
     if !b.is_ascii_lowercase() {
-        return Estado::aviso(format!("{desc} should start with a lowercase letter."));
+        return State::warning(format!("{desc} should start with a lowercase letter."));
     }
-    Estado::default()
+    State::default()
 }
 
 /// `_validateUpperCamelCase`.
-fn validar_maiuscula(id: &str, desc: &str) -> Estado {
+fn validate_uppercase(id: &str, desc: &str) -> State {
     let desc = format!("{desc} name");
-    let e = validar_identificador(id, &desc, "an uppercase letter or underscore", false);
+    let e = validate_identifier(id, &desc, "an uppercase letter or underscore", false);
     if !e.ok() {
         return e;
     }
     let b = id.as_bytes()[0];
     if b == b'_' || b == b'$' {
-        return Estado::default();
+        return State::default();
     }
     if !b.is_ascii_uppercase() {
-        return Estado::aviso(format!("{desc} should start with an uppercase letter."));
+        return State::warning(format!("{desc} should start with an uppercase letter."));
     }
-    Estado::default()
+    State::default()
 }
 
 /// `validateLibraryName`.
-fn validar_biblioteca(nome: &str) -> Estado {
-    if nome.trim_matches([' ', '\t']).is_empty() {
-        return Estado::fatal("Library name must not be blank.");
+fn validate_library(name: &str) -> State {
+    if name.trim_matches([' ', '\t']).is_empty() {
+        return State::fatal("Library name must not be blank.");
     }
-    for c in nome.split('.') {
-        let e = validar_identificador(c, "Library name identifier", "a lowercase letter or underscore", false);
+    for c in name.split('.') {
+        let e = validate_identifier(c, "Library name identifier", "a lowercase letter or underscore", false);
         if !e.ok() {
             return e;
         }
     }
-    if nome.bytes().any(|b| b.is_ascii_uppercase()) {
-        return Estado::aviso("Library name should consist of lowercase identifier separated by dots.");
+    if name.bytes().any(|b| b.is_ascii_uppercase()) {
+        return State::warning("Library name should consist of lowercase identifier separated by dots.");
     }
-    Estado::default()
+    State::default()
 }
 
 /// `String.toFileName`.
-pub(crate) fn nome_de_arquivo(nome: &str) -> String {
-    crate::refactorings::nome_de_arquivo(nome)
+pub(crate) fn file_name(name: &str) -> String {
+    crate::refactorings::file_name(name)
 }
 
 /// O parâmetro (de função ou construtor) cujo intervalo está em `[a, b]`.
-fn parametro_no_intervalo(ast: &ast::Ast, a: usize, b: usize) -> Option<&ast::Parameter> {
-    let dentro = |q: &&ast::Parameter| q.span.start >= a && q.span.end <= b;
+fn parameter_in_range(ast: &ast::Ast, a: usize, b: usize) -> Option<&ast::Parameter> {
+    let inside = |q: &&ast::Parameter| q.span.start >= a && q.span.end <= b;
     for f in &ast.functions {
-        if let Some(q) = f.parameters.iter().flatten().find(dentro) {
+        if let Some(q) = f.parameters.iter().flatten().find(inside) {
             return Some(q);
         }
     }
     for m in &ast.members {
         if let ast::MemberKind::Constructor(k) = &m.kind
-            && let Some(q) = k.parameters.iter().find(dentro)
+            && let Some(q) = k.parameters.iter().find(inside)
         {
             return Some(q);
         }
@@ -197,25 +197,25 @@ fn parametro_no_intervalo(ast: &ast::Ast, a: usize, b: usize) -> Option<&ast::Pa
     None
 }
 
-impl Projeto {
+impl Project {
     // -- O elemento sob o cursor ------------------------------------------------
 
     /// `getElementOfNode` + `getElementToRename` + `RenameRefactoring.create`.
-    fn pedido_de_renomear(&self, unidade: UnitId, offset: usize) -> Option<Pedido> {
-        let p = self.programa();
-        let u = p.unit(unidade);
-        let fonte = u.source.as_str();
-        let cx = Contexto::novo(self, unidade);
-        let n = cx.arvore.localizar(offset, offset)?;
-        let especie_do_no = cx.especie(n);
-        let no = &cx.arvore.nos[n];
-        let faixa_do_no = Span { start: no.inicio, end: no.fim };
-        match especie_do_no {
+    fn rename_request(&self, unit: UnitId, offset: usize) -> Option<Request> {
+        let p = self.program();
+        let u = p.unit(unit);
+        let source = u.source.as_str();
+        let cx = Context::new(self, unit);
+        let n = cx.tree.localizar(offset, offset)?;
+        let node_kind = cx.kind(n);
+        let no = &cx.tree.nos[n];
+        let node_range = Span { start: no.inicio, end: no.fim };
+        match node_kind {
             // Fora da tabela do `getElementToRename`.
             "SuperFormalParameter" | "FunctionTypedFormalParameter" => return None,
             // A URI de uma diretiva não é renomeável.
             "SimpleStringLiteral" | "StringInterpolation" | "AdjacentStrings"
-                if cx.pai(n).is_some_and(|x| matches!(cx.especie(x), "ImportDirective" | "ExportDirective" | "PartDirective" | "PartOfDirective")) =>
+                if cx.parent(n).is_some_and(|x| matches!(cx.kind(x), "ImportDirective" | "ExportDirective" | "PartDirective" | "PartOfDirective")) =>
             {
                 return None;
             }
@@ -223,139 +223,139 @@ impl Projeto {
                 // O import da diretiva: com prefixo, o identificador dele; sem,
                 // o intervalo vazio no cursor.
                 let lib = u.library;
-                let indice = p.library(lib).imports.iter().position(|i| {
-                    i.unit == unidade
+                let index = p.library(lib).imports.iter().position(|i| {
+                    i.unit == unit
                         && p.unit(i.unit).unit.directives.get(i.directive).is_some_and(|d| no.inicio <= d.span.start && d.span.end <= no.fim)
                 })?;
-                let imp = &p.library(lib).imports[indice];
-                let (faixa, antigo) = match &p.unit(imp.unit).unit.directives[imp.directive].kind {
-                    ast::DirectiveKind::Import { prefix: Some(pr), .. } => (pr.span, fonte[pr.span.start..pr.span.end].to_string()),
+                let imp = &p.library(lib).imports[index];
+                let (range, old) = match &p.unit(imp.unit).unit.directives[imp.directive].kind {
+                    ast::DirectiveKind::Import { prefix: Some(pr), .. } => (pr.span, source[pr.span.start..pr.span.end].to_string()),
                     _ => (Span { start: offset, end: offset }, String::new()),
                 };
-                return Some(Pedido {
-                    classe: Classe::Import { biblioteca: lib, indice },
-                    faixa,
-                    antigo,
-                    especie: "import directive".to_string(),
-                    qualificado: String::new(),
-                    biblioteca: Some(lib),
-                    unidade: Some(unidade),
+                return Some(Request {
+                    class: Class::Import { library: lib, index },
+                    range,
+                    old,
+                    kind: "import directive".to_string(),
+                    qualified: String::new(),
+                    library: Some(lib),
+                    unit: Some(unit),
                 });
             }
             "ImportPrefixReference" => {
-                let texto = cx.texto_do_no(n).trim_end_matches('.').trim().to_string();
-                let simbolo = self.consulta.nomes.lookup(&texto)?;
-                return Some(Pedido {
-                    classe: Classe::MembroDeUnidade(Alvo::Prefixo { biblioteca: u.library, nome: simbolo }),
-                    faixa: faixa_do_no,
-                    antigo: texto.clone(),
-                    especie: "import prefix".to_string(),
-                    qualificado: texto,
-                    biblioteca: Some(u.library),
-                    unidade: Some(unidade),
+                let text = cx.node_text(n).trim_end_matches('.').trim().to_string();
+                let symbol = self.query.names.lookup(&text)?;
+                return Some(Request {
+                    class: Class::UnitMember(Target::Prefix { library: u.library, name: symbol }),
+                    range: node_range,
+                    old: text.clone(),
+                    kind: "import prefix".to_string(),
+                    qualified: text,
+                    library: Some(u.library),
+                    unit: Some(unit),
                 });
             }
             "LibraryDirective" => {
-                let nome = fonte[no.inicio..no.fim].trim_start_matches("library").trim().trim_end_matches(';').trim().to_string();
-                return Some(Pedido {
-                    classe: Classe::Biblioteca(u.library),
-                    faixa: faixa_do_no,
-                    antigo: nome.clone(),
-                    especie: "library".to_string(),
-                    qualificado: nome,
-                    biblioteca: Some(u.library),
-                    unidade: Some(unidade),
+                let name = source[no.inicio..no.fim].trim_start_matches("library").trim().trim_end_matches(';').trim().to_string();
+                return Some(Request {
+                    class: Class::Library(u.library),
+                    range: node_range,
+                    old: name.clone(),
+                    kind: "library".to_string(),
+                    qualified: name,
+                    library: Some(u.library),
+                    unit: Some(unit),
                 });
             }
             "InstanceCreationExpression" => {
                 // `new`/`const`: a classe, no nome do tipo.
-                let cn = cx.filhos(n).iter().copied().find(|&k| cx.especie(k) == "ConstructorName")?;
-                let tipo = *cx.filhos(cn).first()?;
-                let inicio = cx.filhos(tipo).iter().copied().find(|&k| cx.especie(k) == "ImportPrefixReference").map_or(cx.arvore.nos[tipo].inicio, |k| cx.arvore.nos[k].fim);
-                let d = self.identificar(unidade, inicio).ok()??;
-                let Alvo::Topo(Element::Class(c)) = d.alvo else { return None };
-                return self.pedido_de_alvo(Alvo::Topo(Element::Class(c)), None, d.nome, unidade);
+                let cn = cx.children(n).iter().copied().find(|&k| cx.kind(k) == "ConstructorName")?;
+                let ty = *cx.children(cn).first()?;
+                let start = cx.children(ty).iter().copied().find(|&k| cx.kind(k) == "ImportPrefixReference").map_or(cx.tree.nos[ty].inicio, |k| cx.tree.nos[k].fim);
+                let d = self.identify(unit, start).ok()??;
+                let Target::Top(Element::Class(c)) = d.target else { return None };
+                return self.target_request(Target::Top(Element::Class(c)), None, d.name, unit);
             }
             "ConstructorDeclaration" => {
                 let f = (0..p.functions.len()).map(|i| FunctionElementId(i as u32)).find(|&f| {
                     matches!(p.function(f).kind, FunctionKind::Constructor)
-                        && self.nome_da_funcao(f).is_some_and(|(uu, s)| uu == unidade && no.inicio <= s.start && s.end <= no.fim)
+                        && self.function_name(f).is_some_and(|(uu, s)| uu == unit && no.inicio <= s.start && s.end <= no.fim)
                 })?;
-                let mut pedido = self.pedido_de_alvo(Alvo::Construtor(f), Some(Concreto::Funcao(f)), faixa_do_no, unidade)?;
-                pedido.faixa = faixa_do_no;
-                return Some(pedido);
+                let mut request = self.target_request(Target::Constructor(f), Some(Concrete::Function(f)), node_range, unit)?;
+                request.range = node_range;
+                return Some(request);
             }
             "FieldFormalParameter" => {
-                let q = parametro_no_intervalo(&u.ast, no.inicio, no.fim)?;
-                let nome = q.name?;
-                let campo = (0..p.classes.len()).map(|i| ClassId(i as u32)).find(|&c| {
-                    p.class(c).decl.is_some_and(|d| d.unit == unidade && {
+                let q = parameter_in_range(&u.ast, no.inicio, no.fim)?;
+                let name = q.name?;
+                let field = (0..p.classes.len()).map(|i| ClassId(i as u32)).find(|&c| {
+                    p.class(c).decl.is_some_and(|d| d.unit == unit && {
                         let s = u.ast.decl(d.decl).span;
                         s.start <= no.inicio && no.fim <= s.end
                     })
                 });
-                let campo = campo.and_then(|c| p.class(c).fields.iter().copied().find(|v| p.variable(*v).name == nome.sym));
-                let antigo = fonte[nome.span.start..nome.span.end].to_string();
-                return Some(Pedido {
-                    classe: Classe::Parametro { unidade, declaracao: nome.span.start, campo },
-                    faixa: nome.span,
-                    antigo: antigo.clone(),
-                    especie: "parameter".to_string(),
-                    qualificado: antigo,
-                    biblioteca: Some(u.library),
-                    unidade: Some(unidade),
+                let field = field.and_then(|c| p.class(c).fields.iter().copied().find(|v| p.variable(*v).name == name.sym));
+                let old = source[name.span.start..name.span.end].to_string();
+                return Some(Request {
+                    class: Class::Parameter { unit, declaration: name.span.start, field },
+                    range: name.span,
+                    old: old.clone(),
+                    kind: "parameter".to_string(),
+                    qualified: old,
+                    library: Some(u.library),
+                    unit: Some(unit),
                 });
             }
             _ => {}
         }
         // Rótulo de comando, e o de um `break`/`continue`.
-        if especie_do_no == "SimpleIdentifier"
-            && let Some(pai) = cx.pai(n)
+        if node_kind == "SimpleIdentifier"
+            && let Some(parent) = cx.parent(n)
         {
-            let rotulo_de_comando = cx.especie(pai) == "Label"
-                && cx.pai(pai).is_some_and(|g| matches!(cx.especie(g), "LabeledStatement" | "SwitchCase" | "SwitchDefault" | "SwitchPatternCase"));
-            let declaracao = if rotulo_de_comando {
+            let command_label = cx.kind(parent) == "Label"
+                && cx.parent(parent).is_some_and(|g| matches!(cx.kind(g), "LabeledStatement" | "SwitchCase" | "SwitchDefault" | "SwitchPatternCase"));
+            let declaration = if command_label {
                 Some(no.inicio)
-            } else if matches!(cx.especie(pai), "BreakStatement" | "ContinueStatement") {
-                let nome = cx.texto_do_no(n);
-                let mut achado = None;
-                'fora: for k in cx.com_pais(pai) {
-                    for &l in cx.filhos(k) {
-                        if cx.especie(l) == "Label"
-                            && let Some(&i) = cx.filhos(l).first()
-                            && cx.texto_do_no(i) == nome
+            } else if matches!(cx.kind(parent), "BreakStatement" | "ContinueStatement") {
+                let name = cx.node_text(n);
+                let mut found = None;
+                'outside: for k in cx.with_parents(parent) {
+                    for &l in cx.children(k) {
+                        if cx.kind(l) == "Label"
+                            && let Some(&i) = cx.children(l).first()
+                            && cx.node_text(i) == name
                         {
-                            achado = Some(cx.arvore.nos[i].inicio);
-                            break 'fora;
+                            found = Some(cx.tree.nos[i].inicio);
+                            break 'outside;
                         }
                     }
                 }
-                Some(achado?)
+                Some(found?)
             } else {
                 None
             };
-            if let Some(declaracao) = declaracao {
-                let nome = cx.texto_do_no(n).to_string();
-                return Some(Pedido {
-                    classe: Classe::Rotulo { unidade, declaracao },
-                    faixa: faixa_do_no,
-                    antigo: nome.clone(),
-                    especie: "label".to_string(),
-                    qualificado: nome,
-                    biblioteca: Some(u.library),
-                    unidade: Some(unidade),
+            if let Some(declaration) = declaration {
+                let name = cx.node_text(n).to_string();
+                return Some(Request {
+                    class: Class::Label { unit, declaration },
+                    range: node_range,
+                    old: name.clone(),
+                    kind: "label".to_string(),
+                    qualified: name,
+                    library: Some(u.library),
+                    unit: Some(unit),
                 });
             }
         }
-        let d = self.identificar(unidade, offset).ok()??;
+        let d = self.identify(unit, offset).ok()??;
         // O prefixo usado numa expressão: o `PrefixElement`, membro da
         // unidade (`RenameUnitMemberRefactoringImpl`); o `as p` da diretiva
         // fica com o `LibraryImportElement` (o ramo `ImportDirective`).
-        if let Alvo::Prefixo { biblioteca, nome } = d.alvo {
-            let antigo = self.nome(nome).to_string();
+        if let Target::Prefix { library, name } = d.target {
+            let old = self.name(name).to_string();
             // No `as p` da própria diretiva: o `LibraryImportElement`.
-            let na_diretiva = p.library(biblioteca).imports.iter().position(|i| {
-                i.unit == unidade
+            let in_directive = p.library(library).imports.iter().position(|i| {
+                i.unit == unit
                     && matches!(
                         p.unit(i.unit).unit.directives.get(i.directive).map(|x| &x.kind),
                         Some(ast::DirectiveKind::Import { prefix: Some(pr), .. }) if pr.span.start <= offset && offset <= pr.span.end
@@ -364,255 +364,255 @@ impl Projeto {
             // Usado numa expressão (um `SimpleIdentifier` com o
             // `PrefixElement`): `getElementOfNode` troca pelo import
             // (`getImportElement`), e o rename é o do import.
-            let na_diretiva = na_diretiva.or_else(|| self.import_do_prefixo(unidade, offset, biblioteca, nome));
-            if let Some(indice) = na_diretiva {
-                return Some(Pedido {
-                    classe: Classe::Import { biblioteca, indice },
-                    faixa: d.nome,
-                    antigo,
-                    especie: "import directive".to_string(),
-                    qualificado: String::new(),
-                    biblioteca: Some(biblioteca),
-                    unidade: Some(unidade),
+            let in_directive = in_directive.or_else(|| self.prefix_import(unit, offset, library, name));
+            if let Some(index) = in_directive {
+                return Some(Request {
+                    class: Class::Import { library, index },
+                    range: d.name,
+                    old,
+                    kind: "import directive".to_string(),
+                    qualified: String::new(),
+                    library: Some(library),
+                    unit: Some(unit),
                 });
             }
-            return Some(Pedido {
-                classe: Classe::MembroDeUnidade(Alvo::Prefixo { biblioteca, nome }),
-                faixa: d.nome,
-                antigo: antigo.clone(),
-                especie: "import prefix".to_string(),
-                qualificado: antigo,
-                biblioteca: Some(biblioteca),
-                unidade: Some(unidade),
+            return Some(Request {
+                class: Class::UnitMember(Target::Prefix { library, name }),
+                range: d.name,
+                old: old.clone(),
+                kind: "import prefix".to_string(),
+                qualified: old,
+                library: Some(library),
+                unit: Some(unit),
             });
         }
-        self.pedido_de_alvo(d.alvo, d.concreto, d.nome, unidade)
+        self.target_request(d.target, d.concrete, d.name, unit)
     }
 
-    /// O pedido para um alvo do `identificar` (a regra 1 do `create` já
+    /// O pedido para um alvo do `identify` (a regra 1 do `create` já
     /// aplicada: acessor → variável).
-    fn pedido_de_alvo(&self, alvo: Alvo, concreto: Option<Concreto>, faixa: Span, unidade: UnitId) -> Option<Pedido> {
-        let p = self.programa();
-        let pedido = match &alvo {
-            Alvo::Topo(el) => {
-                let (especie, nome) = self.especie_de_topo(*el)?;
-                Pedido {
-                    classe: Classe::MembroDeUnidade(alvo.clone()),
-                    faixa,
-                    antigo: nome.clone(),
-                    especie,
-                    qualificado: nome,
-                    biblioteca: Some(self.biblioteca_do_elemento(*el)),
-                    unidade: self.nome_do_elemento_de_topo(*el).map(|(u, _)| u),
+    fn target_request(&self, target: Target, concrete: Option<Concrete>, range: Span, unit: UnitId) -> Option<Request> {
+        let p = self.program();
+        let request = match &target {
+            Target::Top(el) => {
+                let (kind, name) = self.top_kind(*el)?;
+                Request {
+                    class: Class::UnitMember(target.clone()),
+                    range,
+                    old: name.clone(),
+                    kind,
+                    qualified: name,
+                    library: Some(self.element_library(*el)),
+                    unit: self.top_element_name(*el).map(|(u, _)| u),
                 }
             }
-            Alvo::Construtor(f) => {
+            Target::Constructor(f) => {
                 let fe = p.function(*f);
-                let classe = fe.class.map(|c| self.nome(p.class(c).name).to_string()).unwrap_or_default();
-                let nome = self.nome(fe.name).to_string();
-                let exibido = if nome.is_empty() { classe } else { format!("{classe}.{nome}") };
-                Pedido {
-                    classe: Classe::Construtor(*f),
-                    faixa,
-                    antigo: nome,
-                    especie: "constructor".to_string(),
-                    qualificado: exibido,
-                    biblioteca: Some(fe.library),
-                    unidade: self.nome_da_funcao(*f).map(|(u, _)| u),
+                let class = fe.class.map(|c| self.name(p.class(c).name).to_string()).unwrap_or_default();
+                let name = self.name(fe.name).to_string();
+                let displayed = if name.is_empty() { class } else { format!("{class}.{name}") };
+                Request {
+                    class: Class::Constructor(*f),
+                    range,
+                    old: name,
+                    kind: "constructor".to_string(),
+                    qualified: displayed,
+                    library: Some(fe.library),
+                    unit: self.function_name(*f).map(|(u, _)| u),
                 }
             }
-            Alvo::Local { unidade: lu, declaracao } => {
+            Target::Local { unit: lu, declaration } => {
                 let un = p.unit(*lu);
-                let nome = palavra(&un.source, *declaracao).map(|s| un.source[s.start..s.end].to_string()).unwrap_or_default();
-                let (classe, especie) = if crate::project::parametro_em(&un.ast, *declaracao).is_some() {
-                    (Classe::Parametro { unidade: *lu, declaracao: *declaracao, campo: None }, "parameter")
-                } else if un.ast.functions.iter().any(|f| f.name.is_some_and(|x| x.span.start == *declaracao)) {
-                    (Classe::Local { unidade: *lu, declaracao: *declaracao }, "function")
+                let name = word(&un.source, *declaration).map(|s| un.source[s.start..s.end].to_string()).unwrap_or_default();
+                let (class, kind) = if crate::project::parameter_in(&un.ast, *declaration).is_some() {
+                    (Class::Parameter { unit: *lu, declaration: *declaration, field: None }, "parameter")
+                } else if un.ast.functions.iter().any(|f| f.name.is_some_and(|x| x.span.start == *declaration)) {
+                    (Class::Local { unit: *lu, declaration: *declaration }, "function")
                 } else {
-                    (Classe::Local { unidade: *lu, declaracao: *declaracao }, "local variable")
+                    (Class::Local { unit: *lu, declaration: *declaration }, "local variable")
                 };
-                Pedido {
-                    classe,
-                    faixa,
-                    antigo: nome.clone(),
-                    especie: especie.to_string(),
-                    qualificado: nome,
-                    biblioteca: Some(un.library),
-                    unidade: Some(*lu),
+                Request {
+                    class,
+                    range,
+                    old: name.clone(),
+                    kind: kind.to_string(),
+                    qualified: name,
+                    library: Some(un.library),
+                    unit: Some(*lu),
                 }
             }
-            Alvo::ParametroDeTipo { unidade: lu, declaracao } => {
+            Target::TypeParameter { unit: lu, declaration } => {
                 let un = p.unit(*lu);
-                let nome = palavra(&un.source, *declaracao).map(|s| un.source[s.start..s.end].to_string()).unwrap_or_default();
-                Pedido {
-                    classe: Classe::ParametroDeTipo { unidade: *lu, declaracao: *declaracao },
-                    faixa,
-                    antigo: nome.clone(),
-                    especie: "type parameter".to_string(),
-                    qualificado: nome,
-                    biblioteca: Some(un.library),
-                    unidade: Some(*lu),
+                let name = word(&un.source, *declaration).map(|s| un.source[s.start..s.end].to_string()).unwrap_or_default();
+                Request {
+                    class: Class::TypeParameter { unit: *lu, declaration: *declaration },
+                    range,
+                    old: name.clone(),
+                    kind: "type parameter".to_string(),
+                    qualified: name,
+                    library: Some(un.library),
+                    unit: Some(*lu),
                 }
             }
-            Alvo::Prefixo { biblioteca, nome } => Pedido {
-                classe: Classe::MembroDeUnidade(alvo.clone()),
-                faixa,
-                antigo: self.nome(*nome).to_string(),
-                especie: "import prefix".to_string(),
-                qualificado: self.nome(*nome).to_string(),
-                biblioteca: Some(*biblioteca),
-                unidade: Some(unidade),
+            Target::Prefix { library, name } => Request {
+                class: Class::UnitMember(target.clone()),
+                range,
+                old: self.name(*name).to_string(),
+                kind: "import prefix".to_string(),
+                qualified: self.name(*name).to_string(),
+                library: Some(*library),
+                unit: Some(unit),
             },
-            Alvo::Membro { dono, nome, .. } => {
-                let (especie, lib, uni) = match concreto {
-                    Some(Concreto::Funcao(f)) => {
+            Target::Member { owner, name, .. } => {
+                let (kind, lib, uni) = match concrete {
+                    Some(Concrete::Function(f)) => {
                         let fe = p.function(f);
-                        let especie = match fe.kind {
+                        let kind = match fe.kind {
                             FunctionKind::Function | FunctionKind::Operator => "method",
                             _ => "field",
                         };
-                        (especie, fe.library, self.nome_da_funcao(f).map(|(u, _)| u))
+                        (kind, fe.library, self.function_name(f).map(|(u, _)| u))
                     }
-                    Some(Concreto::Variavel(v)) => ("field", p.variable(v).library, self.nome_da_variavel(v).map(|(u, _)| u)),
-                    None => ("field", p.unit(unidade).library, None),
+                    Some(Concrete::Variable(v)) => ("field", p.variable(v).library, self.variable_name(v).map(|(u, _)| u)),
+                    None => ("field", p.unit(unit).library, None),
                 };
-                let (classe, qualificado) = match dono {
-                    Dono::Classe(c) => (
-                        Classe::MembroDeClasse { alvo: alvo.clone(), classe: *c, concreto },
-                        format!("{}.{nome}", self.nome(p.class(*c).name)),
+                let (class, qualified) = match owner {
+                    Owner::Class(c) => (
+                        Class::ClassMember { target: target.clone(), class: *c, concrete },
+                        format!("{}.{name}", self.name(p.class(*c).name)),
                     ),
-                    Dono::Extensao(x) => (
-                        Classe::MembroDeExtensao { alvo: alvo.clone(), concreto },
-                        format!("{}.{nome}", p.extension(*x).name.map(|s| self.nome(s)).unwrap_or("")),
+                    Owner::Extension(x) => (
+                        Class::ExtensionMember { target: target.clone(), concrete },
+                        format!("{}.{name}", p.extension(*x).name.map(|s| self.name(s)).unwrap_or("")),
                     ),
                 };
-                Pedido { classe, faixa, antigo: nome.clone(), especie: especie.to_string(), qualificado, biblioteca: Some(lib), unidade: uni }
+                Request { class, range, old: name.clone(), kind: kind.to_string(), qualified, library: Some(lib), unit: uni }
             }
         };
-        Some(pedido)
+        Some(request)
     }
 
     /// A espécie (`kind.displayName`) e o nome de um elemento de topo (o
     /// acessor de topo vira a variável).
-    fn especie_de_topo(&self, el: Element) -> Option<(String, String)> {
-        let p = self.programa();
+    fn top_kind(&self, el: Element) -> Option<(String, String)> {
+        let p = self.program();
         Some(match el {
-            Element::Class(c) => (self.especie_de_classe(c), self.nome(p.class(c).name).to_string()),
-            Element::Extension(x) => ("extension".to_string(), p.extension(x).name.map(|s| self.nome(s).to_string()).unwrap_or_default()),
+            Element::Class(c) => (self.class_kind(c), self.name(p.class(c).name).to_string()),
+            Element::Extension(x) => ("extension".to_string(), p.extension(x).name.map(|s| self.name(s).to_string()).unwrap_or_default()),
             Element::Typedef(t) => {
                 let d = p.typedef(t);
-                let legado = matches!(&p.unit(d.decl.unit).ast.decl(d.decl.decl).kind, DeclKind::Typedef(x) if matches!(x.kind, ast::TypedefKind::Legacy { .. }));
-                (if legado { "function type alias" } else { "type alias" }.to_string(), self.nome(d.name).to_string())
+                let legacy = matches!(&p.unit(d.decl.unit).ast.decl(d.decl.decl).kind, DeclKind::Typedef(x) if matches!(x.kind, ast::TypedefKind::Legacy { .. }));
+                (if legacy { "function type alias" } else { "type alias" }.to_string(), self.name(d.name).to_string())
             }
             Element::Function(f) => {
                 let fe = p.function(f);
                 match fe.kind {
                     FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => {
-                        ("top level variable".to_string(), nome_base(self.nome(fe.name)).to_string())
+                        ("top level variable".to_string(), base_name(self.name(fe.name)).to_string())
                     }
-                    _ => ("function".to_string(), self.nome(fe.name).to_string()),
+                    _ => ("function".to_string(), self.name(fe.name).to_string()),
                 }
             }
-            Element::Variable(v) => ("top level variable".to_string(), self.nome(p.variable(v).name).to_string()),
-            Element::Prefix(_, s) => ("import prefix".to_string(), self.nome(s).to_string()),
+            Element::Variable(v) => ("top level variable".to_string(), self.name(p.variable(v).name).to_string()),
+            Element::Prefix(_, s) => ("import prefix".to_string(), self.name(s).to_string()),
         })
     }
 
     /// `workspace.containsElement`: o arquivo do elemento está sob a raiz.
-    fn no_workspace(&self, unidade: Option<UnitId>) -> bool {
-        let Some(u) = unidade else { return false };
-        self.programa().unit(u).path.as_deref().is_some_and(|c| crate::project::dentro(c, &self.raiz))
+    fn in_workspace(&self, unit: Option<UnitId>) -> bool {
+        let Some(u) = unit else { return false };
+        self.program().unit(u).path.as_deref().is_some_and(|c| crate::project::inside(c, &self.root))
     }
 
     // -- As condições -----------------------------------------------------------
 
     /// `checkInitialConditions`.
-    fn condicoes_iniciais(&self, pedido: &Pedido) -> Estado {
-        let mut e = Estado::default();
-        let p = self.programa();
-        if pedido.biblioteca.is_some_and(|l| p.library(l).is_sdk) {
-            e.adicionar(Severidade::Fatal, format!("The {} '{}' is defined in the SDK, so cannot be renamed.", pedido.especie, pedido.qualificado));
+    fn initial_conditions(&self, request: &Request) -> State {
+        let mut e = State::default();
+        let p = self.program();
+        if request.library.is_some_and(|l| p.library(l).is_sdk) {
+            e.add(Severity::Fatal, format!("The {} '{}' is defined in the SDK, so cannot be renamed.", request.kind, request.qualified));
         }
-        if !matches!(pedido.classe, Classe::Import { .. }) && !self.no_workspace(pedido.unidade) {
-            e.adicionar(Severidade::Fatal, format!("The {} '{}' is defined outside of the project, so cannot be renamed.", pedido.especie, pedido.qualificado));
+        if !matches!(request.class, Class::Import { .. }) && !self.in_workspace(request.unit) {
+            e.add(Severity::Fatal, format!("The {} '{}' is defined outside of the project, so cannot be renamed.", request.kind, request.qualified));
         }
-        let operador = match &pedido.classe {
-            Classe::MembroDeClasse { concreto: Some(Concreto::Funcao(f)), .. } | Classe::MembroDeExtensao { concreto: Some(Concreto::Funcao(f)), .. } => {
+        let operator = match &request.class {
+            Class::ClassMember { concrete: Some(Concrete::Function(f)), .. } | Class::ExtensionMember { concrete: Some(Concrete::Function(f)), .. } => {
                 p.function(*f).kind == FunctionKind::Operator
             }
             _ => false,
         };
-        if operador {
-            e.adicionar(Severidade::Fatal, "Cannot rename operator.");
+        if operator {
+            e.add(Severity::Fatal, "Cannot rename operator.");
         }
         e
     }
 
     /// `checkNewName`.
-    fn verificar_nome_novo(&self, pedido: &Pedido, novo: &str) -> Estado {
-        let p = self.programa();
-        let mut e = Estado::default();
-        if novo == pedido.antigo {
-            e.adicionar(Severidade::Fatal, "The new name must be different than the current name.");
+    fn verify_new_name(&self, request: &Request, new: &str) -> State {
+        let p = self.program();
+        let mut e = State::default();
+        if new == request.old {
+            e.add(Severity::Fatal, "The new name must be different than the current name.");
         }
-        match &pedido.classe {
-            Classe::MembroDeUnidade(Alvo::Topo(el)) => match el {
+        match &request.class {
+            Class::UnitMember(Target::Top(el)) => match el {
                 Element::Class(c) => {
                     if p.class(*c).kind == ClassKind::ExtensionType {
-                        e.somar(validar_maiuscula(novo, "Extension type"));
+                        e.absorb(validate_uppercase(new, "Extension type"));
                     }
-                    e.somar(validar_maiuscula(novo, "Class"));
+                    e.absorb(validate_uppercase(new, "Class"));
                 }
-                Element::Function(f) if matches!(p.function(*f).kind, FunctionKind::Function) => e.somar(validar_minuscula(novo, "Function", true)),
-                Element::Function(_) | Element::Variable(_) => e.somar(validar_minuscula(novo, "Variable", true)),
-                Element::Typedef(_) => e.somar(validar_maiuscula(novo, "Type alias")),
+                Element::Function(f) if matches!(p.function(*f).kind, FunctionKind::Function) => e.absorb(validate_lowercase(new, "Function", true)),
+                Element::Function(_) | Element::Variable(_) => e.absorb(validate_lowercase(new, "Variable", true)),
+                Element::Typedef(_) => e.absorb(validate_uppercase(new, "Type alias")),
                 Element::Extension(_) | Element::Prefix(..) => {}
             },
-            Classe::MembroDeUnidade(_) => {}
-            Classe::Construtor(f) => {
-                if !novo.is_empty() {
-                    e.somar(validar_minuscula(novo, "Constructor", true));
+            Class::UnitMember(_) => {}
+            Class::Constructor(f) => {
+                if !new.is_empty() {
+                    e.absorb(validate_lowercase(new, "Constructor", true));
                 }
                 // `_analyzePossibleConflicts`.
                 if let Some(c) = p.function(*f).class {
                     let cl = p.class(c);
-                    if self.nome(cl.name) == novo {
-                        e.adicionar(Severidade::Erro, "The constructor should not have the same name as the name of the enclosing class.");
+                    if self.name(cl.name) == new {
+                        e.add(Severity::Error, "The constructor should not have the same name as the name of the enclosing class.");
                     }
-                    for (especie, _) in self.filhos_com_nome(c, novo) {
-                        e.adicionar(
-                            Severidade::Erro,
-                            format!("{} '{}' already declares {especie} with name '{novo}'.", capitalizar(&self.especie_de_classe(c)), self.nome(cl.name)),
+                    for (kind, _) in self.children_with_name(c, new) {
+                        e.add(
+                            Severity::Error,
+                            format!("{} '{}' already declares {kind} with name '{new}'.", capitalize(&self.class_kind(c)), self.name(cl.name)),
                         );
                     }
                 }
             }
-            Classe::Import { .. } => {
-                if !novo.is_empty() {
-                    e.somar(validar_identificador(novo, "Import prefix name", "a lowercase letter or underscore", false));
+            Class::Import { .. } => {
+                if !new.is_empty() {
+                    e.absorb(validate_identifier(new, "Import prefix name", "a lowercase letter or underscore", false));
                 }
             }
-            Classe::Rotulo { .. } => e.somar(validar_minuscula(novo, "Label", true)),
-            Classe::Biblioteca(_) => e.somar(validar_biblioteca(novo)),
-            Classe::Parametro { .. } => e.somar(validar_minuscula(novo, "Parameter", true)),
-            Classe::Local { unidade, declaracao } => {
-                let funcao = p.unit(*unidade).ast.functions.iter().any(|f| f.name.is_some_and(|x| x.span.start == *declaracao));
-                e.somar(validar_minuscula(novo, if funcao { "Function" } else { "Variable" }, true));
+            Class::Label { .. } => e.absorb(validate_lowercase(new, "Label", true)),
+            Class::Library(_) => e.absorb(validate_library(new)),
+            Class::Parameter { .. } => e.absorb(validate_lowercase(new, "Parameter", true)),
+            Class::Local { unit, declaration } => {
+                let function = p.unit(*unit).ast.functions.iter().any(|f| f.name.is_some_and(|x| x.span.start == *declaration));
+                e.absorb(validate_lowercase(new, if function { "Function" } else { "Variable" }, true));
             }
-            Classe::ParametroDeTipo { .. } => e.somar(validar_maiuscula(novo, "Type parameter")),
-            Classe::MembroDeClasse { concreto, .. } | Classe::MembroDeExtensao { concreto, .. } => match concreto {
-                Some(Concreto::Funcao(f)) if matches!(p.function(*f).kind, FunctionKind::Function | FunctionKind::Operator) => {
-                    e.somar(validar_minuscula(novo, "Method", true))
+            Class::TypeParameter { .. } => e.absorb(validate_uppercase(new, "Type parameter")),
+            Class::ClassMember { concrete, .. } | Class::ExtensionMember { concrete, .. } => match concrete {
+                Some(Concrete::Function(f)) if matches!(p.function(*f).kind, FunctionKind::Function | FunctionKind::Operator) => {
+                    e.absorb(validate_lowercase(new, "Method", true))
                 }
-                _ => e.somar(validar_minuscula(novo, "Field", true)),
+                _ => e.absorb(validate_lowercase(new, "Field", true)),
             },
         }
         e
     }
 
     /// A espécie (`kind.displayName`) de uma classe.
-    fn especie_de_classe(&self, c: ClassId) -> String {
-        match self.programa().class(c).kind {
+    fn class_kind(&self, c: ClassId) -> String {
+        match self.program().class(c).kind {
             ClassKind::Mixin => "mixin",
             ClassKind::Enum => "enum",
             ClassKind::ExtensionType => "extension type",
@@ -621,240 +621,240 @@ impl Projeto {
         .to_string()
     }
 
-    /// Os filhos diretos de `c` com nome-base `nome` (`getChildren`):
+    /// Os filhos diretos de `c` com nome-base `name` (`getChildren`):
     /// acessores, campos, construtores, métodos, parâmetros de tipo; a
     /// espécie e o nome qualificado.
-    fn filhos_com_nome(&self, c: ClassId, nome: &str) -> Vec<(String, String)> {
-        let p = self.programa();
+    fn children_with_name(&self, c: ClassId, name: &str) -> Vec<(String, String)> {
+        let p = self.program();
         let cl = p.class(c);
-        let classe = self.nome(cl.name).to_string();
+        let class = self.name(cl.name).to_string();
         let mut v = Vec::new();
-        let mut membros: Vec<(SymbolId, FunctionElementId)> = cl.instance_members.iter().chain(cl.static_members.iter()).map(|(s, f)| (*s, *f)).collect();
-        membros.sort_by_key(|(_, f)| f.0);
-        for (s, f) in &membros {
+        let mut members: Vec<(SymbolId, FunctionElementId)> = cl.instance_members.iter().chain(cl.static_members.iter()).map(|(s, f)| (*s, *f)).collect();
+        members.sort_by_key(|(_, f)| f.0);
+        for (s, f) in &members {
             let fe = p.function(*f);
-            if nome_base(self.nome(*s)) == nome && matches!(fe.kind, FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor) {
-                let setter = fe.kind == FunctionKind::Setter || self.nome(*s).ends_with('=');
-                v.push((if setter { "setter" } else { "getter" }.to_string(), nome.to_string()));
+            if base_name(self.name(*s)) == name && matches!(fe.kind, FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor) {
+                let setter = fe.kind == FunctionKind::Setter || self.name(*s).ends_with('=');
+                v.push((if setter { "setter" } else { "getter" }.to_string(), name.to_string()));
             }
         }
         for f in cl.fields.iter() {
-            if self.nome(p.variable(*f).name) == nome {
-                v.push(("field".to_string(), format!("{classe}.{nome}")));
+            if self.name(p.variable(*f).name) == name {
+                v.push(("field".to_string(), format!("{class}.{name}")));
             }
         }
         for (s, _) in cl.constructors.iter() {
-            if self.nome(*s) == nome {
-                v.push(("constructor".to_string(), format!("{classe}.{nome}")));
+            if self.name(*s) == name {
+                v.push(("constructor".to_string(), format!("{class}.{name}")));
             }
         }
-        for (s, f) in &membros {
-            if self.nome(*s) == nome && matches!(p.function(*f).kind, FunctionKind::Function | FunctionKind::Operator) {
-                v.push(("method".to_string(), format!("{classe}.{nome}")));
+        for (s, f) in &members {
+            if self.name(*s) == name && matches!(p.function(*f).kind, FunctionKind::Function | FunctionKind::Operator) {
+                v.push(("method".to_string(), format!("{class}.{name}")));
             }
         }
         for tp in cl.type_params.iter() {
-            if self.nome(tp.name) == nome {
-                v.push(("type parameter".to_string(), nome.to_string()));
+            if self.name(tp.name) == name {
+                v.push(("type parameter".to_string(), name.to_string()));
             }
         }
         v
     }
 
     /// As referências (sem as declarações) de um alvo, em (unidade, faixa).
-    fn referencias_do_alvo(&self, alvo: &Alvo) -> Vec<(UnitId, Span)> {
-        let declaracoes = self.declaracoes(alvo);
-        let Ok(oc) = self.ocorrencias(alvo, false) else { return Vec::new() };
+    fn target_references(&self, target: &Target) -> Vec<(UnitId, Span)> {
+        let declarations = self.declarations(target);
+        let Ok(oc) = self.occurrences(target, false) else { return Vec::new() };
         // `searchReferences` passa pelo `Search._addResults`: só os arquivos
         // candidatos (os que citam o nome e os da biblioteca), com os
         // buracos do Dart (o redirecionamento de fábrica não cita o nome).
-        let candidatos = self.nome_da_busca(alvo).map(|nome| {
-            let mut unidades: Vec<UnitId> = declaracoes.iter().map(|(u, _, _)| *u).collect();
-            unidades.dedup();
-            self.arquivos_candidatos(&nome, &unidades)
+        let candidates = self.search_name(target).map(|name| {
+            let mut units: Vec<UnitId> = declarations.iter().map(|(u, _, _)| *u).collect();
+            units.dedup();
+            self.candidate_files(&name, &units)
         });
         oc.into_iter()
-            .filter(|o| !declaracoes.contains(o))
-            .filter(|(u, _, _)| candidatos.as_ref().is_none_or(|c| c.contains(u)))
+            .filter(|o| !declarations.contains(o))
+            .filter(|(u, _, _)| candidates.as_ref().is_none_or(|c| c.contains(u)))
             .map(|(u, a, b)| (u, Span { start: a, end: b }))
             .collect()
     }
 
     /// O caminho da biblioteca relativo à raiz (`getElementQualifiedName`
     /// de uma biblioteca).
-    fn caminho_da_biblioteca(&self, l: LibraryId) -> String {
-        let p = self.programa();
+    fn library_path(&self, l: LibraryId) -> String {
+        let p = self.program();
         let Some(&u) = p.library(l).units.first() else { return String::new() };
         match p.unit(u).path.as_deref() {
             // `pathContext.relative`: com o separador da plataforma.
-            Some(c) => c.strip_prefix(&self.raiz).map(|r| r.to_string_lossy().into_owned()).unwrap_or_else(|_| c.to_string_lossy().into_owned()),
+            Some(c) => c.strip_prefix(&self.root).map(|r| r.to_string_lossy().into_owned()).unwrap_or_else(|_| c.to_string_lossy().into_owned()),
             None => p.library(l).uri.clone(),
         }
     }
 
     /// `checkFinalConditions`.
-    fn condicoes_finais(&self, pedido: &Pedido, novo: &str) -> Estado {
-        let p = self.programa();
-        let mut e = Estado::default();
-        match &pedido.classe {
-            Classe::MembroDeUnidade(alvo) => {
+    fn final_conditions(&self, request: &Request, new: &str) -> State {
+        let p = self.program();
+        let mut e = State::default();
+        match &request.class {
+            Class::UnitMember(target) => {
                 // O prefixo (`PrefixElement`) também é membro da unidade.
-                if !matches!(alvo, Alvo::Topo(_) | Alvo::Prefixo { .. }) {
+                if !matches!(target, Target::Top(_) | Target::Prefix { .. }) {
                     return e;
                 }
-                let lib = pedido.biblioteca.unwrap_or(LibraryId(0));
+                let lib = request.library.unwrap_or(LibraryId(0));
                 // `_validateWillConflict`.
                 for &u in p.library(lib).units.iter() {
-                    let cx = Contexto::novo(self, u);
-                    for (especie, nome) in crate::refactorings_method::elementos_de_topo(&cx, u) {
-                        if nome == novo {
-                            e.adicionar(Severidade::Erro, format!("Library already declares {especie} with name '{novo}'."));
+                    let cx = Context::new(self, u);
+                    for (kind, name) in crate::refactorings_method::top_elements(&cx, u) {
+                        if name == new {
+                            e.add(Severity::Error, format!("Library already declares {kind} with name '{new}'."));
                         }
                     }
                 }
-                let referencias = self.referencias_do_alvo(alvo);
+                let references = self.target_references(target);
                 // `_validateWillBeInvisible`.
-                if novo.starts_with('_') {
-                    for (u, _) in &referencias {
+                if new.starts_with('_') {
+                    for (u, _) in &references {
                         let l = p.unit(*u).library;
                         if l != lib {
-                            e.adicionar(Severidade::Erro, format!("Renamed {} will be invisible in '{}'.", pedido.especie, self.caminho_da_biblioteca(l)));
+                            e.add(Severity::Error, format!("Renamed {} will be invisible in '{}'.", request.kind, self.library_path(l)));
                         }
                     }
                 }
                 // `_validateWillBeShadowed`.
-                for (u, s) in &referencias {
-                    if let Some(c) = self.classe_que_contem(*u, s.start) {
-                        for (especie, qualificado) in self.filhos_com_nome(c, novo) {
-                            e.adicionar(Severidade::Erro, format!("Reference to renamed {} will be shadowed by {especie} '{qualificado}'.", pedido.especie));
+                for (u, s) in &references {
+                    if let Some(c) = self.containing_class(*u, s.start) {
+                        for (kind, qualified) in self.children_with_name(c, new) {
+                            e.add(Severity::Error, format!("Reference to renamed {} will be shadowed by {kind} '{qualified}'.", request.kind));
                         }
                     }
                 }
                 // `_validateWillShadow`.
-                for (especie, qualificado, dona, funcoes) in self.declaracoes_de_membro(novo) {
-                    for (u, s) in self.usos_nao_qualificados(&funcoes) {
-                        if self.classe_que_contem(u, s.start) == Some(dona) {
+                for (kind, qualified, owning, functions) in self.member_declarations(new) {
+                    for (u, s) in self.uses_not_qualified(&functions) {
+                        if self.containing_class(u, s.start) == Some(owning) {
                             continue;
                         }
-                        let visivel = p.unit(u).library == lib || self.visivel_por_import_sem_prefixo(u, alvo);
-                        if !visivel {
+                        let visible = p.unit(u).library == lib || self.visible_by_import_without_prefix(u, target);
+                        if !visible {
                             continue;
                         }
-                        e.adicionar(Severidade::Erro, format!("Renamed {} will shadow {especie} '{qualificado}'.", pedido.especie));
+                        e.add(Severity::Error, format!("Renamed {} will shadow {kind} '{qualified}'.", request.kind));
                     }
                 }
             }
-            Classe::MembroDeClasse { alvo, classe, .. } => {
-                let classe = *classe;
+            Class::ClassMember { target, class, .. } => {
+                let class = *class;
                 // `_checkClassAlreadyDeclares`.
-                for (especie, _) in self.filhos_com_nome(classe, novo) {
-                    e.adicionar(
-                        Severidade::Erro,
+                for (kind, _) in self.children_with_name(class, new) {
+                    e.add(
+                        Severity::Error,
                         format!(
-                            "{} '{}' already declares {especie} with name '{novo}'.",
-                            capitalizar(&self.especie_de_classe(classe)),
-                            self.nome(p.class(classe).name)
+                            "{} '{}' already declares {kind} with name '{new}'.",
+                            capitalize(&self.class_kind(class)),
+                            self.name(p.class(class).name)
                         ),
                     );
                 }
-                let Alvo::Membro { dono, nome, estatico } = alvo else { return e };
-                let familia = self.familia(*dono, nome, *estatico, false).ok();
-                let referencias = self.referencias_do_alvo(alvo);
-                let subclasses: Vec<ClassId> = self.subtipos(classe, false);
+                let Target::Member { owner, name, is_static } = target else { return e };
+                let family = self.family(*owner, name, *is_static, false).ok();
+                let references = self.target_references(target);
+                let subclasses: Vec<ClassId> = self.subtypes(class, false);
                 // A classe dona de um elemento se chama como o nome novo.
-                if let Some(fam) = &familia {
-                    let mut donas: BTreeSet<u32> = BTreeSet::new();
-                    for f in &fam.funcoes {
+                if let Some(fam) = &family {
+                    let mut owning_: BTreeSet<u32> = BTreeSet::new();
+                    for f in &fam.functions {
                         if let Some(c) = p.function(*f).class {
-                            donas.insert(c.0);
+                            owning_.insert(c.0);
                         }
                     }
-                    for c in donas {
+                    for c in owning_ {
                         let c = ClassId(c);
-                        if self.nome(p.class(c).name) == novo {
-                            e.adicionar(
-                                Severidade::Erro,
-                                format!("Renamed {} has the same name as the declaring {} '{novo}'.", pedido.especie, self.especie_de_classe(c)),
+                        if self.name(p.class(c).name) == new {
+                            e.add(
+                                Severity::Error,
+                                format!("Renamed {} has the same name as the declaring {} '{new}'.", request.kind, self.class_kind(c)),
                             );
                         }
                     }
                 }
                 // `_getShadowingLocalElement`: a primeira sombra por local.
-                if let Some((especie_local, nome_local)) = self.sombra_por_local(&referencias, novo) {
-                    e.adicionar(Severidade::Erro, format!("Usage of renamed {} will be shadowed by {especie_local} '{nome_local}'.", pedido.especie));
+                if let Some((local_kind, local_name)) = self.shadow_by_local(&references, new) {
+                    e.add(Severity::Error, format!("Usage of renamed {} will be shadowed by {local_kind} '{local_name}'.", request.kind));
                 }
                 // `_checkHierarchy(isRename: true)`.
-                let supers = self.supertipos(classe);
-                for (especie, qualificado, dona, _) in self.declaracoes_de_membro(novo) {
-                    if supers.contains(&dona) {
-                        e.adicionar(Severidade::Erro, format!("Renamed {} will shadow {especie} '{qualificado}'.", pedido.especie));
+                let supers = self.supertypes(class);
+                for (kind, qualified, owning, _) in self.member_declarations(new) {
+                    if supers.contains(&owning) {
+                        e.add(Severity::Error, format!("Renamed {} will shadow {kind} '{qualified}'.", request.kind));
                     }
-                    if subclasses.contains(&dona) {
-                        e.adicionar(Severidade::Erro, format!("Renamed {} will be shadowed by {especie} '{qualificado}'.", pedido.especie));
+                    if subclasses.contains(&owning) {
+                        e.add(Severity::Error, format!("Renamed {} will be shadowed by {kind} '{qualified}'.", request.kind));
                     }
                 }
                 // `_validateWillBeInvisible`.
-                if novo.starts_with('_') {
-                    let lib = p.class(classe).library;
-                    for (u, _) in &referencias {
+                if new.starts_with('_') {
+                    let lib = p.class(class).library;
+                    for (u, _) in &references {
                         let l = p.unit(*u).library;
                         if l != lib {
-                            e.adicionar(Severidade::Erro, format!("Renamed {} will be invisible in '{}'.", pedido.especie, self.caminho_da_biblioteca(l)));
+                            e.add(Severity::Error, format!("Renamed {} will be invisible in '{}'.", request.kind, self.library_path(l)));
                         }
                     }
                 }
             }
-            Classe::MembroDeExtensao { alvo, .. } => {
-                if let Alvo::Membro { dono: Dono::Extensao(x), .. } = alvo {
+            Class::ExtensionMember { target, .. } => {
+                if let Target::Member { owner: Owner::Extension(x), .. } = target {
                     let ext = p.extension(*x);
-                    let mut membros: Vec<(SymbolId, FunctionElementId)> = ext.instance_members.iter().chain(ext.static_members.iter()).map(|(s, f)| (*s, *f)).collect();
-                    membros.sort_by_key(|(_, f)| f.0);
-                    let nome_ext = ext.name.map(|s| self.nome(s).to_string()).unwrap_or_default();
-                    for (s, f) in membros {
-                        if nome_base(self.nome(s)) != novo {
+                    let mut members: Vec<(SymbolId, FunctionElementId)> = ext.instance_members.iter().chain(ext.static_members.iter()).map(|(s, f)| (*s, *f)).collect();
+                    members.sort_by_key(|(_, f)| f.0);
+                    let name_ext = ext.name.map(|s| self.name(s).to_string()).unwrap_or_default();
+                    for (s, f) in members {
+                        if base_name(self.name(s)) != new {
                             continue;
                         }
-                        let especie = match p.function(f).kind {
+                        let kind = match p.function(f).kind {
                             FunctionKind::Function | FunctionKind::Operator => "method",
                             FunctionKind::Getter => "getter",
                             FunctionKind::Setter => "setter",
                             _ => "field",
                         };
-                        e.adicionar(Severidade::Erro, format!("Extension '{nome_ext}' already declares {especie} with name '{novo}'."));
+                        e.add(Severity::Error, format!("Extension '{name_ext}' already declares {kind} with name '{new}'."));
                     }
-                    let referencias = self.referencias_do_alvo(alvo);
-                    if let Some((especie_local, nome_local)) = self.sombra_por_local(&referencias, novo) {
-                        e.adicionar(Severidade::Erro, format!("Usage of renamed {} will be shadowed by {especie_local} '{nome_local}'.", pedido.especie));
+                    let references = self.target_references(target);
+                    if let Some((local_kind, local_name)) = self.shadow_by_local(&references, new) {
+                        e.add(Severity::Error, format!("Usage of renamed {} will be shadowed by {local_kind} '{local_name}'.", request.kind));
                     }
                 }
             }
-            Classe::Parametro { unidade, declaracao, .. } => {
-                let un = p.unit(*unidade);
-                let nomeado = crate::project::parametro_em(&un.ast, *declaracao).is_some_and(|(q, _)| q.kind == ast::ParameterKind::Named);
-                if novo.starts_with('_') && nomeado {
-                    e.adicionar(Severidade::Erro, format!("The parameter '{}' is named and can not be private.", pedido.antigo));
+            Class::Parameter { unit, declaration, .. } => {
+                let un = p.unit(*unit);
+                let named = crate::project::parameter_in(&un.ast, *declaration).is_some_and(|(q, _)| q.kind == ast::ParameterKind::Named);
+                if new.starts_with('_') && named {
+                    e.add(Severity::Error, format!("The parameter '{}' is named and can not be private.", request.old));
                     return e;
                 }
-                e.somar(self.conflitos_de_local(*unidade, *declaracao, novo, &pedido.especie));
+                e.absorb(self.local_conflicts(*unit, *declaration, new, &request.kind));
             }
-            Classe::Local { unidade, declaracao } => {
-                e.somar(self.conflitos_de_local(*unidade, *declaracao, novo, &pedido.especie));
+            Class::Local { unit, declaration } => {
+                e.absorb(self.local_conflicts(*unit, *declaration, new, &request.kind));
             }
-            Classe::ParametroDeTipo { unidade, declaracao } => {
-                let ast = &p.unit(*unidade).ast;
-                let irmaos = listas_de_parametros_de_tipo(ast).into_iter().find(|l| l.iter().any(|t| t.name.span.start == *declaracao)).unwrap_or_default();
-                if irmaos.iter().any(|t| self.nome(t.name.sym) == novo) {
-                    e.adicionar(Severidade::Erro, format!("Duplicate type parameter '{novo}'."));
+            Class::TypeParameter { unit, declaration } => {
+                let ast = &p.unit(*unit).ast;
+                let siblings = type_parameter_lists(ast).into_iter().find(|l| l.iter().any(|t| t.name.span.start == *declaration)).unwrap_or_default();
+                if siblings.iter().any(|t| self.name(t.name.sym) == new) {
+                    e.add(Severity::Error, format!("Duplicate type parameter '{new}'."));
                 }
             }
-            Classe::Construtor(_) | Classe::Import { .. } | Classe::Rotulo { .. } | Classe::Biblioteca(_) => {}
+            Class::Constructor(_) | Class::Import { .. } | Class::Label { .. } | Class::Library(_) => {}
         }
         e
     }
 
     /// A classe, mixin, enum ou tipo de extensão que contém o offset.
-    fn classe_que_contem(&self, u: UnitId, offset: usize) -> Option<ClassId> {
-        let p = self.programa();
+    fn containing_class(&self, u: UnitId, offset: usize) -> Option<ClassId> {
+        let p = self.program();
         p.classes
             .iter()
             .enumerate()
@@ -867,35 +867,35 @@ impl Projeto {
             .map(|(_, c)| c)
     }
 
-    /// `searchMemberDeclarations(nome)`: campos (não sintéticos), acessores
+    /// `searchMemberDeclarations(name)`: campos (não sintéticos), acessores
     /// declarados e métodos com o nome, de toda classe do programa: a
     /// espécie, o nome qualificado, a dona e as funções cujas referências
     /// contam.
-    fn declaracoes_de_membro(&self, nome: &str) -> Vec<(String, String, ClassId, Vec<FunctionElementId>)> {
-        let p = self.programa();
+    fn member_declarations(&self, name: &str) -> Vec<(String, String, ClassId, Vec<FunctionElementId>)> {
+        let p = self.program();
         let mut v = Vec::new();
         for (i, c) in p.classes.iter().enumerate() {
-            let dona = ClassId(i as u32);
-            let mut membros: Vec<(SymbolId, FunctionElementId)> = c.instance_members.iter().chain(c.static_members.iter()).map(|(s, f)| (*s, *f)).collect();
-            membros.sort_by_key(|(_, f)| f.0);
-            for (s, f) in &membros {
-                let chave = self.nome(*s);
-                if nome_base(chave) != nome {
+            let owning = ClassId(i as u32);
+            let mut members: Vec<(SymbolId, FunctionElementId)> = c.instance_members.iter().chain(c.static_members.iter()).map(|(s, f)| (*s, *f)).collect();
+            members.sort_by_key(|(_, f)| f.0);
+            for (s, f) in &members {
+                let key = self.name(*s);
+                if base_name(key) != name {
                     continue;
                 }
                 let fe = p.function(*f);
-                let qualificado = format!("{}.{nome}", self.nome(c.name));
+                let qualified = format!("{}.{name}", self.name(c.name));
                 match fe.kind {
-                    FunctionKind::Function | FunctionKind::Operator => v.push(("method".to_string(), qualificado, dona, vec![*f])),
-                    FunctionKind::ImplicitAccessor if !chave.ends_with('=') => {
+                    FunctionKind::Function | FunctionKind::Operator => v.push(("method".to_string(), qualified, owning, vec![*f])),
+                    FunctionKind::ImplicitAccessor if !key.ends_with('=') => {
                         let mut fs = vec![*f];
-                        if let Some((_, g)) = membros.iter().find(|(s2, _)| self.nome(*s2) == format!("{chave}=")) {
+                        if let Some((_, g)) = members.iter().find(|(s2, _)| self.name(*s2) == format!("{key}=")) {
                             fs.push(*g);
                         }
-                        v.push(("field".to_string(), qualificado, dona, fs));
+                        v.push(("field".to_string(), qualified, owning, fs));
                     }
-                    FunctionKind::Getter => v.push(("getter".to_string(), nome.to_string(), dona, vec![*f])),
-                    FunctionKind::Setter => v.push(("setter".to_string(), nome.to_string(), dona, vec![*f])),
+                    FunctionKind::Getter => v.push(("getter".to_string(), name.to_string(), owning, vec![*f])),
+                    FunctionKind::Setter => v.push(("setter".to_string(), name.to_string(), owning, vec![*f])),
                     _ => {}
                 }
             }
@@ -905,16 +905,16 @@ impl Projeto {
 
     /// Os usos sem qualificação (identificador solto) resolvidos para uma
     /// das funções, nas bibliotecas do projeto.
-    fn usos_nao_qualificados(&self, funcoes: &[FunctionElementId]) -> Vec<(UnitId, Span)> {
-        let p = self.programa();
+    fn uses_not_qualified(&self, functions: &[FunctionElementId]) -> Vec<(UnitId, Span)> {
+        let p = self.program();
         let mut v = Vec::new();
-        for u in self.unidades() {
+        for u in self.units() {
             let ast = &p.unit(u).ast;
-            let corpos = &self.consulta.corpos.units[u.0 as usize];
+            let bodies = &self.query.bodies.units[u.0 as usize];
             for (i, e) in ast.exprs.iter().enumerate() {
                 let ExprKind::Identifier(n) = &e.kind else { continue };
-                if let Some(dartforge_types::Resolved::Member { member: dartforge_types::MemberRef::Function(g), .. }) = corpos.get_resolved(ast::ExprId(i as u32))
-                    && funcoes.contains(g)
+                if let Some(dartforge_types::Resolved::Member { member: dartforge_types::MemberRef::Function(g), .. }) = bodies.get_resolved(ast::ExprId(i as u32))
+                    && functions.contains(g)
                 {
                     v.push((u, n.span));
                 }
@@ -925,9 +925,9 @@ impl Projeto {
 
     /// `_isVisibleAt`: algum import sem prefixo da biblioteca da referência
     /// traz o elemento.
-    fn visivel_por_import_sem_prefixo(&self, u: UnitId, alvo: &Alvo) -> bool {
-        let p = self.programa();
-        let Alvo::Topo(el) = alvo else { return false };
+    fn visible_by_import_without_prefix(&self, u: UnitId, target: &Target) -> bool {
+        let p = self.program();
+        let Target::Top(el) = target else { return false };
         let lib = p.unit(u).library;
         p.library(lib)
             .imports
@@ -937,23 +937,23 @@ impl Projeto {
     }
 
     /// A primeira sombra por local (`_getShadowingLocalElement`): para cada
-    /// referência não qualificada, um local chamado `novo` (função de topo
+    /// referência não qualificada, um local chamado `new` (função de topo
     /// ou local, parâmetro simples, variável local) visível nela.
-    fn sombra_por_local(&self, referencias: &[(UnitId, Span)], novo: &str) -> Option<(String, String)> {
-        let p = self.programa();
-        for (u, s) in referencias {
+    fn shadow_by_local(&self, references: &[(UnitId, Span)], new: &str) -> Option<(String, String)> {
+        let p = self.program();
+        for (u, s) in references {
             let un = p.unit(*u);
             let ast = &un.ast;
-            let solto = ast.exprs.iter().any(|e| matches!(&e.kind, ExprKind::Identifier(n) if n.span == *s));
-            if !solto {
+            let loose = ast.exprs.iter().any(|e| matches!(&e.kind, ExprKind::Identifier(n) if n.span == *s));
+            if !loose {
                 continue;
             }
-            let cx = Contexto::novo(self, *u);
-            for (nome, (a, b)) in crate::refactorings_inline::faixas_visiveis(&cx, 0) {
-                if nome == novo && !(b <= s.start) && !(a >= s.end) {
-                    let funcao = ast.functions.iter().any(|f| f.name.is_some_and(|x| &un.source[x.span.start..x.span.end] == novo && x.span.start >= a));
-                    let especie = if funcao { "function" } else if ast.functions.iter().any(|f| f.parameters.iter().flatten().any(|q| q.name.is_some_and(|x| &un.source[x.span.start..x.span.end] == novo))) { "parameter" } else { "local variable" };
-                    return Some((especie.to_string(), nome));
+            let cx = Context::new(self, *u);
+            for (name, (a, b)) in crate::refactorings_inline::visible_ranges(&cx, 0) {
+                if name == new && !(b <= s.start) && !(a >= s.end) {
+                    let function = ast.functions.iter().any(|f| f.name.is_some_and(|x| &un.source[x.span.start..x.span.end] == new && x.span.start >= a));
+                    let kind = if function { "function" } else if ast.functions.iter().any(|f| f.parameters.iter().flatten().any(|q| q.name.is_some_and(|x| &un.source[x.span.start..x.span.end] == new))) { "parameter" } else { "local variable" };
+                    return Some((kind.to_string(), name));
                 }
             }
             // As funções de topo também são `FunctionDeclaration` com
@@ -961,10 +961,10 @@ impl Projeto {
             for d in ast.decls.iter() {
                 if let DeclKind::Function(f) = &d.kind
                     && let Some(n) = ast.function(*f).name
-                    && &un.source[n.span.start..n.span.end] == novo
+                    && &un.source[n.span.start..n.span.end] == new
                     && matches!(ast.function(*f).kind, ast::FunctionKind::Function)
                 {
-                    return Some(("function".to_string(), novo.to_string()));
+                    return Some(("function".to_string(), new.to_string()));
                 }
             }
         }
@@ -972,68 +972,68 @@ impl Projeto {
     }
 
     /// O `ConflictValidatorVisitor` (§12.9): duplicata de função ou variável
-    /// local visível junto do alvo, e uso de outro elemento chamado `novo`
+    /// local visível junto do alvo, e uso de outro elemento chamado `new`
     /// dentro do intervalo do alvo.
-    fn conflitos_de_local(&self, u: UnitId, declaracao: usize, novo: &str, especie_alvo: &str) -> Estado {
-        let p = self.programa();
+    fn local_conflicts(&self, u: UnitId, declaration: usize, new: &str, kind_target: &str) -> State {
+        let p = self.program();
         let un = p.unit(u);
-        let cx = Contexto::novo(self, u);
-        let visiveis = crate::refactorings_inline::faixas_visiveis(&cx, 0);
-        let nome_alvo = palavra(&un.source, declaracao).map(|s| un.source[s.start..s.end].to_string()).unwrap_or_default();
-        let faixa_do_alvo = visiveis.iter().find(|(n, (a, b))| *n == nome_alvo && *a <= declaracao && declaracao <= *b).map(|(_, f)| *f);
-        let mut e = Estado::default();
-        let Some((ai, af)) = faixa_do_alvo else { return e };
-        let mut conflitantes: Vec<(usize, usize)> = Vec::new();
+        let cx = Context::new(self, u);
+        let visible = crate::refactorings_inline::visible_ranges(&cx, 0);
+        let name_target = word(&un.source, declaration).map(|s| un.source[s.start..s.end].to_string()).unwrap_or_default();
+        let target_range = visible.iter().find(|(n, (a, b))| *n == name_target && *a <= declaration && declaration <= *b).map(|(_, f)| *f);
+        let mut e = State::default();
+        let Some((ai, af)) = target_range else { return e };
+        let mut conflicting: Vec<(usize, usize)> = Vec::new();
         // As declarações duplicadas (funções locais e variáveis locais; os
         // parâmetros não são visitados).
-        for (nome, (a, b)) in &visiveis {
-            if nome != novo || *b <= ai || *a >= af {
+        for (name, (a, b)) in &visible {
+            if name != new || *b <= ai || *a >= af {
                 continue;
             }
-            let funcao = un.ast.functions.iter().any(|f| f.name.is_some_and(|x| &un.source[x.span.start..x.span.end] == novo && x.span.start >= *a && x.span.end <= *b));
-            let variavel = un.ast.stmts.iter().any(|s| match &s.kind {
-                ast::StmtKind::Variables(l) => l.variables.iter().any(|v| &un.source[v.name.span.start..v.name.span.end] == novo && v.name.span.start >= *a && v.name.span.end <= *b),
+            let function = un.ast.functions.iter().any(|f| f.name.is_some_and(|x| &un.source[x.span.start..x.span.end] == new && x.span.start >= *a && x.span.end <= *b));
+            let variable = un.ast.stmts.iter().any(|s| match &s.kind {
+                ast::StmtKind::Variables(l) => l.variables.iter().any(|v| &un.source[v.name.span.start..v.name.span.end] == new && v.name.span.start >= *a && v.name.span.end <= *b),
                 _ => false,
             });
-            if !funcao && !variavel {
+            if !function && !variable {
                 continue;
             }
-            e.adicionar(Severidade::Erro, format!("Duplicate {} '{novo}'.", if funcao { "function" } else { "local variable" }));
-            conflitantes.push((*a, *b));
+            e.add(Severity::Error, format!("Duplicate {} '{new}'.", if function { "function" } else { "local variable" }));
+            conflicting.push((*a, *b));
         }
-        // Os usos de outro elemento chamado `novo` no intervalo do alvo.
-        let corpos = &self.consulta.corpos.units[u.0 as usize];
-        let arquivo_de = |x: Option<UnitId>| {
+        // Os usos de outro elemento chamado `new` no intervalo do alvo.
+        let bodies = &self.query.bodies.units[u.0 as usize];
+        let file_of = |x: Option<UnitId>| {
             x.and_then(|x| p.unit(x).path.as_deref().and_then(|c| c.file_name()).map(|n| n.to_string_lossy().into_owned())).unwrap_or_default()
         };
         for (i, x) in un.ast.exprs.iter().enumerate() {
             let ExprKind::Identifier(n) = &x.kind else { continue };
-            if self.nome(n.sym) != novo || n.span.start < ai || n.span.start > af {
+            if self.name(n.sym) != new || n.span.start < ai || n.span.start > af {
                 continue;
             }
             let id = ast::ExprId(i as u32);
-            if let Some(d) = corpos.declaracao_local(id)
-                && conflitantes.iter().any(|(a, b)| *a <= d && d <= *b)
+            if let Some(d) = bodies.declaracao_local(id)
+                && conflicting.iter().any(|(a, b)| *a <= d && d <= *b)
             {
                 continue;
             }
-            let (especie, qualificado, arquivo) = match corpos.get_resolved(id) {
+            let (kind, qualified, file) = match bodies.get_resolved(id) {
                 Some(dartforge_types::Resolved::Member { member: dartforge_types::MemberRef::Function(f), .. }) => {
                     let fe = p.function(*f);
-                    let c = fe.class.map(|c| self.nome(p.class(c).name).to_string()).unwrap_or_default();
-                    let especie = match fe.kind {
+                    let c = fe.class.map(|c| self.name(p.class(c).name).to_string()).unwrap_or_default();
+                    let kind = match fe.kind {
                         FunctionKind::Function | FunctionKind::Operator => "method",
                         _ => "field",
                     };
-                    (especie, format!("{c}.{novo}"), arquivo_de(self.nome_da_funcao(*f).map(|(u, _)| u)))
+                    (kind, format!("{c}.{new}"), file_of(self.function_name(*f).map(|(u, _)| u)))
                 }
                 Some(dartforge_types::Resolved::Member { member: dartforge_types::MemberRef::Variable(v), .. }) => {
-                    let c = p.variable(*v).class.map(|c| self.nome(p.class(c).name).to_string()).unwrap_or_default();
-                    ("field", format!("{c}.{novo}"), arquivo_de(self.nome_da_variavel(*v).map(|(u, _)| u)))
+                    let c = p.variable(*v).class.map(|c| self.name(p.class(c).name).to_string()).unwrap_or_default();
+                    ("field", format!("{c}.{new}"), file_of(self.variable_name(*v).map(|(u, _)| u)))
                 }
                 Some(dartforge_types::Resolved::Element(el)) => {
-                    let (especie, _) = self.especie_de_topo(*el).unwrap_or_default();
-                    let especie: &'static str = match especie.as_str() {
+                    let (kind, _) = self.top_kind(*el).unwrap_or_default();
+                    let kind: &'static str = match kind.as_str() {
                         "function" => "function",
                         "top level variable" => "top level variable",
                         "class" => "class",
@@ -1041,20 +1041,20 @@ impl Projeto {
                         "enum" => "enum",
                         _ => "type alias",
                     };
-                    (especie, novo.to_string(), arquivo_de(self.nome_do_elemento_de_topo(*el).map(|(u, _)| u)))
+                    (kind, new.to_string(), file_of(self.top_element_name(*el).map(|(u, _)| u)))
                 }
-                Some(dartforge_types::Resolved::Parameter { .. }) => ("parameter", novo.to_string(), arquivo_de(Some(u))),
+                Some(dartforge_types::Resolved::Parameter { .. }) => ("parameter", new.to_string(), file_of(Some(u))),
                 Some(dartforge_types::Resolved::Local(_)) => {
                     // `ElementKind.displayName`: o local declarado numa lista de
                     // parâmetros é `parameter`.
-                    let parametro = corpos.declaracao_local(id).is_some_and(|d| {
+                    let parameter = bodies.declaracao_local(id).is_some_and(|d| {
                         un.ast.functions.iter().any(|f| f.parameters.iter().flatten().any(|q| q.name.is_some_and(|x| x.span.start == d)))
                     });
-                    (if parametro { "parameter" } else { "local variable" }, novo.to_string(), arquivo_de(Some(u)))
+                    (if parameter { "parameter" } else { "local variable" }, new.to_string(), file_of(Some(u)))
                 }
                 _ => continue,
             };
-            e.adicionar(Severidade::Erro, format!("Usage of {especie} \"{qualificado}\" declared in \"{arquivo}\" will be shadowed by renamed {especie_alvo}."));
+            e.add(Severity::Error, format!("Usage of {kind} \"{qualified}\" declared in \"{file}\" will be shadowed by renamed {kind_target}."));
         }
         e
     }
@@ -1062,142 +1062,142 @@ impl Projeto {
     // -- As edições -------------------------------------------------------------
 
     /// `fillChange` de cada classe.
-    fn edicoes_do_renomear(&self, pedido: &Pedido, novo: &str) -> Result<Vec<Edicao>, String> {
-        let p = self.programa();
-        let mut edicoes: Vec<Edicao> = Vec::new();
-        let por = |u: UnitId, s: Span, texto: &str, edicoes: &mut Vec<Edicao>| {
-            if !self.no_workspace(Some(u)) {
+    fn rename_edits(&self, request: &Request, new: &str) -> Result<Vec<Edit>, String> {
+        let p = self.program();
+        let mut edits: Vec<Edit> = Vec::new();
+        let por = |u: UnitId, s: Span, text: &str, edits: &mut Vec<Edit>| {
+            if !self.in_workspace(Some(u)) {
                 return;
             }
-            if let Some(uri) = self.uri_da_unidade(u)
-                && !edicoes.iter().any(|e| e.uri == uri && e.span == s)
+            if let Some(uri) = self.unit_uri(u)
+                && !edits.iter().any(|e| e.uri == uri && e.span == s)
             {
-                edicoes.push(Edicao { uri, span: s, texto: texto.to_string() });
+                edits.push(Edit { uri, span: s, text: text.to_string() });
             }
         };
-        match &pedido.classe {
-            Classe::Construtor(f) => return self.edicoes_de_construtor(*f, novo),
-            Classe::Import { biblioteca, indice } => return Ok(self.edicoes_de_import(*biblioteca, *indice, novo)),
-            Classe::MembroDeUnidade(alvo) | Classe::MembroDeExtensao { alvo, .. } => {
-                for (u, a, b) in self.declaracoes(alvo) {
-                    por(u, Span { start: a, end: b }, novo, &mut edicoes);
+        match &request.class {
+            Class::Constructor(f) => return self.constructor_edits(*f, new),
+            Class::Import { library, index } => return Ok(self.import_edits(*library, *index, new)),
+            Class::UnitMember(target) | Class::ExtensionMember { target, .. } => {
+                for (u, a, b) in self.declarations(target) {
+                    por(u, Span { start: a, end: b }, new, &mut edits);
                 }
-                for (u, s) in self.referencias_do_alvo(alvo) {
-                    por(u, s, novo, &mut edicoes);
+                for (u, s) in self.target_references(target) {
+                    por(u, s, new, &mut edits);
                 }
             }
-            Classe::MembroDeClasse { alvo, .. } => {
-                for (u, a, b) in self.declaracoes(alvo) {
-                    por(u, Span { start: a, end: b }, novo, &mut edicoes);
+            Class::ClassMember { target, .. } => {
+                for (u, a, b) in self.declarations(target) {
+                    por(u, Span { start: a, end: b }, new, &mut edits);
                 }
-                for (u, s) in self.referencias_do_alvo(alvo) {
+                for (u, s) in self.target_references(target) {
                     // O `this.x` nomeado que vira privado: `{T x}` e o
-                    // inicializador `_novo = x`.
-                    if novo.starts_with('_')
-                        && let Some(e) = self.parametro_privado(u, s, novo)
+                    // inicializador `_new = x`.
+                    if new.starts_with('_')
+                        && let Some(e) = self.private_parameter(u, s, new)
                     {
-                        edicoes.extend(e);
+                        edits.extend(e);
                         continue;
                     }
                     // As referências dos `this.x` (o início de um argumento
                     // posicional opcional, de comprimento 0, que vira
                     // inserção, e os `super.x`) só entram com nome novo
                     // público (`fillChange`).
-                    if novo.starts_with('_') && (s.start == s.end || self.e_super_formal(u, s)) {
+                    if new.starts_with('_') && (s.start == s.end || self.is_super_formal(u, s)) {
                         continue;
                     }
-                    por(u, s, novo, &mut edicoes);
+                    por(u, s, new, &mut edits);
                 }
             }
-            Classe::Parametro { unidade, declaracao, campo } => {
-                if let Some(v) = campo {
+            Class::Parameter { unit, declaration, field } => {
+                if let Some(v) = field {
                     // O campo: a declaração e todas as referências dele.
-                    let alvo = self.membro_de_variavel(*v);
-                    if let Some((u, s)) = self.nome_da_variavel(*v) {
-                        por(u, s, novo, &mut edicoes);
+                    let target = self.variable_member(*v);
+                    if let Some((u, s)) = self.variable_name(*v) {
+                        por(u, s, new, &mut edits);
                     }
-                    for (u, s) in self.referencias_do_alvo(&alvo) {
-                        por(u, s, novo, &mut edicoes);
+                    for (u, s) in self.target_references(&target) {
+                        por(u, s, new, &mut edits);
                     }
                 } else {
-                    let alvo = Alvo::Local { unidade: *unidade, declaracao: *declaracao };
-                    let un = p.unit(*unidade);
-                    let nomeado = crate::project::parametro_em(&un.ast, *declaracao).is_some_and(|(q, _)| q.kind == ast::ParameterKind::Named);
-                    let fim = palavra(&un.source, *declaracao).map_or(*declaracao, |s| s.end);
-                    por(*unidade, Span { start: *declaracao, end: fim }, novo, &mut edicoes);
+                    let target = Target::Local { unit: *unit, declaration: *declaration };
+                    let un = p.unit(*unit);
+                    let named = crate::project::parameter_in(&un.ast, *declaration).is_some_and(|(q, _)| q.kind == ast::ParameterKind::Named);
+                    let end = word(&un.source, *declaration).map_or(*declaration, |s| s.end);
+                    por(*unit, Span { start: *declaration, end: end }, new, &mut edits);
                     // `RenameParameterRefactoringImpl._getElements`: o nomeado
                     // das sobrescritas é renomeado com a declaração (o modo de
                     // renomear das ocorrências, que inclui os homônimos).
-                    let referencias: Vec<(UnitId, Span)> = match self.ocorrencias(&alvo, true) {
+                    let references: Vec<(UnitId, Span)> = match self.occurrences(&target, true) {
                         Ok(oc) => oc
                             .into_iter()
-                            .filter(|&(u, a, _)| !(u == *unidade && a == *declaracao))
+                            .filter(|&(u, a, _)| !(u == *unit && a == *declaration))
                             .map(|(u, a, b)| (u, Span { start: a, end: b }))
                             .collect(),
-                        Err(_) => self.referencias_do_alvo(&alvo),
+                        Err(_) => self.target_references(&target),
                     };
-                    for (u, s) in referencias {
+                    for (u, s) in references {
                         // Sem as implícitas de comprimento 0; num posicional,
                         // sem os `super.x`.
                         if s.start == s.end {
                             continue;
                         }
-                        if !nomeado && self.e_super_formal(u, s) {
+                        if !named && self.is_super_formal(u, s) {
                             continue;
                         }
-                        por(u, s, novo, &mut edicoes);
+                        por(u, s, new, &mut edits);
                     }
                     // O `[x]` do doc do membro.
-                    for (u, s) in self.docs_de_parametro(*unidade, *declaracao) {
-                        por(u, s, novo, &mut edicoes);
+                    for (u, s) in self.parameter_docs(*unit, *declaration) {
+                        por(u, s, new, &mut edits);
                     }
                 }
             }
-            Classe::Local { unidade, declaracao } | Classe::ParametroDeTipo { unidade, declaracao } => {
-                let alvo = match &pedido.classe {
-                    Classe::Local { .. } => Alvo::Local { unidade: *unidade, declaracao: *declaracao },
-                    _ => Alvo::ParametroDeTipo { unidade: *unidade, declaracao: *declaracao },
+            Class::Local { unit, declaration } | Class::TypeParameter { unit, declaration } => {
+                let target = match &request.class {
+                    Class::Local { .. } => Target::Local { unit: *unit, declaration: *declaration },
+                    _ => Target::TypeParameter { unit: *unit, declaration: *declaration },
                 };
-                for (u, a, b) in self.ocorrencias(&alvo, true)? {
-                    por(u, Span { start: a, end: b }, novo, &mut edicoes);
+                for (u, a, b) in self.occurrences(&target, true)? {
+                    por(u, Span { start: a, end: b }, new, &mut edits);
                 }
             }
-            Classe::Rotulo { unidade, declaracao } => {
-                let un = p.unit(*unidade);
-                let cx = Contexto::novo(self, *unidade);
-                let fim = palavra(&un.source, *declaracao).map_or(*declaracao, |s| s.end);
-                por(*unidade, Span { start: *declaracao, end: fim }, novo, &mut edicoes);
-                let nome = &un.source[*declaracao..fim];
-                for (k, no) in cx.arvore.nos.iter().enumerate() {
+            Class::Label { unit, declaration } => {
+                let un = p.unit(*unit);
+                let cx = Context::new(self, *unit);
+                let end = word(&un.source, *declaration).map_or(*declaration, |s| s.end);
+                por(*unit, Span { start: *declaration, end: end }, new, &mut edits);
+                let name_ = &un.source[*declaration..end];
+                for (k, no) in cx.tree.nos.iter().enumerate() {
                     if no.especie == "SimpleIdentifier"
-                        && cx.pai(k).is_some_and(|x| matches!(cx.especie(x), "BreakStatement" | "ContinueStatement"))
-                        && cx.texto_do_no(k) == nome
+                        && cx.parent(k).is_some_and(|x| matches!(cx.kind(x), "BreakStatement" | "ContinueStatement"))
+                        && cx.node_text(k) == name_
                     {
-                        por(*unidade, Span { start: no.inicio, end: no.fim }, novo, &mut edicoes);
+                        por(*unit, Span { start: no.inicio, end: no.fim }, new, &mut edits);
                     }
                 }
             }
-            Classe::Biblioteca(l) => {
+            Class::Library(l) => {
                 for &u in p.library(*l).units.iter() {
                     for d in p.unit(u).unit.directives.iter() {
-                        let nome: &[ast::Name] = match &d.kind {
+                        let name_: &[ast::Name] = match &d.kind {
                             ast::DirectiveKind::Library { name } => name,
                             ast::DirectiveKind::PartOf { name, .. } => name,
                             _ => continue,
                         };
-                        if let (Some(a), Some(b)) = (nome.first(), nome.last()) {
-                            por(u, Span { start: a.span.start, end: b.span.end }, novo, &mut edicoes);
+                        if let (Some(a), Some(b)) = (name_.first(), name_.last()) {
+                            por(u, Span { start: a.span.start, end: b.span.end }, new, &mut edits);
                         }
                     }
                 }
             }
         }
-        Ok(edicoes)
+        Ok(edits)
     }
 
     /// O `super.x` em `s`.
-    fn e_super_formal(&self, u: UnitId, s: Span) -> bool {
-        let ast = &self.programa().unit(u).ast;
+    fn is_super_formal(&self, u: UnitId, s: Span) -> bool {
+        let ast = &self.program().unit(u).ast;
         ast.members.iter().any(|m| match &m.kind {
             ast::MemberKind::Constructor(k) => k.parameters.iter().any(|q| q.super_ && q.name.is_some_and(|n| n.span == s)),
             _ => false,
@@ -1206,38 +1206,38 @@ impl Projeto {
 
     /// Os `[x]` do comentário de documentação do membro que declara o
     /// parâmetro.
-    fn docs_de_parametro(&self, unidade: UnitId, declaracao: usize) -> Vec<(UnitId, Span)> {
-        let u = self.programa().unit(unidade);
-        let nome = palavra(&u.source, declaracao).map(|s| u.source[s.start..s.end].to_string()).unwrap_or_default();
+    fn parameter_docs(&self, unit: UnitId, declaration: usize) -> Vec<(UnitId, Span)> {
+        let u = self.program().unit(unit);
+        let name = word(&u.source, declaration).map(|s| u.source[s.start..s.end].to_string()).unwrap_or_default();
         let mut v = Vec::new();
-        for c in crate::dartdoc::comentarios(&u.source) {
-            for r in &c.referencias {
-                if r.len() != 1 || r[0].1 != nome {
+        for c in crate::dartdoc::comments(&u.source) {
+            for r in &c.references {
+                if r.len() != 1 || r[0].1 != name {
                     continue;
                 }
                 // O comentário documenta a declaração logo depois dele
                 // (membro, declaração de topo ou função local), que declara
                 // o parâmetro.
-                let declara = |ps: &[ast::Parameter]| ps.iter().any(|q| q.name.is_some_and(|n| n.span.start == declaracao));
-                let membro = u.ast.members.iter().filter(|m| m.span.start >= c.span.end).min_by_key(|m| m.span.start);
-                let topo = u.ast.decls.iter().filter(|d| d.span.start >= c.span.end).min_by_key(|d| d.span.start);
-                let funcao = u.ast.functions.iter().filter(|f| f.span.start >= c.span.end).min_by_key(|f| f.span.start);
-                let pm = membro.map_or(usize::MAX, |m| m.span.start);
-                let pt = topo.map_or(usize::MAX, |d| d.span.start);
-                let pf = funcao.map_or(usize::MAX, |f| f.span.start);
-                let documenta = if pm <= pt && pm <= pf {
-                    membro.is_some_and(|m| match &m.kind {
-                        ast::MemberKind::Constructor(k) => declara(&k.parameters),
-                        ast::MemberKind::Method(f) => declara(u.ast.function(*f).parameters.as_deref().unwrap_or(&[])),
+                let declares = |ps: &[ast::Parameter]| ps.iter().any(|q| q.name.is_some_and(|n| n.span.start == declaration));
+                let member = u.ast.members.iter().filter(|m| m.span.start >= c.span.end).min_by_key(|m| m.span.start);
+                let top = u.ast.decls.iter().filter(|d| d.span.start >= c.span.end).min_by_key(|d| d.span.start);
+                let function = u.ast.functions.iter().filter(|f| f.span.start >= c.span.end).min_by_key(|f| f.span.start);
+                let pm = member.map_or(usize::MAX, |m| m.span.start);
+                let pt = top.map_or(usize::MAX, |d| d.span.start);
+                let pf = function.map_or(usize::MAX, |f| f.span.start);
+                let documents = if pm <= pt && pm <= pf {
+                    member.is_some_and(|m| match &m.kind {
+                        ast::MemberKind::Constructor(k) => declares(&k.parameters),
+                        ast::MemberKind::Method(f) => declares(u.ast.function(*f).parameters.as_deref().unwrap_or(&[])),
                         ast::MemberKind::Field(_) => false,
                     })
                 } else if pt <= pf {
-                    topo.is_some_and(|d| matches!(&d.kind, ast::DeclKind::Function(f) if declara(u.ast.function(*f).parameters.as_deref().unwrap_or(&[]))))
+                    top.is_some_and(|d| matches!(&d.kind, ast::DeclKind::Function(f) if declares(u.ast.function(*f).parameters.as_deref().unwrap_or(&[]))))
                 } else {
-                    funcao.is_some_and(|f| declara(f.parameters.as_deref().unwrap_or(&[])))
+                    function.is_some_and(|f| declares(f.parameters.as_deref().unwrap_or(&[])))
                 };
-                if documenta {
-                    v.push((unidade, r[0].0));
+                if documents {
+                    v.push((unit, r[0].0));
                 }
             }
         }
@@ -1245,30 +1245,30 @@ impl Projeto {
     }
 
     /// `_addPrivateNamedFormalParameterEdit` para a referência `s` (o `x` de
-    /// um `{this.x}`): `{T x}` e o inicializador `_novo = x`.
-    fn parametro_privado(&self, u: UnitId, s: Span, novo: &str) -> Option<Vec<Edicao>> {
-        let p = self.programa();
+    /// um `{this.x}`): `{T x}` e o inicializador `_new = x`.
+    fn private_parameter(&self, u: UnitId, s: Span, new: &str) -> Option<Vec<Edit>> {
+        let p = self.program();
         let un = p.unit(u);
-        let uri = self.uri_da_unidade(u)?;
+        let uri = self.unit_uri(u)?;
         for (mi, m) in un.ast.members.iter().enumerate() {
             let ast::MemberKind::Constructor(k) = &m.kind else { continue };
             let Some(q) = k.parameters.iter().find(|q| q.this_ && q.kind == ast::ParameterKind::Named && q.name.is_some_and(|n| n.span == s)) else { continue };
-            let nome = q.name?;
-            let campo = self
-                .construtor_do_no(u, ast::MemberId(mi as u32))
+            let name = q.name?;
+            let field = self
+                .node_constructor(u, ast::MemberId(mi as u32))
                 .and_then(|f| p.function(f).class)
-                .and_then(|c| p.class(c).fields.iter().copied().find(|v| p.variable(*v).name == nome.sym))?;
-            let tipo = self.consulta.tipo_da_variavel(campo).map(|t| self.consulta.formatar(t)).unwrap_or_else(|| "dynamic".to_string());
-            let this_inicio = un.source[..nome.span.start].rfind("this")?;
-            let mut v = vec![Edicao { uri: uri.clone(), span: Span { start: this_inicio, end: nome.span.start }, texto: format!("{tipo} ") }];
-            let x = &un.source[nome.span.start..nome.span.end];
-            let fim = k.parameters.last().map_or(nome.span.end, |q| q.span.end);
+                .and_then(|c| p.class(c).fields.iter().copied().find(|v| p.variable(*v).name == name.sym))?;
+            let ty = self.query.variable_type(field).map(|t| self.query.format(t)).unwrap_or_else(|| "dynamic".to_string());
+            let this_start = un.source[..name.span.start].rfind("this")?;
+            let mut v = vec![Edit { uri: uri.clone(), span: Span { start: this_start, end: name.span.start }, text: format!("{ty} ") }];
+            let x = &un.source[name.span.start..name.span.end];
+            let end = k.parameters.last().map_or(name.span.end, |q| q.span.end);
             if k.initializers.is_empty() {
-                let fecha = un.source[fim..].find(')').map_or(fim, |i| fim + i + 1);
-                v.push(Edicao { uri, span: Span { start: fecha, end: fecha }, texto: format!(" : {novo} = {x}") });
+                let closes = un.source[end..].find(')').map_or(end, |i| end + i + 1);
+                v.push(Edit { uri, span: Span { start: closes, end: closes }, text: format!(" : {new} = {x}") });
             } else {
-                let dois_pontos = un.source[fim..].find(':').map_or(fim, |i| fim + i + 1);
-                v.push(Edicao { uri, span: Span { start: dois_pontos, end: dois_pontos }, texto: format!(" {novo} = {x},") });
+                let colon = un.source[end..].find(':').map_or(end, |i| end + i + 1);
+                v.push(Edit { uri, span: Span { start: colon, end: colon }, text: format!(" {new} = {x},") });
             }
             return Some(v);
         }
@@ -1276,240 +1276,240 @@ impl Projeto {
     }
 
     /// `RenameImportRefactoringImpl.fillChange` (§12.8).
-    fn edicoes_de_import(&self, lib: LibraryId, indice: usize, novo: &str) -> Vec<Edicao> {
-        let p = self.programa();
-        let imp = &p.library(lib).imports[indice];
+    fn import_edits(&self, lib: LibraryId, index: usize, new: &str) -> Vec<Edit> {
+        let p = self.program();
+        let imp = &p.library(lib).imports[index];
         let mut v = Vec::new();
-        let Some(uri) = self.uri_da_unidade(imp.unit) else { return v };
+        let Some(uri) = self.unit_uri(imp.unit) else { return v };
         let un = p.unit(imp.unit);
         let Some(d) = un.unit.directives.get(imp.directive) else { return v };
         let ast::DirectiveKind::Import { uri: lit, prefix, .. } = &d.kind else { return v };
-        match (prefix, novo.is_empty()) {
-            (Some(pr), true) => v.push(Edicao { uri: uri.clone(), span: Span { start: lit.span.end, end: pr.span.end }, texto: String::new() }),
-            (None, false) => v.push(Edicao { uri: uri.clone(), span: Span { start: lit.span.end, end: lit.span.end }, texto: format!(" as {novo}") }),
-            (Some(pr), false) => v.push(Edicao { uri: uri.clone(), span: pr.span, texto: novo.to_string() }),
+        match (prefix, new.is_empty()) {
+            (Some(pr), true) => v.push(Edit { uri: uri.clone(), span: Span { start: lit.span.end, end: pr.span.end }, text: String::new() }),
+            (None, false) => v.push(Edit { uri: uri.clone(), span: Span { start: lit.span.end, end: lit.span.end }, text: format!(" as {new}") }),
+            (Some(pr), false) => v.push(Edit { uri: uri.clone(), span: pr.span, text: new.to_string() }),
             (None, true) => {}
         }
         // Os usos dos elementos do namespace do import.
         let namespace = &p.library(imp.library).exported;
-        let visivel = |s: SymbolId| {
+        let visible = |s: SymbolId| {
             namespace.contains_key(&s)
                 && imp.combinators.iter().all(|c| match c {
                     ast::Combinator::Show(ns) => ns.iter().any(|n| n.sym == s),
                     ast::Combinator::Hide(ns) => !ns.iter().any(|n| n.sym == s),
                 })
         };
-        let substituto = if novo.is_empty() { String::new() } else { format!("{novo}.") };
-        let da_diretiva = v.len();
+        let replacement = if new.is_empty() { String::new() } else { format!("{new}.") };
+        let of_directive = v.len();
         for &x in p.library(lib).units.iter() {
             let ux = p.unit(x);
-            let Some(uri_x) = self.uri_da_unidade(x) else { continue };
+            let Some(uri_x) = self.unit_uri(x) else { continue };
             let fx = ux.source.as_str();
             match prefix {
                 Some(pr) => {
                     // `RenameImportRefactoringImpl`: o `p.` de cada uso (com o
-                    // ponto) vira `novo.` (ou some).
-                    let ate_o_proximo = |s: Span| {
-                        let ponto = fx[s.end..].find('.').map_or(s.end, |k| s.end + k + 1);
-                        let espacos = fx[ponto..].len() - fx[ponto..].trim_start().len();
-                        Span { start: s.start, end: ponto + espacos }
+                    // ponto) vira `new.` (ou some).
+                    let until_next = |s: Span| {
+                        let dot = fx[s.end..].find('.').map_or(s.end, |k| s.end + k + 1);
+                        let spaces = fx[dot..].len() - fx[dot..].trim_start().len();
+                        Span { start: s.start, end: dot + spaces }
                     };
-                    let usar = |pn: &ast::Name, v: &mut Vec<Edicao>| {
-                        v.push(Edicao { uri: uri_x.clone(), span: ate_o_proximo(pn.span), texto: substituto.clone() });
+                    let use_ = |pn: &ast::Name, v: &mut Vec<Edit>| {
+                        v.push(Edit { uri: uri_x.clone(), span: until_next(pn.span), text: replacement.clone() });
                     };
-                    for anotacao in dartforge_frontend::pais::todas_as_anotacoes(&ux.ast, &ux.unit) {
-                        if let [pn, n, ..] = &anotacao.name[..]
+                    for annotation in dartforge_frontend::pais::todas_as_anotacoes(&ux.ast, &ux.unit) {
+                        if let [pn, n, ..] = &annotation.name[..]
                             && pn.sym == pr.sym
-                            && visivel(n.sym)
+                            && visible(n.sym)
                         {
-                            usar(pn, &mut v);
+                            use_(pn, &mut v);
                         }
                     }
                     for e in ux.ast.exprs.iter() {
                         if let ExprKind::Property { target, name, .. } = &e.kind
                             && let ExprKind::Identifier(pn) = &ux.ast.expr(*target).kind
                             && pn.sym == pr.sym
-                            && visivel(name.sym)
+                            && visible(name.sym)
                         {
-                            usar(pn, &mut v);
+                            use_(pn, &mut v);
                         }
                     }
                     for t in ux.ast.types.iter() {
                         if let ast::TypeKind::Named { name, .. } = &t.kind
                             && let [pn, n] = &name[..]
                             && pn.sym == pr.sym
-                            && visivel(n.sym)
+                            && visible(n.sym)
                         {
-                            usar(pn, &mut v);
+                            use_(pn, &mut v);
                         }
                     }
                     // `[p.x]` na documentação: o índice também cita o import.
-                    let nome_do_prefixo = &un.source[pr.span.start..pr.span.end];
+                    let prefix_name = &un.source[pr.span.start..pr.span.end];
                     if fx.contains('[') {
-                        for c in crate::dartdoc::comentarios(fx) {
-                            for r in &c.referencias {
+                        for c in crate::dartdoc::comments(fx) {
+                            for r in &c.references {
                                 if r.len() >= 2
-                                    && r[0].1 == nome_do_prefixo
-                                    && self.consulta.nomes.lookup(&r[1].1).is_some_and(visivel)
+                                    && r[0].1 == prefix_name
+                                    && self.query.names.lookup(&r[1].1).is_some_and(visible)
                                 {
-                                    v.push(Edicao { uri: uri_x.clone(), span: ate_o_proximo(r[0].0), texto: substituto.clone() });
+                                    v.push(Edit { uri: uri_x.clone(), span: until_next(r[0].0), text: replacement.clone() });
                                 }
                             }
                         }
                     }
                 }
                 None => {
-                    // Sem prefixo: `novo.` antes de cada uso não prefixado de
-                    // elemento do import (`"$x"` → `"${novo.x}"`).
-                    let corpos = &self.consulta.corpos.units[x.0 as usize];
+                    // Sem prefixo: `new.` antes de cada uso não prefixado de
+                    // elemento do import (`"$x"` → `"${new.x}"`).
+                    let bodies = &self.query.bodies.units[x.0 as usize];
                     for (i, e) in ux.ast.exprs.iter().enumerate() {
                         let ExprKind::Identifier(n) = &e.kind else { continue };
-                        let Some(dartforge_types::Resolved::Element(el)) = corpos.get_resolved(ast::ExprId(i as u32)) else { continue };
-                        if !namespace.get(&n.sym).is_some_and(|b| b.getter == Some(*el) || b.setter == Some(*el)) || !visivel(n.sym) {
+                        let Some(dartforge_types::Resolved::Element(el)) = bodies.get_resolved(ast::ExprId(i as u32)) else { continue };
+                        if !namespace.get(&n.sym).is_some_and(|b| b.getter == Some(*el) || b.setter == Some(*el)) || !visible(n.sym) {
                             continue;
                         }
-                        let interpolado = n.span.start > 0 && fx.as_bytes()[n.span.start - 1] == b'$';
-                        if interpolado {
-                            v.push(Edicao { uri: uri_x.clone(), span: n.span, texto: format!("{{{novo}.{}}}", &fx[n.span.start..n.span.end]) });
+                        let interpolated = n.span.start > 0 && fx.as_bytes()[n.span.start - 1] == b'$';
+                        if interpolated {
+                            v.push(Edit { uri: uri_x.clone(), span: n.span, text: format!("{{{new}.{}}}", &fx[n.span.start..n.span.end]) });
                         } else {
-                            v.push(Edicao { uri: uri_x.clone(), span: Span { start: n.span.start, end: n.span.start }, texto: substituto.clone() });
+                            v.push(Edit { uri: uri_x.clone(), span: Span { start: n.span.start, end: n.span.start }, text: replacement.clone() });
                         }
                     }
                     for t in ux.ast.types.iter() {
                         if let ast::TypeKind::Named { name, .. } = &t.kind
                             && let [n] = &name[..]
-                            && visivel(n.sym)
-                            && tipo_do_import(p, x, n.sym, imp.library)
+                            && visible(n.sym)
+                            && import_type(p, x, n.sym, imp.library)
                         {
-                            v.push(Edicao { uri: uri_x.clone(), span: Span { start: n.span.start, end: n.span.start }, texto: substituto.clone() });
+                            v.push(Edit { uri: uri_x.clone(), span: Span { start: n.span.start, end: n.span.start }, text: replacement.clone() });
                         }
                     }
                 }
             }
         }
         // Os usos na ordem da busca: por unidade e pela posição.
-        v[da_diretiva..].sort_by_key(|e| e.span.start);
+        v[of_directive..].sort_by_key(|e| e.span.start);
         v
     }
 
     /// O arquivo da classe renomeada (§12.1 passo 17): só classe, mixin,
     /// enum ou tipo de extensão cujo arquivo se chama `toFileName` do nome
     /// antigo.
-    fn arquivo_da_classe(&self, pedido: &Pedido, novo: &str) -> Option<RenomearArquivo> {
-        let Classe::MembroDeUnidade(Alvo::Topo(Element::Class(c))) = &pedido.classe else { return None };
-        let d = self.programa().class(*c).decl?;
-        let caminho = self.programa().unit(d.unit).path.clone()?;
-        if caminho.file_name()?.to_str()? != nome_de_arquivo(&pedido.antigo) {
+    fn class_file(&self, request: &Request, new: &str) -> Option<RenameFile> {
+        let Class::UnitMember(Target::Top(Element::Class(c))) = &request.class else { return None };
+        let d = self.program().class(*c).decl?;
+        let path = self.program().unit(d.unit).path.clone()?;
+        if path.file_name()?.to_str()? != file_name(&request.old) {
             return None;
         }
-        let destino = caminho.with_file_name(nome_de_arquivo(novo));
-        Some(RenomearArquivo { de: Url::from_file_path(&caminho).ok()?.to_string(), para: Url::from_file_path(&destino).ok()?.to_string(), diretivas: Vec::new() })
+        let target = path.with_file_name(file_name(new));
+        Some(RenameFile { de: Url::from_file_path(&path).ok()?.to_string(), para: Url::from_file_path(&target).ok()?.to_string(), directives: Vec::new() })
     }
 
     /// As edições de `RenameConstructorRefactoringImpl.fillChange` (§12.7):
-    /// cada referência (`.nome` ou comprimento 0) vira `.novo` (sem nome:
+    /// cada referência (`.name` ou comprimento 0) vira `.new` (sem nome:
     /// `.new` num tear-off, nada nos outros; a constante de enum sem
     /// argumentos ganha `()`); a chamada implícita do super-construtor ganha
-    /// `super.novo()`; a declaração troca `.nome` (ou o vazio no fim do nome
-    /// da classe) por `.novo`.
-    pub(crate) fn edicoes_de_construtor(&self, f: FunctionElementId, novo: &str) -> Result<Vec<Edicao>, String> {
-        let p = self.programa();
-        let mut edicoes = Vec::new();
-        let declaracao = self.nome_da_funcao(f);
-        let ponto_novo = if novo.is_empty() { String::new() } else { format!(".{novo}") };
-        for (u, inicio, fim) in self.ocorrencias(&Alvo::Construtor(f), false)? {
-            if !self.no_workspace(Some(u)) {
+    /// `super.new()`; a declaração troca `.name` (ou o vazio no fim do nome
+    /// da classe) por `.new`.
+    pub(crate) fn constructor_edits(&self, f: FunctionElementId, new: &str) -> Result<Vec<Edit>, String> {
+        let p = self.program();
+        let mut edits = Vec::new();
+        let declaration = self.function_name(f);
+        let new_dot = if new.is_empty() { String::new() } else { format!(".{new}") };
+        for (u, start, end) in self.occurrences(&Target::Constructor(f), false)? {
+            if !self.in_workspace(Some(u)) {
                 continue;
             }
-            let Some(uri) = self.uri_da_unidade(u) else { continue };
-            let unidade = p.unit(u);
-            let fonte = unidade.source.as_str();
-            let ast = &unidade.ast;
+            let Some(uri) = self.unit_uri(u) else { continue };
+            let unit = p.unit(u);
+            let source = unit.source.as_str();
+            let ast = &unit.ast;
             // A declaração.
-            if declaracao == Some((u, Span { start: inicio, end: fim })) {
-                let sem_nome = self.nome(p.function(f).name).is_empty();
-                let span = if sem_nome {
-                    Span { start: fim, end: fim }
+            if declaration == Some((u, Span { start: start, end: end })) {
+                let unnamed = self.name(p.function(f).name).is_empty();
+                let span = if unnamed {
+                    Span { start: end, end: end }
                 } else {
-                    let antes = fonte[..inicio].trim_end();
-                    Span { start: if antes.ends_with('.') { antes.len() - 1 } else { inicio }, end: fim }
+                    let before = source[..start].trim_end();
+                    Span { start: if before.ends_with('.') { before.len() - 1 } else { start }, end: end }
                 };
-                edicoes.push(Edicao { uri, span, texto: ponto_novo.clone() });
+                edits.push(Edit { uri, span, text: new_dot.clone() });
                 continue;
             }
             // A subclasse sem construtor declarado: o nome da classe.
-            let classe_sem_construtor = ast.decls.iter().find_map(|d| match &d.kind {
-                DeclKind::Class(c) if c.name.span.start == inicio && c.name.span.end == fim => Some(d),
+            let class_without_constructor = ast.decls.iter().find_map(|d| match &d.kind {
+                DeclKind::Class(c) if c.name.span.start == start && c.name.span.end == end => Some(d),
                 _ => None,
             });
-            if let Some(d) = classe_sem_construtor {
+            if let Some(d) = class_without_constructor {
                 let DeclKind::Class(c) = &d.kind else { continue };
-                let chave = fonte[c.name.span.end..d.span.end].find('{').map(|k| c.name.span.end + k + 1);
-                if let Some(o) = chave {
-                    let nome = &fonte[c.name.span.start..c.name.span.end];
-                    let chamada = if novo.is_empty() { "super()".to_string() } else { format!("super.{novo}()") };
-                    edicoes.push(Edicao { uri, span: Span { start: o, end: o }, texto: format!("\n  {nome}() : {chamada};") });
+                let key = source[c.name.span.end..d.span.end].find('{').map(|k| c.name.span.end + k + 1);
+                if let Some(o) = key {
+                    let name = &source[c.name.span.start..c.name.span.end];
+                    let call = if new.is_empty() { "super()".to_string() } else { format!("super.{new}()") };
+                    edits.push(Edit { uri, span: Span { start: o, end: o }, text: format!("\n  {name}() : {call};") });
                 }
                 continue;
             }
             // O construtor da subclasse sem `super(...)` explícito.
-            let implicito = ast.members.iter().find_map(|m| match &m.kind {
-                ast::MemberKind::Constructor(k) if k.class_name.span.start == inicio => Some(k),
+            let implicit = ast.members.iter().find_map(|m| match &m.kind {
+                ast::MemberKind::Constructor(k) if k.class_name.span.start == start => Some(k),
                 _ => None,
             });
-            if let Some(k) = implicito {
-                let chamada = if novo.is_empty() { "super()".to_string() } else { format!("super.{novo}()") };
-                let (o, texto) = match k.initializers.last() {
-                    Some(ultimo) => {
-                        let s = match ultimo {
+            if let Some(k) = implicit {
+                let call = if new.is_empty() { "super()".to_string() } else { format!("super.{new}()") };
+                let (o, text) = match k.initializers.last() {
+                    Some(last) => {
+                        let s = match last {
                             ast::Initializer::Field { span, .. }
                             | ast::Initializer::Super { span, .. }
                             | ast::Initializer::Redirect { span, .. }
                             | ast::Initializer::Assert { span, .. } => *span,
                         };
-                        (s.end, format!(", {chamada}"))
+                        (s.end, format!(", {call}"))
                     }
                     None => {
-                        let fim_dos_parametros = k.parameters.last().map_or(k.name.map_or(k.class_name.span.end, |n| n.span.end), |q| q.span.end);
-                        let fecha = fonte[fim_dos_parametros..].find(')').map_or(fim_dos_parametros, |x| fim_dos_parametros + x + 1);
-                        (fecha, format!(" : {chamada}"))
+                        let parameter_end = k.parameters.last().map_or(k.name.map_or(k.class_name.span.end, |n| n.span.end), |q| q.span.end);
+                        let closes = source[parameter_end..].find(')').map_or(parameter_end, |x| parameter_end + x + 1);
+                        (closes, format!(" : {call}"))
                     }
                 };
-                edicoes.push(Edicao { uri, span: Span { start: o, end: o }, texto });
+                edits.push(Edit { uri, span: Span { start: o, end: o }, text });
                 continue;
             }
             // As demais referências.
-            let tear_off = fonte[inicio..fim] == *".new" && !fonte[fim..].trim_start().starts_with('(');
-            let mut texto = if novo.is_empty() {
+            let tear_off = source[start..end] == *".new" && !source[end..].trim_start().starts_with('(');
+            let mut text = if new.is_empty() {
                 if tear_off { ".new".to_string() } else { String::new() }
             } else {
-                ponto_novo.clone()
+                new_dot.clone()
             };
-            let constante_sem_argumentos = inicio == fim
+            let constant_without_arguments = start == end
                 && ast.decls.iter().any(|d| match &d.kind {
-                    DeclKind::Enum(e) => e.constants.iter().any(|c| c.name.span.end == inicio && c.arguments.is_none()),
+                    DeclKind::Enum(e) => e.constants.iter().any(|c| c.name.span.end == start && c.arguments.is_none()),
                     _ => false,
                 });
-            if constante_sem_argumentos {
-                texto.push_str("()");
+            if constant_without_arguments {
+                text.push_str("()");
             }
-            edicoes.push(Edicao { uri, span: Span { start: inicio, end: fim }, texto });
+            edits.push(Edit { uri, span: Span { start: start, end: end }, text });
         }
-        Ok(edicoes)
+        Ok(edits)
     }
 }
 
 /// O nome simples `n` da unidade `u` resolve para o elemento que a
-/// biblioteca `alvo` exporta (o import sem prefixo o traz).
-fn tipo_do_import(p: &dartforge_elements::model::Program, u: UnitId, n: SymbolId, alvo: LibraryId) -> bool {
-    match (p.lookup_na_unidade(u, n).and_then(|b| b.getter), p.library(alvo).exported.get(&n).and_then(|b| b.getter)) {
+/// biblioteca `target` exporta (o import sem prefixo o traz).
+fn import_type(p: &dartforge_elements::model::Program, u: UnitId, n: SymbolId, target: LibraryId) -> bool {
+    match (p.lookup_na_unidade(u, n).and_then(|b| b.getter), p.library(target).exported.get(&n).and_then(|b| b.getter)) {
         (Some(a), Some(b)) => a == b,
         _ => false,
     }
 }
 
 /// `capitalize`.
-fn capitalizar(s: &str) -> String {
+fn capitalize(s: &str) -> String {
     let mut c = s.chars();
     match c.next() {
         Some(p) => p.to_uppercase().collect::<String>() + c.as_str(),
@@ -1518,7 +1518,7 @@ fn capitalizar(s: &str) -> String {
 }
 
 /// As listas de parâmetros de tipo da unidade.
-fn listas_de_parametros_de_tipo(ast: &ast::Ast) -> Vec<Vec<&ast::TypeParameter>> {
+fn type_parameter_lists(ast: &ast::Ast) -> Vec<Vec<&ast::TypeParameter>> {
     let mut v: Vec<Vec<&ast::TypeParameter>> = Vec::new();
     for d in &ast.decls {
         let ps = match &d.kind {
@@ -1549,14 +1549,14 @@ fn listas_de_parametros_de_tipo(ast: &ast::Ast) -> Vec<Vec<&ast::TypeParameter>>
 /// # Erros
 ///
 /// `checkInitialConditions` fatal: a mensagem (`-32010`).
-pub(crate) fn preparar(projeto: &Projeto, uri: &str, offset: usize) -> Result<Option<(Span, String)>, String> {
-    let Some(unidade) = projeto.unidade_do_uri(uri) else { return Ok(None) };
-    let Some(pedido) = projeto.pedido_de_renomear(unidade, offset) else { return Ok(None) };
-    let iniciais = projeto.condicoes_iniciais(&pedido);
-    if iniciais.tem_fatal() {
-        return Err(iniciais.mensagem().unwrap_or_default());
+pub(crate) fn prepare(project: &Project, uri: &str, offset: usize) -> Result<Option<(Span, String)>, String> {
+    let Some(unit) = project.uri_unit(uri) else { return Ok(None) };
+    let Some(request) = project.rename_request(unit, offset) else { return Ok(None) };
+    let initial = project.initial_conditions(&request);
+    if initial.has_fatal() {
+        return Err(initial.message().unwrap_or_default());
     }
-    Ok(Some((pedido.faixa, pedido.antigo)))
+    Ok(Some((request.range, request.old)))
 }
 
 /// `rename`: as edições, ou a mensagem do `-32010`.
@@ -1565,40 +1565,40 @@ pub(crate) fn preparar(projeto: &Projeto, uri: &str, offset: usize) -> Result<Op
 ///
 /// `checkInitialConditions` fatal, `checkNewName` com erro, ou
 /// `checkFinalConditions` fatal: a mensagem.
-pub(crate) fn renomear(projeto: &Projeto, uri: &str, offset: usize, novo: &str) -> Result<Renomeacao, String> {
-    let Some(unidade) = projeto.unidade_do_uri(uri) else {
-        return Ok(Renomeacao { nulo: true, ..Default::default() });
+pub(crate) fn rename(project: &Project, uri: &str, offset: usize, new: &str) -> Result<Rename, String> {
+    let Some(unit) = project.uri_unit(uri) else {
+        return Ok(Rename { null: true, ..Default::default() });
     };
-    let Some(pedido) = projeto.pedido_de_renomear(unidade, offset) else {
-        return Ok(Renomeacao { nulo: true, ..Default::default() });
+    let Some(request) = project.rename_request(unit, offset) else {
+        return Ok(Rename { null: true, ..Default::default() });
     };
-    let iniciais = projeto.condicoes_iniciais(&pedido);
-    if iniciais.tem_fatal() {
-        return Err(iniciais.mensagem().unwrap_or_default());
+    let initial = project.initial_conditions(&request);
+    if initial.has_fatal() {
+        return Err(initial.message().unwrap_or_default());
     }
-    let nome = projeto.verificar_nome_novo(&pedido, novo);
-    if nome.tem_erro() {
-        return Err(nome.mensagem().unwrap_or_default());
+    let name = project.verify_new_name(&request, new);
+    if name.has_error() {
+        return Err(name.message().unwrap_or_default());
     }
-    let finais = projeto.condicoes_finais(&pedido, novo);
-    if finais.tem_fatal() {
-        return Err(finais.mensagem().unwrap_or_default());
+    let finals = project.final_conditions(&request, new);
+    if finals.has_fatal() {
+        return Err(finals.message().unwrap_or_default());
     }
-    let aviso = if finais.ok() { None } else { finais.mensagem() };
-    let edicoes = projeto.edicoes_do_renomear(&pedido, novo)?;
-    let arquivo = projeto.arquivo_da_classe(&pedido, novo);
-    Ok(Renomeacao { edicoes, arquivo, aviso, nulo: false })
+    let warning = if finals.ok() { None } else { finals.message() };
+    let edits = project.rename_edits(&request, new)?;
+    let file = project.class_file(&request, new);
+    Ok(Rename { edits, file, warning, null: false })
 }
 
 #[cfg(test)]
-mod testes {
-    use super::nome_de_arquivo;
+mod tests {
+    use super::file_name;
 
     #[test]
-    fn nomes_de_arquivo() {
-        assert_eq!(nome_de_arquivo("MinhaClasse"), "minha_classe.dart");
-        assert_eq!(nome_de_arquivo("HTTPServer"), "h_t_t_p_server.dart");
-        assert_eq!(nome_de_arquivo("A"), "a.dart");
-        assert_eq!(nome_de_arquivo("_Foo"), "__foo.dart");
+    fn file_names() {
+        assert_eq!(file_name("MinhaClasse"), "minha_classe.dart");
+        assert_eq!(file_name("HTTPServer"), "h_t_t_p_server.dart");
+        assert_eq!(file_name("A"), "a.dart");
+        assert_eq!(file_name("_Foo"), "__foo.dart");
     }
 }

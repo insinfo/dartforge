@@ -3,7 +3,7 @@
 //! É o `plateau_documents.rs` elevado ao protocolo: abre K documentos reais,
 //! aplica K edições incrementais em cada um e fecha tudo, com cada mensagem
 //! serializada em quadro `Content-Length`, decodificada e despachada pelo
-//! [`dartforge_lsp::Servidor`] — nunca por chamada direta de API. O que esta
+//! [`dartforge_lsp::Server`] — nunca por chamada direta de API. O que esta
 //! medição prova é o que o PLANO.md exige: N edições sucessivas estabilizam
 //! `live_bytes` num platô em vez de crescer com N (o modo de falha do LSP do
 //! Dart, que só sobe até ser preciso matar o processo).
@@ -14,10 +14,10 @@
 //! outro teste neste binário mediria junto — por isso há um só `#[test]`
 //! aqui (a razão documentada em `plateau_documents.rs`).
 #[global_allocator]
-static ALOCADOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
+static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
-use dartforge_lsp::Servidor;
-use dartforge_lsp::transport::{enquadrar, ler_mensagem};
+use dartforge_lsp::Server;
+use dartforge_lsp::transport::{frame, read_message};
 use serde_json::{Value, json};
 use std::io::BufReader;
 
@@ -25,67 +25,67 @@ use std::io::BufReader;
 const K: usize = 24;
 
 /// Corpus padrão: o projeto de referência do proprietário.
-const CORPUS_PADRAO: &str = "C:/MyDartProjects/new_sali";
+const DEFAULT_CORPUS: &str = "C:/MyDartProjects/new_sali";
 
-/// Envia `mensagem` pelo transporte de verdade: serializa em quadro, lê o
+/// Envia `message` pelo transporte de verdade: serializa em quadro, lê o
 /// quadro de volta e despacha; as saídas são descartadas como transitórias.
-fn trocar(servidor: &mut Servidor, mensagem: &Value) {
-    let quadro = enquadrar(mensagem);
-    let mut leitor = BufReader::new(&quadro[..]);
-    let lida = ler_mensagem(&mut leitor)
+fn swap(server: &mut Server, message: &Value) {
+    let framed = frame(message);
+    let mut reader = BufReader::new(&framed[..]);
+    let read = read_message(&mut reader)
         .expect("quadro gerado aqui mesmo decodifica")
         .expect("quadro não vazio");
-    servidor.receber(lida);
-    let saidas = servidor.bombear();
+    server.receive(read);
+    let outputs = server.pump();
     // Toca as saídas para que nada seja otimizado para fora da medição.
     let mut bytes = 0usize;
-    for saida in &saidas {
-        bytes += enquadrar(saida).len();
+    for output in &outputs {
+        bytes += frame(output).len();
     }
     std::hint::black_box(bytes);
 }
 
 /// Coleta até K arquivos `.dart` do corpus, ordenados para repetibilidade.
-fn coletar_corpus() -> Vec<(String, String)> {
-    let raiz = std::env::var("DARTFORGE_CORPUS").unwrap_or_else(|_| CORPUS_PADRAO.to_string());
-    let mut arquivos = Vec::new();
-    coletar_dir(std::path::Path::new(&raiz), &mut arquivos);
-    arquivos.sort();
-    arquivos.truncate(K);
+fn collect_corpus() -> Vec<(String, String)> {
+    let root = std::env::var("DARTFORGE_CORPUS").unwrap_or_else(|_| DEFAULT_CORPUS.to_string());
+    let mut files = Vec::new();
+    collect_dir(std::path::Path::new(&root), &mut files);
+    files.sort();
+    files.truncate(K);
     let mut docs = Vec::new();
-    for caminho in arquivos {
-        if let Ok(texto) = std::fs::read_to_string(&caminho) {
+    for path in files {
+        if let Ok(text) = std::fs::read_to_string(&path) {
             let uri = format!("file:///plato/{}", docs.len());
-            docs.push((uri, texto));
+            docs.push((uri, text));
         }
     }
     docs
 }
 
 /// Varre o diretório ignorando saídas de build, como o exemplo de medição.
-fn coletar_dir(dir: &std::path::Path, saida: &mut Vec<std::path::PathBuf>) {
-    let Ok(entradas) = std::fs::read_dir(dir) else {
+fn collect_dir(dir: &std::path::Path, output: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
-    for entrada in entradas.flatten() {
-        let caminho = entrada.path();
-        if caminho.is_dir() {
-            if caminho
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if path
                 .file_name()
                 .is_some_and(|n| n == ".dart_tool" || n == "build")
             {
                 continue;
             }
-            coletar_dir(&caminho, saida);
-        } else if caminho.extension().is_some_and(|e| e == "dart") {
-            saida.push(caminho);
+            collect_dir(&path, output);
+        } else if path.extension().is_some_and(|e| e == "dart") {
+            output.push(path);
         }
     }
 }
 
 /// Reserva quando o corpus não está ao alcance (CI sem o projeto de
 /// referência): textos sintéticos de tamanho fixo por documento e revisão.
-fn sinteticos() -> Vec<(String, String)> {
+fn synthetic() -> Vec<(String, String)> {
     (0..K)
         .map(|d| {
             (
@@ -100,37 +100,37 @@ fn sinteticos() -> Vec<(String, String)> {
 
 /// O `initialize`/`initialized`: o estado da sessão (capacidades,
 /// configuração) é do servidor, não dos documentos, e fica na base.
-fn inicializar(servidor: &mut Servidor) {
-    trocar(
-        servidor,
+fn initialize(server: &mut Server) {
+    swap(
+        server,
         &json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
     );
-    trocar(
-        servidor,
+    swap(
+        server,
         &json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}),
     );
 }
 
 /// Abre os documentos pelo protocolo e aplica K rodadas de edição incremental
 /// em cada um, devolvendo os bytes vivos após cada rodada.
-fn editar(servidor: &mut Servidor, docs: &[(String, String)]) -> Vec<usize> {
-    for (uri, texto) in docs {
-        trocar(
-            servidor,
+fn edit(server: &mut Server, docs: &[(String, String)]) -> Vec<usize> {
+    for (uri, text) in docs {
+        swap(
+            server,
             &json!({
                 "jsonrpc": "2.0", "method": "textDocument/didOpen",
-                "params": {"textDocument": {"uri": uri, "languageId": "dart", "version": 1, "text": texto}},
+                "params": {"textDocument": {"uri": uri, "languageId": "dart", "version": 1, "text": text}},
             }),
         );
     }
-    assert_eq!(servidor.documentos_abertos(), docs.len());
-    let mut vivos = Vec::with_capacity(K);
-    for rodada in 1..=K {
+    assert_eq!(server.open_documents(), docs.len());
+    let mut live = Vec::with_capacity(K);
+    for round in 1..=K {
         for (uri, _) in docs {
             // Alterna inserir e remover um espaço no início da linha 0: o
             // texto retido tem tamanho constante e a edição é incremental
             // (intervalo UTF-16), como a tecla de um editor.
-            let mudanca = if rodada % 2 == 1 {
+            let change = if round % 2 == 1 {
                 json!([{
                     "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}},
                     "text": " ",
@@ -141,31 +141,31 @@ fn editar(servidor: &mut Servidor, docs: &[(String, String)]) -> Vec<usize> {
                     "text": "",
                 }])
             };
-            trocar(
-                servidor,
+            swap(
+                server,
                 &json!({
                     "jsonrpc": "2.0", "method": "textDocument/didChange",
-                    "params": {"textDocument": {"uri": uri, "version": rodada as i32 + 1}, "contentChanges": mudanca},
+                    "params": {"textDocument": {"uri": uri, "version": round as i32 + 1}, "contentChanges": change},
                 }),
             );
         }
-        vivos.push(dartforge_instrument::live_bytes());
+        live.push(dartforge_instrument::live_bytes());
     }
-    vivos
+    live
 }
 
 /// Fecha todos os documentos pelo protocolo.
-fn fechar(servidor: &mut Servidor, docs: &[(String, String)]) {
+fn close(server: &mut Server, docs: &[(String, String)]) {
     for (uri, _) in docs {
-        trocar(
-            servidor,
+        swap(
+            server,
             &json!({
                 "jsonrpc": "2.0", "method": "textDocument/didClose",
                 "params": {"textDocument": {"uri": uri}},
             }),
         );
     }
-    assert_eq!(servidor.documentos_abertos(), 0);
+    assert_eq!(server.open_documents(), 0);
 }
 
 /// `live_bytes` estabiliza ao longo das rodadas, e fechar tudo devolve ao
@@ -174,48 +174,48 @@ fn fechar(servidor: &mut Servidor, docs: &[(String, String)]) {
 ///
 /// Num só `#[test]`: ver o comentário no topo do arquivo.
 #[test]
-fn plato_pelo_protocolo() {
-    let docs = coletar_corpus();
-    let docs_reais = docs.len() == K;
-    let docs = if docs_reais { docs } else { sinteticos() };
+fn plateau_through_protocol() {
+    let docs = collect_corpus();
+    let real_docs = docs.len() == K;
+    let docs = if real_docs { docs } else { synthetic() };
     // Aquecimento: um servidor descartável faz o ciclo inteiro uma vez, para
     // que alocações únicas do processo (estado preguiçoso da biblioteca
     // padrão e do harness, como o buffer de captura da saída do teste)
     // fiquem fora da base. O que se mede é retenção por documento e por
     // edição, não inicialização do processo.
     {
-        let mut aquecimento = Servidor::new();
-        inicializar(&mut aquecimento);
-        editar(&mut aquecimento, &docs[..1]);
-        fechar(&mut aquecimento, &docs[..1]);
+        let mut warmup = Server::new();
+        initialize(&mut warmup);
+        edit(&mut warmup, &docs[..1]);
+        close(&mut warmup, &docs[..1]);
     }
-    let mut servidor = Servidor::new();
-    let vazio = dartforge_instrument::live_bytes();
-    inicializar(&mut servidor);
-    let antes = dartforge_instrument::live_bytes();
+    let mut server = Server::new();
+    let empty = dartforge_instrument::live_bytes();
+    initialize(&mut server);
+    let before = dartforge_instrument::live_bytes();
 
-    let vivos = editar(&mut servidor, &docs);
-    assert_eq!(vivos.len(), K);
-    let referencia = vivos[4..8].iter().max().copied().unwrap();
-    let depois = vivos[8..].iter().max().copied().unwrap();
+    let live = edit(&mut server, &docs);
+    assert_eq!(live.len(), K);
+    let reference = live[4..8].iter().max().copied().unwrap();
+    let after = live[8..].iter().max().copied().unwrap();
     assert!(
-        depois <= referencia.saturating_add(8 * 1024),
-        "memória cresceu com as edições: platô {referencia} bytes, cauda {depois} bytes"
+        after <= reference.saturating_add(8 * 1024),
+        "memória cresceu com as edições: platô {reference} bytes, cauda {after} bytes"
     );
 
-    fechar(&mut servidor, &docs);
-    let fechado = dartforge_instrument::live_bytes();
+    close(&mut server, &docs);
+    let closed = dartforge_instrument::live_bytes();
     assert!(
-        fechado <= antes.saturating_add(K * 192),
-        "fechar não liberou os documentos: antes {antes}, depois {fechado}"
+        closed <= before.saturating_add(K * 192),
+        "fechar não liberou os documentos: antes {before}, depois {closed}"
     );
     // Os textos do harness também retêm memória: solta-os junto com o
     // servidor antes de afirmar o retorno ao nível inicial.
     drop(docs);
-    drop(servidor);
-    assert!(dartforge_instrument::live_bytes() <= vazio.saturating_add(64));
+    drop(server);
+    assert!(dartforge_instrument::live_bytes() <= empty.saturating_add(64));
 
-    if !docs_reais {
+    if !real_docs {
         eprintln!("aviso: corpus indisponível, platô medido com documentos sintéticos");
     }
 }

@@ -8,8 +8,8 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use crate::arvore_analyzer::Marca;
-use crate::project::{Alvo, Concreto, Projeto};
-use crate::refactorings::Contexto;
+use crate::project::{Target, Concrete, Project};
+use crate::refactorings::Context;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, Element, ExtensionId, FunctionElementId, FunctionKind, LibraryId, UnitId, VariableId};
 use dartforge_frontend::ast;
@@ -18,136 +18,136 @@ use dartforge_types::{MemberRef, Resolved};
 
 /// O elemento canônico (`_canonicalizeElement`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Chave {
+enum Key {
     /// Local, parâmetro, função local, variável de padrão (pelo offset do
     /// nome declarado).
     Local(usize),
-    Variavel(VariableId),
+    Variable(VariableId),
     /// O campo sintético de um getter/setter declarado (a dona e o nome).
-    Acessores(Dono2, String),
-    Funcao(FunctionElementId),
-    Classe(ClassId),
-    Extensao(ExtensionId),
+    Accessors(Owner2, String),
+    Function(FunctionElementId),
+    Class(ClassId),
+    Extension(ExtensionId),
     Typedef(dartforge_elements::model::TypedefId),
-    ParametroDeTipo(usize),
-    Rotulo(usize),
-    Prefixo(LibraryId, SymbolId),
+    TypeParameter(usize),
+    Label(usize),
+    Prefix(LibraryId, SymbolId),
 }
 
 /// A dona de um par de acessores.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Dono2 {
-    Classe(ClassId),
-    Extensao(ExtensionId),
-    Biblioteca(LibraryId),
+enum Owner2 {
+    Class(ClassId),
+    Extension(ExtensionId),
+    Library(LibraryId),
 }
 
-impl Projeto {
-    /// Os destaques de `offset` em `unidade`, na ordem dos grupos e dos
+impl Project {
+    /// Os destaques de `offset` em `unit`, na ordem dos grupos e dos
     /// offsets.
-    pub(crate) fn destaques_do_dart(&self, unidade: UnitId, offset: usize) -> Vec<Span> {
-        let cx = Contexto::novo(self, unidade);
-        let mut grupos: Vec<(Chave, usize, Vec<usize>)> = Vec::new();
-        let mut registrar = |chave: Chave, comprimento: usize, o: usize| match grupos.iter_mut().find(|(k, _, _)| *k == chave) {
+    pub(crate) fn dart_highlights(&self, unit: UnitId, offset: usize) -> Vec<Span> {
+        let cx = Context::new(self, unit);
+        let mut groups: Vec<(Key, usize, Vec<usize>)> = Vec::new();
+        let mut register = |key: Key, length: usize, o: usize| match groups.iter_mut().find(|(k, _, _)| *k == key) {
             Some((_, _, v)) => v.push(o),
-            None => grupos.push((chave, comprimento, vec![o])),
+            None => groups.push((key, length, vec![o])),
         };
         // Pré-ordem: a declaração registra o nome antes dos filhos.
-        let mut pilha = vec![0usize];
-        while let Some(n) = pilha.pop() {
-            for (chave, comprimento, o) in registros(self, &cx, n) {
-                registrar(chave, comprimento, o);
+        let mut stack = vec![0usize];
+        while let Some(n) = stack.pop() {
+            for (key, length, o) in records(self, &cx, n) {
+                register(key, length, o);
             }
-            pilha.extend(cx.filhos(n).iter().rev().copied());
+            stack.extend(cx.children(n).iter().rev().copied());
         }
-        let mut saida: Vec<Span> = Vec::new();
-        for (_, comprimento, offsets) in &grupos {
-            if !offsets.iter().any(|&o| o <= offset && offset <= o + comprimento) {
+        let mut output: Vec<Span> = Vec::new();
+        for (_, length, offsets) in &groups {
+            if !offsets.iter().any(|&o| o <= offset && offset <= o + length) {
                 continue;
             }
             for &o in offsets {
-                let s = Span { start: o, end: o + comprimento };
-                if !saida.contains(&s) {
-                    saida.push(s);
+                let s = Span { start: o, end: o + length };
+                if !output.contains(&s) {
+                    output.push(s);
                 }
             }
         }
-        saida
+        output
     }
 }
 
-/// Os registros (`chave`, `nameLength`, offset) que o nó `n` faz.
-fn registros(p: &Projeto, cx: &Contexto<'_>, n: usize) -> Vec<(Chave, usize, usize)> {
-    let no = &cx.arvore.nos[n];
+/// Os registros (`key`, `nameLength`, offset) que o nó `n` faz.
+fn records(p: &Project, cx: &Context<'_>, n: usize) -> Vec<(Key, usize, usize)> {
+    let no = &cx.tree.nos[n];
     let mut v = Vec::new();
     match no.especie {
         "ClassDeclaration" | "EnumDeclaration" | "ExtensionTypeDeclaration" | "MixinDeclaration" => {
             if let Marca::Decl(d) = no.marca
-                && let Some(c) = cx.classe_da_declaracao(cx.unidade, d)
-                && let Some(nome) = cx.nome_da_declaracao(d)
+                && let Some(c) = cx.declaration_class(cx.unit, d)
+                && let Some(name) = cx.declaration_name(d)
             {
-                v.push((Chave::Classe(c), nome.span.end - nome.span.start, nome.span.start));
+                v.push((Key::Class(c), name.span.end - name.span.start, name.span.start));
             }
         }
         "FunctionDeclaration" | "MethodDeclaration" => {
             if let Marca::Funcao(fid) = no.marca
-                && let Some(nome) = cx.ast.function(fid).name
+                && let Some(name) = cx.ast.function(fid).name
             {
-                let local = no.especie == "FunctionDeclaration" && cx.pai(n).is_some_and(|x| cx.especie(x) == "FunctionDeclarationStatement");
-                let chave = if local {
-                    Some(Chave::Local(nome.span.start))
+                let local = no.especie == "FunctionDeclaration" && cx.parent(n).is_some_and(|x| cx.kind(x) == "FunctionDeclarationStatement");
+                let key = if local {
+                    Some(Key::Local(name.span.start))
                 } else {
-                    p.funcao_do_no(cx.unidade, fid).and_then(|f| chave_de_funcao(p, f))
+                    p.node_function(cx.unit, fid).and_then(|f| function_key(p, f))
                 };
-                if let Some(k) = chave {
-                    v.push((k, nome.span.end - nome.span.start, nome.span.start));
+                if let Some(k) = key {
+                    v.push((k, name.span.end - name.span.start, name.span.start));
                 }
             }
         }
         "VariableDeclaration" => {
-            let nome = crate::refactorings_exec::nome_no_inicio_pub(cx.texto_do_no(n));
-            let chave = if no.marca == Marca::VariavelLocal {
-                Some(Chave::Local(no.inicio))
+            let name = crate::refactorings_exec::name_at_start_pub(cx.node_text(n));
+            let key = if no.marca == Marca::VariavelLocal {
+                Some(Key::Local(no.inicio))
             } else {
-                variavel_declarada_em(p, cx.unidade, no.inicio).map(Chave::Variavel)
+                variable_declared_in(p, cx.unit, no.inicio).map(Key::Variable)
             };
-            if let Some(k) = chave {
-                v.push((k, nome.len(), no.inicio));
+            if let Some(k) = key {
+                v.push((k, name.len(), no.inicio));
             }
         }
         "DeclaredIdentifier" | "DeclaredVariablePattern" | "SuperFormalParameter" | "SimpleFormalParameter" | "FieldFormalParameter" | "EnumConstantDeclaration" => {
             // O nome: o último identificador antes de `=`/`:`/`(` (numa
             // constante de enum, o primeiro).
-            let declarado = if no.especie == "EnumConstantDeclaration" { primeiro_identificador(cx, n) } else { nome_declarado(cx, n) };
-            if let Some((o, nome)) = declarado {
-                let chave = match no.especie {
-                    "EnumConstantDeclaration" => variavel_declarada_em(p, cx.unidade, o).map(Chave::Variavel),
-                    "FieldFormalParameter" => campo_do_this(p, cx, n, &nome).map(Chave::Variavel),
-                    _ => Some(Chave::Local(o)),
+            let declared = if no.especie == "EnumConstantDeclaration" { first_identifier(cx, n) } else { declared_name(cx, n) };
+            if let Some((o, name)) = declared {
+                let key = match no.especie {
+                    "EnumConstantDeclaration" => variable_declared_in(p, cx.unit, o).map(Key::Variable),
+                    "FieldFormalParameter" => this_field(p, cx, n, &name).map(Key::Variable),
+                    _ => Some(Key::Local(o)),
                 };
-                if let Some(k) = chave {
-                    v.push((k, nome.len(), o));
+                if let Some(k) = key {
+                    v.push((k, name.len(), o));
                 }
             }
         }
         "ConstructorDeclaration" => {
             // Só o construtor com nome (o nome escrito depois do ponto).
-            if let Some(f) = construtor_declarado_em(p, cx.unidade, no.inicio, no.fim)
-                && !p.nome(p.programa().function(f).name).is_empty()
-                && let Some((_, s)) = p.nome_da_funcao(f)
+            if let Some(f) = declared_constructor_in(p, cx.unit, no.inicio, no.fim)
+                && !p.name(p.program().function(f).name).is_empty()
+                && let Some((_, s)) = p.function_name(f)
             {
-                v.push((Chave::Funcao(f), s.end - s.start, s.start));
+                v.push((Key::Function(f), s.end - s.start, s.start));
             }
         }
         "NamedType" => {
-            if let Some((k, comprimento)) = elemento_do_tipo(p, cx, n) {
-                v.push((k, comprimento, no.inicio));
+            if let Some((k, length)) = type_element(p, cx, n) {
+                v.push((k, length, no.inicio));
             }
         }
         "SimpleIdentifier" => {
-            if let Some(k) = chave_do_identificador(p, cx, n) {
-                let comprimento = comprimento_do_nome(p, &k, no.fim - no.inicio);
-                v.push((k, comprimento, no.inicio));
+            if let Some(k) = identifier_key(p, cx, n) {
+                let length = name_length(p, &k, no.fim - no.inicio);
+                v.push((k, length, no.inicio));
             }
         }
         _ => {}
@@ -156,73 +156,73 @@ fn registros(p: &Projeto, cx: &Contexto<'_>, n: usize) -> Vec<(Chave, usize, usi
 }
 
 /// O comprimento do nome do elemento (`element.nameLength`).
-fn comprimento_do_nome(p: &Projeto, k: &Chave, padrao: usize) -> usize {
+fn name_length(p: &Project, k: &Key, pattern: usize) -> usize {
     match k {
-        Chave::Funcao(f) => {
-            let fe = p.programa().function(*f);
+        Key::Function(f) => {
+            let fe = p.program().function(*f);
             if matches!(fe.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) {
-                let nome = p.nome(fe.name);
-                if nome.is_empty() {
+                let name = p.name(fe.name);
+                if name.is_empty() {
                     // O construtor sem nome: o nome da classe escrito, ou 0.
                     return match (fe.kind, fe.class) {
-                        (FunctionKind::Constructor, Some(c)) => p.nome(p.programa().class(c).name).len(),
+                        (FunctionKind::Constructor, Some(c)) => p.name(p.program().class(c).name).len(),
                         _ => 0,
                     };
                 }
-                return nome.len();
+                return name.len();
             }
-            p.nome(fe.name).trim_end_matches('=').len()
+            p.name(fe.name).trim_end_matches('=').len()
         }
-        _ => padrao,
+        _ => pattern,
     }
 }
 
 /// A chave de um elemento função (acessor implícito → a variável; getter
 /// ou setter declarado → o par; o resto, a própria função).
-fn chave_de_funcao(p: &Projeto, f: FunctionElementId) -> Option<Chave> {
-    let prog = p.programa();
+fn function_key(p: &Project, f: FunctionElementId) -> Option<Key> {
+    let prog = p.program();
     let fe = prog.function(f);
     match fe.kind {
-        FunctionKind::ImplicitAccessor => fe.variable.map(Chave::Variavel),
+        FunctionKind::ImplicitAccessor => fe.variable.map(Key::Variable),
         FunctionKind::Getter | FunctionKind::Setter => {
-            let dono = match (fe.class, fe.extension) {
-                (_, Some(x)) => Dono2::Extensao(x),
-                (Some(c), _) => Dono2::Classe(c),
-                _ => Dono2::Biblioteca(fe.library),
+            let owner = match (fe.class, fe.extension) {
+                (_, Some(x)) => Owner2::Extension(x),
+                (Some(c), _) => Owner2::Class(c),
+                _ => Owner2::Library(fe.library),
             };
-            Some(Chave::Acessores(dono, p.nome(fe.name).trim_end_matches('=').to_string()))
+            Some(Key::Accessors(owner, p.name(fe.name).trim_end_matches('=').to_string()))
         }
-        _ => Some(Chave::Funcao(f)),
+        _ => Some(Key::Function(f)),
     }
 }
 
 /// A chave de um `SimpleIdentifier`: pela resolução da expressão marcada,
-/// ou pelo `identificar` (combinadores, anotações, documentação, rótulos de
+/// ou pelo `identify` (combinadores, anotações, documentação, rótulos de
 /// argumento, o `returnType` do construtor), ou o rótulo de um comando.
-fn chave_do_identificador(p: &Projeto, cx: &Contexto<'_>, n: usize) -> Option<Chave> {
-    let no = &cx.arvore.nos[n];
+fn identifier_key(p: &Project, cx: &Context<'_>, n: usize) -> Option<Key> {
+    let no = &cx.tree.nos[n];
     // O `returnType` de uma declaração de construtor (o `A` de `A(…)` e de
     // `A.n(…)`): o `staticElement` dele é a classe.
-    if let Some(pai) = cx.pai(n)
-        && cx.especie(pai) == "ConstructorDeclaration"
+    if let Some(parent) = cx.parent(n)
+        && cx.kind(parent) == "ConstructorDeclaration"
     {
-        let f = construtor_declarado_em(p, cx.unidade, cx.arvore.nos[pai].inicio, cx.arvore.nos[pai].fim)?;
-        return p.programa().function(f).class.map(Chave::Classe);
+        let f = declared_constructor_in(p, cx.unit, cx.tree.nos[parent].inicio, cx.tree.nos[parent].fim)?;
+        return p.program().function(f).class.map(Key::Class);
     }
     // Rótulos de comando e `break`/`continue`.
-    if let Some(pai) = cx.pai(n) {
-        if cx.especie(pai) == "Label" && cx.pai(pai).is_some_and(|g| matches!(cx.especie(g), "LabeledStatement" | "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")) {
-            return Some(Chave::Rotulo(no.inicio));
+    if let Some(parent) = cx.parent(n) {
+        if cx.kind(parent) == "Label" && cx.parent(parent).is_some_and(|g| matches!(cx.kind(g), "LabeledStatement" | "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")) {
+            return Some(Key::Label(no.inicio));
         }
-        if matches!(cx.especie(pai), "BreakStatement" | "ContinueStatement") {
-            let nome = cx.texto_do_no(n);
-            for k in cx.com_pais(pai) {
-                for &l in cx.filhos(k) {
-                    if cx.especie(l) == "Label"
-                        && let Some(&i) = cx.filhos(l).first()
-                        && cx.texto_do_no(i) == nome
+        if matches!(cx.kind(parent), "BreakStatement" | "ContinueStatement") {
+            let name = cx.node_text(n);
+            for k in cx.with_parents(parent) {
+                for &l in cx.children(k) {
+                    if cx.kind(l) == "Label"
+                        && let Some(&i) = cx.children(l).first()
+                        && cx.node_text(i) == name
                     {
-                        return Some(Chave::Rotulo(cx.arvore.nos[i].inicio));
+                        return Some(Key::Label(cx.tree.nos[i].inicio));
                     }
                 }
             }
@@ -230,64 +230,64 @@ fn chave_do_identificador(p: &Projeto, cx: &Contexto<'_>, n: usize) -> Option<Ch
         }
     }
     if let Marca::Expr(x) = no.marca {
-        return match cx.corpos.get_resolved(x) {
+        return match cx.bodies.get_resolved(x) {
             Some(Resolved::Local(_)) | Some(Resolved::Parameter { .. }) => {
-                let d = cx.corpos.declaracao_local(x)?;
+                let d = cx.bodies.declaracao_local(x)?;
                 // `this.x` → o campo.
-                if let Some((q, _)) = crate::project::parametro_em(cx.ast, d)
+                if let Some((q, _)) = crate::project::parameter_in(cx.ast, d)
                     && q.this_
                 {
-                    let nome = p.nome(q.name?.sym).to_string();
-                    return campo_da_classe_em(p, cx, d, &nome).map(Chave::Variavel);
+                    let name = p.name(q.name?.sym).to_string();
+                    return class_field_in(p, cx, d, &name).map(Key::Variable);
                 }
-                Some(Chave::Local(d))
+                Some(Key::Local(d))
             }
             Some(Resolved::Element(Element::Function(f)))
             | Some(Resolved::Member { member: MemberRef::Function(f), .. })
             | Some(Resolved::ExtensionMember { member: f, .. }) => {
                 // Numa escrita, o setter (a mesma variável/par).
-                chave_de_funcao(p, *f)
+                function_key(p, *f)
             }
-            Some(Resolved::Element(Element::Variable(v))) | Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => Some(Chave::Variavel(*v)),
-            Some(Resolved::Element(Element::Class(c))) => Some(Chave::Classe(*c)),
-            Some(Resolved::Element(Element::Extension(e))) => Some(Chave::Extensao(*e)),
-            Some(Resolved::Element(Element::Typedef(t))) => Some(Chave::Typedef(*t)),
-            Some(Resolved::Element(Element::Prefix(l, s))) => Some(Chave::Prefixo(*l, *s)),
+            Some(Resolved::Element(Element::Variable(v))) | Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => Some(Key::Variable(*v)),
+            Some(Resolved::Element(Element::Class(c))) => Some(Key::Class(*c)),
+            Some(Resolved::Element(Element::Extension(e))) => Some(Key::Extension(*e)),
+            Some(Resolved::Element(Element::Typedef(t))) => Some(Key::Typedef(*t)),
+            Some(Resolved::Element(Element::Prefix(l, s))) => Some(Key::Prefix(*l, *s)),
             Some(Resolved::Prefix(_)) => {
-                let ast::ExprKind::Identifier(nome) = &cx.ast.expr(x).kind else { return None };
-                Some(Chave::Prefixo(p.programa().unit(cx.unidade).library, nome.sym))
+                let ast::ExprKind::Identifier(name) = &cx.ast.expr(x).kind else { return None };
+                Some(Key::Prefix(p.program().unit(cx.unit).library, name.sym))
             }
             Some(Resolved::TypeParameter(_)) => {
-                let ast::ExprKind::Identifier(nome) = &cx.ast.expr(x).kind else { return None };
-                crate::project::declaracao_de_parametro_de_tipo(cx.ast, nome.span.start, nome.sym).map(Chave::ParametroDeTipo)
+                let ast::ExprKind::Identifier(name) = &cx.ast.expr(x).kind else { return None };
+                crate::project::type_parameter_declaration(cx.ast, name.span.start, name.sym).map(Key::TypeParameter)
             }
-            Some(Resolved::Constructor(f)) => Some(Chave::Funcao(*f)),
-            None if cx.construtores_por_alvo.contains_key(&x) => {
-                let f = cx.construtores_por_alvo[&x];
-                Some(Chave::Funcao(f))
+            Some(Resolved::Constructor(f)) => Some(Key::Function(*f)),
+            None if cx.constructors_by_target.contains_key(&x) => {
+                let f = cx.constructors_by_target[&x];
+                Some(Key::Function(f))
             }
             _ => None,
         };
     }
-    // Pelo `identificar`.
-    let d = p.identificar(cx.unidade, no.inicio).ok()??;
-    if d.nome.start != no.inicio {
+    // Pelo `identify`.
+    let d = p.identify(cx.unit, no.inicio).ok()??;
+    if d.name.start != no.inicio {
         return None;
     }
-    match &d.alvo {
-        Alvo::Local { declaracao, .. } => Some(Chave::Local(*declaracao)),
-        Alvo::ParametroDeTipo { declaracao, .. } => Some(Chave::ParametroDeTipo(*declaracao)),
-        Alvo::Prefixo { biblioteca, nome } => Some(Chave::Prefixo(*biblioteca, *nome)),
-        Alvo::Topo(Element::Class(c)) => Some(Chave::Classe(*c)),
-        Alvo::Topo(Element::Extension(e)) => Some(Chave::Extensao(*e)),
-        Alvo::Topo(Element::Typedef(t)) => Some(Chave::Typedef(*t)),
-        Alvo::Topo(Element::Variable(v)) => Some(Chave::Variavel(*v)),
-        Alvo::Topo(Element::Function(f)) => chave_de_funcao(p, *f),
-        Alvo::Topo(Element::Prefix(l, s)) => Some(Chave::Prefixo(*l, *s)),
-        Alvo::Construtor(f) => Some(Chave::Funcao(*f)),
-        Alvo::Membro { .. } => match d.concreto {
-            Some(Concreto::Funcao(f)) => chave_de_funcao(p, f),
-            Some(Concreto::Variavel(v)) => Some(Chave::Variavel(v)),
+    match &d.target {
+        Target::Local { declaration, .. } => Some(Key::Local(*declaration)),
+        Target::TypeParameter { declaration, .. } => Some(Key::TypeParameter(*declaration)),
+        Target::Prefix { library, name } => Some(Key::Prefix(*library, *name)),
+        Target::Top(Element::Class(c)) => Some(Key::Class(*c)),
+        Target::Top(Element::Extension(e)) => Some(Key::Extension(*e)),
+        Target::Top(Element::Typedef(t)) => Some(Key::Typedef(*t)),
+        Target::Top(Element::Variable(v)) => Some(Key::Variable(*v)),
+        Target::Top(Element::Function(f)) => function_key(p, *f),
+        Target::Top(Element::Prefix(l, s)) => Some(Key::Prefix(*l, *s)),
+        Target::Constructor(f) => Some(Key::Function(*f)),
+        Target::Member { .. } => match d.concrete {
+            Some(Concrete::Function(f)) => function_key(p, f),
+            Some(Concrete::Variable(v)) => Some(Key::Variable(v)),
             None => None,
         },
     }
@@ -295,59 +295,59 @@ fn chave_do_identificador(p: &Projeto, cx: &Contexto<'_>, n: usize) -> Option<Ch
 
 /// O elemento de um `NamedType` (pelo nome escrito, no escopo da unidade ou
 /// de um parâmetro de tipo), com o comprimento do nome do elemento.
-fn elemento_do_tipo(p: &Projeto, cx: &Contexto<'_>, n: usize) -> Option<(Chave, usize)> {
-    let prog = p.programa();
-    let no = &cx.arvore.nos[n];
-    let prefixo = cx.filhos(n).iter().copied().find(|&k| cx.especie(k) == "ImportPrefixReference");
-    let inicio_do_nome = prefixo.map_or(no.inicio, |k| cx.arvore.nos[k].fim);
-    let resto = cx.fonte[inicio_do_nome..no.fim].trim_start();
-    let fim = resto.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(resto.len());
-    let nome = &resto[..fim];
-    if nome.is_empty() || nome == "dynamic" || nome == "void" {
+fn type_element(p: &Project, cx: &Context<'_>, n: usize) -> Option<(Key, usize)> {
+    let prog = p.program();
+    let no = &cx.tree.nos[n];
+    let prefix = cx.children(n).iter().copied().find(|&k| cx.kind(k) == "ImportPrefixReference");
+    let name_start = prefix.map_or(no.inicio, |k| cx.tree.nos[k].fim);
+    let rest = cx.source[name_start..no.fim].trim_start();
+    let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
+    let name = &rest[..end];
+    if name.is_empty() || name == "dynamic" || name == "void" {
         return None;
     }
-    let s = p.consulta.nomes.lookup(nome)?;
-    let vinculo = match prefixo {
+    let s = p.query.names.lookup(name)?;
+    let binding = match prefix {
         Some(k) => {
-            let t = cx.texto_do_no(k);
+            let t = cx.node_text(k);
             let pf = t.trim_end_matches('.').trim();
-            let ps = p.consulta.nomes.lookup(pf)?;
-            prog.lookup_prefixed_na_unidade(cx.unidade, ps, s)
+            let ps = p.query.names.lookup(pf)?;
+            prog.lookup_prefixed_na_unidade(cx.unit, ps, s)
         }
         None => {
             // Um parâmetro de tipo em escopo vem antes do escopo da unidade.
-            if let Some(d) = crate::project::declaracao_de_parametro_de_tipo(cx.ast, no.inicio, s) {
-                return Some((Chave::ParametroDeTipo(d), nome.len()));
+            if let Some(d) = crate::project::type_parameter_declaration(cx.ast, no.inicio, s) {
+                return Some((Key::TypeParameter(d), name.len()));
             }
-            prog.lookup_na_unidade(cx.unidade, s)
+            prog.lookup_na_unidade(cx.unit, s)
         }
     }?;
-    let chave = match vinculo.getter? {
-        Element::Class(c) => Chave::Classe(c),
-        Element::Typedef(t) => Chave::Typedef(t),
-        Element::Extension(e) => Chave::Extensao(e),
+    let key = match binding.getter? {
+        Element::Class(c) => Key::Class(c),
+        Element::Typedef(t) => Key::Typedef(t),
+        Element::Extension(e) => Key::Extension(e),
         _ => return None,
     };
-    Some((chave, nome.len()))
+    Some((key, name.len()))
 }
 
 /// O nome declarado de um parâmetro ou de uma declaração simples: o offset
 /// e o texto.
-fn nome_declarado(cx: &Contexto<'_>, n: usize) -> Option<(usize, String)> {
-    let no = &cx.arvore.nos[n];
-    let t = cx.texto_do_no(n);
+fn declared_name(cx: &Context<'_>, n: usize) -> Option<(usize, String)> {
+    let no = &cx.tree.nos[n];
+    let t = cx.node_text(n);
     // Sem os filhos (tipo, anotações, valor padrão): o primeiro trecho de
     // identificador fora deles, o último antes de `=`, `:`, `(`.
-    let mut melhor: Option<(usize, String)> = None;
+    let mut best: Option<(usize, String)> = None;
     let mut i = 0;
     let b = t.as_bytes();
     while i < b.len() {
         let c = b[i];
-        let dentro_de_filho = cx.filhos(n).iter().any(|&f| {
-            let s = &cx.arvore.nos[f];
+        let inside_child = cx.children(n).iter().any(|&f| {
+            let s = &cx.tree.nos[f];
             s.inicio <= no.inicio + i && no.inicio + i < s.fim
         });
-        if dentro_de_filho {
+        if inside_child {
             i += 1;
             continue;
         }
@@ -355,39 +355,39 @@ fn nome_declarado(cx: &Contexto<'_>, n: usize) -> Option<(usize, String)> {
             break;
         }
         if c.is_ascii_alphabetic() || c == b'_' || c == b'$' {
-            let ini = i;
+            let start = i;
             while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'$') {
                 i += 1;
             }
-            let palavra = &t[ini..i];
-            if !matches!(palavra, "final" | "var" | "const" | "late" | "covariant" | "required" | "this" | "super") {
-                melhor = Some((no.inicio + ini, palavra.to_string()));
+            let word = &t[start..i];
+            if !matches!(word, "final" | "var" | "const" | "late" | "covariant" | "required" | "this" | "super") {
+                best = Some((no.inicio + start, word.to_string()));
             }
             continue;
         }
         i += 1;
     }
-    melhor
+    best
 }
 
 /// O primeiro identificador fora dos filhos (o nome de uma constante de
 /// enum, depois das anotações).
-fn primeiro_identificador(cx: &Contexto<'_>, n: usize) -> Option<(usize, String)> {
-    let no = &cx.arvore.nos[n];
-    let t = cx.texto_do_no(n);
+fn first_identifier(cx: &Context<'_>, n: usize) -> Option<(usize, String)> {
+    let no = &cx.tree.nos[n];
+    let t = cx.node_text(n);
     let b = t.as_bytes();
     let mut i = 0;
     while i < b.len() {
-        let dentro = cx.filhos(n).iter().any(|&f| {
-            let s = &cx.arvore.nos[f];
+        let inside = cx.children(n).iter().any(|&f| {
+            let s = &cx.tree.nos[f];
             s.inicio <= no.inicio + i && no.inicio + i < s.fim
         });
-        if !dentro && (b[i].is_ascii_alphabetic() || b[i] == b'_' || b[i] == b'$') {
-            let ini = i;
+        if !inside && (b[i].is_ascii_alphabetic() || b[i] == b'_' || b[i] == b'$') {
+            let start = i;
             while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'$') {
                 i += 1;
             }
-            return Some((no.inicio + ini, t[ini..i].to_string()));
+            return Some((no.inicio + start, t[start..i].to_string()));
         }
         i += 1;
     }
@@ -395,35 +395,35 @@ fn primeiro_identificador(cx: &Contexto<'_>, n: usize) -> Option<(usize, String)
 }
 
 /// O campo de `this.x` (o `FieldFormalParameter` em `n`).
-fn campo_do_this(p: &Projeto, cx: &Contexto<'_>, n: usize, nome: &str) -> Option<VariableId> {
-    campo_da_classe_em(p, cx, cx.arvore.nos[n].inicio, nome)
+fn this_field(p: &Project, cx: &Context<'_>, n: usize, name: &str) -> Option<VariableId> {
+    class_field_in(p, cx, cx.tree.nos[n].inicio, name)
 }
 
-/// O campo `nome` da classe que contém o offset.
-fn campo_da_classe_em(p: &Projeto, cx: &Contexto<'_>, offset: usize, nome: &str) -> Option<VariableId> {
-    let prog = p.programa();
+/// O campo `name` da classe que contém o offset.
+fn class_field_in(p: &Project, cx: &Context<'_>, offset: usize, name: &str) -> Option<VariableId> {
+    let prog = p.program();
     let c = prog.classes.iter().position(|c| {
         c.decl.is_some_and(|d| {
-            d.unit == cx.unidade && {
+            d.unit == cx.unit && {
                 let s = cx.ast.decl(d.decl).span;
                 s.start <= offset && offset <= s.end
             }
         })
     })?;
-    prog.class(ClassId(c as u32)).fields.iter().copied().find(|v| p.nome(prog.variable(*v).name) == nome)
+    prog.class(ClassId(c as u32)).fields.iter().copied().find(|v| p.name(prog.variable(*v).name) == name)
 }
 
 /// A variável (de topo, campo ou constante de enum) cujo nome começa em
 /// `offset` na unidade.
-pub(crate) fn variavel_declarada_em(p: &Projeto, u: UnitId, offset: usize) -> Option<VariableId> {
-    let prog = p.programa();
-    (0..prog.variables.len()).map(|i| VariableId(i as u32)).find(|&v| p.nome_da_variavel(v).is_some_and(|(uu, s)| uu == u && s.start == offset))
+pub(crate) fn variable_declared_in(p: &Project, u: UnitId, offset: usize) -> Option<VariableId> {
+    let prog = p.program();
+    (0..prog.variables.len()).map(|i| VariableId(i as u32)).find(|&v| p.variable_name(v).is_some_and(|(uu, s)| uu == u && s.start == offset))
 }
 
 /// O construtor declarado no intervalo.
-fn construtor_declarado_em(p: &Projeto, u: UnitId, ini: usize, fim: usize) -> Option<FunctionElementId> {
-    let prog = p.programa();
-    let unidade = prog.unit(u);
-    let (mi, _) = unidade.ast.members.iter().enumerate().find(|(_, m)| matches!(m.kind, ast::MemberKind::Constructor(_)) && m.span.start >= ini && m.span.end <= fim)?;
-    p.construtor_do_no(u, ast::MemberId(mi as u32))
+fn declared_constructor_in(p: &Project, u: UnitId, start: usize, end: usize) -> Option<FunctionElementId> {
+    let prog = p.program();
+    let unit = prog.unit(u);
+    let (mi, _) = unit.ast.members.iter().enumerate().find(|(_, m)| matches!(m.kind, ast::MemberKind::Constructor(_)) && m.span.start >= start && m.span.end <= end)?;
+    p.node_constructor(u, ast::MemberId(mi as u32))
 }

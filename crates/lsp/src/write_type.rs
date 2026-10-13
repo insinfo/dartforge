@@ -5,86 +5,86 @@
 //! bibliotecas a importar.
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use crate::refactorings::Contexto;
+use crate::refactorings::Context;
 use dartforge_elements::model::{ClassId, Element, FunctionElementId, LibraryId};
 use dartforge_types::table::Exibicao;
 use dartforge_types::{Type, TypeId, TypeParamOwner};
 use std::collections::BTreeSet;
 
 /// O escritor de tipos de um ponto da unidade.
-pub(crate) struct Escritor<'a, 'p> {
-    consulta: &'a crate::query::Consulta,
+pub(crate) struct Writer<'a, 'p> {
+    query: &'a crate::query::Query,
     _p: std::marker::PhantomData<&'p ()>,
-    biblioteca: LibraryId,
+    library: LibraryId,
     /// `_EnclosingElementFinder`: a `ClassDeclaration` e o executável mais
     /// externos que contêm o ponto.
-    classe: Option<ClassId>,
-    executavel: Option<FunctionElementId>,
+    class: Option<ClassId>,
+    executable: Option<FunctionElementId>,
     /// `methodBeingCopied`: o executável cujos parâmetros de tipo são
     /// copiados junto (a sobrescrita do completar).
-    pub(crate) copiado: Option<FunctionElementId>,
+    pub(crate) copied: Option<FunctionElementId>,
     /// As bibliotecas que o `_writeLibraryReference` agendou para importar.
-    pub(crate) importar: BTreeSet<LibraryId>,
+    pub(crate) import: BTreeSet<LibraryId>,
 }
 
-impl<'a, 'p> Escritor<'a, 'p> {
-    pub(crate) fn novo(cx: &'a Contexto<'p>, offset: usize) -> Escritor<'a, 'p> {
-        let prog = cx.p.programa();
-        let biblioteca = prog.unit(cx.unidade).library;
-        let mut classe = None;
-        let mut executavel = None;
-        if let Some(n) = cx.arvore.localizar_exclusivo(offset) {
-            let mut atual = Some(n);
-            while let Some(k) = atual {
-                match (cx.especie(k), cx.arvore.nos[k].marca) {
-                    ("ClassDeclaration", crate::arvore_analyzer::Marca::Decl(d)) => classe = cx.classe_da_declaracao(cx.unidade, d),
+impl<'a, 'p> Writer<'a, 'p> {
+    pub(crate) fn new(cx: &'a Context<'p>, offset: usize) -> Writer<'a, 'p> {
+        let prog = cx.p.program();
+        let library = prog.unit(cx.unit).library;
+        let mut class = None;
+        let mut executable = None;
+        if let Some(n) = cx.tree.localizar_exclusivo(offset) {
+            let mut current = Some(n);
+            while let Some(k) = current {
+                match (cx.kind(k), cx.tree.nos[k].marca) {
+                    ("ClassDeclaration", crate::arvore_analyzer::Marca::Decl(d)) => class = cx.declaration_class(cx.unit, d),
                     ("MethodDeclaration" | "FunctionDeclaration", crate::arvore_analyzer::Marca::Funcao(fid)) => {
-                        executavel = cx.p.funcao_do_no(cx.unidade, fid);
+                        executable = cx.p.node_function(cx.unit, fid);
                     }
                     ("ConstructorDeclaration", _) => {
-                        let s = cx.arvore.span(k);
-                        executavel = cx
+                        let s = cx.tree.span(k);
+                        executable = cx
                             .ast
                             .members
                             .iter()
                             .enumerate()
                             .find(|(_, m)| matches!(m.kind, dartforge_frontend::ast::MemberKind::Constructor(_)) && m.span.start >= s.start && m.span.end <= s.end)
-                            .and_then(|(mi, _)| cx.p.construtor_do_no(cx.unidade, dartforge_frontend::ast::MemberId(mi as u32)));
+                            .and_then(|(mi, _)| cx.p.node_constructor(cx.unit, dartforge_frontend::ast::MemberId(mi as u32)));
                     }
                     _ => {}
                 }
-                atual = cx.pai(k);
+                current = cx.parent(k);
             }
         }
-        Escritor { consulta: &cx.p.consulta, _p: std::marker::PhantomData, biblioteca, classe, executavel, copiado: None, importar: BTreeSet::new() }
+        Writer { query: &cx.p.query, _p: std::marker::PhantomData, library, class, executable, copied: None, import: BTreeSet::new() }
     }
 
     /// O escritor sobre a consulta do completar: a biblioteca do pedido, a
     /// classe e o executável que contêm o ponto (`_EnclosingElementFinder`).
-    pub(crate) fn da_consulta(
-        consulta: &'a crate::query::Consulta,
-        biblioteca: LibraryId,
-        classe: Option<ClassId>,
-        executavel: Option<FunctionElementId>,
-    ) -> Escritor<'a, 'p> {
-        Escritor { consulta, _p: std::marker::PhantomData, biblioteca, classe, executavel, copiado: None, importar: BTreeSet::new() }
+    pub(crate) fn of_query(
+        query: &'a crate::query::Query,
+        library: LibraryId,
+        class: Option<ClassId>,
+        executable: Option<FunctionElementId>,
+    ) -> Writer<'a, 'p> {
+        Writer { query, _p: std::marker::PhantomData, library, class, executable, copied: None, import: BTreeSet::new() }
     }
 
-    fn tabela(&self) -> &dartforge_types::TypeTable {
-        &self.consulta.tabela
+    fn table(&self) -> &dartforge_types::TypeTable {
+        &self.query.table
     }
 
     /// `_getVisibleType(type) != null`.
-    fn visivel(&self, t: TypeId) -> bool {
-        let prog = &self.consulta.programa;
-        match self.tabela().get(t) {
+    fn visible(&self, t: TypeId) -> bool {
+        let prog = &self.query.program;
+        match self.table().get(t) {
             Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => {
                 let c = prog.class(*class);
-                !(self.consulta.nome(c.name).starts_with('_') && c.library != self.biblioteca)
+                !(self.query.name(c.name).starts_with('_') && c.library != self.library)
             }
-            Type::TypeParameter { param, .. } | Type::Intersection { param, .. } => match self.tabela().param(*param).owner {
-                TypeParamOwner::Class(c) => self.classe == Some(c),
-                TypeParamOwner::Function(f) => self.executavel == Some(f) || self.copiado == Some(f),
+            Type::TypeParameter { param, .. } | Type::Intersection { param, .. } => match self.table().param(*param).owner {
+                TypeParamOwner::Class(c) => self.class == Some(c),
+                TypeParamOwner::Function(f) => self.executable == Some(f) || self.copied == Some(f),
                 TypeParamOwner::GenericFunctionType => true,
                 _ => false,
             },
@@ -92,46 +92,46 @@ impl<'a, 'p> Escritor<'a, 'p> {
         }
     }
 
-    /// `writeType(type, required: obrigatorio)`: `None` quando nada é
-    /// escrito (com `obrigatorio`, `var`).
-    pub(crate) fn escrever_tipo(&mut self, t: Option<TypeId>, obrigatorio: bool) -> Option<String> {
-        let escrito = match t {
-            Some(t) if !matches!(self.tabela().get(t), Type::Dynamic) => self.escrever(t, false),
+    /// `writeType(type, required: required)`: `None` quando nada é
+    /// escrito (com `required`, `var`).
+    pub(crate) fn write_type(&mut self, t: Option<TypeId>, required: bool) -> Option<String> {
+        let written = match t {
+            Some(t) if !matches!(self.table().get(t), Type::Dynamic) => self.write(t, false),
             _ => None,
         };
-        match escrito {
+        match written {
             Some(s) => Some(s),
-            None if obrigatorio => Some("var".to_string()),
+            None if required => Some("var".to_string()),
             None => None,
         }
     }
 
     /// `_writeType(type, required)`.
-    pub(crate) fn escrever(&mut self, t: TypeId, obrigatorio: bool) -> Option<String> {
-        if !self.visivel(t) {
+    pub(crate) fn write(&mut self, t: TypeId, required: bool) -> Option<String> {
+        if !self.visible(t) {
             return None;
         }
-        let exibicao = self.tabela().exibicao(t).cloned();
-        if matches!(exibicao, Some(Exibicao::Invalido)) || matches!(self.tabela().get(t), Type::Dynamic) {
-            return obrigatorio.then(|| "dynamic".to_string());
+        let display = self.table().exibicao(t).cloned();
+        if matches!(display, Some(Exibicao::Invalido)) || matches!(self.table().get(t), Type::Dynamic) {
+            return required.then(|| "dynamic".to_string());
         }
-        if matches!(self.tabela().get(t), Type::Never) && !matches!(exibicao, Some(Exibicao::NeverAnulavel)) {
+        if matches!(self.table().get(t), Type::Never) && !matches!(display, Some(Exibicao::NeverAnulavel)) {
             return Some("Never".to_string());
         }
-        let anulavel = self.tabela().get(t).is_declared_nullable();
-        let sufixo = if anulavel { "?" } else { "" };
-        if let Some(Exibicao::Alias { typedef, args }) = exibicao {
-            let s = self.elemento_com_argumentos(Element::Typedef(typedef), &args);
-            return Some(format!("{s}{sufixo}"));
+        let nullable_ = self.table().get(t).is_declared_nullable();
+        let suffix = if nullable_ { "?" } else { "" };
+        if let Some(Exibicao::Alias { typedef, args }) = display {
+            let s = self.element_with_arguments(Element::Typedef(typedef), &args);
+            return Some(format!("{s}{suffix}"));
         }
-        if matches!(exibicao, Some(Exibicao::NeverAnulavel)) {
+        if matches!(display, Some(Exibicao::NeverAnulavel)) {
             return Some("Never?".to_string());
         }
-        let p = self.consulta;
-        match self.tabela().get(t).clone() {
+        let p = self.query;
+        match self.table().get(t).clone() {
             Type::Function { type_params, ret, positional, optional, named, nullable } => {
                 let mut s = String::new();
-                if let Some(r) = self.escrever(ret, false) {
+                if let Some(r) = self.write(ret, false) {
                     s.push_str(&r);
                     s.push(' ');
                 }
@@ -142,10 +142,10 @@ impl<'a, 'p> Escritor<'a, 'p> {
                         if i > 0 {
                             s.push_str(", ");
                         }
-                        let dados = self.tabela().param(*tp);
-                        let (nome, limite, explicito) = (dados.name, dados.bound, dados.explicito);
-                        s.push_str(p.nome(nome));
-                        if explicito && let Some(b) = self.escrever(limite, false) {
+                        let data = self.table().param(*tp);
+                        let (name, limit, explicit) = (data.name, data.bound, data.explicito);
+                        s.push_str(p.name(name));
+                        if explicit && let Some(b) = self.write(limit, false) {
                             s.push_str(" extends ");
                             s.push_str(&b);
                         }
@@ -153,59 +153,59 @@ impl<'a, 'p> Escritor<'a, 'p> {
                     s.push('>');
                 }
                 // `writeParameters(includeDefaultValues: false,
-                // requiredTypes: true)`; os posicionais sem nome viram `p1`…
-                let mut usados: BTreeSet<String> = named.iter().map(|(n, _, _)| p.nome(*n).to_string()).collect();
+                // requiredTypes: true)`; os positional sem name viram `p1`…
+                let mut used: BTreeSet<String> = named.iter().map(|(n, _, _)| p.name(*n).to_string()).collect();
                 s.push('(');
                 let mut i = 0usize;
-                let mut abriu_opcional = false;
-                let mut abriu_nomeado = false;
-                let gerar = |usados: &mut BTreeSet<String>| {
+                let mut opened_optional = false;
+                let mut opened_named = false;
+                let generate = |used: &mut BTreeSet<String>| {
                     let mut k = 1;
-                    while usados.contains(&format!("p{k}")) {
+                    while used.contains(&format!("p{k}")) {
                         k += 1;
                     }
                     let n = format!("p{k}");
-                    usados.insert(n.clone());
+                    used.insert(n.clone());
                     n
                 };
                 for &q in positional.iter() {
                     if i > 0 {
                         s.push_str(", ");
                     }
-                    let nome = gerar(&mut usados);
-                    let tipo = self.escrever(q, true);
-                    s.push_str(&parametro(tipo, &nome, false));
+                    let name = generate(&mut used);
+                    let ty = self.write(q, true);
+                    s.push_str(&parameter(ty, &name, false));
                     i += 1;
                 }
                 for &q in optional.iter() {
                     if i > 0 {
                         s.push_str(", ");
                     }
-                    if !abriu_opcional {
+                    if !opened_optional {
                         s.push('[');
-                        abriu_opcional = true;
+                        opened_optional = true;
                     }
-                    let nome = gerar(&mut usados);
-                    let tipo = self.escrever(q, true);
-                    s.push_str(&parametro(tipo, &nome, false));
+                    let name = generate(&mut used);
+                    let ty = self.write(q, true);
+                    s.push_str(&parameter(ty, &name, false));
                     i += 1;
                 }
-                for (n, q, requerido) in named.iter() {
+                for (n, q, required_) in named.iter() {
                     if i > 0 {
                         s.push_str(", ");
                     }
-                    if !abriu_nomeado {
+                    if !opened_named {
                         s.push('{');
-                        abriu_nomeado = true;
+                        opened_named = true;
                     }
-                    let tipo = self.escrever(*q, true);
-                    s.push_str(&parametro(tipo, p.nome(*n), *requerido));
+                    let ty = self.write(*q, true);
+                    s.push_str(&parameter(ty, p.name(*n), *required_));
                     i += 1;
                 }
-                if abriu_nomeado {
+                if opened_named {
                     s.push('}');
                 }
-                if abriu_opcional {
+                if opened_optional {
                     s.push(']');
                 }
                 s.push(')');
@@ -215,70 +215,70 @@ impl<'a, 'p> Escritor<'a, 'p> {
                 Some(s)
             }
             Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => {
-                Some(format!("{}{sufixo}", self.elemento_com_argumentos(Element::Class(class), &args)))
+                Some(format!("{}{suffix}", self.element_with_arguments(Element::Class(class), &args)))
             }
-            Type::FutureOr { arg, .. } => match self.classe_future_or() {
-                Some(c) => Some(format!("{}{sufixo}", self.elemento_com_argumentos(Element::Class(c), &[arg]))),
-                None => Some(format!("FutureOr{sufixo}")),
+            Type::FutureOr { arg, .. } => match self.future_or_class() {
+                Some(c) => Some(format!("{}{suffix}", self.element_with_arguments(Element::Class(c), &[arg]))),
+                None => Some(format!("FutureOr{suffix}")),
             },
             Type::Null => match p.core.null_class {
-                Some(c) => Some(self.elemento_com_argumentos(Element::Class(c), &[])),
+                Some(c) => Some(self.element_with_arguments(Element::Class(c), &[])),
                 None => Some("Null".to_string()),
             },
-            Type::Never => Some(format!("Never{sufixo}")),
+            Type::Never => Some(format!("Never{suffix}")),
             Type::TypeParameter { param, .. } | Type::Intersection { param, .. } => {
-                Some(format!("{}{sufixo}", p.nome(self.tabela().param(param).name)))
+                Some(format!("{}{suffix}", p.name(self.table().param(param).name)))
             }
             Type::Void => Some("void".to_string()),
             Type::Record { positional, named, .. } => {
                 let mut s = String::from("(");
-                let mut primeiro = true;
+                let mut first = true;
                 for &q in positional.iter() {
-                    if !primeiro {
+                    if !first {
                         s.push_str(", ");
                     }
-                    primeiro = false;
-                    s.push_str(&self.escrever(q, false).unwrap_or_default());
+                    first = false;
+                    s.push_str(&self.write(q, false).unwrap_or_default());
                 }
                 if !named.is_empty() {
-                    s.push_str(if primeiro { "{" } else { ", {" });
-                    let mut primeiro_nomeado = true;
-                    let mut nomeados: Vec<(String, TypeId)> = named.iter().map(|(n, q)| (p.nome(*n).to_string(), *q)).collect();
-                    nomeados.sort_by(|a, b| a.0.cmp(&b.0));
-                    for (n, q) in nomeados {
-                        if !primeiro_nomeado {
+                    s.push_str(if first { "{" } else { ", {" });
+                    let mut first_named = true;
+                    let mut named_: Vec<(String, TypeId)> = named.iter().map(|(n, q)| (p.name(*n).to_string(), *q)).collect();
+                    named_.sort_by(|a, b| a.0.cmp(&b.0));
+                    for (n, q) in named_ {
+                        if !first_named {
                             s.push_str(", ");
                         }
-                        primeiro_nomeado = false;
-                        s.push_str(&self.escrever(q, false).unwrap_or_default());
+                        first_named = false;
+                        s.push_str(&self.write(q, false).unwrap_or_default());
                         s.push(' ');
                         s.push_str(&n);
                     }
                     s.push('}');
                 }
                 s.push(')');
-                s.push_str(sufixo);
+                s.push_str(suffix);
                 Some(s)
             }
-            Type::Dynamic => obrigatorio.then(|| "dynamic".to_string()),
+            Type::Dynamic => required.then(|| "dynamic".to_string()),
         }
     }
 
     /// `writeType(typeProvider.futureType(x))` com `x` já achatado
-    /// (`anulavel`: o `flatten` de um `FutureOr<X>?`/`Future<X>?` é `X?`).
-    pub(crate) fn escrever_future(&mut self, x: TypeId, anulavel: bool) -> Option<String> {
-        let futuro = self.consulta.core.future_class?;
-        let mut s = self.referencia(Element::Class(futuro));
+    /// (`nullable`: o `flatten` de um `FutureOr<X>?`/`Future<X>?` é `X?`).
+    pub(crate) fn write_future(&mut self, x: TypeId, nullable: bool) -> Option<String> {
+        let future = self.query.core.future_class?;
+        let mut s = self.reference(Element::Class(future));
         s.push_str("Future");
-        let dinamico = matches!(self.tabela().get(x), Type::Dynamic);
-        if !dinamico && self.visivel(x) {
-            let mut interno = self.escrever(x, true).unwrap_or_default();
-            let ja = self.tabela().get(x).is_declared_nullable() || matches!(self.tabela().get(x), Type::Void | Type::Null);
-            if anulavel && !ja {
-                interno.push('?');
+        let dynamic = matches!(self.table().get(x), Type::Dynamic);
+        if !dynamic && self.visible(x) {
+            let mut internal = self.write(x, true).unwrap_or_default();
+            let already = self.table().get(x).is_declared_nullable() || matches!(self.table().get(x), Type::Void | Type::Null);
+            if nullable && !already {
+                internal.push('?');
             }
             s.push('<');
-            s.push_str(&interno);
+            s.push_str(&internal);
             s.push('>');
         }
         Some(s)
@@ -286,25 +286,25 @@ impl<'a, 'p> Escritor<'a, 'p> {
 
     /// `_writeTypeElementArguments`: o prefixo, o nome e os argumentos (só
     /// se algum não é `dynamic` e todos são visíveis).
-    fn elemento_com_argumentos(&mut self, el: Element, args: &[TypeId]) -> String {
-        let mut s = self.referencia(el);
-        let p = self.consulta;
-        let prog = &p.programa;
+    fn element_with_arguments(&mut self, el: Element, args: &[TypeId]) -> String {
+        let mut s = self.reference(el);
+        let p = self.query;
+        let prog = &p.program;
         s.push_str(match el {
-            Element::Class(c) => p.nome(prog.class(c).name),
-            Element::Typedef(t) => p.nome(prog.typedef(t).name),
+            Element::Class(c) => p.name(prog.class(c).name),
+            Element::Typedef(t) => p.name(prog.typedef(t).name),
             _ => "",
         });
         if !args.is_empty() {
-            let algum = args.iter().any(|a| !matches!(self.tabela().get(*a), Type::Dynamic));
-            let todos_visiveis = args.iter().all(|a| self.visivel(*a));
-            if algum && todos_visiveis {
+            let some = args.iter().any(|a| !matches!(self.table().get(*a), Type::Dynamic));
+            let visible_all = args.iter().all(|a| self.visible(*a));
+            if some && visible_all {
                 s.push('<');
                 for (i, &a) in args.iter().enumerate() {
                     if i != 0 {
                         s.push_str(", ");
                     }
-                    s.push_str(&self.escrever(a, true).unwrap_or_default());
+                    s.push_str(&self.write(a, true).unwrap_or_default());
                 }
                 s.push('>');
             }
@@ -315,10 +315,10 @@ impl<'a, 'p> Escritor<'a, 'p> {
     /// `_writeLibraryReference`: o prefixo do primeiro import (o implícito
     /// de `dart:core` por último) cujo namespace tem o elemento; sem import,
     /// a biblioteca do elemento é agendada (sem prefixo).
-    fn referencia(&mut self, el: Element) -> String {
-        let p = self.consulta;
-        let prog = &p.programa;
-        let (lib, nome) = match el {
+    fn reference(&mut self, el: Element) -> String {
+        let p = self.query;
+        let prog = &p.program;
+        let (lib, name) = match el {
             Element::Class(c) => (prog.class(c).library, prog.class(c).name),
             Element::Typedef(t) => (prog.typedef(t).library, prog.typedef(t).name),
             Element::Extension(x) => match prog.extension(x).name {
@@ -327,48 +327,48 @@ impl<'a, 'p> Escritor<'a, 'p> {
             },
             _ => return String::new(),
         };
-        if lib == self.biblioteca {
+        if lib == self.library {
             return String::new();
         }
-        let atual = prog.library(self.biblioteca);
-        let definidora = atual.units.first().copied();
-        let no_namespace = |alvo: LibraryId, combinadores: &[dartforge_frontend::ast::Combinator]| {
-            prog.library(alvo).exported.get(&nome).and_then(|b| b.getter) == Some(el)
-                && combinadores.iter().all(|c| match c {
-                    dartforge_frontend::ast::Combinator::Show(ns) => ns.iter().any(|n| n.sym == nome),
-                    dartforge_frontend::ast::Combinator::Hide(ns) => !ns.iter().any(|n| n.sym == nome),
+        let current = prog.library(self.library);
+        let defining = current.units.first().copied();
+        let node_namespace = |target: LibraryId, combinators: &[dartforge_frontend::ast::Combinator]| {
+            prog.library(target).exported.get(&name).and_then(|b| b.getter) == Some(el)
+                && combinators.iter().all(|c| match c {
+                    dartforge_frontend::ast::Combinator::Show(ns) => ns.iter().any(|n| n.sym == name),
+                    dartforge_frontend::ast::Combinator::Hide(ns) => !ns.iter().any(|n| n.sym == name),
                 })
         };
-        let mut core_explicito = false;
-        for i in atual.imports.iter().filter(|i| Some(i.unit) == definidora) {
+        let mut explicit_core = false;
+        for i in current.imports.iter().filter(|i| Some(i.unit) == defining) {
             if Some(i.library) == p.core.core_library {
-                core_explicito = true;
+                explicit_core = true;
             }
-            if no_namespace(i.library, &i.combinators) {
-                return i.prefix.map(|x| format!("{}.", p.nome(x))).unwrap_or_default();
+            if node_namespace(i.library, &i.combinators) {
+                return i.prefix.map(|x| format!("{}.", p.name(x))).unwrap_or_default();
             }
         }
-        if !core_explicito
+        if !explicit_core
             && let Some(core) = p.core.core_library
-            && no_namespace(core, &[])
+            && node_namespace(core, &[])
         {
             return String::new();
         }
-        self.importar.insert(lib);
+        self.import.insert(lib);
         String::new()
     }
 
     /// `writeReference(element)`: o prefixo e o nome.
-    pub(crate) fn referencia_de(&mut self, el: Element, nome: &str) -> String {
-        format!("{}{nome}", self.referencia(el))
+    pub(crate) fn reference_of(&mut self, el: Element, name: &str) -> String {
+        format!("{}{name}", self.reference(el))
     }
 
     /// A classe `FutureOr` de `dart:async`.
-    fn classe_future_or(&self) -> Option<ClassId> {
-        let p = self.consulta;
-        let prog = &p.programa;
+    fn future_or_class(&self) -> Option<ClassId> {
+        let p = self.query;
+        let prog = &p.program;
         let lib = p.core.async_library?;
-        prog.library(lib).exported.iter().find(|(s, _)| p.nome(**s) == "FutureOr").and_then(|(_, b)| match b.getter {
+        prog.library(lib).exported.iter().find(|(s, _)| p.name(**s) == "FutureOr").and_then(|(_, b)| match b.getter {
             Some(Element::Class(c)) => Some(c),
             _ => None,
         })
@@ -376,17 +376,17 @@ impl<'a, 'p> Escritor<'a, 'p> {
 }
 
 /// `writeParameter(name, type, isRequiredType: true)` sem default.
-fn parametro(tipo: Option<String>, nome: &str, requerido: bool) -> String {
+fn parameter(ty: Option<String>, name: &str, required: bool) -> String {
     let mut s = String::new();
-    if requerido {
+    if required {
         s.push_str("required ");
     }
-    if let Some(t) = &tipo {
+    if let Some(t) = &ty {
         s.push_str(t);
-        if !nome.is_empty() {
+        if !name.is_empty() {
             s.push(' ');
         }
     }
-    s.push_str(nome);
+    s.push_str(name);
     s
 }

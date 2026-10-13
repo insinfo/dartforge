@@ -5,106 +5,106 @@
 //! `stdout` é só protocolo, e um byte fora do enquadramento corrompe a
 //! sessão do editor.
 //!
-//! Fios: uma thread lê `stdin` quadro a quadro ([`transport::ler_mensagem`])
-//! e enfileira valores no [`Servidor`]; a thread principal despacha com
-//! [`Servidor::bombear`] e escreve cada mensagem de saída por inteiro sob um
+//! Fios: uma thread lê `stdin` quadro a quadro ([`transport::read_message`])
+//! e enfileira valores no [`Server`]; a thread principal despacha com
+//! [`Server::pump`] e escreve cada mensagem de saída por inteiro sob um
 //! `Mutex`. O servidor nunca envia requisições, então não há resposta a
 //! tratar nem correlação de ids no caminho de volta. A análise tipada
 //! (`docs/LSP.md`, "Diagnósticos tipados") roda numa terceira thread e
-//! acorda o despacho com [`Entrada::Despertar`] quando termina.
+//! acorda o despacho com [`Entry::Wake`] quando termina.
 
-use dartforge_lsp::{AnalisadorSemantico, Servidor};
-use dartforge_lsp::transport::{escrever_mensagem, ler_mensagem};
+use dartforge_lsp::{SemanticAnalyzer, Server};
+use dartforge_lsp::transport::{write_message, read_message};
 use serde_json::Value;
 use std::io::{self, BufReader};
 use std::sync::{Arc, Mutex, mpsc};
 
 /// Mensagem da thread leitora para o despacho: quadro ou fim do fluxo.
-enum Entrada {
+enum Entry {
     /// Quadro JSON decodificado.
-    Mensagem(Value),
+    Message(Value),
     /// `stdin` fechou ou falhou de forma irrecuperável.
-    Fim,
+    End,
     /// A análise tipada terminou: há diagnósticos a publicar.
-    Despertar,
+    Wake,
 }
 
 fn main() {
-    let codigo = executar(std::env::args().skip(1).collect());
-    std::process::exit(codigo);
+    let code = run(std::env::args().skip(1).collect());
+    std::process::exit(code);
 }
 
 /// Ponto de entrada testável: devolve o código de saída em vez de sair.
-fn executar(argumentos: Vec<String>) -> i32 {
-    if argumentos.iter().any(|a| a == "--version" || a == "-V") {
+fn run(arguments: Vec<String>) -> i32 {
+    if arguments.iter().any(|a| a == "--version" || a == "-V") {
         println!("dartforge-lsp {}", env!("CARGO_PKG_VERSION"));
         return 0;
     }
-    if argumentos
+    if arguments
         .iter()
         .any(|a| a == "--help" || a == "-h" || (!a.starts_with('-') && a != "--stdio"))
     {
         println!("Uso: dartforge-lsp [--stdio] [--version]");
         return 0;
     }
-    servir_stdio()
+    serve_stdio()
 }
 
 /// Laço principal: enfileira pela leitora, despacha na principal, sai no `exit`.
-fn servir_stdio() -> i32 {
+fn serve_stdio() -> i32 {
     if std::env::var("RUST_LOG").is_ok() || std::env::var("DARTFORGE_LSP_DEBUG").is_ok() {
         eprintln!("[dartforge-lsp] log em stderr; stdout é só protocolo");
     }
-    let (tx, rx) = mpsc::channel::<Entrada>();
-    let despertar = tx.clone();
-    std::thread::spawn(move || ler_tudo(tx));
+    let (tx, rx) = mpsc::channel::<Entry>();
+    let wake = tx.clone();
+    std::thread::spawn(move || read_all(tx));
 
-    let saida = Arc::new(Mutex::new(io::stdout()));
-    let mut servidor = Servidor::com_analisador(AnalisadorSemantico::descobrir());
+    let output = Arc::new(Mutex::new(io::stdout()));
+    let mut server = Server::with_analyzer(SemanticAnalyzer::discover());
     // A análise tipada roda noutra thread e acorda o laço ao terminar.
-    servidor.ao_ter_diagnosticos(move || {
-        let _ = despertar.send(Entrada::Despertar);
+    server.on_diagnostics(move || {
+        let _ = wake.send(Entry::Wake);
     });
-    let mut fechou = false;
+    let mut closed = false;
     loop {
-        if !servidor.tem_pendente() && !fechou {
+        if !server.has_pending() && !closed {
             match rx.recv() {
-                Ok(Entrada::Mensagem(mensagem)) => {
-                    servidor.registrar_recebida(&mensagem);
-                    servidor.receber(mensagem);
+                Ok(Entry::Message(message)) => {
+                    server.register_received(&message);
+                    server.receive(message);
                 }
-                Ok(Entrada::Despertar) => {}
-                Ok(Entrada::Fim) | Err(_) => fechou = true,
+                Ok(Entry::Wake) => {}
+                Ok(Entry::End) | Err(_) => closed = true,
             }
         }
         loop {
             match rx.try_recv() {
-                Ok(Entrada::Mensagem(mensagem)) => {
-                    servidor.registrar_recebida(&mensagem);
-                    servidor.receber(mensagem);
+                Ok(Entry::Message(message)) => {
+                    server.register_received(&message);
+                    server.receive(message);
                 }
-                Ok(Entrada::Fim) => {
-                    fechou = true;
+                Ok(Entry::End) => {
+                    closed = true;
                     break;
                 }
-                Ok(Entrada::Despertar) => {}
+                Ok(Entry::Wake) => {}
                 Err(_) => break,
             }
         }
-        for resposta in servidor.bombear() {
-            let mut stdout = saida.lock().expect("stdout não envenenado");
-            if escrever_mensagem(&mut *stdout, &resposta).is_err() {
+        for response in server.pump() {
+            let mut stdout = output.lock().expect("stdout não envenenado");
+            if write_message(&mut *stdout, &response).is_err() {
                 return 1;
             }
         }
-        if servidor.deve_encerrar() {
+        if server.must_shutdown() {
             break;
         }
-        if fechou && !servidor.tem_pendente() {
+        if closed && !server.has_pending() {
             break;
         }
     }
-    servidor.codigo_saida()
+    server.exit_code()
 }
 
 /// Thread leitora: decodifica quadros até o fim do fluxo e os enfileira.
@@ -112,13 +112,13 @@ fn servir_stdio() -> i32 {
 /// JSON inválido após `Content-Length` válido é registrado em `stderr` e a
 /// leitura continua no próximo quadro: a fronteira seguinte é conhecida (o
 /// corpo tem tamanho exato), então a sessão não corrompe.
-fn ler_tudo(tx: mpsc::Sender<Entrada>) {
+fn read_all(tx: mpsc::Sender<Entry>) {
     let stdin = io::stdin();
-    let mut leitor = BufReader::new(stdin.lock());
+    let mut reader = BufReader::new(stdin.lock());
     loop {
-        match ler_mensagem(&mut leitor) {
-            Ok(Some(mensagem)) => {
-                if tx.send(Entrada::Mensagem(mensagem)).is_err() {
+        match read_message(&mut reader) {
+            Ok(Some(message)) => {
+                if tx.send(Entry::Message(message)).is_err() {
                     return;
                 }
             }
@@ -128,5 +128,5 @@ fn ler_tudo(tx: mpsc::Sender<Entrada>) {
             }
         }
     }
-    let _ = tx.send(Entrada::Fim);
+    let _ = tx.send(Entry::End);
 }

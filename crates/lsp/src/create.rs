@@ -15,14 +15,14 @@
 //! `extends_non_class`…) usam os mesmos produtores pelo diagnóstico.
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use crate::Edicao;
-use crate::actions::AcaoDeCodigo;
+use crate::Edit;
+use crate::actions::CodeAction;
 use crate::arvore_analyzer::Marca;
-use crate::write_type::Escritor;
-use crate::insert::Filtro;
-use crate::project::Projeto;
-use crate::refactorings::Contexto;
-use crate::refactorings_exec::{Mudanca, Texto, UM_RECUO};
+use crate::write_type::Writer;
+use crate::insert::Filter;
+use crate::project::Project;
+use crate::refactorings::Context;
+use crate::refactorings_exec::{Change, Text, ONE_INDENT};
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{ClassId, ClassKind, Element, ExtensionId, FunctionElementId, FunctionKind, LibraryId, UnitId};
 use dartforge_frontend::ast;
@@ -31,180 +31,180 @@ use std::collections::BTreeSet;
 
 /// O código de erro que escolhe os produtores.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Codigo {
-    Identificador,
-    Funcao,
-    Classe,
-    Metodo,
+pub(crate) enum Code {
+    Identifier,
+    Function,
+    Class,
+    Method,
     Getter,
     Setter,
-    GetterDeExtensao,
-    MetodoDeExtensao,
-    SetterDeExtensao,
+    ExtensionGetter,
+    ExtensionMethod,
+    ExtensionSetter,
     /// `CAST_TO_NON_TYPE`, `NOT_A_TYPE`.
-    NaoTipo,
+    NotType,
     /// `EXTENDS_NON_CLASS`, `IMPLEMENTS_NON_CLASS`, `MIXIN_OF_NON_CLASS`,
     /// `NEW_WITH_NON_TYPE`.
-    NaoClasse,
+    NonClass,
     /// `INVALID_ANNOTATION`, `UNDEFINED_ANNOTATION`.
-    Anotacao,
+    Annotation,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Produtor {
-    TrocarClasse,
-    TrocarAnotacao,
-    TrocarFuncao,
-    TrocarGetterOuSetter,
-    TrocarMetodo,
-    CriarClasse,
-    CriarMixin,
-    CriarCampo,
-    CriarGetter,
-    CriarSetter,
-    CriarLocal,
-    CriarParametro,
-    CriarMetodoOuFuncao,
-    CriarFuncao,
-    CriarMetodo,
-    CriarGetterDeExtensao,
-    CriarMetodoDeExtensao,
-    CriarSetterDeExtensao,
+enum Producer {
+    SwapClass,
+    SwapAnnotation,
+    SwapFunction,
+    SwapGetterOrSetter,
+    SwapMethod,
+    CreateClass,
+    CreateMixin,
+    CreateField,
+    CreateGetter,
+    CreateSetter,
+    CreateLocal,
+    CreateParameter,
+    CreateMethodOrFunction,
+    CreateFunction,
+    CreateMethod,
+    CreateExtensionGetter,
+    CreateExtensionMethod,
+    CreateExtensionSetter,
 }
 
 /// Os produtores de cada código (`nonLintProducerMap`).
-fn produtores(c: Codigo) -> &'static [Produtor] {
-    use Produtor::*;
+fn producers(c: Code) -> &'static [Producer] {
+    use Producer::*;
     match c {
-        Codigo::Identificador => &[TrocarGetterOuSetter, CriarClasse, CriarCampo, CriarGetter, CriarLocal, CriarParametro, CriarMetodoOuFuncao, CriarMixin, CriarSetter],
-        Codigo::Funcao => &[TrocarFuncao, CriarClasse, CriarFuncao],
-        Codigo::Classe => &[TrocarClasse, CriarClasse, CriarMixin],
-        Codigo::Metodo => &[TrocarMetodo, CriarClasse, CriarMetodoDeExtensao, CriarFuncao, CriarMetodo],
-        Codigo::Getter => &[TrocarGetterOuSetter, CriarClasse, CriarGetterDeExtensao, CriarCampo, CriarGetter, CriarLocal, CriarMetodoOuFuncao, CriarMixin],
-        Codigo::Setter => &[TrocarGetterOuSetter, CriarSetterDeExtensao, CriarCampo, CriarSetter],
-        Codigo::GetterDeExtensao => &[TrocarGetterOuSetter, CriarGetter],
-        Codigo::MetodoDeExtensao => &[TrocarMetodo, CriarMetodo],
-        Codigo::SetterDeExtensao => &[TrocarGetterOuSetter, CriarSetter],
-        Codigo::NaoTipo => &[TrocarClasse, CriarClasse, CriarMixin],
-        Codigo::NaoClasse => &[TrocarClasse, CriarClasse],
-        Codigo::Anotacao => &[TrocarAnotacao, CriarClasse],
+        Code::Identifier => &[SwapGetterOrSetter, CreateClass, CreateField, CreateGetter, CreateLocal, CreateParameter, CreateMethodOrFunction, CreateMixin, CreateSetter],
+        Code::Function => &[SwapFunction, CreateClass, CreateFunction],
+        Code::Class => &[SwapClass, CreateClass, CreateMixin],
+        Code::Method => &[SwapMethod, CreateClass, CreateExtensionMethod, CreateFunction, CreateMethod],
+        Code::Getter => &[SwapGetterOrSetter, CreateClass, CreateExtensionGetter, CreateField, CreateGetter, CreateLocal, CreateMethodOrFunction, CreateMixin],
+        Code::Setter => &[SwapGetterOrSetter, CreateExtensionSetter, CreateField, CreateSetter],
+        Code::ExtensionGetter => &[SwapGetterOrSetter, CreateGetter],
+        Code::ExtensionMethod => &[SwapMethod, CreateMethod],
+        Code::ExtensionSetter => &[SwapGetterOrSetter, CreateSetter],
+        Code::NotType => &[SwapClass, CreateClass, CreateMixin],
+        Code::NonClass => &[SwapClass, CreateClass],
+        Code::Annotation => &[SwapAnnotation, CreateClass],
     }
 }
 
 /// Distância de Levenshtein com limiar (`levenshtein.dart`): `1 << 20`
 /// quando passa do limiar ou a diferença de tamanhos passa dele.
-fn levenshtein(s: &str, t: &str, limiar: usize) -> usize {
-    const INFINITO: usize = 1 << 20;
+fn levenshtein(s: &str, t: &str, threshold: usize) -> usize {
+    const INFINITE: usize = 1 << 20;
     let s: Vec<char> = s.chars().collect();
     let t: Vec<char> = t.chars().collect();
-    if s.len().abs_diff(t.len()) > limiar {
-        return INFINITO;
+    if s.len().abs_diff(t.len()) > threshold {
+        return INFINITE;
     }
-    let mut anterior: Vec<usize> = (0..=t.len()).collect();
+    let mut previous: Vec<usize> = (0..=t.len()).collect();
     for (i, a) in s.iter().enumerate() {
-        let mut atual = vec![i + 1; t.len() + 1];
-        let mut minimo = atual[0];
+        let mut current = vec![i + 1; t.len() + 1];
+        let mut min = current[0];
         for (j, b) in t.iter().enumerate() {
-            let custo = usize::from(a != b);
-            atual[j + 1] = (anterior[j] + custo).min(anterior[j + 1] + 1).min(atual[j] + 1);
-            minimo = minimo.min(atual[j + 1]);
+            let cost = usize::from(a != b);
+            current[j + 1] = (previous[j] + cost).min(previous[j + 1] + 1).min(current[j] + 1);
+            min = min.min(current[j + 1]);
         }
-        if minimo > limiar {
-            return INFINITO;
+        if min > threshold {
+            return INFINITE;
         }
-        anterior = atual;
+        previous = current;
     }
-    let d = anterior[t.len()];
-    if d > limiar { INFINITO } else { d }
+    let d = previous[t.len()];
+    if d > threshold { INFINITE } else { d }
 }
 
 /// `_ClosestElementFinder`: o primeiro candidato com distância menor que a
 /// melhor (começando em 3).
-struct MaisProximo {
-    alvo: String,
-    distancia: usize,
-    nome: Option<String>,
+struct Closest {
+    target: String,
+    distance: usize,
+    name: Option<String>,
 }
 
-impl MaisProximo {
-    fn novo(alvo: &str) -> MaisProximo {
-        MaisProximo { alvo: alvo.to_string(), distancia: 3, nome: None }
+impl Closest {
+    fn new(target: &str) -> Closest {
+        Closest { target: target.to_string(), distance: 3, name: None }
     }
 
     /// `name` (o comparado; `x=` num setter) e o proposto.
-    fn ver(&mut self, nome: &str, proposto: &str) {
-        let d = levenshtein(nome, &self.alvo, self.distancia);
-        if d < self.distancia {
-            self.distancia = d;
-            self.nome = Some(proposto.to_string());
+    fn see(&mut self, name: &str, proposed: &str) {
+        let d = levenshtein(name, &self.target, self.distance);
+        if d < self.distance {
+            self.distance = d;
+            self.name = Some(proposed.to_string());
         }
     }
 }
 
 /// O `inGetterContext` de um `SimpleIdentifier`.
-fn em_contexto_de_leitura(cx: &Contexto<'_>, n: usize) -> bool {
-    let Some(pai0) = cx.pai(n) else { return true };
-    let (mut pai, mut alvo) = (pai0, n);
-    match cx.especie(pai0) {
+fn in_read_context(cx: &Context<'_>, n: usize) -> bool {
+    let Some(parent0) = cx.parent(n) else { return true };
+    let (mut parent, mut target) = (parent0, n);
+    match cx.kind(parent0) {
         "PrefixedIdentifier" | "PropertyAccess" => {
-            if cx.filhos(pai0).first() == Some(&n) {
+            if cx.children(parent0).first() == Some(&n) {
                 return true;
             }
-            let Some(p) = cx.pai(pai0) else { return true };
-            pai = p;
-            alvo = pai0;
+            let Some(p) = cx.parent(parent0) else { return true };
+            parent = p;
+            target = parent0;
         }
         _ => {}
     }
-    match cx.especie(pai) {
+    match cx.kind(parent) {
         "Label" => false,
-        "AssignmentExpression" => !(cx.filhos(pai).first() == Some(&alvo) && operador_de_atribuicao(cx, pai) == "="),
-        "ForEachPartsWithIdentifier" => cx.filhos(pai).first() != Some(&alvo),
+        "AssignmentExpression" => !(cx.children(parent).first() == Some(&target) && assignment_operator(cx, parent) == "="),
+        "ForEachPartsWithIdentifier" => cx.children(parent).first() != Some(&target),
         "FieldFormalParameter" => false,
         _ => true,
     }
 }
 
 /// O `inSetterContext` de um `SimpleIdentifier`.
-fn em_contexto_de_escrita(cx: &Contexto<'_>, n: usize) -> bool {
-    let Some(pai0) = cx.pai(n) else { return false };
-    let (mut pai, mut alvo) = (pai0, n);
-    match cx.especie(pai0) {
+fn in_write_context(cx: &Context<'_>, n: usize) -> bool {
+    let Some(parent0) = cx.parent(n) else { return false };
+    let (mut parent, mut target) = (parent0, n);
+    match cx.kind(parent0) {
         "PrefixedIdentifier" | "PropertyAccess" => {
-            if cx.filhos(pai0).first() == Some(&n) {
+            if cx.children(parent0).first() == Some(&n) {
                 return false;
             }
-            let Some(p) = cx.pai(pai0) else { return false };
-            pai = p;
-            alvo = pai0;
+            let Some(p) = cx.parent(parent0) else { return false };
+            parent = p;
+            target = parent0;
         }
         _ => {}
     }
-    match cx.especie(pai) {
+    match cx.kind(parent) {
         "PrefixExpression" | "PostfixExpression" => {
-            let t = cx.texto_do_no(pai);
+            let t = cx.node_text(parent);
             t.starts_with("++") || t.starts_with("--") || t.ends_with("++") || t.ends_with("--")
         }
-        "AssignmentExpression" => cx.filhos(pai).first() == Some(&alvo),
-        "ForEachPartsWithIdentifier" => cx.filhos(pai).first() == Some(&alvo),
+        "AssignmentExpression" => cx.children(parent).first() == Some(&target),
+        "ForEachPartsWithIdentifier" => cx.children(parent).first() == Some(&target),
         _ => false,
     }
 }
 
 /// O operador de uma `AssignmentExpression`.
-fn operador_de_atribuicao<'c>(cx: &'c Contexto<'_>, a: usize) -> &'c str {
-    let Some(&esq) = cx.filhos(a).first() else { return "" };
-    match cx.token_seguinte(cx.arvore.nos[esq].fim) {
-        Some(t) => &cx.fonte[t.start..t.end],
+fn assignment_operator<'c>(cx: &'c Context<'_>, a: usize) -> &'c str {
+    let Some(&left) = cx.children(a).first() else { return "" };
+    match cx.next_token(cx.tree.nos[left].fim) {
+        Some(t) => &cx.source[t.start..t.end],
         None => "",
     }
 }
 
 /// `climbPropertyAccess`.
-fn subir_acesso(cx: &Contexto<'_>, mut n: usize) -> usize {
-    while let Some(p) = cx.pai(n) {
-        let e = cx.especie(p);
-        if (e == "PrefixedIdentifier" || e == "PropertyAccess") && cx.filhos(p).last() == Some(&n) && cx.filhos(p).len() > 1 {
+fn climb_access(cx: &Context<'_>, mut n: usize) -> usize {
+    while let Some(p) = cx.parent(n) {
+        let e = cx.kind(p);
+        if (e == "PrefixedIdentifier" || e == "PropertyAccess") && cx.children(p).last() == Some(&n) && cx.children(p).len() > 1 {
             n = p;
         } else {
             break;
@@ -215,27 +215,27 @@ fn subir_acesso(cx: &Contexto<'_>, mut n: usize) -> usize {
 
 /// O alvo de um nome qualificado: o prefixo do `PrefixedIdentifier` ou o
 /// alvo do `PropertyAccess` (`getQualifiedPropertyTarget`).
-fn alvo_qualificado(cx: &Contexto<'_>, n: usize) -> Option<usize> {
-    let p = cx.pai(n)?;
-    match cx.especie(p) {
-        "PrefixedIdentifier" | "PropertyAccess" if cx.filhos(p).last() == Some(&n) && cx.filhos(p).len() > 1 => cx.filhos(p).first().copied(),
+fn qualified_target(cx: &Context<'_>, n: usize) -> Option<usize> {
+    let p = cx.parent(n)?;
+    match cx.kind(p) {
+        "PrefixedIdentifier" | "PropertyAccess" if cx.children(p).last() == Some(&n) && cx.children(p).len() > 1 => cx.children(p).first().copied(),
         _ => None,
     }
 }
 
-impl Contexto<'_> {
+impl Context<'_> {
     /// O elemento resolvido de um nó identificador.
-    fn resolvido(&self, n: usize) -> Option<&Resolved> {
-        let x = match self.arvore.nos[n].marca {
+    fn resolved(&self, n: usize) -> Option<&Resolved> {
+        let x = match self.tree.nos[n].marca {
             Marca::Expr(x) => x,
-            _ => self.expr_do_no(n)?,
+            _ => self.node_expr(n)?,
         };
-        self.corpos.get_resolved(x)
+        self.bodies.get_resolved(x)
     }
 
     /// A classe (ou mixin, enum, tipo de extensão) que o identificador nomeia.
-    fn classe_nomeada(&self, n: usize) -> Option<ClassId> {
-        match self.resolvido(n) {
+    fn named_class(&self, n: usize) -> Option<ClassId> {
+        match self.resolved(n) {
             Some(Resolved::Element(Element::Class(c))) => Some(*c),
             _ => None,
         }
@@ -243,14 +243,14 @@ impl Contexto<'_> {
 
     /// A extensão que o identificador nomeia, ou a do `ExtensionOverride`
     /// (`E(x)` / `p.E(x)` como invocação cujo nome resolve para a extensão).
-    fn extensao_do_alvo(&self, alvo: usize) -> Option<ExtensionId> {
-        if let Some(Resolved::Element(Element::Extension(x))) = self.resolvido(alvo) {
+    fn target_extension(&self, target: usize) -> Option<ExtensionId> {
+        if let Some(Resolved::Element(Element::Extension(x))) = self.resolved(target) {
             return Some(*x);
         }
-        if matches!(self.especie(alvo), "MethodInvocation" | "FunctionExpressionInvocation") {
-            for &f in self.filhos(alvo) {
-                if self.especie(f) == "SimpleIdentifier"
-                    && let Some(Resolved::Element(Element::Extension(x))) = self.resolvido(f)
+        if matches!(self.kind(target), "MethodInvocation" | "FunctionExpressionInvocation") {
+            for &f in self.children(target) {
+                if self.kind(f) == "SimpleIdentifier"
+                    && let Some(Resolved::Element(Element::Extension(x))) = self.resolved(f)
                 {
                     return Some(*x);
                 }
@@ -260,18 +260,18 @@ impl Contexto<'_> {
     }
 
     /// O alvo é um `ExtensionOverride` (`E(x)`), não o nome da extensão.
-    fn e_override_de_extensao(&self, alvo: usize) -> bool {
-        matches!(self.especie(alvo), "MethodInvocation" | "FunctionExpressionInvocation") && self.extensao_do_alvo(alvo).is_some()
+    fn is_extension_override(&self, target: usize) -> bool {
+        matches!(self.kind(target), "MethodInvocation" | "FunctionExpressionInvocation") && self.target_extension(target).is_some()
     }
 
     /// `getTargetInterfaceElement2(target)`.
-    fn interface_do_alvo(&self, alvo: usize) -> Option<ClassId> {
+    fn target_interface(&self, target: usize) -> Option<ClassId> {
         // O nome de uma classe como receptor (`A.m()`): o analyzer não dá
         // tipo estático ao literal de tipo e cai no elemento.
-        if let Some(c) = self.classe_nomeada(alvo) {
+        if let Some(c) = self.named_class(target) {
             return Some(c);
         }
-        match self.p.consulta.tabela.get(self.tipo_do_no(alvo)?) {
+        match self.p.query.table.get(self.node_type(target)?) {
             Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => Some(*class),
             _ => None,
         }
@@ -279,70 +279,70 @@ impl Contexto<'_> {
 
     /// `enclosingInterfaceElement2`: a `ClassDeclaration` ou
     /// `MixinDeclaration` envolvente.
-    fn interface_envolvente(&self, n: usize) -> Option<(ClassId, usize)> {
-        let mut atual = Some(n);
-        while let Some(k) = atual {
-            if matches!(self.especie(k), "ClassDeclaration" | "MixinDeclaration")
-                && let Marca::Decl(d) = self.arvore.nos[k].marca
+    fn enclosing_interface(&self, n: usize) -> Option<(ClassId, usize)> {
+        let mut current = Some(n);
+        while let Some(k) = current {
+            if matches!(self.kind(k), "ClassDeclaration" | "MixinDeclaration")
+                && let Marca::Decl(d) = self.tree.nos[k].marca
             {
-                return self.classe_da_declaracao(self.unidade, d).map(|c| (c, k));
+                return self.declaration_class(self.unit, d).map(|c| (c, k));
             }
-            atual = self.pai(k);
+            current = self.parent(k);
         }
         None
     }
 
     /// `enclosingExtensionElement2`.
-    fn extensao_envolvente(&self, n: usize) -> Option<(ExtensionId, usize)> {
-        let prog = self.p.programa();
-        let mut atual = Some(n);
-        while let Some(k) = atual {
-            if self.especie(k) == "ExtensionDeclaration"
-                && let Marca::Decl(d) = self.arvore.nos[k].marca
+    fn enclosing_extension(&self, n: usize) -> Option<(ExtensionId, usize)> {
+        let prog = self.p.program();
+        let mut current = Some(n);
+        while let Some(k) = current {
+            if self.kind(k) == "ExtensionDeclaration"
+                && let Marca::Decl(d) = self.tree.nos[k].marca
             {
-                let x = (0..prog.extensions.len()).map(|i| ExtensionId(i as u32)).find(|&x| prog.extension(x).decl.unit == self.unidade && prog.extension(x).decl.decl == d)?;
+                let x = (0..prog.extensions.len()).map(|i| ExtensionId(i as u32)).find(|&x| prog.extension(x).decl.unit == self.unit && prog.extension(x).decl.decl == d)?;
                 return Some((x, k));
             }
-            atual = self.pai(k);
+            current = self.parent(k);
         }
         None
     }
 
     /// `inStaticContext`.
-    fn em_contexto_estatico(&self, n: usize) -> bool {
-        let mut atual = Some(n);
-        while let Some(k) = atual {
-            match self.especie(k) {
+    fn in_static_context(&self, n: usize) -> bool {
+        let mut current = Some(n);
+        while let Some(k) = current {
+            match self.kind(k) {
                 "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer" => return true,
                 "FieldDeclaration" => {
-                    let palavras = self.tokens_iniciais(k);
-                    let estatico = palavras.iter().any(|s| s == "static");
-                    let late = palavras.iter().any(|s| s == "late");
-                    return estatico || !late;
+                    let words = self.initial_tokens(k);
+                    let is_static = words.iter().any(|s| s == "static");
+                    let late = words.iter().any(|s| s == "late");
+                    return is_static || !late;
                 }
-                "MethodDeclaration" => return self.tokens_iniciais(k).iter().any(|s| s == "static"),
+                "MethodDeclaration" => return self.initial_tokens(k).iter().any(|s| s == "static"),
                 _ => {}
             }
-            atual = self.pai(k);
+            current = self.parent(k);
         }
         false
     }
 
     /// As palavras do começo de uma declaração (depois de doc e anotações).
-    pub(crate) fn tokens_iniciais_pub(&self, n: usize) -> Vec<String> {
-        self.tokens_iniciais(n)
+    pub(crate) fn initial_tokens_pub(&self, n: usize) -> Vec<String> {
+        self.initial_tokens(n)
     }
 
-    fn tokens_iniciais(&self, n: usize) -> Vec<String> {
+    fn initial_tokens(&self, n: usize) -> Vec<String> {
         let mut v = Vec::new();
-        let Some(mut t) = self.primeiro_token_apos_comentario_e_metadados(n) else { return v };
+        let Some(mut t) = self.first_token_after_comment_and_metadata(n) else { return v };
         loop {
-            let s = &self.fonte[t.start..t.end];
+            let s = &self.source[t.start..t.end];
             if !matches!(s, "static" | "late" | "final" | "const" | "var" | "abstract" | "external" | "covariant") {
                 break;
             }
             v.push(s.to_string());
-            match self.token_seguinte(t.end) {
+            match self.next_token(t.end) {
                 Some(p) => t = p,
                 None => break,
             }
@@ -352,163 +352,163 @@ impl Contexto<'_> {
 
     /// O parâmetro (tipo) que recebe o argumento `arg` (`staticParameterElement`
     /// / `correspondingParameter`).
-    fn parametro_correspondente(&self, arg: usize) -> Option<TypeId> {
-        let (valor, nome) = match self.pai(arg) {
-            Some(p) if self.especie(p) == "NamedExpression" => (p, self.filhos(p).first().and_then(|&r| self.filhos(r).first()).map(|&i| self.texto_do_no(i).to_string())),
+    fn matching_parameter(&self, arg: usize) -> Option<TypeId> {
+        let (value, name) = match self.parent(arg) {
+            Some(p) if self.kind(p) == "NamedExpression" => (p, self.children(p).first().and_then(|&r| self.children(r).first()).map(|&i| self.node_text(i).to_string())),
             _ => (arg, None),
         };
-        let lista = self.pai(valor).filter(|&l| self.especie(l) == "ArgumentList")?;
-        let chamada = self.pai(lista)?;
-        let tabela = &self.p.consulta.tabela;
-        let tipo_f = match self.especie(chamada) {
+        let list = self.parent(value).filter(|&l| self.kind(l) == "ArgumentList")?;
+        let call = self.parent(list)?;
+        let table = &self.p.query.table;
+        let type_f = match self.kind(call) {
             "MethodInvocation" | "FunctionExpressionInvocation" => {
-                let alvo = match self.especie(chamada) {
-                    "MethodInvocation" => self.nome_do_metodo(chamada)?,
-                    _ => *self.filhos(chamada).first()?,
+                let target = match self.kind(call) {
+                    "MethodInvocation" => self.method_name(call)?,
+                    _ => *self.children(call).first()?,
                 };
-                match self.resolvido(chamada) {
-                    Some(Resolved::Constructor(f)) => Some(self.p.consulta.outline.functions.get(f.0 as usize)?.signature),
-                    _ => self.tipo_do_no(alvo),
+                match self.resolved(call) {
+                    Some(Resolved::Constructor(f)) => Some(self.p.query.outline.functions.get(f.0 as usize)?.signature),
+                    _ => self.node_type(target),
                 }
             }
-            "InstanceCreationExpression" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" => match self.resolvido(chamada) {
-                Some(Resolved::Constructor(f)) => Some(self.p.consulta.outline.functions.get(f.0 as usize)?.signature),
+            "InstanceCreationExpression" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" => match self.resolved(call) {
+                Some(Resolved::Constructor(f)) => Some(self.p.query.outline.functions.get(f.0 as usize)?.signature),
                 _ => None,
             },
             _ => None,
         }?;
-        let Type::Function { positional, optional, named, .. } = tabela.get(tipo_f) else { return None };
-        match nome {
-            Some(n) => named.iter().find(|(s, _, _)| self.p.nome(*s) == n).map(|(_, t, _)| *t),
+        let Type::Function { positional, optional, named, .. } = table.get(type_f) else { return None };
+        match name {
+            Some(n) => named.iter().find(|(s, _, _)| self.p.name(*s) == n).map(|(_, t, _)| *t),
             None => {
-                let posicao = self.filhos(lista).iter().take_while(|&&a| a != valor).filter(|&&a| self.especie(a) != "NamedExpression").count();
-                positional.iter().chain(optional.iter()).nth(posicao).copied()
+                let position = self.children(list).iter().take_while(|&&a| a != value).filter(|&&a| self.kind(a) != "NamedExpression").count();
+                positional.iter().chain(optional.iter()).nth(position).copied()
             }
         }
     }
 
     /// O tipo de retorno do executável envolvente.
-    fn retorno_envolvente(&self, n: usize) -> Option<TypeId> {
-        let mut atual = self.pai(n);
-        while let Some(k) = atual {
-            match self.especie(k) {
+    fn enclosing_return(&self, n: usize) -> Option<TypeId> {
+        let mut current = self.parent(n);
+        while let Some(k) = current {
+            match self.kind(k) {
                 "FunctionExpression" => {
-                    if let Marca::Funcao(fid) = self.arvore.nos[k].marca {
-                        if let Some(f) = self.p.funcao_do_no(self.unidade, fid) {
-                            return self.p.consulta.outline.functions.get(f.0 as usize).map(|d| d.return_type);
+                    if let Marca::Funcao(fid) = self.tree.nos[k].marca {
+                        if let Some(f) = self.p.node_function(self.unit, fid) {
+                            return self.p.query.outline.functions.get(f.0 as usize).map(|d| d.return_type);
                         }
-                        let nome = self.ast.function(fid).name?;
-                        return match self.corpos.tipo_local(nome.span.start).map(|t| self.p.consulta.tabela.get(t)) {
+                        let name = self.ast.function(fid).name?;
+                        return match self.bodies.tipo_local(name.span.start).map(|t| self.p.query.table.get(t)) {
                             Some(Type::Function { ret, .. }) => Some(*ret),
                             _ => None,
                         };
                     }
                     // A closure: o tipo da expressão de função.
-                    let t = self.tipo_do_no(k)?;
-                    return match self.p.consulta.tabela.get(t) {
+                    let t = self.node_type(k)?;
+                    return match self.p.query.table.get(t) {
                         Type::Function { ret, .. } => Some(*ret),
                         _ => None,
                     };
                 }
                 "MethodDeclaration" | "FunctionDeclaration" => {
-                    let Marca::Funcao(fid) = self.arvore.nos[k].marca else { return None };
-                    let f = self.p.funcao_do_no(self.unidade, fid)?;
-                    return self.p.consulta.outline.functions.get(f.0 as usize).map(|d| d.return_type);
+                    let Marca::Funcao(fid) = self.tree.nos[k].marca else { return None };
+                    let f = self.p.node_function(self.unit, fid)?;
+                    return self.p.query.outline.functions.get(f.0 as usize).map(|d| d.return_type);
                 }
                 "ConstructorDeclaration" => return None,
                 _ => {}
             }
-            atual = self.pai(k);
+            current = self.parent(k);
         }
         None
     }
 
     /// `inferUndefinedExpressionType(expression)`.
-    fn tipo_inferido_indefinido(&self, e: usize) -> Option<TypeId> {
-        let core = &self.p.consulta.core;
-        let pai = self.pai(e)?;
+    fn undefined_inferred_type(&self, e: usize) -> Option<TypeId> {
+        let core = &self.p.query.core;
+        let parent = self.parent(e)?;
         let bool_ = Some(core.bool_);
-        if self.especie(e) == "MethodInvocation" {
-            if self.especie(pai) == "CascadeExpression" && self.pai(pai).is_some_and(|g| self.especie(g) == "ExpressionStatement") {
+        if self.kind(e) == "MethodInvocation" {
+            if self.kind(parent) == "CascadeExpression" && self.parent(parent).is_some_and(|g| self.kind(g) == "ExpressionStatement") {
                 return Some(core.void_);
             }
-            if self.especie(pai) == "ExpressionStatement" {
+            if self.kind(parent) == "ExpressionStatement" {
                 return Some(core.void_);
             }
         }
-        match self.especie(pai) {
+        match self.kind(parent) {
             "ConditionalExpression" => {
-                if self.filhos(pai).first() == Some(&e) {
+                if self.children(parent).first() == Some(&e) {
                     return bool_;
                 }
-                let t = self.parametro_correspondente(pai)?;
+                let t = self.matching_parameter(parent)?;
                 return Some(t);
             }
-            "ExpressionFunctionBody" | "ReturnStatement" => return self.retorno_envolvente(e),
+            "ExpressionFunctionBody" | "ReturnStatement" => return self.enclosing_return(e),
             "VariableDeclaration" => {
-                if self.filhos(pai).first() == Some(&e) {
-                    let s = crate::project::palavra(self.fonte, self.arvore.nos[pai].inicio)?;
-                    return self.corpos.tipo_local(s.start).or_else(|| {
-                        crate::document_highlight::variavel_declarada_em(self.p, self.unidade, s.start).and_then(|v| self.p.consulta.tipo_da_variavel(v))
+                if self.children(parent).first() == Some(&e) {
+                    let s = crate::project::word(self.source, self.tree.nos[parent].inicio)?;
+                    return self.bodies.tipo_local(s.start).or_else(|| {
+                        crate::document_highlight::variable_declared_in(self.p, self.unit, s.start).and_then(|v| self.p.query.variable_type(v))
                     });
                 }
             }
             "AssignmentExpression" => {
-                let f = self.filhos(pai);
+                let f = self.children(parent);
                 if f.first() == Some(&e) {
-                    return f.get(1).and_then(|&d| self.tipo_do_no(d));
+                    return f.get(1).and_then(|&d| self.node_type(d));
                 }
                 if f.get(1) == Some(&e) {
-                    if operador_de_atribuicao(self, pai) == "=" {
+                    if assignment_operator(self, parent) == "=" {
                         // `writeType`: o tipo do alvo da escrita.
-                        return self.tipo_do_no(f[0]);
+                        return self.node_type(f[0]);
                     }
-                    return self.parametro_do_operador(pai);
+                    return self.operator_parameter(parent);
                 }
             }
             "BinaryExpression" => {
-                if self.filhos(pai).get(1) == Some(&e)
-                    && let Some(t) = self.parametro_do_operador(pai)
+                if self.children(parent).get(1) == Some(&e)
+                    && let Some(t) = self.operator_parameter(parent)
                 {
                     return Some(t);
                 }
             }
-            "ArgumentList" | "NamedExpression" => return self.parametro_correspondente(e),
+            "ArgumentList" | "NamedExpression" => return self.matching_parameter(e),
             _ => {}
         }
-        match self.especie(pai) {
-            "AssertStatement" | "IfStatement" | "WhileStatement" if self.filhos(pai).first() == Some(&e) => bool_,
-            "DoStatement" if self.filhos(pai).last() == Some(&e) => bool_,
-            "PrefixExpression" if self.texto_do_no(pai).starts_with('!') => bool_,
+        match self.kind(parent) {
+            "AssertStatement" | "IfStatement" | "WhileStatement" if self.children(parent).first() == Some(&e) => bool_,
+            "DoStatement" if self.children(parent).last() == Some(&e) => bool_,
+            "PrefixExpression" if self.node_text(parent).starts_with('!') => bool_,
             "BinaryExpression" => {
-                let esq = *self.filhos(pai).first()?;
-                let op = self.token_seguinte(self.arvore.nos[esq].fim)?;
-                matches!(&self.fonte[op.start..op.end], "&&" | "||").then_some(core.bool_)
+                let left = *self.children(parent).first()?;
+                let op = self.next_token(self.tree.nos[left].fim)?;
+                matches!(&self.source[op.start..op.end], "&&" | "||").then_some(core.bool_)
             }
             _ => None,
         }
     }
 
     /// O tipo do único parâmetro do operador de um binário ou de um `op=`.
-    fn parametro_do_operador(&self, n: usize) -> Option<TypeId> {
-        let x = self.expr_do_no(n)?;
-        let f = match self.corpos.get_resolved(x)? {
+    fn operator_parameter(&self, n: usize) -> Option<TypeId> {
+        let x = self.node_expr(n)?;
+        let f = match self.bodies.get_resolved(x)? {
             Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => *f,
             _ => return None,
         };
-        let d = self.p.consulta.outline.functions.get(f.0 as usize)?;
+        let d = self.p.query.outline.functions.get(f.0 as usize)?;
         (d.parameters.len() == 1).then(|| d.parameters[0].ty)
     }
 
     /// `getMembers(clazz)`: os membros não sintéticos (acessores, campos,
     /// métodos) de cada supertipo (`allSupertypes`) e da própria classe:
     /// (nome comparado, nome exibido, espécie).
-    fn membros(&self, c: ClassId) -> Vec<(String, String, Membro)> {
-        let prog = self.p.programa();
-        let mut ordem = todos_os_supertipos(self.p, c);
-        ordem.push(c);
+    fn members(&self, c: ClassId) -> Vec<(String, String, Member)> {
+        let prog = self.p.program();
+        let mut order = all_supertypes(self.p, c);
+        order.push(c);
         let mut v = Vec::new();
-        for k in ordem {
+        for k in order {
             let cl = prog.class(k);
             let mut fs: Vec<FunctionElementId> = cl.instance_members.values().chain(cl.static_members.values()).copied().collect();
             fs.sort_by_key(|f| f.0);
@@ -516,11 +516,11 @@ impl Contexto<'_> {
             for &f in &fs {
                 let fe = prog.function(f);
                 match fe.kind {
-                    FunctionKind::Getter => v.push((self.p.nome(fe.name).to_string(), self.p.nome(fe.name).to_string(), Membro::Getter)),
+                    FunctionKind::Getter => v.push((self.p.name(fe.name).to_string(), self.p.name(fe.name).to_string(), Member::Getter)),
                     FunctionKind::Setter => {
-                        let n = self.p.nome(fe.name).to_string();
-                        let base = crate::project::nome_base(&n).to_string();
-                        v.push((format!("{base}="), base, Membro::Setter));
+                        let n = self.p.name(fe.name).to_string();
+                        let base = crate::project::base_name(&n).to_string();
+                        v.push((format!("{base}="), base, Member::Setter));
                     }
                     _ => {}
                 }
@@ -528,15 +528,15 @@ impl Contexto<'_> {
             // Campos.
             for &var in &cl.fields {
                 let ve = prog.variable(var);
-                let n = self.p.nome(ve.name).to_string();
-                v.push((n.clone(), n, Membro::Campo { getter: ve.getter.is_some(), setter: ve.setter.is_some() }));
+                let n = self.p.name(ve.name).to_string();
+                v.push((n.clone(), n, Member::Field { getter: ve.getter.is_some(), setter: ve.setter.is_some() }));
             }
             // Métodos.
             for &f in &fs {
                 let fe = prog.function(f);
                 match fe.kind {
-                    FunctionKind::Function => v.push((self.p.nome(fe.name).to_string(), self.p.nome(fe.name).to_string(), Membro::Metodo)),
-                    FunctionKind::Operator => v.push((self.p.nome(fe.name).to_string(), self.p.nome(fe.name).to_string(), Membro::Operador)),
+                    FunctionKind::Function => v.push((self.p.name(fe.name).to_string(), self.p.name(fe.name).to_string(), Member::Method)),
+                    FunctionKind::Operator => v.push((self.p.name(fe.name).to_string(), self.p.name(fe.name).to_string(), Member::Operator)),
                     _ => {}
                 }
             }
@@ -545,35 +545,35 @@ impl Contexto<'_> {
     }
 
     /// `getExtensionMembers(extension)`.
-    fn membros_da_extensao(&self, x: ExtensionId) -> Vec<(String, String, Membro)> {
-        let prog = self.p.programa();
+    fn extension_members(&self, x: ExtensionId) -> Vec<(String, String, Member)> {
+        let prog = self.p.program();
         let e = prog.extension(x);
         let mut fs: Vec<FunctionElementId> = e.instance_members.values().chain(e.static_members.values()).copied().collect();
         fs.sort_by_key(|f| f.0);
         let mut v = Vec::new();
         for &f in &fs {
             let fe = prog.function(f);
-            let n = self.p.nome(fe.name).to_string();
+            let n = self.p.name(fe.name).to_string();
             match fe.kind {
-                FunctionKind::Getter => v.push((n.clone(), n, Membro::Getter)),
+                FunctionKind::Getter => v.push((n.clone(), n, Member::Getter)),
                 FunctionKind::Setter => {
-                    let base = crate::project::nome_base(&n).to_string();
-                    v.push((format!("{base}="), base, Membro::Setter));
+                    let base = crate::project::base_name(&n).to_string();
+                    v.push((format!("{base}="), base, Member::Setter));
                 }
                 _ => {}
             }
         }
         for &var in &e.fields {
             let ve = prog.variable(var);
-            let n = self.p.nome(ve.name).to_string();
-            v.push((n.clone(), n, Membro::Campo { getter: ve.getter.is_some(), setter: ve.setter.is_some() }));
+            let n = self.p.name(ve.name).to_string();
+            v.push((n.clone(), n, Member::Field { getter: ve.getter.is_some(), setter: ve.setter.is_some() }));
         }
         for &f in &fs {
             let fe = prog.function(f);
-            let n = self.p.nome(fe.name).to_string();
+            let n = self.p.name(fe.name).to_string();
             match fe.kind {
-                FunctionKind::Function => v.push((n.clone(), n, Membro::Metodo)),
-                FunctionKind::Operator => v.push((n.clone(), n, Membro::Operador)),
+                FunctionKind::Function => v.push((n.clone(), n, Member::Method)),
+                FunctionKind::Operator => v.push((n.clone(), n, Member::Operator)),
                 _ => {}
             }
         }
@@ -583,50 +583,50 @@ impl Contexto<'_> {
 
 /// A espécie de um membro candidato.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Membro {
+enum Member {
     Getter,
     Setter,
-    Campo { getter: bool, setter: bool },
-    Metodo,
-    Operador,
+    Field { getter: bool, setter: bool },
+    Method,
+    Operator,
 }
 
 /// `allSupertypes` (`ClassHierarchy.implementedInterfaces`): o supertipo e os
 /// dele, as restrições `on`, as interfaces e os mixins, na ordem do
 /// `InterfacesMerger`; as aplicações de mixin sintéticas se desfazem no
 /// supertipo e nos mixins.
-/// As marcas de `e` (a declaração escrita) dentro de `texto`, onde ela
+/// As marcas de `e` (a declaração escrita) dentro de `text`, onde ela
 /// entrou (pelo `insertIntoUnitMember` ou com o separador antes).
-fn marcas_em(texto: &str, e: crate::snippets::Escrita) -> Option<(usize, crate::snippets::Escrita)> {
-    texto.find(&e.texto).map(|k| (k, e))
+fn marks_in(text: &str, e: crate::snippets::Write) -> Option<(usize, crate::snippets::Write)> {
+    text.find(&e.text).map(|k| (k, e))
 }
 
 /// `addSuperTypesAsSuggestions(type)` num contexto só de leitura: os
 /// supertipos instanciados são internados numa cópia da tabela de tipos,
-/// feita na primeira vez (`copia`).
-pub(crate) fn sugestoes_de_supertipos_em(p: &Projeto, copia: &mut Option<dartforge_types::TypeTable>, t: TypeId) -> Vec<String> {
-    let Type::Interface { class, args, nullable } = p.consulta.tabela.get(t).clone() else { return Vec::new() };
-    let mut v = vec![p.consulta.formatar(t)];
-    let classes = todos_os_supertipos(p, class);
+/// feita na primeira vez (`copy`).
+pub(crate) fn supertype_suggestions_at(p: &Project, copy: &mut Option<dartforge_types::TypeTable>, t: TypeId) -> Vec<String> {
+    let Type::Interface { class, args, nullable } = p.query.table.get(t).clone() else { return Vec::new() };
+    let mut v = vec![p.query.format(t)];
+    let classes = all_supertypes(p, class);
     if classes.is_empty() {
         return v;
     }
-    let tabela = copia.get_or_insert_with(|| p.consulta.tabela.clone());
-    let base = tabela.intern(Type::Interface { class, args, nullable: false });
+    let table = copy.get_or_insert_with(|| p.query.table.clone());
+    let base = table.intern(Type::Interface { class, args, nullable: false });
     for s in classes {
-        if let Some(mut st) = p.consulta.outline.hierarchy.supertype_of(base, s, tabela, &p.consulta.core) {
-            if nullable && let Type::Interface { class, args, .. } = tabela.get(st).clone() {
-                st = tabela.intern(Type::Interface { class, args, nullable: true });
+        if let Some(mut st) = p.query.outline.hierarchy.supertype_of(base, s, table, &p.query.core) {
+            if nullable && let Type::Interface { class, args, .. } = table.get(st).clone() {
+                st = table.intern(Type::Interface { class, args, nullable: true });
             }
-            v.push(tabela.format_sem_alias(st, &p.consulta.nomes, p.programa()));
+            v.push(table.format_sem_alias(st, &p.query.names, p.program()));
         }
     }
     v
 }
 
-pub(crate) fn todos_os_supertipos(p: &Projeto, c: ClassId) -> Vec<ClassId> {
-    fn diretos(p: &Projeto, c: ClassId) -> (Option<ClassId>, Vec<ClassId>, Vec<ClassId>, Vec<ClassId>) {
-        let prog = p.programa();
+pub(crate) fn all_supertypes(p: &Project, c: ClassId) -> Vec<ClassId> {
+    fn direct(p: &Project, c: ClassId) -> (Option<ClassId>, Vec<ClassId>, Vec<ClassId>, Vec<ClassId>) {
+        let prog = p.program();
         let cl = prog.class(c);
         let mut sup = cl.supertype_class;
         let mut mixins: Vec<ClassId> = Vec::new();
@@ -645,138 +645,138 @@ pub(crate) fn todos_os_supertipos(p: &Projeto, c: ClassId) -> Vec<ClassId> {
         mixins.extend(cl.mixin_classes.iter().copied());
         (sup, cl.on_classes.clone(), cl.interface_classes.clone(), mixins)
     }
-    fn implementados(p: &Projeto, c: ClassId, memo: &mut std::collections::HashMap<ClassId, Vec<ClassId>>, pilha: &mut Vec<ClassId>) -> Vec<ClassId> {
+    fn implemented(p: &Project, c: ClassId, memo: &mut std::collections::HashMap<ClassId, Vec<ClassId>>, stack: &mut Vec<ClassId>) -> Vec<ClassId> {
         if let Some(v) = memo.get(&c) {
             return v.clone();
         }
-        if pilha.contains(&c) {
+        if stack.contains(&c) {
             return Vec::new();
         }
-        pilha.push(c);
+        stack.push(c);
         let mut v: Vec<ClassId> = Vec::new();
-        let (sup, on, interfaces, mixins) = diretos(p, c);
-        let juntar = |t: ClassId, v: &mut Vec<ClassId>, memo: &mut std::collections::HashMap<ClassId, Vec<ClassId>>, pilha: &mut Vec<ClassId>| {
+        let (sup, on, interfaces, mixins) = direct(p, c);
+        let join = |t: ClassId, v: &mut Vec<ClassId>, memo: &mut std::collections::HashMap<ClassId, Vec<ClassId>>, stack: &mut Vec<ClassId>| {
             if !v.contains(&t) {
                 v.push(t);
             }
-            for x in implementados(p, t, memo, pilha) {
+            for x in implemented(p, t, memo, stack) {
                 if !v.contains(&x) {
                     v.push(x);
                 }
             }
         };
         if let Some(s) = sup {
-            juntar(s, &mut v, memo, pilha);
+            join(s, &mut v, memo, stack);
         }
         for t in on.into_iter().chain(interfaces).chain(mixins) {
-            juntar(t, &mut v, memo, pilha);
+            join(t, &mut v, memo, stack);
         }
-        pilha.pop();
+        stack.pop();
         memo.insert(c, v.clone());
         v
     }
-    implementados(p, c, &mut std::collections::HashMap::new(), &mut Vec::new())
+    implemented(p, c, &mut std::collections::HashMap::new(), &mut Vec::new())
 }
 
 /// `nameOfType`: o nome de um `SimpleIdentifier` filho de `NamedType` ou
 /// com a primeira letra igual à maiúscula dela.
-fn nome_de_tipo(cx: &Contexto<'_>, n: usize) -> Option<String> {
-    if cx.especie(n) != "SimpleIdentifier" {
+fn type_name(cx: &Context<'_>, n: usize) -> Option<String> {
+    if cx.kind(n) != "SimpleIdentifier" {
         return None;
     }
-    let nome = cx.texto_do_no(n).to_string();
-    let pai_tipo = cx.pai(n).is_some_and(|p| cx.especie(p) == "NamedType");
-    let primeira = nome.chars().next()?;
-    let maiuscula = primeira.to_uppercase().next() == Some(primeira);
-    (pai_tipo || maiuscula).then_some(nome)
+    let name = cx.node_text(n).to_string();
+    let parent_type = cx.parent(n).is_some_and(|p| cx.kind(p) == "NamedType");
+    let first = name.chars().next()?;
+    let uppercase = first.to_uppercase().next() == Some(first);
+    (parent_type || uppercase).then_some(name)
 }
 
 /// O resultado de um produtor: título, espécie, edições (por URI) e
 /// bibliotecas a importar na unidade de destino.
-struct Proposta {
-    titulo: String,
-    especie: &'static str,
-    unidade: UnitId,
-    edicoes: Vec<(Span, String)>,
-    importar: BTreeSet<LibraryId>,
+struct Proposal {
+    title: String,
+    kind: &'static str,
+    unit: UnitId,
+    edits: Vec<(Span, String)>,
+    import: BTreeSet<LibraryId>,
     /// Os grupos ligados (e a seleção) da declaração escrita, com o offset
     /// dela no texto da primeira edição: o `SnippetTextEdit` dos `Create …`.
-    marcas: Option<(usize, crate::snippets::Escrita)>,
+    marks: Option<(usize, crate::snippets::Write)>,
 }
 
 /// O `CompilationUnitMember` de topo que contém o nó.
-fn membro_de_topo(cx: &Contexto<'_>, n: usize) -> Option<usize> {
-    let mut atual = Some(n);
-    while let Some(k) = atual {
-        if cx.pai(k) == Some(0) {
+fn top_member(cx: &Context<'_>, n: usize) -> Option<usize> {
+    let mut current = Some(n);
+    while let Some(k) = current {
+        if cx.parent(k) == Some(0) {
             return Some(k);
         }
-        atual = cx.pai(k);
+        current = cx.parent(k);
     }
     None
 }
 
 /// O `CompilationUnitMember` mais interno (uma função local também é).
-fn membro_mais_interno(cx: &Contexto<'_>, n: usize) -> Option<usize> {
-    let mut atual = Some(n);
-    while let Some(k) = atual {
+fn innermost_member(cx: &Context<'_>, n: usize) -> Option<usize> {
+    let mut current = Some(n);
+    while let Some(k) = current {
         if matches!(
-            cx.especie(k),
+            cx.kind(k),
             "ClassDeclaration" | "MixinDeclaration" | "EnumDeclaration" | "ExtensionDeclaration" | "ExtensionTypeDeclaration" | "FunctionDeclaration" | "FunctionTypeAlias" | "GenericTypeAlias" | "ClassTypeAlias" | "TopLevelVariableDeclaration"
         ) {
             return Some(k);
         }
-        atual = cx.pai(k);
+        current = cx.parent(k);
     }
     None
 }
 
 /// O nó da declaração de uma classe ou extensão na unidade dela, com o
 /// contexto daquela unidade.
-fn declaracao_na_unidade<'p>(p: &'p Projeto, unidade: UnitId, decl: ast::DeclId) -> Option<(Contexto<'p>, usize)> {
-    let cx = Contexto::novo(p, unidade);
-    let n = cx.arvore.nos.iter().position(|no| matches!(no.marca, Marca::Decl(d) if d == decl) && no.especie.ends_with("Declaration"))?;
+fn declaration_in_unit<'p>(p: &'p Project, unit: UnitId, decl: ast::DeclId) -> Option<(Context<'p>, usize)> {
+    let cx = Context::new(p, unit);
+    let n = cx.tree.nos.iter().position(|no| matches!(no.marca, Marca::Decl(d) if d == decl) && no.especie.ends_with("Declaration"))?;
     Some((cx, n))
 }
 
-impl Projeto {
+impl Project {
     /// As propostas de um produtor para o nó.
-    fn propor(&self, cx: &Contexto<'_>, produtor: Produtor, node: usize) -> Option<Proposta> {
-        use Produtor::*;
-        let eol = Texto::novo(cx.fonte).eol();
-        let prog = self.programa();
-        match produtor {
-            TrocarClasse | TrocarAnotacao => {
-                let mut alvo = node;
-                if produtor == TrocarAnotacao {
+    fn propose(&self, cx: &Context<'_>, producer: Producer, node: usize) -> Option<Proposal> {
+        use Producer::*;
+        let eol = Text::new(cx.source).eol();
+        let prog = self.program();
+        match producer {
+            SwapClass | SwapAnnotation => {
+                let mut target = node;
+                if producer == SwapAnnotation {
                     // `Annotation` com nome sem elemento e com argumentos.
-                    let anotacao = cx.este_ou_ancestral_pub(node, "Annotation")?;
-                    let nome = *cx.filhos(anotacao).first()?;
-                    if cx.resolvido(nome).is_some() || cx.filhos_da_especie(anotacao, "ArgumentList").is_empty() {
+                    let annotation = cx.this_or_ancestor_pub(node, "Annotation")?;
+                    let name = *cx.children(annotation).first()?;
+                    if cx.resolved(name).is_some() || cx.kind_children(annotation, "ArgumentList").is_empty() {
                         return None;
                     }
-                    alvo = nome;
+                    target = name;
                 }
-                let (prefixo, token) = match cx.especie(alvo) {
+                let (prefix, token) = match cx.kind(target) {
                     "NamedType" => {
-                        let pr = cx.filhos_da_especie(alvo, "ImportPrefixReference").first().map(|&p| cx.texto_do_no(p).trim_end_matches('.').trim().to_string());
-                        let inicio = cx.filhos_da_especie(alvo, "ImportPrefixReference").first().map_or(cx.arvore.nos[alvo].inicio, |&p| cx.arvore.nos[p].fim);
-                        (pr, crate::project::palavra(cx.fonte, cx.token_seguinte(inicio)?.start)?)
+                        let pr = cx.kind_children(target, "ImportPrefixReference").first().map(|&p| cx.node_text(p).trim_end_matches('.').trim().to_string());
+                        let start = cx.kind_children(target, "ImportPrefixReference").first().map_or(cx.tree.nos[target].inicio, |&p| cx.tree.nos[p].fim);
+                        (pr, crate::project::word(cx.source, cx.next_token(start)?.start)?)
                     }
                     "PrefixedIdentifier" => {
-                        let f = cx.filhos(alvo);
+                        let f = cx.children(target);
                         let p = *f.first()?;
-                        if !matches!(cx.resolvido(p), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))) {
+                        if !matches!(cx.resolved(p), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))) {
                             return None;
                         }
-                        (Some(cx.texto_do_no(p).to_string()), cx.arvore.span(*f.get(1)?))
+                        (Some(cx.node_text(p).to_string()), cx.tree.span(*f.get(1)?))
                     }
-                    "SimpleIdentifier" => (None, cx.arvore.span(alvo)),
+                    "SimpleIdentifier" => (None, cx.tree.span(target)),
                     _ => return None,
                 };
-                let lib = prog.unit(cx.unidade).library;
-                let mut melhor = MaisProximo::novo(&cx.fonte[token.start..token.end]);
-                if prefixo.is_none() {
+                let lib = prog.unit(cx.unit).library;
+                let mut best = Closest::new(&cx.source[token.start..token.end]);
+                if prefix.is_none() {
                     // `unit.classes` de cada unidade (só classes).
                     for &u in prog.library(lib).units.iter() {
                         let mut cs: Vec<(usize, ClassId)> = (0..prog.classes.len())
@@ -788,55 +788,55 @@ impl Projeto {
                             .collect();
                         cs.sort();
                         for (_, c) in cs {
-                            let n = self.nome(prog.class(c).name);
-                            melhor.ver(n, n);
+                            let n = self.name(prog.class(c).name);
+                            best.see(n, n);
                         }
                     }
                 }
                 for imp in prog.library(lib).imports.iter().filter(|i| prog.library(lib).units.first() == Some(&i.unit)) {
-                    let pr = imp.prefix.map(|s| self.nome(s).to_string());
-                    if pr != prefixo {
+                    let pr = imp.prefix.map(|s| self.name(s).to_string());
+                    if pr != prefix {
                         continue;
                     }
-                    let mut nomes: Vec<(&str, Element)> = prog
+                    let mut names: Vec<(&str, Element)> = prog
                         .library(imp.library)
                         .exported
                         .iter()
-                        .filter_map(|(s, b)| b.getter.map(|g| (self.nome(*s), g)))
+                        .filter_map(|(s, b)| b.getter.map(|g| (self.name(*s), g)))
                         .filter(|(n, _)| {
                             imp.combinators.iter().all(|c| match c {
-                                ast::Combinator::Show(ns) => ns.iter().any(|x| self.nome(x.sym) == *n),
-                                ast::Combinator::Hide(ns) => !ns.iter().any(|x| self.nome(x.sym) == *n),
+                                ast::Combinator::Show(ns) => ns.iter().any(|x| self.name(x.sym) == *n),
+                                ast::Combinator::Hide(ns) => !ns.iter().any(|x| self.name(x.sym) == *n),
                             })
                         })
                         .collect();
-                    nomes.sort_by(|a, b| a.0.cmp(b.0));
-                    for (n, el) in nomes {
+                    names.sort_by(|a, b| a.0.cmp(b.0));
+                    for (n, el) in names {
                         if matches!(el, Element::Class(_)) {
-                            melhor.ver(n, n);
+                            best.see(n, n);
                         }
                     }
                 }
-                let proposto = melhor.nome?;
-                Some(Proposta { titulo: format!("Change to '{proposto}'"), especie: "quickfix.change.to", unidade: cx.unidade, edicoes: vec![(token, proposto)], importar: BTreeSet::new(), marcas: None })
+                let proposed = best.name?;
+                Some(Proposal { title: format!("Change to '{proposed}'"), kind: "quickfix.change.to", unit: cx.unit, edits: vec![(token, proposed)], import: BTreeSet::new(), marks: None })
             }
-            TrocarFuncao => {
-                if cx.especie(node) != "SimpleIdentifier" {
+            SwapFunction => {
+                if cx.kind(node) != "SimpleIdentifier" {
                     return None;
                 }
-                let mut prefixo = None;
-                if let Some(pai) = cx.pai(node)
-                    && cx.especie(pai) == "MethodInvocation"
-                    && cx.nome_do_metodo(pai) == Some(node)
-                    && let Some(&alvo) = cx.filhos(pai).first()
-                    && alvo != node
-                    && matches!(cx.resolvido(alvo), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..))))
+                let mut prefix = None;
+                if let Some(parent) = cx.parent(node)
+                    && cx.kind(parent) == "MethodInvocation"
+                    && cx.method_name(parent) == Some(node)
+                    && let Some(&target) = cx.children(parent).first()
+                    && target != node
+                    && matches!(cx.resolved(target), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..))))
                 {
-                    prefixo = Some(cx.texto_do_no(alvo).to_string());
+                    prefix = Some(cx.node_text(target).to_string());
                 }
-                let lib = prog.unit(cx.unidade).library;
-                let mut melhor = MaisProximo::novo(cx.texto_do_no(node));
-                if prefixo.is_none() {
+                let lib = prog.unit(cx.unit).library;
+                let mut best = Closest::new(cx.node_text(node));
+                if prefix.is_none() {
                     for &u in prog.library(lib).units.iter() {
                         let mut fs: Vec<(usize, &str)> = prog
                             .unit(u)
@@ -846,453 +846,453 @@ impl Projeto {
                             .filter_map(|d| match &d.kind {
                                 ast::DeclKind::Function(f) => {
                                     let func = prog.unit(u).ast.function(*f);
-                                    (func.kind == ast::FunctionKind::Function).then(|| func.name.map(|n| (n.span.start, self.nome(n.sym))))?
+                                    (func.kind == ast::FunctionKind::Function).then(|| func.name.map(|n| (n.span.start, self.name(n.sym))))?
                                 }
                                 _ => None,
                             })
                             .collect();
                         fs.sort();
                         for (_, n) in fs {
-                            melhor.ver(n, n);
+                            best.see(n, n);
                         }
                     }
                 }
                 for imp in prog.library(lib).imports.iter().filter(|i| prog.library(lib).units.first() == Some(&i.unit)) {
-                    if imp.prefix.map(|s| self.nome(s).to_string()) != prefixo {
+                    if imp.prefix.map(|s| self.name(s).to_string()) != prefix {
                         continue;
                     }
-                    let mut nomes: Vec<&str> = prog
+                    let mut names: Vec<&str> = prog
                         .library(imp.library)
                         .exported
                         .iter()
                         .filter(|(_, b)| matches!(b.getter, Some(Element::Function(f)) if prog.function(f).kind == FunctionKind::Function))
-                        .map(|(s, _)| self.nome(*s))
+                        .map(|(s, _)| self.name(*s))
                         .filter(|n| {
                             imp.combinators.iter().all(|c| match c {
-                                ast::Combinator::Show(ns) => ns.iter().any(|x| self.nome(x.sym) == *n),
-                                ast::Combinator::Hide(ns) => !ns.iter().any(|x| self.nome(x.sym) == *n),
+                                ast::Combinator::Show(ns) => ns.iter().any(|x| self.name(x.sym) == *n),
+                                ast::Combinator::Hide(ns) => !ns.iter().any(|x| self.name(x.sym) == *n),
                             })
                         })
                         .collect();
-                    nomes.sort();
-                    for n in nomes {
-                        melhor.ver(n, n);
+                    names.sort();
+                    for n in names {
+                        best.see(n, n);
                     }
                 }
-                let proposto = melhor.nome?;
-                Some(Proposta { titulo: format!("Change to '{proposto}'"), especie: "quickfix.change.to", unidade: cx.unidade, edicoes: vec![(cx.arvore.span(node), proposto)], importar: BTreeSet::new(), marcas: None })
+                let proposed = best.name?;
+                Some(Proposal { title: format!("Change to '{proposed}'"), kind: "quickfix.change.to", unit: cx.unit, edits: vec![(cx.tree.span(node), proposed)], import: BTreeSet::new(), marks: None })
             }
-            TrocarGetterOuSetter | TrocarMetodo => {
-                if cx.especie(node) != "SimpleIdentifier" {
+            SwapGetterOrSetter | SwapMethod => {
+                if cx.kind(node) != "SimpleIdentifier" {
                     return None;
                 }
-                let pai = cx.pai(node)?;
-                let (alvo, predicado): (Option<usize>, Box<dyn Fn(Membro) -> bool>) = if produtor == TrocarMetodo {
-                    if cx.especie(pai) != "MethodInvocation" || cx.nome_do_metodo(pai) != Some(node) {
+                let parent = cx.parent(node)?;
+                let (target, predicate): (Option<usize>, Box<dyn Fn(Member) -> bool>) = if producer == SwapMethod {
+                    if cx.kind(parent) != "MethodInvocation" || cx.method_name(parent) != Some(node) {
                         return None;
                     }
-                    let alvo = cx.filhos(pai).first().copied().filter(|&a| a != node);
-                    (alvo, Box::new(|m| m == Membro::Metodo))
+                    let target = cx.children(parent).first().copied().filter(|&a| a != node);
+                    (target, Box::new(|m| m == Member::Method))
                 } else {
-                    let le = em_contexto_de_leitura(cx, node);
-                    let escreve = em_contexto_de_escrita(cx, node);
+                    let le = in_read_context(cx, node);
+                    let writes = in_write_context(cx, node);
                     (
-                        alvo_qualificado(cx, node),
+                        qualified_target(cx, node),
                         Box::new(move |m| match m {
-                            Membro::Getter => le,
-                            Membro::Setter => escreve,
-                            Membro::Campo { getter, setter } => (le && getter) || (escreve && setter),
+                            Member::Getter => le,
+                            Member::Setter => writes,
+                            Member::Field { getter, setter } => (le && getter) || (writes && setter),
                             _ => false,
                         }),
                     )
                 };
-                let membros = match alvo {
+                let members = match target {
                     None => {
                         // Só a `ClassDeclaration` envolvente.
-                        let classe = cx.este_ou_ancestral_pub(node, "ClassDeclaration")?;
-                        let Marca::Decl(d) = cx.arvore.nos[classe].marca else { return None };
-                        cx.membros(cx.classe_da_declaracao(cx.unidade, d)?)
+                        let class = cx.this_or_ancestor_pub(node, "ClassDeclaration")?;
+                        let Marca::Decl(d) = cx.tree.nos[class].marca else { return None };
+                        cx.members(cx.declaration_class(cx.unit, d)?)
                     }
-                    Some(a) => match cx.extensao_do_alvo(a) {
-                        Some(x) => cx.membros_da_extensao(x),
-                        None => cx.membros(cx.interface_do_alvo(a)?),
+                    Some(a) => match cx.target_extension(a) {
+                        Some(x) => cx.extension_members(x),
+                        None => cx.members(cx.target_interface(a)?),
                     },
                 };
-                let mut melhor = MaisProximo::novo(cx.texto_do_no(node));
-                for (comparado, exibido, m) in &membros {
-                    if predicado(*m) {
-                        melhor.ver(comparado, exibido);
+                let mut best = Closest::new(cx.node_text(node));
+                for (compared, displayed, m) in &members {
+                    if predicate(*m) {
+                        best.see(compared, displayed);
                     }
                 }
-                let proposto = melhor.nome?;
-                Some(Proposta { titulo: format!("Change to '{proposto}'"), especie: "quickfix.change.to", unidade: cx.unidade, edicoes: vec![(cx.arvore.span(node), proposto)], importar: BTreeSet::new(), marcas: None })
+                let proposed = best.name?;
+                Some(Proposal { title: format!("Change to '{proposed}'"), kind: "quickfix.change.to", unit: cx.unit, edits: vec![(cx.tree.span(node), proposed)], import: BTreeSet::new(), marks: None })
             }
-            CriarClasse | CriarMixin => {
-                let mut alvo = node;
-                let mut argumentos = None;
-                let mut exige_const = false;
-                if cx.especie(alvo) == "Annotation" {
-                    if produtor == CriarMixin {
+            CreateClass | CreateMixin => {
+                let mut target = node;
+                let mut arguments = None;
+                let mut requires_const = false;
+                if cx.kind(target) == "Annotation" {
+                    if producer == CreateMixin {
                         return None;
                     }
-                    let nome = *cx.filhos(alvo).first()?;
-                    argumentos = cx.filhos_da_especie(alvo, "ArgumentList").first().copied();
-                    if cx.resolvido(nome).is_some() || argumentos.is_none() {
+                    let name = *cx.children(target).first()?;
+                    arguments = cx.kind_children(target, "ArgumentList").first().copied();
+                    if cx.resolved(name).is_some() || arguments.is_none() {
                         return None;
                     }
-                    alvo = nome;
-                    exige_const = true;
+                    target = name;
+                    requires_const = true;
                 }
-                let (nome, prefixo): (String, Option<usize>) = match cx.especie(alvo) {
+                let (name, prefix): (String, Option<usize>) = match cx.kind(target) {
                     "NamedType" => {
-                        let pr = cx.filhos_da_especie(alvo, "ImportPrefixReference").first().copied();
+                        let pr = cx.kind_children(target, "ImportPrefixReference").first().copied();
                         if let Some(p) = pr {
-                            let s = cx.texto_do_no(p).trim_end_matches('.').trim();
-                            let simbolo = self.consulta.nomes.lookup(s)?;
-                            if !crate::project::eh_prefixo(prog, prog.unit(cx.unidade).library, simbolo) {
+                            let s = cx.node_text(p).trim_end_matches('.').trim();
+                            let symbol = self.query.names.lookup(s)?;
+                            if !crate::project::is_prefix(prog, prog.unit(cx.unit).library, symbol) {
                                 return None;
                             }
                         }
-                        let inicio = pr.map_or(cx.arvore.nos[alvo].inicio, |p| cx.arvore.nos[p].fim);
-                        let s = crate::project::palavra(cx.fonte, cx.token_seguinte(inicio)?.start)?;
-                        exige_const |= exige_const_construtor(cx, alvo);
-                        (cx.fonte[s.start..s.end].to_string(), pr)
+                        let start = pr.map_or(cx.tree.nos[target].inicio, |p| cx.tree.nos[p].fim);
+                        let s = crate::project::word(cx.source, cx.next_token(start)?.start)?;
+                        requires_const |= requires_const_constructor(cx, target);
+                        (cx.source[s.start..s.end].to_string(), pr)
                     }
                     "SimpleIdentifier" => {
-                        if produtor == CriarMixin {
+                        if producer == CreateMixin {
                             // Não o identificador de `a.b` nem a propriedade.
-                            if alvo_qualificado(cx, alvo).is_some() {
+                            if qualified_target(cx, target).is_some() {
                                 return None;
                             }
-                            (cx.texto_do_no(alvo).to_string(), None)
+                            (cx.node_text(target).to_string(), None)
                         } else {
-                            exige_const |= exige_const_construtor(cx, alvo);
-                            (nome_de_tipo(cx, alvo)?, None)
+                            requires_const |= requires_const_constructor(cx, target);
+                            (type_name(cx, target)?, None)
                         }
                     }
                     "PrefixedIdentifier" => {
-                        if produtor == CriarMixin && cx.pai(alvo).is_some_and(|p| cx.especie(p) == "InstanceCreationExpression") {
+                        if producer == CreateMixin && cx.parent(target).is_some_and(|p| cx.kind(p) == "InstanceCreationExpression") {
                             return None;
                         }
-                        let f = cx.filhos(alvo);
+                        let f = cx.children(target);
                         let p = *f.first()?;
-                        if !matches!(cx.resolvido(p), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))) {
+                        if !matches!(cx.resolved(p), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))) {
                             return None;
                         }
                         let id = *f.get(1)?;
-                        let n = if produtor == CriarMixin { cx.texto_do_no(id).to_string() } else { nome_de_tipo(cx, id)? };
+                        let n = if producer == CreateMixin { cx.node_text(id).to_string() } else { type_name(cx, id)? };
                         (n, Some(p))
                     }
                     _ => return None,
                 };
                 // Onde.
-                let (unidade, offset, antes, depois) = match prefixo {
+                let (unit, offset, before, after) = match prefix {
                     None => {
-                        let membro = membro_de_topo(cx, alvo)?;
-                        (cx.unidade, cx.arvore.nos[membro].fim, format!("{eol}{eol}"), String::new())
+                        let member = top_member(cx, target)?;
+                        (cx.unit, cx.tree.nos[member].fim, format!("{eol}{eol}"), String::new())
                     }
                     Some(p) => {
-                        let s = cx.texto_do_no(p).trim_end_matches('.').trim().to_string();
-                        let lib = prog.unit(cx.unidade).library;
-                        let imp = prog.library(lib).imports.iter().find(|i| i.prefix.is_some_and(|x| self.nome(x) == s))?;
+                        let s = cx.node_text(p).trim_end_matches('.').trim().to_string();
+                        let lib = prog.unit(cx.unit).library;
+                        let imp = prog.library(lib).imports.iter().find(|i| i.prefix.is_some_and(|x| self.name(x) == s))?;
                         let &u = prog.library(imp.library).units.first()?;
-                        let fonte = &prog.unit(u).source;
-                        let eol_alvo = Texto::novo(fonte).eol();
-                        (u, fonte.len(), eol_alvo.to_string(), eol_alvo.to_string())
+                        let source = &prog.unit(u).source;
+                        let eol_target = Text::new(source).eol();
+                        (u, source.len(), eol_target.to_string(), eol_target.to_string())
                     }
                 };
-                let eol_d = Texto::novo(&prog.unit(unidade).source).eol().to_string();
+                let eol_d = Text::new(&prog.unit(unit).source).eol().to_string();
                 // O grupo `NAME` no nome da classe (e no do construtor) e os
                 // dos parâmetros (`create_class.dart:118-139`).
-                let mut e = crate::snippets::Escrita::default();
-                e.escrever(&antes);
-                let texto = if produtor == CriarMixin {
-                    e.escrever("mixin ").ligado("NAME", &nome, &[]).escrever(&format!(" {{{eol_d}}}{depois}"));
-                    e.texto.clone()
-                } else if argumentos.is_none() && !exige_const {
-                    e.escrever("class ").ligado("NAME", &nome, &[]).escrever(&format!(" {{{eol_d}}}{depois}"));
-                    e.texto.clone()
+                let mut e = crate::snippets::Write::default();
+                e.write(&before);
+                let text = if producer == CreateMixin {
+                    e.write("mixin ").linked("NAME", &name, &[]).write(&format!(" {{{eol_d}}}{after}"));
+                    e.text.clone()
+                } else if arguments.is_none() && !requires_const {
+                    e.write("class ").linked("NAME", &name, &[]).write(&format!(" {{{eol_d}}}{after}"));
+                    e.text.clone()
                 } else {
-                    let destino = Contexto::novo(self, unidade);
-                    let mut escritor = Escritor::novo(&destino, offset);
-                    let c = if exige_const { "const " } else { "" };
-                    e.escrever("class ").ligado("NAME", &nome, &[]).escrever(&format!(" {{{eol_d}  {c}")).ligado("NAME", &nome, &[]).escrever("(");
-                    if let Some(a) = argumentos {
-                        cx.parametros_para_argumentos_em(a, &mut escritor, &mut e);
+                    let target_ = Context::new(self, unit);
+                    let mut writer = Writer::new(&target_, offset);
+                    let c = if requires_const { "const " } else { "" };
+                    e.write("class ").linked("NAME", &name, &[]).write(&format!(" {{{eol_d}  {c}")).linked("NAME", &name, &[]).write("(");
+                    if let Some(a) = arguments {
+                        cx.parameters_to_arguments_in(a, &mut writer, &mut e);
                     }
-                    e.escrever(&format!(");{eol_d}}}{depois}"));
-                    let t = e.texto.clone();
-                    return Some(Proposta {
-                        titulo: format!("Create class '{nome}'"),
-                        especie: "quickfix.create.class",
-                        unidade,
-                        edicoes: vec![(Span { start: offset, end: offset }, t)],
-                        importar: escritor.importar, marcas: Some((0, e)),
+                    e.write(&format!(");{eol_d}}}{after}"));
+                    let t = e.text.clone();
+                    return Some(Proposal {
+                        title: format!("Create class '{name}'"),
+                        kind: "quickfix.create.class",
+                        unit,
+                        edits: vec![(Span { start: offset, end: offset }, t)],
+                        import: writer.import, marks: Some((0, e)),
                     });
                 };
-                let (titulo, especie) = if produtor == CriarMixin {
-                    (format!("Create mixin '{nome}'"), "quickfix.create.mixin")
+                let (title, kind) = if producer == CreateMixin {
+                    (format!("Create mixin '{name}'"), "quickfix.create.mixin")
                 } else {
-                    (format!("Create class '{nome}'"), "quickfix.create.class")
+                    (format!("Create class '{name}'"), "quickfix.create.class")
                 };
-                Some(Proposta { titulo, especie, unidade, edicoes: vec![(Span { start: offset, end: offset }, texto)], importar: BTreeSet::new(), marcas: Some((0, e)) })
+                Some(Proposal { title, kind, unit, edits: vec![(Span { start: offset, end: offset }, text)], import: BTreeSet::new(), marks: Some((0, e)) })
             }
-            CriarCampo | CriarGetter | CriarSetter => self.criar_campo_getter_setter(cx, produtor, node),
-            CriarLocal => {
-                if cx.especie(node) != "SimpleIdentifier" {
+            CreateField | CreateGetter | CreateSetter => self.create_field_getter_setter(cx, producer, node),
+            CreateLocal => {
+                if cx.kind(node) != "SimpleIdentifier" {
                     return None;
                 }
-                let nome = cx.texto_do_no(node).to_string();
-                if let Some(a) = cx.pai(node)
-                    && cx.especie(a) == "AssignmentExpression"
-                    && cx.filhos(a).first() == Some(&node)
-                    && operador_de_atribuicao(cx, a) == "="
-                    && cx.pai(a).is_some_and(|s| cx.especie(s) == "ExpressionStatement")
+                let name = cx.node_text(node).to_string();
+                if let Some(a) = cx.parent(node)
+                    && cx.kind(a) == "AssignmentExpression"
+                    && cx.children(a).first() == Some(&node)
+                    && assignment_operator(cx, a) == "="
+                    && cx.parent(a).is_some_and(|s| cx.kind(s) == "ExpressionStatement")
                 {
-                    let o = cx.arvore.nos[node].inicio;
-                    return Some(Proposta { titulo: format!("Create local variable '{nome}'"), especie: "quickfix.create.localVariable", unidade: cx.unidade, edicoes: vec![(Span { start: o, end: o }, "var ".into())], importar: BTreeSet::new(), marcas: None });
+                    let o = cx.tree.nos[node].inicio;
+                    return Some(Proposal { title: format!("Create local variable '{name}'"), kind: "quickfix.create.localVariable", unit: cx.unit, edits: vec![(Span { start: o, end: o }, "var ".into())], import: BTreeSet::new(), marks: None });
                 }
-                if alvo_qualificado(cx, node).is_some() || cx.pai(node).is_some_and(|p| matches!(cx.especie(p), "PrefixedIdentifier" | "PropertyAccess")) {
+                if qualified_target(cx, node).is_some() || cx.parent(node).is_some_and(|p| matches!(cx.kind(p), "PrefixedIdentifier" | "PropertyAccess")) {
                     return None;
                 }
-                let comando = (0..).scan(Some(node), |a, _| {
+                let command = (0..).scan(Some(node), |a, _| {
                     let k = (*a)?;
-                    *a = cx.pai(k);
+                    *a = cx.parent(k);
                     Some(k)
                 })
-                .find(|&k| cx.e_comando(k))?;
-                let prefixo = cx.prefixo_do_no(comando);
-                let tipo = cx.tipo_inferido_indefinido(node);
-                if let Some(t) = tipo
-                    && !matches!(self.consulta.tabela.get(t), Type::Interface { .. } | Type::Function { .. } | Type::Record { .. } | Type::FutureOr { .. } | Type::ExtensionType { .. })
+                .find(|&k| cx.is_command(k))?;
+                let prefix = cx.node_prefix(command);
+                let ty = cx.undefined_inferred_type(node);
+                if let Some(t) = ty
+                    && !matches!(self.query.table.get(t), Type::Interface { .. } | Type::Function { .. } | Type::Record { .. } | Type::FutureOr { .. } | Type::ExtensionType { .. })
                 {
                     return None;
                 }
-                let o = cx.arvore.nos[comando].inicio;
-                let mut escritor = Escritor::novo(cx, o);
+                let o = cx.tree.nos[command].inicio;
+                let mut writer = Writer::new(cx, o);
                 // `writeLocalVariableDeclaration(nameGroupName: 'NAME',
                 // typeGroupName: 'TYPE')`.
-                let mut e = crate::snippets::Escrita::default();
-                match tipo.and_then(|t| escritor.escrever(t, false)) {
+                let mut e = crate::snippets::Write::default();
+                match ty.and_then(|t| writer.write(t, false)) {
                     Some(t) => {
-                        e.ligado("TYPE", &t, &[]);
+                        e.linked("TYPE", &t, &[]);
                     }
-                    None if tipo.is_some() => {}
+                    None if ty.is_some() => {}
                     None => {
-                        e.escrever("var");
+                        e.write("var");
                     }
                 }
-                e.escrever(" ").ligado("NAME", &nome, &[]).escrever(&format!(";{eol}{prefixo}"));
-                let texto = e.texto.clone();
-                Some(Proposta {
-                    titulo: format!("Create local variable '{nome}'"),
-                    especie: "quickfix.create.localVariable",
-                    unidade: cx.unidade,
-                    edicoes: vec![(Span { start: o, end: o }, texto)],
-                    importar: escritor.importar, marcas: Some((0, e)),
+                e.write(" ").linked("NAME", &name, &[]).write(&format!(";{eol}{prefix}"));
+                let text = e.text.clone();
+                Some(Proposal {
+                    title: format!("Create local variable '{name}'"),
+                    kind: "quickfix.create.localVariable",
+                    unit: cx.unit,
+                    edits: vec![(Span { start: o, end: o }, text)],
+                    import: writer.import, marks: Some((0, e)),
                 })
             }
-            CriarParametro => self.criar_parametro(cx, node),
-            CriarMetodoOuFuncao => self.criar_metodo_ou_funcao(cx, node),
-            CriarFuncao => {
-                if cx.especie(node) != "SimpleIdentifier" {
+            CreateParameter => self.create_parameter(cx, node),
+            CreateMethodOrFunction => self.create_method_or_function(cx, node),
+            CreateFunction => {
+                if cx.kind(node) != "SimpleIdentifier" {
                     return None;
                 }
-                let inv = cx.pai(node).filter(|&p| cx.especie(p) == "MethodInvocation")?;
-                if cx.nome_do_metodo(inv) != Some(node) || cx.filhos(inv).first() != Some(&node) {
+                let inv = cx.parent(node).filter(|&p| cx.kind(p) == "MethodInvocation")?;
+                if cx.method_name(inv) != Some(node) || cx.children(inv).first() != Some(&node) {
                     return None;
                 }
-                let membro = membro_mais_interno(cx, node)?;
-                let o = cx.arvore.nos[membro].fim;
-                let nome = cx.texto_do_no(node).to_string();
-                let mut escritor = Escritor::novo(cx, o);
-                let ret = cx.tipo_inferido_indefinido(inv).and_then(|t| escritor.escrever_tipo(Some(t), false));
-                let lista = cx.filhos_da_especie(inv, "ArgumentList").first().copied()?;
+                let member = innermost_member(cx, node)?;
+                let o = cx.tree.nos[member].fim;
+                let name = cx.node_text(node).to_string();
+                let mut writer = Writer::new(cx, o);
+                let ret = cx.undefined_inferred_type(inv).and_then(|t| writer.write_type(Some(t), false));
+                let list = cx.kind_children(inv, "ArgumentList").first().copied()?;
                 // `RETURN_TYPE`, `NAME` e os grupos dos parâmetros
                 // (`create_function.dart:51-69`).
-                let mut e = crate::snippets::Escrita::default();
-                e.escrever(&format!("{eol}{eol}"));
+                let mut e = crate::snippets::Write::default();
+                e.write(&format!("{eol}{eol}"));
                 if let Some(r) = &ret {
-                    e.ligado("RETURN_TYPE", r, &[]).escrever(" ");
+                    e.linked("RETURN_TYPE", r, &[]).write(" ");
                 }
-                e.ligado("NAME", &nome, &[]).escrever("(");
-                cx.parametros_para_argumentos_em(lista, &mut escritor, &mut e);
-                e.escrever(&format!(") {{{eol}}}"));
-                let texto = e.texto.clone();
-                Some(Proposta { titulo: format!("Create function '{nome}'"), especie: "quickfix.create.function", unidade: cx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar, marcas: Some((0, e)) })
+                e.linked("NAME", &name, &[]).write("(");
+                cx.parameters_to_arguments_in(list, &mut writer, &mut e);
+                e.write(&format!(") {{{eol}}}"));
+                let text = e.text.clone();
+                Some(Proposal { title: format!("Create function '{name}'"), kind: "quickfix.create.function", unit: cx.unit, edits: vec![(Span { start: o, end: o }, text)], import: writer.import, marks: Some((0, e)) })
             }
-            CriarMetodo => self.criar_metodo(cx, node),
-            CriarGetterDeExtensao | CriarMetodoDeExtensao | CriarSetterDeExtensao => self.criar_membro_de_extensao(cx, produtor, node),
+            CreateMethod => self.create_method(cx, node),
+            CreateExtensionGetter | CreateExtensionMethod | CreateExtensionSetter => self.create_extension_member(cx, producer, node),
         }
     }
 
     /// `CreateField`/`CreateGetter`/`CreateSetter` (`create_field.dart`,
     /// `create_getter.dart`, `create_setter.dart`).
-    fn criar_campo_getter_setter(&self, cx: &Contexto<'_>, produtor: Produtor, node: usize) -> Option<Proposta> {
-        let prog = self.programa();
+    fn create_field_getter_setter(&self, cx: &Context<'_>, producer: Producer, node: usize) -> Option<Proposal> {
+        let prog = self.program();
         // `this.x` sem campo (só o `CreateField`).
-        if produtor == Produtor::CriarCampo
-            && let Some(param) = cx.este_ou_ancestral_pub(node, "FieldFormalParameter")
+        if producer == Producer::CreateField
+            && let Some(param) = cx.this_or_ancestor_pub(node, "FieldFormalParameter")
         {
-            let construtor = cx.este_ou_ancestral_pub(param, "ConstructorDeclaration")?;
-            let conteiner = cx.pai(construtor)?;
-            if !matches!(cx.especie(conteiner), "ClassDeclaration" | "EnumDeclaration") {
+            let constructor = cx.this_or_ancestor_pub(param, "ConstructorDeclaration")?;
+            let container = cx.parent(constructor)?;
+            if !matches!(cx.kind(container), "ClassDeclaration" | "EnumDeclaration") {
                 return None;
             }
-            let nome = crate::project::palavra(cx.fonte, cx.arvore.nos[param].fim.checked_sub(1)?)?;
-            let nome = cx.fonte[nome.start..nome.end].to_string();
-            let constante = cx.tokens_iniciais(construtor).iter().any(|s| s == "const");
-            let o = cx.inserir_no_membro(conteiner, Filtro::Campo, "")?.0;
-            let mut escritor = Escritor::novo(cx, o);
-            let tipo = cx.ast.members.iter().find_map(|m| match &m.kind {
-                ast::MemberKind::Constructor(k) => k.parameters.iter().find(|q| q.this_ && q.span.start >= cx.arvore.nos[param].inicio && q.span.end <= cx.arvore.nos[param].fim),
+            let name = crate::project::word(cx.source, cx.tree.nos[param].fim.checked_sub(1)?)?;
+            let name = cx.source[name.start..name.end].to_string();
+            let constant = cx.initial_tokens(constructor).iter().any(|s| s == "const");
+            let o = cx.insert_in_member(container, Filter::Field, "")?.0;
+            let mut writer = Writer::new(cx, o);
+            let ty = cx.ast.members.iter().find_map(|m| match &m.kind {
+                ast::MemberKind::Constructor(k) => k.parameters.iter().find(|q| q.this_ && q.span.start >= cx.tree.nos[param].inicio && q.span.end <= cx.tree.nos[param].fim),
                 _ => None,
             });
-            let tipo = tipo.and_then(|q| q.ty).and_then(|t| self.consulta.outline.tipos_escritos.get(&(cx.unidade, t)).copied());
-            let decl = declaracao_de_campo(&mut escritor, &nome, constante, false, tipo);
-            let (o, texto) = cx.inserir_no_membro(conteiner, Filtro::Campo, &decl.texto)?;
-            let marcas = marcas_em(&texto, decl);
-            return Some(Proposta { titulo: format!("Create field '{nome}'"), especie: "quickfix.create.field", unidade: cx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar, marcas });
+            let ty = ty.and_then(|q| q.ty).and_then(|t| self.query.outline.tipos_escritos.get(&(cx.unit, t)).copied());
+            let decl = field_declaration(&mut writer, &name, constant, false, ty);
+            let (o, text) = cx.insert_in_member(container, Filter::Field, &decl.text)?;
+            let marks = marks_in(&text, decl);
+            return Some(Proposal { title: format!("Create field '{name}'"), kind: "quickfix.create.field", unit: cx.unit, edits: vec![(Span { start: o, end: o }, text)], import: writer.import, marks });
         }
-        if cx.especie(node) != "SimpleIdentifier" {
+        if cx.kind(node) != "SimpleIdentifier" {
             return None;
         }
-        let nome = cx.texto_do_no(node).to_string();
-        if produtor == Produtor::CriarGetter && !em_contexto_de_leitura(cx, node) {
+        let name = cx.node_text(node).to_string();
+        if producer == Producer::CreateGetter && !in_read_context(cx, node) {
             return None;
         }
-        if produtor == Produtor::CriarSetter && !em_contexto_de_escrita(cx, node) {
+        if producer == Producer::CreateSetter && !in_write_context(cx, node) {
             return None;
         }
-        let alvo = alvo_qualificado(cx, node);
+        let target_ = qualified_target(cx, node);
         // O destino: classe ou extensão, e o `static`.
-        enum Destino {
-            Classe(ClassId),
-            Extensao(ExtensionId),
+        enum Target {
+            Class(ClassId),
+            Extension(ExtensionId),
         }
-        let (destino, estatico) = match alvo {
-            Some(a) if produtor != Produtor::CriarCampo && cx.e_override_de_extensao(a) => (Destino::Extensao(cx.extensao_do_alvo(a)?), false),
-            Some(a) if produtor != Produtor::CriarCampo && cx.extensao_do_alvo(a).is_some() => (Destino::Extensao(cx.extensao_do_alvo(a)?), true),
+        let (target, is_static) = match target_ {
+            Some(a) if producer != Producer::CreateField && cx.is_extension_override(a) => (Target::Extension(cx.target_extension(a)?), false),
+            Some(a) if producer != Producer::CreateField && cx.target_extension(a).is_some() => (Target::Extension(cx.target_extension(a)?), true),
             Some(a) => {
-                let c = if produtor == Produtor::CriarCampo {
-                    let c = cx.interface_do_alvo(a);
-                    if cx.especie(a) == "SimpleIdentifier" && cx.resolvido(a).is_none() {
+                let c = if producer == Producer::CreateField {
+                    let c = cx.target_interface(a);
+                    if cx.kind(a) == "SimpleIdentifier" && cx.resolved(a).is_none() {
                         return None;
                     }
                     c?
-                } else if cx.classe_nomeada(a).is_some() {
+                } else if cx.named_class(a).is_some() {
                     // `K.x` com `K` uma classe: o `staticType` do nome não é
                     // um tipo de interface (ou é o `Type` do SDK), e o
                     // `CreateGetter`/`CreateSetter` do Dart não oferece nada.
                     return None;
                 } else {
-                    match self.consulta.tabela.get(cx.tipo_do_no(a)?) {
+                    match self.query.table.get(cx.node_type(a)?) {
                         Type::Interface { class, .. } => *class,
                         _ => return None,
                     }
                 };
-                let estatico = cx.classe_nomeada(a).is_some_and(|k| prog.class(k).kind == ClassKind::Class);
-                (Destino::Classe(c), estatico)
+                let is_static = cx.named_class(a).is_some_and(|k| prog.class(k).kind == ClassKind::Class);
+                (Target::Class(c), is_static)
             }
             None => {
-                let d = match cx.interface_envolvente(node) {
-                    Some((c, _)) => Destino::Classe(c),
+                let d = match cx.enclosing_interface(node) {
+                    Some((c, _)) => Target::Class(c),
                     None => {
-                        if produtor == Produtor::CriarCampo {
+                        if producer == Producer::CreateField {
                             // Também enum (`enclosingInterfaceElement2` só dá
                             // classe e mixin).
                             return None;
                         }
-                        Destino::Extensao(cx.extensao_envolvente(node)?.0)
+                        Target::Extension(cx.enclosing_extension(node)?.0)
                     }
                 };
-                (d, cx.em_contexto_estatico(node))
+                (d, cx.in_static_context(node))
             }
         };
-        let tipo_no = subir_acesso(cx, node);
-        if produtor == Produtor::CriarCampo
-            && let Destino::Classe(c) = &destino
+        let type_node = climb_access(cx, node);
+        if producer == Producer::CreateField
+            && let Target::Class(c) = &target
             && prog.class(*c).kind == ClassKind::Enum
-            && cx.pai(tipo_no).is_some_and(|p| cx.especie(p) == "AssignmentExpression" && cx.filhos(p).first() == Some(&tipo_no))
+            && cx.parent(type_node).is_some_and(|p| cx.kind(p) == "AssignmentExpression" && cx.children(p).first() == Some(&type_node))
         {
             return None;
         }
-        let tipo = cx.tipo_inferido_indefinido(tipo_no);
+        let ty = cx.undefined_inferred_type(type_node);
         // A declaração de destino (fora do SDK), na unidade dela.
-        let (lib, decl) = match &destino {
-            Destino::Classe(c) => (prog.class(*c).library, prog.class(*c).decl?),
-            Destino::Extensao(x) => (prog.extension(*x).library, prog.extension(*x).decl),
+        let (lib, decl) = match &target {
+            Target::Class(c) => (prog.class(*c).library, prog.class(*c).decl?),
+            Target::Extension(x) => (prog.extension(*x).library, prog.extension(*x).decl),
         };
         if prog.library(lib).is_sdk {
             return None;
         }
-        let (dcx, conteiner) = declaracao_na_unidade(self, decl.unit, decl.decl)?;
-        let permitido = match produtor {
-            Produtor::CriarCampo => matches!(dcx.especie(conteiner), "ClassDeclaration" | "EnumDeclaration" | "MixinDeclaration"),
-            _ => matches!(dcx.especie(conteiner), "ClassDeclaration" | "ExtensionDeclaration" | "ExtensionTypeDeclaration" | "MixinDeclaration"),
+        let (dcx, container) = declaration_in_unit(self, decl.unit, decl.decl)?;
+        let allowed = match producer {
+            Producer::CreateField => matches!(dcx.kind(container), "ClassDeclaration" | "EnumDeclaration" | "MixinDeclaration"),
+            _ => matches!(dcx.kind(container), "ClassDeclaration" | "ExtensionDeclaration" | "ExtensionTypeDeclaration" | "MixinDeclaration"),
         };
-        if !permitido {
+        if !allowed {
             return None;
         }
-        let filtro = if produtor == Produtor::CriarCampo { Filtro::Campo } else { Filtro::Getter };
-        let o = dcx.inserir_no_membro(conteiner, filtro, "")?.0;
-        let mut escritor = Escritor::novo(&dcx, o);
-        let s = if estatico { "static " } else { "" };
+        let filter = if producer == Producer::CreateField { Filter::Field } else { Filter::Getter };
+        let o = dcx.insert_in_member(container, filter, "")?.0;
+        let mut writer = Writer::new(&dcx, o);
+        let s = if is_static { "static " } else { "" };
         // Os grupos `TYPE` e `NAME` de `writeFieldDeclaration`,
         // `writeGetterDeclaration` e `writeSetterDeclaration`.
-        let mut decl = crate::snippets::Escrita::default();
-        decl.escrever(s);
-        let (titulo, especie) = match produtor {
-            Produtor::CriarCampo => {
-                let final_ = dcx.especie(conteiner) == "EnumDeclaration";
-                let campo = declaracao_de_campo(&mut escritor, &nome, false, final_, tipo);
-                let base = decl.texto.len();
-                decl.texto.push_str(&campo.texto);
-                for (n, posicoes, c, sug) in campo.grupos {
-                    decl.grupos.push((n, posicoes.into_iter().map(|p| base + p).collect(), c, sug));
+        let mut decl = crate::snippets::Write::default();
+        decl.write(s);
+        let (title, kind) = match producer {
+            Producer::CreateField => {
+                let final_ = dcx.kind(container) == "EnumDeclaration";
+                let field = field_declaration(&mut writer, &name, false, final_, ty);
+                let base = decl.text.len();
+                decl.text.push_str(&field.text);
+                for (n, positions, c, sug) in field.groups {
+                    decl.groups.push((n, positions.into_iter().map(|p| base + p).collect(), c, sug));
                 }
-                (format!("Create field '{nome}'"), "quickfix.create.field")
+                (format!("Create field '{name}'"), "quickfix.create.field")
             }
-            Produtor::CriarGetter => {
-                let t = tipo.filter(|t| !matches!(self.consulta.tabela.get(*t), Type::Dynamic)).and_then(|t| escritor.escrever(t, false));
+            Producer::CreateGetter => {
+                let t = ty.filter(|t| !matches!(self.query.table.get(*t), Type::Dynamic)).and_then(|t| writer.write(t, false));
                 if let Some(t) = &t {
-                    decl.ligado("TYPE", t, &[]).escrever(" ");
+                    decl.linked("TYPE", t, &[]).write(" ");
                 }
-                decl.escrever("get ").ligado("NAME", &nome, &[]).escrever(" => null;");
-                (format!("Create getter '{nome}'"), "quickfix.create.getter")
+                decl.write("get ").linked("NAME", &name, &[]).write(" => null;");
+                (format!("Create getter '{name}'"), "quickfix.create.getter")
             }
             _ => {
-                let t = tipo.filter(|t| !matches!(self.consulta.tabela.get(*t), Type::Dynamic)).and_then(|t| escritor.escrever(t, false));
-                decl.escrever("set ").ligado("NAME", &nome, &[]).escrever("(");
+                let t = ty.filter(|t| !matches!(self.query.table.get(*t), Type::Dynamic)).and_then(|t| writer.write(t, false));
+                decl.write("set ").linked("NAME", &name, &[]).write("(");
                 if let Some(t) = &t {
-                    decl.ligado("TYPE", t, &[]).escrever(" ");
+                    decl.linked("TYPE", t, &[]).write(" ");
                 }
-                decl.escrever(&format!("{nome}) {{}}"));
-                (format!("Create setter '{nome}'"), "quickfix.create.setter")
+                decl.write(&format!("{name}) {{}}"));
+                (format!("Create setter '{name}'"), "quickfix.create.setter")
             }
         };
-        let (o, texto) = dcx.inserir_no_membro(conteiner, filtro, &decl.texto)?;
-        let marcas = marcas_em(&texto, decl);
-        Some(Proposta { titulo, especie, unidade: dcx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar, marcas })
+        let (o, text) = dcx.insert_in_member(container, filter, &decl.text)?;
+        let marks = marks_in(&text, decl);
+        Some(Proposal { title, kind, unit: dcx.unit, edits: vec![(Span { start: o, end: o }, text)], import: writer.import, marks })
     }
 
     /// `CreateParameter` (`create_parameter.dart`).
-    fn criar_parametro(&self, cx: &Contexto<'_>, node: usize) -> Option<Proposta> {
-        if cx.especie(node) != "SimpleIdentifier" {
+    fn create_parameter(&self, cx: &Context<'_>, node: usize) -> Option<Proposal> {
+        if cx.kind(node) != "SimpleIdentifier" {
             return None;
         }
-        let nome = cx.texto_do_no(node).to_string();
+        let name = cx.node_text(node).to_string();
         // A lista: a da `FunctionExpression` mais interna, senão do método,
         // senão do construtor.
-        let dono = ["FunctionExpression", "MethodDeclaration", "ConstructorDeclaration"].iter().find_map(|e| cx.este_ou_ancestral_pub(node, e))?;
-        let lista = cx.filhos_da_especie(dono, "FormalParameterList").first().copied()?;
-        let tipo = cx.tipo_inferido_indefinido(node);
-        let o0 = cx.arvore.nos[lista].inicio;
-        let mut escritor = Escritor::novo(cx, o0);
-        let t = escritor.escrever(tipo.unwrap_or(self.consulta.core.dynamic_), true).unwrap_or_else(|| "dynamic".into());
-        let parametros: Vec<usize> = cx.filhos(lista).to_vec();
-        let obrigatorio = |p: usize| {
-            let s = cx.arvore.span(p);
+        let owner = ["FunctionExpression", "MethodDeclaration", "ConstructorDeclaration"].iter().find_map(|e| cx.this_or_ancestor_pub(node, e))?;
+        let list = cx.kind_children(owner, "FormalParameterList").first().copied()?;
+        let ty = cx.undefined_inferred_type(node);
+        let o0 = cx.tree.nos[list].inicio;
+        let mut writer = Writer::new(cx, o0);
+        let t = writer.write(ty.unwrap_or(self.query.core.dynamic_), true).unwrap_or_else(|| "dynamic".into());
+        let parameters: Vec<usize> = cx.children(list).to_vec();
+        let required_ = |p: usize| {
+            let s = cx.tree.span(p);
             cx.ast
                 .functions
                 .iter()
@@ -1304,214 +1304,214 @@ impl Projeto {
                 .find(|q| q.span.start >= s.start && q.span.end <= s.end)
                 .map(|q| q.kind)
         };
-        let r: Vec<usize> = parametros.iter().copied().filter(|&p| obrigatorio(p) == Some(ast::ParameterKind::Required)).collect();
-        let n: Vec<usize> = parametros.iter().copied().filter(|&p| obrigatorio(p) == Some(ast::ParameterKind::Named)).collect();
-        let ultimo = r.last().or(n.last()).copied();
-        let virgula_final = parametros.last().and_then(|&p| cx.token_seguinte(cx.arvore.nos[p].fim)).is_some_and(|t| &cx.fonte[t.start..t.end] == ",");
-        let ha_seguinte = (!r.is_empty() && parametros.iter().any(|&p| obrigatorio(p) != Some(ast::ParameterKind::Required)))
-            || (r.is_empty() && parametros.iter().any(|&p| obrigatorio(p) != Some(ast::ParameterKind::Named)));
-        let requerido = r.is_empty() && ultimo.is_some() && !tipo.is_some_and(|x| self.consulta.tabela.get(x).is_declared_nullable());
-        let req = if requerido { "required " } else { "" };
-        let tx = Texto::novo(cx.fonte);
-        let (offset, texto) = match ultimo {
+        let r: Vec<usize> = parameters.iter().copied().filter(|&p| required_(p) == Some(ast::ParameterKind::Required)).collect();
+        let n: Vec<usize> = parameters.iter().copied().filter(|&p| required_(p) == Some(ast::ParameterKind::Named)).collect();
+        let last = r.last().or(n.last()).copied();
+        let trailing_comma = parameters.last().and_then(|&p| cx.next_token(cx.tree.nos[p].fim)).is_some_and(|t| &cx.source[t.start..t.end] == ",");
+        let has_next = (!r.is_empty() && parameters.iter().any(|&p| required_(p) != Some(ast::ParameterKind::Required)))
+            || (r.is_empty() && parameters.iter().any(|&p| required_(p) != Some(ast::ParameterKind::Named)));
+        let required = r.is_empty() && last.is_some() && !ty.is_some_and(|x| self.query.table.get(x).is_declared_nullable());
+        let req = if required { "required " } else { "" };
+        let tx = Text::new(cx.source);
+        let (offset, text) = match last {
             None => {
-                let mut s = format!("{t} {nome}");
-                if virgula_final {
+                let mut s = format!("{t} {name}");
+                if trailing_comma {
                     s.push(',');
-                } else if ha_seguinte {
+                } else if has_next {
                     s.push_str(", ");
                 }
                 (o0 + 1, s)
             }
-            Some(u) if virgula_final => {
-                let v = cx.token_seguinte(cx.arvore.nos[u].fim)?;
-                (v.end, format!("{}{}{req}{t} {nome},", tx.eol(), tx.prefixo_da_linha(cx.arvore.nos[u].inicio)))
+            Some(u) if trailing_comma => {
+                let v = cx.next_token(cx.tree.nos[u].fim)?;
+                (v.end, format!("{}{}{req}{t} {name},", tx.eol(), tx.line_prefix(cx.tree.nos[u].inicio)))
             }
-            Some(u) if ha_seguinte => {
-                let v = cx.token_seguinte(cx.arvore.nos[u].fim)?;
-                (v.end + 1, format!("{t} {nome}, "))
+            Some(u) if has_next => {
+                let v = cx.next_token(cx.tree.nos[u].fim)?;
+                (v.end + 1, format!("{t} {name}, "))
             }
-            Some(u) => (cx.arvore.nos[u].fim, format!(", {req}{t} {nome}")),
+            Some(u) => (cx.tree.nos[u].fim, format!(", {req}{t} {name}")),
         };
         // `writeParameter(nameGroupName: 'NAME', typeGroupName: 'TYPE')`: o
         // tipo com as sugestões de supertipos e o nome.
-        let marcas = texto.rfind(&format!("{t} {nome}")).map(|k| {
-            let mut e = crate::snippets::Escrita { texto: texto.clone(), ..Default::default() };
-            let sugestoes = tipo.map(|x| sugestoes_de_supertipos_em(self, &mut None, x)).unwrap_or_default();
-            e.grupos.push(("TYPE".into(), vec![k], t.len(), sugestoes));
-            e.grupos.push(("NAME".into(), vec![k + t.len() + 1], nome.len(), Vec::new()));
+        let marks = text.rfind(&format!("{t} {name}")).map(|k| {
+            let mut e = crate::snippets::Write { text: text.clone(), ..Default::default() };
+            let suggestions = ty.map(|x| supertype_suggestions_at(self, &mut None, x)).unwrap_or_default();
+            e.groups.push(("TYPE".into(), vec![k], t.len(), suggestions));
+            e.groups.push(("NAME".into(), vec![k + t.len() + 1], name.len(), Vec::new()));
             (0, e)
         });
-        Some(Proposta {
-            titulo: format!("Create required positional parameter '{nome}'"),
-            especie: "quickfix.create.parameter",
-            unidade: cx.unidade,
-            edicoes: vec![(Span { start: offset, end: offset }, texto)],
-            importar: escritor.importar, marcas,
+        Some(Proposal {
+            title: format!("Create required positional parameter '{name}'"),
+            kind: "quickfix.create.parameter",
+            unit: cx.unit,
+            edits: vec![(Span { start: offset, end: offset }, text)],
+            import: writer.import, marks,
         })
     }
 
     /// `CreateMethodOrFunction` (`create_method_or_function.dart`).
-    fn criar_metodo_ou_funcao(&self, cx: &Contexto<'_>, node: usize) -> Option<Proposta> {
-        if cx.especie(node) != "SimpleIdentifier" {
+    fn create_method_or_function(&self, cx: &Context<'_>, node: usize) -> Option<Proposal> {
+        if cx.kind(node) != "SimpleIdentifier" {
             return None;
         }
-        let prog = self.programa();
-        let nome = cx.texto_do_no(node).to_string();
-        let (classe, mut argumento) = match alvo_qualificado(cx, node) {
-            Some(a) => match self.consulta.tabela.get(cx.tipo_do_no(a)?) {
-                Type::Interface { class, .. } => (Some(*class), cx.pai(node)?),
+        let prog = self.program();
+        let name = cx.node_text(node).to_string();
+        let (class_, mut argument) = match qualified_target(cx, node) {
+            Some(a) => match self.query.table.get(cx.node_type(a)?) {
+                Type::Interface { class, .. } => (Some(*class), cx.parent(node)?),
                 _ => return None,
             },
-            None => (cx.interface_envolvente(node).map(|(c, _)| c), node),
+            None => (cx.enclosing_interface(node).map(|(c, _)| c), node),
         };
-        if let Some(p) = cx.pai(argumento)
-            && cx.especie(p) == "NamedExpression"
+        if let Some(p) = cx.parent(argument)
+            && cx.kind(p) == "NamedExpression"
         {
-            argumento = p;
+            argument = p;
         }
-        let mut parametro = cx.parametro_correspondente(argumento);
-        if let Some(p) = cx.pai(argumento)
-            && cx.especie(p) == "ConditionalExpression"
+        let mut parameter = cx.matching_parameter(argument);
+        if let Some(p) = cx.parent(argument)
+            && cx.kind(p) == "ConditionalExpression"
         {
-            if cx.filhos(p).first() == Some(&argumento) {
+            if cx.children(p).first() == Some(&argument) {
                 return None;
             }
-            parametro = cx.parametro_correspondente(p);
+            parameter = cx.matching_parameter(p);
         }
-        let tipo_f = parametro?;
+        let type_f = parameter?;
         // `Function` vale `dynamic Function()`.
-        let (ret, positional, optional, named): (TypeId, Vec<TypeId>, Vec<TypeId>, Vec<(dartforge_intern::SymbolId, TypeId, bool)>) = match self.consulta.tabela.get(tipo_f).clone() {
-            Type::Interface { class, .. } if Some(class) == self.consulta.core.function_class => (self.consulta.core.dynamic_, Vec::new(), Vec::new(), Vec::new()),
+        let (ret, positional, optional, named): (TypeId, Vec<TypeId>, Vec<TypeId>, Vec<(dartforge_intern::SymbolId, TypeId, bool)>) = match self.query.table.get(type_f).clone() {
+            Type::Interface { class, .. } if Some(class) == self.query.core.function_class => (self.query.core.dynamic_, Vec::new(), Vec::new(), Vec::new()),
             Type::Function { ret, positional, optional, named, .. } => (ret, positional.to_vec(), optional.to_vec(), named.to_vec()),
             _ => return None,
         };
         // `RETURN_TYPE`, `NAME` e o `writeFormalParameters` do tipo de função
         // (`TYPE<i>` com as sugestões de supertipos; `PARAM<i>` nos não
         // nomeados), `create_method_or_function.dart:105-128`.
-        let escrever = |escritor: &mut Escritor<'_, '_>| -> crate::snippets::Escrita {
-            let mut copia: Option<dartforge_types::TypeTable> = None;
-            let mut e = crate::snippets::Escrita::default();
-            if let Some(r) = escritor.escrever(ret, false) {
-                e.ligado("RETURN_TYPE", &r, &[]).escrever(" ");
+        let write = |writer: &mut Writer<'_, '_>| -> crate::snippets::Write {
+            let mut copy: Option<dartforge_types::TypeTable> = None;
+            let mut e = crate::snippets::Write::default();
+            if let Some(r) = writer.write(ret, false) {
+                e.linked("RETURN_TYPE", &r, &[]).write(" ");
             }
-            e.ligado("NAME", &nome, &[]);
+            e.linked("NAME", &name, &[]);
             // `writeFormalParameters`: os posicionais sem nome viram `p1`…
-            e.escrever("(");
+            e.write("(");
             let mut i = 0usize;
-            let mut usados: BTreeSet<String> = named.iter().map(|(n, _, _)| self.nome(*n).to_string()).collect();
-            let gerar = |usados: &mut BTreeSet<String>| {
+            let mut used: BTreeSet<String> = named.iter().map(|(n, _, _)| self.name(*n).to_string()).collect();
+            let generate = |used: &mut BTreeSet<String>| {
                 let mut k = 1;
-                while usados.contains(&format!("p{k}")) {
+                while used.contains(&format!("p{k}")) {
                     k += 1;
                 }
                 let n = format!("p{k}");
-                usados.insert(n.clone());
+                used.insert(n.clone());
                 n
             };
-            let mut abriu_o = false;
-            let mut abriu_n = false;
-            for (q, opcional) in positional.iter().map(|q| (*q, false)).chain(optional.iter().map(|q| (*q, true))) {
+            let mut opened_o = false;
+            let mut opened_n = false;
+            for (q, optional_) in positional.iter().map(|q| (*q, false)).chain(optional.iter().map(|q| (*q, true))) {
                 if i > 0 {
-                    e.escrever(", ");
+                    e.write(", ");
                 }
-                if opcional && !abriu_o {
-                    e.escrever("[");
-                    abriu_o = true;
+                if optional_ && !opened_o {
+                    e.write("[");
+                    opened_o = true;
                 }
-                let n = gerar(&mut usados);
-                if let Some(t) = escritor.escrever(q, false) {
-                    let sugestoes = sugestoes_de_supertipos_em(self, &mut copia, q);
-                    e.ligado(&format!("TYPE{i}"), &t, &sugestoes).escrever(" ");
+                let n = generate(&mut used);
+                if let Some(t) = writer.write(q, false) {
+                    let suggestions = supertype_suggestions_at(self, &mut copy, q);
+                    e.linked(&format!("TYPE{i}"), &t, &suggestions).write(" ");
                 }
-                e.ligado(&format!("PARAM{i}"), &n, &[]);
+                e.linked(&format!("PARAM{i}"), &n, &[]);
                 i += 1;
             }
-            for (n, q, requerido) in named.iter() {
+            for (n, q, required) in named.iter() {
                 if i > 0 {
-                    e.escrever(", ");
+                    e.write(", ");
                 }
-                if !abriu_n {
-                    e.escrever("{");
-                    abriu_n = true;
+                if !opened_n {
+                    e.write("{");
+                    opened_n = true;
                 }
-                if *requerido {
-                    e.escrever("required ");
+                if *required {
+                    e.write("required ");
                 }
-                if let Some(t) = escritor.escrever(*q, false) {
-                    let sugestoes = sugestoes_de_supertipos_em(self, &mut copia, *q);
-                    e.ligado(&format!("TYPE{i}"), &t, &sugestoes).escrever(" ");
+                if let Some(t) = writer.write(*q, false) {
+                    let suggestions = supertype_suggestions_at(self, &mut copy, *q);
+                    e.linked(&format!("TYPE{i}"), &t, &suggestions).write(" ");
                 }
-                e.escrever(self.nome(*n));
+                e.write(self.name(*n));
                 i += 1;
             }
-            if abriu_n {
-                e.escrever("}");
+            if opened_n {
+                e.write("}");
             }
-            if abriu_o {
-                e.escrever("]");
+            if opened_o {
+                e.write("]");
             }
-            e.escrever(")");
+            e.write(")");
             e
         };
-        match classe {
+        match class_ {
             Some(c) if matches!(prog.class(c).kind, ClassKind::Class | ClassKind::Mixin) => {
                 let decl = prog.class(c).decl?;
-                let (dcx, conteiner) = declaracao_na_unidade(self, decl.unit, decl.decl)?;
-                let o = dcx.arvore.nos[conteiner].fim - 1;
-                let eol = Texto::novo(dcx.fonte).eol();
-                let mut escritor = Escritor::novo(&dcx, o);
-                let antes = if dcx.membros_do_conteiner(conteiner).is_empty() { "" } else { eol };
-                let s = if cx.em_contexto_estatico(node) { "static " } else { "" };
-                let corpo = escrever(&mut escritor);
-                let inicio = format!("{antes}  {s}");
-                let texto = format!("{inicio}{} {{{eol}  }}{eol}", corpo.texto);
-                Some(Proposta { titulo: format!("Create method '{nome}'"), especie: "quickfix.create.method", unidade: dcx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar, marcas: Some((inicio.len(), corpo)) })
+                let (dcx, container) = declaration_in_unit(self, decl.unit, decl.decl)?;
+                let o = dcx.tree.nos[container].fim - 1;
+                let eol = Text::new(dcx.source).eol();
+                let mut writer = Writer::new(&dcx, o);
+                let before = if dcx.container_members(container).is_empty() { "" } else { eol };
+                let s = if cx.in_static_context(node) { "static " } else { "" };
+                let body = write(&mut writer);
+                let start = format!("{before}  {s}");
+                let text = format!("{start}{} {{{eol}  }}{eol}", body.text);
+                Some(Proposal { title: format!("Create method '{name}'"), kind: "quickfix.create.method", unit: dcx.unit, edits: vec![(Span { start: o, end: o }, text)], import: writer.import, marks: Some((start.len(), body)) })
             }
             Some(_) => None,
             None => {
-                let o = cx.fonte.len();
-                let eol = Texto::novo(cx.fonte).eol();
-                let mut escritor = Escritor::novo(cx, o);
-                let corpo = escrever(&mut escritor);
-                let texto = format!("{eol}{} {{{eol}}}{eol}", corpo.texto);
-                Some(Proposta { titulo: format!("Create function '{nome}'"), especie: "quickfix.create.function", unidade: cx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar, marcas: Some((eol.len(), corpo)) })
+                let o = cx.source.len();
+                let eol = Text::new(cx.source).eol();
+                let mut writer = Writer::new(cx, o);
+                let body = write(&mut writer);
+                let text = format!("{eol}{} {{{eol}}}{eol}", body.text);
+                Some(Proposal { title: format!("Create function '{name}'"), kind: "quickfix.create.function", unit: cx.unit, edits: vec![(Span { start: o, end: o }, text)], import: writer.import, marks: Some((eol.len(), body)) })
             }
         }
     }
 
     /// `CreateMethod.method` (`create_method.dart:92-205`).
-    fn criar_metodo(&self, cx: &Contexto<'_>, node: usize) -> Option<Proposta> {
-        let prog = self.programa();
-        if cx.especie(node) != "SimpleIdentifier" {
+    fn create_method(&self, cx: &Context<'_>, node: usize) -> Option<Proposal> {
+        let prog = self.program();
+        if cx.kind(node) != "SimpleIdentifier" {
             return None;
         }
-        let inv = cx.pai(node).filter(|&p| cx.especie(p) == "MethodInvocation")?;
-        let nome = cx.texto_do_no(node).to_string();
-        let alvo = cx.filhos(inv).first().copied().filter(|&a| a != node);
-        let (unidade, decl, estatico): (UnitId, Option<ast::DeclId>, bool) = match alvo {
-            Some(a) if cx.e_override_de_extensao(a) => {
-                let x = prog.extension(cx.extensao_do_alvo(a)?).decl;
+        let inv = cx.parent(node).filter(|&p| cx.kind(p) == "MethodInvocation")?;
+        let name = cx.node_text(node).to_string();
+        let target = cx.children(inv).first().copied().filter(|&a| a != node);
+        let (unit, decl, is_static): (UnitId, Option<ast::DeclId>, bool) = match target {
+            Some(a) if cx.is_extension_override(a) => {
+                let x = prog.extension(cx.target_extension(a)?).decl;
                 (x.unit, Some(x.decl), false)
             }
-            Some(a) if cx.extensao_do_alvo(a).is_some() => {
-                let x = prog.extension(cx.extensao_do_alvo(a)?).decl;
+            Some(a) if cx.target_extension(a).is_some() => {
+                let x = prog.extension(cx.target_extension(a)?).decl;
                 (x.unit, Some(x.decl), true)
             }
             None => {
-                let membro = (0..)
+                let member = (0..)
                     .scan(Some(node), |s, _| {
                         let k = (*s)?;
-                        *s = cx.pai(k);
+                        *s = cx.parent(k);
                         Some(k)
                     })
-                    .find(|&k| matches!(cx.especie(k), "MethodDeclaration" | "FieldDeclaration" | "ConstructorDeclaration"))?;
-                let conteiner = cx.pai(membro)?;
-                let Marca::Decl(d) = cx.arvore.nos[conteiner].marca else { return None };
-                (cx.unidade, Some(d), cx.em_contexto_estatico(node))
+                    .find(|&k| matches!(cx.kind(k), "MethodDeclaration" | "FieldDeclaration" | "ConstructorDeclaration"))?;
+                let container = cx.parent(member)?;
+                let Marca::Decl(d) = cx.tree.nos[container].marca else { return None };
+                (cx.unit, Some(d), cx.in_static_context(node))
             }
             Some(a) => {
-                let c = cx.interface_do_alvo(a)?;
+                let c = cx.target_interface(a)?;
                 let k = prog.class(c);
                 if prog.library(k.library).is_sdk {
                     return None;
@@ -1520,143 +1520,143 @@ impl Projeto {
                     return None;
                 }
                 let d = k.decl?;
-                let estatico = cx.classe_nomeada(a).is_some();
-                (d.unit, Some(d.decl), estatico)
+                let is_static = cx.named_class(a).is_some();
+                (d.unit, Some(d.decl), is_static)
             }
         };
-        let (dcx, conteiner) = declaracao_na_unidade(self, unidade, decl?)?;
-        let o = dcx.inserir_no_membro(conteiner, Filtro::Metodo, "")?.0;
-        let mut escritor = Escritor::novo(&dcx, o);
-        let s = if estatico { "static " } else { "" };
-        let ret = cx.tipo_inferido_indefinido(inv).and_then(|t| escritor.escrever_tipo(Some(t), false));
-        let lista = cx.filhos_da_especie(inv, "ArgumentList").first().copied()?;
+        let (dcx, container) = declaration_in_unit(self, unit, decl?)?;
+        let o = dcx.insert_in_member(container, Filter::Method, "")?.0;
+        let mut writer = Writer::new(&dcx, o);
+        let s = if is_static { "static " } else { "" };
+        let ret = cx.undefined_inferred_type(inv).and_then(|t| writer.write_type(Some(t), false));
+        let list = cx.kind_children(inv, "ArgumentList").first().copied()?;
         // `RETURN_TYPE`, `NAME` e os parâmetros (`create_method.dart:183-200`).
-        let mut e = crate::snippets::Escrita::default();
-        e.escrever(s);
+        let mut e = crate::snippets::Write::default();
+        e.write(s);
         if let Some(r) = &ret {
-            e.ligado("RETURN_TYPE", r, &[]).escrever(" ");
+            e.linked("RETURN_TYPE", r, &[]).write(" ");
         }
-        e.ligado("NAME", &nome, &[]).escrever("(");
-        cx.parametros_para_argumentos_em(lista, &mut escritor, &mut e);
-        e.escrever(") {}");
-        let (o, texto) = dcx.inserir_no_membro(conteiner, Filtro::Metodo, &e.texto)?;
-        let marcas = marcas_em(&texto, e);
-        Some(Proposta { titulo: format!("Create method '{nome}'"), especie: "quickfix.create.method", unidade: dcx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar: escritor.importar, marcas })
+        e.linked("NAME", &name, &[]).write("(");
+        cx.parameters_to_arguments_in(list, &mut writer, &mut e);
+        e.write(") {}");
+        let (o, text) = dcx.insert_in_member(container, Filter::Method, &e.text)?;
+        let marks = marks_in(&text, e);
+        Some(Proposal { title: format!("Create method '{name}'"), kind: "quickfix.create.method", unit: dcx.unit, edits: vec![(Span { start: o, end: o }, text)], import: writer.import, marks })
     }
 
     /// `CreateExtensionGetter`/`Method`/`Setter`
     /// (`create_extension_member.dart`).
-    fn criar_membro_de_extensao(&self, cx: &Contexto<'_>, produtor: Produtor, node: usize) -> Option<Proposta> {
-        if cx.especie(node) != "SimpleIdentifier" {
+    fn create_extension_member(&self, cx: &Context<'_>, producer: Producer, node: usize) -> Option<Proposal> {
+        if cx.kind(node) != "SimpleIdentifier" {
             return None;
         }
-        let nome = cx.texto_do_no(node).to_string();
-        let (alvo, inv) = match produtor {
-            Produtor::CriarMetodoDeExtensao => {
-                let inv = cx.pai(node).filter(|&p| cx.especie(p) == "MethodInvocation")?;
-                if cx.nome_do_metodo(inv) != Some(node) {
+        let name = cx.node_text(node).to_string();
+        let (target, inv) = match producer {
+            Producer::CreateExtensionMethod => {
+                let inv = cx.parent(node).filter(|&p| cx.kind(p) == "MethodInvocation")?;
+                if cx.method_name(inv) != Some(node) {
                     return None;
                 }
-                (cx.filhos(inv).first().copied().filter(|&a| a != node)?, Some(inv))
+                (cx.children(inv).first().copied().filter(|&a| a != node)?, Some(inv))
             }
-            Produtor::CriarGetterDeExtensao => {
-                if !em_contexto_de_leitura(cx, node) {
+            Producer::CreateExtensionGetter => {
+                if !in_read_context(cx, node) {
                     return None;
                 }
-                (alvo_qualificado(cx, node)?, None)
+                (qualified_target(cx, node)?, None)
             }
             _ => {
-                if !em_contexto_de_escrita(cx, node) {
+                if !in_write_context(cx, node) {
                     return None;
                 }
-                (alvo_qualificado(cx, node)?, None)
+                (qualified_target(cx, node)?, None)
             }
         };
         // O nome de uma classe como alvo (`K.m()`): o `staticType` dele no
         // analyzer é nulo, e o Dart não oferece o membro de extensão.
-        if cx.classe_nomeada(alvo).is_some() {
+        if cx.named_class(target).is_some() {
             return None;
         }
-        let tipo_alvo = cx.tipo_do_no(alvo)?;
-        if matches!(self.consulta.tabela.get(tipo_alvo), Type::Dynamic) || matches!(self.consulta.tabela.exibicao(tipo_alvo), Some(dartforge_types::table::Exibicao::Invalido)) {
+        let type_target = cx.node_type(target)?;
+        if matches!(self.query.table.get(type_target), Type::Dynamic) || matches!(self.query.table.exibicao(type_target), Some(dartforge_types::table::Exibicao::Invalido)) {
             return None;
         }
-        let eol = Texto::novo(cx.fonte).eol();
+        let eol = Text::new(cx.source).eol();
         // A extensão existente aplicável (a primeira da unidade).
-        let existente = self.extensao_aplicavel(cx, tipo_alvo);
+        let existing = self.applicable_extension(cx, type_target);
         // A declaração e os grupos de cada produtor: o `VALUE` do getter, o
         // `NAME`/`TYPE` do `writeSetterDeclaration`, e `RETURN_TYPE`, `NAME`
         // e os parâmetros do método (`create_extension_member.dart`).
-        let membro = |escritor: &mut Escritor<'_, '_>| -> crate::snippets::Escrita {
-            let mut e = crate::snippets::Escrita::default();
-            match produtor {
-                Produtor::CriarGetterDeExtensao => {
-                    let t = cx.tipo_inferido_indefinido(subir_acesso(cx, node)).and_then(|t| escritor.escrever_tipo(Some(t), false)).map(|t| format!("{t} ")).unwrap_or_default();
-                    e.escrever(&format!("{t}get {nome} => ")).ligado("VALUE", "null", &[]).escrever(";");
+        let member = |writer: &mut Writer<'_, '_>| -> crate::snippets::Write {
+            let mut e = crate::snippets::Write::default();
+            match producer {
+                Producer::CreateExtensionGetter => {
+                    let t = cx.undefined_inferred_type(climb_access(cx, node)).and_then(|t| writer.write_type(Some(t), false)).map(|t| format!("{t} ")).unwrap_or_default();
+                    e.write(&format!("{t}get {name} => ")).linked("VALUE", "null", &[]).write(";");
                 }
-                Produtor::CriarSetterDeExtensao => {
-                    let t = cx.tipo_inferido_indefinido(subir_acesso(cx, node)).and_then(|t| escritor.escrever_tipo(Some(t), false));
-                    e.escrever("set ").ligado("NAME", &nome, &[]).escrever("(");
+                Producer::CreateExtensionSetter => {
+                    let t = cx.undefined_inferred_type(climb_access(cx, node)).and_then(|t| writer.write_type(Some(t), false));
+                    e.write("set ").linked("NAME", &name, &[]).write("(");
                     if let Some(t) = &t {
-                        e.ligado("TYPE", t, &[]).escrever(" ");
+                        e.linked("TYPE", t, &[]).write(" ");
                     }
-                    e.escrever(&format!("{nome}) {{}}"));
+                    e.write(&format!("{name}) {{}}"));
                 }
                 _ => {
                     let inv = inv.unwrap_or(node);
-                    let t = cx.tipo_inferido_indefinido(inv).and_then(|t| escritor.escrever_tipo(Some(t), false));
+                    let t = cx.undefined_inferred_type(inv).and_then(|t| writer.write_type(Some(t), false));
                     if let Some(t) = &t {
-                        e.ligado("RETURN_TYPE", t, &[]).escrever(" ");
+                        e.linked("RETURN_TYPE", t, &[]).write(" ");
                     }
-                    e.ligado("NAME", &nome, &[]).escrever("(");
-                    if let Some(l) = cx.filhos_da_especie(inv, "ArgumentList").first().copied() {
-                        cx.parametros_para_argumentos_em(l, escritor, &mut e);
+                    e.linked("NAME", &name, &[]).write("(");
+                    if let Some(l) = cx.kind_children(inv, "ArgumentList").first().copied() {
+                        cx.parameters_to_arguments_in(l, writer, &mut e);
                     }
-                    e.escrever(") {}");
+                    e.write(") {}");
                 }
             }
             e
         };
-        let (titulo, especie) = match produtor {
-            Produtor::CriarGetterDeExtensao => (format!("Create extension getter '{nome}'"), "quickfix.create.extension.getter"),
-            Produtor::CriarSetterDeExtensao => (format!("Create extension setter '{nome}'"), "quickfix.create.extension.setter"),
-            _ => (format!("Create extension method '{nome}'"), "quickfix.create.extension.method"),
+        let (title, kind) = match producer {
+            Producer::CreateExtensionGetter => (format!("Create extension getter '{name}'"), "quickfix.create.extension.getter"),
+            Producer::CreateExtensionSetter => (format!("Create extension setter '{name}'"), "quickfix.create.extension.setter"),
+            _ => (format!("Create extension method '{name}'"), "quickfix.create.extension.method"),
         };
-        let (o, texto, importar, marcas) = match existente {
+        let (o, text, import, marks) = match existing {
             Some(ext) => {
-                let filtro = if produtor == Produtor::CriarMetodoDeExtensao { Filtro::Metodo } else { Filtro::Getter };
-                let o0 = cx.inserir_no_membro(ext, filtro, "")?.0;
-                let mut escritor = Escritor::novo(cx, o0);
-                let m = membro(&mut escritor);
-                let (o, t) = cx.inserir_no_membro(ext, filtro, &m.texto)?;
-                let marcas = marcas_em(&t, m);
-                (o, t, escritor.importar, marcas)
+                let filter = if producer == Producer::CreateExtensionMethod { Filter::Method } else { Filter::Getter };
+                let o0 = cx.insert_in_member(ext, filter, "")?.0;
+                let mut writer = Writer::new(cx, o0);
+                let m = member(&mut writer);
+                let (o, t) = cx.insert_in_member(ext, filter, &m.text)?;
+                let marks = marks_in(&t, m);
+                (o, t, writer.import, marks)
             }
             None => {
-                let topo = membro_de_topo(cx, node)?;
-                let o = cx.arvore.nos[topo].fim;
-                let mut escritor = Escritor::novo(cx, o);
-                let tipo = escritor.escrever(tipo_alvo, true).unwrap_or_else(|| "dynamic".into());
-                let m = membro(&mut escritor);
-                let antes = format!("{eol}{eol}extension on {tipo} {{{eol}{UM_RECUO}");
-                let texto = format!("{antes}{}{eol}}}", m.texto);
-                (o, texto, escritor.importar, Some((antes.len(), m)))
+                let top = top_member(cx, node)?;
+                let o = cx.tree.nos[top].fim;
+                let mut writer = Writer::new(cx, o);
+                let ty = writer.write(type_target, true).unwrap_or_else(|| "dynamic".into());
+                let m = member(&mut writer);
+                let before = format!("{eol}{eol}extension on {ty} {{{eol}{ONE_INDENT}");
+                let text = format!("{before}{}{eol}}}", m.text);
+                (o, text, writer.import, Some((before.len(), m)))
             }
         };
-        Some(Proposta { titulo, especie, unidade: cx.unidade, edicoes: vec![(Span { start: o, end: o }, texto)], importar, marcas })
+        Some(Proposal { title, kind, unit: cx.unit, edits: vec![(Span { start: o, end: o }, text)], import, marks })
     }
 
     /// `_existingExtension`: a primeira `ExtensionDeclaration` da unidade que
     /// se aplica ao tipo.
-    fn extensao_aplicavel(&self, cx: &Contexto<'_>, tipo: TypeId) -> Option<usize> {
-        let prog = self.programa();
-        for (k, no) in cx.arvore.nos.iter().enumerate() {
-            if no.especie != "ExtensionDeclaration" || cx.pai(k) != Some(0) {
+    fn applicable_extension(&self, cx: &Context<'_>, ty: TypeId) -> Option<usize> {
+        let prog = self.program();
+        for (k, no) in cx.tree.nos.iter().enumerate() {
+            if no.especie != "ExtensionDeclaration" || cx.parent(k) != Some(0) {
                 continue;
             }
             let Marca::Decl(d) = no.marca else { continue };
-            let Some(x) = (0..prog.extensions.len()).map(|i| ExtensionId(i as u32)).find(|&x| prog.extension(x).decl.unit == cx.unidade && prog.extension(x).decl.decl == d) else { continue };
-            if extensao_se_aplica(self, x, tipo) {
+            let Some(x) = (0..prog.extensions.len()).map(|i| ExtensionId(i as u32)).find(|&x| prog.extension(x).decl.unit == cx.unit && prog.extension(x).decl.decl == d) else { continue };
+            if extension_applies(self, x, ty) {
                 return Some(k);
             }
         }
@@ -1664,54 +1664,54 @@ impl Projeto {
     }
 
     /// As propostas de um código para o nó, como ações.
-    fn acoes_do_codigo(&self, cx: &Contexto<'_>, codigo: Codigo, node: usize, d: Option<&Diagnostic>) -> Vec<AcaoDeCodigo> {
-        let mut saida = Vec::new();
-        for &pr in produtores(codigo) {
-            let Some(p) = self.propor(cx, pr, node) else { continue };
-            let Some(uri) = self.uri_da_unidade(p.unidade) else { continue };
-            let principal = p.edicoes.first().cloned();
-            let mut m = Mudanca::default();
-            for (s, t) in p.edicoes {
-                m.adicionar(&uri, s, t);
+    fn code_actions(&self, cx: &Context<'_>, code: Code, node: usize, d: Option<&Diagnostic>) -> Vec<CodeAction> {
+        let mut output = Vec::new();
+        for &pr in producers(code) {
+            let Some(p) = self.propose(cx, pr, node) else { continue };
+            let Some(uri) = self.unit_uri(p.unit) else { continue };
+            let main = p.edits.first().cloned();
+            let mut m = Change::default();
+            for (s, t) in p.edits {
+                m.add(&uri, s, t);
             }
-            if !p.importar.is_empty() {
-                let destino = Contexto::novo(self, p.unidade);
-                crate::refactorings_move::imports_do_builder(&destino, &mut m, &p.importar);
+            if !p.import.is_empty() {
+                let target = Context::new(self, p.unit);
+                crate::refactorings_move::builder_imports(&target, &mut m, &p.import);
             }
-            if m.conflito.is_some() {
+            if m.conflict.is_some() {
                 continue;
             }
-            let edicoes: Vec<Edicao> = m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect();
-            let mut a = AcaoDeCodigo { titulo: p.titulo, especie: p.especie.into(), edicoes, diagnostico: d.cloned(), criar_arquivo: None, ligado: Default::default() };
+            let edits: Vec<Edit> = m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect();
+            let mut a = CodeAction { title: p.title, kind: p.kind.into(), edits, diagnostic: d.cloned(), create_file: None, linked: Default::default() };
             // Os grupos e a seleção da declaração, na edição dela.
-            if let (Some((base, e)), Some((s, t))) = (&p.marcas, &principal)
-                && let Some(i) = a.edicoes.iter().position(|x| x.span == *s && x.texto == *t)
+            if let (Some((base, e)), Some((s, t))) = (&p.marks, &main)
+                && let Some(i) = a.edits.iter().position(|x| x.span == *s && x.text == *t)
             {
-                a = a.com_escrita_em(i, *base, e);
+                a = a.with_write_at(i, *base, e);
             }
-            saida.push(a);
+            output.push(a);
         }
-        saida
+        output
     }
 
     /// As correções de criação e troca dos códigos publicados (o `node` do
     /// diagnóstico).
-    pub(crate) fn criar_para_diagnostico(&self, unidade: UnitId, d: &Diagnostic, codigo: Codigo) -> Vec<AcaoDeCodigo> {
-        let cx = Contexto::novo(self, unidade);
-        let Some(node) = cx.arvore.localizar(d.span.start, d.span.end) else { return Vec::new() };
-        self.acoes_do_codigo(&cx, codigo, node, Some(d))
+    pub(crate) fn create_for_diagnostic(&self, unit: UnitId, d: &Diagnostic, code: Code) -> Vec<CodeAction> {
+        let cx = Context::new(self, unit);
+        let Some(node) = cx.tree.localizar(d.span.start, d.span.end) else { return Vec::new() };
+        self.code_actions(&cx, code, node, Some(d))
     }
 
     /// As correções de criação e troca para os nomes sem resolução das
-    /// linhas `inicio..fim` de `unidade`, cada um com o código que o
+    /// linhas `start..end` de `unit`, cada um com o código que o
     /// analyzer daria.
-    pub(crate) fn criar_indefinidos(&mut self, _uri: &str, unidade: UnitId, inicio: usize, fim: usize) -> Vec<AcaoDeCodigo> {
-        let cx = Contexto::novo(self, unidade);
-        let prog = self.programa();
-        let lib = prog.unit(unidade).library;
-        let mut usos: Vec<(Codigo, usize)> = Vec::new();
-        for (n, no) in cx.arvore.nos.iter().enumerate() {
-            if !(no.inicio <= fim && inicio <= no.fim) {
+    pub(crate) fn create_undefined(&mut self, _uri: &str, unit: UnitId, start: usize, end: usize) -> Vec<CodeAction> {
+        let cx = Context::new(self, unit);
+        let prog = self.program();
+        let lib = prog.unit(unit).library;
+        let mut uses: Vec<(Code, usize)> = Vec::new();
+        for (n, no) in cx.tree.nos.iter().enumerate() {
+            if !(no.inicio <= end && start <= no.fim) {
                 continue;
             }
             match no.especie {
@@ -1720,143 +1720,143 @@ impl Projeto {
                     let Some(t) = cx.ast.types.iter().position(|t| t.span.start == no.inicio && t.span.end == no.fim) else { continue };
                     let ast::TypeKind::Named { name, .. } = &cx.ast.ty(ast::TypeId(t as u32)).kind else { continue };
                     let [nm] = &name[..] else { continue };
-                    let texto = self.nome(nm.sym);
+                    let text = self.name(nm.sym);
                     if prog.lookup(lib, nm.sym).is_some()
-                        || ["dynamic", "Never", "void", "Function", "Record"].contains(&texto)
-                        || crate::project::declaracao_de_parametro_de_tipo(cx.ast, nm.span.start, nm.sym).is_some()
+                        || ["dynamic", "Never", "void", "Function", "Record"].contains(&text)
+                        || crate::project::type_parameter_declaration(cx.ast, nm.span.start, nm.sym).is_some()
                     {
                         continue;
                     }
-                    usos.push((Codigo::Classe, n));
+                    uses.push((Code::Class, n));
                 }
                 "SimpleIdentifier" => {
                     let Marca::Expr(x) = no.marca else { continue };
-                    if cx.corpos.get_resolved(x).is_some() || cx.corpos.declaracao_local(x).is_some() {
+                    if cx.bodies.get_resolved(x).is_some() || cx.bodies.declaracao_local(x).is_some() {
                         continue;
                     }
-                    let Some(pai) = cx.pai(n) else { continue };
-                    let qualificado = alvo_qualificado(&cx, n);
-                    let codigo = if cx.especie(pai) == "MethodInvocation" && cx.nome_do_metodo(pai) == Some(n) {
-                        match cx.filhos(pai).first().copied().filter(|&a| a != n) {
+                    let Some(parent) = cx.parent(n) else { continue };
+                    let qualified = qualified_target(&cx, n);
+                    let code = if cx.kind(parent) == "MethodInvocation" && cx.method_name(parent) == Some(n) {
+                        match cx.children(parent).first().copied().filter(|&a| a != n) {
                             None => {
-                                if self.consulta.nomes.lookup(cx.texto_do_no(n)).is_some_and(|s| prog.lookup(lib, s).is_some()) {
+                                if self.query.names.lookup(cx.node_text(n)).is_some_and(|s| prog.lookup(lib, s).is_some()) {
                                     continue;
                                 }
-                                if cx.este_ou_ancestral_pub(n, "ClassDeclaration").is_some()
-                                    || cx.este_ou_ancestral_pub(n, "MixinDeclaration").is_some()
-                                    || cx.este_ou_ancestral_pub(n, "EnumDeclaration").is_some()
-                                    || cx.este_ou_ancestral_pub(n, "ExtensionTypeDeclaration").is_some()
-                                    || cx.este_ou_ancestral_pub(n, "ExtensionDeclaration").is_some()
+                                if cx.this_or_ancestor_pub(n, "ClassDeclaration").is_some()
+                                    || cx.this_or_ancestor_pub(n, "MixinDeclaration").is_some()
+                                    || cx.this_or_ancestor_pub(n, "EnumDeclaration").is_some()
+                                    || cx.this_or_ancestor_pub(n, "ExtensionTypeDeclaration").is_some()
+                                    || cx.this_or_ancestor_pub(n, "ExtensionDeclaration").is_some()
                                 {
-                                    Codigo::Metodo
+                                    Code::Method
                                 } else {
-                                    Codigo::Funcao
+                                    Code::Function
                                 }
                             }
                             Some(a) => {
-                                if matches!(cx.resolvido(a), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))) {
-                                    Codigo::Funcao
-                                } else if cx.extensao_do_alvo(a).is_some() {
-                                    Codigo::MetodoDeExtensao
-                                } else if cx.tipo_do_no(a).is_some_and(|t| matches!(self.consulta.tabela.get(t), Type::Dynamic)) {
+                                if matches!(cx.resolved(a), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))) {
+                                    Code::Function
+                                } else if cx.target_extension(a).is_some() {
+                                    Code::ExtensionMethod
+                                } else if cx.node_type(a).is_some_and(|t| matches!(self.query.table.get(t), Type::Dynamic)) {
                                     continue;
                                 } else {
-                                    Codigo::Metodo
+                                    Code::Method
                                 }
                             }
                         }
-                    } else if let Some(a) = qualificado {
-                        if matches!(cx.resolvido(a), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))) {
+                    } else if let Some(a) = qualified {
+                        if matches!(cx.resolved(a), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))) {
                             // `UNDEFINED_PREFIXED_NAME`: só o `DataDriven`.
                             continue;
                         }
-                        if cx.tipo_do_no(a).is_some_and(|t| matches!(self.consulta.tabela.get(t), Type::Dynamic)) && cx.classe_nomeada(a).is_none() {
+                        if cx.node_type(a).is_some_and(|t| matches!(self.query.table.get(t), Type::Dynamic)) && cx.named_class(a).is_none() {
                             continue;
                         }
-                        let ext = cx.extensao_do_alvo(a).is_some();
-                        match (em_contexto_de_escrita(&cx, n), ext) {
-                            (true, true) => Codigo::SetterDeExtensao,
-                            (true, false) => Codigo::Setter,
-                            (false, true) => Codigo::GetterDeExtensao,
-                            (false, false) => Codigo::Getter,
+                        let ext = cx.target_extension(a).is_some();
+                        match (in_write_context(&cx, n), ext) {
+                            (true, true) => Code::ExtensionSetter,
+                            (true, false) => Code::Setter,
+                            (false, true) => Code::ExtensionGetter,
+                            (false, false) => Code::Getter,
                         }
                     } else {
-                        let simbolo = self.consulta.nomes.lookup(cx.texto_do_no(n));
-                        if simbolo.is_some_and(|s| prog.lookup(lib, s).is_some()) {
+                        let symbol = self.query.names.lookup(cx.node_text(n));
+                        if symbol.is_some_and(|s| prog.lookup(lib, s).is_some()) {
                             continue;
                         }
-                        Codigo::Identificador
+                        Code::Identifier
                     };
-                    usos.push((codigo, n));
+                    uses.push((code, n));
                 }
                 _ => {}
             }
         }
-        let mut saida = Vec::new();
-        for (codigo, n) in usos {
-            saida.extend(self.acoes_do_codigo(&cx, codigo, n, None));
+        let mut output = Vec::new();
+        for (code, n) in uses {
+            output.extend(self.code_actions(&cx, code, n, None));
         }
-        saida
+        output
     }
 }
 
 /// `writeFieldDeclaration(name, isFinal, isStatic, type)` (com `static`
 /// posto pelo chamador).
 /// `writeFieldDeclaration(name, nameGroupName: 'NAME', type,
-/// typeGroupName: 'TYPE')`: o tipo escrito é o grupo `TYPE` (o `dynamic`
+/// typeGroupName: 'TYPE')`: o ty written é o group `TYPE` (o `dynamic`
 /// depois de `final` não), o nome é o `NAME`.
-fn declaracao_de_campo(escritor: &mut Escritor<'_, '_>, nome: &str, final_: bool, enum_final: bool, tipo: Option<TypeId>) -> crate::snippets::Escrita {
+fn field_declaration(writer: &mut Writer<'_, '_>, name: &str, final_: bool, enum_final: bool, ty: Option<TypeId>) -> crate::snippets::Write {
     let final_ = final_ || enum_final;
-    let mut e = crate::snippets::Escrita::default();
+    let mut e = crate::snippets::Write::default();
     if final_ {
-        e.escrever("final ");
+        e.write("final ");
     }
-    match tipo {
+    match ty {
         Some(t) => {
-            let escrito = if final_ { escritor.escrever(t, false).map(|x| (x, true)).or_else(|| Some(("dynamic".into(), false))) } else { escritor.escrever_tipo(Some(t), true).map(|x| (x, true)) };
-            if let Some((x, grupo)) = escrito {
-                if grupo {
-                    e.ligado("TYPE", &x, &[]);
+            let written = if final_ { writer.write(t, false).map(|x| (x, true)).or_else(|| Some(("dynamic".into(), false))) } else { writer.write_type(Some(t), true).map(|x| (x, true)) };
+            if let Some((x, group)) = written {
+                if group {
+                    e.linked("TYPE", &x, &[]);
                 } else {
-                    e.escrever(&x);
+                    e.write(&x);
                 }
-                e.escrever(" ");
+                e.write(" ");
             }
         }
         None if !final_ => {
-            e.escrever("var ");
+            e.write("var ");
         }
         None => {}
     }
-    e.ligado("NAME", nome, &[]).escrever(";");
+    e.linked("NAME", name, &[]).write(";");
     e
 }
 
 /// `_requiresConstConstructor`.
-fn exige_const_construtor(cx: &Contexto<'_>, n: usize) -> bool {
-    let Some(pai) = cx.pai(n) else { return false };
-    match (cx.especie(n), cx.especie(pai)) {
-        ("SimpleIdentifier", "NamedType") => exige_const_construtor(cx, pai),
-        ("SimpleIdentifier", "MethodInvocation") => em_contexto_constante(cx, pai),
-        ("NamedType", "ConstructorName") => exige_const_construtor(cx, pai),
-        ("ConstructorName", "InstanceCreationExpression") => cx.token_seguinte(cx.arvore.nos[pai].inicio).is_some_and(|t| &cx.fonte[t.start..t.end] == "const"),
+fn requires_const_constructor(cx: &Context<'_>, n: usize) -> bool {
+    let Some(parent) = cx.parent(n) else { return false };
+    match (cx.kind(n), cx.kind(parent)) {
+        ("SimpleIdentifier", "NamedType") => requires_const_constructor(cx, parent),
+        ("SimpleIdentifier", "MethodInvocation") => in_constant_context(cx, parent),
+        ("NamedType", "ConstructorName") => requires_const_constructor(cx, parent),
+        ("ConstructorName", "InstanceCreationExpression") => cx.next_token(cx.tree.nos[parent].inicio).is_some_and(|t| &cx.source[t.start..t.end] == "const"),
         _ => false,
     }
 }
 
 /// `inConstantContext`: dentro de criação `const`, literal `const`,
 /// inicializador de variável `const`, anotação ou padrão constante.
-pub(crate) fn em_contexto_constante(cx: &Contexto<'_>, n: usize) -> bool {
-    let mut atual = cx.pai(n);
-    while let Some(k) = atual {
-        match cx.especie(k) {
+pub(crate) fn in_constant_context(cx: &Context<'_>, n: usize) -> bool {
+    let mut current = cx.parent(n);
+    while let Some(k) = current {
+        match cx.kind(k) {
             "InstanceCreationExpression" | "ListLiteral" | "SetOrMapLiteral" | "RecordLiteral" => {
-                if cx.token_seguinte(cx.arvore.nos[k].inicio).is_some_and(|t| &cx.fonte[t.start..t.end] == "const") {
+                if cx.next_token(cx.tree.nos[k].inicio).is_some_and(|t| &cx.source[t.start..t.end] == "const") {
                     return true;
                 }
             }
             "VariableDeclarationList" => {
-                if cx.tokens_iniciais_pub(k).iter().any(|s| s == "const") {
+                if cx.initial_tokens_pub(k).iter().any(|s| s == "const") {
                     return true;
                 }
             }
@@ -1864,23 +1864,23 @@ pub(crate) fn em_contexto_constante(cx: &Contexto<'_>, n: usize) -> bool {
             "FunctionBody" | "BlockFunctionBody" | "ExpressionFunctionBody" | "FunctionExpression" => return false,
             _ => {}
         }
-        atual = cx.pai(k);
+        current = cx.parent(k);
     }
     false
 }
 
 /// `extension.applicableTo(targetType, strictCasts: true)`: o receptor é
 /// subtipo do tipo estendido com os parâmetros da extensão nos limites.
-fn extensao_se_aplica(p: &Projeto, x: ExtensionId, recv: TypeId) -> bool {
-    let consulta = &p.consulta;
-    let Some(dados) = consulta.outline.extensions.get(x.0 as usize) else { return false };
-    let mut tabela = consulta.tabela.clone();
-    let on = if dados.type_params.is_empty() {
-        dados.on
+fn extension_applies(p: &Project, x: ExtensionId, recv: TypeId) -> bool {
+    let query = &p.query;
+    let Some(data) = query.outline.extensions.get(x.0 as usize) else { return false };
+    let mut table = query.table.clone();
+    let on = if data.type_params.is_empty() {
+        data.on
     } else {
-        let mapa: std::collections::HashMap<dartforge_types::TypeParamId, TypeId> = dados.type_params.iter().map(|&tp| (tp, tabela.param(tp).bound)).collect();
-        dartforge_types::substitute(dados.on, &mapa, &mut tabela)
+        let map: std::collections::HashMap<dartforge_types::TypeParamId, TypeId> = data.type_params.iter().map(|&tp| (tp, table.param(tp).bound)).collect();
+        dartforge_types::substitute(data.on, &map, &mut table)
     };
-    let mut env = dartforge_types::SubtypeEnv::new(&mut tabela, &consulta.outline.hierarchy, &consulta.core);
+    let mut env = dartforge_types::SubtypeEnv::new(&mut table, &query.outline.hierarchy, &query.core);
     dartforge_types::is_subtype(recv, on, &mut env)
 }

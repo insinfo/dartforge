@@ -3,7 +3,7 @@
 //! inteiro; docs/LSP-ESPECIFICACAO.md §14.13 e §14.14).
 //!
 //! O contexto é decidido sobre a árvore do **texto real** no formato do
-//! analyzer ([`crate::arvore_analyzer`]): o `coveringNode` do `unit.select`
+//! analyzer ([`crate::analyzer_tree`]): o `coveringNode` do `unit.select`
 //! (§14.13.4, com as duas exceções de fronteira), o `_completionNode` (a
 //! subida enquanto o pai começa no mesmo token e o filho não está numa
 //! lista) e um `visit*` por espécie de nó (`isp_visitas`), que grava o
@@ -13,10 +13,10 @@
 //! iguais.
 //!
 //! A semântica (o tipo estático de um alvo, o elemento de um identificador,
-//! os elementos declarados) vem da [`Consulta`], que pode ter analisado o
+//! os elementos declarados) vem da [`Query`], que pode ter analisado o
 //! texto com o sentinela no lugar da palavra sob o cursor: os offsets do
 //! texto real são levados para os dela pelo deslocamento do sentinela
-//! ([`Isp::mapear`]); o que vem antes do cursor tem o mesmo offset.
+//! ([`Isp::map`]); o que vem antes do cursor tem o mesmo offset.
 //!
 //! O que a recuperação do parser do DartForge não reproduz do fasta (tokens
 //! sintéticos de comprimento 0, o `droppedToken`) é lido como "ausente": um
@@ -31,7 +31,7 @@ use dartforge_frontend::token::{Kind, Op, Token};
 /// Os lexemas que o scanner do fasta lê como palavra-chave (`KeywordToken`:
 /// reservadas, embutidas e pseudo-palavras): para eles `type == IDENTIFIER`
 /// é falso e `isKeyword` é verdadeiro.
-pub(super) const PALAVRAS_DO_ANALYZER: &[&str] = &[
+pub(super) const ANALYZER_WORDS: &[&str] = &[
     "abstract", "as", "assert", "async", "augment", "await", "base", "break", "case", "catch", "class", "const", "continue", "covariant", "default",
     "deferred", "do", "dynamic", "else", "enum", "export", "extends", "extension", "external", "factory", "false", "final", "finally", "for",
     "Function", "get", "hide", "if", "implements", "import", "in", "inout", "interface", "is", "late", "library", "mixin", "native", "new", "null",
@@ -40,7 +40,7 @@ pub(super) const PALAVRAS_DO_ANALYZER: &[&str] = &[
 ];
 
 /// As espécies de nó que são `Expression` no analyzer.
-pub(super) const ESPECIES_DE_EXPRESSAO: &[&str] = &[
+pub(super) const EXPRESSION_KINDS: &[&str] = &[
     "AdjacentStrings", "AsExpression", "AssignmentExpression", "AwaitExpression", "BinaryExpression", "BooleanLiteral", "CascadeExpression",
     "ConditionalExpression", "ConstructorReference", "DotShorthand", "DoubleLiteral", "ExtensionOverride", "FunctionExpression", "FunctionExpressionInvocation",
     "FunctionReference", "IndexExpression", "InstanceCreationExpression", "IntegerLiteral", "IsExpression", "ListLiteral", "MethodInvocation",
@@ -51,7 +51,7 @@ pub(super) const ESPECIES_DE_EXPRESSAO: &[&str] = &[
 ];
 
 /// A espécie é um `DartPattern`.
-pub(super) fn e_padrao(e: &str) -> bool {
+pub(super) fn is_pattern(e: &str) -> bool {
     matches!(
         e,
         "CastPattern" | "ConstantPattern" | "DeclaredVariablePattern" | "ListPattern" | "LogicalAndPattern" | "LogicalOrPattern" | "MapPattern"
@@ -62,12 +62,12 @@ pub(super) fn e_padrao(e: &str) -> bool {
 
 /// A espécie é uma declaração com corpo de membros (`Declaration` onde uma
 /// anotação de `@override` se aplica).
-pub(super) fn e_declaracao(e: &str) -> bool {
+pub(super) fn is_declaration(e: &str) -> bool {
     matches!(e, "ClassDeclaration" | "MixinDeclaration" | "EnumDeclaration" | "ExtensionDeclaration" | "ExtensionTypeDeclaration")
 }
 
 /// A espécie é um `Statement`.
-pub(super) fn e_comando(e: &str) -> bool {
+pub(super) fn is_command(e: &str) -> bool {
     matches!(
         e,
         "AssertStatement" | "Block" | "BreakStatement" | "ContinueStatement" | "DoStatement" | "EmptyStatement" | "ExpressionStatement"
@@ -77,14 +77,14 @@ pub(super) fn e_comando(e: &str) -> bool {
 }
 
 /// A espécie é um `FormalParameter`.
-pub(super) fn e_parametro(e: &str) -> bool {
+pub(super) fn is_parameter(e: &str) -> bool {
     matches!(e, "SimpleFormalParameter" | "FieldFormalParameter" | "SuperFormalParameter" | "FunctionTypedFormalParameter" | "DefaultFormalParameter")
 }
 
 /// Um recurso da linguagem que o completar consulta (`featureSet`), pela
 /// versão em que entrou.
 #[derive(Debug, Clone, Copy)]
-pub(super) enum Recurso {
+pub(super) enum Feature {
     ExtensionMethods,
     EnhancedEnums,
     SuperParameters,
@@ -98,275 +98,275 @@ pub(super) enum Recurso {
 /// `declarationHelper` as fixa; as seguintes as ignoram).
 #[derive(Debug, Clone, Default)]
 pub(super) struct Flags {
-    pub atribuivel: bool,
-    pub constante: bool,
-    pub estensivel: bool,
-    pub implementavel: bool,
-    pub misturavel: bool,
-    pub nao_void: bool,
-    pub estatico: bool,
-    pub tipo: bool,
-    pub excluir_nomes_de_tipo: bool,
-    pub padrao_objeto: bool,
-    pub preferir_sem_invocacao: bool,
-    pub sem_nome_como_new: bool,
+    pub assignable: bool,
+    pub constant: bool,
+    pub extensible: bool,
+    pub implementable: bool,
+    pub mixable: bool,
+    pub non_void: bool,
+    pub is_static: bool,
+    pub ty: bool,
+    pub exclude_type_names: bool,
+    pub object_pattern: bool,
+    pub prefer_without_invocation: bool,
+    pub unnamed_as_new: bool,
     /// Os nós excluídos (`excludedNodes`): listas de parâmetros de tipo
     /// fantasmas da recuperação.
-    pub excluidos: Vec<usize>,
+    pub excluded: Vec<usize>,
 }
 
 /// Uma operação do `NotImportedCompletionPass` registrada pelo
 /// `DeclarationHelper`.
 #[derive(Debug, Clone)]
-pub(super) enum Operacao {
+pub(super) enum Operation {
     /// `StaticMembersOperation`.
-    MembrosEstaticos,
+    StaticMembers,
     /// `ConstructorsOperation`.
-    Construtores,
+    Constructors,
     /// `InstanceExtensionMembersOperation`.
-    MembrosDeExtensao { tipo: TypeId, excluidos: Vec<String>, metodos: bool, setters: bool },
+    ExtensionMembers { ty: TypeId, excluded: Vec<String>, methods: bool, setters: bool },
 }
 
 /// O resultado do passe.
-pub(super) struct ResultadoIsp {
+pub(super) struct ResultIsp {
     /// Os candidatos na ordem do coletor e o `matcherScore` de cada um.
-    pub itens: Vec<(f64, ItemCompletar)>,
+    pub items: Vec<(f64, CompletionItem)>,
     pub local: Option<String>,
-    pub incompleta: bool,
-    pub prefere_constantes: bool,
-    pub operacoes: Vec<Operacao>,
+    pub incomplete: bool,
+    pub prefers_constants: bool,
+    pub operations: Vec<Operation>,
     /// As opções do `DeclarationHelper` usadas (as do segundo passe).
     pub flags: Option<Flags>,
     /// Os nomes vistos pelo `VisibilityTracker` (com o prefixo de import).
-    pub visiveis: HashSet<String>,
+    pub visible: HashSet<String>,
     /// `isCommentText`: o cursor está num comentário comum (lista vazia).
-    pub comentario: bool,
-    /// `replacementRange`: `(início, comprimento)`.
-    pub intervalo: (usize, usize),
+    pub comment: bool,
+    /// `replacementRange`: `(início, length)`.
+    pub range: (usize, usize),
     /// O `targetPrefix` (o filtro e o truncamento do handler).
-    pub prefixo_do_pedido: String,
+    pub request_prefix: String,
     /// O prefixo do casador (`TokenData.fromSelection`).
-    pub prefixo_do_casador: String,
+    pub matcher_prefix: String,
     /// `request.contextType`.
-    pub tipo_de_contexto: Option<TypeId>,
+    pub context_type: Option<TypeId>,
     /// `request.inConstantContext`.
-    pub em_contexto_constante: bool,
+    pub in_constant_context: bool,
     /// As bibliotecas não importadas que a consulta não carregou (o
     /// `NotImportedCompletionPass` delas vai pelo resumo de nomes):
-    /// `(caminho, URI do import)`.
-    pub resumidas: Vec<(PathBuf, String)>,
+    /// `(path, URI do import)`.
+    pub summarized: Vec<(PathBuf, String)>,
 }
 
 /// O `beginToken` de um nó: um comentário de documentação, um token do
 /// texto, ou nenhum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Inicial {
-    Comentario,
+pub(super) enum Initial {
+    Comment,
     Tok(usize),
-    Nenhum,
+    None,
 }
 
 pub(super) struct Isp<'a, 'c> {
     /// O texto real, a árvore do parser dele (com os nomes) e a do analyzer.
-    pub fonte: &'a str,
+    pub source: &'a str,
     pub a: &'a ast::Ast,
     pub cu: &'a ast::CompilationUnit,
     pub nr: &'a Interner,
-    pub arv: &'a Arvore,
+    pub tree: &'a Arvore,
     pub toks: Vec<Token>,
     pub offset: usize,
     pub features: LibraryFeatures,
     /// A semântica.
-    pub consulta: &'c mut Consulta,
-    pub unidade: UnitId,
+    pub query: &'c mut Query,
+    pub unit: UnitId,
     /// O trecho trocado pelo sentinela no texto da consulta: `(início, fim
     /// no texto real, comprimento do sentinela, deslocamento depois do
     /// trecho)`.
-    pub troca: Option<(usize, usize, usize, isize)>,
+    pub swap: Option<(usize, usize, usize, isize)>,
     /// As expressões da consulta pelo intervalo.
     pub exprs: HashMap<(usize, usize), ExprId>,
     /// O coletor de itens (os construtores de item do completar).
-    pub coletor: Coletor,
+    pub collector: Collector,
     pub scores: Vec<f64>,
     pub local: Option<String>,
-    pub prefere_constantes: bool,
-    pub incompleta: bool,
+    pub prefers_constants: bool,
+    pub incomplete: bool,
     pub flags: Option<Flags>,
     /// `VisibilityTracker._declaredNames`.
-    pub visiveis: HashSet<String>,
+    pub visible: HashSet<String>,
     /// `_variableDistance`.
-    pub distancia: u32,
+    pub distance: u32,
     /// `IdentifierHelper.includePrivateIdentifiers` (a primeira chamada).
-    pub privados: Option<bool>,
-    pub casador: Option<crate::fuzzy_matcher::Casador>,
-    pub operacoes: Vec<Operacao>,
+    pub private: Option<bool>,
+    pub matcher: Option<crate::fuzzy_matcher::Matcher>,
+    pub operations: Vec<Operation>,
     /// O caminho do arquivo (o nome sugerido para a declaração de topo).
-    pub caminho: Option<PathBuf>,
+    pub path: Option<PathBuf>,
     /// `state.contextType`, quando o pedido o calculou.
-    pub tipo_de_contexto: Option<TypeId>,
+    pub context_type: Option<TypeId>,
     /// `_containingMemberName`: o nome do método que contém um `super.▮`.
-    pub metodo_do_super: Option<String>,
+    pub super_method: Option<String>,
 }
 
 /// Executa o passe: monta a árvore do texto real, acha o alvo (o
 /// `CompletionTarget`), o intervalo, os prefixos e o tipo de contexto, e
 /// visita o nó de completar.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn executar(
-    consulta: &mut Consulta,
-    unidade: UnitId,
-    texto: &str,
+pub(super) fn run(
+    query: &mut Query,
+    unit: UnitId,
+    text: &str,
     features: LibraryFeatures,
     offset: usize,
-    troca: Option<(usize, usize, usize, isize)>,
-    antes_de_3: bool,
-    nao_importadas: Option<&mut dyn FnMut() -> Vec<(PathBuf, String)>>,
-) -> ResultadoIsp {
-    let mut nomes = Interner::new();
-    let analisado = dartforge_frontend::parser::parse_com(texto, &mut nomes, features);
-    let arv = crate::arvore_analyzer::construir(texto, &analisado.ast, &analisado.unit, antes_de_3);
-    let toks = dartforge_frontend::lexer::lex(texto).unwrap_or_default();
+    swap: Option<(usize, usize, usize, isize)>,
+    before_3: bool,
+    not_imported: Option<&mut dyn FnMut() -> Vec<(PathBuf, String)>>,
+) -> ResultIsp {
+    let mut names = Interner::new();
+    let analyzed = dartforge_frontend::parser::parse_com(text, &mut names, features);
+    let tree = crate::arvore_analyzer::construir(text, &analyzed.ast, &analyzed.unit, before_3);
+    let toks = dartforge_frontend::lexer::lex(text).unwrap_or_default();
     let mut exprs = HashMap::new();
-    for (i, e) in consulta.programa.unit(unidade).ast.exprs.iter().enumerate() {
+    for (i, e) in query.program.unit(unit).ast.exprs.iter().enumerate() {
         exprs.entry((e.span.start, e.span.end)).or_insert(ExprId(i as u32));
     }
-    let biblioteca = consulta.programa.unit(unidade).library;
-    let caminho = consulta.programa.unit(unidade).path.clone();
+    let library = query.program.unit(unit).library;
+    let path = query.program.unit(unit).path.clone();
     let mut isp = Isp {
-        fonte: texto,
-        a: &analisado.ast,
-        cu: &analisado.unit,
-        nr: &nomes,
-        arv: &arv,
+        source: text,
+        a: &analyzed.ast,
+        cu: &analyzed.unit,
+        nr: &names,
+        tree: &tree,
         toks,
         offset,
         features,
-        consulta,
-        unidade,
-        troca,
+        query,
+        unit,
+        swap,
         exprs,
-        coletor: Coletor { itens: Vec::new(), biblioteca, receptor: None },
+        collector: Collector { items: Vec::new(), library, receiver: None },
         scores: Vec::new(),
         local: None,
-        prefere_constantes: false,
-        incompleta: false,
+        prefers_constants: false,
+        incomplete: false,
         flags: None,
-        visiveis: HashSet::new(),
-        distancia: 0,
-        privados: None,
-        casador: None,
-        operacoes: Vec::new(),
-        caminho,
-        tipo_de_contexto: None,
-        metodo_do_super: None,
+        visible: HashSet::new(),
+        distance: 0,
+        private: None,
+        matcher: None,
+        operations: Vec::new(),
+        path,
+        context_type: None,
+        super_method: None,
     };
-    let alvo = isp.alvo();
-    if alvo.texto_de_comentario {
-        return ResultadoIsp {
-            itens: Vec::new(),
+    let target = isp.target();
+    if target.comment_text {
+        return ResultIsp {
+            items: Vec::new(),
             local: None,
-            incompleta: false,
-            prefere_constantes: false,
-            operacoes: Vec::new(),
+            incomplete: false,
+            prefers_constants: false,
+            operations: Vec::new(),
             flags: None,
-            visiveis: HashSet::new(),
-            comentario: true,
-            intervalo: (offset, 0),
-            prefixo_do_pedido: String::new(),
-            prefixo_do_casador: String::new(),
-            tipo_de_contexto: None,
-            em_contexto_constante: false,
-            resumidas: Vec::new(),
+            visible: HashSet::new(),
+            comment: true,
+            range: (offset, 0),
+            request_prefix: String::new(),
+            matcher_prefix: String::new(),
+            context_type: None,
+            in_constant_context: false,
+            summarized: Vec::new(),
         };
     }
-    let intervalo = isp.intervalo_de_substituicao(&alvo);
-    let prefixo_do_pedido = isp.prefixo_do_pedido(&alvo);
-    let prefixo_do_casador = isp.prefixo_do_casador();
-    let em_contexto_constante = isp.pedido_em_contexto_constante(&alvo);
-    let contexto = isp.tipo_de_contexto_em(alvo.no, offset);
-    isp.tipo_de_contexto = contexto;
-    isp.casador = (!prefixo_do_casador.is_empty()).then(|| crate::fuzzy_matcher::Casador::novo(&prefixo_do_casador, crate::fuzzy_matcher::Estilo::Texto));
-    if let Some(no) = isp.no_de_completar() {
-        isp.visitar(no);
+    let range = isp.replacement_range(&target);
+    let request_prefix = isp.request_prefix(&target);
+    let matcher_prefix = isp.matcher_prefix();
+    let in_constant_context = isp.request_in_constant_context(&target);
+    let context = isp.context_type_in(target.no, offset);
+    isp.context_type = context;
+    isp.matcher = (!matcher_prefix.is_empty()).then(|| crate::fuzzy_matcher::Matcher::new(&matcher_prefix, crate::fuzzy_matcher::Style::Text));
+    if let Some(no) = isp.completion_node() {
+        isp.visit(no);
     }
     // O `NotImportedCompletionPass`: as operações registradas, sobre cada
     // biblioteca candidata (as carregadas pelos elementos; as outras pelo
     // resumo, fora daqui).
-    let mut resumidas = Vec::new();
-    if !isp.operacoes.is_empty()
-        && !prefixo_do_pedido.is_empty()
-        && let Some(candidatas) = nao_importadas
+    let mut summarized = Vec::new();
+    if !isp.operations.is_empty()
+        && !request_prefix.is_empty()
+        && let Some(candidates) = not_imported
     {
-        let chave = |c: &std::path::Path| dartforge_elements::gerado::chave(c);
-        let mut por_caminho: HashMap<PathBuf, LibraryId> = HashMap::new();
-        for (i, l) in isp.consulta.programa.libraries.iter().enumerate() {
+        let key = |c: &std::path::Path| dartforge_elements::gerado::chave(c);
+        let mut by_path: HashMap<PathBuf, LibraryId> = HashMap::new();
+        for (i, l) in isp.query.program.libraries.iter().enumerate() {
             if let Some(&u) = l.units.first()
-                && let Some(c) = isp.consulta.programa.unit(u).path.as_deref()
+                && let Some(c) = isp.query.program.unit(u).path.as_deref()
             {
-                por_caminho.insert(chave(c), LibraryId(i as u32));
+                by_path.insert(key(c), LibraryId(i as u32));
             }
         }
-        for (caminho, uri) in candidatas() {
-            match por_caminho.get(&chave(&caminho)) {
+        for (path, uri) in candidates() {
+            match by_path.get(&key(&path)) {
                 Some(&l) => {
-                    let antes = isp.coletor.itens.len();
-                    isp.operacoes_nao_importadas(l, &uri);
-                    let _ = antes;
+                    let before = isp.collector.items.len();
+                    isp.operations_not_imported(l, &uri);
+                    let _ = before;
                 }
-                None => resumidas.push((caminho, uri)),
+                None => summarized.push((path, uri)),
             }
         }
     }
-    let Isp { coletor, scores, local, incompleta, prefere_constantes, operacoes, flags, visiveis, .. } = isp;
-    let itens = coletor.itens.into_iter().zip(scores).map(|(i, s)| (s, i)).collect();
-    ResultadoIsp {
-        itens,
+    let Isp { collector, scores, local, incomplete, prefers_constants, operations, flags, visible, .. } = isp;
+    let items = collector.items.into_iter().zip(scores).map(|(i, s)| (s, i)).collect();
+    ResultIsp {
+        items,
         local,
-        incompleta,
-        prefere_constantes,
-        operacoes,
+        incomplete,
+        prefers_constants,
+        operations,
         flags,
-        visiveis,
-        comentario: false,
-        intervalo,
-        prefixo_do_pedido,
-        prefixo_do_casador,
-        tipo_de_contexto: contexto,
-        em_contexto_constante,
-        resumidas,
+        visible,
+        comment: false,
+        range,
+        request_prefix,
+        matcher_prefix,
+        context_type: context,
+        in_constant_context,
+        summarized,
     }
 }
 
 impl<'a, 'c> Isp<'a, 'c> {
     // -- O coletor -------------------------------------------------------------
 
-    /// `featureSet.isEnabled(recurso)`.
-    pub(super) fn tem_recurso(&self, r: Recurso) -> bool {
+    /// `featureSet.isEnabled(feature)`.
+    pub(super) fn has_feature(&self, r: Feature) -> bool {
         let v = match r {
-            Recurso::ExtensionMethods => (2, 6),
-            Recurso::EnhancedEnums | Recurso::SuperParameters => (2, 17),
-            Recurso::Patterns | Recurso::ClassModifiers | Recurso::SealedClass => (3, 0),
-            Recurso::InlineClass => (3, 3),
+            Feature::ExtensionMethods => (2, 6),
+            Feature::EnhancedEnums | Feature::SuperParameters => (2, 17),
+            Feature::Patterns | Feature::ClassModifiers | Feature::SealedClass => (3, 0),
+            Feature::InlineClass => (3, 3),
         };
-        let atual = self.features.versao();
-        (atual.major, atual.minor) >= v
+        let current = self.features.versao();
+        (current.major, current.minor) >= v
     }
 
-    /// `state.matcher.score(texto)`: 0 sem prefixo (`NoPrefixMatcher`), −1
+    /// `state.matcher.score(text)`: 0 sem prefixo (`NoPrefixMatcher`), −1
     /// quando não casa.
-    pub(super) fn score(&mut self, texto: &str) -> f64 {
-        match self.casador.as_mut() {
-            Some(c) => c.score(texto),
+    pub(super) fn score(&mut self, text: &str) -> f64 {
+        match self.matcher.as_mut() {
+            Some(c) => c.score(text),
             None => 0.0,
         }
     }
 
-    /// Registra os itens que o coletor ganhou desde `antes` com o score.
-    pub(super) fn registrar(&mut self, antes: usize, score: f64) {
-        while self.scores.len() < self.coletor.itens.len() {
+    /// Registra os itens que o coletor ganhou desde `before` com o score.
+    pub(super) fn register(&mut self, before: usize, score: f64) {
+        while self.scores.len() < self.collector.items.len() {
             self.scores.push(score);
         }
-        let _ = antes;
+        let _ = before;
     }
 
     /// O `completionLocation` (atribuição simples).
@@ -375,7 +375,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `completionLocation ??= l`.
-    pub(super) fn local_se_vazio(&mut self, l: &str) {
+    pub(super) fn local_if_empty(&mut self, l: &str) {
         if self.local.is_none() {
             self.local = Some(l.to_string());
         }
@@ -383,87 +383,87 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     // -- Nós ---------------------------------------------------------------------
 
-    pub(super) fn especie(&self, n: usize) -> &'static str {
-        self.arv.nos[n].especie
+    pub(super) fn kind(&self, n: usize) -> &'static str {
+        self.tree.nos[n].especie
     }
 
-    pub(super) fn pai(&self, n: usize) -> Option<usize> {
-        self.arv.nos[n].pai
+    pub(super) fn parent(&self, n: usize) -> Option<usize> {
+        self.tree.nos[n].pai
     }
 
-    pub(super) fn filhos(&self, n: usize) -> &[usize] {
-        &self.arv.nos[n].filhos
+    pub(super) fn children(&self, n: usize) -> &[usize] {
+        &self.tree.nos[n].filhos
     }
 
-    pub(super) fn ini(&self, n: usize) -> usize {
-        self.arv.nos[n].inicio
+    pub(super) fn start(&self, n: usize) -> usize {
+        self.tree.nos[n].inicio
     }
 
-    pub(super) fn fim(&self, n: usize) -> usize {
-        self.arv.nos[n].fim
+    pub(super) fn end(&self, n: usize) -> usize {
+        self.tree.nos[n].fim
     }
 
-    pub(super) fn lig(&self, n: usize) -> Ligacao {
-        self.arv.nos[n].ligacao
+    pub(super) fn link(&self, n: usize) -> Ligacao {
+        self.tree.nos[n].ligacao
     }
 
     /// O primeiro filho da espécie.
-    pub(super) fn filho(&self, n: usize, especie: &str) -> Option<usize> {
-        self.filhos(n).iter().copied().find(|&f| self.especie(f) == especie)
+    pub(super) fn child(&self, n: usize, kind: &str) -> Option<usize> {
+        self.children(n).iter().copied().find(|&f| self.kind(f) == kind)
     }
 
     /// Os filhos de uma das espécies.
-    pub(super) fn filhos_de(&self, n: usize, especies: &[&str]) -> Vec<usize> {
-        self.filhos(n).iter().copied().filter(|&f| especies.contains(&self.especie(f))).collect()
+    pub(super) fn children_of(&self, n: usize, kinds: &[&str]) -> Vec<usize> {
+        self.children(n).iter().copied().filter(|&f| kinds.contains(&self.kind(f))).collect()
     }
 
     /// O ancestral mais próximo (o próprio incluso) de uma das espécies.
-    pub(super) fn ancestral(&self, n: usize, especies: &[&str]) -> Option<usize> {
-        let mut atual = Some(n);
-        while let Some(k) = atual {
-            if especies.contains(&self.especie(k)) {
+    pub(super) fn ancestor(&self, n: usize, kinds: &[&str]) -> Option<usize> {
+        let mut current = Some(n);
+        while let Some(k) = current {
+            if kinds.contains(&self.kind(k)) {
                 return Some(k);
             }
-            atual = self.pai(k);
+            current = self.parent(k);
         }
         None
     }
 
-    /// `coversOffset`: `ini <= offset <= fim`.
-    pub(super) fn cobre(&self, ini: usize, fim: usize) -> bool {
-        ini <= self.offset && self.offset <= fim
+    /// `coversOffset`: `start <= offset <= end`.
+    pub(super) fn covers(&self, start: usize, end: usize) -> bool {
+        start <= self.offset && self.offset <= end
     }
 
-    pub(super) fn cobre_no(&self, n: usize) -> bool {
-        self.cobre(self.ini(n), self.fim(n))
+    pub(super) fn covers_node(&self, n: usize) -> bool {
+        self.covers(self.start(n), self.end(n))
     }
 
-    /// `elementBefore(offset)`: o último com `fim <= offset`.
-    pub(super) fn elemento_antes(&self, nos: &[usize]) -> Option<usize> {
-        nos.iter().copied().filter(|&k| self.fim(k) <= self.offset).last()
+    /// `elementBefore(offset)`: o último com `end <= offset`.
+    pub(super) fn element_before(&self, nos: &[usize]) -> Option<usize> {
+        nos.iter().copied().filter(|&k| self.end(k) <= self.offset).last()
     }
 
     // -- Tokens ------------------------------------------------------------------
 
     /// O índice do primeiro token que começa em `off` ou depois.
-    pub(super) fn tok_desde(&self, off: usize) -> usize {
+    pub(super) fn tok_since(&self, off: usize) -> usize {
         self.toks.partition_point(|t| t.span.start < off)
     }
 
     /// O token que começa exatamente em `off`.
-    pub(super) fn tok_em(&self, off: usize) -> Option<usize> {
-        let i = self.tok_desde(off);
+    pub(super) fn tok_at(&self, off: usize) -> Option<usize> {
+        let i = self.tok_since(off);
         self.toks.get(i).filter(|t| t.span.start == off && t.kind != Kind::Eof).map(|_| i)
     }
 
     /// O último token que termina até `off`.
-    pub(super) fn tok_antes(&self, off: usize) -> Option<usize> {
+    pub(super) fn tok_before(&self, off: usize) -> Option<usize> {
         self.toks.partition_point(|t| t.span.end <= off).checked_sub(1)
     }
 
     /// O primeiro token que começa em `off` ou depois (fora o EOF).
-    pub(super) fn tok_depois(&self, off: usize) -> Option<usize> {
-        let i = self.tok_desde(off);
+    pub(super) fn tok_after(&self, off: usize) -> Option<usize> {
+        let i = self.tok_since(off);
         self.toks.get(i).filter(|t| t.kind != Kind::Eof).map(|_| i)
     }
 
@@ -471,44 +471,44 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.toks[i].span
     }
 
-    pub(super) fn texto_tok(&self, i: usize) -> &'a str {
-        self.toks[i].text(self.fonte)
+    pub(super) fn text_tok(&self, i: usize) -> &'a str {
+        self.toks[i].text(self.source)
     }
 
     /// `isKeywordOrIdentifier`.
-    pub(super) fn palavra(&self, i: usize) -> bool {
+    pub(super) fn word(&self, i: usize) -> bool {
         matches!(self.toks.get(i).map(|t| t.kind), Some(Kind::Ident | Kind::Keyword(_)))
     }
 
     /// `type.isKeyword` (o `KeywordToken` do fasta).
-    pub(super) fn e_palavra_chave(&self, i: usize) -> bool {
-        self.palavra(i) && PALAVRAS_DO_ANALYZER.contains(&self.texto_tok(i))
+    pub(super) fn is_keyword(&self, i: usize) -> bool {
+        self.word(i) && ANALYZER_WORDS.contains(&self.text_tok(i))
     }
 
     /// `type == TokenType.IDENTIFIER`.
-    pub(super) fn e_identificador(&self, i: usize) -> bool {
-        self.palavra(i) && !self.e_palavra_chave(i)
+    pub(super) fn is_identifier(&self, i: usize) -> bool {
+        self.word(i) && !self.is_keyword(i)
     }
 
-    pub(super) fn e_op(&self, i: usize, op: Op) -> bool {
+    pub(super) fn is_op(&self, i: usize, op: Op) -> bool {
         self.toks.get(i).is_some_and(|t| t.kind == Kind::Op(op))
     }
 
-    /// O primeiro token `op` em `[de, ate)`, fora de parênteses e colchetes
+    /// O primeiro token `op` em `[de, until)`, fora de parênteses e colchetes
     /// abertos depois de `de`.
-    pub(super) fn op_em(&self, op: Op, de: usize, ate: usize) -> Option<usize> {
-        let mut i = self.tok_desde(de);
-        let mut fundo = 0i32;
+    pub(super) fn op_in(&self, op: Op, de: usize, until: usize) -> Option<usize> {
+        let mut i = self.tok_since(de);
+        let mut bottom = 0i32;
         while let Some(t) = self.toks.get(i) {
-            if t.span.start >= ate || t.kind == Kind::Eof {
+            if t.span.start >= until || t.kind == Kind::Eof {
                 return None;
             }
-            if fundo == 0 && t.kind == Kind::Op(op) {
+            if bottom == 0 && t.kind == Kind::Op(op) {
                 return Some(i);
             }
             match t.kind {
-                Kind::Op(Op::LParen | Op::LBracket | Op::LBrace) => fundo += 1,
-                Kind::Op(Op::RParen | Op::RBracket | Op::RBrace) => fundo -= 1,
+                Kind::Op(Op::LParen | Op::LBracket | Op::LBrace) => bottom += 1,
+                Kind::Op(Op::RParen | Op::RBracket | Op::RBrace) => bottom -= 1,
                 _ => {}
             }
             i += 1;
@@ -516,20 +516,20 @@ impl<'a, 'c> Isp<'a, 'c> {
         None
     }
 
-    /// O primeiro token com o texto em `[de, ate)` (no nível de fora).
-    pub(super) fn palavra_em(&self, texto: &str, de: usize, ate: usize) -> Option<usize> {
-        let mut i = self.tok_desde(de);
-        let mut fundo = 0i32;
+    /// O primeiro token com o texto em `[de, until)` (no nível de fora).
+    pub(super) fn word_in(&self, text: &str, de: usize, until: usize) -> Option<usize> {
+        let mut i = self.tok_since(de);
+        let mut bottom = 0i32;
         while let Some(t) = self.toks.get(i) {
-            if t.span.start >= ate || t.kind == Kind::Eof {
+            if t.span.start >= until || t.kind == Kind::Eof {
                 return None;
             }
-            if fundo == 0 && matches!(t.kind, Kind::Ident | Kind::Keyword(_)) && t.text(self.fonte) == texto {
+            if bottom == 0 && matches!(t.kind, Kind::Ident | Kind::Keyword(_)) && t.text(self.source) == text {
                 return Some(i);
             }
             match t.kind {
-                Kind::Op(Op::LParen | Op::LBracket | Op::LBrace) => fundo += 1,
-                Kind::Op(Op::RParen | Op::RBracket | Op::RBrace) => fundo -= 1,
+                Kind::Op(Op::LParen | Op::LBracket | Op::LBrace) => bottom += 1,
+                Kind::Op(Op::RParen | Op::RBracket | Op::RBrace) => bottom -= 1,
                 _ => {}
             }
             i += 1;
@@ -538,8 +538,8 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// O par de um `(`/`[`/`{` (ou o contrário).
-    pub(super) fn par(&self, i: usize) -> Option<usize> {
-        let (abre, fecha, para_frente) = match self.toks.get(i)?.kind {
+    pub(super) fn pair(&self, i: usize) -> Option<usize> {
+        let (opens, closes, to_front) = match self.toks.get(i)?.kind {
             Kind::Op(Op::LParen) => (Op::LParen, Op::RParen, true),
             Kind::Op(Op::LBracket) => (Op::LBracket, Op::RBracket, true),
             Kind::Op(Op::LBrace) => (Op::LBrace, Op::RBrace, true),
@@ -548,15 +548,15 @@ impl<'a, 'c> Isp<'a, 'c> {
             Kind::Op(Op::RBrace) => (Op::LBrace, Op::RBrace, false),
             _ => return None,
         };
-        let mut fundo = 0i32;
-        if para_frente {
+        let mut bottom = 0i32;
+        if to_front {
             let mut j = i;
             while let Some(t) = self.toks.get(j) {
-                if t.kind == Kind::Op(abre) {
-                    fundo += 1;
-                } else if t.kind == Kind::Op(fecha) {
-                    fundo -= 1;
-                    if fundo == 0 {
+                if t.kind == Kind::Op(opens) {
+                    bottom += 1;
+                } else if t.kind == Kind::Op(closes) {
+                    bottom -= 1;
+                    if bottom == 0 {
                         return Some(j);
                     }
                 }
@@ -567,11 +567,11 @@ impl<'a, 'c> Isp<'a, 'c> {
             let mut j = i as isize;
             while j >= 0 {
                 let t = self.toks[j as usize];
-                if t.kind == Kind::Op(fecha) {
-                    fundo += 1;
-                } else if t.kind == Kind::Op(abre) {
-                    fundo -= 1;
-                    if fundo == 0 {
+                if t.kind == Kind::Op(closes) {
+                    bottom += 1;
+                } else if t.kind == Kind::Op(opens) {
+                    bottom -= 1;
+                    if bottom == 0 {
                         return Some(j as usize);
                     }
                 }
@@ -582,75 +582,75 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// O `offset` de um token que o fasta criaria sintético quando não está
-    /// no texto: o do próximo token real depois de `depois_de`.
-    pub(super) fn sintetico(&self, depois_de: usize) -> Span {
-        let p = self.tok_depois(depois_de).map_or(self.fonte.len(), |i| self.span_tok(i).start);
+    /// no texto: o do próximo token real depois de `after`.
+    pub(super) fn synthetic(&self, after: usize) -> Span {
+        let p = self.tok_after(after).map_or(self.source.len(), |i| self.span_tok(i).start);
         Span { start: p, end: p }
     }
 
     /// O `beginToken` do nó.
-    pub(super) fn inicial(&self, n: usize) -> Inicial {
-        let ini = self.ini(n);
+    pub(super) fn initial(&self, n: usize) -> Initial {
+        let start = self.start(n);
         if n == 0 {
-            return self.tok_depois(0).map_or(Inicial::Nenhum, Inicial::Tok);
+            return self.tok_after(0).map_or(Initial::None, Initial::Tok);
         }
-        let resto = &self.fonte[ini.min(self.fonte.len())..];
-        if resto.starts_with("//") || resto.starts_with("/*") {
-            return Inicial::Comentario;
+        let rest = &self.source[start.min(self.source.len())..];
+        if rest.starts_with("//") || rest.starts_with("/*") {
+            return Initial::Comment;
         }
-        match self.tok_em(ini) {
-            Some(i) => Inicial::Tok(i),
-            None => self.tok_depois(ini).map_or(Inicial::Nenhum, Inicial::Tok),
+        match self.tok_at(start) {
+            Some(i) => Initial::Tok(i),
+            None => self.tok_after(start).map_or(Initial::None, Initial::Tok),
         }
     }
 
     /// O primeiro token do nó (depois de comentários e anotações, quando
     /// `depois_de_anotacoes`): o `firstTokenAfterCommentAndMetadata`.
-    pub(super) fn primeiro_depois_das_anotacoes(&self, n: usize) -> Option<usize> {
-        let mut depois = self.ini(n);
-        for &f in self.filhos(n) {
-            if matches!(self.especie(f), "Comment" | "Annotation") {
-                depois = depois.max(self.fim(f));
+    pub(super) fn first_after_annotations(&self, n: usize) -> Option<usize> {
+        let mut after = self.start(n);
+        for &f in self.children(n) {
+            if matches!(self.kind(f), "Comment" | "Annotation") {
+                after = after.max(self.end(f));
             }
         }
-        self.tok_depois(depois).filter(|&i| self.span_tok(i).start < self.fim(n).max(depois + 1))
+        self.tok_after(after).filter(|&i| self.span_tok(i).start < self.end(n).max(after + 1))
     }
 
     /// `isFullySynthetic` aqui: o nó não tem nenhum token no texto.
-    pub(super) fn todo_sintetico(&self, n: usize) -> bool {
-        self.ini(n) >= self.fim(n)
+    pub(super) fn all_synthetic(&self, n: usize) -> bool {
+        self.start(n) >= self.end(n)
     }
 
     // -- O nó de completar (§14.13.4) -------------------------------------------
 
     /// `contém(nó)` do `nodeCovering`, com as duas exceções de fronteira.
-    fn contem(&self, n: usize) -> bool {
-        let (ini, fim) = (self.ini(n), self.fim(n));
-        if self.offset == ini
-            && let Some(i) = self.tok_antes(ini)
+    fn contains(&self, n: usize) -> bool {
+        let (start, end) = (self.start(n), self.end(n));
+        if self.offset == start
+            && let Some(i) = self.tok_before(start)
             && self.span_tok(i).end == self.offset
-            && self.e_identificador(i)
+            && self.is_identifier(i)
         {
             return false;
         }
-        if self.offset == fim
-            && let Some(i) = self.tok_depois(fim)
+        if self.offset == end
+            && let Some(i) = self.tok_after(end)
             && self.span_tok(i).start == self.offset
-            && self.e_identificador(i)
+            && self.is_identifier(i)
         {
             return false;
         }
-        ini <= self.offset && self.offset <= fim
+        start <= self.offset && self.offset <= end
     }
 
     /// `unit.select(offset, 0).coveringNode`.
-    pub(super) fn no_coberto(&self) -> Option<usize> {
-        if self.offset > self.fonte.len() {
+    pub(super) fn covered_node(&self) -> Option<usize> {
+        if self.offset > self.source.len() {
             return None;
         }
         let mut n = 0usize;
         loop {
-            match self.filhos(n).iter().copied().find(|&f| self.contem(f)) {
+            match self.children(n).iter().copied().find(|&f| self.contains(f)) {
                 Some(f) => n = f,
                 None => return Some(n),
             }
@@ -658,32 +658,32 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `isChildInList` (`in_scope_completion_pass.dart:3964-4048`).
-    pub(super) fn filho_em_lista(&self, pai: usize, filho: usize) -> bool {
-        let f = self.especie(filho);
-        let anotacao = f == "Annotation";
-        match self.especie(pai) {
+    pub(super) fn child_in_list(&self, parent: usize, child: usize) -> bool {
+        let f = self.kind(child);
+        let annotation = f == "Annotation";
+        match self.kind(parent) {
             "AdjacentStrings" | "ArgumentList" | "Block" | "FormalParameterList" | "RecordLiteral" | "HideCombinator" | "ShowCombinator"
             | "DottedName" | "LibraryIdentifier" | "TypeArgumentList" | "TypeParameterList" | "ImplementsClause" | "WithClause"
             | "MixinOnClause" | "RecordTypeAnnotationNamedFields" => true,
-            "CascadeExpression" => self.filhos(pai).first() != Some(&filho),
+            "CascadeExpression" => self.children(parent).first() != Some(&child),
             "ClassDeclaration" | "ExtensionDeclaration" | "ExtensionTypeDeclaration" | "MixinDeclaration" => {
-                anotacao || matches!(f, "FieldDeclaration" | "MethodDeclaration" | "ConstructorDeclaration")
+                annotation || matches!(f, "FieldDeclaration" | "MethodDeclaration" | "ConstructorDeclaration")
             }
-            "EnumDeclaration" => anotacao || matches!(f, "EnumConstantDeclaration" | "FieldDeclaration" | "MethodDeclaration" | "ConstructorDeclaration"),
+            "EnumDeclaration" => annotation || matches!(f, "EnumConstantDeclaration" | "FieldDeclaration" | "MethodDeclaration" | "ConstructorDeclaration"),
             "Comment" => f == "CommentReference",
             "CompilationUnit" => f != "ScriptTag",
             "ConstructorDeclaration" => {
-                anotacao || matches!(f, "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer")
+                annotation || matches!(f, "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer")
             }
-            "ExportDirective" | "ImportDirective" => anotacao || matches!(f, "ShowCombinator" | "HideCombinator" | "Configuration"),
+            "ExportDirective" | "ImportDirective" => annotation || matches!(f, "ShowCombinator" | "HideCombinator" | "Configuration"),
             "ClassTypeAlias" | "DeclaredIdentifier" | "EnumConstantDeclaration" | "FieldDeclaration" | "ForEachPartsWithPattern"
             | "SimpleFormalParameter" | "FieldFormalParameter" | "SuperFormalParameter" | "FunctionTypedFormalParameter"
             | "DefaultFormalParameter" | "FunctionDeclaration" | "FunctionTypeAlias" | "GenericTypeAlias" | "LibraryDirective"
             | "MethodDeclaration" | "PartDirective" | "PartOfDirective" | "PatternVariableDeclaration" | "RecordTypeAnnotationNamedField"
             | "RecordTypeAnnotationPositionalField" | "RepresentationDeclaration" | "TopLevelVariableDeclaration" | "TypeParameter"
-            | "VariableDeclaration" => anotacao,
+            | "VariableDeclaration" => annotation,
             "ForPartsWithDeclarations" | "ForPartsWithExpression" | "ForPartsWithPattern" => {
-                self.arv.partes_de_for.get(&pai).is_some_and(|p| p.atualizacoes.contains(&filho))
+                self.tree.partes_de_for.get(&parent).is_some_and(|p| p.atualizacoes.contains(&child))
             }
             "LabeledStatement" => f == "Label",
             "ListLiteral" | "SetOrMapLiteral" | "ListPattern" | "MapPattern" => f != "TypeArgumentList",
@@ -694,72 +694,72 @@ impl<'a, 'c> Isp<'a, 'c> {
             "SwitchPatternCase" => f != "GuardedPattern",
             // `case e:` antigo: os rótulos e os comandos; a expressão (o
             // primeiro filho que não é rótulo) não.
-            "SwitchCase" => self.filhos(pai).iter().copied().find(|&k| self.especie(k) != "Label") != Some(filho),
+            "SwitchCase" => self.children(parent).iter().copied().find(|&k| self.kind(k) != "Label") != Some(child),
             "SwitchStatement" => matches!(f, "SwitchCase" | "SwitchDefault" | "SwitchPatternCase"),
             "TryStatement" => f == "CatchClause",
-            "VariableDeclarationList" => anotacao || f == "VariableDeclaration",
+            "VariableDeclarationList" => annotation || f == "VariableDeclaration",
             _ => false,
         }
     }
 
     /// `_completionNode` (`in_scope_completion_pass.dart:123-153`).
-    pub(super) fn no_de_completar(&self) -> Option<usize> {
-        let c = self.no_coberto()?;
-        let b = self.inicial(c);
-        let b_palavra = matches!(b, Inicial::Tok(i) if self.palavra(i));
-        if !b_palavra && self.especie(c) != "SimpleIdentifier" {
+    pub(super) fn completion_node(&self) -> Option<usize> {
+        let c = self.covered_node()?;
+        let b = self.initial(c);
+        let b_word = matches!(b, Initial::Tok(i) if self.word(i));
+        if !b_word && self.kind(c) != "SimpleIdentifier" {
             return Some(c);
         }
         // `isCoveredByToken(beginToken)`.
-        let coberto = match b {
-            Inicial::Tok(i) => self.cobre(self.span_tok(i).start, self.span_tok(i).end),
+        let covered = match b {
+            Initial::Tok(i) => self.covers(self.span_tok(i).start, self.span_tok(i).end),
             _ => false,
         };
-        if !coberto {
+        if !covered {
             return Some(c);
         }
-        let mut filho = c;
-        let mut pai = self.pai(c);
-        while let Some(p) = pai {
-            if self.inicial(p) != b || (self.especie(filho) != "SimpleIdentifier" && self.filho_em_lista(p, filho)) {
+        let mut child = c;
+        let mut parent = self.parent(c);
+        while let Some(p) = parent {
+            if self.initial(p) != b || (self.kind(child) != "SimpleIdentifier" && self.child_in_list(p, child)) {
                 break;
             }
-            filho = p;
-            pai = self.pai(filho);
+            child = p;
+            parent = self.parent(child);
         }
-        if let Some(p) = pai
-            && !(self.especie(filho) != "SimpleIdentifier" && self.filho_em_lista(p, filho))
+        if let Some(p) = parent
+            && !(self.kind(child) != "SimpleIdentifier" && self.child_in_list(p, child))
         {
             return Some(p);
         }
-        Some(filho)
+        Some(child)
     }
 
     // -- Ligação com o AST real ---------------------------------------------------
 
-    pub(super) fn expr_real(&self, n: usize) -> Option<ExprId> {
-        match self.lig(n) {
+    pub(super) fn real_expr(&self, n: usize) -> Option<ExprId> {
+        match self.link(n) {
             Ligacao::Expr(e) => Some(e),
             _ => None,
         }
     }
 
-    pub(super) fn stmt_real(&self, n: usize) -> Option<&'a ast::Stmt> {
-        match self.lig(n) {
+    pub(super) fn real_stmt(&self, n: usize) -> Option<&'a ast::Stmt> {
+        match self.link(n) {
             Ligacao::Stmt(s) => Some(self.a.stmt(s)),
             _ => None,
         }
     }
 
-    pub(super) fn decl_real(&self, n: usize) -> Option<&'a ast::Decl> {
-        match self.lig(n) {
+    pub(super) fn real_decl(&self, n: usize) -> Option<&'a ast::Decl> {
+        match self.link(n) {
             Ligacao::Decl(d) => Some(self.a.decl(d)),
             _ => None,
         }
     }
 
-    pub(super) fn membro_real(&self, n: usize) -> Option<&'a ast::Member> {
-        match self.lig(n) {
+    pub(super) fn real_member(&self, n: usize) -> Option<&'a ast::Member> {
+        match self.link(n) {
             Ligacao::Membro(m) => Some(self.a.member(m)),
             _ => None,
         }
@@ -767,8 +767,8 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// A função de um `MethodDeclaration`, `FunctionDeclaration` ou
     /// `FunctionExpression`.
-    pub(super) fn funcao_real(&self, n: usize) -> Option<&'a ast::Function> {
-        match self.lig(n) {
+    pub(super) fn real_function(&self, n: usize) -> Option<&'a ast::Function> {
+        match self.link(n) {
             Ligacao::Funcao(f) => Some(self.a.function(f)),
             Ligacao::Decl(d) => match &self.a.decl(d).kind {
                 ast::DeclKind::Function(f) => Some(self.a.function(*f)),
@@ -791,17 +791,17 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// O construtor de um `ConstructorDeclaration`.
-    pub(super) fn construtor_real(&self, n: usize) -> Option<&'a ast::Constructor> {
-        match &self.membro_real(n)?.kind {
+    pub(super) fn real_constructor(&self, n: usize) -> Option<&'a ast::Constructor> {
+        match &self.real_member(n)?.kind {
             ast::MemberKind::Constructor(k) => Some(k),
             _ => None,
         }
     }
 
     /// A lista de variáveis de um `VariableDeclarationList` (pelo pai).
-    pub(super) fn lista_real(&self, n: usize) -> Option<&'a ast::VariableList> {
-        let p = if self.especie(n) == "VariableDeclarationList" { self.pai(n)? } else { n };
-        match self.lig(p) {
+    pub(super) fn real_list(&self, n: usize) -> Option<&'a ast::VariableList> {
+        let p = if self.kind(n) == "VariableDeclarationList" { self.parent(n)? } else { n };
+        match self.link(p) {
             Ligacao::Stmt(s) => match &self.a.stmt(s).kind {
                 ast::StmtKind::Variables(l) => Some(l),
                 ast::StmtKind::For { init: Some(ast::ForInit::Variables(l)), .. } => Some(l),
@@ -817,13 +817,13 @@ impl<'a, 'c> Isp<'a, 'c> {
             },
             _ => {
                 // `ForPartsWithDeclarations` (de comando ou de elemento).
-                let avo = self.pai(p)?;
-                match self.lig(avo) {
+                let grandparent = self.parent(p)?;
+                match self.link(grandparent) {
                     Ligacao::Stmt(s) => match &self.a.stmt(s).kind {
                         ast::StmtKind::For { init: Some(ast::ForInit::Variables(l)), .. } => Some(l),
                         _ => None,
                     },
-                    Ligacao::Elemento(_) => self.elemento_real(avo).and_then(|el| match el {
+                    Ligacao::Elemento(_) => self.real_element(grandparent).and_then(|el| match el {
                         ast::CollectionElement::For { init: Some(ast::ForInit::Variables(l)), .. } => Some(l),
                         _ => None,
                     }),
@@ -834,23 +834,23 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// A variável de um `VariableDeclaration` (pelo nome).
-    pub(super) fn variavel_real(&self, n: usize) -> Option<&'a ast::Variable> {
-        let lista = self.lista_real(self.pai(n)?)?;
-        lista.variables.iter().find(|v| v.name.span.start == self.ini(n))
+    pub(super) fn real_variable(&self, n: usize) -> Option<&'a ast::Variable> {
+        let list = self.real_list(self.parent(n)?)?;
+        list.variables.iter().find(|v| v.name.span.start == self.start(n))
     }
 
     /// O `ast::Parameter` de um nó de parâmetro.
-    pub(super) fn parametro_real(&self, n: usize) -> Option<&'a ast::Parameter> {
-        let Ligacao::Parametro(end) = self.lig(n) else { return None };
-        let achar = |ps: &'a [ast::Parameter]| ps.iter().find(|p| crate::arvore_analyzer::endereco(*p) == end);
+    pub(super) fn real_parameter(&self, n: usize) -> Option<&'a ast::Parameter> {
+        let Ligacao::Parametro(end) = self.link(n) else { return None };
+        let find = |ps: &'a [ast::Parameter]| ps.iter().find(|p| crate::arvore_analyzer::endereco(*p) == end);
         for f in self.a.functions.iter() {
             if let Some(ps) = &f.parameters {
-                if let Some(p) = achar(ps) {
+                if let Some(p) = find(ps) {
                     return Some(p);
                 }
                 for p in ps.iter() {
                     if let Some(fps) = &p.function_parameters
-                        && let Some(q) = achar(fps)
+                        && let Some(q) = find(fps)
                     {
                         return Some(q);
                     }
@@ -859,14 +859,14 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         for m in self.a.members.iter() {
             if let ast::MemberKind::Constructor(k) = &m.kind
-                && let Some(p) = achar(&k.parameters)
+                && let Some(p) = find(&k.parameters)
             {
                 return Some(p);
             }
         }
         for t in self.a.types.iter() {
             if let ast::TypeKind::Function { parameters, .. } = &t.kind
-                && let Some(p) = achar(parameters)
+                && let Some(p) = find(parameters)
             {
                 return Some(p);
             }
@@ -874,7 +874,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         for d in self.a.decls.iter() {
             if let ast::DeclKind::Typedef(x) = &d.kind
                 && let ast::TypedefKind::Legacy { parameters, .. } = &x.kind
-                && let Some(p) = achar(parameters)
+                && let Some(p) = find(parameters)
             {
                 return Some(p);
             }
@@ -883,8 +883,8 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// O `ast::Initializer` de um nó de inicializador.
-    pub(super) fn inicializador_real(&self, n: usize) -> Option<&'a ast::Initializer> {
-        let Ligacao::Inicializador(end) = self.lig(n) else { return None };
+    pub(super) fn real_initializer(&self, n: usize) -> Option<&'a ast::Initializer> {
+        let Ligacao::Inicializador(end) = self.link(n) else { return None };
         for m in self.a.members.iter() {
             if let ast::MemberKind::Constructor(k) = &m.kind
                 && let Some(i) = k.initializers.iter().find(|i| crate::arvore_analyzer::endereco(*i) == end)
@@ -896,8 +896,8 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// O `ast::SwitchCase` de um membro de `switch`.
-    pub(super) fn caso_real(&self, n: usize) -> Option<&'a ast::SwitchCase> {
-        let Ligacao::Caso(end) = self.lig(n) else { return None };
+    pub(super) fn real_case(&self, n: usize) -> Option<&'a ast::SwitchCase> {
+        let Ligacao::Caso(end) = self.link(n) else { return None };
         for s in self.a.stmts.iter() {
             if let ast::StmtKind::Switch { cases, .. } = &s.kind
                 && let Some(c) = cases.iter().find(|c| crate::arvore_analyzer::endereco(*c) == end)
@@ -909,14 +909,14 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// O `ast::Directive`.
-    pub(super) fn diretiva_real(&self, n: usize) -> Option<&'a ast::Directive> {
-        let Ligacao::Diretiva(end) = self.lig(n) else { return None };
+    pub(super) fn real_directive(&self, n: usize) -> Option<&'a ast::Directive> {
+        let Ligacao::Diretiva(end) = self.link(n) else { return None };
         self.cu.directives.iter().find(|d| crate::arvore_analyzer::endereco(*d) == end)
     }
 
     /// O `ast::CatchClause`.
-    pub(super) fn catch_real(&self, n: usize) -> Option<&'a ast::CatchClause> {
-        let Ligacao::Catch(end) = self.lig(n) else { return None };
+    pub(super) fn real_catch(&self, n: usize) -> Option<&'a ast::CatchClause> {
+        let Ligacao::Catch(end) = self.link(n) else { return None };
         for s in self.a.stmts.iter() {
             if let ast::StmtKind::Try { catches, .. } = &s.kind
                 && let Some(c) = catches.iter().find(|c| crate::arvore_analyzer::endereco(*c) == end)
@@ -928,19 +928,19 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// O `ast::CollectionElement`.
-    pub(super) fn elemento_real(&self, n: usize) -> Option<&'a ast::CollectionElement> {
-        let Ligacao::Elemento(end) = self.lig(n) else { return None };
+    pub(super) fn real_element(&self, n: usize) -> Option<&'a ast::CollectionElement> {
+        let Ligacao::Elemento(end) = self.link(n) else { return None };
         fn em<'x>(els: &'x [ast::CollectionElement], end: usize) -> Option<&'x ast::CollectionElement> {
             for el in els {
                 if crate::arvore_analyzer::endereco(el) == end {
                     return Some(el);
                 }
-                let dentro: Vec<&ast::CollectionElement> = match el {
+                let inside: Vec<&ast::CollectionElement> = match el {
                     ast::CollectionElement::If { then, else_, .. } => std::iter::once(&**then).chain(else_.as_deref()).collect(),
                     ast::CollectionElement::For { body, .. } | ast::CollectionElement::ForIn { body, .. } => vec![&**body],
                     _ => Vec::new(),
                 };
-                for d in dentro {
+                for d in inside {
                     if let Some(x) = em(std::slice::from_ref(d), end) {
                         return Some(x);
                     }
@@ -959,8 +959,8 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// O `ast::Arguments` de uma `ArgumentList`.
-    pub(super) fn argumentos_reais(&self, n: usize) -> Option<&'a ast::Arguments> {
-        let Ligacao::Argumentos(end) = self.lig(n) else { return None };
+    pub(super) fn real_arguments(&self, n: usize) -> Option<&'a ast::Arguments> {
+        let Ligacao::Argumentos(end) = self.link(n) else { return None };
         let e = |a: &'a ast::Arguments| (crate::arvore_analyzer::endereco(a) == end).then_some(a);
         for x in self.a.exprs.iter() {
             match &x.kind {
@@ -992,14 +992,14 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
             }
         }
-        let anot = |ms: &'a [ast::Annotation]| ms.iter().find_map(|m| m.arguments.as_ref().and_then(e));
+        let annot = |ms: &'a [ast::Annotation]| ms.iter().find_map(|m| m.arguments.as_ref().and_then(e));
         for d in self.a.decls.iter() {
-            if let Some(a) = anot(&d.metadata) {
+            if let Some(a) = annot(&d.metadata) {
                 return Some(a);
             }
         }
         for m in self.a.members.iter() {
-            if let Some(a) = anot(&m.metadata) {
+            if let Some(a) = annot(&m.metadata) {
                 return Some(a);
             }
         }
@@ -1007,7 +1007,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// O nome de um `ast::Name` do texto real.
-    pub(super) fn nome_real(&self, n: ast::Name) -> &'a str {
+    pub(super) fn real_name(&self, n: ast::Name) -> &'a str {
         self.nr.resolve(n.sym)
     }
 
@@ -1017,16 +1017,16 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// consulta: antes da palavra trocada, igual; dentro dela, o início do
     /// sentinela; do fim dela em diante, deslocado (com a palavra vazia, o
     /// que começa no cursor é o token real seguinte).
-    pub(super) fn mapear(&self, off: usize) -> usize {
-        match self.troca {
+    pub(super) fn map(&self, off: usize) -> usize {
+        match self.swap {
             None => off,
-            Some((ini, fim, _, delta)) => {
-                if off < ini || (off == ini && ini < fim) {
+            Some((start, end, _, delta)) => {
+                if off < start || (off == start && start < end) {
                     off
-                } else if off >= fim {
+                } else if off >= end {
                     (off as isize + delta) as usize
                 } else {
-                    ini
+                    start
                 }
             }
         }
@@ -1034,14 +1034,14 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// O offset de um **fim** de trecho: o que termina dentro ou no fim da
     /// palavra trocada termina no fim do sentinela.
-    pub(super) fn mapear_fim(&self, off: usize) -> usize {
-        match self.troca {
+    pub(super) fn map_end(&self, off: usize) -> usize {
+        match self.swap {
             None => off,
-            Some((ini, fim, tamanho, delta)) => {
-                if off <= ini {
+            Some((start, end, size, delta)) => {
+                if off <= start {
                     off
-                } else if off <= fim && ini < fim {
-                    ini + tamanho
+                } else if off <= end && start < end {
+                    start + size
                 } else {
                     (off as isize + delta) as usize
                 }
@@ -1050,57 +1050,57 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// A expressão da consulta para a expressão real `e`.
-    pub(super) fn expr_da_consulta(&self, e: ExprId) -> Option<ExprId> {
+    pub(super) fn query_expr(&self, e: ExprId) -> Option<ExprId> {
         let s = self.a.expr(e).span;
-        self.exprs.get(&(self.mapear(s.start), self.mapear_fim(s.end))).copied()
+        self.exprs.get(&(self.map(s.start), self.map_end(s.end))).copied()
     }
 
     /// `staticType` da expressão real `e`.
-    pub(super) fn tipo_estatico(&self, e: ExprId) -> Option<TypeId> {
-        let c = self.expr_da_consulta(e)?;
-        self.consulta.corpos.units[self.unidade.0 as usize].get_type(c)
+    pub(super) fn static_type(&self, e: ExprId) -> Option<TypeId> {
+        let c = self.query_expr(e)?;
+        self.query.bodies.units[self.unit.0 as usize].get_type(c)
     }
 
     /// `staticElement` da expressão real `e`.
-    pub(super) fn resolvido(&self, e: ExprId) -> Option<Resolved> {
-        let c = self.expr_da_consulta(e)?;
-        self.consulta.corpos.units[self.unidade.0 as usize].get_resolved(c).cloned()
+    pub(super) fn resolved(&self, e: ExprId) -> Option<Resolved> {
+        let c = self.query_expr(e)?;
+        self.query.bodies.units[self.unit.0 as usize].get_resolved(c).cloned()
     }
 
     /// O tipo de um local ou parâmetro de função local pelo offset do nome.
-    pub(super) fn tipo_do_local(&self, nome: usize) -> Option<TypeId> {
-        self.consulta.corpos.units[self.unidade.0 as usize].tipos_de_locais.get(&self.mapear(nome)).copied()
+    pub(super) fn local_type(&self, name: usize) -> Option<TypeId> {
+        self.query.bodies.units[self.unit.0 as usize].tipos_de_locais.get(&self.map(name)).copied()
     }
 
     /// A classe (ou mixin, enum, tipo de extensão) declarada com o nome em
-    /// `nome` (offset real).
-    pub(super) fn classe_em(&self, nome: usize) -> Option<ClassId> {
-        let alvo = self.mapear(nome);
-        let p = &self.consulta.programa;
+    /// `name` (offset real).
+    pub(super) fn class_in(&self, name: usize) -> Option<ClassId> {
+        let target = self.map(name);
+        let p = &self.query.program;
         (0..p.classes.len()).map(|i| ClassId(i as u32)).find(|&c| {
             p.class(c).decl.is_some_and(|d| {
-                d.unit == self.unidade
+                d.unit == self.unit
                     && match &p.unit(d.unit).ast.decl(d.decl).kind {
-                        ast::DeclKind::Class(x) => x.name.span.start == alvo,
-                        ast::DeclKind::Mixin(x) => x.name.span.start == alvo,
-                        ast::DeclKind::Enum(x) => x.name.span.start == alvo,
-                        ast::DeclKind::ExtensionType(x) => x.name.span.start == alvo,
+                        ast::DeclKind::Class(x) => x.name.span.start == target,
+                        ast::DeclKind::Mixin(x) => x.name.span.start == target,
+                        ast::DeclKind::Enum(x) => x.name.span.start == target,
+                        ast::DeclKind::ExtensionType(x) => x.name.span.start == target,
                         _ => false,
                     }
             })
         })
     }
 
-    /// A extensão declarada com o nome em `nome` (ou, sem nome, que começa
-    /// em `inicio`).
-    pub(super) fn extensao_em(&self, inicio: usize, nome: Option<usize>) -> Option<dartforge_elements::model::ExtensionId> {
-        let p = &self.consulta.programa;
+    /// A extensão declarada com o nome em `name` (ou, sem nome, que começa
+    /// em `start`).
+    pub(super) fn extension_in(&self, start: usize, name: Option<usize>) -> Option<dartforge_elements::model::ExtensionId> {
+        let p = &self.query.program;
         (0..p.extensions.len()).map(|i| dartforge_elements::model::ExtensionId(i as u32)).find(|&x| {
             let ex = p.extension(x);
-            ex.decl.unit == self.unidade
-                && match (&p.unit(ex.decl.unit).ast.decl(ex.decl.decl).kind, nome) {
-                    (ast::DeclKind::Extension(e), Some(n)) => e.name.is_some_and(|k| k.span.start == self.mapear(n)),
-                    (ast::DeclKind::Extension(_), None) => p.unit(ex.decl.unit).ast.decl(ex.decl.decl).span.start >= self.mapear(inicio),
+            ex.decl.unit == self.unit
+                && match (&p.unit(ex.decl.unit).ast.decl(ex.decl.decl).kind, name) {
+                    (ast::DeclKind::Extension(e), Some(n)) => e.name.is_some_and(|k| k.span.start == self.map(n)),
+                    (ast::DeclKind::Extension(_), None) => p.unit(ex.decl.unit).ast.decl(ex.decl.decl).span.start >= self.map(start),
                     _ => false,
                 }
         })
@@ -1108,28 +1108,28 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// A classe cuja declaração contém o nó (o `enclosingInterfaceElement`
     /// com o elemento declarado).
-    pub(super) fn classe_do_no(&self, n: usize) -> Option<ClassId> {
-        let d = self.decl_real(n)?;
-        let nome = match &d.kind {
+    pub(super) fn node_class(&self, n: usize) -> Option<ClassId> {
+        let d = self.real_decl(n)?;
+        let name = match &d.kind {
             ast::DeclKind::Class(x) => x.name,
             ast::DeclKind::Mixin(x) => x.name,
             ast::DeclKind::Enum(x) => x.name,
             ast::DeclKind::ExtensionType(x) => x.name,
             _ => return None,
         };
-        self.classe_em(nome.span.start)
+        self.class_in(name.span.start)
     }
 
     /// O elemento do construtor declarado no membro `n`.
-    pub(super) fn construtor_declarado(&self, n: usize) -> Option<FunctionElementId> {
-        let k = self.construtor_real(n)?;
-        let alvo = self.mapear(k.name.unwrap_or(k.class_name).span.start);
-        let p = &self.consulta.programa;
+    pub(super) fn declared_constructor(&self, n: usize) -> Option<FunctionElementId> {
+        let k = self.real_constructor(n)?;
+        let target = self.map(k.name.unwrap_or(k.class_name).span.start);
+        let p = &self.query.program;
         (0..p.functions.len()).map(|i| FunctionElementId(i as u32)).find(|&f| match p.function(f).node {
             dartforge_elements::model::FunctionRef::Constructor { unit, member } => {
-                unit == self.unidade
+                unit == self.unit
                     && match &p.unit(unit).ast.member(member).kind {
-                        ast::MemberKind::Constructor(c) => c.name.unwrap_or(c.class_name).span.start == alvo,
+                        ast::MemberKind::Constructor(c) => c.name.unwrap_or(c.class_name).span.start == target,
                         _ => false,
                     }
             }
@@ -1138,21 +1138,21 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// O elemento da função (topo, método, local) declarada com o nome em
-    /// `nome`.
-    pub(super) fn funcao_declarada(&self, nome: usize) -> Option<FunctionElementId> {
-        let alvo = self.mapear(nome);
-        let p = &self.consulta.programa;
+    /// `name`.
+    pub(super) fn declared_function(&self, name: usize) -> Option<FunctionElementId> {
+        let target = self.map(name);
+        let p = &self.query.program;
         (0..p.functions.len()).map(|i| FunctionElementId(i as u32)).find(|&f| match p.function(f).node {
             dartforge_elements::model::FunctionRef::Function { unit, function } => {
-                unit == self.unidade && p.unit(unit).ast.function(function).name.is_some_and(|n| n.span.start == alvo)
+                unit == self.unit && p.unit(unit).ast.function(function).name.is_some_and(|n| n.span.start == target)
             }
             _ => false,
         })
     }
 
     /// A biblioteca do pedido.
-    pub(super) fn biblioteca(&self) -> LibraryId {
-        self.consulta.programa.unit(self.unidade).library
+    pub(super) fn library(&self) -> LibraryId {
+        self.query.program.unit(self.unit).library
     }
 
     // -- Propriedades de contexto ------------------------------------------------
@@ -1160,28 +1160,28 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `inStaticContext` (`:3935-3947`): sobe pelos pais; o primeiro método
     /// diz se é estático; o corpo de um construtor é de instância; a raiz é
     /// estática.
-    pub(super) fn contexto_estatico(&self, n: usize) -> bool {
-        let mut atual = self.pai(n);
-        while let Some(k) = atual {
-            match self.especie(k) {
+    pub(super) fn static_context(&self, n: usize) -> bool {
+        let mut current = self.parent(n);
+        while let Some(k) = current {
+            match self.kind(k) {
                 "MethodDeclaration" => {
-                    return self.funcao_real(k).is_some_and(|f| f.static_);
+                    return self.real_function(k).is_some_and(|f| f.static_);
                 }
                 "BlockFunctionBody" | "ExpressionFunctionBody" | "EmptyFunctionBody" | "NativeFunctionBody"
-                    if self.pai(k).is_some_and(|p| self.especie(p) == "ConstructorDeclaration") =>
+                    if self.parent(k).is_some_and(|p| self.kind(p) == "ConstructorDeclaration") =>
                 {
                     return false;
                 }
                 _ => {}
             }
-            atual = self.pai(k);
+            current = self.parent(k);
         }
         true
     }
 
     /// O nó começa com a palavra `const`.
-    pub(super) fn comeca_com_const(&self, n: usize) -> bool {
-        matches!(self.inicial(n), Inicial::Tok(i) if self.texto_tok(i) == "const")
+    pub(super) fn starts_with_const(&self, n: usize) -> bool {
+        matches!(self.initial(n), Initial::Tok(i) if self.text_tok(i) == "const")
     }
 
     /// `inConstantContext` (`constantContext(includeSelf: false)`,
@@ -1191,117 +1191,117 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// padrão constante só com `const`, e a lista de variáveis decide (com
     /// `const` ou não); argumento, expressão, elemento de coleção e
     /// declaração de variável passam adiante; qualquer outro nó encerra.
-    pub(super) fn contexto_constante(&self, n: usize) -> bool {
-        let mut atual = self.pai(n);
-        while let Some(k) = atual {
-            let e = self.especie(k);
+    pub(super) fn constant_context(&self, n: usize) -> bool {
+        let mut current = self.parent(n);
+        while let Some(k) = current {
+            let e = self.kind(k);
             match e {
                 "Annotation" | "EnumConstantArguments" | "SwitchCase" => return true,
-                "ConstantPattern" => return self.comeca_com_const(k),
+                "ConstantPattern" => return self.starts_with_const(k),
                 "InstanceCreationExpression" | "RecordLiteral" | "ListLiteral" | "SetOrMapLiteral" => {
-                    if self.comeca_com_const(k) {
+                    if self.starts_with_const(k) {
                         return true;
                     }
                 }
-                "VariableDeclarationList" => return self.lista_real(k).is_some_and(|l| l.const_),
+                "VariableDeclarationList" => return self.real_list(k).is_some_and(|l| l.const_),
                 "ArgumentList" | "IfElement" | "ForElement" | "MapLiteralEntry" | "SpreadElement" | "VariableDeclaration" => {}
-                _ if ESPECIES_DE_EXPRESSAO.contains(&e) => {}
+                _ if EXPRESSION_KINDS.contains(&e) => {}
                 _ => return false,
             }
-            atual = self.pai(k);
+            current = self.parent(k);
         }
         false
     }
 
     /// O `FunctionBody` que contém o nó (o próprio incluso:
     /// `thisOrAncestorOfType<FunctionBody>`).
-    pub(super) fn corpo_que_contem(&self, n: usize) -> Option<usize> {
-        self.ancestral(n, &["BlockFunctionBody", "ExpressionFunctionBody", "EmptyFunctionBody", "NativeFunctionBody"])
+    pub(super) fn containing_body(&self, n: usize) -> Option<usize> {
+        self.ancestor(n, &["BlockFunctionBody", "ExpressionFunctionBody", "EmptyFunctionBody", "NativeFunctionBody"])
     }
 
     /// O modificador do corpo que contém o nó (`body.keyword`, `body.star`).
-    fn modificador(&self, n: usize) -> Option<ast::AsyncModifier> {
-        let corpo = self.corpo_que_contem(n)?;
-        let dono = self.pai(corpo)?;
-        match self.especie(dono) {
-            "FunctionExpression" | "MethodDeclaration" | "FunctionDeclaration" => self.funcao_real(dono).map(|f| f.modifier),
+    fn modifier(&self, n: usize) -> Option<ast::AsyncModifier> {
+        let body = self.containing_body(n)?;
+        let owner = self.parent(body)?;
+        match self.kind(owner) {
+            "FunctionExpression" | "MethodDeclaration" | "FunctionDeclaration" => self.real_function(owner).map(|f| f.modifier),
             _ => Some(ast::AsyncModifier::None),
         }
     }
 
     /// `inAsyncMethodOrFunction`: o corpo é `async` sem `*`.
-    pub(super) fn em_async(&self, n: usize) -> bool {
-        self.modificador(n) == Some(ast::AsyncModifier::Async)
+    pub(super) fn in_async(&self, n: usize) -> bool {
+        self.modifier(n) == Some(ast::AsyncModifier::Async)
     }
 
     /// `inAsyncStarOrSyncStarMethodOrFunction`.
-    pub(super) fn em_gerador(&self, n: usize) -> bool {
-        matches!(self.modificador(n), Some(ast::AsyncModifier::AsyncStar | ast::AsyncModifier::SyncStar))
+    pub(super) fn in_generator(&self, n: usize) -> bool {
+        matches!(self.modifier(n), Some(ast::AsyncModifier::AsyncStar | ast::AsyncModifier::SyncStar))
     }
 
     /// `inLoop` (`inDoLoop || inForLoop || inWhileLoop`): algum ancestral
     /// (o próprio incluso) é um laço; não para em funções.
-    pub(super) fn em_laco(&self, n: usize) -> bool {
-        self.ancestral(n, &["ForStatement", "WhileStatement", "DoStatement"]).is_some()
+    pub(super) fn in_loop(&self, n: usize) -> bool {
+        self.ancestor(n, &["ForStatement", "WhileStatement", "DoStatement"]).is_some()
     }
 
     /// `inSwitch`: algum ancestral é um `switch` de comando.
-    pub(super) fn em_switch(&self, n: usize) -> bool {
-        self.ancestral(n, &["SwitchStatement"]).is_some()
+    pub(super) fn in_switch(&self, n: usize) -> bool {
+        self.ancestor(n, &["SwitchStatement"]).is_some()
     }
 
     /// `inCatchClause`.
-    pub(super) fn em_catch(&self, n: usize) -> bool {
-        self.ancestral(n, &["CatchClause"]).is_some()
+    pub(super) fn in_catch(&self, n: usize) -> bool {
+        self.ancestor(n, &["CatchClause"]).is_some()
     }
 
     /// O comando anterior no mesmo `Block` (`precedingStatement`).
-    pub(super) fn comando_anterior(&self, n: usize) -> Option<usize> {
-        let p = self.pai(n)?;
-        if self.especie(p) != "Block" {
+    pub(super) fn previous_command(&self, n: usize) -> Option<usize> {
+        let p = self.parent(n)?;
+        if self.kind(p) != "Block" {
             return None;
         }
-        let fs = self.filhos(p);
+        let fs = self.children(p);
         let i = fs.iter().position(|&k| k == n)?;
         i.checked_sub(1).map(|j| fs[j])
     }
 
     /// O membro anterior no corpo da classe (`precedingMember`).
-    pub(super) fn membro_anterior(&self, n: usize) -> Option<usize> {
-        let p = self.pai(n)?;
-        if !matches!(self.especie(p), "ClassDeclaration" | "EnumDeclaration" | "ExtensionDeclaration" | "ExtensionTypeDeclaration" | "MixinDeclaration") {
+    pub(super) fn previous_member(&self, n: usize) -> Option<usize> {
+        let p = self.parent(n)?;
+        if !matches!(self.kind(p), "ClassDeclaration" | "EnumDeclaration" | "ExtensionDeclaration" | "ExtensionTypeDeclaration" | "MixinDeclaration") {
             return None;
         }
-        let membros = self.filhos_de(p, &["FieldDeclaration", "MethodDeclaration", "ConstructorDeclaration"]);
-        let i = membros.iter().position(|&k| k == n)?;
-        i.checked_sub(1).map(|j| membros[j])
+        let members = self.children_of(p, &["FieldDeclaration", "MethodDeclaration", "ConstructorDeclaration"]);
+        let i = members.iter().position(|&k| k == n)?;
+        i.checked_sub(1).map(|j| members[j])
     }
 
     /// `sortedDirectivesAndDeclarations` da unidade.
-    pub(super) fn membros_da_unidade(&self) -> Vec<usize> {
-        self.filhos(0).iter().copied().filter(|&k| self.especie(k) != "ScriptTag").collect()
+    pub(super) fn unit_members(&self) -> Vec<usize> {
+        self.children(0).iter().copied().filter(|&k| self.kind(k) != "ScriptTag").collect()
     }
 
     /// `membersBeforeAndAfterMember`.
-    pub(super) fn vizinhos_do_membro(&self, m: usize) -> (Option<usize>, Option<usize>) {
-        let ms = self.membros_da_unidade();
+    pub(super) fn member_neighbors(&self, m: usize) -> (Option<usize>, Option<usize>) {
+        let ms = self.unit_members();
         let Some(i) = ms.iter().position(|&k| k == m) else { return (None, None) };
         (i.checked_sub(1).map(|j| ms[j]), ms.get(i + 1).copied())
     }
 
     /// `membersBeforeAndAfterOffset`.
-    pub(super) fn vizinhos_do_offset(&self) -> (Option<usize>, Option<usize>) {
-        let mut anterior = None;
-        for k in self.membros_da_unidade() {
-            if self.offset < self.ini(k) {
-                return (anterior, Some(k));
+    pub(super) fn offset_neighbors(&self) -> (Option<usize>, Option<usize>) {
+        let mut previous = None;
+        for k in self.unit_members() {
+            if self.offset < self.start(k) {
+                return (previous, Some(k));
             }
-            anterior = Some(k);
+            previous = Some(k);
         }
-        (anterior, None)
+        (previous, None)
     }
 
-    pub(super) fn e_diretiva(&self, n: usize) -> bool {
-        self.especie(n).ends_with("Directive")
+    pub(super) fn is_directive(&self, n: usize) -> bool {
+        self.kind(n).ends_with("Directive")
     }
 }

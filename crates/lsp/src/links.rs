@@ -15,141 +15,141 @@ use dartforge_frontend::ast;
 use dartforge_frontend::comentarios::Comentarios;
 use std::path::{Path, PathBuf};
 
-/// Os links de `texto` (o arquivo `caminho`): o trecho e o arquivo alvo.
-pub(crate) fn links(texto: &str, caminho: &Path) -> Vec<(Span, PathBuf)> {
-    let mut nomes = dartforge_intern::Interner::new();
-    let p = dartforge_frontend::parser::parse_com(texto, &mut nomes, dartforge_frontend::LibraryFeatures::default());
-    let comentarios = Comentarios::de(texto);
+/// Os links de `text` (o arquivo `path`): o trecho e o arquivo alvo.
+pub(crate) fn links(text: &str, path: &Path) -> Vec<(Span, PathBuf)> {
+    let mut names = dartforge_intern::Interner::new();
+    let p = dartforge_frontend::parser::parse_com(text, &mut names, dartforge_frontend::LibraryFeatures::default());
+    let comments = Comentarios::de(text);
     let mut docs: Vec<Span> = Vec::new();
-    let mut doc_de = |inicio: usize| {
-        if let Some(s) = comentario_de_documentacao(&comentarios, texto, inicio)
+    let mut doc_of = |start: usize| {
+        if let Some(s) = documentation_comment(&comments, text, start)
             && !docs.contains(&s)
         {
             docs.push(s);
         }
     };
-    let inicio_de = |span: Span, metadata: &[ast::Annotation]| metadata.first().map_or(span.start, |m| m.span.start.min(span.start));
+    let start_of = |span: Span, metadata: &[ast::Annotation]| metadata.first().map_or(span.start, |m| m.span.start.min(span.start));
     for d in &p.unit.directives {
-        doc_de(inicio_de(d.span, &d.metadata));
+        doc_of(start_of(d.span, &d.metadata));
     }
     let a = &p.ast;
     for d in &a.decls {
-        doc_de(inicio_de(d.span, &d.metadata));
+        doc_of(start_of(d.span, &d.metadata));
         if let ast::DeclKind::Enum(e) = &d.kind {
             for k in &e.constants {
-                doc_de(inicio_de(k.span, &k.metadata));
+                doc_of(start_of(k.span, &k.metadata));
             }
         }
     }
     for m in &a.members {
-        doc_de(inicio_de(m.span, &m.metadata));
+        doc_of(start_of(m.span, &m.metadata));
         if let ast::MemberKind::Constructor(k) = &m.kind {
             for x in k.parameters.iter() {
-                doc_de(inicio_de(x.span, &x.metadata));
+                doc_of(start_of(x.span, &x.metadata));
             }
         }
     }
     for f in &a.functions {
         for x in f.parameters.iter().flatten() {
-            doc_de(inicio_de(x.span, &x.metadata));
+            doc_of(start_of(x.span, &x.metadata));
         }
     }
     docs.sort_by_key(|s| s.start);
-    let mut pasta: Option<Option<PathBuf>> = None;
-    let mut saida = Vec::new();
+    let mut folder: Option<Option<PathBuf>> = None;
+    let mut output = Vec::new();
     for d in docs {
-        let trecho = &texto[d.start..d.end];
-        let mut busca = 0;
-        while let Some(k) = trecho[busca..].find("{@tool") {
-            let abre = busca + k;
-            // `{@tool}` ou `{@tool argumentos}` (não `{@toolbar}`).
-            if !matches!(trecho.as_bytes().get(abre + 6), Some(b' ' | b'}' | b'\t' | b'\r' | b'\n')) {
-                busca = abre + 6;
+        let snippet = &text[d.start..d.end];
+        let mut search = 0;
+        while let Some(k) = snippet[search..].find("{@tool") {
+            let opens = search + k;
+            // `{@tool}` ou `{@tool arguments}` (não `{@toolbar}`).
+            if !matches!(snippet.as_bytes().get(opens + 6), Some(b' ' | b'}' | b'\t' | b'\r' | b'\n')) {
+                search = opens + 6;
                 continue;
             }
-            let Some(f) = trecho[abre..].find('}') else { break };
-            let conteudo = abre + f + 1;
+            let Some(f) = snippet[opens..].find('}') else { break };
+            let content = opens + f + 1;
             // Sem `{@end-tool}`, o bloco não fecha e fica de fora.
-            let Some(c) = trecho[conteudo..].find("{@end-tool}") else {
-                busca = conteudo;
+            let Some(c) = snippet[content..].find("{@end-tool}") else {
+                search = content;
                 continue;
             };
-            let fim = conteudo + c;
-            busca = fim + "{@end-tool}".len();
-            let valor = &trecho[conteudo..fim];
-            if valor.is_empty() {
+            let end_ = content + c;
+            search = end_ + "{@end-tool}".len();
+            let value = &snippet[content..end_];
+            if value.is_empty() {
                 continue;
             }
-            const VER: &str = "** See code in ";
-            let Some(i) = valor.find("** See code in examples/api/") else { continue };
-            let raiz = pasta.get_or_insert_with(|| pasta_com_exemplos(caminho));
+            const SEE: &str = "** See code in ";
+            let Some(i) = value.find("** See code in examples/api/") else { continue };
+            let root = folder.get_or_insert_with(|| examples_folder(path));
             // Sem a pasta, o `return` do visitor: nada mais deste comentário.
-            let Some(raiz) = raiz.clone() else { break };
-            let comeco = i + VER.len();
+            let Some(root) = root.clone() else { break };
+            let start_ = i + SEE.len();
             // O primeiro `.dart` do conteúdo (o `indexOf` do visitor). Antes
             // do começo, o `substring` do Dart lançaria: o link fica de fora.
-            let Some(termino) = valor.find(".dart").map(|e| e + 5) else { continue };
-            if termino < comeco {
+            let Some(end) = value.find(".dart").map(|e| e + 5) else { continue };
+            if end < start_ {
                 continue;
             }
-            let alvo = valor[comeco..termino].split('/').fold(raiz, |p, parte| p.join(parte));
-            let inicio = d.start + conteudo + comeco;
-            saida.push((Span { start: inicio, end: inicio + (termino - comeco) }, alvo));
+            let target = value[start_..end].split('/').fold(root, |p, part| p.join(part));
+            let start = d.start + content + start_;
+            output.push((Span { start: start, end: start + (end - start_) }, target));
         }
     }
-    saida
+    output
 }
 
-/// O `Comment` de documentação do nó que começa em `inicio`
+/// O `Comment` de documentação do nó que começa em `start`
 /// (`findDartDoc`): o último `/**`, ou da primeira à última linha da última
 /// sequência de `///`.
-fn comentario_de_documentacao(c: &Comentarios, texto: &str, inicio: usize) -> Option<Span> {
-    let doc = c.dart_doc(texto, inicio)?;
-    if !texto[doc.start..doc.end].starts_with("///") {
+fn documentation_comment(c: &Comentarios, text: &str, start: usize) -> Option<Span> {
+    let doc = c.dart_doc(text, start)?;
+    if !text[doc.start..doc.end].starts_with("///") {
         return Some(doc);
     }
-    let fim = c
-        .antes_de(texto, inicio)
+    let end = c
+        .antes_de(text, start)
         .into_iter()
-        .filter(|s| s.start >= doc.start && texto[s.start..s.end].starts_with("///"))
+        .filter(|s| s.start >= doc.start && text[s.start..s.end].starts_with("///"))
         .map(|s| s.end)
         .max()
         .unwrap_or(doc.end);
-    Some(Span { start: doc.start, end: fim })
+    Some(Span { start: doc.start, end: end })
 }
 
 /// A pasta, entre a do arquivo e as ancestrais, que tem `examples/api`.
-fn pasta_com_exemplos(caminho: &Path) -> Option<PathBuf> {
-    let mut atual = caminho.parent();
-    while let Some(p) = atual {
+fn examples_folder(path: &Path) -> Option<PathBuf> {
+    let mut current = path.parent();
+    while let Some(p) = current {
         if p.join("examples").join("api").is_dir() {
             return Some(p.to_path_buf());
         }
-        atual = p.parent();
+        current = p.parent();
     }
     None
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn liga_o_codigo_de_exemplo_do_bloco_tool() {
-        let raiz = std::env::temp_dir().join(format!("dartforge-links-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(raiz.join("examples/api"));
-        let _ = std::fs::create_dir_all(raiz.join("lib"));
-        let texto = "/// Um widget.\n///\n/// {@tool dartpad}\n/// ** See code in examples/api/lib/a/b.0.dart **\n/// {@end-tool}\nclass A {}\n\n/// {@tool snippet}\n/// ** See code in examples/api/lib/c.dart **\nclass B {}\n";
-        let ls = links(texto, &raiz.join("lib/a.dart"));
+    fn links_example_code_of_tool_block() {
+        let root = std::env::temp_dir().join(format!("dartforge-links-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(root.join("examples/api"));
+        let _ = std::fs::create_dir_all(root.join("lib"));
+        let text = "/// Um widget.\n///\n/// {@tool dartpad}\n/// ** See code in examples/api/lib/a/b.0.dart **\n/// {@end-tool}\nclass A {}\n\n/// {@tool snippet}\n/// ** See code in examples/api/lib/c.dart **\nclass B {}\n";
+        let ls = links(text, &root.join("lib/a.dart"));
         assert_eq!(ls.len(), 1, "o bloco sem {{@end-tool}} fica de fora: {ls:?}");
-        let (s, alvo) = &ls[0];
-        assert_eq!(&texto[s.start..s.end], "examples/api/lib/a/b.0.dart");
-        assert_eq!(alvo, &raiz.join("examples").join("api").join("lib").join("a").join("b.0.dart"));
+        let (s, target) = &ls[0];
+        assert_eq!(&text[s.start..s.end], "examples/api/lib/a/b.0.dart");
+        assert_eq!(target, &root.join("examples").join("api").join("lib").join("a").join("b.0.dart"));
         // Sem a pasta `examples/api`, nenhum link.
-        let outra = std::env::temp_dir().join(format!("dartforge-links-sem-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&outra);
-        assert!(links(texto, &outra.join("a.dart")).is_empty());
-        let _ = std::fs::remove_dir_all(&raiz);
-        let _ = std::fs::remove_dir_all(&outra);
+        let other = std::env::temp_dir().join(format!("dartforge-links-sem-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&other);
+        assert!(links(text, &other.join("a.dart")).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&other);
     }
 }

@@ -30,8 +30,8 @@
 //! nome.
 
 use crate::DocumentStore;
-use crate::query::Consulta;
-use crate::index::{IndiceProjeto, IndiceSdk};
+use crate::query::Query;
+use crate::index::{ProjectIndex, SdkIndex};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{
     ClassId, ClassKind, Element, FunctionElementId, FunctionKind, LibraryId,
@@ -54,76 +54,76 @@ mod isp_keywords;
 mod isp_visits;
 
 /// Identificador que ocupa o lugar do nome sob o cursor na análise.
-const SENTINELA: &str = "dartforge__completar";
+const SENTINEL: &str = "dartforge__completar";
 
 /// Fechos tentados depois do sentinela, na ordem de preferência.
-const FECHOS: &[&str] = &["", ";", ")", ");", "))", "));", ")));", "]", "];", "});"];
+const CLOSURES: &[&str] = &["", ";", ")", ");", "))", "));", ")));", "]", "];", "});"];
 
 /// `CompletionItemKind` do LSP.
-pub(crate) mod especie {
-    pub const METODO: u32 = 2;
-    pub const FUNCAO: u32 = 3;
-    pub const CONSTRUTOR: u32 = 4;
-    pub const CAMPO: u32 = 5;
-    pub const VARIAVEL: u32 = 6;
-    pub const CLASSE: u32 = 7;
-    pub const MODULO: u32 = 9;
-    pub const PROPRIEDADE: u32 = 10;
+pub(crate) mod kind {
+    pub const METHOD: u32 = 2;
+    pub const FUNCTION: u32 = 3;
+    pub const CONSTRUCTOR: u32 = 4;
+    pub const FIELD: u32 = 5;
+    pub const VARIABLE: u32 = 6;
+    pub const CLASS: u32 = 7;
+    pub const MODULE: u32 = 9;
+    pub const PROPERTY: u32 = 10;
     pub const ENUM: u32 = 13;
-    pub const PALAVRA_CHAVE: u32 = 14;
-    pub const MEMBRO_DE_ENUM: u32 = 20;
-    pub const PARAMETRO_DE_TIPO: u32 = 25;
+    pub const WORD_KEY: u32 = 14;
+    pub const ENUM_MEMBER: u32 = 20;
+    pub const TYPE_PARAMETER: u32 = 25;
 }
 
 /// Como completar uma chamada, quando o cliente aceita snippets.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Chamada {
-    /// Os parâmetros obrigatórios, na ordem (`x`, e `nome: ` para nomeados):
+pub enum Call {
+    /// Os parâmetros obrigatórios, na ordem (`x`, e `name: ` para nomeados):
     /// viram os marcadores `${1:x}` do snippet.
-    Parametros(Vec<String>),
+    Parameters(Vec<String>),
     /// Função com parâmetros de nomes desconhecidos (índice de nomes): o
     /// cursor fica entre os parênteses.
-    Desconhecida,
+    Unknown,
 }
 
 /// Um `import` a acrescentar junto com o item (importação automática).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImportAutomatico {
+pub struct AutoImport {
     /// A URI importada (`dart:math`, `util.dart`).
     pub uri: String,
     /// Onde a diretiva entra no documento (bytes) e o texto dela.
     pub span: Span,
-    pub texto: String,
+    pub text: String,
 }
 
 /// Um item oferecido ao editor.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ItemCompletar {
-    /// O que a lista mostra (`met(…)`, `nome: `).
-    pub rotulo: String,
+pub struct CompletionItem {
+    /// O que a lista mostra (`met(…)`, `name: `).
+    pub label: String,
     /// `CompletionItemKind`.
-    pub especie: u32,
+    pub kind: u32,
     /// Tipo ou assinatura.
-    pub detalhe: Option<String>,
+    pub detail: Option<String>,
     /// Texto que substitui o prefixo digitado.
-    pub inserir: String,
+    pub insert: String,
     /// Forma de chamada, para funções, métodos e construtores.
-    pub chamada: Option<Chamada>,
+    pub call: Option<Call>,
     /// Arquivo e início da declaração, para a documentação do
     /// `completionItem/resolve`.
-    pub origem: Option<(PathBuf, usize)>,
+    pub origin: Option<(PathBuf, usize)>,
     /// A diretiva que o item acrescenta (nome ainda não importado).
-    pub importar: Option<ImportAutomatico>,
+    pub import: Option<AutoImport>,
     /// Grupo de ordenação (menor vem antes).
-    grupo: u8,
+    group: u8,
     /// Qualidade do casamento com o digitado (0: prefixo; 1: aproximado).
-    qualidade: u8,
+    quality: u8,
     /// O que entra no cálculo da relevância (`crate::relevance`).
     rel: crate::relevance::Rel,
     /// Classe do item (elemento de topo), para o tipo de contexto.
-    classe: Option<ClassId>,
+    class: Option<ClassId>,
     /// A relevância calculada (`0..1000`).
-    relevancia: i32,
+    relevance: i32,
     /// `sortText` = `9999 − relevância` (`MAP:59`, `:735-736`).
     pub sort_text: String,
     /// O score do `FuzzyMatcher` do handler (`fuzzy.suggestionScore`), para
@@ -131,84 +131,84 @@ pub struct ItemCompletar {
     pub score: f64,
     /// `selectionOffset`/`selectionLength` (unidades UTF-16 do texto
     /// inserido), quando a sugestão põe o cursor antes do fim.
-    pub selecao: Option<(usize, usize)>,
+    pub selection: Option<(usize, usize)>,
     /// `displayText` (o rótulo, quando difere do texto inserido).
-    pub exibicao: Option<String>,
+    pub display: Option<String>,
     /// O item veio do `InScopeCompletionPass` (a ordem e o `matcherScore`
     /// são os dele).
-    pub(crate) do_passe: bool,
+    pub(crate) of_pass: bool,
     /// `CompletionSuggestionKind.IDENTIFIER` num executável (tear-off,
     /// redirecionamento): o rótulo mostra os parâmetros, a inserção não põe
     /// parênteses.
-    pub(crate) identificador: bool,
+    pub(crate) identifier: bool,
     /// O texto que o filtro do handler casa (`textToMatchOverride`:
     /// `override_x`, `setState`), quando difere do texto inserido.
-    pub(crate) casar: Option<String>,
+    pub(crate) match_: Option<String>,
     /// `replacementLength: 0`: a inserção não substitui o prefixo.
-    pub(crate) substituir_vazio: bool,
+    pub(crate) replace_empty: bool,
 }
 
 /// Resultado do completar: o intervalo do prefixo (bytes) e os itens em ordem.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct Completar {
+pub struct Completion {
     /// O `replacementOffset` (bytes).
-    pub inicio: usize,
+    pub start: usize,
     /// O fim do `insert` (`replacementOffset + min(offset -
     /// replacementOffset, replacementLength)`).
-    pub fim: usize,
+    pub end: usize,
     /// O fim do `replacementRange`, quando o passe o calculou (senão o
     /// handler estende a palavra).
-    pub fim_da_substituicao: Option<usize>,
-    pub itens: Vec<ItemCompletar>,
+    pub replacement_end: Option<usize>,
+    pub items: Vec<CompletionItem>,
     /// A lista foi cortada (nomes não importados acima do teto).
-    pub incompleta: bool,
+    pub incomplete: bool,
 }
 
 /// Onde o sentinela caiu na análise.
 #[derive(Clone, Copy)]
-enum Sentinela {
-    /// Numa expressão; com o alvo quando é `alvo.▮`.
+enum Sentinel {
+    /// Numa expressão; com o alvo quando é `target.▮`.
     Expr(ExprId, Option<ExprId>),
     /// Num nome de tipo; com o prefixo quando é `p.▮`, e se o tipo abre a
     /// declaração (de topo, membro ou comando), onde palavras-chave também
     /// cabem.
-    Tipo {
-        prefixo: Option<SymbolId>,
-        lider: Option<&'static [&'static str]>,
+    Type {
+        prefix: Option<SymbolId>,
+        leader: Option<&'static [&'static str]>,
     },
 }
 
 /// O que o completar consulta além do programa.
 pub(crate) struct Indices<'a> {
-    pub sdk: &'a IndiceSdk,
-    pub projeto: &'a mut IndiceProjeto,
+    pub sdk: &'a SdkIndex,
+    pub project: &'a mut ProjectIndex,
     /// Os resumos das bibliotecas conhecidas (`FileStateFilter` e
     /// `exportNamespace`) dos não importados.
-    pub conhecidas: &'a mut crate::known_libraries::IndiceDeBibliotecas,
+    pub known: &'a mut crate::known_libraries::LibraryIndex,
 }
 
-mod grupo {
-    pub const NOMEADO: u8 = 0;
+mod group {
+    pub const NAMED: u8 = 0;
     pub const LOCAL: u8 = 1;
-    pub const MEMBRO: u8 = 2;
+    pub const MEMBER: u8 = 2;
     /// Membros herdados de `Object` (`toString`, `hashCode`…).
-    pub const MEMBRO_DE_OBJECT: u8 = 3;
-    pub const BIBLIOTECA: u8 = 4;
-    pub const IMPORTADO: u8 = 5;
-    pub const PREFIXO: u8 = 6;
-    pub const NAO_IMPORTADO: u8 = 7;
-    pub const PALAVRA: u8 = 8;
+    pub const OBJECT_MEMBER: u8 = 3;
+    pub const LIBRARY: u8 = 4;
+    pub const IMPORTED: u8 = 5;
+    pub const PREFIX: u8 = 6;
+    pub const NOT_IMPORTED: u8 = 7;
+    pub const WORD: u8 = 8;
 }
 
 /// Teto de itens de bibliotecas não importadas numa resposta; acima dele a
 /// lista sai com `isIncomplete` e o editor pede de novo a cada tecla.
 
-const PALAVRAS_DE_EXPRESSAO: &[&str] = &["const", "false", "new", "null", "true"];
-const PALAVRAS_DE_COMANDO: &[&str] = &[
+const EXPRESSION_WORDS: &[&str] = &["const", "false", "new", "null", "true"];
+const COMMAND_WORDS: &[&str] = &[
     "assert", "break", "const", "continue", "do", "false", "final", "for", "if", "late", "new",
     "null", "return", "switch", "throw", "true", "try", "var", "void", "while",
 ];
-const PALAVRAS_DE_TOPO: &[&str] = &[
+const TOP_WORDS: &[&str] = &[
     "abstract",
     "base",
     "class",
@@ -229,7 +229,7 @@ const PALAVRAS_DE_TOPO: &[&str] = &[
     "var",
     "void",
 ];
-const PALAVRAS_DE_MEMBRO: &[&str] = &[
+const MEMBER_WORDS: &[&str] = &[
     "abstract",
     "const",
     "covariant",
@@ -245,129 +245,129 @@ const PALAVRAS_DE_MEMBRO: &[&str] = &[
     "void",
 ];
 
-fn eh_ident(b: u8) -> bool {
+fn is_ident(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
 }
 
-/// Completa na posição `offset` (bytes) de `texto`, o conteúdo vigente de `uri`.
+/// Completa na posição `offset` (bytes) de `text`, o conteúdo vigente de `uri`.
 ///
 /// `None` quando o arquivo não pode ser carregado (URI que não é de
 /// arquivo). Dentro de comentário, de texto de string ou de número, a lista
 /// é vazia.
 /// O `maxSuggestions` (`dart.maxCompletionItems`, padrão
 /// `defaultMaxCompletions = 2000`).
-pub(crate) const MAXIMO_PADRAO: usize = 2000;
+pub(crate) const MAX_PATTERN: usize = 2000;
 
 /// `SuggestionCollector.addSuggestion` (`SC:45-81`): inserção estável por
-/// `matcherScore` decrescente e a poda acima de `maximo`.
-fn coletar(lista: &mut Vec<(f64, ItemCompletar)>, score: f64, item: ItemCompletar, maximo: usize) {
-    let mut posicao = 0;
-    for k in (0..lista.len()).rev() {
-        if lista[k].0 >= score {
-            posicao = k + 1;
+/// `matcherScore` decrescente e a poda acima de `max`.
+fn collect(list: &mut Vec<(f64, CompletionItem)>, score: f64, item: CompletionItem, max: usize) {
+    let mut position = 0;
+    for k in (0..list.len()).rev() {
+        if list[k].0 >= score {
+            position = k + 1;
             break;
         }
     }
-    lista.insert(posicao, (score, item));
-    if lista.len() > maximo {
-        let minimo = lista[maximo].0;
-        while lista.len() > maximo && lista.last().is_some_and(|(s, _)| *s < minimo) {
-            lista.pop();
+    list.insert(position, (score, item));
+    if list.len() > max {
+        let min = list[max].0;
+        while list.len() > max && list.last().is_some_and(|(s, _)| *s < min) {
+            list.pop();
         }
     }
 }
 
 /// O texto pontuado (`displayName`): o rótulo de inserção sem o `: ` de um
 /// argumento nomeado.
-fn texto_pontuado(i: &ItemCompletar) -> &str {
-    match &i.casar {
+fn scored_text(i: &CompletionItem) -> &str {
+    match &i.match_ {
         Some(c) => c,
-        None => i.inserir.trim_end_matches([':', ' ']),
+        None => i.insert.trim_end_matches([':', ' ']),
     }
 }
 
-pub(crate) fn completar(
+pub(crate) fn completion(
     sdk: &SdkLayout,
     indices: Indices<'_>,
-    documentos: &DocumentStore,
+    documents: &DocumentStore,
     uri: &str,
-    texto: &str,
+    text: &str,
     offset: usize,
     features: LibraryFeatures,
-    maximo: usize,
-    nao_importados: bool,
-    retido: Option<&mut crate::project::Projeto>,
-) -> Option<Completar> {
-    let bytes = texto.as_bytes();
-    let offset = offset.min(texto.len());
-    let mut inicio = offset;
-    while inicio > 0 && eh_ident(bytes[inicio - 1]) {
-        inicio -= 1;
+    max: usize,
+    not_imported: bool,
+    retained: Option<&mut crate::project::Project>,
+) -> Option<Completion> {
+    let bytes = text.as_bytes();
+    let offset = offset.min(text.len());
+    let mut start = offset;
+    while start > 0 && is_ident(bytes[start - 1]) {
+        start -= 1;
     }
-    let mut fim = offset;
-    while fim < bytes.len() && eh_ident(bytes[fim]) {
-        fim += 1;
+    let mut end = offset;
+    while end < bytes.len() && is_ident(bytes[end]) {
+        end += 1;
     }
-    let vazio = Completar {
-        inicio: offset,
-        fim: offset,
-        fim_da_substituicao: None,
-        itens: Vec::new(),
-        incompleta: false,
+    let empty = Completion {
+        start: offset,
+        end: offset,
+        replacement_end: None,
+        items: Vec::new(),
+        incomplete: false,
     };
     // O texto analisado troca a palavra sob o cursor pelo sentinela (só para
     // a semântica: o contexto é o do texto real, `completion/isp.rs`).
-    let digitado = &texto[inicio..offset];
-    let preparado = preparar(texto, inicio, fim, features);
-    let texto_analisado = preparado.as_deref().unwrap_or(texto);
-    let delta = texto_analisado.len() as isize - texto.len() as isize;
-    let pedido = Pedido { sdk, indices, documentos, texto, inicio, fim, offset, digitado, especulativo: preparado.is_some(), maximo, nao_importados, delta };
+    let typed = &text[start..offset];
+    let prepared = prepare(text, start, end, features);
+    let analyzed_text = prepared.as_deref().unwrap_or(text);
+    let delta = analyzed_text.len() as isize - text.len() as isize;
+    let request = Request { sdk, indices, documents, text, start, end, offset, typed, speculative: prepared.is_some(), max, not_imported, delta };
     // O caminho incremental (docs/LSP-ESPECIFICACAO.md §16.7): o estado
     // retido é o do texto do documento; o texto com o sentinela troca a
     // unidade no lugar, só o corpo do sentinela é inferido (com a sonda), e a
     // troca é desfeita depois da resposta. Fora de um corpo, ou com a
     // assinatura, as diretivas ou a forma mudadas, a carga completa.
-    if let Some(projeto) = retido
-        && let Some(unidade) = projeto.unidade_do_uri(uri)
-        && projeto.programa().unit(unidade).source == texto
-        && projeto.bibliotecas.contains(&projeto.programa().unit(unidade).library)
+    if let Some(project) = retained
+        && let Some(unit) = project.uri_unit(uri)
+        && project.program().unit(unit).source == text
+        && project.libraries.contains(&project.program().unit(unit).library)
     {
-        let consulta = &mut projeto.consulta;
-        match preparado.as_deref() {
-            None => return responder(consulta, unidade, pedido, vazio),
-            Some(especulativo) => {
-                if let Some(troca) = consulta.trocar_unidade(unidade, especulativo, crate::query::ModoDeTroca::Especulativa { offset: inicio }) {
-                    let resposta = responder(consulta, unidade, pedido, vazio);
-                    consulta.desfazer(troca);
-                    return resposta;
+        let query = &mut project.query;
+        match prepared.as_deref() {
+            None => return respond(query, unit, request, empty),
+            Some(speculative) => {
+                if let Some(swap) = query.swap_unit(unit, speculative, crate::query::SwapMode::Speculative { offset: start }) {
+                    let response = respond(query, unit, request, empty);
+                    query.undo(swap);
+                    return response;
                 }
             }
         }
     }
-    let (programa, nomes, unidade) =
-        crate::semantic::carregar(sdk, uri, texto_analisado, Some(documentos))?;
-    let biblioteca = programa.unit(unidade).library;
-    let sonda = preparado.as_ref().map(|_| (unidade, inicio));
-    let mut consulta = Consulta::inferir(programa, nomes, &[biblioteca], false, sonda);
-    responder(&mut consulta, unidade, pedido, vazio)
+    let (program, names, unit) =
+        crate::semantic::load(sdk, uri, analyzed_text, Some(documents))?;
+    let library = program.unit(unit).library;
+    let probe = prepared.as_ref().map(|_| (unit, start));
+    let mut query = Query::infer(program, names, &[library], false, probe);
+    respond(&mut query, unit, request, empty)
 }
 
 /// O pedido de completar, já com o intervalo da palavra.
-struct Pedido<'a, 'i> {
+struct Request<'a, 'i> {
     sdk: &'a SdkLayout,
     indices: Indices<'i>,
-    documentos: &'a DocumentStore,
-    texto: &'a str,
-    inicio: usize,
-    fim: usize,
+    documents: &'a DocumentStore,
+    text: &'a str,
+    start: usize,
+    end: usize,
     offset: usize,
-    digitado: &'a str,
+    typed: &'a str,
     /// O texto analisado tem o sentinela.
-    especulativo: bool,
-    maximo: usize,
+    speculative: bool,
+    max: usize,
     /// Sugerir os não importados (`suggestFromUnimportedLibraries` com
     /// `workspace/applyEdit`).
-    nao_importados: bool,
+    not_imported: bool,
     /// O deslocamento dos offsets depois da palavra no texto analisado.
     delta: isize,
 }
@@ -377,446 +377,446 @@ struct Pedido<'a, 'i> {
 /// sobre o texto real (`completion/isp.rs`), o `NotImportedCompletionPass`,
 /// a relevância de cada candidato, o coletor (`matcherScore`, poda), o
 /// mapa de sugestões e o filtro e o truncamento do handler.
-fn responder(consulta: &mut Consulta, unidade: dartforge_elements::model::UnitId, pedido: Pedido<'_, '_>, vazio: Completar) -> Option<Completar> {
-    let Pedido { sdk, indices, documentos, texto, inicio, fim, offset, digitado: _, especulativo, maximo, nao_importados, delta } = pedido;
-    let features = consulta.programa.unit(unidade).features;
-    let antes_de_3 = features.versao() < dartforge_frontend::LanguageVersion::new(3, 0);
-    let troca = especulativo.then_some((inicio, fim, SENTINELA.len(), delta));
+fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: Request<'_, '_>, empty: Completion) -> Option<Completion> {
+    let Request { sdk, indices, documents, text, start, end, offset, typed: _, speculative, max, not_imported, delta } = request;
+    let features = query.program.unit(unit).features;
+    let before_3 = features.versao() < dartforge_frontend::LanguageVersion::new(3, 0);
+    let swap = speculative.then_some((start, end, SENTINEL.len(), delta));
     // Numa parte, o `import` iria para a biblioteca dona (outro arquivo).
-    let parte = consulta.programa.unit(unidade).unit.directives.iter().any(|d| matches!(d.kind, ast::DirectiveKind::PartOf { .. }));
+    let part = query.program.unit(unit).unit.directives.iter().any(|d| matches!(d.kind, ast::DirectiveKind::PartOf { .. }));
     // As bibliotecas candidatas dos não importados (`FileStateFilter`, menos
     // a do pedido e as importadas sem combinadores pela unidade definidora,
     // `_ImportSummary`), com a URI do `import`.
-    let filtro = candidatas_filtro(consulta, unidade);
-    let Indices { sdk: _, projeto: _, conhecidas } = indices;
-    let candidatas = |c: &mut crate::known_libraries::IndiceDeBibliotecas| -> Vec<(PathBuf, String)> {
-        let Some((arquivo, proprias, importadas)) = &filtro else { return Vec::new() };
-        let raiz = crate::project::raiz_do_projeto(arquivo);
-        let pacote = crate::index::nome_do_pacote(&raiz);
-        let chave = |x: &std::path::Path| dartforge_elements::gerado::chave(x);
+    let filter = candidates_filter(query, unit);
+    let Indices { sdk: _, project: _, known } = indices;
+    let candidates = |c: &mut crate::known_libraries::LibraryIndex| -> Vec<(PathBuf, String)> {
+        let Some((file, own, imported)) = &filter else { return Vec::new() };
+        let root = crate::project::project_root(file);
+        let package = crate::index::package_name(&root);
+        let key = |x: &std::path::Path| dartforge_elements::gerado::chave(x);
         let mut v = Vec::new();
-        for candidata in crate::known_libraries::candidatas(arquivo, Some(sdk), c, documentos) {
-            let k = chave(&candidata.caminho);
-            if proprias.contains(&k) || importadas.contains(&k) {
+        for candidate in crate::known_libraries::candidates(file, Some(sdk), c, documents) {
+            let k = key(&candidate.path);
+            if own.contains(&k) || imported.contains(&k) {
                 continue;
             }
-            let uri = if candidata.sdk || candidata.uri.starts_with("package:") {
-                candidata.uri.clone()
+            let uri = if candidate.sdk || candidate.uri.starts_with("package:") {
+                candidate.uri.clone()
             } else {
-                match crate::index::uri_de_import(arquivo, &candidata.caminho, &raiz, pacote.as_deref()) {
+                match crate::index::import_uri(file, &candidate.path, &root, package.as_deref()) {
                     Some(u) => u,
                     None => continue,
                 }
             };
-            v.push((candidata.caminho, uri));
+            v.push((candidate.path, uri));
         }
         v
     };
     let r = {
-        let mut lista = || candidatas(conhecidas);
-        let nao_importadas: Option<&mut dyn FnMut() -> Vec<(PathBuf, String)>> = if parte || !nao_importados { None } else { Some(&mut lista) };
-        isp::executar(consulta, unidade, texto, features, offset, troca, antes_de_3, nao_importadas)
+        let mut list = || candidates(known);
+        let not_imported_: Option<&mut dyn FnMut() -> Vec<(PathBuf, String)>> = if part || !not_imported { None } else { Some(&mut list) };
+        isp::run(query, unit, text, features, offset, swap, before_3, not_imported_)
     };
-    if r.comentario {
-        return Some(vazio);
+    if r.comment {
+        return Some(empty);
     }
-    let biblioteca = consulta.programa.unit(unidade).library;
+    let library = query.program.unit(unit).library;
     // O sentinela é do texto analisado, não do usuário.
-    let mut chegada: Vec<(f64, ItemCompletar)> = r.itens.into_iter().filter(|(_, i)| !i.inserir.contains(SENTINELA)).collect();
+    let mut arrival: Vec<(f64, CompletionItem)> = r.items.into_iter().filter(|(_, i)| !i.insert.contains(SENTINEL)).collect();
     // `StaticMembersOperation` sobre as bibliotecas que a consulta não
     // carregou: os nomes do resumo do `exportNamespace`.
-    if r.operacoes.iter().any(|o| matches!(o, isp::Operacao::MembrosEstaticos)) && !r.resumidas.is_empty() {
-        let so_tipos = r.flags.as_ref().is_some_and(|f| f.tipo);
-        let mut coletor = Coletor { itens: Vec::new(), biblioteca, receptor: None };
-        let mut nomes = Interner::new();
-        let real = dartforge_frontend::parser::parse_com(texto, &mut nomes, features);
-        if let Some((arquivo, _, _)) = &filtro {
-            coletor.nao_importados_resumo(texto, &real.unit, so_tipos, sdk, arquivo, conhecidas, documentos, &r.resumidas, &r.visiveis);
+    if r.operations.iter().any(|o| matches!(o, isp::Operation::StaticMembers)) && !r.summarized.is_empty() {
+        let only_types = r.flags.as_ref().is_some_and(|f| f.ty);
+        let mut collector = Collector { items: Vec::new(), library, receiver: None };
+        let mut names = Interner::new();
+        let real = dartforge_frontend::parser::parse_com(text, &mut names, features);
+        if let Some((file, _, _)) = &filter {
+            collector.not_imported_summary(text, &real.unit, only_types, sdk, file, known, documents, &r.summarized, &r.visible);
         }
-        let mut casador = (!r.prefixo_do_casador.is_empty()).then(|| crate::fuzzy_matcher::Casador::novo(&r.prefixo_do_casador, crate::fuzzy_matcher::Estilo::Texto));
-        for i in coletor.itens {
-            let s = match casador.as_mut() {
-                Some(c) => c.score(i.inserir.as_str()),
+        let mut matcher = (!r.matcher_prefix.is_empty()).then(|| crate::fuzzy_matcher::Matcher::new(&r.matcher_prefix, crate::fuzzy_matcher::Style::Text));
+        for i in collector.items {
+            let s = match matcher.as_mut() {
+                Some(c) => c.score(i.insert.as_str()),
                 None => 0.0,
             };
             if s != -1.0 {
-                chegada.push((s, i));
+                arrival.push((s, i));
             }
         }
     }
     // A relevância (`relevanceComputer.computeRelevance`): o local gravado
     // pelo passe, o tipo de contexto do pedido e o `preferConstants`.
     let local = r.local.clone();
-    let esperado = r.tipo_de_contexto;
-    let preferir_constantes = r.prefere_constantes || r.em_contexto_constante;
-    let tipo_bool = consulta.core.bool_;
-    let tipo_nulo = consulta.core.null;
-    for (_, i) in &mut chegada {
-        if i.rel.tipo.is_none() {
-            i.rel.tipo = match i.rel.palavra {
-                Some("true" | "false") => Some(tipo_bool),
-                Some("null") => Some(tipo_nulo),
+    let expected = r.context_type;
+    let prefer_constants = r.prefers_constants || r.in_constant_context;
+    let type_bool = query.core.bool_;
+    let null_type = query.core.null;
+    for (_, i) in &mut arrival {
+        if i.rel.ty.is_none() {
+            i.rel.ty = match i.rel.word {
+                Some("true" | "false") => Some(type_bool),
+                Some("null") => Some(null_type),
                 _ => None,
             };
         }
-        if i.rel.tipo.is_none()
-            && let Some(c) = i.classe
+        if i.rel.ty.is_none()
+            && let Some(c) = i.class
         {
-            i.rel.tipo = tipo_da_classe(consulta, c);
+            i.rel.ty = class_type(query, c);
         }
-        let contexto = match (esperado, i.rel.tipo) {
-            (Some(e), Some(t)) => caracteristica_de_contexto(consulta, e, t),
+        let context = match (expected, i.rel.ty) {
+            (Some(e), Some(t)) => context_feature(query, e, t),
             _ => 0.0,
         };
-        i.relevancia = crate::relevance::relevancia(&i.rel, local.as_deref(), contexto, preferir_constantes);
-        i.sort_text = (9999 - i.relevancia).to_string();
+        i.relevance = crate::relevance::relevance(&i.rel, local.as_deref(), context, prefer_constants);
+        i.sort_text = (9999 - i.relevance).to_string();
     }
     // O coletor: inserção estável por `matcherScore` e a poda.
-    let mut lista: Vec<(f64, ItemCompletar)> = Vec::new();
-    for (s, i) in chegada {
-        coletar(&mut lista, s, i, maximo);
+    let mut list: Vec<(f64, CompletionItem)> = Vec::new();
+    for (s, i) in arrival {
+        collect(&mut list, s, i, max);
     }
     // O `_suggestionMap` (`SB:989-1026`): a chave é o texto (o construtor
     // com `()`, o não importado com `::uri`); o último vence, na posição do
     // primeiro; o construtor cujo nome de classe já está no mapa por um
     // elemento que não é classe fica de fora.
-    let mut ordem: Vec<ItemCompletar> = Vec::new();
-    let mut indice: HashMap<String, usize> = HashMap::new();
-    for (_, i) in lista {
-        if i.especie == especie::CONSTRUTOR
-            && let Some(c) = i.classe
+    let mut order: Vec<CompletionItem> = Vec::new();
+    let mut index: HashMap<String, usize> = HashMap::new();
+    for (_, i) in list {
+        if i.kind == kind::CONSTRUCTOR
+            && let Some(c) = i.class
         {
-            let nome_da_classe = consulta.nome(consulta.programa.class(c).name).to_string();
-            if let Some(&k) = indice.get(&nome_da_classe) {
-                let existente = &ordem[k];
-                let e_classe = existente.classe.is_some_and(|x| {
-                    let cl = consulta.programa.class(x);
+            let class_name = query.name(query.program.class(c).name).to_string();
+            if let Some(&k) = index.get(&class_name) {
+                let existing = &order[k];
+                let is_class = existing.class.is_some_and(|x| {
+                    let cl = query.program.class(x);
                     matches!(cl.kind, ClassKind::Class | ClassKind::MixinApplication)
-                }) && existente.especie == especie::CLASSE;
-                if !e_classe {
+                }) && existing.kind == kind::CLASS;
+                if !is_class {
                     continue;
                 }
             }
         }
-        let mut chave = i.inserir.clone();
-        if i.especie == especie::CONSTRUTOR {
-            chave.push_str("()");
+        let mut key = i.insert.clone();
+        if i.kind == kind::CONSTRUCTOR {
+            key.push_str("()");
         }
-        if let Some(imp) = &i.importar
-            && i.rel.nao_importado
+        if let Some(imp) = &i.import
+            && i.rel.not_imported
         {
-            chave.push_str("::");
-            chave.push_str(&imp.uri);
+            key.push_str("::");
+            key.push_str(&imp.uri);
         }
-        match indice.get(&chave) {
-            Some(&k) => ordem[k] = i,
+        match index.get(&key) {
+            Some(&k) => order[k] = i,
             None => {
-                indice.insert(chave, ordem.len());
-                ordem.push(i);
+                index.insert(key, order.len());
+                order.push(i);
             }
         }
     }
     // O handler: `fuzzy.suggestionScore(item) > 0` pelo prefixo do pedido
     // (vazio → 1.0).
-    let mut fuzzy = crate::fuzzy_matcher::Casador::novo(&r.prefixo_do_pedido, crate::fuzzy_matcher::Estilo::Texto);
-    for i in &mut ordem {
-        i.score = fuzzy.score(texto_pontuado(i));
+    let mut fuzzy = crate::fuzzy_matcher::Matcher::new(&r.request_prefix, crate::fuzzy_matcher::Style::Text);
+    for i in &mut order {
+        i.score = fuzzy.score(scored_text(i));
     }
-    ordem.retain(|i| i.score > 0.0);
-    let mut incompleta = r.incompleta;
+    order.retain(|i| i.score > 0.0);
+    let mut incomplete = r.incomplete;
     // `_truncateResults` acima do máximo.
-    if ordem.len() > maximo {
-        let prefixo = r.prefixo_do_pedido.to_lowercase();
-        ordem.sort_by(|a, b| {
+    if order.len() > max {
+        let prefix = r.request_prefix.to_lowercase();
+        order.sort_by(|a, b| {
             if a.score != b.score {
                 return b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal);
             }
             if a.sort_text == b.sort_text {
-                return a.rotulo.len().cmp(&b.rotulo.len());
+                return a.label.len().cmp(&b.label.len());
             }
             a.sort_text.cmp(&b.sort_text)
         });
         let mut k = 0usize;
-        ordem.retain(|i| {
-            let manter = k < maximo || (!prefixo.is_empty() && texto_pontuado(i).to_lowercase() == prefixo);
+        order.retain(|i| {
+            let keep = k < max || (!prefix.is_empty() && scored_text(i).to_lowercase() == prefix);
             k += 1;
-            manter
+            keep
         });
-        incompleta = true;
+        incomplete = true;
     }
     // `replacementRange` e o `insert` do handler (`min(offset -
     // replacementOffset, replacementLength)`).
-    let (ri, rl) = r.intervalo;
-    let insercao = ri + offset.saturating_sub(ri).min(rl);
-    Some(Completar { inicio: ri, fim: insercao, fim_da_substituicao: Some(ri + rl), itens: ordem, incompleta })
+    let (ri, rl) = r.range;
+    let insertion = ri + offset.saturating_sub(ri).min(rl);
+    Some(Completion { start: ri, end: insertion, replacement_end: Some(ri + rl), items: order, incomplete })
 }
 
 /// O que o filtro das candidatas dos não importados precisa: o arquivo do
 /// pedido, as unidades da própria biblioteca e as bibliotecas importadas
 /// sem combinadores pela unidade definidora (`_ImportSummary`).
 #[allow(clippy::type_complexity)]
-fn candidatas_filtro(consulta: &Consulta, unidade: dartforge_elements::model::UnitId) -> Option<(PathBuf, HashSet<PathBuf>, HashSet<PathBuf>)> {
-    let programa = &consulta.programa;
-    let lib = programa.library(programa.unit(unidade).library);
-    let arquivo = programa.unit(unidade).path.clone()?;
-    let definidora = lib.units.first().copied();
-    let chave = |c: &std::path::Path| dartforge_elements::gerado::chave(c);
-    let importadas: HashSet<PathBuf> = lib
+fn candidates_filter(query: &Query, unit: dartforge_elements::model::UnitId) -> Option<(PathBuf, HashSet<PathBuf>, HashSet<PathBuf>)> {
+    let program = &query.program;
+    let lib = program.library(program.unit(unit).library);
+    let file = program.unit(unit).path.clone()?;
+    let defining = lib.units.first().copied();
+    let key = |c: &std::path::Path| dartforge_elements::gerado::chave(c);
+    let imported: HashSet<PathBuf> = lib
         .imports
         .iter()
-        .filter(|i| Some(i.unit) == definidora && i.combinators.is_empty())
-        .filter_map(|i| programa.library(i.library).units.first())
-        .filter_map(|u| programa.unit(*u).path.as_deref().map(chave))
+        .filter(|i| Some(i.unit) == defining && i.combinators.is_empty())
+        .filter_map(|i| program.library(i.library).units.first())
+        .filter_map(|u| program.unit(*u).path.as_deref().map(key))
         .collect();
-    let proprias: HashSet<PathBuf> = lib.units.iter().filter_map(|u| programa.unit(*u).path.as_deref().map(chave)).collect();
-    Some((arquivo, proprias, importadas))
+    let own: HashSet<PathBuf> = lib.units.iter().filter_map(|u| program.unit(*u).path.as_deref().map(key)).collect();
+    Some((file, own, imported))
 }
 
 /// Texto com o nome sob o cursor trocado pelo sentinela (e o fecho que o
 /// faz analisar); `None` quando nenhuma variante põe o sentinela numa
 /// expressão ou num nome de tipo. Vale a variante com menos diagnósticos
 /// (a primeira, entre iguais).
-fn preparar(texto: &str, inicio: usize, fim: usize, features: LibraryFeatures) -> Option<String> {
-    let mut melhor: Option<(usize, String)> = None;
-    for fecho in FECHOS {
-        let candidato = format!("{}{SENTINELA}{fecho}{}", &texto[..inicio], &texto[fim..]);
-        let mut nomes = Interner::new();
-        let analisado = dartforge_frontend::parser::parse_com(&candidato, &mut nomes, features);
-        if achar_sentinela(&analisado.ast, inicio).is_none() {
+fn prepare(text: &str, start: usize, end: usize, features: LibraryFeatures) -> Option<String> {
+    let mut best: Option<(usize, String)> = None;
+    for closure in CLOSURES {
+        let candidate = format!("{}{SENTINEL}{closure}{}", &text[..start], &text[end..]);
+        let mut names = Interner::new();
+        let analyzed = dartforge_frontend::parser::parse_com(&candidate, &mut names, features);
+        if find_sentinel(&analyzed.ast, start).is_none() {
             continue;
         }
         // Sem fecho, o texto tem a árvore do real (o parser insere os
         // fechos sintéticos como o fasta): é a escolha sempre que o
         // sentinela cai numa expressão ou num tipo.
-        if fecho.is_empty() {
-            return Some(candidato);
+        if closure.is_empty() {
+            return Some(candidate);
         }
-        let erros = analisado.diagnostics.len();
-        if melhor.as_ref().is_none_or(|(e, _)| erros < *e) {
-            let zero = erros == 0;
-            melhor = Some((erros, candidato));
+        let errors = analyzed.diagnostics.len();
+        if best.as_ref().is_none_or(|(e, _)| errors < *e) {
+            let zero = errors == 0;
+            best = Some((errors, candidate));
             if zero {
                 break;
             }
         }
     }
-    melhor.map(|(_, t)| t)
+    best.map(|(_, t)| t)
 }
 
-/// Onde está o sentinela em `inicio`: numa expressão (com o alvo, se é
+/// Onde está o sentinela em `start`: numa expressão (com o alvo, se é
 /// acesso a membro) ou num nome de tipo.
-fn achar_sentinela(ast: &ast::Ast, inicio: usize) -> Option<Sentinela> {
-    let eh = |n: &ast::Name| n.span.start == inicio && n.span.end == inicio + SENTINELA.len();
+fn find_sentinel(ast: &ast::Ast, start: usize) -> Option<Sentinel> {
+    let eh = |n: &ast::Name| n.span.start == start && n.span.end == start + SENTINEL.len();
     let expr = ast
         .exprs
         .iter()
         .enumerate()
         .find_map(|(i, e)| match &e.kind {
-            ExprKind::Identifier(n) if eh(n) => Some(Sentinela::Expr(ExprId(i as u32), None)),
+            ExprKind::Identifier(n) if eh(n) => Some(Sentinel::Expr(ExprId(i as u32), None)),
             ExprKind::Property { target, name, .. } if eh(name) => {
-                Some(Sentinela::Expr(ExprId(i as u32), Some(*target)))
+                Some(Sentinel::Expr(ExprId(i as u32), Some(*target)))
             }
             _ => None,
         });
     if expr.is_some() {
         return expr;
     }
-    let (tipo, nome) = ast.types.iter().find_map(|t| match &t.kind {
+    let (ty, name_) = ast.types.iter().find_map(|t| match &t.kind {
         ast::TypeKind::Named { name, .. } if name.last().is_some_and(eh) => Some((t, name)),
         _ => None,
     })?;
-    let prefixo = (nome.len() == 2).then(|| nome[0].sym);
+    let prefix = (name_.len() == 2).then(|| name_[0].sym);
     // O tipo abre uma declaração de topo, de membro ou um comando: ali as
     // palavras-chave de declaração também cabem.
-    let abre = |s: dartforge_diagnostics::Span| s.start == tipo.span.start;
-    let lider: Option<&'static [&'static str]> = if prefixo.is_some() {
+    let opens = |s: dartforge_diagnostics::Span| s.start == ty.span.start;
+    let leader: Option<&'static [&'static str]> = if prefix.is_some() {
         None
-    } else if ast.decls.iter().any(|d| abre(d.span)) {
-        Some(PALAVRAS_DE_TOPO)
-    } else if ast.members.iter().any(|m| abre(m.span)) {
-        Some(PALAVRAS_DE_MEMBRO)
-    } else if ast.stmts.iter().any(|s| abre(s.span)) {
-        Some(PALAVRAS_DE_COMANDO)
+    } else if ast.decls.iter().any(|d| opens(d.span)) {
+        Some(TOP_WORDS)
+    } else if ast.members.iter().any(|m| opens(m.span)) {
+        Some(MEMBER_WORDS)
+    } else if ast.stmts.iter().any(|s| opens(s.span)) {
+        Some(COMMAND_WORDS)
     } else {
         None
     };
-    Some(Sentinela::Tipo { prefixo, lider })
+    Some(Sentinel::Type { prefix, leader })
 }
 
-struct Coletor {
-    itens: Vec<ItemCompletar>,
-    biblioteca: LibraryId,
+struct Collector {
+    items: Vec<CompletionItem>,
+    library: LibraryId,
     /// Classe do receptor enquanto se coletam membros de instância (a
     /// distância de herança de cada membro).
-    receptor: Option<ClassId>,
+    receiver: Option<ClassId>,
 }
 
-impl Coletor {
-    fn empurrar(
+impl Collector {
+    fn push(
         &mut self,
-        grupo: u8,
-        especie: u32,
-        rotulo: String,
-        inserir: String,
-        detalhe: Option<String>,
-    ) -> &mut ItemCompletar {
-        self.itens.push(ItemCompletar {
-            rotulo,
-            especie,
-            detalhe,
-            inserir,
-            chamada: None,
-            origem: None,
-            importar: None,
-            grupo,
-            qualidade: 0,
+        group: u8,
+        kind: u32,
+        label: String,
+        insert: String,
+        detail: Option<String>,
+    ) -> &mut CompletionItem {
+        self.items.push(CompletionItem {
+            label,
+            kind,
+            detail,
+            insert,
+            call: None,
+            origin: None,
+            import: None,
+            group,
+            quality: 0,
             rel: crate::relevance::Rel::default(),
-            classe: None,
-            relevancia: 0,
+            class: None,
+            relevance: 0,
             sort_text: String::new(),
             score: 0.0,
-            selecao: None,
-            exibicao: None,
-            do_passe: false,
-            identificador: false,
-            casar: None,
-            substituir_vazio: false,
+            selection: None,
+            display: None,
+            of_pass: false,
+            identifier: false,
+            match_: None,
+            replace_empty: false,
         });
-        self.itens.last_mut().expect("item recém-empurrado")
+        self.items.last_mut().expect("item recém-empurrado")
     }
 
     /// Preenche a relevância do último item a partir da função `f` (com o
-    /// tipo `tipo` visto pelo receptor).
-    fn rel_de_funcao(&mut self, consulta: &Consulta, f: FunctionElementId, tipo: TypeId) {
-        use crate::relevance::Especie;
-        let fe = consulta.programa.function(f);
-        let membro = fe.class.is_some() || fe.extension.is_some();
-        let nome = consulta.nome(fe.name).to_string();
-        let constante_de_enum = fe.variable.is_some_and(|v| {
-            let ve = consulta.programa.variable(v);
-            ve.class.is_some_and(|c| consulta.programa.class(c).enum_constants.contains(&v))
+    /// tipo `ty` visto pelo receptor).
+    fn function_rel(&mut self, query: &Query, f: FunctionElementId, ty: TypeId) {
+        use crate::relevance::Kind;
+        let fe = query.program.function(f);
+        let member = fe.class.is_some() || fe.extension.is_some();
+        let name = query.name(fe.name).to_string();
+        let enum_constant = fe.variable.is_some_and(|v| {
+            let ve = query.program.variable(v);
+            ve.class.is_some_and(|c| query.program.class(c).enum_constants.contains(&v))
         });
-        let (especie, tipo_do_item) = match fe.kind {
-            _ if constante_de_enum => (Especie::SemTabela, Some(tipo)),
+        let (kind, item_type) = match fe.kind {
+            _ if enum_constant => (Kind::NoTable, Some(ty)),
             FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => {
-                (if membro { Especie::Campo } else { Especie::VariavelDeTopo }, Some(tipo))
+                (if member { Kind::Field } else { Kind::TopLevelVariable }, Some(ty))
             }
-            FunctionKind::Constructor | FunctionKind::SyntheticConstructor => (Especie::Construtor, retorno(consulta, tipo)),
+            FunctionKind::Constructor | FunctionKind::SyntheticConstructor => (Kind::Constructor, return_(query, ty)),
             FunctionKind::Function | FunctionKind::Operator => {
-                (if membro { Especie::Metodo } else { Especie::Funcao }, retorno(consulta, tipo))
+                (if member { Kind::Method } else { Kind::Function }, return_(query, ty))
             }
         };
-        let distancia = match (self.receptor, fe.class) {
-            (Some(r), Some(c)) if membro => distancia_de_heranca(consulta, r, c).map(|d| d as u32),
+        let distance = match (self.receiver, fe.class) {
+            (Some(r), Some(c)) if member => inheritance_distance(query, r, c).map(|d| d as u32),
             _ => None,
         };
         // `isConstantFeature`: construtor `const`; acessor sintético de
         // variável estática (ou de topo) `const`.
-        let constante = match fe.kind {
+        let constant = match fe.kind {
             FunctionKind::Constructor | FunctionKind::SyntheticConstructor => fe.const_,
             FunctionKind::ImplicitAccessor => fe.variable.is_some_and(|v| {
-                let ve = consulta.programa.variable(v);
+                let ve = query.program.variable(v);
                 ve.const_ && (ve.static_ || (ve.class.is_none() && ve.extension.is_none()))
             }),
             _ => false,
         };
-        let obsoleto = obsoleto_da_funcao(consulta, f);
-        if let Some(item) = self.itens.last_mut() {
-            item.rel.especie = Some(especie);
-            item.rel.tipo = tipo_do_item;
-            item.rel.distancia = distancia;
-            item.rel.comeca_com_dolar = nome.starts_with('$');
-            item.rel.no_such_method = nome == "noSuchMethod";
-            item.rel.constante = constante;
-            item.rel.obsoleto = obsoleto;
+        let deprecated = function_deprecated(query, f);
+        if let Some(item) = self.items.last_mut() {
+            item.rel.kind = Some(kind);
+            item.rel.ty = item_type;
+            item.rel.distance = distance;
+            item.rel.starts_with_dollar = name.starts_with('$');
+            item.rel.no_such_method = name == "noSuchMethod";
+            item.rel.constant = constant;
+            item.rel.deprecated = deprecated;
         }
     }
 
     /// Nome privado de outra biblioteca: invisível aqui.
-    fn invisivel(&self, consulta: &Consulta, nome: &str, dona: LibraryId) -> bool {
-        let _ = consulta;
-        nome.starts_with('_') && dona != self.biblioteca
+    fn invisible(&self, query: &Query, name: &str, owning: LibraryId) -> bool {
+        let _ = query;
+        name.starts_with('_') && owning != self.library
     }
 
-    /// Item de uma função (método, getter, acessor) com o tipo `tipo` já
+    /// Item de uma função (método, getter, acessor) com o tipo `ty` já
     /// visto pelo receptor.
-    fn funcao(&mut self, consulta: &Consulta, grupo: u8, f: FunctionElementId, tipo: TypeId) {
-        let fe = consulta.programa.function(f);
-        let nome = consulta.nome(fe.name).trim_end_matches('=').to_string();
-        if nome.is_empty()
-            || !nome.as_bytes()[0].is_ascii_alphabetic() && !nome.starts_with(['_', '$'])
+    fn function(&mut self, query: &Query, group: u8, f: FunctionElementId, ty: TypeId) {
+        let fe = query.program.function(f);
+        let name = query.name(fe.name).trim_end_matches('=').to_string();
+        if name.is_empty()
+            || !name.as_bytes()[0].is_ascii_alphabetic() && !name.starts_with(['_', '$'])
         {
             return;
         }
-        if self.invisivel(consulta, &nome, fe.library) {
+        if self.invisible(query, &name, fe.library) {
             return;
         }
         match fe.kind {
             FunctionKind::ImplicitAccessor => {
-                let constante_de_enum = fe.variable.is_some_and(|v| {
-                    let ve = consulta.programa.variable(v);
+                let enum_constant = fe.variable.is_some_and(|v| {
+                    let ve = query.program.variable(v);
                     ve.class
-                        .is_some_and(|c| consulta.programa.class(c).enum_constants.contains(&v))
+                        .is_some_and(|c| query.program.class(c).enum_constants.contains(&v))
                 });
-                let especie = if constante_de_enum {
-                    especie::MEMBRO_DE_ENUM
+                let kind = if enum_constant {
+                    kind::ENUM_MEMBER
                 } else if fe.class.is_some() || fe.extension.is_some() {
-                    especie::CAMPO
+                    kind::FIELD
                 } else {
-                    especie::VARIAVEL
+                    kind::VARIABLE
                 };
-                let origem = consulta.origem(consulta.inicio_da_funcao(f));
-                self.empurrar(
-                    grupo,
-                    especie,
-                    nome.clone(),
-                    nome,
-                    Some(consulta.formatar(tipo)),
+                let origin = query.origin(query.function_start(f));
+                self.push(
+                    group,
+                    kind,
+                    name.clone(),
+                    name,
+                    Some(query.format(ty)),
                 )
-                .origem = origem;
-                self.rel_de_funcao(consulta, f, tipo);
+                .origin = origin;
+                self.function_rel(query, f, ty);
             }
             FunctionKind::Getter | FunctionKind::Setter => {
-                let especie = if fe.class.is_some() || fe.extension.is_some() {
-                    especie::PROPRIEDADE
+                let kind = if fe.class.is_some() || fe.extension.is_some() {
+                    kind::PROPERTY
                 } else {
-                    especie::VARIAVEL
+                    kind::VARIABLE
                 };
-                let origem = consulta.origem(consulta.inicio_da_funcao(f));
-                self.empurrar(
-                    grupo,
-                    especie,
-                    nome.clone(),
-                    nome,
-                    Some(consulta.formatar(tipo)),
+                let origin = query.origin(query.function_start(f));
+                self.push(
+                    group,
+                    kind,
+                    name.clone(),
+                    name,
+                    Some(query.format(ty)),
                 )
-                .origem = origem;
-                self.rel_de_funcao(consulta, f, tipo);
+                .origin = origin;
+                self.function_rel(query, f, ty);
             }
             FunctionKind::Function
             | FunctionKind::Constructor
             | FunctionKind::SyntheticConstructor => {
-                let especie = match fe.kind {
+                let kind = match fe.kind {
                     FunctionKind::Function if fe.class.is_some() || fe.extension.is_some() => {
-                        especie::METODO
+                        kind::METHOD
                     }
-                    FunctionKind::Function => especie::FUNCAO,
-                    _ => especie::CONSTRUTOR,
+                    FunctionKind::Function => kind::FUNCTION,
+                    _ => kind::CONSTRUCTOR,
                 };
-                let sem_parametros = matches!(consulta.tabela.get(tipo), Type::Function { positional, optional, named, .. }
+                let without_parameters = matches!(query.table.get(ty), Type::Function { positional, optional, named, .. }
                     if positional.is_empty() && optional.is_empty() && named.is_empty());
-                let rotulo = if sem_parametros {
-                    format!("{nome}()")
+                let label = if without_parameters {
+                    format!("{name}()")
                 } else {
-                    format!("{nome}(…)")
+                    format!("{name}(…)")
                 };
                 // Os obrigatórios viram marcadores do snippet: posicionais
-                // pelo nome e nomeados como `nome: `.
-                let parametros: Vec<String> = consulta.outline.functions[f.0 as usize]
+                // pelo nome e nomeados como `name: `.
+                let parameters: Vec<String> = query.outline.functions[f.0 as usize]
                     .parameters
                     .iter()
                     .filter_map(|p| {
-                        let n = consulta.nome(p.externo.or(p.name)?).to_string();
+                        let n = query.name(p.externo.or(p.name)?).to_string();
                         match p.kind {
                             ast::ParameterKind::Required => Some(n),
                             ast::ParameterKind::Named if p.required => Some(format!("{n}: ")),
@@ -824,119 +824,119 @@ impl Coletor {
                         }
                     })
                     .collect();
-                let origem = consulta.origem(consulta.inicio_da_funcao(f));
-                let item = self.empurrar(
-                    grupo,
-                    especie,
-                    rotulo,
-                    nome,
-                    Some(consulta.detalhe_de_funcao(f, tipo)),
+                let origin = query.origin(query.function_start(f));
+                let item = self.push(
+                    group,
+                    kind,
+                    label,
+                    name,
+                    Some(query.function_detail(f, ty)),
                 );
-                item.chamada = Some(Chamada::Parametros(parametros));
-                item.origem = origem;
-                self.rel_de_funcao(consulta, f, tipo);
+                item.call = Some(Call::Parameters(parameters));
+                item.origin = origin;
+                self.function_rel(query, f, ty);
             }
             FunctionKind::Operator => {}
         }
     }
 
     /// Item de um elemento de topo (da biblioteca ou importado).
-    fn elemento(&mut self, consulta: &Consulta, grupo: u8, elemento: Element) {
-        let programa = &consulta.programa;
-        match elemento {
+    fn element(&mut self, query: &Query, group: u8, element: Element) {
+        let program = &query.program;
+        match element {
             Element::Class(c) => {
-                let classe = programa.class(c);
-                let nome = consulta.nome(classe.name).to_string();
-                if self.invisivel(consulta, &nome, classe.library)
-                    || classe.kind == ClassKind::MixinApplication && classe.decl.is_none()
+                let class = program.class(c);
+                let name = query.name(class.name).to_string();
+                if self.invisible(query, &name, class.library)
+                    || class.kind == ClassKind::MixinApplication && class.decl.is_none()
                 {
                     return;
                 }
-                let especie = if classe.kind == ClassKind::Enum {
-                    especie::ENUM
+                let kind = if class.kind == ClassKind::Enum {
+                    kind::ENUM
                 } else {
-                    especie::CLASSE
+                    kind::CLASS
                 };
-                let especie_rel = match classe.decl.map(|d| &programa.unit(d.unit).ast.decl(d.decl).kind) {
-                    Some(ast::DeclKind::Enum(_)) => crate::relevance::Especie::Enum,
-                    Some(ast::DeclKind::Mixin(_)) => crate::relevance::Especie::Mixin,
-                    Some(ast::DeclKind::ExtensionType(_)) => crate::relevance::Especie::SemTabela,
-                    _ => crate::relevance::Especie::Classe,
+                let kind_rel = match class.decl.map(|d| &program.unit(d.unit).ast.decl(d.decl).kind) {
+                    Some(ast::DeclKind::Enum(_)) => crate::relevance::Kind::Enum,
+                    Some(ast::DeclKind::Mixin(_)) => crate::relevance::Kind::Mixin,
+                    Some(ast::DeclKind::ExtensionType(_)) => crate::relevance::Kind::NoTable,
+                    _ => crate::relevance::Kind::Class,
                 };
-                let origem = consulta.origem(consulta.inicio_do_elemento(elemento));
-                let obsoleto = obsoleto_do_elemento(consulta, elemento);
-                let item = self.empurrar(grupo, especie, nome.clone(), nome, None);
-                item.origem = origem;
-                item.rel.especie = Some(especie_rel);
-                item.rel.obsoleto = obsoleto;
-                item.classe = Some(c);
+                let origin = query.origin(query.element_start(element));
+                let deprecated = element_deprecated(query, element);
+                let item = self.push(group, kind, name.clone(), name, None);
+                item.origin = origin;
+                item.rel.kind = Some(kind_rel);
+                item.rel.deprecated = deprecated;
+                item.class = Some(c);
             }
             Element::Typedef(t) => {
-                let nome = consulta.nome(programa.typedef(t).name).to_string();
-                if !self.invisivel(consulta, &nome, programa.typedef(t).library) {
-                    let origem = consulta.origem(consulta.inicio_do_elemento(elemento));
-                    let alvo_funcao = matches!(consulta.tabela.get(consulta.outline.typedefs[t.0 as usize].target_type), Type::Function { .. });
-                    let item = self.empurrar(grupo, especie::CLASSE, nome.clone(), nome, None);
-                    item.origem = origem;
-                    item.rel.especie = Some(if alvo_funcao {
-                        crate::relevance::Especie::AliasDeFuncao
+                let name = query.name(program.typedef(t).name).to_string();
+                if !self.invisible(query, &name, program.typedef(t).library) {
+                    let origin = query.origin(query.element_start(element));
+                    let target_function = matches!(query.table.get(query.outline.typedefs[t.0 as usize].target_type), Type::Function { .. });
+                    let item = self.push(group, kind::CLASS, name.clone(), name, None);
+                    item.origin = origin;
+                    item.rel.kind = Some(if target_function {
+                        crate::relevance::Kind::FunctionAlias
                     } else {
-                        crate::relevance::Especie::SemTabela
+                        crate::relevance::Kind::NoTable
                     });
                 }
             }
             Element::Extension(x) => {
-                let Some(n) = programa.extension(x).name else {
+                let Some(n) = program.extension(x).name else {
                     return;
                 };
-                let nome = consulta.nome(n).to_string();
-                if !self.invisivel(consulta, &nome, programa.extension(x).library) {
-                    let origem = consulta.origem(consulta.inicio_do_elemento(elemento));
-                    let item = self.empurrar(grupo, especie::CLASSE, nome.clone(), nome, None);
-                    item.origem = origem;
-                    item.rel.especie = Some(crate::relevance::Especie::SemTabela);
+                let name = query.name(n).to_string();
+                if !self.invisible(query, &name, program.extension(x).library) {
+                    let origin = query.origin(query.element_start(element));
+                    let item = self.push(group, kind::CLASS, name.clone(), name, None);
+                    item.origin = origin;
+                    item.rel.kind = Some(crate::relevance::Kind::NoTable);
                 }
             }
             Element::Function(f) => {
-                let dados = &consulta.outline.functions[f.0 as usize];
-                let tipo = match programa.function(f).kind {
-                    FunctionKind::Getter | FunctionKind::ImplicitAccessor => dados.return_type,
-                    FunctionKind::Setter => dados
+                let data = &query.outline.functions[f.0 as usize];
+                let ty = match program.function(f).kind {
+                    FunctionKind::Getter | FunctionKind::ImplicitAccessor => data.return_type,
+                    FunctionKind::Setter => data
                         .parameters
                         .first()
-                        .map_or(consulta.core.dynamic_, |p| p.ty),
-                    _ => dados.signature,
+                        .map_or(query.core.dynamic_, |p| p.ty),
+                    _ => data.signature,
                 };
-                let tipo = match programa
+                let ty = match program
                     .function(f)
                     .variable
-                    .and_then(|v| consulta.tipo_da_variavel(v))
+                    .and_then(|v| query.variable_type(v))
                 {
-                    Some(t) if programa.function(f).kind == FunctionKind::ImplicitAccessor => t,
-                    _ => tipo,
+                    Some(t) if program.function(f).kind == FunctionKind::ImplicitAccessor => t,
+                    _ => ty,
                 };
-                self.funcao(consulta, grupo, f, tipo);
+                self.function(query, group, f, ty);
             }
             Element::Variable(v) => {
-                let ve = programa.variable(v);
-                let nome = consulta.nome(ve.name).to_string();
-                if !self.invisivel(consulta, &nome, ve.library) {
-                    let detalhe = consulta.tipo_da_variavel(v).map(|t| consulta.formatar(t));
-                    let origem = consulta.origem(consulta.inicio_da_variavel(v));
-                    let obsoleto = obsoleto_do_elemento(consulta, elemento);
-                    let item = self.empurrar(grupo, especie::VARIAVEL, nome.clone(), nome, detalhe);
-                    item.origem = origem;
-                    item.rel.especie = Some(crate::relevance::Especie::VariavelDeTopo);
-                    item.rel.tipo = consulta.tipo_da_variavel(v);
-                    item.rel.constante = ve.const_;
-                    item.rel.obsoleto = obsoleto;
+                let ve = program.variable(v);
+                let name = query.name(ve.name).to_string();
+                if !self.invisible(query, &name, ve.library) {
+                    let detail = query.variable_type(v).map(|t| query.format(t));
+                    let origin = query.origin(query.variable_start(v));
+                    let deprecated = element_deprecated(query, element);
+                    let item = self.push(group, kind::VARIABLE, name.clone(), name, detail);
+                    item.origin = origin;
+                    item.rel.kind = Some(crate::relevance::Kind::TopLevelVariable);
+                    item.rel.ty = query.variable_type(v);
+                    item.rel.constant = ve.const_;
+                    item.rel.deprecated = deprecated;
                 }
             }
             Element::Prefix(_, p) => {
-                let nome = consulta.nome(p).to_string();
-                self.empurrar(grupo::PREFIXO, especie::MODULO, nome.clone(), nome, None)
+                let name = query.name(p).to_string();
+                self.push(group::PREFIX, kind::MODULE, name.clone(), name, None)
                     .rel
-                    .especie = Some(crate::relevance::Especie::Prefixo);
+                    .kind = Some(crate::relevance::Kind::Prefix);
             }
         }
     }
@@ -949,55 +949,55 @@ impl Coletor {
     /// `VisibilityTracker` do passe esconde as de nome já visto. O resumo não
     /// tem os construtores nem os campos estáticos das classes.
     #[allow(clippy::too_many_arguments)]
-    fn nao_importados_resumo(
+    fn not_imported_summary(
         &mut self,
-        texto: &str,
+        text: &str,
         unit: &ast::CompilationUnit,
-        so_tipos: bool,
+        only_types: bool,
         sdk: &SdkLayout,
-        arquivo: &std::path::Path,
-        conhecidas: &mut crate::known_libraries::IndiceDeBibliotecas,
-        documentos: &DocumentStore,
-        candidatas: &[(PathBuf, String)],
-        visiveis: &HashSet<String>,
+        file: &std::path::Path,
+        known: &mut crate::known_libraries::LibraryIndex,
+        documents: &DocumentStore,
+        candidates: &[(PathBuf, String)],
+        visible: &HashSet<String>,
     ) {
-        use crate::known_libraries::Especie as E;
-        let resolvedor = crate::known_libraries::Resolvedor {
+        use crate::known_libraries::Kind as E;
+        let resolver = crate::known_libraries::Resolver {
             sdk: Some(sdk),
-            pacotes: dartforge_elements::config::PackageConfig::discover(arquivo).and_then(|c| dartforge_elements::config::PackageConfig::load(&c).ok()),
+            packages: dartforge_elements::config::PackageConfig::discover(file).and_then(|c| dartforge_elements::config::PackageConfig::load(&c).ok()),
         };
-        for (caminho, uri) in candidatas {
-            for (nome, origem, d) in conhecidas.exportados(caminho, &resolvedor, documentos) {
-                let tipo = crate::known_libraries::DE_TIPO.contains(&d.especie);
-                if (so_tipos && !tipo) || visiveis.contains(&nome) {
+        for (path, uri) in candidates {
+            for (name, origin, d) in known.exported(path, &resolver, documents) {
+                let ty = crate::known_libraries::OF_TYPE.contains(&d.kind);
+                if (only_types && !ty) || visible.contains(&name) {
                     continue;
                 }
-                let (especie_lsp, rel) = match d.especie {
-                    E::Classe | E::TipoDeExtensao => (especie::CLASSE, crate::relevance::Especie::Classe),
-                    E::Mixin => (especie::CLASSE, crate::relevance::Especie::Mixin),
-                    E::Enum => (especie::ENUM, crate::relevance::Especie::Enum),
-                    E::AliasDeFuncao => (especie::CLASSE, crate::relevance::Especie::AliasDeFuncao),
-                    E::AliasDeTipo | E::Extensao => (especie::CLASSE, crate::relevance::Especie::SemTabela),
-                    E::Funcao => (especie::FUNCAO, crate::relevance::Especie::Funcao),
-                    E::Variavel => (especie::VARIAVEL, crate::relevance::Especie::VariavelDeTopo),
+                let (lsp_kind, rel) = match d.kind {
+                    E::Class | E::ExtensionType => (kind::CLASS, crate::relevance::Kind::Class),
+                    E::Mixin => (kind::CLASS, crate::relevance::Kind::Mixin),
+                    E::Enum => (kind::ENUM, crate::relevance::Kind::Enum),
+                    E::FunctionAlias => (kind::CLASS, crate::relevance::Kind::FunctionAlias),
+                    E::TypeAlias | E::Extension => (kind::CLASS, crate::relevance::Kind::NoTable),
+                    E::Function => (kind::FUNCTION, crate::relevance::Kind::Function),
+                    E::Variable => (kind::VARIABLE, crate::relevance::Kind::TopLevelVariable),
                 };
-                let funcao = d.especie == E::Funcao;
-                let rotulo = match (funcao, d.sem_parametros) {
-                    (true, true) => format!("{nome}()"),
-                    (true, false) => format!("{nome}(…)"),
-                    _ => nome.clone(),
+                let function = d.kind == E::Function;
+                let label = match (function, d.without_parameters) {
+                    (true, true) => format!("{name}()"),
+                    (true, false) => format!("{name}(…)"),
+                    _ => name.clone(),
                 };
-                let (span, novo) = crate::actions::inserir_import(texto, unit, uri);
+                let (span, new) = crate::actions::insert_import(text, unit, uri);
                 // A assinatura escrita do resumo é o `detail` (o `Auto
                 // import from` vem no `completionItem/resolve`).
-                let item = self.empurrar(grupo::NAO_IMPORTADO, especie_lsp, rotulo, nome.clone(), d.assinatura.as_deref().map(str::to_string));
-                item.importar = Some(ImportAutomatico { uri: uri.clone(), span, texto: novo });
-                item.origem = Some((origem, d.inicio));
-                item.rel.nao_importado = true;
-                item.rel.especie = Some(rel);
-                item.do_passe = true;
-                if funcao {
-                    item.chamada = Some(if d.sem_parametros { Chamada::Parametros(Vec::new()) } else { Chamada::Desconhecida });
+                let item = self.push(group::NOT_IMPORTED, lsp_kind, label, name.clone(), d.signature.as_deref().map(str::to_string));
+                item.import = Some(AutoImport { uri: uri.clone(), span, text: new });
+                item.origin = Some((origin, d.start));
+                item.rel.not_imported = true;
+                item.rel.kind = Some(rel);
+                item.of_pass = true;
+                if function {
+                    item.call = Some(if d.without_parameters { Call::Parameters(Vec::new()) } else { Call::Unknown });
                 }
             }
         }
@@ -1006,60 +1006,60 @@ impl Coletor {
 }
 
 /// Os nomes das anotações (o último segmento) de uma lista de metadados.
-fn nomes_de_anotacoes(consulta: &Consulta, ms: &[ast::Annotation]) -> Vec<String> {
-    ms.iter().filter_map(|m| m.name.last().map(|n| consulta.nome(n.sym).to_string())).collect()
+fn annotation_names(query: &Query, ms: &[ast::Annotation]) -> Vec<String> {
+    ms.iter().filter_map(|m| m.name.last().map(|n| query.name(n.sym).to_string())).collect()
 }
 
 /// `@deprecated`/`@Deprecated(...)` entre os metadados.
-fn tem_deprecated(consulta: &Consulta, ms: &[ast::Annotation]) -> bool {
-    nomes_de_anotacoes(consulta, ms).iter().any(|n| n == "deprecated" || n == "Deprecated")
+fn has_deprecated(query: &Query, ms: &[ast::Annotation]) -> bool {
+    annotation_names(query, ms).iter().any(|n| n == "deprecated" || n == "Deprecated")
 }
 
 /// `hasDeprecated` de um elemento de topo.
-fn obsoleto_do_elemento(consulta: &Consulta, el: Element) -> bool {
-    let p = &consulta.programa;
+fn element_deprecated(query: &Query, el: Element) -> bool {
+    let p = &query.program;
     let decl = match el {
         Element::Class(c) => p.class(c).decl,
         Element::Extension(x) => Some(p.extension(x).decl),
         Element::Typedef(t) => Some(p.typedef(t).decl),
-        Element::Function(f) => return obsoleto_da_funcao(consulta, f),
+        Element::Function(f) => return function_deprecated(query, f),
         Element::Variable(v) => match p.variable(v).node {
             dartforge_elements::model::VariableRef::TopLevel { unit, decl, .. } => Some(dartforge_elements::model::DeclRef { unit, decl }),
             _ => None,
         },
         Element::Prefix(..) => None,
     };
-    decl.is_some_and(|d| tem_deprecated(consulta, &p.unit(d.unit).ast.decl(d.decl).metadata))
+    decl.is_some_and(|d| has_deprecated(query, &p.unit(d.unit).ast.decl(d.decl).metadata))
 }
 
 /// `hasOrInheritsDeprecated` de uma função, método, acessor ou construtor:
 /// a anotação dela, ou a do membro de mesmo nome que ela sobrescreve.
-fn obsoleto_da_funcao(consulta: &Consulta, f: FunctionElementId) -> bool {
-    let p = &consulta.programa;
-    let proprio = |f: FunctionElementId| -> bool {
+fn function_deprecated(query: &Query, f: FunctionElementId) -> bool {
+    let p = &query.program;
+    let own = |f: FunctionElementId| -> bool {
         match p.function(f).node {
             dartforge_elements::model::FunctionRef::Function { unit, function } => {
                 let a = &p.unit(unit).ast;
                 a.members
                     .iter()
                     .find(|m| matches!(m.kind, ast::MemberKind::Method(x) if x == function))
-                    .map(|m| tem_deprecated(consulta, &m.metadata))
-                    .or_else(|| a.decls.iter().find(|d| matches!(d.kind, ast::DeclKind::Function(x) if x == function)).map(|d| tem_deprecated(consulta, &d.metadata)))
+                    .map(|m| has_deprecated(query, &m.metadata))
+                    .or_else(|| a.decls.iter().find(|d| matches!(d.kind, ast::DeclKind::Function(x) if x == function)).map(|d| has_deprecated(query, &d.metadata)))
                     .unwrap_or(false)
             }
-            dartforge_elements::model::FunctionRef::Constructor { unit, member } => tem_deprecated(consulta, &p.unit(unit).ast.member(member).metadata),
+            dartforge_elements::model::FunctionRef::Constructor { unit, member } => has_deprecated(query, &p.unit(unit).ast.member(member).metadata),
             dartforge_elements::model::FunctionRef::None => match p.function(f).variable.map(|v| p.variable(v).node) {
-                Some(dartforge_elements::model::VariableRef::Field { unit, member, .. }) => tem_deprecated(consulta, &p.unit(unit).ast.member(member).metadata),
-                Some(dartforge_elements::model::VariableRef::TopLevel { unit, decl, .. }) => tem_deprecated(consulta, &p.unit(unit).ast.decl(decl).metadata),
+                Some(dartforge_elements::model::VariableRef::Field { unit, member, .. }) => has_deprecated(query, &p.unit(unit).ast.member(member).metadata),
+                Some(dartforge_elements::model::VariableRef::TopLevel { unit, decl, .. }) => has_deprecated(query, &p.unit(unit).ast.decl(decl).metadata),
                 Some(dartforge_elements::model::VariableRef::EnumConstant { unit, decl, index }) => match &p.unit(unit).ast.decl(decl).kind {
-                    ast::DeclKind::Enum(e) => e.constants.get(index).is_some_and(|k| tem_deprecated(consulta, &k.metadata)),
+                    ast::DeclKind::Enum(e) => e.constants.get(index).is_some_and(|k| has_deprecated(query, &k.metadata)),
                     _ => false,
                 },
                 _ => false,
             },
         }
     };
-    if proprio(f) {
+    if own(f) {
         return true;
     }
     // O membro sobrescrito (`inheritsDeprecated`): o de mesmo nome nos
@@ -1069,53 +1069,53 @@ fn obsoleto_da_funcao(consulta: &Consulta, f: FunctionElementId) -> bool {
     if fe.static_ || matches!(fe.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) {
         return false;
     }
-    let mut pilha: Vec<ClassId> = Vec::new();
+    let mut stack: Vec<ClassId> = Vec::new();
     let cl = p.class(c);
-    pilha.extend(cl.supertype_class);
-    pilha.extend(cl.mixin_classes.iter().copied());
-    pilha.extend(cl.interface_classes.iter().copied());
-    pilha.extend(cl.on_classes.iter().copied());
-    let mut vistas = HashSet::new();
-    while let Some(x) = pilha.pop() {
-        if !vistas.insert(x) {
+    stack.extend(cl.supertype_class);
+    stack.extend(cl.mixin_classes.iter().copied());
+    stack.extend(cl.interface_classes.iter().copied());
+    stack.extend(cl.on_classes.iter().copied());
+    let mut seen = HashSet::new();
+    while let Some(x) = stack.pop() {
+        if !seen.insert(x) {
             continue;
         }
         let s = p.class(x);
         if let Some(&g) = s.instance_members.get(&fe.name)
-            && proprio(g)
+            && own(g)
         {
             return true;
         }
-        pilha.extend(s.supertype_class);
-        pilha.extend(s.mixin_classes.iter().copied());
-        pilha.extend(s.interface_classes.iter().copied());
-        pilha.extend(s.on_classes.iter().copied());
+        stack.extend(s.supertype_class);
+        stack.extend(s.mixin_classes.iter().copied());
+        stack.extend(s.interface_classes.iter().copied());
+        stack.extend(s.on_classes.iter().copied());
     }
     false
 }
 
 /// Tipo declarado de um membro, sem receptor (estáticos e extensões).
-fn tipo_declarado(consulta: &Consulta, f: FunctionElementId) -> TypeId {
-    let fe = consulta.programa.function(f);
-    let dados = &consulta.outline.functions[f.0 as usize];
+fn declared_type(query: &Query, f: FunctionElementId) -> TypeId {
+    let fe = query.program.function(f);
+    let data = &query.outline.functions[f.0 as usize];
     match fe.kind {
         FunctionKind::ImplicitAccessor => fe
             .variable
-            .and_then(|v| consulta.tipo_da_variavel(v))
-            .unwrap_or(dados.return_type),
-        FunctionKind::Getter => dados.return_type,
-        FunctionKind::Setter => dados
+            .and_then(|v| query.variable_type(v))
+            .unwrap_or(data.return_type),
+        FunctionKind::Getter => data.return_type,
+        FunctionKind::Setter => data
             .parameters
             .first()
-            .map_or(consulta.core.dynamic_, |p| p.ty),
-        _ => dados.signature,
+            .map_or(query.core.dynamic_, |p| p.ty),
+        _ => data.signature,
     }
 }
 
 /// Biblioteca que declara um elemento de topo.
-fn biblioteca_do_elemento(consulta: &Consulta, elemento: Element) -> LibraryId {
-    let p = &consulta.programa;
-    match elemento {
+fn element_library(query: &Query, element: Element) -> LibraryId {
+    let p = &query.program;
+    match element {
         Element::Class(c) => p.class(c).library,
         Element::Extension(x) => p.extension(x).library,
         Element::Typedef(t) => p.typedef(t).library,
@@ -1126,8 +1126,8 @@ fn biblioteca_do_elemento(consulta: &Consulta, elemento: Element) -> LibraryId {
 }
 
 /// O retorno de um tipo de função.
-fn retorno(consulta: &Consulta, tipo: TypeId) -> Option<TypeId> {
-    match consulta.tabela.get(tipo) {
+fn return_(query: &Query, ty: TypeId) -> Option<TypeId> {
+    match query.table.get(ty) {
         Type::Function { ret, .. } => Some(*ret),
         _ => None,
     }
@@ -1135,19 +1135,19 @@ fn retorno(consulta: &Consulta, tipo: TypeId) -> Option<TypeId> {
 
 /// Arestas de `sub` até `sup` na hierarquia (superclasse, mixins,
 /// interfaces, `on`), como o `_inheritanceDistance` do Dart.
-fn distancia_de_heranca(consulta: &Consulta, sub: ClassId, sup: ClassId) -> Option<usize> {
-    let mut fila = std::collections::VecDeque::from([(sub, 0usize)]);
-    let mut vistas = HashSet::new();
-    while let Some((c, d)) = fila.pop_front() {
+fn inheritance_distance(query: &Query, sub: ClassId, sup: ClassId) -> Option<usize> {
+    let mut queue = std::collections::VecDeque::from([(sub, 0usize)]);
+    let mut seen = HashSet::new();
+    while let Some((c, d)) = queue.pop_front() {
         if c == sup {
             return Some(d);
         }
-        if !vistas.insert(c) {
+        if !seen.insert(c) {
             continue;
         }
-        let cl = consulta.programa.class(c);
+        let cl = query.program.class(c);
         for s in cl.supertype_class.iter().chain(&cl.mixin_classes).chain(&cl.interface_classes).chain(&cl.on_classes) {
-            fila.push_back((*s, d + 1));
+            queue.push_back((*s, d + 1));
         }
     }
     None
@@ -1155,24 +1155,24 @@ fn distancia_de_heranca(consulta: &Consulta, sub: ClassId, sup: ClassId) -> Opti
 
 /// O tipo de interface de `c` com os argumentos `Never`, como o Dart
 /// instancia uma classe sugerida (`instantiateInstanceElement`).
-fn tipo_da_classe(consulta: &mut Consulta, c: ClassId) -> Option<TypeId> {
-    let n = consulta.outline.classes.get(c.0 as usize)?.type_params.len();
-    let never = consulta.core.never;
+fn class_type(query: &mut Query, c: ClassId) -> Option<TypeId> {
+    let n = query.outline.classes.get(c.0 as usize)?.type_params.len();
+    let never = query.core.never;
     let args: Box<[TypeId]> = std::iter::repeat_n(never, n).collect();
-    Some(consulta.tabela.intern(Type::Interface { class: c, args, nullable: false }))
+    Some(query.table.intern(Type::Interface { class: c, args, nullable: false }))
 }
 
 /// `contextTypeFeature`: igual 1,0; subtipo 0,40; supertipo 0,02; sem
 /// relação 0,13.
-fn caracteristica_de_contexto(consulta: &mut Consulta, esperado: TypeId, tipo: TypeId) -> f64 {
-    if esperado == tipo {
+fn context_feature(query: &mut Query, expected: TypeId, ty: TypeId) -> f64 {
+    if expected == ty {
         return 1.0;
     }
-    let Consulta { tabela, outline, core, .. } = consulta;
-    let mut env = dartforge_types::SubtypeEnv::new(tabela, &outline.hierarchy, core);
-    if dartforge_types::is_subtype(tipo, esperado, &mut env) {
+    let Query { table, outline, core, .. } = query;
+    let mut env = dartforge_types::SubtypeEnv::new(table, &outline.hierarchy, core);
+    if dartforge_types::is_subtype(ty, expected, &mut env) {
         0.40
-    } else if dartforge_types::is_subtype(esperado, tipo, &mut env) {
+    } else if dartforge_types::is_subtype(expected, ty, &mut env) {
         0.02
     } else {
         0.13

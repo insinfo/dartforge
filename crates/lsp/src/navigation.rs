@@ -9,47 +9,47 @@ use dartforge_intern::Interner;
 use dartforge_elements::config::PackageConfig;
 use url::Url;
 
-use crate::{AnalisadorSintatico, DocumentStore};
+use crate::{SyntacticAnalyzer, DocumentStore};
 
-pub(super) enum Alvo {
-    Arquivo(String),
-    NomeLocal(TipoLocal),
+pub(super) enum Target {
+    File(String),
+    LocalName(LocalType),
 }
 
-pub(super) struct TipoLocal {
-    pub declaracao: Span,
-    pub referencia: Span,
-    pub descricao: Option<String>,
-    pub tipo_estatico: Option<String>,
+pub(super) struct LocalType {
+    pub declaration: Span,
+    pub reference: Span,
+    pub description: Option<String>,
+    pub static_type: Option<String>,
 }
 
 /// Destino para um literal de URI relativa/de pacote ou tipo único do próprio
 /// arquivo. Bibliotecas `dart:` exigem o mapeamento do SDK; caminho inexistente
 /// não gera navegação falsa.
-pub(super) fn destino(
-    uri_atual: &str,
-    texto: &str,
+pub(super) fn target(
+    current_uri: &str,
+    text: &str,
     features: LibraryFeatures,
     offset: usize,
-) -> Option<Alvo> {
-    let mut nomes = Interner::new();
-    let parsed = dartforge_frontend::parser::parse_com(texto, &mut nomes, features);
-    if let Some(destino) = alvo_de_diretiva(uri_atual, &parsed.unit, offset) {
-        return Some(Alvo::Arquivo(destino));
+) -> Option<Target> {
+    let mut names = Interner::new();
+    let parsed = dartforge_frontend::parser::parse_com(text, &mut names, features);
+    if let Some(target) = directive_target(current_uri, &parsed.unit, offset) {
+        return Some(Target::File(target));
     }
-    tipo_local(&parsed.unit, &parsed.ast, &nomes, offset)
-        .or_else(|| variavel_topo(&parsed.unit, &parsed.ast, &nomes, offset))
-        .or_else(|| funcao_topo(&parsed.unit, &parsed.ast, &nomes, offset))
-        .map(Alvo::NomeLocal)
+    local_type(&parsed.unit, &parsed.ast, &names, offset)
+        .or_else(|| top_variable(&parsed.unit, &parsed.ast, &names, offset))
+        .or_else(|| top_function(&parsed.unit, &parsed.ast, &names, offset))
+        .map(Target::LocalName)
 }
 
 /// Destino de um literal de diretiva (`import`, `export`, `part`, ...) sob o
 /// cursor, quando o arquivo relativo existe no disco. É um `stat` por pedido,
 /// nunca varredura: a regra de ativação segue a navegação de diretivas do
 /// analyzer (só existe alvo quando o arquivo existe).
-fn alvo_de_diretiva(uri_atual: &str, unit: &CompilationUnit, offset: usize) -> Option<String> {
-    for diretiva in &unit.directives {
-        let literal = match &diretiva.kind {
+fn directive_target(current_uri: &str, unit: &CompilationUnit, offset: usize) -> Option<String> {
+    for directive in &unit.directives {
+        let literal = match &directive.kind {
             DirectiveKind::Import { uri, .. }
             | DirectiveKind::Export { uri, .. }
             | DirectiveKind::Part { uri }
@@ -60,38 +60,38 @@ fn alvo_de_diretiva(uri_atual: &str, unit: &CompilationUnit, offset: usize) -> O
         };
         let Some(literal) = literal else { continue };
         if literal.span.start <= offset && offset < literal.span.end {
-            let base = Url::parse(uri_atual).ok()?;
+            let base = Url::parse(current_uri).ok()?;
             if base.scheme() != "file" { return None; }
-            return resolver(&base, literal);
+            return resolve(&base, literal);
         }
     }
     None
 }
 
-fn tipo_local(
+fn local_type(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
-    nomes: &Interner,
+    names: &Interner,
     offset: usize,
-) -> Option<TipoLocal> {
+) -> Option<LocalType> {
     // Imports/exports/parts podem trazer nomes que o AST de um arquivo só não
     // distingue. Até a resolução de biblioteca entrar no LSP, devolva vazio.
     if unit.directives.iter().any(|d| !matches!(&d.kind, DirectiveKind::Library { .. })) {
         return None;
     }
-    let referencia = ast.types.iter().find_map(|ty| {
+    let reference = ast.types.iter().find_map(|ty| {
         let TypeKind::Named { name, .. } = &ty.kind else { return None };
         if name.len() != 1 { return None; }
         let n = name[0];
         (n.span.start <= offset && offset < n.span.end).then_some(n)
     })?;
-    let chave = referencia.sym;
+    let key = reference.sym;
     // Um parâmetro de tipo homônimo pode sombrear a declaração de topo.
-    if ast.functions.iter().any(|f| f.type_params.iter().any(|p| p.name.sym == chave))
+    if ast.functions.iter().any(|f| f.type_params.iter().any(|p| p.name.sym == key))
         || ast.types.iter().any(|t| matches!(&t.kind, TypeKind::Function { type_params, .. }
-            if type_params.iter().any(|p| p.name.sym == chave)))
+            if type_params.iter().any(|p| p.name.sym == key)))
         || unit.declarations.iter().any(|id| {
-            let parametros = match &ast.decl(*id).kind {
+            let parameters = match &ast.decl(*id).kind {
                 DeclKind::Class(d) => d.type_params.as_ref(),
                 DeclKind::Mixin(d) => d.type_params.as_ref(),
                 DeclKind::Enum(d) => d.type_params.as_ref(),
@@ -100,13 +100,13 @@ fn tipo_local(
                 DeclKind::Typedef(d) => d.type_params.as_ref(),
                 _ => &[],
             };
-            parametros.iter().any(|p| p.name.sym == chave)
+            parameters.iter().any(|p| p.name.sym == key)
         })
     {
         return None;
     }
-    let mut encontrados = unit.declarations.iter().filter_map(|id| {
-        let (nome, tipo, generico) = match &ast.decl(*id).kind {
+    let mut found = unit.declarations.iter().filter_map(|id| {
+        let (name_, ty_, generico) = match &ast.decl(*id).kind {
             DeclKind::Class(d) => (d.name, "class", !d.type_params.is_empty()),
             DeclKind::Mixin(d) => (d.name, "mixin", !d.type_params.is_empty()),
             DeclKind::Enum(d) => (d.name, "enum", !d.type_params.is_empty()),
@@ -114,195 +114,195 @@ fn tipo_local(
             DeclKind::Typedef(d) => (d.name, "typedef", true),
             _ => return None,
         };
-        (nome.sym == chave).then_some((nome.span, tipo, generico))
+        (name_.sym == key).then_some((name_.span, ty_, generico))
     });
-    let unico = encontrados.next()?;
-    if encontrados.next().is_some() { return None; }
-    Some(TipoLocal {
-        declaracao: unico.0,
-        referencia: referencia.span,
-        descricao: (!unico.2).then(|| format!("{} {}", unico.1, nomes.resolve(chave))),
-        tipo_estatico: None,
+    let single = found.next()?;
+    if found.next().is_some() { return None; }
+    Some(LocalType {
+        declaration: single.0,
+        reference: reference.span,
+        description: (!single.2).then(|| format!("{} {}", single.1, names.resolve(key))),
+        static_type: None,
     })
 }
 
 /// Referência a variável de topo única, sem qualquer declaração homônima que
 /// possa sombreá-la. Só os tipos primitivos escritos dão hover: os outros
 /// precisam da resolução de aliases, limites e imports.
-fn variavel_topo(
+fn top_variable(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
-    nomes: &Interner,
+    names: &Interner,
     offset: usize,
-) -> Option<TipoLocal> {
+) -> Option<LocalType> {
     if unit.directives.iter().any(|d| !matches!(&d.kind, DirectiveKind::Library { .. }))
         || !ast.patterns.is_empty()
     {
         return None;
     }
-    let referencia = referencia_expr(ast, offset)?;
-    let chave = referencia.sym;
-    if sombreado(ast, chave) { return None; }
-    let mut encontrados = Vec::new();
+    let reference = reference_expr(ast, offset)?;
+    let key = reference.sym;
+    if shadowed(ast, key) { return None; }
+    let mut found = Vec::new();
     for id in &unit.declarations {
         match &ast.decl(*id).kind {
             DeclKind::Variables(v) => {
-                for var in v.variables.iter().filter(|x| x.name.sym == chave) {
-                    encontrados.push((var.name.span, v.ty));
+                for var in v.variables.iter().filter(|x| x.name.sym == key) {
+                    found.push((var.name.span, v.ty));
                 }
             }
-            DeclKind::Class(d) if d.name.sym == chave => return None,
-            DeclKind::Mixin(d) if d.name.sym == chave => return None,
-            DeclKind::Enum(d) if d.name.sym == chave => return None,
-            DeclKind::ExtensionType(d) if d.name.sym == chave => return None,
-            DeclKind::Typedef(d) if d.name.sym == chave => return None,
-            DeclKind::Function(f) if ast.function(*f).name.is_some_and(|n| n.sym == chave) => return None,
-            DeclKind::Extension(d) if d.name.is_some_and(|n| n.sym == chave) => return None,
+            DeclKind::Class(d) if d.name.sym == key => return None,
+            DeclKind::Mixin(d) if d.name.sym == key => return None,
+            DeclKind::Enum(d) if d.name.sym == key => return None,
+            DeclKind::ExtensionType(d) if d.name.sym == key => return None,
+            DeclKind::Typedef(d) if d.name.sym == key => return None,
+            DeclKind::Function(f) if ast.function(*f).name.is_some_and(|n| n.sym == key) => return None,
+            DeclKind::Extension(d) if d.name.is_some_and(|n| n.sym == key) => return None,
             _ => {}
         }
     }
-    if encontrados.len() != 1 { return None; }
-    let (declaracao, ty) = encontrados[0];
-    let tipo_estatico = ty.and_then(|t| tipo_primitivo(ast, nomes, t));
-    let descricao = tipo_estatico.as_ref().map(|t| format!("{t} {}", nomes.resolve(chave)));
-    Some(TipoLocal { declaracao, referencia: referencia.span, descricao, tipo_estatico })
+    if found.len() != 1 { return None; }
+    let (declaration, ty) = found[0];
+    let static_type = ty.and_then(|t| primitive_type(ast, names, t));
+    let description = static_type.as_ref().map(|t| format!("{t} {}", names.resolve(key)));
+    Some(LocalType { declaration, reference: reference.span, description, static_type })
 }
 
-pub(super) fn referencia_expr(ast: &dartforge_frontend::ast::Ast, offset: usize) -> Option<Name> {
+pub(super) fn reference_expr(ast: &dartforge_frontend::ast::Ast, offset: usize) -> Option<Name> {
     ast.exprs.iter().find_map(|e| {
         let ExprKind::Identifier(n) = &e.kind else { return None };
         (n.span.start <= offset && offset < n.span.end).then_some(*n)
     })
 }
 
-pub(super) fn sombreado(ast: &dartforge_frontend::ast::Ast, chave: dartforge_intern::SymbolId) -> bool {
-    ast.functions.iter().any(|f| f.parameters.as_ref().is_some_and(|ps| ps.iter().any(|p| p.name.is_some_and(|n| n.sym == chave))))
+pub(super) fn shadowed(ast: &dartforge_frontend::ast::Ast, key: dartforge_intern::SymbolId) -> bool {
+    ast.functions.iter().any(|f| f.parameters.as_ref().is_some_and(|ps| ps.iter().any(|p| p.name.is_some_and(|n| n.sym == key))))
         || ast.members.iter().any(|m| match &m.kind {
-            MemberKind::Field(v) => v.variables.iter().any(|x| x.name.sym == chave),
-            MemberKind::Method(f) => ast.function(*f).name.is_some_and(|n| n.sym == chave),
-            MemberKind::Constructor(c) => c.name.is_some_and(|n| n.sym == chave),
+            MemberKind::Field(v) => v.variables.iter().any(|x| x.name.sym == key),
+            MemberKind::Method(f) => ast.function(*f).name.is_some_and(|n| n.sym == key),
+            MemberKind::Constructor(c) => c.name.is_some_and(|n| n.sym == key),
         })
         || ast.stmts.iter().any(|s| match &s.kind {
-            StmtKind::Variables(v) => v.variables.iter().any(|x| x.name.sym == chave),
-            StmtKind::Function(f) => ast.function(*f).name.is_some_and(|n| n.sym == chave),
+            StmtKind::Variables(v) => v.variables.iter().any(|x| x.name.sym == key),
+            StmtKind::Function(f) => ast.function(*f).name.is_some_and(|n| n.sym == key),
             StmtKind::For { init: Some(ForInit::Variables(v)), .. } =>
-                v.variables.iter().any(|x| x.name.sym == chave),
-            StmtKind::ForIn { target: ForInTarget::Declared { name, .. }, .. } => name.sym == chave,
+                v.variables.iter().any(|x| x.name.sym == key),
+            StmtKind::ForIn { target: ForInTarget::Declared { name, .. }, .. } => name.sym == key,
             StmtKind::Try { catches, .. } => catches.iter().any(|c|
-                c.exception.is_some_and(|n| n.sym == chave)
-                    || c.stack_trace.is_some_and(|n| n.sym == chave)),
+                c.exception.is_some_and(|n| n.sym == key)
+                    || c.stack_trace.is_some_and(|n| n.sym == key)),
             _ => false,
         })
 }
 
-pub(crate) fn tipo_primitivo(ast: &dartforge_frontend::ast::Ast, nomes: &Interner, id: dartforge_frontend::ast::TypeId) -> Option<String> {
+pub(crate) fn primitive_type(ast: &dartforge_frontend::ast::Ast, names: &Interner, id: dartforge_frontend::ast::TypeId) -> Option<String> {
     let t = ast.ty(id);
     let TypeKind::Named { name, args } = &t.kind else { return None };
     if name.len() != 1 || !args.is_empty() { return None; }
-    let base = nomes.resolve(name[0].sym);
+    let base = names.resolve(name[0].sym);
     matches!(base, "int" | "double" | "num" | "bool" | "String" | "Object" | "dynamic")
         .then(|| format!("{base}{}", if t.nullable { "?" } else { "" }))
 }
 
-fn funcao_topo(
+fn top_function(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
-    nomes: &Interner,
+    names: &Interner,
     offset: usize,
-) -> Option<TipoLocal> {
+) -> Option<LocalType> {
     if unit.directives.iter().any(|d| !matches!(&d.kind, DirectiveKind::Library { .. }))
         || !ast.patterns.is_empty()
     { return None; }
-    let referencia = referencia_expr(ast, offset)?;
-    let chave = referencia.sym;
-    if sombreado(ast, chave) { return None; }
-    let mut encontrados = Vec::new();
+    let reference = reference_expr(ast, offset)?;
+    let key = reference.sym;
+    if shadowed(ast, key) { return None; }
+    let mut found = Vec::new();
     for id in &unit.declarations {
         match &ast.decl(*id).kind {
             DeclKind::Function(f) => {
                 let f = ast.function(*f);
-                if let Some(nome) = f.name.filter(|n| n.sym == chave) {
-                    encontrados.push((nome.span, f));
+                if let Some(name) = f.name.filter(|n| n.sym == key) {
+                    found.push((name.span, f));
                 }
             }
-            DeclKind::Variables(v) if v.variables.iter().any(|x| x.name.sym == chave) => return None,
-            DeclKind::Class(d) if d.name.sym == chave => return None,
-            DeclKind::Mixin(d) if d.name.sym == chave => return None,
-            DeclKind::Enum(d) if d.name.sym == chave => return None,
-            DeclKind::ExtensionType(d) if d.name.sym == chave => return None,
-            DeclKind::Typedef(d) if d.name.sym == chave => return None,
-            DeclKind::Extension(d) if d.name.is_some_and(|n| n.sym == chave) => return None,
+            DeclKind::Variables(v) if v.variables.iter().any(|x| x.name.sym == key) => return None,
+            DeclKind::Class(d) if d.name.sym == key => return None,
+            DeclKind::Mixin(d) if d.name.sym == key => return None,
+            DeclKind::Enum(d) if d.name.sym == key => return None,
+            DeclKind::ExtensionType(d) if d.name.sym == key => return None,
+            DeclKind::Typedef(d) if d.name.sym == key => return None,
+            DeclKind::Extension(d) if d.name.is_some_and(|n| n.sym == key) => return None,
             _ => {}
         }
     }
-    if encontrados.len() != 1 { return None; }
-    let (declaracao, funcao) = encontrados[0];
-    let descricao = (|| {
-        if !funcao.type_params.is_empty() {
+    if found.len() != 1 { return None; }
+    let (declaration, function) = found[0];
+    let description = (|| {
+        if !function.type_params.is_empty() {
             return None;
         }
-        let retorno = funcao.return_type.and_then(|t| {
+        let return_ = function.return_type.and_then(|t| {
             if matches!(&ast.ty(t).kind, TypeKind::Void) {
                 Some("void".to_string())
             } else {
-                tipo_primitivo(ast, nomes, t)
+                primitive_type(ast, names, t)
             }
         })?;
-        if funcao.kind == FunctionKind::Getter {
-            return funcao.parameters.is_none().then(|| (format!("{retorno} get {}", nomes.resolve(chave)), Some(retorno)));
+        if function.kind == FunctionKind::Getter {
+            return function.parameters.is_none().then(|| (format!("{return_} get {}", names.resolve(key)), Some(return_)));
         }
-        if funcao.kind != FunctionKind::Function { return None; }
-        let parametros = funcao.parameters.as_ref()?;
+        if function.kind != FunctionKind::Function { return None; }
+        let parameters = function.parameters.as_ref()?;
         // Com 3+ parâmetros, o analyzer muda para layout multilinha.
-        if parametros.len() > 2 { return None; }
-        let mut descricoes = Vec::new();
-        for p in parametros.iter() {
+        if parameters.len() > 2 { return None; }
+        let mut descriptions = Vec::new();
+        for p in parameters.iter() {
             if p.kind != ParameterKind::Required || p.covariant || p.final_ || p.var_ || p.const_
                 || p.this_ || p.super_ || p.default_value.is_some()
                 || !p.function_type_params.is_empty() || p.function_parameters.is_some()
             { return None; }
-            let tipo = tipo_primitivo(ast, nomes, p.ty?)?;
-            let nome = nomes.resolve(p.name?.sym);
-            descricoes.push(format!("{tipo} {nome}"));
+            let ty = primitive_type(ast, names, p.ty?)?;
+            let name = names.resolve(p.name?.sym);
+            descriptions.push(format!("{ty} {name}"));
         }
-        Some((format!("{retorno} {}({})", nomes.resolve(chave), descricoes.join(", ")), None))
+        Some((format!("{return_} {}({})", names.resolve(key), descriptions.join(", ")), None))
     })();
-    let (descricao, tipo_estatico) = descricao.map_or((None, None), |(d, t)| (Some(d), t));
-    Some(TipoLocal { declaracao, referencia: referencia.span, descricao, tipo_estatico })
+    let (description, static_type) = description.map_or((None, None), |(d, t)| (Some(d), t));
+    Some(LocalType { declaration, reference: reference.span, description, static_type })
 }
 
-fn resolver(base: &Url, literal: &StringLit) -> Option<String> {
-    let valor = literal.constant_value()?;
-    let caminho = valor.as_str()?;
-    if caminho.starts_with("dart:") {
+fn resolve(base: &Url, literal: &StringLit) -> Option<String> {
+    let value = literal.constant_value()?;
+    let path = value.as_str()?;
+    if path.starts_with("dart:") {
         return None;
     }
-    let destino = if caminho.starts_with("package:") {
-        let uri = Url::parse(caminho).ok()?;
+    let target = if path.starts_with("package:") {
+        let uri = Url::parse(path).ok()?;
         if uri.query().is_some() || uri.fragment().is_some() { return None; }
-        let origem = base.to_file_path().ok()?;
-        let config = PackageConfig::discover(&origem)?;
+        let origin = base.to_file_path().ok()?;
+        let config = PackageConfig::discover(&origin)?;
         let config = PackageConfig::load(&config).ok()?;
-        let nome = caminho.strip_prefix("package:")?.split('/').next()?;
+        let name = path.strip_prefix("package:")?.split('/').next()?;
         // O resolver de compilação tem fallback para `references/pub`; no LSP
         // a navegação deve seguir apenas o mapeamento do projeto aberto.
-        if !config.packages.contains_key(nome) { return None; }
-        config.resolve_package_uri(caminho).ok()?
+        if !config.packages.contains_key(name) { return None; }
+        config.resolve_package_uri(path).ok()?
     } else {
-        let resolvida = base.join(caminho).ok()?;
-        if resolvida.scheme() != "file" || resolvida.query().is_some() || resolvida.fragment().is_some() {
+        let resolved = base.join(path).ok()?;
+        if resolved.scheme() != "file" || resolved.query().is_some() || resolved.fragment().is_some() {
             return None;
         }
-        resolvida.to_file_path().ok()?
+        resolved.to_file_path().ok()?
     };
-    if !destino.is_file() {
+    if !target.is_file() {
         return None;
     }
-    let canonico = std::fs::canonicalize(destino).ok()?;
-    Url::from_file_path(canonico).ok().map(|u| u.to_string())
+    let canonical = std::fs::canonicalize(target).ok()?;
+    Url::from_file_path(canonical).ok().map(|u| u.to_string())
 }
 
-/// Referências no próprio documento para os casos seguros de [`destino`].
+/// Referências no próprio documento para os casos seguros de [`target`].
 ///
 /// Devolve a declaração primeiro e depois os usos em ordem de offset, todos
 /// no mesmo arquivo. `None` significa "não sei" (imports, padrões, sombras,
@@ -310,15 +310,15 @@ fn resolver(base: &Url, literal: &StringLit) -> Option<String> {
 /// Entre arquivos aguarda a resolução de bibliotecas e elementos.
 ///
 /// A árvore é temporária (um `Interner` novo por chamada), como em
-/// [`destino`]: nada é retido entre edições, mantendo o platô de memória.
-pub(super) fn referencias(
-    _uri_atual: &str,
-    texto: &str,
+/// [`target`]: nada é retido entre edições, mantendo o platô de memória.
+pub(super) fn references(
+    _current_uri: &str,
+    text: &str,
     features: LibraryFeatures,
     offset: usize,
 ) -> Option<Vec<Span>> {
-    let mut nomes = Interner::new();
-    let parsed = dartforge_frontend::parser::parse_com(texto, &mut nomes, features);
+    let mut names = Interner::new();
+    let parsed = dartforge_frontend::parser::parse_com(text, &mut names, features);
     let unit = &parsed.unit;
     let ast = &parsed.ast;
     // Só o próprio arquivo, sem nomes vindos de fora; padrões ligam nomes
@@ -330,45 +330,45 @@ pub(super) fn referencias(
     }
     // Descobre a chave sob o cursor: referência de tipo, nome declarado de
     // tipo, identificador de expressão ou nome declarado de valor de topo.
-    let chave = chave_sob_cursor(unit, ast, offset)?;
+    let key = key_at_cursor(unit, ast, offset)?;
     // Sem sombras em qualquer escopo que o AST enxerga.
-    if sombreado(ast, chave) {
+    if shadowed(ast, key) {
         return None;
     }
-    if tem_parametro_de_tipo_homonimo(unit, ast, chave) {
+    if has_homonymous_type_parameter(unit, ast, key) {
         return None;
     }
-    let decl_tipo = declaracao_de_tipo(unit, ast, chave);
-    let decl_valor = declaracao_de_valor(unit, ast, chave);
-    match (decl_tipo, decl_valor) {
+    let type_decl = type_declaration(unit, ast, key);
+    let value_decl = value_declaration(unit, ast, key);
+    match (type_decl, value_decl) {
         (Some(decl), None) => {
-            let mut usos = vec![decl];
+            let mut uses = vec![decl];
             for ty in &ast.types {
                 let TypeKind::Named { name, .. } = &ty.kind else { continue };
-                if name.len() != 1 || name[0].sym != chave {
+                if name.len() != 1 || name[0].sym != key {
                     continue;
                 }
                 if name[0].span == decl {
                     continue;
                 }
-                usos.push(name[0].span);
+                uses.push(name[0].span);
             }
-            usos[1..].sort_by_key(|s| s.start);
-            let mut saida = vec![usos[0]];
-            saida.extend(usos[1..].iter().copied());
-            Some(saida)
+            uses[1..].sort_by_key(|s| s.start);
+            let mut output = vec![uses[0]];
+            output.extend(uses[1..].iter().copied());
+            Some(output)
         }
         (None, Some(decl)) => {
-            let mut usos = vec![decl];
+            let mut uses = vec![decl];
             for e in &ast.exprs {
                 let ExprKind::Identifier(n) = &e.kind else { continue };
-                if n.sym != chave {
+                if n.sym != key {
                     continue;
                 }
-                usos.push(n.span);
+                uses.push(n.span);
             }
-            usos[1..].sort_by_key(|s| s.start);
-            Some(usos)
+            uses[1..].sort_by_key(|s| s.start);
+            Some(uses)
         }
         // Zero ou dois namespaces com o mesmo nome: conservador, sem resposta.
         _ => None,
@@ -376,7 +376,7 @@ pub(super) fn referencias(
 }
 
 /// Símbolo sob o cursor, seja numa referência ou no próprio nome declarado.
-fn chave_sob_cursor(
+fn key_at_cursor(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
     offset: usize,
@@ -390,7 +390,7 @@ fn chave_sob_cursor(
             return Some(name[0].sym);
         }
     }
-    if let Some(sym) = nome_de_tipo_declarado_sob_cursor(unit, ast, offset) {
+    if let Some(sym) = declared_type_name_at_cursor(unit, ast, offset) {
         return Some(sym);
     }
     for e in &ast.exprs {
@@ -399,17 +399,17 @@ fn chave_sob_cursor(
             return Some(n.sym);
         }
     }
-    nome_de_valor_declarado_sob_cursor(unit, ast, offset)
+    declared_value_name_at_cursor(unit, ast, offset)
 }
 
 /// Nome de tipo declarado (classe, mixin, enum, extension type, typedef).
-fn nome_de_tipo_declarado_sob_cursor(
+fn declared_type_name_at_cursor(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
     offset: usize,
 ) -> Option<dartforge_intern::SymbolId> {
     for id in &unit.declarations {
-        let nome = match &ast.decl(*id).kind {
+        let name = match &ast.decl(*id).kind {
             DeclKind::Class(d) => Some(d.name),
             DeclKind::Mixin(d) => Some(d.name),
             DeclKind::Enum(d) => Some(d.name),
@@ -417,7 +417,7 @@ fn nome_de_tipo_declarado_sob_cursor(
             DeclKind::Typedef(d) => Some(d.name),
             _ => None,
         };
-        if let Some(n) = nome
+        if let Some(n) = name
             && n.span.start <= offset
             && offset < n.span.end
         {
@@ -428,7 +428,7 @@ fn nome_de_tipo_declarado_sob_cursor(
 }
 
 /// Nome de valor de topo declarado (variável, função, getter, setter).
-fn nome_de_valor_declarado_sob_cursor(
+fn declared_value_name_at_cursor(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
     offset: usize,
@@ -457,21 +457,21 @@ fn nome_de_valor_declarado_sob_cursor(
 }
 
 /// Algum parâmetro de tipo homônimo pode sombrear a declaração de topo.
-fn tem_parametro_de_tipo_homonimo(
+fn has_homonymous_type_parameter(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
-    chave: dartforge_intern::SymbolId,
+    key: dartforge_intern::SymbolId,
 ) -> bool {
-    if ast.functions.iter().any(|f| f.type_params.iter().any(|p| p.name.sym == chave)) {
+    if ast.functions.iter().any(|f| f.type_params.iter().any(|p| p.name.sym == key)) {
         return true;
     }
     if ast.types.iter().any(|t| matches!(&t.kind, TypeKind::Function { type_params, .. }
-        if type_params.iter().any(|p| p.name.sym == chave)))
+        if type_params.iter().any(|p| p.name.sym == key)))
     {
         return true;
     }
     unit.declarations.iter().any(|id| {
-        let parametros = match &ast.decl(*id).kind {
+        let parameters = match &ast.decl(*id).kind {
             DeclKind::Class(d) => d.type_params.as_ref(),
             DeclKind::Mixin(d) => d.type_params.as_ref(),
             DeclKind::Enum(d) => d.type_params.as_ref(),
@@ -480,18 +480,18 @@ fn tem_parametro_de_tipo_homonimo(
             DeclKind::Typedef(d) => d.type_params.as_ref(),
             _ => &[],
         };
-        parametros.iter().any(|p| p.name.sym == chave)
+        parameters.iter().any(|p| p.name.sym == key)
     })
 }
 
 /// Declaração de tipo única com o nome (span do nome declarado).
-fn declaracao_de_tipo(
+fn type_declaration(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
-    chave: dartforge_intern::SymbolId,
+    key: dartforge_intern::SymbolId,
 ) -> Option<Span> {
-    let mut encontrados = unit.declarations.iter().filter_map(|id| {
-        let nome = match &ast.decl(*id).kind {
+    let mut found = unit.declarations.iter().filter_map(|id| {
+        let name = match &ast.decl(*id).kind {
             DeclKind::Class(d) => Some(d.name),
             DeclKind::Mixin(d) => Some(d.name),
             DeclKind::Enum(d) => Some(d.name),
@@ -499,41 +499,41 @@ fn declaracao_de_tipo(
             DeclKind::Typedef(d) => Some(d.name),
             _ => None,
         };
-        nome.filter(|n| n.sym == chave).map(|n| n.span)
+        name.filter(|n| n.sym == key).map(|n| n.span)
     });
-    let unico = encontrados.next()?;
-    encontrados.next().is_none().then_some(unico)
+    let single = found.next()?;
+    found.next().is_none().then_some(single)
 }
 
 /// Declaração de valor de topo única com o nome (span do nome declarado).
-fn declaracao_de_valor(
+fn value_declaration(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
-    chave: dartforge_intern::SymbolId,
+    key: dartforge_intern::SymbolId,
 ) -> Option<Span> {
-    let mut encontrados = Vec::new();
+    let mut found = Vec::new();
     for id in &unit.declarations {
         match &ast.decl(*id).kind {
             DeclKind::Variables(v) => {
-                for var in v.variables.iter().filter(|x| x.name.sym == chave) {
-                    encontrados.push(var.name.span);
+                for var in v.variables.iter().filter(|x| x.name.sym == key) {
+                    found.push(var.name.span);
                 }
             }
             DeclKind::Function(f) => {
-                if let Some(n) = ast.function(*f).name.filter(|n| n.sym == chave) {
-                    encontrados.push(n.span);
+                if let Some(n) = ast.function(*f).name.filter(|n| n.sym == key) {
+                    found.push(n.span);
                 }
             }
-            DeclKind::Class(d) if d.name.sym == chave => return None,
-            DeclKind::Mixin(d) if d.name.sym == chave => return None,
-            DeclKind::Enum(d) if d.name.sym == chave => return None,
-            DeclKind::ExtensionType(d) if d.name.sym == chave => return None,
-            DeclKind::Typedef(d) if d.name.sym == chave => return None,
-            DeclKind::Extension(d) if d.name.is_some_and(|n| n.sym == chave) => return None,
+            DeclKind::Class(d) if d.name.sym == key => return None,
+            DeclKind::Mixin(d) if d.name.sym == key => return None,
+            DeclKind::Enum(d) if d.name.sym == key => return None,
+            DeclKind::ExtensionType(d) if d.name.sym == key => return None,
+            DeclKind::Typedef(d) if d.name.sym == key => return None,
+            DeclKind::Extension(d) if d.name.is_some_and(|n| n.sym == key) => return None,
             _ => {}
         }
     }
-    (encontrados.len() == 1).then(|| encontrados[0])
+    (found.len() == 1).then(|| found[0])
 }
 
 // ---------------------------------------------------------------------------
@@ -543,24 +543,24 @@ fn declaracao_de_valor(
 /// Espaço de nomes da declaração de topo: tipos e valores não colidem, então
 /// cada busca carrega o seu para não misturar `class Caixa` com `int Caixa`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Espaco {
-    Tipo,
-    Valor,
+enum Space {
+    Type,
+    Value,
 }
 
 /// Símbolo de topo resolvido entre os documentos abertos.
-struct Simbolo {
-    dono: String,
-    espaco: Espaco,
-    nome: String,
-    declaracao: Span,
+struct Symbol {
+    owner: String,
+    space: Space,
+    name: String,
+    declaration: Span,
 }
 
 /// Nome sob o cursor com o seu intervalo: a chave (`SymbolId` só vale no
 /// próprio internador) e o span da referência no arquivo vigente. Cobre os
-/// mesmos lugares que [`chave_sob_cursor`] (referência ou nome declarado);
+/// mesmos lugares que [`key_at_cursor`] (referência ou nome declarado);
 /// o hover devolve este span como `range`, no arquivo do cursor.
-fn chave_e_span_sob_cursor(
+fn key_and_span_at_cursor(
     unit: &dartforge_frontend::ast::CompilationUnit,
     ast: &dartforge_frontend::ast::Ast,
     offset: usize,
@@ -575,7 +575,7 @@ fn chave_e_span_sob_cursor(
         }
     }
     for id in &unit.declarations {
-        let nome = match &ast.decl(*id).kind {
+        let name_ = match &ast.decl(*id).kind {
             DeclKind::Class(d) => Some(d.name),
             DeclKind::Mixin(d) => Some(d.name),
             DeclKind::Enum(d) => Some(d.name),
@@ -583,7 +583,7 @@ fn chave_e_span_sob_cursor(
             DeclKind::Typedef(d) => Some(d.name),
             _ => None,
         };
-        if let Some(n) = nome
+        if let Some(n) = name_
             && n.span.start <= offset
             && offset < n.span.end
         {
@@ -621,224 +621,224 @@ fn chave_e_span_sob_cursor(
 
 /// Um arquivo analisado com o seu internador: os `SymbolId` valem só dentro
 /// dele, então entre arquivos compara-se o texto (`lookup`/`resolve`).
-struct Arquivo {
-    nomes: Interner,
+struct File {
+    names: Interner,
     unit: CompilationUnit,
     ast: Ast,
 }
 
 /// Analisa o texto com os recursos do próprio arquivo e descarta o diagnóstico:
-/// aqui só interessa a árvore, transitória do pedido como em [`referencias`].
-fn analisar(texto: &str, features: LibraryFeatures) -> Arquivo {
-    let mut nomes = Interner::new();
-    let parsed = dartforge_frontend::parser::parse_com(texto, &mut nomes, features);
-    Arquivo { nomes, unit: parsed.unit, ast: parsed.ast }
+/// aqui só interessa a árvore, transitória do pedido como em [`references`].
+fn analyze(text: &str, features: LibraryFeatures) -> File {
+    let mut names = Interner::new();
+    let parsed = dartforge_frontend::parser::parse_com(text, &mut names, features);
+    File { names, unit: parsed.unit, ast: parsed.ast }
 }
 
 /// Classe de uma diretiva para a resolução entre abertos.
-enum ClasseDiretiva {
-    Biblioteca,
+enum DirectiveClass {
+    Library,
     /// Import relativo simples: sem prefixo, combinadores, `deferred` ou
     /// condição, com literal constante fora de `dart:`/`package:`.
-    ImportSimples(String),
+    SimpleImport(String),
     /// Todo o resto: `export`, `part`, `part of`, augmentations, prefixo,
     /// `show`/`hide`, `dart:`/`package:`, interpolação. Traz nomes que só a
     /// resolução de bibliotecas distingue: arquivo com uma destas nunca é
     /// dono nem testemunha, e cursor sob uma delas é "não sei".
-    Complexa,
+    Complex,
 }
 
-fn classificar(diretiva: &Directive) -> ClasseDiretiva {
-    match &diretiva.kind {
-        DirectiveKind::Library { .. } => ClasseDiretiva::Biblioteca,
+fn classify(directive: &Directive) -> DirectiveClass {
+    match &directive.kind {
+        DirectiveKind::Library { .. } => DirectiveClass::Library,
         DirectiveKind::Import { uri, configurations, deferred, prefix, combinators } => {
             if *deferred || prefix.is_some() || !combinators.is_empty() || !configurations.is_empty() {
-                return ClasseDiretiva::Complexa;
+                return DirectiveClass::Complex;
             }
             match uri.constant_value().and_then(|v| v.as_str().map(str::to_string)) {
-                Some(caminho)
-                    if !caminho.starts_with("dart:")
-                        && !caminho.starts_with("package:") =>
+                Some(path)
+                    if !path.starts_with("dart:")
+                        && !path.starts_with("package:") =>
                 {
-                    ClasseDiretiva::ImportSimples(caminho)
+                    DirectiveClass::SimpleImport(path)
                 }
-                _ => ClasseDiretiva::Complexa,
+                _ => DirectiveClass::Complex,
             }
         }
-        _ => ClasseDiretiva::Complexa,
+        _ => DirectiveClass::Complex,
     }
 }
 
 /// Resolve um import relativo contra a URI base sem tocar no disco: junta os
 /// segmentos (`Url::join`) e devolve a URI normalizada. `None` para
 /// `dart:`/`package:`, base fora de `file:`, consulta ou fragmento. Difere do
-/// [`resolver`] de propósito: sem `canonicalize`, sem `is_file` — a pergunta
+/// [`resolve`] de propósito: sem `canonicalize`, sem `is_file` — a pergunta
 /// aqui é "qual aberto este URI nomeia", nunca "o que existe no disco".
-fn resolver_aberto(base_uri: &str, caminho: &str) -> Option<String> {
-    if caminho.starts_with("dart:") || caminho.starts_with("package:") {
+fn resolve_open(base_uri: &str, path: &str) -> Option<String> {
+    if path.starts_with("dart:") || path.starts_with("package:") {
         return None;
     }
     let base = Url::parse(base_uri).ok()?;
     if base.scheme() != "file" {
         return None;
     }
-    let resolvida = base.join(caminho).ok()?;
-    if resolvida.scheme() != "file" || resolvida.query().is_some() || resolvida.fragment().is_some() {
+    let resolved = base.join(path).ok()?;
+    if resolved.scheme() != "file" || resolved.query().is_some() || resolved.fragment().is_some() {
         return None;
     }
-    Some(resolvida.to_string())
+    Some(resolved.to_string())
 }
 
 /// Resolve o símbolo sob o cursor para o documento aberto que o declara.
 ///
 /// Caso local (sem diretivas além de `library`): o próprio arquivo, como em
-/// [`referencias`]. Caso importado (só imports simples, nome sem declaração
+/// [`references`]. Caso importado (só imports simples, nome sem declaração
 /// local): o único aberto importado que declara o nome sozinho num espaço,
 /// ele mesmo sem diretivas que tragam outros nomes. Todo o resto — diretiva
 /// complexa, padrões, sombras, parâmetro de tipo homônimo, zero ou vários
 /// donos — é `None` ("não sei", nunca resposta errada).
-fn resolver_simbolo(
-    documentos: &DocumentStore,
-    uri_atual: &str,
+fn resolve_symbol(
+    documents: &DocumentStore,
+    current_uri: &str,
     offset: usize,
-    analisador: &mut AnalisadorSintatico,
-) -> Option<(Simbolo, Span)> {
-    let texto = documentos.get(uri_atual)?.to_string();
-    let arquivo = analisar(&texto, analisador.features(uri_atual, &texto));
-    if !arquivo.ast.patterns.is_empty() {
+    analyzer: &mut SyntacticAnalyzer,
+) -> Option<(Symbol, Span)> {
+    let text = documents.get(current_uri)?.to_string();
+    let file = analyze(&text, analyzer.features(current_uri, &text));
+    if !file.ast.patterns.is_empty() {
         return None;
     }
-    let (chave, referencia) = chave_e_span_sob_cursor(&arquivo.unit, &arquivo.ast, offset)?;
-    if sombreado(&arquivo.ast, chave)
-        || tem_parametro_de_tipo_homonimo(&arquivo.unit, &arquivo.ast, chave)
+    let (key, reference) = key_and_span_at_cursor(&file.unit, &file.ast, offset)?;
+    if shadowed(&file.ast, key)
+        || has_homonymous_type_parameter(&file.unit, &file.ast, key)
     {
         return None;
     }
-    let nome = arquivo.nomes.resolve(chave).to_string();
-    let decl_tipo = declaracao_de_tipo(&arquivo.unit, &arquivo.ast, chave);
-    let decl_valor = declaracao_de_valor(&arquivo.unit, &arquivo.ast, chave);
-    let mut simples = Vec::new();
-    let mut so_simples = true;
-    for diretiva in &arquivo.unit.directives {
-        match classificar(diretiva) {
-            ClasseDiretiva::Biblioteca => {}
-            ClasseDiretiva::ImportSimples(caminho) => simples.push(caminho),
-            ClasseDiretiva::Complexa => so_simples = false,
+    let name = file.names.resolve(key).to_string();
+    let type_decl = type_declaration(&file.unit, &file.ast, key);
+    let value_decl = value_declaration(&file.unit, &file.ast, key);
+    let mut simple = Vec::new();
+    let mut simple_only = true;
+    for directive in &file.unit.directives {
+        match classify(directive) {
+            DirectiveClass::Library => {}
+            DirectiveClass::SimpleImport(path) => simple.push(path),
+            DirectiveClass::Complex => simple_only = false,
         }
     }
-    if simples.is_empty() && so_simples {
-        return match (decl_tipo, decl_valor) {
-            (Some(declaracao), None) => Some((
-                Simbolo {
-                    dono: uri_atual.to_string(),
-                    espaco: Espaco::Tipo,
-                    nome,
-                    declaracao,
+    if simple.is_empty() && simple_only {
+        return match (type_decl, value_decl) {
+            (Some(declaration), None) => Some((
+                Symbol {
+                    owner: current_uri.to_string(),
+                    space: Space::Type,
+                    name,
+                    declaration,
                 },
-                referencia,
+                reference,
             )),
-            (None, Some(declaracao)) => Some((
-                Simbolo {
-                    dono: uri_atual.to_string(),
-                    espaco: Espaco::Valor,
-                    nome,
-                    declaracao,
+            (None, Some(declaration)) => Some((
+                Symbol {
+                    owner: current_uri.to_string(),
+                    space: Space::Value,
+                    name,
+                    declaration,
                 },
-                referencia,
+                reference,
             )),
             _ => None,
         };
     }
-    if !so_simples || decl_tipo.is_some() || decl_valor.is_some() {
+    if !simple_only || type_decl.is_some() || value_decl.is_some() {
         return None;
     }
-    let mut candidatos = Vec::new();
-    for caminho in &simples {
-        if let Some(uri) = resolver_aberto(uri_atual, caminho)
-            && !candidatos.contains(&uri)
+    let mut candidates = Vec::new();
+    for path in &simple {
+        if let Some(uri) = resolve_open(current_uri, path)
+            && !candidates.contains(&uri)
         {
-            candidatos.push(uri);
+            candidates.push(uri);
         }
     }
-    dono_unico(documentos, analisador, &candidatos, &nome).map(|s| (s, referencia))
+    single_owner(documents, analyzer, &candidates, &name).map(|s| (s, reference))
 }
 
-/// O único candidato aberto que declara `nome` sozinho num espaço, sem
+/// O único candidato aberto que declara `name` sozinho num espaço, sem
 /// diretivas que tragam outros nomes, padrões, sombras ou parâmetro de tipo
 /// homônimo. Zero (dono fechado ou no disco) ou vários: `None`.
-fn dono_unico(
-    documentos: &DocumentStore,
-    analisador: &mut AnalisadorSintatico,
-    candidatos: &[String],
-    nome: &str,
-) -> Option<Simbolo> {
-    let mut achado = None;
-    for candidato in candidatos {
-        let Some(texto) = documentos.get(candidato).map(str::to_string) else {
+fn single_owner(
+    documents: &DocumentStore,
+    analyzer: &mut SyntacticAnalyzer,
+    candidates: &[String],
+    name: &str,
+) -> Option<Symbol> {
+    let mut found = None;
+    for candidate in candidates {
+        let Some(text) = documents.get(candidate).map(str::to_string) else {
             continue;
         };
-        let arquivo = analisar(&texto, analisador.features(candidato, &texto));
-        if !arquivo.ast.patterns.is_empty()
-            || arquivo.unit.directives.iter().any(|d| !matches!(&d.kind, DirectiveKind::Library { .. }))
+        let file = analyze(&text, analyzer.features(candidate, &text));
+        if !file.ast.patterns.is_empty()
+            || file.unit.directives.iter().any(|d| !matches!(&d.kind, DirectiveKind::Library { .. }))
         {
             continue;
         }
-        let Some(chave) = arquivo.nomes.lookup(nome) else {
+        let Some(key) = file.names.lookup(name) else {
             continue;
         };
-        if sombreado(&arquivo.ast, chave)
-            || tem_parametro_de_tipo_homonimo(&arquivo.unit, &arquivo.ast, chave)
+        if shadowed(&file.ast, key)
+            || has_homonymous_type_parameter(&file.unit, &file.ast, key)
         {
             continue;
         }
-        let dono = match (
-            declaracao_de_tipo(&arquivo.unit, &arquivo.ast, chave),
-            declaracao_de_valor(&arquivo.unit, &arquivo.ast, chave),
+        let owner = match (
+            type_declaration(&file.unit, &file.ast, key),
+            value_declaration(&file.unit, &file.ast, key),
         ) {
-            (Some(declaracao), None) => Simbolo {
-                dono: candidato.clone(),
-                espaco: Espaco::Tipo,
-                nome: nome.to_string(),
-                declaracao,
+            (Some(declaration), None) => Symbol {
+                owner: candidate.clone(),
+                space: Space::Type,
+                name: name.to_string(),
+                declaration,
             },
-            (None, Some(declaracao)) => Simbolo {
-                dono: candidato.clone(),
-                espaco: Espaco::Valor,
-                nome: nome.to_string(),
-                declaracao,
+            (None, Some(declaration)) => Symbol {
+                owner: candidate.clone(),
+                space: Space::Value,
+                name: name.to_string(),
+                declaration,
             },
             // Não declara, ou declara nos dois espaços: não é um dono limpo.
             _ => continue,
         };
-        if achado.is_some() {
+        if found.is_some() {
             return None;
         }
-        achado = Some(dono);
+        found = Some(owner);
     }
-    achado
+    found
 }
 
 /// Definição entre documentos abertos: o literal de diretiva segue a regra de
-/// disco ([`alvo_de_diretiva`], um `stat`); o nome segue [`resolver_simbolo`]
+/// disco ([`directive_target`], um `stat`); o nome segue [`resolve_symbol`]
 /// (só abertos, nunca o disco). `None` é "não sei".
-pub(super) fn definicao_em(
-    documentos: &DocumentStore,
-    uri_atual: &str,
+pub(super) fn definition_in(
+    documents: &DocumentStore,
+    current_uri: &str,
     offset: usize,
-    analisador: &mut AnalisadorSintatico,
+    analyzer: &mut SyntacticAnalyzer,
 ) -> Option<(String, Option<Span>)> {
-    let texto = documentos.get(uri_atual)?.to_string();
-    let features = analisador.features(uri_atual, &texto);
-    let mut nomes = Interner::new();
-    let parsed = dartforge_frontend::parser::parse_com(&texto, &mut nomes, features);
-    if let Some(destino) = alvo_de_diretiva(uri_atual, &parsed.unit, offset) {
-        return Some((destino, None));
+    let text = documents.get(current_uri)?.to_string();
+    let features = analyzer.features(current_uri, &text);
+    let mut names = Interner::new();
+    let parsed = dartforge_frontend::parser::parse_com(&text, &mut names, features);
+    if let Some(target) = directive_target(current_uri, &parsed.unit, offset) {
+        return Some((target, None));
     }
-    let simbolo = resolver_simbolo(documentos, uri_atual, offset, analisador)?.0;
-    Some((simbolo.dono, Some(simbolo.declaracao)))
+    let symbol = resolve_symbol(documents, current_uri, offset, analyzer)?.0;
+    Some((symbol.owner, Some(symbol.declaration)))
 }
 
-/// Referências entre documentos abertos via [`resolver_simbolo`]: a declaração
+/// Referências entre documentos abertos via [`resolve_symbol`]: a declaração
 /// primeiro, depois os usos ordenados por (URI, offset), cada arquivo
 /// analisado e liberado antes do próximo — como `workspace/symbol`, nada é
 /// retido entre pedidos e o `DocumentStore` continua dono único dos textos.
@@ -849,68 +849,68 @@ pub(super) fn definicao_em(
 /// conteúdo o pedido não pode ler sem varrer o disco) ou outro aberto que
 /// declare o nome — qualquer dúvida pula o arquivo, nunca inventa uso nem
 /// devolve lista parcial como total: o chamador não tem como distinguir.
-pub(super) fn referencias_em(
-    documentos: &DocumentStore,
-    uri_atual: &str,
+pub(super) fn references_in(
+    documents: &DocumentStore,
+    current_uri: &str,
     offset: usize,
-    analisador: &mut AnalisadorSintatico,
+    analyzer: &mut SyntacticAnalyzer,
 ) -> Option<Vec<(String, Span)>> {
-    let simbolo = resolver_simbolo(documentos, uri_atual, offset, analisador)?.0;
-    let mut saidas = vec![(simbolo.dono.clone(), simbolo.declaracao)];
-    let mut uris: Vec<String> = documentos.uris().map(str::to_string).collect();
+    let symbol = resolve_symbol(documents, current_uri, offset, analyzer)?.0;
+    let mut outputs = vec![(symbol.owner.clone(), symbol.declaration)];
+    let mut uris: Vec<String> = documents.uris().map(str::to_string).collect();
     uris.sort_unstable();
     for uri in uris {
-        let usos = if uri == simbolo.dono {
-            usos_do_dono(documentos, analisador, &simbolo)?
+        let uses = if uri == symbol.owner {
+            owner_uses(documents, analyzer, &symbol)?
         } else {
-            let Some(usos) = usos_se_importa(documentos, analisador, &uri, &simbolo) else {
+            let Some(uses) = uses_if_imports(documents, analyzer, &uri, &symbol) else {
                 continue;
             };
-            usos
+            uses
         };
-        saidas.extend(usos.into_iter().map(|span| (uri.clone(), span)));
-    }    saidas[1..].sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.start.cmp(&b.1.start)));
-    Some(saidas)
+        outputs.extend(uses.into_iter().map(|span| (uri.clone(), span)));
+    }    outputs[1..].sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.start.cmp(&b.1.start)));
+    Some(outputs)
 }
 
 /// Usos no documento dono, sem a declaração. `None` quando o dono deixou de
 /// ser legível entre a resolução e a coleta (não acontece no despacho
 /// síncrono; o `None` conservador evita inventar localização).
-fn usos_do_dono(
-    documentos: &DocumentStore,
-    analisador: &mut AnalisadorSintatico,
-    simbolo: &Simbolo,
+fn owner_uses(
+    documents: &DocumentStore,
+    analyzer: &mut SyntacticAnalyzer,
+    symbol: &Symbol,
 ) -> Option<Vec<Span>> {
-    let texto = documentos.get(&simbolo.dono)?.to_string();
-    let arquivo = analisar(&texto, analisador.features(&simbolo.dono, &texto));
-    let chave = arquivo.nomes.lookup(&simbolo.nome)?;
-    Some(usos_sem_declaracao(&arquivo, chave, simbolo.espaco, simbolo.declaracao))
+    let text = documents.get(&symbol.owner)?.to_string();
+    let file = analyze(&text, analyzer.features(&symbol.owner, &text));
+    let key = file.names.lookup(&symbol.name)?;
+    Some(uses_without_declaration(&file, key, symbol.space, symbol.declaration))
 }
 
 /// Usos num arquivo que importa o dono por import simples. `None` pula o
 /// arquivo (dúvida ou nome ausente por outro motivo); `Some` — mesmo vazio,
 /// quando importa mas não usa — contribui.
-fn usos_se_importa(
-    documentos: &DocumentStore,
-    analisador: &mut AnalisadorSintatico,
+fn uses_if_imports(
+    documents: &DocumentStore,
+    analyzer: &mut SyntacticAnalyzer,
     uri: &str,
-    simbolo: &Simbolo,
+    symbol: &Symbol,
 ) -> Option<Vec<Span>> {
-    let texto = documentos.get(uri)?.to_string();
-    let arquivo = analisar(&texto, analisador.features(uri, &texto));
-    if !arquivo.ast.patterns.is_empty() {
+    let text = documents.get(uri)?.to_string();
+    let file = analyze(&text, analyzer.features(uri, &text));
+    if !file.ast.patterns.is_empty() {
         return None;
     }
-    let mut importa_dono = false;
-    for diretiva in &arquivo.unit.directives {
-        match classificar(diretiva) {
-            ClasseDiretiva::Biblioteca => {}
-            ClasseDiretiva::ImportSimples(caminho) => {
-                let alvo = resolver_aberto(uri, &caminho)?;
-                if alvo == simbolo.dono {
-                    importa_dono = true;
-                } else if documentos.get(&alvo).is_some() {
-                    if declara_nome(documentos, analisador, &alvo, &simbolo.nome) {
+    let mut owner_imports = false;
+    for directive in &file.unit.directives {
+        match classify(directive) {
+            DirectiveClass::Library => {}
+            DirectiveClass::SimpleImport(path) => {
+                let target = resolve_open(uri, &path)?;
+                if target == symbol.owner {
+                    owner_imports = true;
+                } else if documents.get(&target).is_some() {
+                    if declares_name(documents, analyzer, &target, &symbol.name) {
                         return None;
                     }
                 } else {
@@ -920,131 +920,131 @@ fn usos_se_importa(
                     return None;
                 }
             }
-            ClasseDiretiva::Complexa => return None,
+            DirectiveClass::Complex => return None,
         }
     }
-    if !importa_dono {
+    if !owner_imports {
         return None;
     }
-    let Some(chave) = arquivo.nomes.lookup(&simbolo.nome) else {
+    let Some(key) = file.names.lookup(&symbol.name) else {
         return Some(Vec::new());
     };
-    if sombreado(&arquivo.ast, chave) {
+    if shadowed(&file.ast, key) {
         return None;
     }
-    if simbolo.espaco == Espaco::Tipo
-        && tem_parametro_de_tipo_homonimo(&arquivo.unit, &arquivo.ast, chave)
+    if symbol.space == Space::Type
+        && has_homonymous_type_parameter(&file.unit, &file.ast, key)
     {
         return None;
     }
-    if declaracao_de_tipo(&arquivo.unit, &arquivo.ast, chave).is_some()
-        || declaracao_de_valor(&arquivo.unit, &arquivo.ast, chave).is_some()
+    if type_declaration(&file.unit, &file.ast, key).is_some()
+        || value_declaration(&file.unit, &file.ast, key).is_some()
     {
         // Declaração local homônima: os usos miram ela, não o dono.
         return None;
     }
-    Some(usos_sem_declaracao(&arquivo, chave, simbolo.espaco, simbolo.declaracao))
+    Some(uses_without_declaration(&file, key, symbol.space, symbol.declaration))
 }
 
-/// Verdadeiro quando o aberto declara `nome` em qualquer espaço (tipo ou
+/// Verdadeiro quando o aberto declara `name` em qualquer espaço (tipo ou
 /// valor): um importador que também o importa não tem dono único.
-fn declara_nome(
-    documentos: &DocumentStore,
-    analisador: &mut AnalisadorSintatico,
+fn declares_name(
+    documents: &DocumentStore,
+    analyzer: &mut SyntacticAnalyzer,
     uri: &str,
-    nome: &str,
+    name: &str,
 ) -> bool {
-    let Some(texto) = documentos.get(uri).map(str::to_string) else {
+    let Some(text) = documents.get(uri).map(str::to_string) else {
         return false;
     };
-    let arquivo = analisar(&texto, analisador.features(uri, &texto));
-    let Some(chave) = arquivo.nomes.lookup(nome) else {
+    let file = analyze(&text, analyzer.features(uri, &text));
+    let Some(key) = file.names.lookup(name) else {
         return false;
     };
-    declaracao_de_tipo(&arquivo.unit, &arquivo.ast, chave).is_some()
-        || declaracao_de_valor(&arquivo.unit, &arquivo.ast, chave).is_some()
+    type_declaration(&file.unit, &file.ast, key).is_some()
+        || value_declaration(&file.unit, &file.ast, key).is_some()
 }
 
 /// Usos do nome no arquivo, sem a declaração do dono.
-fn usos_sem_declaracao(
-    arquivo: &Arquivo,
-    chave: dartforge_intern::SymbolId,
-    espaco: Espaco,
-    declaracao: Span,
+fn uses_without_declaration(
+    file: &File,
+    key: dartforge_intern::SymbolId,
+    space: Space,
+    declaration: Span,
 ) -> Vec<Span> {
-    let mut usos = Vec::new();
-    match espaco {
-        Espaco::Tipo => {
-            for ty in &arquivo.ast.types {
+    let mut uses = Vec::new();
+    match space {
+        Space::Type => {
+            for ty in &file.ast.types {
                 let TypeKind::Named { name, .. } = &ty.kind else { continue };
-                if name.len() != 1 || name[0].sym != chave || name[0].span == declaracao {
+                if name.len() != 1 || name[0].sym != key || name[0].span == declaration {
                     continue;
                 }
-                usos.push(name[0].span);
+                uses.push(name[0].span);
             }
         }
-        Espaco::Valor => {
-            for e in &arquivo.ast.exprs {
+        Space::Value => {
+            for e in &file.ast.exprs {
                 let ExprKind::Identifier(n) = &e.kind else { continue };
-                if n.sym != chave {
+                if n.sym != key {
                     continue;
                 }
-                usos.push(n.span);
+                uses.push(n.span);
             }
         }
     }
-    usos.sort_by_key(|s| s.start);
-    usos
+    uses.sort_by_key(|s| s.start);
+    uses
 }
 
-/// Hover entre documentos abertos: resolve como [`resolver_simbolo`] e
+/// Hover entre documentos abertos: resolve como [`resolve_symbol`] e
 /// formata a descrição a partir do documento dono, com as mesmas regras do
 /// hover local (tipos não genéricos, variáveis de tipo primitivo escrito,
 /// funções de até dois posicionais tipados, getters de retorno primitivo).
 /// O `range` devolvido é o da referência sob o cursor, no arquivo vigente.
 ///
 /// Bancada: dono não-aberto, símbolo ambíguo (zero ou dois donos), diretiva
-/// complexa (`prefixo`, `show`/`hide`, ...), sombra, padrão ou assinatura que
+/// complexa (`prefix`, `show`/`hide`, ...), sombra, padrão ou assinatura que
 /// exige formatação completa → `None` (hover vazio), nunca texto errado.
 /// Nada é retido entre pedidos: cada árvore é transitória, como em
-/// [`referencias_em`]; só os documentos abertos são lidos, nunca o disco.
-pub(super) fn hover_em(
-    documentos: &DocumentStore,
-    uri_atual: &str,
+/// [`references_in`]; só os documentos abertos são lidos, nunca o disco.
+pub(super) fn hover_in(
+    documents: &DocumentStore,
+    current_uri: &str,
     offset: usize,
-    analisador: &mut AnalisadorSintatico,
+    analyzer: &mut SyntacticAnalyzer,
 ) -> Option<(Span, String, Option<String>)> {
-    let (simbolo, referencia) = resolver_simbolo(documentos, uri_atual, offset, analisador)?;
-    let (descricao, tipo) = descricao_no_dono(documentos, analisador, &simbolo)?;
-    Some((referencia, descricao, tipo))
+    let (symbol, reference) = resolve_symbol(documents, current_uri, offset, analyzer)?;
+    let (description, ty) = description_in_owner(documents, analyzer, &symbol)?;
+    Some((reference, description, ty))
 }
 
 /// Descrição do símbolo a partir do dono, com o mesmo formato do hover
 /// local. `None` quando a assinatura não pode ser mostrada com fidelidade
 /// (genérico, typedef, tipo não primitivo, parâmetros opcionais/nomeados,
 /// retorno inferido, setter): o chamador devolve hover vazio.
-fn descricao_no_dono(
-    documentos: &DocumentStore,
-    analisador: &mut AnalisadorSintatico,
-    simbolo: &Simbolo,
+fn description_in_owner(
+    documents: &DocumentStore,
+    analyzer: &mut SyntacticAnalyzer,
+    symbol: &Symbol,
 ) -> Option<(String, Option<String>)> {
-    let texto = documentos.get(&simbolo.dono)?.to_string();
-    let arquivo = analisar(&texto, analisador.features(&simbolo.dono, &texto));
-    let chave = arquivo.nomes.lookup(&simbolo.nome)?;
-    match simbolo.espaco {
-        Espaco::Tipo => descricao_tipo_no_arquivo(&arquivo, chave).map(|d| (d, None)),
-        Espaco::Valor => descricao_valor_no_arquivo(&arquivo, chave),
+    let text = documents.get(&symbol.owner)?.to_string();
+    let file = analyze(&text, analyzer.features(&symbol.owner, &text));
+    let key = file.names.lookup(&symbol.name)?;
+    match symbol.space {
+        Space::Type => type_description_in_file(&file, key).map(|d| (d, None)),
+        Space::Value => value_description_in_file(&file, key),
     }
 }
 
 /// `class C` / `enum E` / `mixin M` / `extension type X`, quando não
-/// genérico; mesma regra de [`tipo_local`].
-fn descricao_tipo_no_arquivo(
-    arquivo: &Arquivo,
-    chave: dartforge_intern::SymbolId,
+/// genérico; mesma regra de [`local_type`].
+fn type_description_in_file(
+    file: &File,
+    key: dartforge_intern::SymbolId,
 ) -> Option<String> {
-    let mut encontrados = arquivo.unit.declarations.iter().filter_map(|id| {
-        let (nome, tipo, generico) = match &arquivo.ast.decl(*id).kind {
+    let mut found = file.unit.declarations.iter().filter_map(|id| {
+        let (name, ty, generico) = match &file.ast.decl(*id).kind {
             DeclKind::Class(d) => (d.name, "class", !d.type_params.is_empty()),
             DeclKind::Mixin(d) => (d.name, "mixin", !d.type_params.is_empty()),
             DeclKind::Enum(d) => (d.name, "enum", !d.type_params.is_empty()),
@@ -1052,111 +1052,111 @@ fn descricao_tipo_no_arquivo(
             DeclKind::Typedef(d) => (d.name, "typedef", true),
             _ => return None,
         };
-        (nome.sym == chave).then_some((nome.span, tipo, generico))
+        (name.sym == key).then_some((name.span, ty, generico))
     });
-    let unico = encontrados.next()?;
-    if encontrados.next().is_some() {
+    let single = found.next()?;
+    if found.next().is_some() {
         return None;
     }
-    (!unico.2).then(|| format!("{} {}", unico.1, arquivo.nomes.resolve(chave)))
+    (!single.2).then(|| format!("{} {}", single.1, file.names.resolve(key)))
 }
 
 /// Variável de topo com tipo primitivo escrito ou função/getter de topo com
-/// assinatura fiel; mesmas regras de [`variavel_topo`] e [`funcao_topo`].
-fn descricao_valor_no_arquivo(
-    arquivo: &Arquivo,
-    chave: dartforge_intern::SymbolId,
+/// assinatura fiel; mesmas regras de [`top_variable`] e [`top_function`].
+fn value_description_in_file(
+    file: &File,
+    key: dartforge_intern::SymbolId,
 ) -> Option<(String, Option<String>)> {
-    let mut variaveis = Vec::new();
-    let mut tem_funcao = false;
-    for id in &arquivo.unit.declarations {
-        match &arquivo.ast.decl(*id).kind {
+    let mut variables = Vec::new();
+    let mut has_function = false;
+    for id in &file.unit.declarations {
+        match &file.ast.decl(*id).kind {
             DeclKind::Variables(v) => {
-                for var in v.variables.iter().filter(|x| x.name.sym == chave) {
-                    variaveis.push((var.name.span, v.ty));
+                for var in v.variables.iter().filter(|x| x.name.sym == key) {
+                    variables.push((var.name.span, v.ty));
                 }
             }
-            DeclKind::Class(d) if d.name.sym == chave => return None,
-            DeclKind::Mixin(d) if d.name.sym == chave => return None,
-            DeclKind::Enum(d) if d.name.sym == chave => return None,
-            DeclKind::ExtensionType(d) if d.name.sym == chave => return None,
-            DeclKind::Typedef(d) if d.name.sym == chave => return None,
+            DeclKind::Class(d) if d.name.sym == key => return None,
+            DeclKind::Mixin(d) if d.name.sym == key => return None,
+            DeclKind::Enum(d) if d.name.sym == key => return None,
+            DeclKind::ExtensionType(d) if d.name.sym == key => return None,
+            DeclKind::Typedef(d) if d.name.sym == key => return None,
             DeclKind::Function(f)
-                if arquivo.ast.function(*f).name.is_some_and(|n| n.sym == chave) =>
+                if file.ast.function(*f).name.is_some_and(|n| n.sym == key) =>
             {
                 // Nome de função/getter: não é variável (como em
-                // [`variavel_topo`); cai para a formatação de assinatura
-                // abaixo (como em [`funcao_topo`]).
-                tem_funcao = true;
+                // [`top_variable`); cai para a formatação de assinatura
+                // abaixo (como em [`top_function`]).
+                has_function = true;
             }
-            DeclKind::Extension(d) if d.name.is_some_and(|n| n.sym == chave) => return None,
+            DeclKind::Extension(d) if d.name.is_some_and(|n| n.sym == key) => return None,
             _ => {}
         }
     }
-    if !variaveis.is_empty() {
-        if tem_funcao || variaveis.len() != 1 {
+    if !variables.is_empty() {
+        if has_function || variables.len() != 1 {
             return None;
         }
-        let tipo = tipo_primitivo(&arquivo.ast, &arquivo.nomes, variaveis[0].1?)?;
-        let descricao = format!("{tipo} {}", arquivo.nomes.resolve(chave));
-        return Some((descricao, Some(tipo)));
+        let ty = primitive_type(&file.ast, &file.names, variables[0].1?)?;
+        let description = format!("{ty} {}", file.names.resolve(key));
+        return Some((description, Some(ty)));
     }
-    if !tem_funcao {
+    if !has_function {
         return None;
     }
-    let mut funcoes = Vec::new();
-    for id in &arquivo.unit.declarations {
-        match &arquivo.ast.decl(*id).kind {
+    let mut functions = Vec::new();
+    for id in &file.unit.declarations {
+        match &file.ast.decl(*id).kind {
             DeclKind::Function(f) => {
-                let f = arquivo.ast.function(*f);
-                if let Some(nome) = f.name.filter(|n| n.sym == chave) {
-                    funcoes.push((nome.span, f));
+                let f = file.ast.function(*f);
+                if let Some(name) = f.name.filter(|n| n.sym == key) {
+                    functions.push((name.span, f));
                 }
             }
             DeclKind::Variables(v)
-                if v.variables.iter().any(|x| x.name.sym == chave) =>
+                if v.variables.iter().any(|x| x.name.sym == key) =>
             {
                 return None;
             }
-            DeclKind::Class(d) if d.name.sym == chave => return None,
-            DeclKind::Mixin(d) if d.name.sym == chave => return None,
-            DeclKind::Enum(d) if d.name.sym == chave => return None,
-            DeclKind::ExtensionType(d) if d.name.sym == chave => return None,
-            DeclKind::Typedef(d) if d.name.sym == chave => return None,
-            DeclKind::Extension(d) if d.name.is_some_and(|n| n.sym == chave) => return None,
+            DeclKind::Class(d) if d.name.sym == key => return None,
+            DeclKind::Mixin(d) if d.name.sym == key => return None,
+            DeclKind::Enum(d) if d.name.sym == key => return None,
+            DeclKind::ExtensionType(d) if d.name.sym == key => return None,
+            DeclKind::Typedef(d) if d.name.sym == key => return None,
+            DeclKind::Extension(d) if d.name.is_some_and(|n| n.sym == key) => return None,
             _ => {}
         }
     }
-    if funcoes.len() != 1 {
+    if functions.len() != 1 {
         return None;
     }
-    let funcao = funcoes[0].1;
-    let (descricao, tipo) = (|| {
-        if !funcao.type_params.is_empty() {
+    let function = functions[0].1;
+    let (description, ty) = (|| {
+        if !function.type_params.is_empty() {
             return None;
         }
-        let retorno = funcao.return_type.and_then(|t| {
-            if matches!(&arquivo.ast.ty(t).kind, TypeKind::Void) {
+        let return_ = function.return_type.and_then(|t| {
+            if matches!(&file.ast.ty(t).kind, TypeKind::Void) {
                 Some("void".to_string())
             } else {
-                tipo_primitivo(&arquivo.ast, &arquivo.nomes, t)
+                primitive_type(&file.ast, &file.names, t)
             }
         })?;
-        if funcao.kind == FunctionKind::Getter {
-            return funcao
+        if function.kind == FunctionKind::Getter {
+            return function
                 .parameters
                 .is_none()
-                .then(|| (format!("{retorno} get {}", arquivo.nomes.resolve(chave)), Some(retorno)));
+                .then(|| (format!("{return_} get {}", file.names.resolve(key)), Some(return_)));
         }
-        if funcao.kind != FunctionKind::Function {
+        if function.kind != FunctionKind::Function {
             return None;
         }
-        let parametros = funcao.parameters.as_ref()?;
-        if parametros.len() > 2 {
+        let parameters = function.parameters.as_ref()?;
+        if parameters.len() > 2 {
             return None;
         }
-        let mut descricoes = Vec::new();
-        for p in parametros.iter() {
+        let mut descriptions = Vec::new();
+        for p in parameters.iter() {
             if p.kind != ParameterKind::Required
                 || p.covariant
                 || p.final_
@@ -1170,18 +1170,18 @@ fn descricao_valor_no_arquivo(
             {
                 return None;
             }
-            let tipo = tipo_primitivo(&arquivo.ast, &arquivo.nomes, p.ty?)?;
-            let nome = arquivo.nomes.resolve(p.name?.sym);
-            descricoes.push(format!("{tipo} {nome}"));
+            let ty = primitive_type(&file.ast, &file.names, p.ty?)?;
+            let name = file.names.resolve(p.name?.sym);
+            descriptions.push(format!("{ty} {name}"));
         }
         Some((
             format!(
-                "{retorno} {}({})",
-                arquivo.nomes.resolve(chave),
-                descricoes.join(", ")
+                "{return_} {}({})",
+                file.names.resolve(key),
+                descriptions.join(", ")
             ),
             None,
         ))
     })()?;
-    Some((descricao, tipo))
+    Some((description, ty))
 }

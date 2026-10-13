@@ -6,18 +6,18 @@
 
 mod common;
 
-use common::Projeto;
+use common::Project;
 use serde_json::{Value, json};
 
-/// Linha e coluna UTF-16 do início da `n`-ésima ocorrência de `agulha`,
-/// mais `desloc` colunas.
-fn onde(texto: &str, agulha: &str, n: usize, desloc: u32) -> (u32, u32) {
-    let i = texto.match_indices(agulha).nth(n).unwrap_or_else(|| panic!("sem {agulha:?} #{n}")).0;
-    let antes = &texto[..i];
-    (antes.matches('\n').count() as u32, antes.rsplit('\n').next().unwrap().encode_utf16().count() as u32 + desloc)
+/// Linha e coluna UTF-16 do início da `n`-ésima ocorrência de `needle`,
+/// mais `shift` colunas.
+fn location(text: &str, needle: &str, n: usize, shift: u32) -> (u32, u32) {
+    let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("sem {needle:?} #{n}")).0;
+    let before = &text[..i];
+    (before.matches('\n').count() as u32, before.rsplit('\n').next().unwrap().encode_utf16().count() as u32 + shift)
 }
 
-const MODELO: &str = "/// Uma caixa de [T].
+const MODEL: &str = "/// Uma caixa de [T].
 class Caixa<T> {
   T valor;
   Caixa(this.valor);
@@ -43,7 +43,7 @@ class Circulo implements Forma {
 int soma(int a, [int b = 0]) => a + b;
 ";
 
-const USO: &str = "import 'modelo.dart';
+const USE: &str = "import 'modelo.dart';
 
 void usar(List<int> lista, Forma f) {
   lista.add(1);
@@ -58,97 +58,97 @@ void usar(List<int> lista, Forma f) {
 }
 ";
 
-fn projeto(nome: &str, capacidades: Value) -> Projeto {
-    let mut p = Projeto::com_capacidades(nome, capacidades);
-    p.gravar("lib/modelo.dart", MODELO);
-    p.abrir("lib/modelo.dart", MODELO);
-    p.abrir("lib/uso.dart", USO);
+fn project(name: &str, capabilities: Value) -> Project {
+    let mut p = Project::with_capabilities(name, capabilities);
+    p.write("lib/modelo.dart", MODEL);
+    p.open("lib/modelo.dart", MODEL);
+    p.open("lib/uso.dart", USE);
     p
 }
 
-fn assinatura(p: &mut Projeto, agulha: &str, n: usize, desloc: u32, contexto: Value) -> Value {
-    let (l, c) = onde(USO, agulha, n, desloc);
-    p.na_posicao("textDocument/signatureHelp", "lib/uso.dart", l, c, json!({"context": contexto}))["result"].clone()
+fn signature(p: &mut Project, needle: &str, n: usize, shift: u32, context: Value) -> Value {
+    let (l, c) = location(USE, needle, n, shift);
+    p.in_position("textDocument/signatureHelp", "lib/uso.dart", l, c, json!({"context": context}))["result"].clone()
 }
 
 #[test]
-fn ajuda_de_assinatura_como_o_dart() {
-    let mut p = projeto("assinatura", json!({"textDocument": {"signatureHelp": {"signatureInformation": {"documentationFormat": ["markdown"]}}}}));
-    let invocada = json!({"triggerKind": 1});
+fn signature_help_like_dart() {
+    let mut p = project("assinatura", json!({"textDocument": {"signatureHelp": {"signatureInformation": {"documentationFormat": ["markdown"]}}}}));
+    let invoked = json!({"triggerKind": 1});
     // Membro de receptor genérico: o tipo já substituído.
-    let r = assinatura(&mut p, "add(", 0, 4, invocada.clone());
+    let r = signature(&mut p, "add(", 0, 4, invoked.clone());
     assert_eq!(r["signatures"][0]["label"], "add(int value)", "{r}");
     assert_eq!(r["activeParameter"], 0);
     // Função de topo com opcional e padrão; o segundo argumento ativo.
-    let r = assinatura(&mut p, "soma(1, 2)", 0, 8, invocada.clone());
+    let r = signature(&mut p, "soma(1, 2)", 0, 8, invoked.clone());
     assert_eq!(r["signatures"][0]["label"], "soma(int a, [int b = 0])", "{r}");
     assert_eq!(r["signatures"][0]["parameters"][1]["label"], "int b = 0");
     assert_eq!(r["activeParameter"], 1);
     assert_eq!(r["signatures"][0]["documentation"]["value"], "Soma dois números.");
     // Construtor com os argumentos de tipo da criação.
-    let r = assinatura(&mut p, "Caixa<String>(", 0, 14, invocada.clone());
+    let r = signature(&mut p, "Caixa<String>(", 0, 14, invoked.clone());
     assert_eq!(r["signatures"][0]["label"], "Caixa(String valor)", "{r}");
     // Método genérico substituído, nomeado ativo pelo nome.
-    let r = assinatura(&mut p, "avisar: true", 0, 2, invocada.clone());
+    let r = signature(&mut p, "avisar: true", 0, 2, invoked.clone());
     assert_eq!(r["signatures"][0]["label"], "trocar(String novo, {bool avisar = false})", "{r}");
     assert_eq!(r["activeParameter"], 1);
     // Disparo automático só no `(` que abre a lista.
     let auto = json!({"triggerKind": 2, "triggerCharacter": "(", "isRetrigger": false});
-    let r = assinatura(&mut p, "soma(3)", 0, 5, auto.clone());
+    let r = signature(&mut p, "soma(3)", 0, 5, auto.clone());
     assert_eq!(r["signatures"][0]["label"], "soma(int a, [int b = 0])", "{r}");
-    let r = assinatura(&mut p, "soma(1, 2)", 0, 8, auto);
+    let r = signature(&mut p, "soma(1, 2)", 0, 8, auto);
     assert!(r.is_null(), "{r}");
     // Dentro de um closure passado como argumento: a chamada interna, nunca
     // a de fora.
-    let r = assinatura(&mut p, "soma(x)", 0, 5, invocada.clone());
+    let r = signature(&mut p, "soma(x)", 0, 5, invoked.clone());
     assert_eq!(r["signatures"][0]["label"], "soma(int a, [int b = 0])", "{r}");
-    let r = assinatura(&mut p, "(x) =>", 0, 6, invocada);
+    let r = signature(&mut p, "(x) =>", 0, 6, invoked);
     assert!(r.is_null(), "{r}");
 }
 
 #[test]
-fn destaques_implementacoes_e_tipo() {
-    let mut p = projeto("navegar_mais", json!({}));
+fn highlights_implementations_and_type() {
+    let mut p = project("navegar_mais", json!({}));
     // Destaques: declaração e usos do local no arquivo.
-    let (l, c) = onde(USO, "total", 1, 1);
-    let r = p.na_posicao("textDocument/documentHighlight", "lib/uso.dart", l, c, json!({}))["result"].clone();
-    let linhas: Vec<u64> = r.as_array().unwrap().iter().map(|h| h["range"]["start"]["line"].as_u64().unwrap()).collect();
-    assert_eq!(linhas, vec![7, 8, 8, 9], "{r}");
+    let (l, c) = location(USE, "total", 1, 1);
+    let r = p.in_position("textDocument/documentHighlight", "lib/uso.dart", l, c, json!({}))["result"].clone();
+    let lines: Vec<u64> = r.as_array().unwrap().iter().map(|h| h["range"]["start"]["line"].as_u64().unwrap()).collect();
+    assert_eq!(lines, vec![7, 8, 8, 9], "{r}");
     // Implementações de uma classe abstrata e de um método dela.
-    let (l, c) = onde(MODELO, "Forma {", 0, 1);
-    let r = p.na_posicao("textDocument/implementation", "lib/modelo.dart", l, c, json!({}))["result"].clone();
-    let mut nomes: Vec<u64> = r.as_array().unwrap().iter().map(|x| x["range"]["start"]["line"].as_u64().unwrap()).collect();
-    nomes.sort();
-    assert_eq!(nomes, vec![12, 17], "{r}");
-    let (l, c) = onde(USO, "area()", 0, 1);
-    let r = p.na_posicao("textDocument/implementation", "lib/uso.dart", l, c, json!({}))["result"].clone();
-    let mut linhas: Vec<u64> = r.as_array().unwrap().iter().map(|x| x["range"]["start"]["line"].as_u64().unwrap()).collect();
-    linhas.sort();
-    assert_eq!(linhas, vec![14, 19], "{r}");
+    let (l, c) = location(MODEL, "Forma {", 0, 1);
+    let r = p.in_position("textDocument/implementation", "lib/modelo.dart", l, c, json!({}))["result"].clone();
+    let mut names: Vec<u64> = r.as_array().unwrap().iter().map(|x| x["range"]["start"]["line"].as_u64().unwrap()).collect();
+    names.sort();
+    assert_eq!(names, vec![12, 17], "{r}");
+    let (l, c) = location(USE, "area()", 0, 1);
+    let r = p.in_position("textDocument/implementation", "lib/uso.dart", l, c, json!({}))["result"].clone();
+    let mut lines: Vec<u64> = r.as_array().unwrap().iter().map(|x| x["range"]["start"]["line"].as_u64().unwrap()).collect();
+    lines.sort();
+    assert_eq!(lines, vec![14, 19], "{r}");
     // Definição do tipo: a classe do tipo estático.
-    let (l, c) = onde(USO, "c.trocar", 0, 0);
-    let r = p.na_posicao("textDocument/typeDefinition", "lib/uso.dart", l, c, json!({}))["result"].clone();
+    let (l, c) = location(USE, "c.trocar", 0, 0);
+    let r = p.in_position("textDocument/typeDefinition", "lib/uso.dart", l, c, json!({}))["result"].clone();
     assert!(r["uri"].as_str().unwrap().ends_with("modelo.dart"), "{r}");
     assert_eq!(r["range"]["start"], json!({"line": 1, "character": 6}));
 }
 
 #[test]
-fn definicao_de_tipo_como_o_handler_do_dart() {
-    let mut p = Projeto::novo("tipo-def");
-    let texto = "class A {\n  int x = 0;\n  A(int v) : x = v;\n  @override\n  String toString() => '';\n  @Deprecated('m')\n  void m() {\n    x = 1;\n  }\n}\n";
-    p.abrir("lib/td.dart", texto);
-    let mut td = |agulha: &str| {
-        let (l, c) = onde(texto, agulha, 0, 0);
-        p.na_posicao("textDocument/typeDefinition", "lib/td.dart", l, c, json!({}))["result"].clone()
+fn type_definition_like_the_dart_handler() {
+    let mut p = Project::new("tipo-def");
+    let text = "class A {\n  int x = 0;\n  A(int v) : x = v;\n  @override\n  String toString() => '';\n  @Deprecated('m')\n  void m() {\n    x = 1;\n  }\n}\n";
+    p.open("lib/td.dart", text);
+    let mut td = |needle: &str| {
+        let (l, c) = location(text, needle, 0, 0);
+        p.in_position("textDocument/typeDefinition", "lib/td.dart", l, c, json!({}))["result"].clone()
     };
-    let vazio = |r: &Value| r.is_null() || r.as_array().is_some_and(|a| a.is_empty());
+    let empty = |r: &Value| r.is_null() || r.as_array().is_some_and(|a| a.is_empty());
     // O `returnType` da declaração de construtor: a classe.
     assert_eq!(td("A(int")["range"]["start"], json!({"line": 0, "character": 6}));
     // O campo do inicializador e `@override`: nada.
     let r = td("x = v");
-    assert!(vazio(&r), "{r}");
+    assert!(empty(&r), "{r}");
     let r = td("override");
-    assert!(vazio(&r), "{r}");
+    assert!(empty(&r), "{r}");
     // `@Deprecated(…)`: a classe.
     let r = td("Deprecated");
     assert!(r["uri"].as_str().is_some_and(|u| u.contains("core")), "{r}");
@@ -158,126 +158,126 @@ fn definicao_de_tipo_como_o_handler_do_dart() {
 }
 
 #[test]
-fn destaques_do_nome_da_classe_no_construtor() {
-    let mut p = Projeto::novo("destaques-construtor");
-    let texto = "class A {\n  A();\n  A.n();\n}\nA f() => A.n();\n";
-    p.abrir("lib/d.dart", texto);
-    let mut linhas_e_colunas = |agulha: &str, n: usize| {
-        let (l, c) = onde(texto, agulha, n, 0);
-        let r = p.na_posicao("textDocument/documentHighlight", "lib/d.dart", l, c, json!({}))["result"].clone();
+fn class_name_highlights_in_constructor() {
+    let mut p = Project::new("destaques-construtor");
+    let text = "class A {\n  A();\n  A.n();\n}\nA f() => A.n();\n";
+    p.open("lib/d.dart", text);
+    let mut lines_and_columns = |needle: &str, n: usize| {
+        let (l, c) = location(text, needle, n, 0);
+        let r = p.in_position("textDocument/documentHighlight", "lib/d.dart", l, c, json!({}))["result"].clone();
         let mut v: Vec<(u64, u64)> = r.as_array().unwrap().iter().map(|h| (h["range"]["start"]["line"].as_u64().unwrap(), h["range"]["start"]["character"].as_u64().unwrap())).collect();
         v.sort();
         v
     };
     // O `A` de `A();` e de `A.n();` é a classe: o grupo dela.
-    let esperado = vec![(0, 6), (1, 2), (2, 2), (4, 0), (4, 9)];
-    assert_eq!(linhas_e_colunas("A();", 0), esperado);
-    assert_eq!(linhas_e_colunas("A.n();", 0), esperado);
+    let expected = vec![(0, 6), (1, 2), (2, 2), (4, 0), (4, 9)];
+    assert_eq!(lines_and_columns("A();", 0), expected);
+    assert_eq!(lines_and_columns("A.n();", 0), expected);
     // O `n` declarado: o construtor e o uso.
-    assert_eq!(linhas_e_colunas("n();", 0), vec![(2, 4), (4, 11)]);
+    assert_eq!(lines_and_columns("n();", 0), vec![(2, 4), (4, 11)]);
 }
 
 #[test]
-fn hierarquia_de_chamadas_de_operador() {
-    let mut p = Projeto::novo("chamadas-operador");
-    let texto = "class A {\n  @override\n  bool operator ==(Object o) => true;\n  @override\n  int get hashCode => 0;\n}\nbool f(A a, A b) => a == b;\n";
-    p.abrir("lib/o.dart", texto);
-    let (l, c) = onde(texto, "== b", 0, 0);
-    let r = p.na_posicao("textDocument/prepareCallHierarchy", "lib/o.dart", l, c, json!({}))["result"].clone();
+fn operator_call_hierarchy() {
+    let mut p = Project::new("chamadas-operador");
+    let text = "class A {\n  @override\n  bool operator ==(Object o) => true;\n  @override\n  int get hashCode => 0;\n}\nbool f(A a, A b) => a == b;\n";
+    p.open("lib/o.dart", text);
+    let (l, c) = location(text, "== b", 0, 0);
+    let r = p.in_position("textDocument/prepareCallHierarchy", "lib/o.dart", l, c, json!({}))["result"].clone();
     assert_eq!(r[0]["name"], "==", "{r}");
 }
 
 #[test]
-fn implementacao_pela_especie_do_membro() {
+fn implementation_by_member_kind() {
     // O getter lido não é implementado por um setter homônimo; o campo
     // declarado acha o getter ou, não final, o setter.
-    let mut p = Projeto::novo("implementacao-especie");
-    let texto = "class A {\n  int get v => 0;\n  set v(int x) {}\n  int w = 0;\n}\nclass B extends A {\n  @override\n  set v(int x) {}\n  @override\n  set w(int x) {}\n}\nvoid f(A a) => print(a.v);\n";
-    p.abrir("lib/i.dart", texto);
-    let mut imp = |agulha: &str, d: u32| {
-        let (l, c) = onde(texto, agulha, 0, d);
-        p.na_posicao("textDocument/implementation", "lib/i.dart", l, c, json!({}))["result"].clone()
+    let mut p = Project::new("implementacao-especie");
+    let text = "class A {\n  int get v => 0;\n  set v(int x) {}\n  int w = 0;\n}\nclass B extends A {\n  @override\n  set v(int x) {}\n  @override\n  set w(int x) {}\n}\nvoid f(A a) => print(a.v);\n";
+    p.open("lib/i.dart", text);
+    let mut imp = |needle: &str, d: u32| {
+        let (l, c) = location(text, needle, 0, d);
+        p.in_position("textDocument/implementation", "lib/i.dart", l, c, json!({}))["result"].clone()
     };
     let r = imp("v);", 0);
     assert!(r.as_array().is_some_and(|a| a.is_empty()), "{r}");
     let r = imp("w = 0", 0);
-    let linhas: Vec<u64> = r.as_array().unwrap().iter().map(|x| x["range"]["start"]["line"].as_u64().unwrap()).collect();
-    assert_eq!(linhas, vec![9], "{r}");
+    let lines: Vec<u64> = r.as_array().unwrap().iter().map(|x| x["range"]["start"]["line"].as_u64().unwrap()).collect();
+    assert_eq!(lines, vec![9], "{r}");
 }
 
 #[test]
-fn hierarquia_de_tipos() {
-    let mut p = projeto("hierarquia", json!({}));
-    let (l, c) = onde(MODELO, "Quadrado", 0, 1);
-    let r = p.na_posicao("textDocument/prepareTypeHierarchy", "lib/modelo.dart", l, c, json!({}))["result"].clone();
+fn type_hierarchy() {
+    let mut p = project("hierarquia", json!({}));
+    let (l, c) = location(MODEL, "Quadrado", 0, 1);
+    let r = p.in_position("textDocument/prepareTypeHierarchy", "lib/modelo.dart", l, c, json!({}))["result"].clone();
     let item = r[0].clone();
     assert_eq!(item["name"], "Quadrado", "{r}");
-    let sup = p.requisitar("typeHierarchy/supertypes", json!({"item": item}))["result"].clone();
-    let nomes: Vec<&str> = sup.as_array().unwrap().iter().map(|i| i["name"].as_str().unwrap()).collect();
-    assert_eq!(nomes, vec!["Forma"], "{sup}");
-    let forma = sup[0].clone();
-    let sub = p.requisitar("typeHierarchy/subtypes", json!({"item": forma}))["result"].clone();
-    let mut nomes: Vec<&str> = sub.as_array().unwrap().iter().map(|i| i["name"].as_str().unwrap()).collect();
-    nomes.sort();
-    assert_eq!(nomes, vec!["Circulo", "Quadrado"], "{sub}");
+    let sup = p.request("typeHierarchy/supertypes", json!({"item": item}))["result"].clone();
+    let names: Vec<&str> = sup.as_array().unwrap().iter().map(|i| i["name"].as_str().unwrap()).collect();
+    assert_eq!(names, vec!["Forma"], "{sup}");
+    let shape = sup[0].clone();
+    let sub = p.request("typeHierarchy/subtypes", json!({"item": shape}))["result"].clone();
+    let mut names: Vec<&str> = sub.as_array().unwrap().iter().map(|i| i["name"].as_str().unwrap()).collect();
+    names.sort();
+    assert_eq!(names, vec!["Circulo", "Quadrado"], "{sub}");
 }
 
 #[test]
-fn dobras_e_selecao() {
-    let mut p = projeto("dobras", json!({"textDocument": {"foldingRange": {"lineFoldingOnly": true}}}));
-    let r = p.requisitar("textDocument/foldingRange", json!({"textDocument": {"uri": p.uri("lib/modelo.dart")}}))["result"].clone();
-    let regioes: Vec<(u64, u64)> = r
+fn folds_and_selection() {
+    let mut p = project("dobras", json!({"textDocument": {"foldingRange": {"lineFoldingOnly": true}}}));
+    let r = p.request("textDocument/foldingRange", json!({"textDocument": {"uri": p.uri("lib/modelo.dart")}}))["result"].clone();
+    let regions: Vec<(u64, u64)> = r
         .as_array()
         .unwrap()
         .iter()
         .map(|d| (d["startLine"].as_u64().unwrap(), d["endLine"].as_u64().unwrap()))
         .collect();
     // Classe Caixa (1–6), Forma (8–10), Quadrado (12–15), Circulo (17–20).
-    assert_eq!(regioes, vec![(1, 6), (8, 10), (12, 15), (17, 20)], "{r}");
-    let (l, c) = onde(USO, "soma(1, 2)", 0, 1);
-    let r = p.requisitar(
+    assert_eq!(regions, vec![(1, 6), (8, 10), (12, 15), (17, 20)], "{r}");
+    let (l, c) = location(USE, "soma(1, 2)", 0, 1);
+    let r = p.request(
         "textDocument/selectionRange",
         json!({"textDocument": {"uri": p.uri("lib/uso.dart")}, "positions": [{"line": l, "character": c}]}),
     )["result"]
         .clone();
     // O identificador, a chamada, ... até a função inteira.
-    let primeiro = &r[0]["range"];
-    assert_eq!(primeiro["start"], json!({"line": l, "character": c - 1}));
-    assert_eq!(primeiro["end"], json!({"line": l, "character": c + 3}));
-    let mut nivel = &r[0];
+    let first = &r[0]["range"];
+    assert_eq!(first["start"], json!({"line": l, "character": c - 1}));
+    assert_eq!(first["end"], json!({"line": l, "character": c + 3}));
+    let mut level = &r[0];
     let mut n = 0;
-    while nivel.get("parent").is_some() {
-        nivel = &nivel["parent"];
+    while level.get("parent").is_some() {
+        level = &level["parent"];
         n += 1;
     }
     assert!(n >= 3, "{r}");
-    assert_eq!(nivel["range"]["start"], json!({"line": 2, "character": 0}));
+    assert_eq!(level["range"]["start"], json!({"line": 2, "character": 0}));
 }
 
 #[test]
-fn hierarquia_de_chamadas() {
-    let mut p = projeto("chamadas", json!({}));
-    // `soma` é chamada três vezes por `usar` (uma dentro de um closure).
-    let (l, c) = onde(MODELO, "soma(int", 0, 1);
-    let r = p.na_posicao("textDocument/prepareCallHierarchy", "lib/modelo.dart", l, c, json!({}))["result"].clone();
+fn call_hierarchy() {
+    let mut p = project("chamadas", json!({}));
+    // `sum` é chamada três vezes por `use_` (uma dentro de um closure).
+    let (l, c) = location(MODEL, "soma(int", 0, 1);
+    let r = p.in_position("textDocument/prepareCallHierarchy", "lib/modelo.dart", l, c, json!({}))["result"].clone();
     let item = r[0].clone();
     assert_eq!(item["name"], "soma", "{r}");
     assert_eq!(item["kind"], 12);
-    let recebidas = p.requisitar("callHierarchy/incomingCalls", json!({"item": item}))["result"].clone();
-    let chamadores: Vec<(&str, usize)> = recebidas
+    let received = p.request("callHierarchy/incomingCalls", json!({"item": item}))["result"].clone();
+    let callers: Vec<(&str, usize)> = received
         .as_array()
         .unwrap()
         .iter()
         .map(|c| (c["from"]["name"].as_str().unwrap(), c["fromRanges"].as_array().unwrap().len()))
         .collect();
-    assert_eq!(chamadores, vec![("usar", 3)], "{recebidas}");
-    // `usar` chama `add`, `soma`, o construtor de `Caixa`, `trocar`, `print`, `map` e `area`.
-    let (l, c) = onde(USO, "usar", 0, 1);
-    let r = p.na_posicao("textDocument/prepareCallHierarchy", "lib/uso.dart", l, c, json!({}))["result"].clone();
-    let feitas = p.requisitar("callHierarchy/outgoingCalls", json!({"item": r[0].clone()}))["result"].clone();
-    let mut nomes: Vec<&str> = feitas.as_array().unwrap().iter().map(|c| c["to"]["name"].as_str().unwrap()).collect();
-    nomes.sort();
-    for esperado in ["Caixa", "add", "area", "soma", "trocar"] {
-        assert!(nomes.contains(&esperado), "{nomes:?}");
+    assert_eq!(callers, vec![("usar", 3)], "{received}");
+    // `use_` chama `add`, `sum`, o construtor de `Caixa`, `swap`, `print`, `map` e `area`.
+    let (l, c) = location(USE, "usar", 0, 1);
+    let r = p.in_position("textDocument/prepareCallHierarchy", "lib/uso.dart", l, c, json!({}))["result"].clone();
+    let done = p.request("callHierarchy/outgoingCalls", json!({"item": r[0].clone()}))["result"].clone();
+    let mut names: Vec<&str> = done.as_array().unwrap().iter().map(|c| c["to"]["name"].as_str().unwrap()).collect();
+    names.sort();
+    for expected in ["Caixa", "add", "area", "soma", "trocar"] {
+        assert!(names.contains(&expected), "{names:?}");
     }
 }

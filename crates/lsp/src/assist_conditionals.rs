@@ -9,204 +9,204 @@
 //! | `Convert to 'if-case' statement` | `refactor.convert.ifCaseStatement` | `ConvertToIfCaseStatement` |
 //! | `Convert to 'if-case' statement chain` | `refactor.convert.ifCaseStatementChain` | `ConvertToIfCaseStatementChain` |
 
-use crate::actions::AcaoDeCodigo;
-use crate::Edicao;
-use crate::refactorings::Contexto;
-use crate::refactorings_exec::{Mudanca, Texto, UM_RECUO};
+use crate::actions::CodeAction;
+use crate::Edit;
+use crate::refactorings::Context;
+use crate::refactorings_exec::{Change, Text, ONE_INDENT};
 use dartforge_diagnostics::Span;
 
-impl Contexto<'_> {
+impl Context<'_> {
     /// `ReplaceConditionalWithIfElse` (replace_conditional_with_if_else.dart):
     /// no comando ancestral do nó da seleção, `T v = c ? a : b;`,
     /// `v = c ? a : b;` ou `return c ? a : b;` vira um `if`/`else`.
-    pub(crate) fn condicional_em_if_else(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
-        let no = self.arvore.localizar(inicio, fim)?;
-        let comando = self.com_pais(no).find(|&k| self.e_comando(k))?;
-        let tx = Texto::novo(self.fonte);
+    pub(crate) fn conditional_to_if_else(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+        let no = self.tree.localizar(start, end)?;
+        let command = self.with_parents(no).find(|&k| self.is_command(k))?;
+        let tx = Text::new(self.source);
         let eol = tx.eol();
-        let prefixo = self.prefixo_do_no(comando);
-        let mut m = Mudanca::default();
-        let partes = |cx: &Self, condicional: usize| -> Option<(String, String, String)> {
-            let f = cx.filhos(condicional);
-            Some((cx.texto_do_no(*f.first()?).to_string(), cx.texto_do_no(*f.get(1)?).to_string(), cx.texto_do_no(*f.get(2)?).to_string()))
+        let prefix = self.node_prefix(command);
+        let mut m = Change::default();
+        let parts = |cx: &Self, conditional: usize| -> Option<(String, String, String)> {
+            let f = cx.children(conditional);
+            Some((cx.node_text(*f.first()?).to_string(), cx.node_text(*f.get(1)?).to_string(), cx.node_text(*f.get(2)?).to_string()))
         };
-        match self.especie(comando) {
+        match self.kind(command) {
             "VariableDeclarationStatement" => {
-                let lista = *self.filhos(comando).first()?;
-                let tem_tipo = self.filhos(lista).iter().any(|&k| self.especie(k) != "VariableDeclaration" && self.especie(k) != "Annotation");
-                let mut importar = std::collections::BTreeSet::new();
-                for &variavel in self.filhos(lista).iter().filter(|&&k| self.especie(k) == "VariableDeclaration") {
-                    let Some(&condicional) = self.filhos(variavel).first() else { continue };
-                    if self.especie(condicional) != "ConditionalExpression" {
+                let list = *self.children(command).first()?;
+                let has_type = self.children(list).iter().any(|&k| self.kind(k) != "VariableDeclaration" && self.kind(k) != "Annotation");
+                let mut import = std::collections::BTreeSet::new();
+                for &variable in self.children(list).iter().filter(|&&k| self.kind(k) == "VariableDeclaration") {
+                    let Some(&conditional) = self.children(variable).first() else { continue };
+                    if self.kind(conditional) != "ConditionalExpression" {
                         continue;
                     }
-                    let nome = self.token_seguinte(self.arvore.nos[variavel].inicio)?;
-                    if !tem_tipo {
-                        let mut escritor = crate::write_type::Escritor::novo(self, nome.start);
-                        let tipo = self.expr_do_no(condicional).and_then(|x| self.corpos.get_type(x));
-                        let escrito = escritor.escrever_tipo(tipo, false).unwrap_or_default();
-                        importar.extend(escritor.importar.iter().copied());
+                    let name = self.next_token(self.tree.nos[variable].inicio)?;
+                    if !has_type {
+                        let mut writer = crate::write_type::Writer::new(self, name.start);
+                        let ty = self.node_expr(conditional).and_then(|x| self.bodies.get_type(x));
+                        let written = writer.write_type(ty, false).unwrap_or_default();
+                        import.extend(writer.import.iter().copied());
                         // A palavra-chave da lista (`late` à parte).
-                        let mut k = self.token_seguinte(self.arvore.nos[lista].inicio)?;
-                        if &self.fonte[k.start..k.end] == "late" {
-                            k = self.token_seguinte(k.end)?;
+                        let mut k = self.next_token(self.tree.nos[list].inicio)?;
+                        if &self.source[k.start..k.end] == "late" {
+                            k = self.next_token(k.end)?;
                         }
-                        if &self.fonte[k.start..k.end] == "var" {
-                            m.adicionar(uri, k, escrito);
+                        if &self.source[k.start..k.end] == "var" {
+                            m.add(uri, k, written);
                         } else {
-                            m.adicionar(uri, Span { start: nome.start, end: nome.start }, format!("{escrito} "));
+                            m.add(uri, Span { start: name.start, end: name.start }, format!("{written} "));
                         }
                     }
                     // `range.endEnd(variable.name, conditional)`.
-                    m.adicionar(uri, Span { start: nome.end, end: self.arvore.nos[condicional].fim }, String::new());
-                    let (c, a, b) = partes(self, condicional)?;
-                    let n = &self.fonte[nome.start..nome.end];
+                    m.add(uri, Span { start: name.end, end: self.tree.nos[conditional].fim }, String::new());
+                    let (c, a, b) = parts(self, conditional)?;
+                    let n = &self.source[name.start..name.end];
                     let src = format!(
-                        "{eol}{prefixo}if ({c}) {{{eol}{prefixo}{UM_RECUO}{n} = {a};{eol}{prefixo}}} else {{{eol}{prefixo}{UM_RECUO}{n} = {b};{eol}{prefixo}}}"
+                        "{eol}{prefix}if ({c}) {{{eol}{prefix}{ONE_INDENT}{n} = {a};{eol}{prefix}}} else {{{eol}{prefix}{ONE_INDENT}{n} = {b};{eol}{prefix}}}"
                     );
-                    let fim_do_comando = self.arvore.nos[comando].fim;
-                    m.adicionar(uri, Span { start: fim_do_comando, end: fim_do_comando }, src);
+                    let command_end = self.tree.nos[command].fim;
+                    m.add(uri, Span { start: command_end, end: command_end }, src);
                 }
-                crate::refactorings_move::imports_do_builder(self, &mut m, &importar);
+                crate::refactorings_move::builder_imports(self, &mut m, &import);
             }
             "ExpressionStatement" => {
-                let atribuicao = *self.filhos(comando).first()?;
-                if self.especie(atribuicao) != "AssignmentExpression" {
+                let assignment = *self.children(command).first()?;
+                if self.kind(assignment) != "AssignmentExpression" {
                     return None;
                 }
-                let f = self.filhos(atribuicao);
-                let (&esquerda, &condicional) = (f.first()?, f.get(1)?);
-                let operador = self.fonte[self.arvore.nos[esquerda].fim..self.arvore.nos[condicional].inicio].trim();
-                if operador != "=" || self.especie(condicional) != "ConditionalExpression" {
+                let f = self.children(assignment);
+                let (&left, &conditional) = (f.first()?, f.get(1)?);
+                let operator = self.source[self.tree.nos[left].fim..self.tree.nos[conditional].inicio].trim();
+                if operator != "=" || self.kind(conditional) != "ConditionalExpression" {
                     return None;
                 }
-                let (c, a, b) = partes(self, condicional)?;
-                let n = self.texto_do_no(esquerda);
+                let (c, a, b) = parts(self, conditional)?;
+                let n = self.node_text(left);
                 let src = format!(
-                    "if ({c}) {{{eol}{prefixo}{UM_RECUO}{n} = {a};{eol}{prefixo}}} else {{{eol}{prefixo}{UM_RECUO}{n} = {b};{eol}{prefixo}}}"
+                    "if ({c}) {{{eol}{prefix}{ONE_INDENT}{n} = {a};{eol}{prefix}}} else {{{eol}{prefix}{ONE_INDENT}{n} = {b};{eol}{prefix}}}"
                 );
-                m.adicionar(uri, self.arvore.span(comando), src);
+                m.add(uri, self.tree.span(command), src);
             }
             "ReturnStatement" => {
-                let &condicional = self.filhos(comando).first()?;
-                if self.especie(condicional) != "ConditionalExpression" {
+                let &conditional = self.children(command).first()?;
+                if self.kind(conditional) != "ConditionalExpression" {
                     return None;
                 }
-                let (c, a, b) = partes(self, condicional)?;
+                let (c, a, b) = parts(self, conditional)?;
                 let src = format!(
-                    "if ({c}) {{{eol}{prefixo}{UM_RECUO}return {a};{eol}{prefixo}}} else {{{eol}{prefixo}{UM_RECUO}return {b};{eol}{prefixo}}}"
+                    "if ({c}) {{{eol}{prefix}{ONE_INDENT}return {a};{eol}{prefix}}} else {{{eol}{prefix}{ONE_INDENT}return {b};{eol}{prefix}}}"
                 );
-                m.adicionar(uri, self.arvore.span(comando), src);
+                m.add(uri, self.tree.span(command), src);
             }
             _ => return None,
         }
-        if m.conflito.is_some() || m.arquivos.is_empty() {
+        if m.conflict.is_some() || m.files.is_empty() {
             return None;
         }
-        Some(AcaoDeCodigo {
-            titulo: "Replace conditional with 'if-else'".into(),
-            especie: "refactor.convert.conditionalToIfElse".into(),
-            edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
-            diagnostico: None,
-            criar_arquivo: None, ligado: Default::default(),
+        Some(CodeAction {
+            title: "Replace conditional with 'if-else'".into(),
+            kind: "refactor.convert.conditionalToIfElse".into(),
+            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            diagnostic: None,
+            create_file: None, linked: Default::default(),
         })
     }
 
     /// `isOperatorSelected` (`CorrectionProducer`): a seleção fica entre os
     /// operandos, ou é exatamente a expressão quando nenhum operando é
     /// binário.
-    pub(crate) fn operador_selecionado(&self, binaria: usize, inicio: usize, fim: usize) -> bool {
-        let f = self.filhos(binaria);
-        let (Some(&esquerda), Some(&direita)) = (f.first(), f.get(1)) else { return false };
-        let (e, d) = (&self.arvore.nos[esquerda], &self.arvore.nos[direita]);
-        if inicio >= e.fim && fim <= d.inicio {
+    pub(crate) fn selected_operator(&self, binary: usize, start: usize, end: usize) -> bool {
+        let f = self.children(binary);
+        let (Some(&left), Some(&right)) = (f.first(), f.get(1)) else { return false };
+        let (e, d) = (&self.tree.nos[left], &self.tree.nos[right]);
+        if start >= e.fim && end <= d.inicio {
             return true;
         }
-        if inicio == e.inicio && fim == d.fim {
-            return self.especie(esquerda) != "BinaryExpression" && self.especie(direita) != "BinaryExpression";
+        if start == e.inicio && end == d.fim {
+            return self.kind(left) != "BinaryExpression" && self.kind(right) != "BinaryExpression";
         }
         false
     }
 
     /// O operador de uma expressão binária (o texto entre os operandos).
-    pub(crate) fn operador_binario(&self, binaria: usize) -> Option<&str> {
-        let f = self.filhos(binaria);
+    pub(crate) fn binary_operator(&self, binary: usize) -> Option<&str> {
+        let f = self.children(binary);
         let (e, d) = (*f.first()?, *f.get(1)?);
-        Some(self.fonte[self.arvore.nos[e].fim..self.arvore.nos[d].inicio].trim())
+        Some(self.source[self.tree.nos[e].fim..self.tree.nos[d].inicio].trim())
     }
 
     /// `SplitAndCondition` (split_and_condition.dart): com o `&&` de primeiro
     /// nível da condição de um `if` sem `else` selecionado, a parte direita
     /// vira um `if` aninhado em volta do `then`, que ganha um recuo.
-    pub(crate) fn dividir_condicao_e(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
-        let binaria = self.arvore.localizar(inicio, fim)?;
-        if self.especie(binaria) != "BinaryExpression" || !self.operador_selecionado(binaria, inicio, fim) || self.operador_binario(binaria)? != "&&" {
+    pub(crate) fn split_and_condition(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+        let binary = self.tree.localizar(start, end)?;
+        if self.kind(binary) != "BinaryExpression" || !self.selected_operator(binary, start, end) || self.binary_operator(binary)? != "&&" {
             return None;
         }
-        let comando = self.com_pais(binaria).find(|&k| self.e_comando(k))?;
-        if self.especie(comando) != "IfStatement" {
+        let command = self.with_parents(binary).find(|&k| self.is_command(k))?;
+        if self.kind(command) != "IfStatement" {
             return None;
         }
-        let comandos_do_if: Vec<usize> = self.filhos(comando).iter().copied().filter(|&k| self.e_comando(k)).collect();
-        if comandos_do_if.len() != 1 {
+        let if_commands: Vec<usize> = self.children(command).iter().copied().filter(|&k| self.is_command(k)).collect();
+        if if_commands.len() != 1 {
             // Sem suporte a `else`.
             return None;
         }
-        let entao = comandos_do_if[0];
+        let then = if_commands[0];
         // A condição de primeiro nível: sobe pelos `&&`.
-        let mut condicao = binaria;
-        while let Some(p) = self.pai(condicao) {
-            if self.especie(p) == "BinaryExpression" && self.operador_binario(p) == Some("&&") {
-                condicao = p;
+        let mut condition = binary;
+        while let Some(p) = self.parent(condition) {
+            if self.kind(p) == "BinaryExpression" && self.binary_operator(p) == Some("&&") {
+                condition = p;
             } else {
                 break;
             }
         }
-        if self.filhos(comando).first() != Some(&condicao) {
+        if self.children(command).first() != Some(&condition) {
             return None;
         }
-        let tx = Texto::novo(self.fonte);
+        let tx = Text::new(self.source);
         let eol = tx.eol();
-        let prefixo = self.prefixo_do_no(comando);
-        let f = self.filhos(binaria);
-        let (esquerda, direita) = (f[0], f[1]);
-        let direita_fonte = &self.fonte[self.arvore.nos[direita].inicio..self.arvore.nos[condicao].fim];
-        let mut m = Mudanca::default();
+        let prefix = self.node_prefix(command);
+        let f = self.children(binary);
+        let (left, right) = (f[0], f[1]);
+        let right_source = &self.source[self.tree.nos[right].inicio..self.tree.nos[condition].fim];
+        let mut m = Change::default();
         // Tira "&& direita".
-        m.adicionar(uri, Span { start: self.arvore.nos[esquerda].fim, end: self.arvore.nos[condicao].fim }, String::new());
-        let comandos: Vec<usize> = if self.especie(entao) == "Block" {
-            let bloco = self.arvore.span(entao);
-            m.adicionar(uri, Span { start: bloco.start + 1, end: bloco.start + 1 }, format!("{eol}{prefixo}{UM_RECUO}if ({direita_fonte}) {{"));
-            m.adicionar(uri, Span { start: bloco.end - 1, end: bloco.end - 1 }, format!("{UM_RECUO}}}{eol}{prefixo}"));
-            self.filhos(entao).to_vec()
+        m.add(uri, Span { start: self.tree.nos[left].fim, end: self.tree.nos[condition].fim }, String::new());
+        let commands: Vec<usize> = if self.kind(then) == "Block" {
+            let block = self.tree.span(then);
+            m.add(uri, Span { start: block.start + 1, end: block.start + 1 }, format!("{eol}{prefix}{ONE_INDENT}if ({right_source}) {{"));
+            m.add(uri, Span { start: block.end - 1, end: block.end - 1 }, format!("{ONE_INDENT}}}{eol}{prefix}"));
+            self.children(then).to_vec()
         } else {
-            let fecha = self.token_anterior(self.arvore.nos[entao].inicio)?;
-            m.adicionar(uri, Span { start: fecha.start + 1, end: fecha.start + 1 }, format!("{eol}{prefixo}{UM_RECUO}if ({direita_fonte})"));
-            vec![entao]
+            let closes = self.previous_token(self.tree.nos[then].inicio)?;
+            m.add(uri, Span { start: closes.start + 1, end: closes.start + 1 }, format!("{eol}{prefix}{ONE_INDENT}if ({right_source})"));
+            vec![then]
         };
         // O recuo dos comandos do `then` (`getLinesRangeStatements`, que
         // falha sem comandos).
-        let (&primeiro, &ultimo) = (comandos.first()?, comandos.last()?);
-        let linhas = tx.faixa_de_linhas(self.arvore.nos[primeiro].inicio, self.arvore.nos[ultimo].fim);
-        let velho = format!("{prefixo}{UM_RECUO}");
-        let novo = format!("{velho}{UM_RECUO}");
-        m.adicionar(uri, linhas, tx.trocar_recuo(&self.fonte[linhas.start..linhas.end], &velho, &novo, true, true));
-        if m.conflito.is_some() {
+        let (&first, &last) = (commands.first()?, commands.last()?);
+        let lines = tx.line_range(self.tree.nos[first].inicio, self.tree.nos[last].fim);
+        let old = format!("{prefix}{ONE_INDENT}");
+        let new = format!("{old}{ONE_INDENT}");
+        m.add(uri, lines, tx.swap_indent(&self.source[lines.start..lines.end], &old, &new, true, true));
+        if m.conflict.is_some() {
             return None;
         }
-        Some(AcaoDeCodigo {
-            titulo: "Split && condition".into(),
-            especie: "refactor.splitIfConjunction".into(),
-            edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
-            diagnostico: None,
-            criar_arquivo: None, ligado: Default::default(),
+        Some(CodeAction {
+            title: "Split && condition".into(),
+            kind: "refactor.splitIfConjunction".into(),
+            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            diagnostic: None,
+            create_file: None, linked: Default::default(),
         })
     }
 
     /// `unParenthesized`.
-    pub(crate) fn sem_parenteses(&self, mut n: usize) -> usize {
-        while self.especie(n) == "ParenthesizedExpression" {
-            match self.filhos(n).first() {
+    pub(crate) fn without_parens(&self, mut n: usize) -> usize {
+        while self.kind(n) == "ParenthesizedExpression" {
+            match self.children(n).first() {
                 Some(&f) => n = f,
                 None => break,
             }
@@ -215,298 +215,298 @@ impl Contexto<'_> {
     }
 
     /// O `toString` de uma expressão (o `toSource`).
-    fn como_texto(&self, n: usize) -> String {
-        crate::assist_loops::como_fonte(self.texto_do_no(n))
+    fn as_text(&self, n: usize) -> String {
+        crate::assist_loops::as_source(self.node_text(n))
     }
 
-    /// O operador de acesso (`.`, `?.`, `..`) entre o alvo `alvo` e o nome
+    /// O operador de acesso (`.`, `?.`, `..`) entre o alvo `target` e o nome
     /// seguinte.
-    fn operador_de_acesso(&self, alvo: usize) -> Option<Span> {
-        let s = self.token_seguinte(self.arvore.nos[alvo].fim)?;
-        matches!(&self.fonte[s.start..s.end], "." | "?." | ".." | "?..").then_some(s)
+    fn access_operator(&self, target: usize) -> Option<Span> {
+        let s = self.next_token(self.tree.nos[target].fim)?;
+        matches!(&self.source[s.start..s.end], "." | "?." | ".." | "?..").then_some(s)
     }
 
     /// `ConvertToNullAware` (convert_to_null_aware.dart): `x == null ? null :
-    /// x.y` (ou com `!=`) vira `x?.y`.
-    pub(crate) fn converter_em_null_aware(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
-        let no = self.arvore.localizar(inicio, fim)?;
-        let mut alvo = no;
-        if let Some(p) = self.pai(no)
-            && self.especie(p) == "BinaryExpression"
-            && let Some(a) = self.pai(p)
-            && self.especie(a) == "ConditionalExpression"
+    /// x.y` (or com `!=`) vira `x?.y`.
+    pub(crate) fn convert_to_null_aware(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+        let no = self.tree.localizar(start, end)?;
+        let mut target = no;
+        if let Some(p) = self.parent(no)
+            && self.kind(p) == "BinaryExpression"
+            && let Some(a) = self.parent(p)
+            && self.kind(a) == "ConditionalExpression"
         {
-            alvo = a;
+            target = a;
         }
-        if self.especie(alvo) != "ConditionalExpression" {
+        if self.kind(target) != "ConditionalExpression" {
             return None;
         }
-        let f = self.filhos(alvo);
-        let (condicao, entao, senao) = (self.sem_parenteses(*f.first()?), *f.get(1)?, *f.get(2)?);
-        if self.especie(condicao) != "BinaryExpression" {
+        let f = self.children(target);
+        let (condition, then, else_) = (self.without_parens(*f.first()?), *f.get(1)?, *f.get(2)?);
+        if self.kind(condition) != "BinaryExpression" {
             return None;
         }
-        let fc = self.filhos(condicao);
-        let (esquerda, direita) = (*fc.first()?, *fc.get(1)?);
-        let nulo = |k: usize| self.especie(k) == "NullLiteral";
-        let texto_da_condicao = if nulo(esquerda) && !nulo(direita) {
-            self.como_texto(direita)
-        } else if nulo(direita) && !nulo(esquerda) {
-            self.como_texto(esquerda)
+        let fc = self.children(condition);
+        let (left, right) = (*fc.first()?, *fc.get(1)?);
+        let null = |k: usize| self.kind(k) == "NullLiteral";
+        let condition_text = if null(left) && !null(right) {
+            self.as_text(right)
+        } else if null(right) && !null(left) {
+            self.as_text(left)
         } else {
             return None;
         };
-        let (expressao_nula, nao_nula) = match self.operador_binario(condicao)? {
-            "==" => (entao, senao),
-            "!=" => (senao, entao),
+        let (null_expression, non_null) = match self.binary_operator(condition)? {
+            "==" => (then, else_),
+            "!=" => (else_, then),
             _ => return None,
         };
-        if !nulo(self.sem_parenteses(expressao_nula)) {
+        if !null(self.without_parens(null_expression)) {
             return None;
         }
-        let mut resultado = self.sem_parenteses(nao_nula);
-        let mut operador: Option<Span> = None;
+        let mut result = self.without_parens(non_null);
+        let mut operator: Option<Span> = None;
         loop {
-            match self.especie(resultado) {
+            match self.kind(result) {
                 "PrefixedIdentifier" => {
-                    let prefixo = *self.filhos(resultado).first()?;
-                    operador = Some(self.operador_de_acesso(prefixo)?);
-                    resultado = prefixo;
+                    let prefix = *self.children(result).first()?;
+                    operator = Some(self.access_operator(prefix)?);
+                    result = prefix;
                 }
                 "MethodInvocation" | "PropertyAccess" => {
                     // Sem alvo, o `default` do produtor.
-                    let primeiro = *self.filhos(resultado).first()?;
-                    let op = self.operador_de_acesso(primeiro)?;
-                    if op.start < self.arvore.nos[primeiro].fim {
+                    let first = *self.children(result).first()?;
+                    let op = self.access_operator(first)?;
+                    if op.start < self.tree.nos[first].fim {
                         return None;
                     }
-                    if self.especie(resultado) == "MethodInvocation" && self.nome_do_metodo(resultado) == Some(primeiro) {
+                    if self.kind(result) == "MethodInvocation" && self.method_name(result) == Some(first) {
                         return None;
                     }
-                    operador = Some(op);
-                    resultado = primeiro;
+                    operator = Some(op);
+                    result = first;
                 }
-                "PostfixExpression" if self.fonte[self.arvore.nos[resultado].inicio..self.arvore.nos[resultado].fim].ends_with('!') => {
-                    resultado = *self.filhos(resultado).first()?;
+                "PostfixExpression" if self.source[self.tree.nos[result].inicio..self.tree.nos[result].fim].ends_with('!') => {
+                    result = *self.children(result).first()?;
                 }
                 _ => return None,
             }
-            if self.como_texto(resultado) == texto_da_condicao {
+            if self.as_text(result) == condition_text {
                 break;
             }
         }
-        let (faixa, interrogacao) = match operador {
+        let (range, question) = match operator {
             Some(op) => {
-                let q = if &self.fonte[op.start..op.end] == "." { "?" } else { "" };
-                (Span { start: self.arvore.nos[resultado].fim, end: op.start }, q)
+                let q = if &self.source[op.start..op.end] == "." { "?" } else { "" };
+                (Span { start: self.tree.nos[result].fim, end: op.start }, q)
             }
-            None if self.pai(resultado).is_some_and(|p| self.especie(p) == "PostfixExpression") => {
-                (Span { start: self.arvore.nos[resultado].fim, end: self.arvore.nos[self.pai(resultado)?].fim }, "")
+            None if self.parent(result).is_some_and(|p| self.kind(p) == "PostfixExpression") => {
+                (Span { start: self.tree.nos[result].fim, end: self.tree.nos[self.parent(result)?].fim }, "")
             }
             None => return None,
         };
-        let mut m = Mudanca::default();
-        m.adicionar(uri, Span { start: self.arvore.nos[alvo].inicio, end: self.arvore.nos[nao_nula].inicio }, String::new());
-        m.adicionar(uri, faixa, interrogacao.to_string());
-        m.adicionar(uri, Span { start: self.arvore.nos[nao_nula].fim, end: self.arvore.nos[alvo].fim }, String::new());
-        if m.conflito.is_some() {
+        let mut m = Change::default();
+        m.add(uri, Span { start: self.tree.nos[target].inicio, end: self.tree.nos[non_null].inicio }, String::new());
+        m.add(uri, range, question.to_string());
+        m.add(uri, Span { start: self.tree.nos[non_null].fim, end: self.tree.nos[target].fim }, String::new());
+        if m.conflict.is_some() {
             return None;
         }
-        Some(AcaoDeCodigo {
-            titulo: "Convert to use '?.'".into(),
-            especie: "refactor.convert.toNullAware".into(),
-            edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
-            diagnostico: None,
-            criar_arquivo: None, ligado: Default::default(),
+        Some(CodeAction {
+            title: "Convert to use '?.'".into(),
+            kind: "refactor.convert.toNullAware".into(),
+            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            diagnostic: None,
+            create_file: None, linked: Default::default(),
         })
     }
 
     /// A biblioteca tem padrões (Dart 3.0).
-    pub(crate) fn com_padroes(&self) -> bool {
-        let prog = self.p.programa();
-        prog.library(prog.unit(self.unidade).library).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0)
+    pub(crate) fn with_patterns(&self) -> bool {
+        let prog = self.p.program();
+        prog.library(prog.unit(self.unit).library).features.versao() >= dartforge_frontend::features::LanguageVersion::new(3, 0)
     }
 
-    /// Algum identificador de `n` lê o local declarado em `nome`.
-    pub(crate) fn cita_local(&self, n: usize, nome: usize) -> bool {
-        let mut pilha = vec![n];
-        while let Some(k) = pilha.pop() {
-            if self.especie(k) == "SimpleIdentifier"
-                && let crate::arvore_analyzer::Marca::Expr(x) = self.arvore.nos[k].marca
-                && matches!(self.corpos.get_resolved(x), Some(dartforge_types::Resolved::Local(_)))
-                && self.corpos.declaracao_local(x) == Some(nome)
+    /// Algum identificador de `n` lê o local declarado em `name`.
+    pub(crate) fn cites_local(&self, n: usize, name: usize) -> bool {
+        let mut stack = vec![n];
+        while let Some(k) = stack.pop() {
+            if self.kind(k) == "SimpleIdentifier"
+                && let crate::arvore_analyzer::Marca::Expr(x) = self.tree.nos[k].marca
+                && matches!(self.bodies.get_resolved(x), Some(dartforge_types::Resolved::Local(_)))
+                && self.bodies.declaracao_local(x) == Some(name)
             {
                 return true;
             }
-            pilha.extend(self.filhos(k).iter().copied());
+            stack.extend(self.children(k).iter().copied());
         }
         false
     }
 
     /// `asSingleVariableDeclaration`: o comando declara um só local com
     /// inicializador; o nome, o inicializador e se é `final`.
-    pub(crate) fn declaracao_unica(&self, comando: usize) -> Option<(Span, usize, bool)> {
-        if self.especie(comando) != "VariableDeclarationStatement" {
+    pub(crate) fn single_declaration(&self, command: usize) -> Option<(Span, usize, bool)> {
+        if self.kind(command) != "VariableDeclarationStatement" {
             return None;
         }
-        let lista = *self.filhos(comando).first()?;
-        let variaveis: Vec<usize> = self.filhos(lista).iter().copied().filter(|&k| self.especie(k) == "VariableDeclaration").collect();
-        let [variavel] = variaveis[..] else { return None };
-        let nome = self.token_seguinte(self.arvore.nos[variavel].inicio)?;
-        self.corpos.tipos_de_locais.get(&nome.start)?;
-        let inicializador = *self.filhos(variavel).first()?;
+        let list = *self.children(command).first()?;
+        let variables: Vec<usize> = self.children(list).iter().copied().filter(|&k| self.kind(k) == "VariableDeclaration").collect();
+        let [variable] = variables[..] else { return None };
+        let name = self.next_token(self.tree.nos[variable].inicio)?;
+        self.bodies.tipos_de_locais.get(&name.start)?;
+        let initializer = *self.children(variable).first()?;
         let final_ = self.tokens.iter().any(|t| {
-            t.span.start >= self.arvore.nos[lista].inicio && t.span.end <= nome.start && matches!(&self.fonte[t.span.start..t.span.end], "final" | "const")
+            t.span.start >= self.tree.nos[list].inicio && t.span.end <= name.start && matches!(&self.source[t.span.start..t.span.end], "final" | "const")
         });
-        Some((nome, inicializador, final_))
+        Some((name, initializer, final_))
     }
 
     /// `ConvertToIfCaseStatement` (convert_to_if_case_statement.dart): o local
     /// declarado no comando anterior ao `if` e testado com `is T` ou
     /// `!= null`, sem leitura depois do `then`, passa para o `if-case`.
-    pub(crate) fn converter_em_if_case(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
-        if !self.com_padroes() {
+    pub(crate) fn convert_to_if_case(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+        if !self.with_patterns() {
             return None;
         }
-        let comando = self.arvore.localizar(inicio, fim)?;
-        if self.especie(comando) != "IfStatement" {
+        let command = self.tree.localizar(start, end)?;
+        if self.kind(command) != "IfStatement" {
             return None;
         }
-        let bloco = self.pai(comando)?;
-        if self.especie(bloco) != "Block" {
+        let block = self.parent(command)?;
+        if self.kind(block) != "Block" {
             return None;
         }
-        let comandos = self.filhos(bloco);
-        let indice = comandos.iter().position(|&c| c == comando)?;
-        let anterior = *comandos.get(indice.checked_sub(1)?)?;
-        let (nome, inicializador, final_) = self.declaracao_unica(anterior)?;
-        let nome_texto = &self.fonte[nome.start..nome.end];
-        let filhos_do_if = self.filhos(comando);
-        let condicao = *filhos_do_if.first()?;
-        let ramos: Vec<usize> = filhos_do_if.iter().copied().filter(|&k| self.e_comando(k)).collect();
-        let referencias_depois = || ramos.get(1).is_some_and(|&e| self.cita_local(e, nome.start)) || comandos[indice + 1..].iter().any(|&c| self.cita_local(c, nome.start));
-        let padrao = match self.especie(condicao) {
+        let commands = self.children(block);
+        let index = commands.iter().position(|&c| c == command)?;
+        let previous = *commands.get(index.checked_sub(1)?)?;
+        let (name, initializer, final_) = self.single_declaration(previous)?;
+        let name_text = &self.source[name.start..name.end];
+        let if_children = self.children(command);
+        let condition = *if_children.first()?;
+        let branches: Vec<usize> = if_children.iter().copied().filter(|&k| self.is_command(k)).collect();
+        let references_after = || branches.get(1).is_some_and(|&e| self.cites_local(e, name.start)) || commands[index + 1..].iter().any(|&c| self.cites_local(c, name.start));
+        let pattern = match self.kind(condition) {
             "IsExpression" => {
-                let f = self.filhos(condicao);
-                let (esquerda, tipo) = (*f.first()?, *f.get(1)?);
-                if self.especie(esquerda) != "SimpleIdentifier" || self.texto_do_no(esquerda) != nome_texto || referencias_depois() {
+                let f = self.children(condition);
+                let (left, ty) = (*f.first()?, *f.get(1)?);
+                if self.kind(left) != "SimpleIdentifier" || self.node_text(left) != name_text || references_after() {
                     return None;
                 }
-                format!("{}{} {nome_texto}", if final_ { "final " } else { "" }, self.texto_do_no(tipo))
+                format!("{}{} {name_text}", if final_ { "final " } else { "" }, self.node_text(ty))
             }
             "BinaryExpression" => {
-                let f = self.filhos(condicao);
-                let (esquerda, direita) = (*f.first()?, *f.get(1)?);
-                if self.operador_binario(condicao)? != "!="
-                    || self.especie(direita) != "NullLiteral"
-                    || self.especie(esquerda) != "SimpleIdentifier"
-                    || self.texto_do_no(esquerda) != nome_texto
-                    || referencias_depois()
+                let f = self.children(condition);
+                let (left, right) = (*f.first()?, *f.get(1)?);
+                if self.binary_operator(condition)? != "!="
+                    || self.kind(right) != "NullLiteral"
+                    || self.kind(left) != "SimpleIdentifier"
+                    || self.node_text(left) != name_text
+                    || references_after()
                 {
                     return None;
                 }
-                format!("{} {nome_texto}?", if final_ { "final" } else { "var" })
+                format!("{} {name_text}?", if final_ { "final" } else { "var" })
             }
             _ => return None,
         };
-        let edicoes = vec![
-            Edicao { uri: uri.to_string(), span: self.arvore.span(condicao), texto: format!("{} case {padrao}", self.texto_do_no(inicializador)) },
-            Edicao { uri: uri.to_string(), span: Span { start: self.arvore.nos[anterior].inicio, end: self.arvore.nos[comando].inicio }, texto: String::new() },
+        let edits = vec![
+            Edit { uri: uri.to_string(), span: self.tree.span(condition), text: format!("{} case {pattern}", self.node_text(initializer)) },
+            Edit { uri: uri.to_string(), span: Span { start: self.tree.nos[previous].inicio, end: self.tree.nos[command].inicio }, text: String::new() },
         ];
-        Some(AcaoDeCodigo {
-            titulo: "Convert to 'if-case' statement".into(),
-            especie: "refactor.convert.ifCaseStatement".into(),
-            edicoes,
-            diagnostico: None,
-            criar_arquivo: None, ligado: Default::default(),
+        Some(CodeAction {
+            title: "Convert to 'if-case' statement".into(),
+            kind: "refactor.convert.ifCaseStatement".into(),
+            edits,
+            diagnostic: None,
+            create_file: None, linked: Default::default(),
         })
     }
 
     /// `SwitchStatement.memberGroups`: os membros juntados até o primeiro que
     /// tem comandos; cada grupo com os comandos dele.
-    pub(crate) fn grupos_de_membros(&self, switch: usize) -> Vec<(Vec<usize>, Vec<usize>)> {
-        let mut grupos = Vec::new();
-        let mut membros = Vec::new();
-        for &m in self.filhos(switch).iter().filter(|&&k| matches!(self.especie(k), "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")) {
-            membros.push(m);
-            let comandos: Vec<usize> = self.filhos(m).iter().copied().filter(|&k| self.e_comando(k)).collect();
-            if !comandos.is_empty() {
-                grupos.push((std::mem::take(&mut membros), comandos));
+    pub(crate) fn member_groups(&self, switch: usize) -> Vec<(Vec<usize>, Vec<usize>)> {
+        let mut groups = Vec::new();
+        let mut members = Vec::new();
+        for &m in self.children(switch).iter().filter(|&&k| matches!(self.kind(k), "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")) {
+            members.push(m);
+            let commands: Vec<usize> = self.children(m).iter().copied().filter(|&k| self.is_command(k)).collect();
+            if !commands.is_empty() {
+                groups.push((std::mem::take(&mut members), commands));
             }
         }
-        if !membros.is_empty() {
-            grupos.push((membros, Vec::new()));
+        if !members.is_empty() {
+            groups.push((members, Vec::new()));
         }
-        grupos
+        groups
     }
 
     /// `_writeStatements`: os comandos (sem o `break` final), recuados para
-    /// um nível dentro de `recuo`.
-    pub(crate) fn comandos_recuados(&self, comandos: &[usize], recuo: &str) -> String {
-        let mut comandos = comandos;
-        if comandos.last().is_some_and(|&c| self.especie(c) == "BreakStatement") {
-            comandos = &comandos[..comandos.len() - 1];
+    /// um nível dentro de `indent`.
+    pub(crate) fn indented_commands(&self, commands: &[usize], indent: &str) -> String {
+        let mut commands = commands;
+        if commands.last().is_some_and(|&c| self.kind(c) == "BreakStatement") {
+            commands = &commands[..commands.len() - 1];
         }
-        let (Some(&primeiro), Some(&ultimo)) = (comandos.first(), comandos.last()) else { return String::new() };
-        let tx = Texto::novo(self.fonte);
-        let faixa = tx.faixa_de_linhas(self.arvore.nos[primeiro].inicio, self.arvore.nos[ultimo].fim);
-        let primeiro_recuo = tx.prefixo_da_linha(self.arvore.nos[primeiro].inicio);
-        tx.trocar_recuo(&self.fonte[faixa.start..faixa.end], primeiro_recuo, &format!("{recuo}{UM_RECUO}"), true, true)
+        let (Some(&first), Some(&last)) = (commands.first(), commands.last()) else { return String::new() };
+        let tx = Text::new(self.source);
+        let range = tx.line_range(self.tree.nos[first].inicio, self.tree.nos[last].fim);
+        let first_indent = tx.line_prefix(self.tree.nos[first].inicio);
+        tx.swap_indent(&self.source[range.start..range.end], first_indent, &format!("{indent}{ONE_INDENT}"), true, true)
     }
 
     /// `ConvertToIfCaseStatementChain`: um `switch` de casos de padrão vira uma
     /// cadeia de `if-case`, com o `default` como `else`.
-    pub(crate) fn switch_em_cadeia_de_if_case(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
-        let switch = self.arvore.localizar(inicio, fim)?;
-        if self.especie(switch) != "SwitchStatement" {
+    pub(crate) fn switch_to_if_case_chain(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+        let switch = self.tree.localizar(start, end)?;
+        if self.kind(switch) != "SwitchStatement" {
             return None;
         }
-        let grupos = self.grupos_de_membros(switch);
-        if grupos.is_empty() {
+        let groups = self.member_groups(switch);
+        if groups.is_empty() {
             return None;
         }
-        let tx = Texto::novo(self.fonte);
+        let tx = Text::new(self.source);
         let eol = tx.eol();
-        let recuo = tx.prefixo_da_linha(self.arvore.nos[switch].inicio).to_string();
-        let expressao = self.texto_do_no(*self.filhos(switch).first()?).to_string();
+        let indent = tx.line_prefix(self.tree.nos[switch].inicio).to_string();
+        let expression = self.node_text(*self.children(switch).first()?).to_string();
         let mut s = String::new();
-        for (i, (membros, comandos)) in grupos.iter().enumerate() {
+        for (i, (members, commands)) in groups.iter().enumerate() {
             if i > 0 {
                 s.push_str(" else ");
             }
-            if membros.iter().any(|&m| self.especie(m) == "SwitchDefault") {
-                if membros.len() != 1 {
+            if members.iter().any(|&m| self.kind(m) == "SwitchDefault") {
+                if members.len() != 1 {
                     return None;
                 }
                 s.push_str(&format!("{{{eol}"));
             } else {
-                let guardados: Vec<usize> = membros
+                let saved: Vec<usize> = members
                     .iter()
-                    .filter(|&&m| self.especie(m) == "SwitchPatternCase")
-                    .filter_map(|&m| self.filhos(m).iter().copied().find(|&k| self.especie(k) == "GuardedPattern"))
+                    .filter(|&&m| self.kind(m) == "SwitchPatternCase")
+                    .filter_map(|&m| self.children(m).iter().copied().find(|&k| self.kind(k) == "GuardedPattern"))
                     .collect();
-                if guardados.len() != membros.len() {
+                if saved.len() != members.len() {
                     return None;
                 }
-                let padrao = if let [g] = guardados[..] {
-                    self.texto_do_no(g).to_string()
+                let pattern = if let [g] = saved[..] {
+                    self.node_text(g).to_string()
                 } else {
-                    if guardados.iter().any(|&g| self.filhos(g).iter().any(|&k| self.especie(k) == "WhenClause")) {
+                    if saved.iter().any(|&g| self.children(g).iter().any(|&k| self.kind(k) == "WhenClause")) {
                         return None;
                     }
-                    guardados.iter().filter_map(|&g| self.filhos(g).first().map(|&p| self.texto_do_no(p).to_string())).collect::<Vec<_>>().join(" || ")
+                    saved.iter().filter_map(|&g| self.children(g).first().map(|&p| self.node_text(p).to_string())).collect::<Vec<_>>().join(" || ")
                 };
-                s.push_str(&format!("if ({expressao} case {padrao}) {{{eol}"));
+                s.push_str(&format!("if ({expression} case {pattern}) {{{eol}"));
             }
-            s.push_str(&self.comandos_recuados(comandos, &recuo));
-            s.push_str(&format!("{recuo}}}"));
+            s.push_str(&self.indented_commands(commands, &indent));
+            s.push_str(&format!("{indent}}}"));
         }
-        Some(AcaoDeCodigo {
-            titulo: "Convert to 'if-case' statement chain".into(),
-            especie: "refactor.convert.ifCaseStatementChain".into(),
-            edicoes: vec![Edicao { uri: uri.to_string(), span: self.arvore.span(switch), texto: s }],
-            diagnostico: None,
-            criar_arquivo: None, ligado: Default::default(),
+        Some(CodeAction {
+            title: "Convert to 'if-case' statement chain".into(),
+            kind: "refactor.convert.ifCaseStatementChain".into(),
+            edits: vec![Edit { uri: uri.to_string(), span: self.tree.span(switch), text: s }],
+            diagnostic: None,
+            create_file: None, linked: Default::default(),
         })
     }
 }

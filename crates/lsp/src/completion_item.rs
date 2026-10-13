@@ -7,190 +7,190 @@
 //! código (§14.8.9).
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use crate::completion::{Chamada, ItemCompletar};
+use crate::completion::{Call, CompletionItem};
 use serde_json::{Value, json};
 
 /// O que o cliente anunciou para o completar (`client_capabilities.dart:155-202`).
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Capacidades {
-    pub obsoleto: bool,
-    pub tag_obsoleto: bool,
+pub(crate) struct Capabilities {
+    pub deprecated: bool,
+    pub deprecated_tag: bool,
     /// `documentationFormat` (`None`: o cliente não mandou o campo).
-    pub formatos_de_doc: Option<Vec<String>>,
+    pub doc_formats: Option<Vec<String>>,
     pub snippet: bool,
-    pub inserir_substituir: bool,
-    pub modos_de_insercao: Vec<u64>,
-    pub detalhes_do_rotulo: bool,
-    pub especies: Option<Vec<u64>>,
+    pub insert_replace: bool,
+    pub insertion_modes: Vec<u64>,
+    pub label_details: bool,
+    pub kinds: Option<Vec<u64>>,
     /// `completionList.itemDefaults` contém `editRange` / `insertTextMode`.
-    pub padrao_intervalo: bool,
-    pub padrao_modo: bool,
+    pub default_range: bool,
+    pub default_mode: bool,
 }
 
-impl Capacidades {
-    pub(crate) fn do_initialize(c: &Value) -> Capacidades {
+impl Capabilities {
+    pub(crate) fn of_initialize(c: &Value) -> Capabilities {
         let item = c.pointer("/textDocument/completion/completionItem");
         let b = |p: &str| item.and_then(|i| i.pointer(p)).and_then(Value::as_bool).unwrap_or(false);
-        let padroes: Vec<String> = c
+        let patterns: Vec<String> = c
             .pointer("/textDocument/completion/completionList/itemDefaults")
             .and_then(Value::as_array)
             .map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect())
             .unwrap_or_default();
-        Capacidades {
-            obsoleto: b("/deprecatedSupport"),
-            tag_obsoleto: item.and_then(|i| i.pointer("/tagSupport/valueSet")).and_then(Value::as_array).is_some_and(|l| l.iter().any(|x| x.as_u64() == Some(1))),
-            formatos_de_doc: item.and_then(|i| i.get("documentationFormat")).and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect()),
+        Capabilities {
+            deprecated: b("/deprecatedSupport"),
+            deprecated_tag: item.and_then(|i| i.pointer("/tagSupport/valueSet")).and_then(Value::as_array).is_some_and(|l| l.iter().any(|x| x.as_u64() == Some(1))),
+            doc_formats: item.and_then(|i| i.get("documentationFormat")).and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect()),
             snippet: b("/snippetSupport"),
-            inserir_substituir: b("/insertReplaceSupport"),
-            modos_de_insercao: item.and_then(|i| i.pointer("/insertTextModeSupport/valueSet")).and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_u64).collect()).unwrap_or_default(),
-            detalhes_do_rotulo: b("/labelDetailsSupport"),
-            especies: c.pointer("/textDocument/completion/completionItemKind/valueSet").and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_u64).collect()),
-            padrao_intervalo: padroes.iter().any(|p| p == "editRange"),
-            padrao_modo: padroes.iter().any(|p| p == "insertTextMode"),
+            insert_replace: b("/insertReplaceSupport"),
+            insertion_modes: item.and_then(|i| i.pointer("/insertTextModeSupport/valueSet")).and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_u64).collect()).unwrap_or_default(),
+            label_details: b("/labelDetailsSupport"),
+            kinds: c.pointer("/textDocument/completion/completionItemKind/valueSet").and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_u64).collect()),
+            default_range: patterns.iter().any(|p| p == "editRange"),
+            default_mode: patterns.iter().any(|p| p == "insertTextMode"),
         }
     }
 
     /// O primeiro `kind` da preferência que o cliente aceita (sem
     /// `valueSet`, o conjunto padrão do LSP: 1 a 18).
-    fn especie(&self, preferencia: &[u64]) -> Option<u64> {
-        preferencia.iter().copied().find(|k| match &self.especies {
+    fn kind(&self, preference: &[u64]) -> Option<u64> {
+        preference.iter().copied().find(|k| match &self.kinds {
             Some(l) => l.contains(k),
             None => (1..=18).contains(k),
         })
     }
 
     /// A documentação no formato do cliente (`MAP:1619-1634`, `:79-85`).
-    fn documentacao(&self, texto: String) -> Value {
-        match &self.formatos_de_doc {
-            None => json!(texto),
+    fn documentation(&self, text: String) -> Value {
+        match &self.doc_formats {
+            None => json!(text),
             Some(l) => {
                 let markdown = l.is_empty() || l.iter().any(|f| f == "markdown") || !l.iter().any(|f| f == "plaintext");
-                json!({"kind": if markdown { "markdown" } else { "plaintext" }, "value": texto})
+                json!({"kind": if markdown { "markdown" } else { "plaintext" }, "value": text})
             }
         }
     }
 }
 
 /// O contexto de um pedido de completar.
-pub(crate) struct Pedido<'a> {
+pub(crate) struct Request<'a> {
     /// `replacementRange` e `insert` (já em posições LSP).
-    pub substituir: Value,
-    pub inserir: Value,
-    pub iguais: bool,
+    pub replace: Value,
+    pub insert: Value,
+    pub equal: bool,
     /// `itemDefaults.editRange` vigente.
-    pub padrao: bool,
+    pub pattern: bool,
     /// O `completeFunctionCalls` efetivo (configuração e sem lista de
     /// argumentos no alvo).
-    pub chamadas: bool,
+    pub calls: bool,
     /// O caminho do arquivo em edição (`data.file`).
-    pub arquivo: &'a str,
+    pub file: &'a str,
     /// A preferência `documentation` (`none`/`summary`/`full`).
-    pub preferencia_de_doc: &'a str,
+    pub doc_preference: &'a str,
 }
 
 /// `escapeSnippetPlainText`.
-fn escapar(t: &str) -> String {
+fn escape(t: &str) -> String {
     t.replace('\\', "\\\\").replace('$', "\\$")
 }
 
-/// `buildSnippetStringWithTabStops(texto, pares)`.
-fn snippet_com_paradas(texto: &str, pares: &[(usize, usize)]) -> String {
-    let unidades: Vec<u16> = texto.encode_utf16().collect();
-    let validos: Vec<(usize, usize)> = pares.iter().copied().filter(|&(o, l)| o + l <= unidades.len()).collect();
+/// `buildSnippetStringWithTabStops(text, pairs)`.
+fn snippet_with_stops(text: &str, pairs: &[(usize, usize)]) -> String {
+    let units: Vec<u16> = text.encode_utf16().collect();
+    let valid: Vec<(usize, usize)> = pairs.iter().copied().filter(|&(o, l)| o + l <= units.len()).collect();
     let mut s = String::new();
     let mut pos = 0usize;
-    let unico = validos.len() == 1;
-    for (i, &(o, l)) in validos.iter().enumerate() {
-        s.push_str(&escapar(&String::from_utf16_lossy(&unidades[pos..o])));
-        let n = if unico { 0 } else { i + 1 };
-        let dentro = String::from_utf16_lossy(&unidades[o..o + l]);
-        if dentro.is_empty() {
+    let single = valid.len() == 1;
+    for (i, &(o, l)) in valid.iter().enumerate() {
+        s.push_str(&escape(&String::from_utf16_lossy(&units[pos..o])));
+        let n = if single { 0 } else { i + 1 };
+        let inside = String::from_utf16_lossy(&units[o..o + l]);
+        if inside.is_empty() {
             s.push_str(&format!("${n}"));
         } else {
-            let e = dentro.replace('\\', "\\\\").replace('$', "\\$").replace('}', "\\}");
+            let e = inside.replace('\\', "\\\\").replace('$', "\\$").replace('}', "\\}");
             s.push_str(&format!("${{{n}:{e}}}"));
         }
         pos = o + l;
     }
-    s.push_str(&escapar(&String::from_utf16_lossy(&unidades[pos..])));
+    s.push_str(&escape(&String::from_utf16_lossy(&units[pos..])));
     s
 }
 
 /// `computeCompletionDefaultArgumentList`: o texto e os pares (UTF-16).
-fn lista_padrao(parametros: &[String]) -> Option<(String, Vec<(usize, usize)>)> {
-    if parametros.is_empty() {
+fn list_pattern(parameters: &[String]) -> Option<(String, Vec<(usize, usize)>)> {
+    if parameters.is_empty() {
         return None;
     }
-    let mut texto = String::new();
-    let mut pares = Vec::new();
-    for p in parametros {
-        if !texto.is_empty() {
-            texto.push_str(", ");
+    let mut text = String::new();
+    let mut pairs = Vec::new();
+    for p in parameters {
+        if !text.is_empty() {
+            text.push_str(", ");
         }
         match p.strip_suffix(": ") {
             Some(n) => {
-                texto.push_str(n);
-                texto.push_str(": ");
-                let o = texto.encode_utf16().count();
-                texto.push_str(n);
-                pares.push((o, n.encode_utf16().count()));
+                text.push_str(n);
+                text.push_str(": ");
+                let o = text.encode_utf16().count();
+                text.push_str(n);
+                pairs.push((o, n.encode_utf16().count()));
             }
             None => {
-                let o = texto.encode_utf16().count();
-                texto.push_str(p);
-                pares.push((o, p.encode_utf16().count()));
+                let o = text.encode_utf16().count();
+                text.push_str(p);
+                pairs.push((o, p.encode_utf16().count()));
             }
         }
     }
-    Some((texto, pares))
+    Some((text, pairs))
 }
 
 /// `getCompletionDetail`: `truncatedParams` e `truncatedSignature` de um
 /// `detail` já na forma `(params) → ret` (ou só o tipo).
-fn assinaturas(detalhe: Option<&str>, chamavel: bool) -> (String, String) {
-    let Some(d) = detalhe.filter(|d| !d.is_empty()) else { return (String::new(), String::new()) };
-    if chamavel && d.starts_with('(') {
-        let mut nivel = 0usize;
-        let mut fim = d.len();
+fn signatures(detail: Option<&str>, callable: bool) -> (String, String) {
+    let Some(d) = detail.filter(|d| !d.is_empty()) else { return (String::new(), String::new()) };
+    if callable && d.starts_with('(') {
+        let mut level = 0usize;
+        let mut end = d.len();
         for (i, c) in d.char_indices() {
             match c {
-                '(' | '<' | '[' | '{' => nivel += 1,
+                '(' | '<' | '[' | '{' => level += 1,
                 ')' | '>' | ']' | '}' => {
-                    nivel = nivel.saturating_sub(1);
-                    if nivel == 0 && c == ')' {
-                        fim = i + 1;
+                    level = level.saturating_sub(1);
+                    if level == 0 && c == ')' {
+                        end = i + 1;
                         break;
                     }
                 }
                 _ => {}
             }
         }
-        let truncados = if &d[..fim] == "()" { "()".to_string() } else { "(…)".to_string() };
-        let retorno = d[fim..].trim_start().strip_prefix('→').map(str::trim).filter(|r| !r.is_empty());
-        let assinatura = match retorno {
-            Some(r) => format!("{truncados} → {r}"),
-            None => truncados.clone(),
+        let truncated = if &d[..end] == "()" { "()".to_string() } else { "(…)".to_string() };
+        let return_ = d[end..].trim_start().strip_prefix('→').map(str::trim).filter(|r| !r.is_empty());
+        let signature = match return_ {
+            Some(r) => format!("{truncated} → {r}"),
+            None => truncated.clone(),
         };
-        return (truncados, assinatura);
+        return (truncated, signature);
     }
     (String::new(), format!(" {d}"))
 }
 
 /// `docSummary`: o primeiro parágrafo.
-fn resumo(doc: &str) -> String {
-    let mut linhas = Vec::new();
+fn summary(doc: &str) -> String {
+    let mut lines = Vec::new();
     for l in doc.lines() {
         if l.trim().is_empty() {
             break;
         }
-        linhas.push(l);
+        lines.push(l);
     }
-    linhas.join("\n")
+    lines.join("\n")
 }
 
 /// A preferência de espécies de um item (`elementKindToCompletionItemKind`
 /// e `suggestionKindToCompletionItemKind`).
-fn preferencia(k: u32) -> Vec<u64> {
+fn preference(k: u32) -> Vec<u64> {
     match k {
         20 => vec![20, 13],
         25 => vec![25, 6],
@@ -202,125 +202,125 @@ fn preferencia(k: u32) -> Vec<u64> {
 }
 
 /// O `CompletionItem` de um item do servidor.
-pub(crate) fn item(cap: &Capacidades, p: &Pedido<'_>, i: &ItemCompletar, documentacao: Option<String>) -> Value {
-    let chamavel = i.chamada.is_some();
+pub(crate) fn item(cap: &Capabilities, p: &Request<'_>, i: &CompletionItem, documentation: Option<String>) -> Value {
+    let callable = i.call.is_some();
     // `label` (o `displayText ?? completion`), `filterText`.
-    let mut rotulo = i.exibicao.clone().unwrap_or_else(|| i.inserir.clone());
-    let comeca_com_padrao = rotulo.starts_with("=>") || rotulo.starts_with('(');
-    let filtro = if comeca_com_padrao {
-        rotulo.clone()
+    let mut label = i.display.clone().unwrap_or_else(|| i.insert.clone());
+    let starts_with_pattern = label.starts_with("=>") || label.starts_with('(');
+    let filter = if starts_with_pattern {
+        label.clone()
     } else {
-        rotulo.split(|c| c == '(').next().unwrap_or("").split("=>").next().unwrap_or("").trim().to_string()
+        label.split(|c| c == '(').next().unwrap_or("").split("=>").next().unwrap_or("").trim().to_string()
     };
-    if cap.detalhes_do_rotulo {
-        rotulo = filtro.clone();
+    if cap.label_details {
+        label = filter.clone();
     }
-    if rotulo.ends_with(',') {
-        rotulo.pop();
+    if label.ends_with(',') {
+        label.pop();
     }
-    let (truncados, assinatura) = assinaturas(i.detalhe.as_deref(), chamavel);
+    let (truncated, signature) = signatures(i.detail.as_deref(), callable);
     // Os parâmetros curtos só sem `displayText` (`MAP:1069-1073`).
-    if !cap.detalhes_do_rotulo && i.exibicao.is_none() {
-        rotulo.push_str(&truncados);
+    if !cap.label_details && i.display.is_none() {
+        label.push_str(&truncated);
     }
     // `_buildInsertText`.
-    let mut texto = i.inserir.clone();
+    let mut text = i.insert.clone();
     let mut snippet = false;
     // `isInvocation`: o `IDENTIFIER` (tear-off, redirecionamento) não chama.
-    let mut chamadas = p.chamadas && chamavel && !i.identificador && !i.inserir.contains('(');
-    if i.inserir.contains('(') {
-        chamadas = false;
+    let mut calls = p.calls && callable && !i.identifier && !i.insert.contains('(');
+    if i.insert.contains('(') {
+        calls = false;
     }
-    if cap.snippet && chamadas {
+    if cap.snippet && calls {
         snippet = true;
-        let sufixo = match &i.chamada {
-            Some(Chamada::Parametros(ps)) => match lista_padrao(ps) {
-                Some((t, pares)) => snippet_com_paradas(&t, &pares),
+        let suffix = match &i.call {
+            Some(Call::Parameters(ps)) => match list_pattern(ps) {
+                Some((t, pairs)) => snippet_with_stops(&t, &pairs),
                 None => String::new(),
             },
-            Some(Chamada::Desconhecida) => "$0".to_string(),
+            Some(Call::Unknown) => "$0".to_string(),
             None => String::new(),
         };
-        texto = format!("{}({sufixo})", escapar(&i.inserir));
+        text = format!("{}({suffix})", escape(&i.insert));
     } else if cap.snippet
-        && let Some((o, l)) = i.selecao
+        && let Some((o, l)) = i.selection
         && o != 0
-        && o != i.inserir.encode_utf16().count()
+        && o != i.insert.encode_utf16().count()
     {
         // A seleção antes do fim vira uma parada (`buildSnippetStringWithTabStops`).
         snippet = true;
-        texto = snippet_com_paradas(&i.inserir, &[(o, l)]);
+        text = snippet_with_stops(&i.insert, &[(o, l)]);
     }
-    let mut v = json!({"label": rotulo});
-    if let Some(k) = cap.especie(&preferencia(i.especie)) {
+    let mut v = json!({"label": label});
+    if let Some(k) = cap.kind(&preference(i.kind)) {
         v["kind"] = json!(k);
     }
     // `detail`: a assinatura completa.
-    if let Some(d) = i.detalhe.as_ref().filter(|d| !d.is_empty()) {
+    if let Some(d) = i.detail.as_ref().filter(|d| !d.is_empty()) {
         v["detail"] = json!(d);
     }
-    if cap.detalhes_do_rotulo {
+    if cap.label_details {
         let mut m = serde_json::Map::new();
-        if !assinatura.is_empty() {
-            m.insert("detail".into(), json!(assinatura));
+        if !signature.is_empty() {
+            m.insert("detail".into(), json!(signature));
         }
-        if let Some(imp) = &i.importar {
-            m.insert("description".into(), json!(uri_de_exibicao(&imp.uri, p.arquivo)));
+        if let Some(imp) = &i.import {
+            m.insert("description".into(), json!(display_uri(&imp.uri, p.file)));
         }
         if !m.is_empty() {
             v["labelDetails"] = Value::Object(m);
         }
     }
     // Documentação: só sem `data` (os não importados resolvem depois).
-    if i.importar.is_none()
-        && let Some(doc) = documentacao
+    if i.import.is_none()
+        && let Some(doc) = documentation
     {
-        let doc = match p.preferencia_de_doc {
+        let doc = match p.doc_preference {
             "none" => None,
-            "summary" => Some(resumo(&doc)),
+            "summary" => Some(summary(&doc)),
             _ => Some(doc),
         };
         if let Some(d) = doc.filter(|d| !d.is_empty()) {
-            v["documentation"] = cap.documentacao(d);
+            v["documentation"] = cap.documentation(d);
         }
     }
     v["sortText"] = json!(i.sort_text);
-    if filtro != v["label"].as_str().unwrap_or("") {
-        v["filterText"] = json!(filtro);
+    if filter != v["label"].as_str().unwrap_or("") {
+        v["filterText"] = json!(filter);
     }
     if snippet {
         v["insertTextFormat"] = json!(2);
     }
-    if !cap.padrao_modo && cap.modos_de_insercao.contains(&1) && texto.contains('\n') {
+    if !cap.default_mode && cap.insertion_modes.contains(&1) && text.contains('\n') {
         v["insertTextMode"] = json!(1);
     }
-    if p.padrao {
-        if texto != v["label"].as_str().unwrap_or("") {
-            v["textEditText"] = json!(texto);
+    if p.pattern {
+        if text != v["label"].as_str().unwrap_or("") {
+            v["textEditText"] = json!(text);
         }
-    } else if i.substituir_vazio {
+    } else if i.replace_empty {
         // `replacementLength: 0`: insere no cursor sem trocar nada.
-        v["textEdit"] = json!({"range": p.inserir, "newText": texto});
-    } else if cap.inserir_substituir && !p.iguais {
-        v["textEdit"] = json!({"insert": p.inserir, "replace": p.substituir, "newText": texto});
+        v["textEdit"] = json!({"range": p.insert, "newText": text});
+    } else if cap.insert_replace && !p.equal {
+        v["textEdit"] = json!({"insert": p.insert, "replace": p.replace, "newText": text});
     } else {
-        v["textEdit"] = json!({"range": p.substituir, "newText": texto});
+        v["textEdit"] = json!({"range": p.replace, "newText": text});
     }
-    if let Some(imp) = &i.importar {
-        let nome = i.inserir.trim_end_matches([':', ' ']);
-        v["data"] = json!({"file": p.arquivo, "importUris": [imp.uri], "ref": format!("{};{};{}", imp.uri, imp.uri, nome)});
+    if let Some(imp) = &i.import {
+        let name = i.insert.trim_end_matches([':', ' ']);
+        v["data"] = json!({"file": p.file, "importUris": [imp.uri], "ref": format!("{};{};{}", imp.uri, imp.uri, name)});
     }
     v
 }
 
 /// `getCompletionDisplayUriString`: `file:` relativo à pasta do arquivo.
-pub(crate) fn uri_de_exibicao(uri: &str, arquivo: &str) -> String {
+pub(crate) fn display_uri(uri: &str, file: &str) -> String {
     if let Ok(u) = url::Url::parse(uri)
         && u.scheme() == "file"
-        && let Ok(alvo) = u.to_file_path()
-        && let Some(pasta) = std::path::Path::new(arquivo).parent()
+        && let Ok(target) = u.to_file_path()
+        && let Some(folder) = std::path::Path::new(file).parent()
     {
-        return crate::refactorings_method::caminho_relativo(&alvo, pasta);
+        return crate::refactorings_method::relative_path(&target, folder);
     }
     if !uri.contains(':') {
         return uri.to_string();
@@ -330,28 +330,28 @@ pub(crate) fn uri_de_exibicao(uri: &str, arquivo: &str) -> String {
 
 /// O contexto do snippet (`DartSnippetRequest._getContext`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ContextoDeSnippet {
-    Topo,
-    Bloco,
-    Classe,
-    Expressao,
-    Outro,
+pub(crate) enum SnippetContext {
+    Top,
+    Block,
+    Class,
+    Expression,
+    Other,
 }
 
 /// Os snippets de código (§14.8.9) do contexto, filtrados pelo prefixo:
 /// (prefixo, rótulo, documentação, corpo).
-pub(crate) fn snippets(contexto: ContextoDeSnippet, recuo: &str, eol: &str, em_testes: bool, finais: bool) -> Vec<(&'static str, &'static str, &'static str, String)> {
-    let q = |s: &str| s.replace("⏎", &format!("{eol}{recuo}"));
-    let var = if finais { "final" } else { "var" };
+pub(crate) fn snippets(context: SnippetContext, indent: &str, eol: &str, in_tests: bool, finals: bool) -> Vec<(&'static str, &'static str, &'static str, String)> {
+    let q = |s: &str| s.replace("⏎", &format!("{eol}{indent}"));
+    let var = if finals { "final" } else { "var" };
     let mut v: Vec<(&'static str, &'static str, &'static str, String)> = Vec::new();
-    match contexto {
-        ContextoDeSnippet::Topo => {
+    match context {
+        SnippetContext::Top => {
             v.push(("class", "class", "Insert a class definition.", q("class ${1:ClassName} {⏎  $0⏎}")));
             v.push(("fun", "fun", "Insert a function definition.", q("${1:void} ${2:name}(${3:params}) {⏎  $0⏎}")));
-            let main = if em_testes { "void main() {\n  $0\n}".to_string() } else { "void main(List<String> args) {\n  $0\n}".to_string() };
+            let main = if in_tests { "void main() {\n  $0\n}".to_string() } else { "void main(List<String> args) {\n  $0\n}".to_string() };
             v.push(("main", "main()", "Insert a main function, used as an entry point.", main));
         }
-        ContextoDeSnippet::Bloco => {
+        SnippetContext::Block => {
             v.push(("do", "do while", "Insert a do-while loop.", q("do {⏎  $0⏎} while (${1:condition});")));
             v.push(("forin", "for in", "Insert a for-in loop.", q(&format!("for ({var} ${{1:element}} in ${{2:collection}}) {{⏎  $0⏎}}"))));
             v.push(("for", "for", "Insert a for loop.", q("for (var i = 0; i < ${1:count}; i++) {⏎  $0⏎}")));
@@ -359,38 +359,38 @@ pub(crate) fn snippets(contexto: ContextoDeSnippet, recuo: &str, eol: &str, em_t
             v.push(("ife", "ife", "Insert an if/else statement.", q("if (${1:condition}) {⏎  $0⏎} else {⏎  ⏎}")));
             v.push(("if", "if", "Insert an if statement.", q("if (${1:condition}) {⏎  $0⏎}")));
             v.push(("switch", "switch statement", "Insert a switch statement.", q("switch (${1:expression}) {⏎  case ${2:value}:⏎    $0⏎    break;⏎  default:⏎}")));
-            if em_testes {
+            if in_tests {
                 v.push(("test", "test", "Insert a test block.", q("test('${1:test name}', () {⏎  $0⏎});")));
                 v.push(("group", "group", "Insert a test group block.", q("group('${1:group name}', () {⏎  $0⏎});")));
             }
             v.push(("try", "try", "Insert a try/catch statement.", q("try {⏎  $0⏎} catch (${1:e}) {⏎  ⏎}")));
             v.push(("while", "while", "Insert a while loop.", q("while (${1:condition}) {⏎  $0⏎}")));
         }
-        ContextoDeSnippet::Classe => {
+        SnippetContext::Class => {
             v.push(("fun", "fun", "Insert a function definition.", q("${1:void} ${2:name}(${3:params}) {⏎  $0⏎}")));
         }
-        ContextoDeSnippet::Expressao => {
+        SnippetContext::Expression => {
             v.push(("switch", "switch expression", "Insert a switch expression.", q("switch (${1:expression}) {⏎  ${2:pattern} => ${3:value},$0⏎}")));
         }
-        ContextoDeSnippet::Outro => {}
+        SnippetContext::Other => {}
     }
     v
 }
 
 /// O item de um snippet (`snippetToCompletionItem`, `MAP:788-878`).
-pub(crate) fn item_de_snippet(cap: &Capacidades, p: &Pedido<'_>, prefixo: &str, rotulo: &str, doc: &str, corpo: &str) -> Value {
-    let mut v = json!({"label": rotulo, "kind": 15, "sortText": format!("zzz{prefixo}"), "insertTextFormat": 2});
-    if prefixo != rotulo {
-        v["filterText"] = json!(prefixo);
+pub(crate) fn snippet_item(cap: &Capabilities, p: &Request<'_>, prefix: &str, label: &str, doc: &str, body: &str) -> Value {
+    let mut v = json!({"label": label, "kind": 15, "sortText": format!("zzz{prefix}"), "insertTextFormat": 2});
+    if prefix != label {
+        v["filterText"] = json!(prefix);
     }
-    v["documentation"] = cap.documentacao(doc.to_string());
-    if cap.modos_de_insercao.contains(&1) {
+    v["documentation"] = cap.documentation(doc.to_string());
+    if cap.insertion_modes.contains(&1) {
         v["insertTextMode"] = json!(1);
     }
-    if p.padrao {
-        v["textEditText"] = json!(corpo);
+    if p.pattern {
+        v["textEditText"] = json!(body);
     } else {
-        v["textEdit"] = json!({"insertTextFormat": 2, "range": p.substituir, "newText": corpo});
+        v["textEdit"] = json!({"insertTextFormat": 2, "range": p.replace, "newText": body});
     }
     v
 }
@@ -399,109 +399,109 @@ pub(crate) fn item_de_snippet(cap: &Capacidades, p: &Pedido<'_>, prefixo: &str, 
 /// `completion_target.dart:141-260`) sobre a árvore sintática: o nó que
 /// contém e a entidade (nó ou token).
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum Entidade {
+pub(crate) enum Entity {
     No(usize),
     Token(usize),
-    Nenhuma,
+    None,
 }
 
 /// O contexto do snippet do texto (`DartSnippetRequest._getContext`); `None`
 /// em comentário.
-pub(crate) fn contexto_de_snippet(texto: &str, offset: usize) -> Option<ContextoDeSnippet> {
+pub(crate) fn snippet_context(text: &str, offset: usize) -> Option<SnippetContext> {
     use dartforge_frontend::token::Kind;
     // Comentário: `inComment`.
-    let comentarios = dartforge_frontend::comentarios::Comentarios::de(texto);
-    for c in comentarios.todos() {
-        let linha = texto[c.start..c.end].starts_with("//");
-        if c.start < offset && (offset < c.end || (linha && offset == c.end)) {
-            return Some(ContextoDeSnippet::Outro);
+    let comments = dartforge_frontend::comentarios::Comentarios::de(text);
+    for c in comments.todos() {
+        let line = text[c.start..c.end].starts_with("//");
+        if c.start < offset && (offset < c.end || (line && offset == c.end)) {
+            return Some(SnippetContext::Other);
         }
     }
-    let mut nomes = dartforge_intern::Interner::new();
-    let analisado = dartforge_frontend::parser::parse(texto, &mut nomes);
-    let arv = crate::arvore_analyzer::construir(texto, &analisado.ast, &analisado.unit, false);
-    let tokens: Vec<dartforge_frontend::token::Token> = dartforge_frontend::lexer::lex(texto).unwrap_or_default().into_iter().filter(|t| t.kind != Kind::Eof).collect();
-    let palavra = |t: &dartforge_frontend::token::Token| matches!(t.kind, Kind::Ident | Kind::Keyword(_));
-    let candidato = |t: &dartforge_frontend::token::Token| offset < t.span.end || (offset == t.span.end && (palavra(t) || t.span.start == t.span.end));
-    let (mut cont, mut entidade) = (0usize, Entidade::Nenhuma);
-    'externo: loop {
-        let no = &arv.nos[cont];
+    let mut names = dartforge_intern::Interner::new();
+    let analyzed = dartforge_frontend::parser::parse(text, &mut names);
+    let tree = crate::arvore_analyzer::construir(text, &analyzed.ast, &analyzed.unit, false);
+    let tokens: Vec<dartforge_frontend::token::Token> = dartforge_frontend::lexer::lex(text).unwrap_or_default().into_iter().filter(|t| t.kind != Kind::Eof).collect();
+    let word = |t: &dartforge_frontend::token::Token| matches!(t.kind, Kind::Ident | Kind::Keyword(_));
+    let candidate = |t: &dartforge_frontend::token::Token| offset < t.span.end || (offset == t.span.end && (word(t) || t.span.start == t.span.end));
+    let (mut cont, mut entity) = (0usize, Entity::None);
+    'external: loop {
+        let no = &tree.nos[cont];
         // As entidades: os filhos e os tokens fora deles, em ordem.
-        let mut ents: Vec<(usize, Entidade)> = no.filhos.iter().map(|&f| (arv.nos[f].inicio, Entidade::No(f))).collect();
-        let (ini, fim) = if cont == 0 { (0, texto.len()) } else { (no.inicio, no.fim) };
+        let mut ents: Vec<(usize, Entity)> = no.filhos.iter().map(|&f| (tree.nos[f].inicio, Entity::No(f))).collect();
+        let (start, end) = if cont == 0 { (0, text.len()) } else { (no.inicio, no.fim) };
         for (k, t) in tokens.iter().enumerate() {
-            if t.span.start < ini || t.span.end > fim {
+            if t.span.start < start || t.span.end > end {
                 continue;
             }
-            if no.filhos.iter().any(|&f| arv.nos[f].inicio <= t.span.start && t.span.end <= arv.nos[f].fim) {
+            if no.filhos.iter().any(|&f| tree.nos[f].inicio <= t.span.start && t.span.end <= tree.nos[f].fim) {
                 continue;
             }
-            ents.push((t.span.start, Entidade::Token(k)));
+            ents.push((t.span.start, Entity::Token(k)));
         }
         ents.sort_by_key(|(o, _)| *o);
         for (_, e) in ents {
             match e {
-                Entidade::Token(k) => {
-                    if candidato(&tokens[k]) {
-                        entidade = Entidade::Token(k);
-                        break 'externo;
+                Entity::Token(k) => {
+                    if candidate(&tokens[k]) {
+                        entity = Entity::Token(k);
+                        break 'external;
                     }
                 }
-                Entidade::No(f) => {
-                    let nf = &arv.nos[f];
-                    let ultimo = tokens.iter().rev().find(|t| t.span.end <= nf.fim && t.span.start >= nf.inicio);
-                    if !ultimo.is_some_and(candidato) {
+                Entity::No(f) => {
+                    let nf = &tree.nos[f];
+                    let last = tokens.iter().rev().find(|t| t.span.end <= nf.fim && t.span.start >= nf.inicio);
+                    if !last.is_some_and(candidate) {
                         continue;
                     }
-                    let primeiro = tokens.iter().find(|t| t.span.start >= nf.inicio);
-                    let e_candidato = match primeiro {
-                        Some(b) if palavra(b) => candidato(b),
+                    let first = tokens.iter().find(|t| t.span.start >= nf.inicio);
+                    let is_candidate = match first {
+                        Some(b) if word(b) => candidate(b),
                         _ => offset <= nf.inicio,
                     };
-                    if e_candidato {
-                        entidade = Entidade::No(f);
-                        break 'externo;
+                    if is_candidate {
+                        entity = Entity::No(f);
+                        break 'external;
                     }
                     cont = f;
-                    continue 'externo;
+                    continue 'external;
                 }
-                Entidade::Nenhuma => {}
+                Entity::None => {}
             }
         }
         break;
     }
-    match entidade {
-        Entidade::Token(k) if matches!(tokens[k].kind, Kind::Str(_) | Kind::StrBegin(..) | Kind::StrMid(..) | Kind::StrEnd(_)) => return Some(ContextoDeSnippet::Outro),
-        Entidade::No(f) if arv.nos[f].especie == "NamedExpression" => {
-            let nome = arv.nos[f].filhos.first().map(|&l| (arv.nos[l].inicio, arv.nos[l].fim));
-            if nome.is_some_and(|(a, b)| a <= offset && offset <= b) {
-                return Some(ContextoDeSnippet::Outro);
+    match entity {
+        Entity::Token(k) if matches!(tokens[k].kind, Kind::Str(_) | Kind::StrBegin(..) | Kind::StrMid(..) | Kind::StrEnd(_)) => return Some(SnippetContext::Other),
+        Entity::No(f) if tree.nos[f].especie == "NamedExpression" => {
+            let name = tree.nos[f].filhos.first().map(|&l| (tree.nos[l].inicio, tree.nos[l].fim));
+            if name.is_some_and(|(a, b)| a <= offset && offset <= b) {
+                return Some(SnippetContext::Other);
             }
         }
         _ => {}
     }
-    let mut atual = Some(cont);
-    while let Some(k) = atual {
+    let mut current = Some(cont);
+    while let Some(k) = current {
         if k == 0 {
             break;
         }
-        let e = arv.nos[k].especie;
+        let e = tree.nos[k].especie;
         match e {
-            "ReturnStatement" if offset > arv.nos[k].inicio + "return".len() => return Some(ContextoDeSnippet::Expressao),
-            "Comment" | "SimpleStringLiteral" | "StringInterpolation" | "AdjacentStrings" => return Some(ContextoDeSnippet::Outro),
-            "VariableDeclaration" => return Some(ContextoDeSnippet::Expressao),
-            "VariableDeclarationList" => return Some(ContextoDeSnippet::Outro),
-            "PropertyAccess" | "FieldFormalParameter" | "PrefixedIdentifier" | "ConstructorReference" | "InstanceCreationExpression" => return Some(ContextoDeSnippet::Outro),
-            "Block" => return Some(ContextoDeSnippet::Bloco),
-            _ if crate::refactorings::e_comando_especie(e) => return Some(ContextoDeSnippet::Outro),
-            "SwitchExpression" => return Some(ContextoDeSnippet::Outro),
-            _ if crate::refactorings::e_expressao_especie(e) => return Some(ContextoDeSnippet::Expressao),
-            "Annotation" => return Some(ContextoDeSnippet::Outro),
-            "BlockFunctionBody" => return Some(ContextoDeSnippet::Bloco),
-            "ClassDeclaration" | "ExtensionDeclaration" | "MixinDeclaration" | "EnumDeclaration" => return Some(ContextoDeSnippet::Classe),
+            "ReturnStatement" if offset > tree.nos[k].inicio + "return".len() => return Some(SnippetContext::Expression),
+            "Comment" | "SimpleStringLiteral" | "StringInterpolation" | "AdjacentStrings" => return Some(SnippetContext::Other),
+            "VariableDeclaration" => return Some(SnippetContext::Expression),
+            "VariableDeclarationList" => return Some(SnippetContext::Other),
+            "PropertyAccess" | "FieldFormalParameter" | "PrefixedIdentifier" | "ConstructorReference" | "InstanceCreationExpression" => return Some(SnippetContext::Other),
+            "Block" => return Some(SnippetContext::Block),
+            _ if crate::refactorings::is_command_kind(e) => return Some(SnippetContext::Other),
+            "SwitchExpression" => return Some(SnippetContext::Other),
+            _ if crate::refactorings::is_expression_kind(e) => return Some(SnippetContext::Expression),
+            "Annotation" => return Some(SnippetContext::Other),
+            "BlockFunctionBody" => return Some(SnippetContext::Block),
+            "ClassDeclaration" | "ExtensionDeclaration" | "MixinDeclaration" | "EnumDeclaration" => return Some(SnippetContext::Class),
             _ => {}
         }
-        atual = arv.nos[k].pai;
+        current = tree.nos[k].pai;
     }
-    Some(ContextoDeSnippet::Topo)
+    Some(SnippetContext::Top)
 }

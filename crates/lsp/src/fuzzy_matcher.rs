@@ -6,258 +6,258 @@
 
 /// `MatchStyle`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Estilo {
-    Texto,
-    Simbolo,
-    Arquivo,
+pub(crate) enum Style {
+    Text,
+    Symbol,
+    File,
 }
 
 /// `CharRole`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Papel {
-    Nenhum,
-    Separador,
-    Cauda,
-    CaudaMaiuscula,
-    Cabeca,
+enum Role {
+    None,
+    Separator,
+    Tail,
+    UppercaseTail,
+    Head,
 }
 
 /// `_CharType` (`NONE`, `PUNCT`, `LOWER`, `UPPER`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Tipo {
-    Nenhum = 0,
-    Pontuacao = 1,
-    Minuscula = 2,
-    Maiuscula = 3,
+enum Type {
+    None = 0,
+    Punctuation = 1,
+    Lowercase = 2,
+    Uppercase = 3,
 }
 
-const MAX_ENTRADA: usize = 127;
-const MAX_PADRAO: usize = 63;
+const MAX_ENTRY: usize = 127;
+const MAX_PATTERN: usize = 63;
 const MIN_SCORE: i32 = -10000;
 
 /// A tabela `TYPES` (os códigos 0..127).
-const TIPOS: &[u8; 128] = b"0000000000000000000000000000000010000000000000112222222222100000\
+const TYPES: &[u8; 128] = b"0000000000000000000000000000000010000000000000112222222222100000\
 0333333333333333333333333330000002222222222222222222222222200000";
 
-fn tipo(c: u16) -> Tipo {
+fn ty(c: u16) -> Type {
     if c >= 128 {
-        return Tipo::Minuscula;
+        return Type::Lowercase;
     }
-    match TIPOS[c as usize] {
-        b'1' => Tipo::Pontuacao,
-        b'2' => Tipo::Minuscula,
-        b'3' => Tipo::Maiuscula,
-        _ => Tipo::Nenhum,
+    match TYPES[c as usize] {
+        b'1' => Type::Punctuation,
+        b'2' => Type::Lowercase,
+        b'3' => Type::Uppercase,
+        _ => Type::None,
     }
 }
 
 /// `toLowerCase` em UTF-16, mantendo o comprimento (o que o casamento por
 /// índice exige; um caractere cuja minúscula muda o comprimento fica como
 /// está).
-fn minusculas(s: &[u16]) -> Vec<u16> {
-    let texto = String::from_utf16_lossy(s);
-    let baixo: Vec<u16> = texto.to_lowercase().encode_utf16().collect();
-    if baixo.len() == s.len() {
-        return baixo;
+fn lowercase(s: &[u16]) -> Vec<u16> {
+    let text = String::from_utf16_lossy(s);
+    let low: Vec<u16> = text.to_lowercase().encode_utf16().collect();
+    if low.len() == s.len() {
+        return low;
     }
     s.iter().map(|&c| if (b'A' as u16..=b'Z' as u16).contains(&c) { c + 32 } else { c }).collect()
 }
 
 /// Um casador para um padrão.
-pub(crate) struct Casador {
-    padrao: Vec<u16>,
-    padrao_min: Vec<u16>,
-    curto: Vec<u16>,
-    estilo: Estilo,
-    sensivel: bool,
-    deslocamento: usize,
-    papeis_padrao: Vec<Papel>,
-    papeis: Vec<Papel>,
-    tabela: Vec<Vec<i32>>,
-    escala: f64,
-    ultimo_comprimento: usize,
+pub(crate) struct Matcher {
+    pattern: Vec<u16>,
+    pattern_min: Vec<u16>,
+    short: Vec<u16>,
+    style: Style,
+    sensitive: bool,
+    offset: usize,
+    default_roles: Vec<Role>,
+    roles: Vec<Role>,
+    table: Vec<Vec<i32>>,
+    scale: f64,
+    last_length: usize,
 }
 
-impl Casador {
+impl Matcher {
     /// `FuzzyMatcher(pattern, matchStyle)`.
-    pub(crate) fn novo(padrao: &str, estilo: Estilo) -> Casador {
-        let mut p: Vec<u16> = padrao.encode_utf16().collect();
-        p.truncate(MAX_PADRAO);
-        let padrao_min = minusculas(&p);
-        let sensivel = p != padrao_min;
-        let curto = padrao_min[..padrao_min.len().min(3)].to_vec();
-        let deslocamento = p.len() + 1;
-        let tabela = vec![vec![0i32; 2 * deslocamento]; MAX_ENTRADA + 1];
-        let mut c = Casador {
-            padrao: p,
-            padrao_min,
-            curto,
-            estilo,
-            sensivel,
-            deslocamento,
-            papeis_padrao: Vec::new(),
-            papeis: vec![Papel::Nenhum; MAX_ENTRADA],
-            tabela,
-            escala: 0.0,
-            ultimo_comprimento: 0,
+    pub(crate) fn new(pattern: &str, style: Style) -> Matcher {
+        let mut p: Vec<u16> = pattern.encode_utf16().collect();
+        p.truncate(MAX_PATTERN);
+        let pattern_min = lowercase(&p);
+        let sensitive = p != pattern_min;
+        let short = pattern_min[..pattern_min.len().min(3)].to_vec();
+        let offset = p.len() + 1;
+        let table = vec![vec![0i32; 2 * offset]; MAX_ENTRY + 1];
+        let mut c = Matcher {
+            pattern: p,
+            pattern_min,
+            short,
+            style,
+            sensitive,
+            offset,
+            default_roles: Vec::new(),
+            roles: vec![Role::None; MAX_ENTRY],
+            table,
+            scale: 0.0,
+            last_length: 0,
         };
-        let mut papeis = vec![Papel::Nenhum; c.padrao.len()];
-        let padrao = c.padrao.clone();
-        c.mapear(&padrao, &mut papeis);
-        c.papeis_padrao = papeis;
-        let max = if estilo == Estilo::Texto { 6.0 } else { 4.0 };
-        c.escala = if c.padrao.is_empty() { 0.0 } else { 1.0 / (max * c.padrao.len() as f64) };
+        let mut roles = vec![Role::None; c.pattern.len()];
+        let pattern = c.pattern.clone();
+        c.map(&pattern, &mut roles);
+        c.default_roles = roles;
+        let max = if style == Style::Text { 6.0 } else { 4.0 };
+        c.scale = if c.pattern.is_empty() { 0.0 } else { 1.0 / (max * c.pattern.len() as f64) };
         c
     }
 
     /// `fuzzyMap`.
-    fn mapear(&self, s: &[u16], papeis: &mut [Papel]) {
-        let mut anterior = Tipo::Nenhum;
+    fn map(&self, s: &[u16], roles: &mut [Role]) {
+        let mut previous = Type::None;
         for (i, &c) in s.iter().enumerate() {
-            let t = tipo(c);
-            let mut papel = Papel::Nenhum;
+            let t = ty(c);
+            let mut role = Role::None;
             match t {
-                Tipo::Minuscula => papel = if anterior <= Tipo::Pontuacao { Papel::Cabeca } else { Papel::Cauda },
-                Tipo::Maiuscula => {
-                    papel = Papel::Cabeca;
-                    let seguinte_minuscula = i + 1 < s.len() && (b'a' as u16..=b'z' as u16).contains(&s[i + 1]);
-                    if anterior == Tipo::Maiuscula && !seguinte_minuscula {
-                        papel = Papel::CaudaMaiuscula;
+                Type::Lowercase => role = if previous <= Type::Punctuation { Role::Head } else { Role::Tail },
+                Type::Uppercase => {
+                    role = Role::Head;
+                    let next_lowercase = i + 1 < s.len() && (b'a' as u16..=b'z' as u16).contains(&s[i + 1]);
+                    if previous == Type::Uppercase && !next_lowercase {
+                        role = Role::UppercaseTail;
                     }
                 }
-                Tipo::Pontuacao => {
-                    let separa = (self.estilo == Estilo::Arquivo && c == b'/' as u16)
-                        || (self.estilo == Estilo::Simbolo && (c == b'.' as u16 || c == b':' as u16 || c == b' ' as u16));
-                    if separa {
-                        papel = Papel::Separador;
+                Type::Punctuation => {
+                    let separates = (self.style == Style::File && c == b'/' as u16)
+                        || (self.style == Style::Symbol && (c == b'.' as u16 || c == b':' as u16 || c == b' ' as u16));
+                    if separates {
+                        role = Role::Separator;
                     }
                 }
-                Tipo::Nenhum => {}
+                Type::None => {}
             }
-            papeis[i] = papel;
-            anterior = t;
+            roles[i] = role;
+            previous = t;
         }
         let mut i = s.len();
-        while i > 0 && papeis[i - 1] == Papel::Separador {
-            papeis[i - 1] = Papel::Nenhum;
+        while i > 0 && roles[i - 1] == Role::Separator {
+            roles[i - 1] = Role::None;
             i -= 1;
         }
     }
 
-    fn score_em(&self, i: usize, j: usize, k: usize) -> i32 {
-        self.tabela[i][j + k * self.deslocamento] >> 1
+    fn score_in(&self, i: usize, j: usize, k: usize) -> i32 {
+        self.table[i][j + k * self.offset] >> 1
     }
 
-    fn melhor_k(&self, i: usize, j: usize) -> usize {
-        if self.score_em(i, j, 0) < self.score_em(i, j, 1) { 1 } else { 0 }
+    fn best_k(&self, i: usize, j: usize) -> usize {
+        if self.score_in(i, j, 0) < self.score_in(i, j, 1) { 1 } else { 0 }
     }
 
-    fn k_anterior(&self, i: usize, j: usize, k: usize) -> usize {
-        (self.tabela[i][j + k * self.deslocamento] & 1) as usize
+    fn previous_k(&self, i: usize, j: usize, k: usize) -> usize {
+        (self.table[i][j + k * self.offset] & 1) as usize
     }
 
     /// `computeScore`.
-    fn calcular(&mut self, cand: &[u16], cand_min: &[u16]) -> i32 {
-        let m = self.padrao.len();
-        let o = self.deslocamento;
+    fn compute(&mut self, cand: &[u16], cand_min: &[u16]) -> i32 {
+        let m = self.pattern.len();
+        let o = self.offset;
         for j in 0..=m {
-            self.tabela[0][j] = if j == 0 { 0 } else { MIN_SCORE << 1 };
-            self.tabela[0][o + j] = MIN_SCORE << 1;
+            self.table[0][j] = if j == 0 { 0 } else { MIN_SCORE << 1 };
+            self.table[0][o + j] = MIN_SCORE << 1;
         }
-        let mut segmentos = 1;
-        let mut ultimo_inicio = 0usize;
+        let mut segments = 1;
+        let mut last_start = 0usize;
         for i in 0..cand.len() {
-            if self.papeis[i] == Papel::Separador {
-                segmentos += 1;
-                ultimo_inicio = i + 1;
+            if self.roles[i] == Role::Separator {
+                segments += 1;
+                last_start = i + 1;
             }
         }
         for i in 1..=cand.len() {
-            let cabeca = self.papeis[i - 1] == Papel::Cabeca;
-            if self.papeis[i - 1] == Papel::Separador && segmentos > 1 {
-                segmentos -= 1;
+            let head = self.roles[i - 1] == Role::Head;
+            if self.roles[i - 1] == Role::Separator && segments > 1 {
+                segments -= 1;
             }
-            let seg_score = if segmentos > 1 { 0 } else { 1 };
-            let mut pena = 0;
-            if segmentos == 1 && cabeca && self.estilo != Estilo::Texto {
-                pena += 1;
+            let seg_score = if segments > 1 { 0 } else { 1 };
+            let mut worth = 0;
+            if segments == 1 && head && self.style != Style::Text {
+                worth += 1;
             }
-            if i - 1 == ultimo_inicio {
-                pena += 3;
+            if i - 1 == last_start {
+                worth += 3;
             }
             for j in 0..=m {
-                self.tabela[i][o + j] = MIN_SCORE << 1;
-                if segmentos > 1 && j == m {
-                    self.tabela[i][j] = MIN_SCORE << 1;
+                self.table[i][o + j] = MIN_SCORE << 1;
+                if segments > 1 && j == m {
+                    self.table[i][j] = MIN_SCORE << 1;
                     continue;
                 }
-                let k = self.melhor_k(i - 1, j);
-                let mut pular = self.score_em(i - 1, j, k);
+                let k = self.best_k(i - 1, j);
+                let mut skip = self.score_in(i - 1, j, k);
                 if j != m {
-                    pular -= pena;
+                    skip -= worth;
                 }
-                self.tabela[i][j] = (pular << 1) + k as i32;
-                if j == 0 || cand_min[i - 1] != self.padrao_min[j - 1] {
+                self.table[i][j] = (skip << 1) + k as i32;
+                if j == 0 || cand_min[i - 1] != self.pattern_min[j - 1] {
                     continue;
                 }
-                let mut ponto = seg_score;
-                if self.papeis[i - 1] == Papel::Cauda && self.papeis_padrao[j - 1] == Papel::Cabeca {
+                let mut dot = seg_score;
+                if self.roles[i - 1] == Role::Tail && self.default_roles[j - 1] == Role::Head {
                     if j > 1 {
                         continue;
                     }
-                    let fim = cand_min.len().min(i - 1 + self.curto.len());
-                    if self.curto[..] != cand_min[i - 1..fim] {
+                    let end = cand_min.len().min(i - 1 + self.short.len());
+                    if self.short[..] != cand_min[i - 1..end] {
                         continue;
                     }
-                    ponto -= 4;
+                    dot -= 4;
                 }
-                if cand[i - 1] == self.padrao[j - 1] || (cabeca && (!self.sensivel || self.papeis_padrao[j - 1] == Papel::Cabeca)) {
-                    ponto += 1;
+                if cand[i - 1] == self.pattern[j - 1] || (head && (!self.sensitive || self.default_roles[j - 1] == Role::Head)) {
+                    dot += 1;
                 }
                 for k in 0..2 {
-                    let mut s = self.score_em(i - 1, j - 1, k) + ponto;
-                    let anterior_casou = k == 1;
-                    let consecutivo = anterior_casou || i - 1 == 0 || i - 1 == ultimo_inicio;
-                    if consecutivo || (self.estilo == Estilo::Texto && j - 1 == 0) {
-                        s += if self.estilo == Estilo::Texto { 4 } else { 2 };
+                    let mut s = self.score_in(i - 1, j - 1, k) + dot;
+                    let previous_matched = k == 1;
+                    let consecutive = previous_matched || i - 1 == 0 || i - 1 == last_start;
+                    if consecutive || (self.style == Style::Text && j - 1 == 0) {
+                        s += if self.style == Style::Text { 4 } else { 2 };
                     }
-                    if !anterior_casou && matches!(self.papeis[i - 1], Papel::Cauda | Papel::CaudaMaiuscula) {
+                    if !previous_matched && matches!(self.roles[i - 1], Role::Tail | Role::UppercaseTail) {
                         s -= 3;
                     }
-                    if s > (self.tabela[i][o + j] >> 1) {
-                        self.tabela[i][o + j] = (s << 1) + k as i32;
+                    if s > (self.table[i][o + j] >> 1) {
+                        self.table[i][o + j] = (s << 1) + k as i32;
                     }
                 }
             }
         }
         let n = cand.len();
-        self.score_em(n, m, self.melhor_k(n, m))
+        self.score_in(n, m, self.best_k(n, m))
     }
 
     /// `isPoorMatch`.
-    fn ruim(&self) -> bool {
-        if self.padrao.len() < 2 {
+    fn bad(&self) -> bool {
+        if self.pattern.len() < 2 {
             return false;
         }
-        let mut i = self.ultimo_comprimento;
-        let mut j = self.padrao.len();
-        let mut k = self.melhor_k(i, j);
-        let mut contador = 0;
-        let mut comprimento = 0;
+        let mut i = self.last_length;
+        let mut j = self.pattern.len();
+        let mut k = self.best_k(i, j);
+        let mut counter = 0;
+        let mut length = 0;
         while i > 0 {
-            let pega = k == 1;
-            k = self.k_anterior(i, j, k);
-            if pega {
-                comprimento += 1;
-                if k == 0 && comprimento < 3 && self.papeis[i - 1] == Papel::Cauda {
-                    contador += 1;
-                    if contador > 1 {
+            let takes = k == 1;
+            k = self.previous_k(i, j, k);
+            if takes {
+                length += 1;
+                if k == 0 && length < 3 && self.roles[i - 1] == Role::Tail {
+                    counter += 1;
+                    if counter > 1 {
                         return true;
                     }
                 }
                 j -= 1;
             } else {
-                comprimento = 0;
+                length = 0;
             }
             i -= 1;
         }
@@ -265,59 +265,59 @@ impl Casador {
     }
 
     /// `match`.
-    fn casa(&mut self, cand: &[u16], cand_min: &[u16]) -> bool {
+    fn matches(&mut self, cand: &[u16], cand_min: &[u16]) -> bool {
         let mut i = 0;
         let mut j = 0;
-        while i < cand_min.len() && j < self.padrao_min.len() {
-            if cand_min[i] == self.padrao_min[j] {
+        while i < cand_min.len() && j < self.pattern_min.len() {
+            if cand_min[i] == self.pattern_min[j] {
                 j += 1;
             }
             i += 1;
         }
-        if j != self.padrao_min.len() {
+        if j != self.pattern_min.len() {
             return false;
         }
-        let mut papeis = std::mem::take(&mut self.papeis);
-        self.mapear(cand, &mut papeis);
-        self.papeis = papeis;
-        if self.estilo != Estilo::Texto {
+        let mut roles = std::mem::take(&mut self.roles);
+        self.map(cand, &mut roles);
+        self.roles = roles;
+        if self.style != Style::Text {
             let mut sep = cand_min.len() as isize - 1;
-            while sep >= i as isize && self.papeis[sep as usize] != Papel::Separador {
+            while sep >= i as isize && self.roles[sep as usize] != Role::Separator {
                 sep -= 1;
             }
             if sep >= i as isize {
-                let ultimo = *self.padrao_min.last().unwrap_or(&0);
-                return cand_min[sep as usize..].contains(&ultimo);
+                let last = *self.pattern_min.last().unwrap_or(&0);
+                return cand_min[sep as usize..].contains(&last);
             }
         }
         true
     }
 
     /// `score(candidate)`: −1 quando não casa; 1 no padrão vazio.
-    pub(crate) fn score(&mut self, candidato: &str) -> f64 {
-        let mut cand: Vec<u16> = candidato.encode_utf16().collect();
-        if cand.len() > MAX_ENTRADA {
-            if self.estilo == Estilo::Arquivo {
-                cand = cand[cand.len() - MAX_ENTRADA..].to_vec();
+    pub(crate) fn score(&mut self, candidate: &str) -> f64 {
+        let mut cand: Vec<u16> = candidate.encode_utf16().collect();
+        if cand.len() > MAX_ENTRY {
+            if self.style == Style::File {
+                cand = cand[cand.len() - MAX_ENTRY..].to_vec();
             } else {
-                cand.truncate(MAX_ENTRADA);
+                cand.truncate(MAX_ENTRY);
             }
         }
-        if self.padrao.is_empty() {
+        if self.pattern.is_empty() {
             return 1.0;
         }
-        self.ultimo_comprimento = cand.len();
-        let cand_min = minusculas(&cand);
-        if self.casa(&cand, &cand_min) {
-            let mut s = self.calcular(&cand, &cand_min);
-            if s > MIN_SCORE / 2 && !self.ruim() {
-                if self.padrao.len() == cand.len() {
+        self.last_length = cand.len();
+        let cand_min = lowercase(&cand);
+        if self.matches(&cand, &cand_min) {
+            let mut s = self.compute(&cand, &cand_min);
+            if s > MIN_SCORE / 2 && !self.bad() {
+                if self.pattern.len() == cand.len() {
                     return 1.0;
                 }
                 if s < 0 {
                     s = 0;
                 }
-                let n = s as f64 * self.escala;
+                let n = s as f64 * self.scale;
                 return if n > 1.0 { 1.0 } else { n };
             }
         }
@@ -326,15 +326,15 @@ impl Casador {
 }
 
 #[cfg(test)]
-mod testes {
-    use super::{Casador, Estilo};
+mod tests {
+    use super::{Matcher, Style};
 
     fn s(p: &str, c: &str) -> f64 {
-        Casador::novo(p, Estilo::Texto).score(c)
+        Matcher::new(p, Style::Text).score(c)
     }
 
     #[test]
-    fn exemplos_da_especificacao() {
+    fn spec_examples() {
         assert_eq!(s("St", "StateError"), 1.0);
         assert_eq!(s("St", "StackTrace"), 1.0);
         assert_eq!(s("st", "StateError"), 1.0);

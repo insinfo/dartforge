@@ -8,9 +8,9 @@
 //! `refactorings_move.rs`.
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use crate::Edicao;
-use crate::project::{Alvo, Concreto, Projeto};
-use crate::refactorings::{Contexto, Elem, PedidoDeRefatoracao, ResultadoDeRefatoracao, SelecaoLocal};
+use crate::Edit;
+use crate::project::{Target, Concrete, Project};
+use crate::refactorings::{Context, Elem, RefactoringRequest, RefactoringResult, LocalSelection};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{FunctionElementId, FunctionKind, FunctionRef, UnitId};
 use dartforge_frontend::ast::{self, ExprId, ExprKind};
@@ -18,93 +18,93 @@ use dartforge_frontend::token::Kind;
 use dartforge_types::{Resolved, Type, TypeId};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-type R = ResultadoDeRefatoracao;
+type R = RefactoringResult;
 
 // -- RefactoringStatus ---------------------------------------------------------
 
 /// A severidade de um problema (`RefactoringProblemSeverity`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Severidade {
-    Aviso,
-    Erro,
+pub(crate) enum Severity {
+    Warning,
+    Error,
     Fatal,
 }
 
 /// `RefactoringStatus`: os problemas na ordem de inserção.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Estado {
-    pub(crate) problemas: Vec<(Severidade, String)>,
+pub(crate) struct State {
+    pub(crate) problems: Vec<(Severity, String)>,
 }
 
-impl Estado {
-    pub(crate) fn fatal(m: impl Into<String>) -> Estado {
-        Estado { problemas: vec![(Severidade::Fatal, m.into())] }
+impl State {
+    pub(crate) fn fatal(m: impl Into<String>) -> State {
+        State { problems: vec![(Severity::Fatal, m.into())] }
     }
 
-    pub(crate) fn erro(m: impl Into<String>) -> Estado {
-        Estado { problemas: vec![(Severidade::Erro, m.into())] }
+    pub(crate) fn error(m: impl Into<String>) -> State {
+        State { problems: vec![(Severity::Error, m.into())] }
     }
 
-    pub(crate) fn aviso(m: impl Into<String>) -> Estado {
-        Estado { problemas: vec![(Severidade::Aviso, m.into())] }
+    pub(crate) fn warning(m: impl Into<String>) -> State {
+        State { problems: vec![(Severity::Warning, m.into())] }
     }
 
-    pub(crate) fn adicionar(&mut self, s: Severidade, m: impl Into<String>) {
-        self.problemas.push((s, m.into()));
+    pub(crate) fn add(&mut self, s: Severity, m: impl Into<String>) {
+        self.problems.push((s, m.into()));
     }
 
     /// `addStatus`.
-    pub(crate) fn somar(&mut self, outro: Estado) {
-        self.problemas.extend(outro.problemas);
+    pub(crate) fn absorb(&mut self, other: State) {
+        self.problems.extend(other.problems);
     }
 
-    pub(crate) fn maxima(&self) -> Option<Severidade> {
-        self.problemas.iter().map(|(s, _)| *s).max()
+    pub(crate) fn max(&self) -> Option<Severity> {
+        self.problems.iter().map(|(s, _)| *s).max()
     }
 
-    pub(crate) fn tem_fatal(&self) -> bool {
-        self.maxima() == Some(Severidade::Fatal)
+    pub(crate) fn has_fatal(&self) -> bool {
+        self.max() == Some(Severity::Fatal)
     }
 
     /// `hasError`: `ERROR` ou `FATAL`.
-    pub(crate) fn tem_erro(&self) -> bool {
-        self.maxima().is_some_and(|s| s >= Severidade::Erro)
+    pub(crate) fn has_error(&self) -> bool {
+        self.max().is_some_and(|s| s >= Severity::Error)
     }
 
     pub(crate) fn ok(&self) -> bool {
-        self.problemas.is_empty()
+        self.problems.is_empty()
     }
 
     /// `message`: a do primeiro problema de severidade máxima.
-    pub(crate) fn mensagem(&self) -> Option<String> {
-        let max = self.maxima()?;
-        self.problemas.iter().find(|(s, _)| *s == max).map(|(_, m)| m.clone())
+    pub(crate) fn message(&self) -> Option<String> {
+        let max = self.max()?;
+        self.problems.iter().find(|(s, _)| *s == max).map(|(_, m)| m.clone())
     }
 }
 
 /// O resultado de uma refatoração legada: `refactor.validate` olha só as
 /// condições iniciais; `refactor.perform`, as iniciais (fatal interrompe) e
 /// as finais, depois a mudança.
-pub(crate) fn concluir(
-    pedido: &PedidoDeRefatoracao,
-    iniciais: Estado,
-    finais: impl FnOnce() -> Estado,
-    mudanca: impl FnOnce() -> Mudanca,
-) -> ResultadoDeRefatoracao {
-    if pedido.so_validar {
-        return match (iniciais.tem_erro(), iniciais.mensagem()) {
-            (true, Some(m)) => R::Erro(m),
-            _ => R::Valido,
+pub(crate) fn finish(
+    request: &RefactoringRequest,
+    initial: State,
+    finals: impl FnOnce() -> State,
+    change: impl FnOnce() -> Change,
+) -> RefactoringResult {
+    if request.only_validate {
+        return match (initial.has_error(), initial.message()) {
+            (true, Some(m)) => R::Error(m),
+            _ => R::Valid,
         };
     }
-    let mut todas = iniciais;
-    if !todas.tem_fatal() {
-        todas.somar(finais());
+    let mut all = initial;
+    if !all.has_fatal() {
+        all.absorb(finals());
     }
-    if todas.tem_erro() {
-        return R::Erro(todas.mensagem().unwrap_or_default());
+    if all.has_error() {
+        return R::Error(all.message().unwrap_or_default());
     }
-    mudanca().resultado()
+    change().result()
 }
 
 // -- SourceChange ----------------------------------------------------------------
@@ -113,56 +113,56 @@ pub(crate) fn concluir(
 /// (decrescente por offset; uma nova com o mesmo offset entra antes das
 /// existentes), e um arquivo novo.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Mudanca {
-    pub(crate) arquivos: Vec<(String, Vec<Edicao>)>,
-    pub(crate) criar: Option<(String, String)>,
+pub(crate) struct Change {
+    pub(crate) files: Vec<(String, Vec<Edit>)>,
+    pub(crate) create: Option<(String, String)>,
     /// A primeira `ConflictingEditException` (edições que se sobrepõem).
-    pub(crate) conflito: Option<String>,
+    pub(crate) conflict: Option<String>,
 }
 
-impl Mudanca {
+impl Change {
     /// `addEdit` / `addEditForSource`.
-    pub(crate) fn adicionar(&mut self, uri: &str, span: Span, texto: impl Into<String>) {
-        let e = Edicao { uri: uri.to_string(), span, texto: texto.into() };
-        let lista = match self.arquivos.iter().position(|(u, _)| u == uri) {
-            Some(i) => &mut self.arquivos[i].1,
+    pub(crate) fn add(&mut self, uri: &str, span: Span, text: impl Into<String>) {
+        let e = Edit { uri: uri.to_string(), span, text: text.into() };
+        let list = match self.files.iter().position(|(u, _)| u == uri) {
+            Some(i) => &mut self.files[i].1,
             None => {
-                self.arquivos.push((uri.to_string(), Vec::new()));
-                &mut self.arquivos.last_mut().unwrap().1
+                self.files.push((uri.to_string(), Vec::new()));
+                &mut self.files.last_mut().unwrap().1
             }
         };
         let mut i = 0;
-        while i < lista.len() && lista[i].span.start > e.span.start {
+        while i < list.len() && list[i].span.start > e.span.start {
             i += 1;
         }
         // As verificações de sobreposição do `addEditForSource`.
-        let conflita = (i > 0 && e.span.end > lista[i - 1].span.start)
-            || (i < lista.len() && {
-                let proxima = &lista[i];
-                (e.span.start == proxima.span.start && e.span.end > e.span.start && proxima.span.end > proxima.span.start)
-                    || proxima.span.end > e.span.start
+        let conflicts = (i > 0 && e.span.end > list[i - 1].span.start)
+            || (i < list.len() && {
+                let next = &list[i];
+                (e.span.start == next.span.start && e.span.end > e.span.start && next.span.end > next.span.start)
+                    || next.span.end > e.span.start
             });
-        if conflita {
-            if self.conflito.is_none() {
-                self.conflito = Some(format!("ConflictingEditException: {}:{} conflicts with an existing edit", e.span.start, e.span.end - e.span.start));
+        if conflicts {
+            if self.conflict.is_none() {
+                self.conflict = Some(format!("ConflictingEditException: {}:{} conflicts with an existing edit", e.span.start, e.span.end - e.span.start));
             }
             return;
         }
-        lista.insert(i, e);
+        list.insert(i, e);
     }
 
-    pub(crate) fn vazia(&self) -> bool {
-        self.criar.is_none() && self.arquivos.iter().all(|(_, l)| l.is_empty())
+    pub(crate) fn empty(&self) -> bool {
+        self.create.is_none() && self.files.iter().all(|(_, l)| l.is_empty())
     }
 
     /// A mudança na forma do LSP: `sortSourceEditsForLsp` inverte a lista
     /// de cada arquivo (crescente por offset; inserções no mesmo offset na
     /// ordem em que ficam no texto).
-    pub(crate) fn resultado(self) -> ResultadoDeRefatoracao {
-        if let Some(c) = self.conflito {
-            return R::ErroInterno(c);
+    pub(crate) fn result(self) -> RefactoringResult {
+        if let Some(c) = self.conflict {
+            return R::InternalError(c);
         }
-        R::Mudanca { edicoes: self.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(), criar: self.criar }
+        R::Change { edits: self.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(), create: self.create }
     }
 }
 
@@ -171,16 +171,16 @@ impl Mudanca {
 /// Os utilitários de texto do `CorrectionUtils`
 /// (`analysis_server_plugin/lib/edit/correction_utils.dart`).
 #[derive(Clone, Copy)]
-pub(crate) struct Texto<'a> {
+pub(crate) struct Text<'a> {
     pub(crate) t: &'a str,
 }
 
 /// Dois espaços (`oneIndent`).
-pub(crate) const UM_RECUO: &str = "  ";
+pub(crate) const ONE_INDENT: &str = "  ";
 
-impl<'a> Texto<'a> {
-    pub(crate) fn novo(t: &'a str) -> Texto<'a> {
-        Texto { t }
+impl<'a> Text<'a> {
+    pub(crate) fn new(t: &'a str) -> Text<'a> {
+        Text { t }
     }
 
     fn b(&self, i: usize) -> u8 {
@@ -201,7 +201,7 @@ impl<'a> Texto<'a> {
     }
 
     /// `getLineContentEnd`.
-    pub(crate) fn fim_do_conteudo(&self, mut i: usize) -> usize {
+    pub(crate) fn content_end(&self, mut i: usize) -> usize {
         let n = self.t.len();
         while i < n && matches!(self.b(i), b' ' | b'\t') {
             i += 1;
@@ -216,7 +216,7 @@ impl<'a> Texto<'a> {
     }
 
     /// `getLineContentStart`.
-    pub(crate) fn inicio_do_conteudo(&self, mut i: usize) -> usize {
+    pub(crate) fn content_start(&self, mut i: usize) -> usize {
         while i > 0 && matches!(self.b(i - 1), b' ' | b'\t') {
             i -= 1;
         }
@@ -224,7 +224,7 @@ impl<'a> Texto<'a> {
     }
 
     /// `getLineNext`.
-    pub(crate) fn proxima_linha(&self, mut i: usize) -> usize {
+    pub(crate) fn next_line(&self, mut i: usize) -> usize {
         let n = self.t.len();
         while i < n && !matches!(self.b(i), b'\r' | b'\n') {
             i += 1;
@@ -239,7 +239,7 @@ impl<'a> Texto<'a> {
     }
 
     /// `getLineThis`.
-    pub(crate) fn inicio_da_linha(&self, mut i: usize) -> usize {
+    pub(crate) fn line_start(&self, mut i: usize) -> usize {
         while i > 0 && !matches!(self.b(i - 1), b'\r' | b'\n') {
             i -= 1;
         }
@@ -247,51 +247,51 @@ impl<'a> Texto<'a> {
     }
 
     /// `getLinePrefix`.
-    pub(crate) fn prefixo_da_linha(&self, i: usize) -> &'a str {
-        let ini = self.inicio_da_linha(i);
-        let mut j = ini;
+    pub(crate) fn line_prefix(&self, i: usize) -> &'a str {
+        let start = self.line_start(i);
+        let mut j = start;
         let n = self.t.len();
         while j < n && matches!(self.b(j), b' ' | b'\t') {
             j += 1;
         }
-        &self.t[ini..j]
+        &self.t[start..j]
     }
 
     /// `getPrefix`.
-    pub(crate) fn prefixo(&self, i: usize) -> &'a str {
-        &self.t[self.inicio_do_conteudo(i)..i]
+    pub(crate) fn prefix(&self, i: usize) -> &'a str {
+        &self.t[self.content_start(i)..i]
     }
 
     /// `getLinesRange`.
-    pub(crate) fn faixa_de_linhas(&self, ini: usize, fim: usize) -> Span {
-        let inicio = self.inicio_do_conteudo(ini);
-        let mut depois = fim;
-        if self.inicio_da_linha(inicio) == inicio {
-            depois = self.fim_do_conteudo(fim);
+    pub(crate) fn line_range(&self, start_: usize, end: usize) -> Span {
+        let start = self.content_start(start_);
+        let mut after = end;
+        if self.line_start(start) == start {
+            after = self.content_end(end);
         }
-        Span { start: inicio, end: depois }
+        Span { start: start, end: after }
     }
 
     /// `indentSourceLeftRight(indentLeft: true)`.
-    pub(crate) fn recuar_a_esquerda(&self, fonte: &str) -> String {
+    pub(crate) fn dedent(&self, source: &str) -> String {
         let eol = self.eol();
-        let linhas: Vec<&str> = fonte.split(eol).collect();
+        let lines: Vec<&str> = source.split(eol).collect();
         let mut s = String::new();
-        for (i, linha) in linhas.iter().enumerate() {
-            if i == linhas.len() - 1 && linha.is_empty() {
+        for (i, line) in lines.iter().enumerate() {
+            if i == lines.len() - 1 && line.is_empty() {
                 break;
             }
-            s.push_str(linha.strip_prefix(UM_RECUO).unwrap_or(linha));
+            s.push_str(line.strip_prefix(ONE_INDENT).unwrap_or(line));
             s.push_str(eol);
         }
         s
     }
 
     /// `replaceSourceIndent`.
-    pub(crate) fn trocar_recuo(&self, fonte: &str, velho: &str, novo: &str, incluir_inicio: bool, garantir_eol: bool) -> String {
+    pub(crate) fn swap_indent(&self, source: &str, old: &str, new: &str, include_start: bool, ensure_eol: bool) -> String {
         // As faixas dos tokens de string (uma linha que começa dentro de
         // uma string de várias linhas não muda).
-        let strings: Vec<Span> = dartforge_frontend::lexer::lex(fonte)
+        let strings: Vec<Span> = dartforge_frontend::lexer::lex(source)
             .map(|v| {
                 v.iter()
                     .filter(|t| matches!(t.kind, Kind::Str(_) | Kind::StrBegin(..) | Kind::StrMid(..) | Kind::StrEnd(_)))
@@ -300,32 +300,32 @@ impl<'a> Texto<'a> {
             })
             .unwrap_or_default();
         let eol = self.eol();
-        let linhas: Vec<&str> = fonte.split(eol).collect();
+        let lines: Vec<&str> = source.split(eol).collect();
         let mut s = String::new();
-        let mut offset_da_linha = 0usize;
-        for (i, &linha) in linhas.iter().enumerate() {
-            if i == linhas.len() - 1 && linha.is_empty() {
+        let mut line_offset = 0usize;
+        for (i, &line) in lines.iter().enumerate() {
+            if i == lines.len() - 1 && line.is_empty() {
                 break;
             }
-            let trocar = i != 0 || incluir_inicio;
-            let eol_depois = i != linhas.len() - 1 || garantir_eol;
-            let mut em_string = false;
+            let swap = i != 0 || include_start;
+            let eol_after = i != lines.len() - 1 || ensure_eol;
+            let mut in_string = false;
             for r in &strings {
-                if offset_da_linha > r.start && offset_da_linha < r.end {
-                    em_string = true;
+                if line_offset > r.start && line_offset < r.end {
+                    in_string = true;
                 }
-                if offset_da_linha > r.end {
+                if line_offset > r.end {
                     break;
                 }
             }
-            offset_da_linha += linha.len() + eol.len();
-            if !em_string && trocar {
-                s.push_str(novo);
-                s.push_str(linha.strip_prefix(velho).unwrap_or(linha));
+            line_offset += line.len() + eol.len();
+            if !in_string && swap {
+                s.push_str(new);
+                s.push_str(line.strip_prefix(old).unwrap_or(line));
             } else {
-                s.push_str(linha);
+                s.push_str(line);
             }
-            if eol_depois {
+            if eol_after {
                 s.push_str(eol);
             }
         }
@@ -333,27 +333,27 @@ impl<'a> Texto<'a> {
     }
 }
 
-impl Contexto<'_> {
+impl Context<'_> {
     /// `getNodePrefix`.
-    pub(crate) fn prefixo_do_no(&self, n: usize) -> String {
-        let tx = Texto::novo(self.fonte);
-        let o = self.arvore.nos[n].inicio;
-        if self.especie(n) == "FunctionExpression" { tx.prefixo_da_linha(o).to_string() } else { tx.prefixo(o).to_string() }
+    pub(crate) fn node_prefix(&self, n: usize) -> String {
+        let tx = Text::new(self.source);
+        let o = self.tree.nos[n].inicio;
+        if self.kind(n) == "FunctionExpression" { tx.line_prefix(o).to_string() } else { tx.prefix(o).to_string() }
     }
 
     /// O texto de um nó.
-    pub(crate) fn texto_do_no(&self, n: usize) -> &str {
-        let no = &self.arvore.nos[n];
-        &self.fonte[no.inicio..no.fim]
+    pub(crate) fn node_text(&self, n: usize) -> &str {
+        let no = &self.tree.nos[n];
+        &self.source[no.inicio..no.fim]
     }
 
     /// A expressão da árvore do parser do nó: a da marca de um
     /// `SimpleIdentifier`, senão a mais externa com o mesmo intervalo (os pais
     /// entram na arena depois dos filhos).
-    pub(crate) fn expr_do_no(&self, n: usize) -> Option<ExprId> {
-        let no = &self.arvore.nos[n];
+    pub(crate) fn node_expr(&self, n: usize) -> Option<ExprId> {
+        let no = &self.tree.nos[n];
         if let crate::arvore_analyzer::Marca::Expr(x) = no.marca
-            && self.especie(n) == "SimpleIdentifier"
+            && self.kind(n) == "SimpleIdentifier"
         {
             return Some(x);
         }
@@ -367,40 +367,40 @@ impl Contexto<'_> {
     }
 
     /// O tipo estático (`staticType`) do nó de expressão.
-    pub(crate) fn tipo_do_no(&self, n: usize) -> Option<TypeId> {
-        let x = self.expr_do_no(n)?;
-        self.corpos.get_type(x)
+    pub(crate) fn node_type(&self, n: usize) -> Option<TypeId> {
+        let x = self.node_expr(n)?;
+        self.bodies.get_type(x)
     }
 }
 
-/// A regra de lint `nome` está ligada para o arquivo da unidade
+/// A regra de lint `name` está ligada para o arquivo da unidade
 /// (`analysis_options.yaml` da subpasta ou da raiz).
-pub(crate) fn regra_ligada(p: &Projeto, unidade: UnitId, nome: &str) -> bool {
-    let Some(caminho) = p.programa().unit(unidade).path.as_deref() else { return false };
-    regra_ligada_em(caminho, nome)
+pub(crate) fn enabled_rule(p: &Project, unit: UnitId, name: &str) -> bool {
+    let Some(path) = p.program().unit(unit).path.as_deref() else { return false };
+    rule_enabled_in(path, name)
 }
 
-/// Como [`regra_ligada`], pelo caminho do arquivo.
-pub(crate) fn regra_ligada_em(caminho: &std::path::Path, nome: &str) -> bool {
-    let raiz = crate::project::raiz_do_projeto(caminho);
-    let arquivo = dartforge_parity::filtros::Opcoes::de_subpasta(caminho, &raiz).unwrap_or_else(|| raiz.join("analysis_options.yaml"));
-    dartforge_parity::filtros::Opcoes::ler_arquivo(&arquivo).regras.get(nome).copied().unwrap_or(false)
+/// Como [`enabled_rule`], pelo caminho do arquivo.
+pub(crate) fn rule_enabled_in(path: &std::path::Path, name: &str) -> bool {
+    let root = crate::project::project_root(path);
+    let file = dartforge_parity::filtros::Opcoes::de_subpasta(path, &root).unwrap_or_else(|| root.join("analysis_options.yaml"));
+    dartforge_parity::filtros::Opcoes::ler_arquivo(&file).regras.get(name).copied().unwrap_or(false)
 }
 
 /// `options['name'] as String` com `options != null`: o nome, ou o erro do
 /// `as` que vira `UnhandledError`.
-pub(crate) fn nome_das_opcoes(pedido: &PedidoDeRefatoracao) -> Result<Option<String>, ResultadoDeRefatoracao> {
-    match &pedido.opcoes {
+pub(crate) fn options_name(request: &RefactoringRequest) -> Result<Option<String>, RefactoringResult> {
+    match &request.options {
         None => Ok(None),
         Some(m) => match m.get("name") {
             Some(serde_json::Value::String(s)) => Ok(Some(s.clone())),
-            Some(v) => Err(R::ErroInterno(format!("type '{}' is not a subtype of type 'String' in type cast", tipo_json(v)))),
-            None => Err(R::ErroInterno("type 'Null' is not a subtype of type 'String' in type cast".to_string())),
+            Some(v) => Err(R::InternalError(format!("type '{}' is not a subtype of type 'String' in type cast", json_type(v)))),
+            None => Err(R::InternalError("type 'Null' is not a subtype of type 'String' in type cast".to_string())),
         },
     }
 }
 
-fn tipo_json(v: &serde_json::Value) -> &'static str {
+fn json_type(v: &serde_json::Value) -> &'static str {
     match v {
         serde_json::Value::Null => "Null",
         serde_json::Value::Bool(_) => "bool",
@@ -416,88 +416,88 @@ fn tipo_json(v: &serde_json::Value) -> &'static str {
 
 /// As palavras reservadas (`KeywordStyle.reserved`); as outras palavras-chave
 /// são embutidas ou pseudo.
-const RESERVADAS: &[&str] = &[
+const RESERVED: &[&str] = &[
     "assert", "break", "case", "catch", "class", "const", "continue", "default", "do", "else", "enum", "extends", "false", "final", "finally", "for", "if",
     "in", "is", "new", "null", "rethrow", "return", "super", "switch", "this", "throw", "true", "try", "var", "void", "while", "with",
 ];
 
 /// As embutidas e as pseudo (`isBuiltInOrPseudo`).
-const EMBUTIDAS: &[&str] = &[
+const INLINE: &[&str] = &[
     "abstract", "as", "async", "augment", "await", "base", "covariant", "deferred", "dynamic", "export", "extension", "external", "factory", "Function",
     "get", "hide", "implements", "import", "inout", "interface", "late", "library", "mixin", "native", "of", "on", "operator", "out", "part", "patch",
     "required", "sealed", "set", "show", "source", "static", "sync", "typedef", "when", "yield",
 ];
 
-/// `_validateLowerCamelCase(nome, desc, allowBuiltIn: true)`
+/// `_validateLowerCamelCase(name, desc, allowBuiltIn: true)`
 /// (`legacy/naming_conventions.dart:144-220`).
-pub(crate) fn validar_nome(nome: &str, desc: &str) -> Estado {
+pub(crate) fn validate_name(name: &str, desc: &str) -> State {
     let desc = format!("{desc} name");
-    if nome != nome.trim() {
-        return Estado::fatal(format!("{desc} must not start or end with a blank."));
+    if name != name.trim() {
+        return State::fatal(format!("{desc} must not start or end with a blank."));
     }
-    if nome.is_empty() {
-        return Estado::fatal(format!("{desc} must not be empty."));
+    if name.is_empty() {
+        return State::fatal(format!("{desc} must not be empty."));
     }
-    if EMBUTIDAS.contains(&nome) {
-        return Estado::aviso("Avoid using built-in identifiers as names.");
+    if INLINE.contains(&name) {
+        return State::warning("Avoid using built-in identifiers as names.");
     }
-    if RESERVADAS.contains(&nome) {
-        return Estado::fatal(format!("{desc} must not be a keyword."));
+    if RESERVED.contains(&name) {
+        return State::fatal(format!("{desc} must not be a keyword."));
     }
-    for c in nome.chars() {
+    for c in name.chars() {
         if !(c.is_ascii_alphanumeric() || c == '_' || c == '$') {
-            return Estado::fatal(format!("{desc} must not contain '{c}'."));
+            return State::fatal(format!("{desc} must not contain '{c}'."));
         }
     }
-    let primeiro = nome.as_bytes()[0];
-    if !(primeiro.is_ascii_alphabetic() || primeiro == b'_' || primeiro == b'$') {
-        return Estado::fatal(format!("{desc} must begin with a lowercase letter or underscore."));
+    let first = name.as_bytes()[0];
+    if !(first.is_ascii_alphabetic() || first == b'_' || first == b'$') {
+        return State::fatal(format!("{desc} must begin with a lowercase letter or underscore."));
     }
-    if primeiro == b'_' || primeiro == b'$' {
-        return Estado::default();
+    if first == b'_' || first == b'$' {
+        return State::default();
     }
-    if !primeiro.is_ascii_lowercase() {
-        return Estado::aviso(format!("{desc} should start with a lowercase letter."));
+    if !first.is_ascii_lowercase() {
+        return State::warning(format!("{desc} should start with a lowercase letter."));
     }
-    Estado::default()
+    State::default()
 }
 
 /// `getCamelWords`.
-pub(crate) fn palavras_camel(s: &str) -> Vec<String> {
+pub(crate) fn camel_words(s: &str) -> Vec<String> {
     if s.is_empty() {
         return Vec::new();
     }
     let b = s.as_bytes();
-    let mut partes = Vec::new();
-    let (mut era_min, mut era_mai) = (false, false);
-    let mut inicio = 0;
+    let mut parts = Vec::new();
+    let (mut was_lower, mut was_upper) = (false, false);
+    let mut start = 0;
     for i in 0..b.len() {
         let c = b[i];
         let min = c.is_ascii_lowercase();
-        let mai = c.is_ascii_uppercase();
-        if era_min && mai {
-            partes.push(s[inicio..i].to_string());
-            inicio = i;
+        let upper = c.is_ascii_uppercase();
+        if was_lower && upper {
+            parts.push(s[start..i].to_string());
+            start = i;
         }
-        if era_mai && mai && i + 1 < b.len() && b[i + 1].is_ascii_lowercase() {
-            partes.push(s[inicio..i].to_string());
-            inicio = i;
+        if was_upper && upper && i + 1 < b.len() && b[i + 1].is_ascii_lowercase() {
+            parts.push(s[start..i].to_string());
+            start = i;
         }
-        era_min = min;
-        era_mai = mai;
+        was_lower = min;
+        was_upper = upper;
     }
-    partes.push(s[inicio..].to_string());
-    partes
+    parts.push(s[start..].to_string());
+    parts
 }
 
 /// `getCamelWordCombinations`.
-pub(crate) fn combinacoes_camel(nome: &str) -> Vec<String> {
-    let partes = palavras_camel(nome);
-    (0..partes.len()).map(|i| format!("{}{}", partes[i].to_lowercase(), partes[i + 1..].concat())).collect()
+pub(crate) fn camel_combinations(name: &str) -> Vec<String> {
+    let parts = camel_words(name);
+    (0..parts.len()).map(|i| format!("{}{}", parts[i].to_lowercase(), parts[i + 1..].concat())).collect()
 }
 
 /// `capitalize`.
-fn capitalizar(s: &str) -> String {
+fn capitalize(s: &str) -> String {
     let mut c = s.chars();
     match c.next() {
         Some(p) => p.to_uppercase().collect::<String>() + c.as_str(),
@@ -506,33 +506,33 @@ fn capitalizar(s: &str) -> String {
 }
 
 /// `_addAll`: o primeiro de `item`, `item2`, `item3`… não excluído.
-pub(crate) fn adicionar_todos(excluidos: &HashSet<String>, saida: &mut Vec<String>, itens: Vec<String>, prefixo: Option<&str>) {
-    for item in itens {
-        let mut sufixo = 1;
+pub(crate) fn add_all(excluded: &HashSet<String>, output: &mut Vec<String>, items: Vec<String>, prefix: Option<&str>) {
+    for item in items {
+        let mut suffix = 1;
         loop {
-            let nome = if sufixo > 1 { format!("{item}{sufixo}") } else { item.clone() };
-            if !excluidos.contains(&nome) {
-                let final_ = match prefixo {
-                    Some(p) => format!("{p}{}", capitalizar(&nome)),
-                    None => nome,
+            let name = if suffix > 1 { format!("{item}{suffix}") } else { item.clone() };
+            if !excluded.contains(&name) {
+                let final_ = match prefix {
+                    Some(p) => format!("{p}{}", capitalize(&name)),
+                    None => name,
                 };
-                if !saida.contains(&final_) {
-                    saida.push(final_);
+                if !output.contains(&final_) {
+                    output.push(final_);
                 }
                 break;
             }
-            sufixo += 1;
+            suffix += 1;
         }
     }
 }
 
 /// `_addSingleCharacterName`.
-pub(crate) fn adicionar_letra(excluidos: &HashSet<String>, saida: &mut Vec<String>, mut c: u8) {
+pub(crate) fn add_letter(excluded: &HashSet<String>, output: &mut Vec<String>, mut c: u8) {
     while c < b'z' {
-        let nome = (c as char).to_string();
-        if !excluidos.contains(&nome) {
-            if !saida.contains(&nome) {
-                saida.push(nome);
+        let name = (c as char).to_string();
+        if !excluded.contains(&name) {
+            if !output.contains(&name) {
+                output.push(name);
             }
             break;
         }
@@ -541,95 +541,95 @@ pub(crate) fn adicionar_letra(excluidos: &HashSet<String>, saida: &mut Vec<Strin
 }
 
 /// `getVariableNameSuggestionsForText`.
-pub(crate) fn nomes_para_texto(texto: &str, excluidos: &HashSet<String>) -> Vec<String> {
-    let filtrado: String = texto.chars().filter(|c| c.is_alphabetic() || matches!(c, ' ' | '\t' | '\r' | '\n')).collect();
+pub(crate) fn names_to_text(text: &str, excluded: &HashSet<String>) -> Vec<String> {
+    let filtered: String = text.chars().filter(|c| c.is_alphabetic() || matches!(c, ' ' | '\t' | '\r' | '\n')).collect();
     let mut camel = String::new();
-    for (i, palavra) in filtrado.split(' ').enumerate() {
+    for (i, word) in filtered.split(' ').enumerate() {
         if i > 0 {
-            camel.push_str(&capitalizar(palavra));
+            camel.push_str(&capitalize(word));
         } else {
-            camel.push_str(palavra);
+            camel.push_str(word);
         }
     }
-    let mut saida = Vec::new();
-    adicionar_todos(excluidos, &mut saida, combinacoes_camel(&camel), None);
-    saida
+    let mut output = Vec::new();
+    add_all(excluded, &mut output, camel_combinations(&camel), None);
+    output
 }
 
-impl Contexto<'_> {
+impl Context<'_> {
     /// `getVariableNameSuggestionsForExpression(tipo, n, excluidos,
     /// isMethod)` (`name_suggestion.dart:29-76`).
-    pub(crate) fn nomes_para_expressao(&self, tipo: Option<TypeId>, n: usize, excluidos: &HashSet<String>, metodo: bool) -> Vec<String> {
-        let mut prefixo: Option<&str> = None;
-        if metodo
-            && let Some(m) = self.com_pais(n).find(|&k| self.especie(k) == "MethodDeclaration")
-            && let crate::arvore_analyzer::Marca::Funcao(fid) = self.arvore.nos[m].marca
-            && let Some(nome) = self.ast.function(fid).name
-            && self.fonte[nome.span.start..nome.span.end].starts_with("build")
+    pub(crate) fn names_to_expression(&self, ty: Option<TypeId>, n: usize, excluded: &HashSet<String>, method: bool) -> Vec<String> {
+        let mut prefix: Option<&str> = None;
+        if method
+            && let Some(m) = self.with_parents(n).find(|&k| self.kind(k) == "MethodDeclaration")
+            && let crate::arvore_analyzer::Marca::Funcao(fid) = self.tree.nos[m].marca
+            && let Some(name) = self.ast.function(fid).name
+            && self.source[name.span.start..name.span.end].starts_with("build")
         {
-            prefixo = Some("build");
+            prefix = Some("build");
         }
-        let mut saida = Vec::new();
-        if let Some(mut nome) = self.nome_base_da_expressao(n) {
-            if let Some(r) = nome.strip_prefix('_') {
-                nome = r.to_string();
+        let mut output = Vec::new();
+        if let Some(mut name) = self.expression_name_base(n) {
+            if let Some(r) = name.strip_prefix('_') {
+                name = r.to_string();
             }
-            adicionar_todos(excluidos, &mut saida, combinacoes_camel(&nome), prefixo);
+            add_all(excluded, &mut output, camel_combinations(&name), prefix);
         }
-        if let Some(nome) = self.nome_pela_posicao(n) {
-            adicionar_todos(excluidos, &mut saida, combinacoes_camel(&nome), None);
+        if let Some(name) = self.name_by_position(n) {
+            add_all(excluded, &mut output, camel_combinations(&name), None);
         }
-        if let Some(t) = tipo {
-            let tabela = &self.p.consulta.tabela;
-            let core = &self.p.consulta.core;
-            match tabela.get(t) {
+        if let Some(t) = ty {
+            let table = &self.p.query.table;
+            let core = &self.p.query.core;
+            match table.get(t) {
                 Type::Dynamic => {}
-                _ if tabela.canonico(t) == tabela.canonico(core.int) => adicionar_letra(excluidos, &mut saida, b'i'),
-                _ if tabela.canonico(t) == tabela.canonico(core.double) => adicionar_letra(excluidos, &mut saida, b'd'),
-                _ if tabela.canonico(t) == tabela.canonico(core.string) => adicionar_letra(excluidos, &mut saida, b's'),
+                _ if table.canonico(t) == table.canonico(core.int) => add_letter(excluded, &mut output, b'i'),
+                _ if table.canonico(t) == table.canonico(core.double) => add_letter(excluded, &mut output, b'd'),
+                _ if table.canonico(t) == table.canonico(core.string) => add_letter(excluded, &mut output, b's'),
                 Type::Interface { class, .. } => {
-                    let nome = self.p.nome(self.p.programa().class(*class).name).to_string();
-                    adicionar_todos(excluidos, &mut saida, combinacoes_camel(&nome), None);
+                    let name = self.p.name(self.p.program().class(*class).name).to_string();
+                    add_all(excluded, &mut output, camel_combinations(&name), None);
                 }
                 _ => {}
             }
         }
-        saida
+        output
     }
 
     /// `_getBaseNameFromExpression`.
-    fn nome_base_da_expressao(&self, mut n: usize) -> Option<String> {
-        while matches!(self.especie(n), "AsExpression" | "ParenthesizedExpression") {
-            n = *self.filhos(n).first()?;
+    fn expression_name_base(&self, mut n: usize) -> Option<String> {
+        while matches!(self.kind(n), "AsExpression" | "ParenthesizedExpression") {
+            n = *self.children(n).first()?;
         }
-        let texto = |k: usize| self.texto_do_no(k).to_string();
-        let nome: String = match self.especie(n) {
-            "SimpleIdentifier" => return Some(texto(n)),
-            "PrefixedIdentifier" => return self.filhos(n).get(1).map(|&k| texto(k)),
-            "PropertyAccess" => return self.filhos(n).last().map(|&k| texto(k)),
-            "MethodInvocation" => texto(self.nome_do_metodo(n)?),
+        let text = |k: usize| self.node_text(k).to_string();
+        let name: String = match self.kind(n) {
+            "SimpleIdentifier" => return Some(text(n)),
+            "PrefixedIdentifier" => return self.children(n).get(1).map(|&k| text(k)),
+            "PropertyAccess" => return self.children(n).last().map(|&k| text(k)),
+            "MethodInvocation" => text(self.method_name(n)?),
             "InstanceCreationExpression" => {
-                let cn = *self.filhos(n).iter().find(|&&k| self.especie(k) == "ConstructorName")?;
-                let tipo = *self.filhos(cn).first()?;
+                let cn = *self.children(n).iter().find(|&&k| self.kind(k) == "ConstructorName")?;
+                let ty = *self.children(cn).first()?;
                 // O nome do `NamedType` (depois do prefixo de import).
-                let no = &self.arvore.nos[tipo];
-                let inicio = self.filhos(tipo).iter().find(|&&k| self.especie(k) == "ImportPrefixReference").map_or(no.inicio, |&k| self.arvore.nos[k].fim);
-                let resto = &self.fonte[inicio..no.fim];
-                let fim = resto.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(resto.len());
-                return Some(resto[..fim].trim().to_string());
+                let no = &self.tree.nos[ty];
+                let start = self.children(ty).iter().find(|&&k| self.kind(k) == "ImportPrefixReference").map_or(no.inicio, |&k| self.tree.nos[k].fim);
+                let rest = &self.source[start..no.fim];
+                let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
+                return Some(rest[..end].trim().to_string());
             }
             "IndexExpression" => {
-                let alvo = self.alvo_real_do_indice(n)?;
-                let mut nome = self.nome_base_da_expressao(alvo)?;
-                if nome.ends_with('s') {
-                    nome.pop();
+                let target = self.real_index_target(n)?;
+                let mut name = self.expression_name_base(target)?;
+                if name.ends_with('s') {
+                    name.pop();
                 }
-                nome
+                name
             }
             _ => return None,
         };
         for p in ["get", "is", "to"] {
-            if let Some(r) = nome.strip_prefix(p) {
+            if let Some(r) = name.strip_prefix(p) {
                 if r.is_empty() {
                     return None;
                 }
@@ -638,20 +638,20 @@ impl Contexto<'_> {
                 }
             }
         }
-        Some(nome)
+        Some(name)
     }
 
     /// `IndexExpression.realTarget`: o alvo, ou o da cascata.
-    fn alvo_real_do_indice(&self, n: usize) -> Option<usize> {
-        let filhos = self.filhos(n);
-        if filhos.len() >= 2 {
-            return filhos.first().copied();
+    fn real_index_target(&self, n: usize) -> Option<usize> {
+        let children = self.children(n);
+        if children.len() >= 2 {
+            return children.first().copied();
         }
         // `..[i]`: o alvo da cascata.
         let mut k = n;
-        while let Some(p) = self.pai(k) {
-            if self.especie(p) == "CascadeExpression" {
-                return self.filhos(p).first().copied();
+        while let Some(p) = self.parent(k) {
+            if self.kind(p) == "CascadeExpression" {
+                return self.children(p).first().copied();
             }
             k = p;
         }
@@ -660,224 +660,224 @@ impl Contexto<'_> {
 
     /// `_getBaseNameFromLocationInParent`: o rótulo do argumento nomeado, ou
     /// o nome do parâmetro posicional correspondente.
-    fn nome_pela_posicao(&self, n: usize) -> Option<String> {
-        let p = self.pai(n)?;
-        if self.especie(p) == "NamedExpression" && self.filhos(p).get(1) == Some(&n) {
-            let rotulo = *self.filhos(p).first()?;
-            let id = *self.filhos(rotulo).first()?;
-            return Some(self.texto_do_no(id).to_string());
+    fn name_by_position(&self, n: usize) -> Option<String> {
+        let p = self.parent(n)?;
+        if self.kind(p) == "NamedExpression" && self.children(p).get(1) == Some(&n) {
+            let label = *self.children(p).first()?;
+            let id = *self.children(label).first()?;
+            return Some(self.node_text(id).to_string());
         }
-        if self.especie(p) != "ArgumentList" {
+        if self.kind(p) != "ArgumentList" {
             return None;
         }
         // O índice entre os posicionais.
-        let posicionais: Vec<usize> = self.filhos(p).iter().copied().filter(|&k| self.especie(k) != "NamedExpression").collect();
-        let indice = posicionais.iter().position(|&k| k == n)?;
-        let dono = self.pai(p)?;
-        let f = match self.especie(dono) {
-            "MethodInvocation" => match self.elemento_do_identificador(self.nome_do_metodo(dono)?, true) {
-                Elem::Funcao(f) => f,
+        let positional: Vec<usize> = self.children(p).iter().copied().filter(|&k| self.kind(k) != "NamedExpression").collect();
+        let index = positional.iter().position(|&k| k == n)?;
+        let owner = self.parent(p)?;
+        let f = match self.kind(owner) {
+            "MethodInvocation" => match self.identifier_element(self.method_name(owner)?, true) {
+                Elem::Function(f) => f,
                 _ => return None,
             },
             "InstanceCreationExpression" => {
-                let x = self.expr_do_no(dono)?;
-                match self.corpos.get_resolved(x) {
+                let x = self.node_expr(owner)?;
+                match self.bodies.get_resolved(x) {
                     Some(Resolved::Constructor(f)) => *f,
                     _ => {
-                        let cn = *self.filhos(dono).iter().find(|&&k| self.especie(k) == "ConstructorName")?;
+                        let cn = *self.children(owner).iter().find(|&&k| self.kind(k) == "ConstructorName")?;
                         let _ = cn;
-                        let alvo = self.construtores_por_alvo.iter().find(|(a, _)| {
+                        let target = self.constructors_by_target.iter().find(|(a, _)| {
                             let s = self.ast.expr(**a).span;
-                            s.start >= self.arvore.nos[dono].inicio && s.end <= self.arvore.nos[dono].fim
+                            s.start >= self.tree.nos[owner].inicio && s.end <= self.tree.nos[owner].fim
                         })?;
-                        *alvo.1
+                        *target.1
                     }
                 }
             }
             _ => return None,
         };
-        let dados = self.p.consulta.outline.functions.get(f.0 as usize)?;
-        let parametro = dados.parameters.iter().filter(|q| q.kind != ast::ParameterKind::Named).nth(indice)?;
-        Some(self.p.nome(parametro.name?).to_string())
+        let data = self.p.query.outline.functions.get(f.0 as usize)?;
+        let parameter = data.parameters.iter().filter(|q| q.kind != ast::ParameterKind::Named).nth(index)?;
+        Some(self.p.name(parameter.name?).to_string())
     }
 }
 
 // -- Despacho ----------------------------------------------------------------------
 
 /// `refactor.perform`/`refactor.validate` de uma refatoração legada.
-pub(crate) fn executar(p: &Projeto, uri: &str, pedido: &PedidoDeRefatoracao) -> ResultadoDeRefatoracao {
-    let Some(unidade) = p.unidade_do_uri(uri) else { return R::NaoAnalisado };
-    let cx = Contexto::novo(p, unidade);
-    let comando = if pedido.so_validar { "Validate Refactor" } else { "Perform Refactor" };
-    match pedido.kind.as_str() {
-        "EXTRACT_METHOD" => crate::refactorings_method::executar(&cx, uri, pedido),
-        "EXTRACT_LOCAL_VARIABLE" => extrair_local(&cx, uri, pedido),
-        "EXTRACT_WIDGET" => extrair_widget(&cx, pedido),
-        "INLINE_LOCAL_VARIABLE" => embutir_local(&cx, uri, pedido),
-        "INLINE_METHOD" => crate::refactorings_inline::executar(&cx, uri, pedido),
-        "CONVERT_GETTER_TO_METHOD" => getter_para_metodo(&cx, pedido, comando),
-        "CONVERT_METHOD_TO_GETTER" => metodo_para_getter(&cx, pedido, comando),
-        k => R::ArgumentosInvalidos(format!("Unknown RefactoringKind RefactoringKind.{k} was supplied to {comando}")),
+pub(crate) fn run(p: &Project, uri: &str, request: &RefactoringRequest) -> RefactoringResult {
+    let Some(unit) = p.uri_unit(uri) else { return R::NotAnalyzed };
+    let cx = Context::new(p, unit);
+    let command = if request.only_validate { "Validate Refactor" } else { "Perform Refactor" };
+    match request.kind.as_str() {
+        "EXTRACT_METHOD" => crate::refactorings_method::run(&cx, uri, request),
+        "EXTRACT_LOCAL_VARIABLE" => extract_local(&cx, uri, request),
+        "EXTRACT_WIDGET" => extract_widget(&cx, request),
+        "INLINE_LOCAL_VARIABLE" => inline_local(&cx, uri, request),
+        "INLINE_METHOD" => crate::refactorings_inline::run(&cx, uri, request),
+        "CONVERT_GETTER_TO_METHOD" => getter_to_method(&cx, request, command),
+        "CONVERT_METHOD_TO_GETTER" => method_to_getter(&cx, request, command),
+        k => R::InvalidArguments(format!("Unknown RefactoringKind RefactoringKind.{k} was supplied to {command}")),
     }
 }
 
 /// `dart.refactor.move_top_level_to_file`.
-pub(crate) fn mover(p: &Projeto, uri: &str, offset: usize, comprimento: usize, destino: &str) -> ResultadoDeRefatoracao {
-    let Some(unidade) = p.unidade_do_uri(uri) else { return R::NaoAnalisado };
-    let cx = Contexto::novo(p, unidade);
-    crate::refactorings_move::executar(&cx, uri, offset, comprimento, destino)
+pub(crate) fn move_(p: &Project, uri: &str, offset: usize, length: usize, target: &str) -> RefactoringResult {
+    let Some(unit) = p.uri_unit(uri) else { return R::NotAnalyzed };
+    let cx = Context::new(p, unit);
+    crate::refactorings_move::run(&cx, uri, offset, length, target)
 }
 
 /// `EXTRACT_WIDGET`: sem o Flutter, nenhuma expressão cria `Widget` nem
 /// método o devolve (§13.11.10).
-fn extrair_widget(cx: &Contexto<'_>, pedido: &PedidoDeRefatoracao) -> ResultadoDeRefatoracao {
-    if let Err(e) = nome_das_opcoes(pedido) {
+fn extract_widget(cx: &Context<'_>, request: &RefactoringRequest) -> RefactoringResult {
+    if let Err(e) = options_name(request) {
         return e;
     }
-    let fim = pedido.offset + pedido.comprimento;
-    let no = cx.arvore.localizar(pedido.offset, fim);
-    let mensagem = match no.map(|n| cx.especie(n)) {
+    let end = request.offset + request.length;
+    let no = cx.tree.localizar(request.offset, end);
+    let message = match no.map(|n| cx.kind(n)) {
         Some("Block") => "The last selected statement must return a widget.",
         _ => "Can only extract a widget expression or a method returning widget.",
     };
-    let iniciais = Estado::fatal(mensagem);
-    concluir(pedido, iniciais, Estado::default, Mudanca::default)
+    let initial = State::fatal(message);
+    finish(request, initial, State::default, Change::default)
 }
 
 // -- Extract Local Variable ----------------------------------------------------------
 
 /// `ExtractLocalRefactoringImpl` (§13.11.4).
-fn extrair_local(cx: &Contexto<'_>, uri: &str, pedido: &PedidoDeRefatoracao) -> ResultadoDeRefatoracao {
-    let preferido = match nome_das_opcoes(pedido) {
+fn extract_local(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> RefactoringResult {
+    let preferred = match options_name(request) {
         Ok(n) => n,
         Err(e) => return e,
     };
-    let selecao = cx.selecao_local(pedido.offset, pedido.comprimento);
-    let (iniciais, sel) = match selecao {
-        Err(m) => (Estado::fatal(m), None),
-        Ok(s) => (Estado::default(), Some(s)),
+    let selection = cx.local_selection(request.offset, request.length);
+    let (initial, sel) = match selection {
+        Err(m) => (State::fatal(m), None),
+        Ok(s) => (State::default(), Some(s)),
     };
     // `findPossibleLocalVariableConflicts(selectionOffset)` e os nomes.
-    let excluidos = cx.conflitos_de_local(pedido.offset);
-    let nomes = match &sel {
-        Some(s) => match (&s.parte_de_string, s.expressao) {
-            (Some(parte), _) => nomes_para_texto(parte, &excluidos),
-            (None, Some(e)) => cx.nomes_para_expressao(cx.tipo_do_no(e), e, &excluidos, false),
+    let excluded = cx.local_conflicts(request.offset);
+    let names = match &sel {
+        Some(s) => match (&s.string_part, s.expression) {
+            (Some(part), _) => names_to_text(part, &excluded),
+            (None, Some(e)) => cx.names_to_expression(cx.node_type(e), e, &excluded, false),
             _ => Vec::new(),
         },
         None => Vec::new(),
     };
-    let nome = preferido.or_else(|| nomes.first().cloned()).unwrap_or_else(|| "newVariable".to_string());
-    let finais = || {
-        let mut e = validar_nome(&nome, "Variable");
-        if excluidos.contains(&nome) {
-            e.adicionar(Severidade::Erro, format!("The name '{nome}' is already used in the scope."));
+    let name = preferred.or_else(|| names.first().cloned()).unwrap_or_else(|| "newVariable".to_string());
+    let finals = || {
+        let mut e = validate_name(&name, "Variable");
+        if excluded.contains(&name) {
+            e.add(Severity::Error, format!("The name '{name}' is already used in the scope."));
         }
         e
     };
     let sel2 = sel.clone();
-    concluir(pedido, iniciais, finais, || match sel2 {
-        Some(s) => cx.mudanca_de_extrair_local(uri, &s, &nome),
-        None => Mudanca::default(),
+    finish(request, initial, finals, || match sel2 {
+        Some(s) => cx.extract_local_change(uri, &s, &name),
+        None => Change::default(),
     })
 }
 
-impl Contexto<'_> {
+impl Context<'_> {
     /// `findPossibleLocalVariableConflicts(offset)`: no `Block` mais interno
     /// do nó do offset, os nomes referidos sem prefixo e os declarados por
     /// `VariableDeclaration`.
-    pub(crate) fn conflitos_de_local(&self, offset: usize) -> HashSet<String> {
-        let mut nomes = HashSet::new();
-        let Some(n) = self.arvore.localizar(offset, offset) else { return nomes };
-        let Some(bloco) = self.com_pais(n).find(|&k| self.especie(k) == "Block") else { return nomes };
-        let mut pilha = vec![bloco];
-        while let Some(k) = pilha.pop() {
-            match self.especie(k) {
+    pub(crate) fn local_conflicts(&self, offset: usize) -> HashSet<String> {
+        let mut names = HashSet::new();
+        let Some(n) = self.tree.localizar(offset, offset) else { return names };
+        let Some(block) = self.with_parents(n).find(|&k| self.kind(k) == "Block") else { return names };
+        let mut stack = vec![block];
+        while let Some(k) = stack.pop() {
+            match self.kind(k) {
                 "NamedType" => {
-                    let tem_prefixo = self.filhos(k).iter().any(|&f| self.especie(f) == "ImportPrefixReference");
-                    if !tem_prefixo {
-                        let no = &self.arvore.nos[k];
-                        let resto = &self.fonte[no.inicio..no.fim];
-                        let fim = resto.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(resto.len());
-                        nomes.insert(resto[..fim].to_string());
+                    let has_prefix = self.children(k).iter().any(|&f| self.kind(f) == "ImportPrefixReference");
+                    if !has_prefix {
+                        let no = &self.tree.nos[k];
+                        let rest = &self.source[no.inicio..no.fim];
+                        let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
+                        names.insert(rest[..end].to_string());
                     }
                 }
                 "SimpleIdentifier" => {
-                    if !self.identificador_prefixado(k) && !self.pai(k).is_some_and(|p| self.especie(p) == "Label") {
-                        nomes.insert(self.texto_do_no(k).to_string());
+                    if !self.prefixed_identifier(k) && !self.parent(k).is_some_and(|p| self.kind(p) == "Label") {
+                        names.insert(self.node_text(k).to_string());
                     }
                 }
                 "VariableDeclaration" => {
-                    let no = &self.arvore.nos[k];
-                    let resto = &self.fonte[no.inicio..no.fim];
-                    let fim = resto.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(resto.len());
-                    nomes.insert(resto[..fim].to_string());
+                    let no = &self.tree.nos[k];
+                    let rest = &self.source[no.inicio..no.fim];
+                    let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
+                    names.insert(rest[..end].to_string());
                 }
                 _ => {}
             }
-            pilha.extend(self.filhos(k).iter().copied());
+            stack.extend(self.children(k).iter().copied());
         }
-        nomes
+        names
     }
 
     /// `_ReferencedUnprefixedNamesCollector._isPrefixed`.
-    fn identificador_prefixado(&self, n: usize) -> bool {
-        let Some(p) = self.pai(n) else { return false };
-        match self.especie(p) {
-            "ConstructorName" => self.filhos(p).get(1) == Some(&n),
+    fn prefixed_identifier(&self, n: usize) -> bool {
+        let Some(p) = self.parent(n) else { return false };
+        match self.kind(p) {
+            "ConstructorName" => self.children(p).get(1) == Some(&n),
             "MethodInvocation" => {
-                self.nome_do_metodo(p) == Some(n)
-                    && (self.filhos(p).first() != Some(&n) || self.pai(p).is_some_and(|c| self.especie(c) == "CascadeExpression" && self.filhos(c).first() != Some(&p)))
+                self.method_name(p) == Some(n)
+                    && (self.children(p).first() != Some(&n) || self.parent(p).is_some_and(|c| self.kind(c) == "CascadeExpression" && self.children(c).first() != Some(&p)))
             }
-            "PrefixedIdentifier" => self.filhos(p).get(1) == Some(&n),
-            "PropertyAccess" => self.filhos(p).len() > 1 && self.filhos(p).first() == Some(&n),
+            "PrefixedIdentifier" => self.children(p).get(1) == Some(&n),
+            "PropertyAccess" => self.children(p).len() > 1 && self.children(p).first() == Some(&n),
             _ => false,
         }
     }
 
     /// `_isPartOfConstantExpression`.
-    fn parte_de_constante(&self, n: Option<usize>) -> bool {
+    fn constant_part(&self, n: Option<usize>) -> bool {
         let Some(n) = n else { return false };
-        match self.especie(n) {
-            "ListLiteral" | "SetOrMapLiteral" | "InstanceCreationExpression" => self.constante(n),
+        match self.kind(n) {
+            "ListLiteral" | "SetOrMapLiteral" | "InstanceCreationExpression" => self.constant(n),
             "ArgumentList" | "ConditionalExpression" | "BinaryExpression" | "ParenthesizedExpression" | "PrefixExpression" | "MapLiteralEntry"
             | "IntegerLiteral" | "DoubleLiteral" | "BooleanLiteral" | "NullLiteral" | "SimpleStringLiteral" | "StringInterpolation" | "AdjacentStrings"
-            | "SymbolLiteral" | "RecordLiteral" => self.parte_de_constante(self.pai(n)),
+            | "SymbolLiteral" | "RecordLiteral" => self.constant_part(self.parent(n)),
             _ => false,
         }
     }
 
     /// `TypedLiteral.isConst`/`InstanceCreationExpression.isConst`: `const`
     /// escrito, ou (sem palavra-chave) o contexto constante.
-    fn constante(&self, n: usize) -> bool {
-        let no = &self.arvore.nos[n];
-        if self.fonte[no.inicio..no.fim].starts_with("const") && !self.fonte[no.inicio + 5..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+    fn constant(&self, n: usize) -> bool {
+        let no = &self.tree.nos[n];
+        if self.source[no.inicio..no.fim].starts_with("const") && !self.source[no.inicio + 5..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
             return true;
         }
-        if self.fonte[no.inicio..no.fim].starts_with("new") && !self.fonte[no.inicio + 3..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+        if self.source[no.inicio..no.fim].starts_with("new") && !self.source[no.inicio + 3..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
             return false;
         }
-        let Some(x) = self.expr_do_no(n) else { return false };
-        let u = self.p.programa().unit(self.unidade);
-        let antes_de_3 = self.p.programa().library(u.library).features.versao().major < 3;
-        let pais = dartforge_frontend::pais::Pais::novo(self.ast, &u.unit, self.fonte, antes_de_3);
-        pais.em_contexto_constante(self.ast, x)
+        let Some(x) = self.node_expr(n) else { return false };
+        let u = self.p.program().unit(self.unit);
+        let before_3 = self.p.program().library(u.library).features.versao().major < 3;
+        let parents = dartforge_frontend::pais::Pais::novo(self.ast, &u.unit, self.source, before_3);
+        parents.em_contexto_constante(self.ast, x)
     }
 
     /// `_declarationKeywordAndType`.
-    fn palavra_e_tipo(&self, s: &SelecaoLocal) -> String {
-        let usar_const = s.parte_de_string.is_none() && self.parte_de_constante(s.expressao);
-        let usar_final = regra_ligada(self.p, self.unidade, "prefer_final_locals");
-        let tipo: Option<String> = if regra_ligada(self.p, self.unidade, "always_specify_types") {
-            match (s.expressao, &s.parte_de_string) {
-                (Some(e), _) => self.tipo_do_no(e).map(|t| self.p.consulta.formatar(t)),
+    fn word_and_type(&self, s: &LocalSelection) -> String {
+        let use_const = s.string_part.is_none() && self.constant_part(s.expression);
+        let use_final = enabled_rule(self.p, self.unit, "prefer_final_locals");
+        let ty: Option<String> = if enabled_rule(self.p, self.unit, "always_specify_types") {
+            match (s.expression, &s.string_part) {
+                (Some(e), _) => self.node_type(e).map(|t| self.p.query.format(t)),
                 (None, Some(_)) => Some("String".to_string()),
                 _ => None,
             }
         } else {
             None
         };
-        match (usar_const, usar_final, tipo) {
+        match (use_const, use_final, ty) {
             (true, _, Some(t)) => format!("const {t}"),
             (true, _, None) => "const".to_string(),
             (false, true, Some(t)) => format!("final {t}"),
@@ -888,154 +888,154 @@ impl Contexto<'_> {
     }
 
     /// `ExtractLocalRefactoringImpl.createChange` com `extractAll = false`.
-    fn mudanca_de_extrair_local(&self, uri: &str, s: &SelecaoLocal, nome: &str) -> Mudanca {
-        let mut m = Mudanca::default();
-        let tx = Texto::novo(self.fonte);
-        let (ini, fim) = s.faixa;
-        let palavra = self.palavra_e_tipo(s);
+    fn extract_local_change(&self, uri: &str, s: &LocalSelection, name: &str) -> Change {
+        let mut m = Change::default();
+        let tx = Text::new(self.source);
+        let (start, end) = s.range;
+        let word = self.word_and_type(s);
         // Atalho: a expressão inteira de um `ExpressionStatement`.
-        if let Some(e) = s.expressao
-            && self.pai(e).is_some_and(|p| self.especie(p) == "ExpressionStatement")
+        if let Some(e) = s.expression
+            && self.parent(e).is_some_and(|p| self.kind(p) == "ExpressionStatement")
         {
-            let o = self.arvore.nos[e].inicio;
-            m.adicionar(uri, Span { start: o, end: o }, format!("{palavra} {nome} = "));
+            let o = self.tree.nos[e].inicio;
+            m.add(uri, Span { start: o, end: o }, format!("{word} {name} = "));
             return m;
         }
-        let mut declaracao = format!("{palavra} ");
-        match &s.parte_de_string {
-            Some(parte) => declaracao.push_str(&format!("{nome} = '{parte}';")),
-            None => declaracao.push_str(&format!("{nome} = {};", &self.fonte[ini..fim])),
+        let mut declaration = format!("{word} ");
+        match &s.string_part {
+            Some(part) => declaration.push_str(&format!("{name} = '{part}';")),
+            None => declaration.push_str(&format!("{name} = {};", &self.source[start..end])),
         }
         let eol = tx.eol();
-        match self.alvo_da_declaracao(ini) {
-            Some(Alvo2::Comando(alvo)) => {
-                let prefixo = self.prefixo_do_no(alvo);
-                let o = self.arvore.nos[alvo].inicio;
-                m.adicionar(uri, Span { start: o, end: o }, format!("{declaracao}{eol}{prefixo}"));
+        match self.declaration_target(start) {
+            Some(Target2::Command(target)) => {
+                let prefix = self.node_prefix(target);
+                let o = self.tree.nos[target].inicio;
+                m.add(uri, Span { start: o, end: o }, format!("{declaration}{eol}{prefix}"));
             }
-            Some(Alvo2::CorpoDeExpressao(corpo)) => {
-                let prefixo = self.pai(corpo).map(|p| self.prefixo_do_no(p)).unwrap_or_default();
-                let expr = *self.filhos(corpo).first().unwrap_or(&corpo);
-                let (ci, cf) = (self.arvore.nos[corpo].inicio, self.arvore.nos[corpo].fim);
-                let (ei, ef) = (self.arvore.nos[expr].inicio, self.arvore.nos[expr].fim);
-                let codigo = format!("{{{eol}{prefixo}{UM_RECUO}{declaracao}{eol}{prefixo}{UM_RECUO}return ");
-                m.adicionar(uri, Span { start: ci, end: ei }, codigo);
-                m.adicionar(uri, Span { start: ef, end: cf }, format!(";{eol}{prefixo}}}"));
+            Some(Target2::ExpressionBody(body)) => {
+                let prefix = self.parent(body).map(|p| self.node_prefix(p)).unwrap_or_default();
+                let expr = *self.children(body).first().unwrap_or(&body);
+                let (ci, cf) = (self.tree.nos[body].inicio, self.tree.nos[body].fim);
+                let (ei, ef) = (self.tree.nos[expr].inicio, self.tree.nos[expr].fim);
+                let code = format!("{{{eol}{prefix}{ONE_INDENT}{declaration}{eol}{prefix}{ONE_INDENT}return ");
+                m.add(uri, Span { start: ci, end: ei }, code);
+                m.add(uri, Span { start: ef, end: cf }, format!(";{eol}{prefix}}}"));
             }
             None => {}
         }
-        let troca = if s.parte_de_string.is_some() { format!("${{{nome}}}") } else { nome.to_string() };
-        m.adicionar(uri, Span { start: ini, end: fim }, troca);
+        let swap = if s.string_part.is_some() { format!("${{{name}}}") } else { name.to_string() };
+        m.add(uri, Span { start: start, end: end }, swap);
         m
     }
 
     /// `_findDeclarationTarget([selectionRange])`.
-    fn alvo_da_declaracao(&self, offset: usize) -> Option<Alvo2> {
-        let comum = self.arvore.localizar(offset, offset)?;
-        let caminho: Vec<usize> = self.com_pais(comum).collect();
-        let _ = &caminho;
+    fn declaration_target(&self, offset: usize) -> Option<Target2> {
+        let common = self.tree.localizar(offset, offset)?;
+        let path: Vec<usize> = self.with_parents(common).collect();
+        let _ = &path;
         // `Block`, `SwitchCase`, `SwitchPatternCase`: o filho no caminho (com
         // uma ocorrência, o comum é o próprio nó, que não é um deles na
         // prática; a regra vale igual).
-        if matches!(self.especie(comum), "Block" | "SwitchCase" | "SwitchPatternCase") {
+        if matches!(self.kind(common), "Block" | "SwitchCase" | "SwitchPatternCase") {
             return None;
         }
         // `ExpressionFunctionBody` antes de qualquer comando.
-        for k in self.com_pais(comum) {
-            if crate::refactorings::e_comando_especie(self.especie(k)) {
+        for k in self.with_parents(common) {
+            if crate::refactorings::is_command_kind(self.kind(k)) {
                 break;
             }
-            if self.especie(k) == "ExpressionFunctionBody" {
-                return Some(Alvo2::CorpoDeExpressao(k));
+            if self.kind(k) == "ExpressionFunctionBody" {
+                return Some(Target2::ExpressionBody(k));
             }
         }
         // O comando de nível de bloco.
-        let mut alvo = self.com_pais(comum).find(|&k| crate::refactorings::e_comando_especie(self.especie(k)))?;
+        let mut target = self.with_parents(common).find(|&k| crate::refactorings::is_command_kind(self.kind(k)))?;
         loop {
-            let pai = self.pai(alvo)?;
-            if matches!(self.especie(pai), "Block" | "SwitchCase" | "SwitchPatternCase") {
-                return Some(Alvo2::Comando(alvo));
+            let parent = self.parent(target)?;
+            if matches!(self.kind(parent), "Block" | "SwitchCase" | "SwitchPatternCase") {
+                return Some(Target2::Command(target));
             }
-            alvo = pai;
+            target = parent;
         }
     }
 }
 
 /// O alvo da declaração do novo local.
-enum Alvo2 {
-    Comando(usize),
-    CorpoDeExpressao(usize),
+enum Target2 {
+    Command(usize),
+    ExpressionBody(usize),
 }
 
 // -- Inline Local Variable -----------------------------------------------------------
 
 /// A espécie de uma referência a um local (`search.dart:1572-1601`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EspecieDeReferencia {
-    Leitura,
-    Escrita,
-    LeituraEscrita,
-    Invocacao,
+enum ReferenceKind {
+    Read,
+    Write,
+    ReadWrite,
+    Invocation,
 }
 
 /// `InlineLocalRefactoringImpl` (§13.11.5).
-fn embutir_local(cx: &Contexto<'_>, uri: &str, pedido: &PedidoDeRefatoracao) -> ResultadoDeRefatoracao {
-    let o = pedido.offset;
-    let mensagem = "Local variable declaration or reference must be selected to activate this refactoring.";
-    let preparar = || -> Result<(usize, usize, usize, usize), Estado> {
+fn inline_local(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> RefactoringResult {
+    let o = request.offset;
+    let message = "Local variable declaration or reference must be selected to activate this refactoring.";
+    let prepare = || -> Result<(usize, usize, usize, usize), State> {
         // O elemento e a declaração dele.
-        let n = cx.arvore.localizar(o, o).ok_or_else(|| Estado::fatal(mensagem))?;
-        let decl = match cx.especie(n) {
+        let n = cx.tree.localizar(o, o).ok_or_else(|| State::fatal(message))?;
+        let decl = match cx.kind(n) {
             "SimpleIdentifier" => {
-                if cx.elemento_do_identificador(n, true) != Elem::VariavelLocal {
-                    return Err(Estado::fatal(mensagem));
+                if cx.identifier_element(n, true) != Elem::LocalVariable {
+                    return Err(State::fatal(message));
                 }
-                let crate::arvore_analyzer::Marca::Expr(x) = cx.arvore.nos[n].marca else { return Err(Estado::fatal(mensagem)) };
-                cx.corpos.declaracao_local(x).ok_or_else(|| Estado::fatal(mensagem))?
+                let crate::arvore_analyzer::Marca::Expr(x) = cx.tree.nos[n].marca else { return Err(State::fatal(message)) };
+                cx.bodies.declaracao_local(x).ok_or_else(|| State::fatal(message))?
             }
-            "VariableDeclaration" if cx.arvore.nos[n].marca == crate::arvore_analyzer::Marca::VariavelLocal => cx.arvore.nos[n].inicio,
-            _ => return Err(Estado::fatal(mensagem)),
+            "VariableDeclaration" if cx.tree.nos[n].marca == crate::arvore_analyzer::Marca::VariavelLocal => cx.tree.nos[n].inicio,
+            _ => return Err(State::fatal(message)),
         };
         // `getElementDeclaration`: o nó da declaração é `VariableDeclaration`.
         let vd = cx
-            .arvore
+            .tree
             .nos
             .iter()
             .position(|k| k.especie == "VariableDeclaration" && k.inicio == decl)
-            .ok_or_else(|| Estado::fatal(mensagem))?;
+            .ok_or_else(|| State::fatal(message))?;
         // `_declarationStatement`.
-        let lista = cx.pai(vd).filter(|&l| cx.especie(l) == "VariableDeclarationList").ok_or_else(|| Estado::fatal(mensagem))?;
-        let comando = cx.pai(lista).filter(|&s| cx.especie(s) == "VariableDeclarationStatement").ok_or_else(|| Estado::fatal(mensagem))?;
-        if !cx.pai(comando).is_some_and(|b| matches!(cx.especie(b), "Block" | "SwitchCase" | "SwitchPatternCase")) {
-            return Err(Estado::fatal(mensagem));
+        let list = cx.parent(vd).filter(|&l| cx.kind(l) == "VariableDeclarationList").ok_or_else(|| State::fatal(message))?;
+        let command = cx.parent(list).filter(|&s| cx.kind(s) == "VariableDeclarationStatement").ok_or_else(|| State::fatal(message))?;
+        if !cx.parent(command).is_some_and(|b| matches!(cx.kind(b), "Block" | "SwitchCase" | "SwitchPatternCase")) {
+            return Err(State::fatal(message));
         }
-        let nome = {
-            let no = &cx.arvore.nos[vd];
-            let resto = &cx.fonte[no.inicio..no.fim];
-            let fim = resto.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(resto.len());
-            resto[..fim].to_string()
+        let name = {
+            let no = &cx.tree.nos[vd];
+            let rest = &cx.source[no.inicio..no.fim];
+            let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
+            rest[..end].to_string()
         };
-        let Some(&inicializador) = cx.filhos(vd).first() else {
-            return Err(Estado::fatal(format!("Local variable '{nome}' is not initialized at declaration.")));
+        let Some(&initializer) = cx.children(vd).first() else {
+            return Err(State::fatal(format!("Local variable '{name}' is not initialized at declaration.")));
         };
         // Toda referência é leitura.
-        if cx.referencias_do_local(decl).iter().any(|(_, e)| *e != EspecieDeReferencia::Leitura) {
-            return Err(Estado::fatal(format!("Local variable '[{nome}]' is assigned more than once.")));
+        if cx.local_references(decl).iter().any(|(_, e)| *e != ReferenceKind::Read) {
+            return Err(State::fatal(format!("Local variable '[{name}]' is assigned more than once.")));
         }
-        Ok((vd, comando, inicializador, decl))
+        Ok((vd, command, initializer, decl))
     };
-    match preparar() {
-        Err(e) => concluir(pedido, e, Estado::default, Mudanca::default),
-        Ok((_vd, comando, inicializador, decl)) => concluir(pedido, Estado::default(), Estado::default, || cx.mudanca_de_embutir_local(uri, comando, inicializador, decl)),
+    match prepare() {
+        Err(e) => finish(request, e, State::default, Change::default),
+        Ok((_vd, command, initializer, decl)) => finish(request, State::default(), State::default, || cx.inline_local_change(uri, command, initializer, decl)),
     }
 }
 
-impl Contexto<'_> {
+impl Context<'_> {
     /// As referências ao local declarado em `decl` (o offset do nome) na
     /// unidade, com a espécie, em ordem de offset.
-    fn referencias_do_local(&self, decl: usize) -> Vec<(Span, EspecieDeReferencia)> {
+    fn local_references(&self, decl: usize) -> Vec<(Span, ReferenceKind)> {
         let mut v = Vec::new();
-        let invocados: HashSet<ExprId> = self
+        let invoked: HashSet<ExprId> = self
             .ast
             .exprs
             .iter()
@@ -1044,7 +1044,7 @@ impl Contexto<'_> {
                 _ => None,
             })
             .collect();
-        let compostas: HashSet<ExprId> = self
+        let compound: HashSet<ExprId> = self
             .ast
             .exprs
             .iter()
@@ -1060,24 +1060,24 @@ impl Contexto<'_> {
         for (i, e) in self.ast.exprs.iter().enumerate() {
             let x = ExprId(i as u32);
             let ExprKind::Identifier(n) = &e.kind else { continue };
-            if self.corpos.declaracao_local(x) != Some(decl) {
+            if self.bodies.declaracao_local(x) != Some(decl) {
                 continue;
             }
-            let especie = if compostas.contains(&x) {
-                EspecieDeReferencia::LeituraEscrita
-            } else if self.escritas.contains(&x) {
-                EspecieDeReferencia::Escrita
-            } else if invocados.contains(&x) {
-                EspecieDeReferencia::Invocacao
+            let kind = if compound.contains(&x) {
+                ReferenceKind::ReadWrite
+            } else if self.writes.contains(&x) {
+                ReferenceKind::Write
+            } else if invoked.contains(&x) {
+                ReferenceKind::Invocation
             } else {
-                EspecieDeReferencia::Leitura
+                ReferenceKind::Read
             };
-            v.push((n.span, especie));
+            v.push((n.span, kind));
         }
         // `AssignedVariablePattern`: escrita.
-        for (pid, d) in self.corpos.declaracoes_de_padroes.iter() {
+        for (pid, d) in self.bodies.declaracoes_de_padroes.iter() {
             if *d == decl {
-                v.push((self.ast.pattern(*pid).span, EspecieDeReferencia::Escrita));
+                v.push((self.ast.pattern(*pid).span, ReferenceKind::Write));
             }
         }
         v.sort_by_key(|(s, _)| s.start);
@@ -1085,61 +1085,61 @@ impl Contexto<'_> {
     }
 
     /// `InlineLocalRefactoringImpl.createChange`.
-    fn mudanca_de_embutir_local(&self, uri: &str, comando: usize, inicializador: usize, decl: usize) -> Mudanca {
-        let mut m = Mudanca::default();
-        let tx = Texto::novo(self.fonte);
-        let (ci, cf) = (self.arvore.nos[comando].inicio, self.arvore.nos[comando].fim);
-        m.adicionar(uri, tx.faixa_de_linhas(ci, cf), "");
-        let codigo = self.texto_do_no(inicializador).to_string();
-        let init_no = &self.arvore.nos[inicializador];
-        for (s, _) in self.referencias_do_local(decl) {
-            let Some(n) = self.arvore.localizar(s.start, s.start) else { continue };
-            let pai = self.pai(n);
-            let interpolacao = pai.filter(|&p| self.especie(p) == "InterpolationExpression");
-            let (faixa, texto) = if let Some(ip) = interpolacao {
-                let alvo = self.pai(ip);
-                let simples_ou_interp = matches!(init_no.especie, "SimpleStringLiteral" | "StringInterpolation");
-                let fundir = alvo.is_some_and(|a| self.especie(a) == "StringInterpolation")
-                    && simples_ou_interp
-                    && !string_crua(&codigo)
-                    && aspas_simples(&codigo) == aspas_simples(self.texto_do_no(alvo.unwrap()))
-                    && (!string_multilinha(&codigo) || string_multilinha(self.texto_do_no(alvo.unwrap())));
-                let ipn = &self.arvore.nos[ip];
-                if fundir {
-                    (Span { start: ipn.inicio, end: ipn.fim }, conteudo_da_string(&codigo).to_string())
-                } else if !self.fonte[ipn.inicio..].starts_with("${") && init_no.especie != "SimpleIdentifier" {
-                    (s, format!("{{{codigo}}}"))
+    fn inline_local_change(&self, uri: &str, command: usize, initializer: usize, decl: usize) -> Change {
+        let mut m = Change::default();
+        let tx = Text::new(self.source);
+        let (ci, cf) = (self.tree.nos[command].inicio, self.tree.nos[command].fim);
+        m.add(uri, tx.line_range(ci, cf), "");
+        let code = self.node_text(initializer).to_string();
+        let init_node = &self.tree.nos[initializer];
+        for (s, _) in self.local_references(decl) {
+            let Some(n) = self.tree.localizar(s.start, s.start) else { continue };
+            let parent = self.parent(n);
+            let interpolation = parent.filter(|&p| self.kind(p) == "InterpolationExpression");
+            let (range, text) = if let Some(ip) = interpolation {
+                let target = self.parent(ip);
+                let simple_or_interp = matches!(init_node.especie, "SimpleStringLiteral" | "StringInterpolation");
+                let merge = target.is_some_and(|a| self.kind(a) == "StringInterpolation")
+                    && simple_or_interp
+                    && !raw_string(&code)
+                    && single_quotes(&code) == single_quotes(self.node_text(target.unwrap()))
+                    && (!multiline_string(&code) || multiline_string(self.node_text(target.unwrap())));
+                let ipn = &self.tree.nos[ip];
+                if merge {
+                    (Span { start: ipn.inicio, end: ipn.fim }, string_content(&code).to_string())
+                } else if !self.source[ipn.inicio..].starts_with("${") && init_node.especie != "SimpleIdentifier" {
+                    (s, format!("{{{code}}}"))
                 } else {
-                    (s, codigo.clone())
+                    (s, code.clone())
                 }
-            } else if self.precisa_de_parenteses(inicializador, n) {
-                (s, format!("({codigo})"))
+            } else if self.needs_parens(initializer, n) {
+                (s, format!("({code})"))
             } else {
-                (s, codigo.clone())
+                (s, code.clone())
             };
-            m.adicionar(uri, faixa, texto);
+            m.add(uri, range, text);
         }
         m
     }
 
     /// `_shouldUseParenthesis(init, node)`.
-    pub(crate) fn precisa_de_parenteses(&self, init: usize, n: usize) -> bool {
-        if let Some(p) = self.pai(n)
-            && self.especie(p) == "SwitchExpression"
-            && self.filhos(p).first() == Some(&n)
+    pub(crate) fn needs_parens(&self, init: usize, n: usize) -> bool {
+        if let Some(p) = self.parent(n)
+            && self.kind(p) == "SwitchExpression"
+            && self.children(p).first() == Some(&n)
         {
             return false;
         }
-        if self.precedencia(init) < self.precedencia_do_pai(n) {
+        if self.precedence(init) < self.parent_precedence(n) {
             return true;
         }
-        if self.especie(init) == "PrefixExpression"
-            && let Some(p) = self.pai(n)
-            && self.especie(p) == "PrefixExpression"
-            && self.texto_do_no(p).starts_with('-')
-            && !self.texto_do_no(p).starts_with("--")
+        if self.kind(init) == "PrefixExpression"
+            && let Some(p) = self.parent(n)
+            && self.kind(p) == "PrefixExpression"
+            && self.node_text(p).starts_with('-')
+            && !self.node_text(p).starts_with("--")
         {
-            let t = self.texto_do_no(init);
+            let t = self.node_text(init);
             return t.starts_with('-');
         }
         false
@@ -1147,15 +1147,15 @@ impl Contexto<'_> {
 
     /// `Expression.precedence` (`AN:dart/ast/precedence.dart`), em números
     /// crescentes de `none` (0) a `primary` (17).
-    pub(crate) fn precedencia(&self, n: usize) -> u8 {
-        match self.especie(n) {
+    pub(crate) fn precedence(&self, n: usize) -> u8 {
+        match self.kind(n) {
             "IntegerLiteral" | "DoubleLiteral" | "BooleanLiteral" | "NullLiteral" | "SimpleStringLiteral" | "StringInterpolation" | "AdjacentStrings"
             | "SymbolLiteral" | "ListLiteral" | "SetOrMapLiteral" | "RecordLiteral" | "SimpleIdentifier" | "ParenthesizedExpression"
             | "InstanceCreationExpression" | "FunctionExpression" | "ThisExpression" | "SuperExpression" | "SwitchExpression" => 17,
             "MethodInvocation" | "PropertyAccess" | "PrefixedIdentifier" | "IndexExpression" | "PostfixExpression" | "FunctionExpressionInvocation"
             | "FunctionReference" | "DotShorthand" => 16,
             "PrefixExpression" | "AwaitExpression" => 15,
-            "BinaryExpression" => self.precedencia_binaria(n),
+            "BinaryExpression" => self.binary_precedence(n),
             "AsExpression" | "IsExpression" => 8,
             "ConditionalExpression" => 3,
             "CascadeExpression" => 2,
@@ -1165,18 +1165,18 @@ impl Contexto<'_> {
     }
 
     /// `Precedence.forTokenType` do operador da `BinaryExpression`.
-    fn precedencia_binaria(&self, n: usize) -> u8 {
-        let filhos = self.filhos(n);
-        let (Some(&a), Some(&b)) = (filhos.first(), filhos.get(1)) else { return 0 };
-        let entre = &self.fonte[self.arvore.nos[a].fim..self.arvore.nos[b].inicio];
-        let operador = dartforge_frontend::lexer::lex(entre)
+    fn binary_precedence(&self, n: usize) -> u8 {
+        let children = self.children(n);
+        let (Some(&a), Some(&b)) = (children.first(), children.get(1)) else { return 0 };
+        let between = &self.source[self.tree.nos[a].fim..self.tree.nos[b].inicio];
+        let operator = dartforge_frontend::lexer::lex(between)
             .ok()
             .and_then(|v| {
-                let ops: Vec<String> = v.iter().filter(|t| t.kind != Kind::Eof).map(|t| entre[t.span.start..t.span.end].to_string()).collect();
+                let ops: Vec<String> = v.iter().filter(|t| t.kind != Kind::Eof).map(|t| between[t.span.start..t.span.end].to_string()).collect();
                 Some(ops.concat())
             })
             .unwrap_or_default();
-        match operador.as_str() {
+        match operator.as_str() {
             "??" => 4,
             "||" => 5,
             "&&" => 6,
@@ -1193,44 +1193,44 @@ impl Contexto<'_> {
     }
 
     /// `getExpressionParentPrecedence` (`util.dart:162-178`).
-    pub(crate) fn precedencia_do_pai(&self, n: usize) -> u8 {
-        let Some(p) = self.pai(n) else { return 0 };
-        match self.especie(p) {
+    pub(crate) fn parent_precedence(&self, n: usize) -> u8 {
+        let Some(p) = self.parent(n) else { return 0 };
+        match self.kind(p) {
             "ParenthesizedExpression" => 1,
-            "IndexExpression" if self.filhos(p).get(1) == Some(&n) => 1,
-            "AssignmentExpression" if self.filhos(p).get(1) == Some(&n) && self.pai(p).is_some_and(|g| self.especie(g) == "CascadeExpression") => 3,
-            _ if self.e_expressao(p) => self.precedencia(p),
+            "IndexExpression" if self.children(p).get(1) == Some(&n) => 1,
+            "AssignmentExpression" if self.children(p).get(1) == Some(&n) && self.parent(p).is_some_and(|g| self.kind(g) == "CascadeExpression") => 3,
+            _ if self.is_expression(p) => self.precedence(p),
             _ => 0,
         }
     }
 }
 
 /// O nome no começo do texto de uma `VariableDeclaration`.
-pub(crate) fn nome_no_inicio_pub(t: &str) -> String {
-    let fim = t.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(t.len());
-    t[..fim].to_string()
+pub(crate) fn name_at_start_pub(t: &str) -> String {
+    let end = t.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(t.len());
+    t[..end].to_string()
 }
 
 /// A string literal é crua (`r'…'`).
-fn string_crua(codigo: &str) -> bool {
-    codigo.starts_with('r') || codigo.starts_with('R')
+fn raw_string(code: &str) -> bool {
+    code.starts_with('r') || code.starts_with('R')
 }
 
 /// A string literal usa aspas simples.
-fn aspas_simples(codigo: &str) -> bool {
-    codigo.trim_start_matches(['r', 'R']).starts_with('\'')
+fn single_quotes(code: &str) -> bool {
+    code.trim_start_matches(['r', 'R']).starts_with('\'')
 }
 
 /// A string literal é de três aspas.
-fn string_multilinha(codigo: &str) -> bool {
-    let s = codigo.trim_start_matches(['r', 'R']);
+fn multiline_string(code: &str) -> bool {
+    let s = code.trim_start_matches(['r', 'R']);
     s.starts_with("'''") || s.starts_with("\"\"\"")
 }
 
 /// `contentsOffset…contentsEnd`: o texto sem as aspas.
-fn conteudo_da_string(codigo: &str) -> &str {
-    let s = codigo.trim_start_matches(['r', 'R']);
-    let n = if string_multilinha(codigo) { 3 } else { 1 };
+fn string_content(code: &str) -> &str {
+    let s = code.trim_start_matches(['r', 'R']);
+    let n = if multiline_string(code) { 3 } else { 1 };
     if s.len() < 2 * n {
         return "";
     }
@@ -1240,78 +1240,78 @@ fn conteudo_da_string(codigo: &str) -> &str {
 // -- Convert Getter to Method / Method to Getter -----------------------------------
 
 /// As referências de `f` no projeto (sem as declarações), deduplicadas.
-pub(crate) fn referencias_de_funcao(p: &Projeto, f: FunctionElementId, getter: bool) -> Vec<(UnitId, Span)> {
-    let alvo = p.membro_de_funcao(f);
-    let declaracoes = p.declaracoes(&alvo);
-    let Ok(ocorrencias) = p.ocorrencias(&alvo, false) else { return Vec::new() };
+pub(crate) fn function_references(p: &Project, f: FunctionElementId, getter: bool) -> Vec<(UnitId, Span)> {
+    let target_ = p.function_member(f);
+    let declarations = p.declarations(&target_);
+    let Ok(occurrences) = p.occurrences(&target_, false) else { return Vec::new() };
     let mut v = Vec::new();
-    let mut vistos: BTreeSet<(UnitId, usize, usize)> = BTreeSet::new();
-    for (u, ini, fim) in ocorrencias {
-        if declaracoes.contains(&(u, ini, fim)) || !vistos.insert((u, ini, fim)) {
+    let mut seen: BTreeSet<(UnitId, usize, usize)> = BTreeSet::new();
+    for (u, start, end) in occurrences {
+        if declarations.contains(&(u, start, end)) || !seen.insert((u, start, end)) {
             continue;
         }
-        let Ok(Some(d)) = p.identificar(u, ini) else { continue };
-        if d.concreto != Some(Concreto::Funcao(f)) {
+        let Ok(Some(d)) = p.identify(u, start) else { continue };
+        if d.concrete != Some(Concrete::Function(f)) {
             continue;
         }
         // Um getter só é referido onde é lido: a escrita simples é do setter.
         if getter
             && let Some(x) = d.expr
-            && p.programa().unit(u).ast.exprs.iter().any(|e| matches!(&e.kind, ExprKind::Assign { op: ast::AssignOp::Assign, target, .. } if *target == x))
+            && p.program().unit(u).ast.exprs.iter().any(|e| matches!(&e.kind, ExprKind::Assign { op: ast::AssignOp::Assign, target, .. } if *target == x))
         {
             continue;
         }
-        v.push((u, Span { start: ini, end: fim }));
+        v.push((u, Span { start: start, end: end }));
     }
     v
 }
 
 /// A unidade e o `ast::FunctionId` da declaração de `f`.
-fn declaracao_de_funcao(p: &Projeto, f: FunctionElementId) -> Option<(UnitId, ast::FunctionId)> {
-    match p.programa().function(f).node {
+fn function_declaration(p: &Project, f: FunctionElementId) -> Option<(UnitId, ast::FunctionId)> {
+    match p.program().function(f).node {
         FunctionRef::Function { unit, function } => Some((unit, function)),
         _ => None,
     }
 }
 
 /// O elemento sob o cursor para os dois `Convert` (`getElementOfNode`).
-fn elemento_para_converter(cx: &Contexto<'_>, o: usize) -> Elem {
-    cx.elemento_no_cursor(o)
+fn element_to_convert(cx: &Context<'_>, o: usize) -> Elem {
+    cx.element_at_cursor(o)
 }
 
 /// `ConvertGetterToMethodRefactoringImpl`.
-fn getter_para_metodo(cx: &Contexto<'_>, pedido: &PedidoDeRefatoracao, comando: &str) -> ResultadoDeRefatoracao {
+fn getter_to_method(cx: &Context<'_>, request: &RefactoringRequest, command: &str) -> RefactoringResult {
     let p = cx.p;
-    let e = elemento_para_converter(cx, pedido.offset);
+    let e = element_to_convert(cx, request.offset);
     // `element is PropertyAccessorElement`: getter, setter ou acessor
     // implícito.
-    let acessor = match e {
-        Elem::Funcao(f) => matches!(p.programa().function(f).kind, FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor),
-        Elem::Variavel => true,
+    let accessor = match e {
+        Elem::Function(f) => matches!(p.program().function(f).kind, FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor),
+        Elem::Variable => true,
         _ => false,
     };
-    if !acessor {
-        return R::ArgumentosInvalidos(format!("Location supplied to {comando} RefactoringKind.CONVERT_GETTER_TO_METHOD is not longer valid"));
+    if !accessor {
+        return R::InvalidArguments(format!("Location supplied to {command} RefactoringKind.CONVERT_GETTER_TO_METHOD is not longer valid"));
     }
-    let iniciais = if !cx.no_workspace(e) {
-        Estado::fatal("Only getters in your workspace can be converted.")
-    } else if !matches!(e, Elem::Funcao(f) if p.programa().function(f).kind == FunctionKind::Getter) {
-        Estado::fatal("Only explicit getters can be converted to methods.")
+    let initial = if !cx.in_workspace(e) {
+        State::fatal("Only getters in your workspace can be converted.")
+    } else if !matches!(e, Elem::Function(f) if p.program().function(f).kind == FunctionKind::Getter) {
+        State::fatal("Only explicit getters can be converted to methods.")
     } else {
-        Estado::default()
+        State::default()
     };
-    concluir(pedido, iniciais, Estado::default, || {
-        let Elem::Funcao(g) = e else { return Mudanca::default() };
-        let mut m = Mudanca::default();
-        let fe = p.programa().function(g);
-        let membros: Vec<FunctionElementId> = if fe.class.is_none() && fe.extension.is_none() {
+    finish(request, initial, State::default, || {
+        let Elem::Function(g) = e else { return Change::default() };
+        let mut m = Change::default();
+        let fe = p.program().function(g);
+        let members: Vec<FunctionElementId> = if fe.class.is_none() && fe.extension.is_none() {
             vec![g]
         } else {
-            match p.membro_de_funcao(g) {
-                Alvo::Membro { dono, nome, estatico } => match p.familia(dono, &nome, estatico, false) {
+            match p.function_member(g) {
+                Target::Member { owner, name, is_static } => match p.family(owner, &name, is_static, false) {
                     Ok(fam) => {
                         let mut v: Vec<FunctionElementId> =
-                            fam.funcoes.into_iter().filter(|&x| p.programa().function(x).kind == FunctionKind::Getter).collect();
+                            fam.functions.into_iter().filter(|&x| p.program().function(x).kind == FunctionKind::Getter).collect();
                         v.sort_by_key(|x| x.0);
                         v
                     }
@@ -1320,25 +1320,25 @@ fn getter_para_metodo(cx: &Contexto<'_>, pedido: &PedidoDeRefatoracao, comando: 
                 _ => vec![g],
             }
         };
-        for f in membros {
-            if let Some((u, fid)) = declaracao_de_funcao(p, f)
-                && let Some(uri) = p.uri_da_unidade(u)
+        for f in members {
+            if let Some((u, fid)) = function_declaration(p, f)
+                && let Some(uri) = p.unit_uri(u)
             {
-                let unidade = p.programa().unit(u);
-                let funcao = unidade.ast.function(fid);
-                if let Some(nome) = funcao.name {
+                let unit = p.program().unit(u);
+                let function = unit.ast.function(fid);
+                if let Some(name) = function.name {
                     // O `get` antes do nome.
-                    let antes = unidade.source[..nome.span.start].trim_end();
-                    if antes.ends_with("get") {
-                        let get = antes.len() - 3;
-                        m.adicionar(&uri, Span { start: get, end: nome.span.start }, "");
+                    let before = unit.source[..name.span.start].trim_end();
+                    if before.ends_with("get") {
+                        let get = before.len() - 3;
+                        m.add(&uri, Span { start: get, end: name.span.start }, "");
                     }
-                    m.adicionar(&uri, Span { start: nome.span.end, end: nome.span.end }, "()");
+                    m.add(&uri, Span { start: name.span.end, end: name.span.end }, "()");
                 }
             }
-            for (u, s) in referencias_de_funcao(p, f, true) {
-                if let Some(uri) = p.uri_da_unidade(u) {
-                    m.adicionar(&uri, Span { start: s.end, end: s.end }, "()");
+            for (u, s) in function_references(p, f, true) {
+                if let Some(uri) = p.unit_uri(u) {
+                    m.add(&uri, Span { start: s.end, end: s.end }, "()");
                 }
             }
         }
@@ -1347,27 +1347,27 @@ fn getter_para_metodo(cx: &Contexto<'_>, pedido: &PedidoDeRefatoracao, comando: 
 }
 
 /// `ConvertMethodToGetterRefactoringImpl`.
-fn metodo_para_getter(cx: &Contexto<'_>, pedido: &PedidoDeRefatoracao, comando: &str) -> ResultadoDeRefatoracao {
+fn method_to_getter(cx: &Context<'_>, request: &RefactoringRequest, command: &str) -> RefactoringResult {
     let p = cx.p;
-    let e = elemento_para_converter(cx, pedido.offset);
-    if !cx.executavel(e) {
-        return R::ArgumentosInvalidos(format!("Location supplied to {comando} RefactoringKind.CONVERT_METHOD_TO_GETTER is not longer valid"));
+    let e = element_to_convert(cx, request.offset);
+    if !cx.executable(e) {
+        return R::InvalidArguments(format!("Location supplied to {command} RefactoringKind.CONVERT_METHOD_TO_GETTER is not longer valid"));
     }
-    let iniciais = match cx.erro_de_convert_method(e) {
-        Some(m) => Estado::fatal(m),
-        None => Estado::default(),
+    let initial = match cx.convert_method_error(e) {
+        Some(m) => State::fatal(m),
+        None => State::default(),
     };
-    concluir(pedido, iniciais, Estado::default, || {
-        let mut m = Mudanca::default();
-        let membros: Vec<FunctionElementId> = match e {
-            Elem::Funcao(f) if cx.e_funcao(e) => vec![f],
-            Elem::Funcao(f) => match p.membro_de_funcao(f) {
-                Alvo::Membro { dono, nome, estatico } => match p.familia(dono, &nome, estatico, false) {
+    finish(request, initial, State::default, || {
+        let mut m = Change::default();
+        let members: Vec<FunctionElementId> = match e {
+            Elem::Function(f) if cx.is_function(e) => vec![f],
+            Elem::Function(f) => match p.function_member(f) {
+                Target::Member { owner, name, is_static } => match p.family(owner, &name, is_static, false) {
                     Ok(fam) => {
                         let mut v: Vec<FunctionElementId> = fam
-                            .funcoes
+                            .functions
                             .into_iter()
-                            .filter(|&x| matches!(p.programa().function(x).kind, FunctionKind::Function | FunctionKind::Operator))
+                            .filter(|&x| matches!(p.program().function(x).kind, FunctionKind::Function | FunctionKind::Operator))
                             .collect();
                         v.sort_by_key(|x| x.0);
                         v
@@ -1378,45 +1378,45 @@ fn metodo_para_getter(cx: &Contexto<'_>, pedido: &PedidoDeRefatoracao, comando: 
             },
             _ => Vec::new(),
         };
-        let mut contextos: HashMap<UnitId, Contexto<'_>> = HashMap::new();
-        for f in membros {
+        let mut contexts: HashMap<UnitId, Context<'_>> = HashMap::new();
+        for f in members {
             // A declaração: `get ` no nome e sem a lista de parâmetros.
-            if let Some((u, fid)) = declaracao_de_funcao(p, f)
-                && let Some(uri) = p.uri_da_unidade(u)
+            if let Some((u, fid)) = function_declaration(p, f)
+                && let Some(uri) = p.unit_uri(u)
             {
-                let unidade = p.programa().unit(u);
-                let funcao = unidade.ast.function(fid);
-                if let (Some(nome), Some(_)) = (funcao.name, &funcao.parameters) {
-                    let cxu = contextos.entry(u).or_insert_with(|| Contexto::novo(p, u));
-                    let lista = cxu
-                        .arvore
+                let unit = p.program().unit(u);
+                let function = unit.ast.function(fid);
+                if let (Some(name), Some(_)) = (function.name, &function.parameters) {
+                    let cxu = contexts.entry(u).or_insert_with(|| Context::new(p, u));
+                    let list = cxu
+                        .tree
                         .nos
                         .iter()
                         .enumerate()
                         .find(|(_, k)| k.marca == crate::arvore_analyzer::Marca::Funcao(fid) && matches!(k.especie, "MethodDeclaration" | "FunctionDeclaration"))
                         .and_then(|(i, k)| {
-                            let alvo = if k.especie == "FunctionDeclaration" {
-                                cxu.filhos(i).iter().copied().find(|&c| cxu.especie(c) == "FunctionExpression").unwrap_or(i)
+                            let target = if k.especie == "FunctionDeclaration" {
+                                cxu.children(i).iter().copied().find(|&c| cxu.kind(c) == "FunctionExpression").unwrap_or(i)
                             } else {
                                 i
                             };
-                            cxu.filhos(alvo).iter().copied().find(|&c| cxu.especie(c) == "FormalParameterList")
+                            cxu.children(target).iter().copied().find(|&c| cxu.kind(c) == "FormalParameterList")
                         })
-                        .map(|l| (cxu.arvore.nos[l].inicio, cxu.arvore.nos[l].fim));
-                    m.adicionar(&uri, Span { start: nome.span.start, end: nome.span.start }, "get ");
-                    if let Some((li, lf)) = lista {
-                        m.adicionar(&uri, Span { start: li, end: lf }, "");
+                        .map(|l| (cxu.tree.nos[l].inicio, cxu.tree.nos[l].fim));
+                    m.add(&uri, Span { start: name.span.start, end: name.span.start }, "get ");
+                    if let Some((li, lf)) = list {
+                        m.add(&uri, Span { start: li, end: lf }, "");
                     }
                 }
             }
             // As referências: sem os argumentos da invocação.
-            for (u, s) in referencias_de_funcao(p, f, false) {
-                let Some(uri) = p.uri_da_unidade(u) else { continue };
-                let cxu = contextos.entry(u).or_insert_with(|| Contexto::novo(p, u));
-                let Some(n) = cxu.arvore.localizar(s.start, s.start) else { continue };
-                if let Some(inv) = cxu.com_pais(n).find(|&k| cxu.especie(k) == "MethodInvocation") {
-                    let fim = cxu.arvore.nos[inv].fim;
-                    m.adicionar(&uri, Span { start: s.end, end: fim }, "");
+            for (u, s) in function_references(p, f, false) {
+                let Some(uri) = p.unit_uri(u) else { continue };
+                let cxu = contexts.entry(u).or_insert_with(|| Context::new(p, u));
+                let Some(n) = cxu.tree.localizar(s.start, s.start) else { continue };
+                if let Some(inv) = cxu.with_parents(n).find(|&k| cxu.kind(k) == "MethodInvocation") {
+                    let end = cxu.tree.nos[inv].fim;
+                    m.add(&uri, Span { start: s.end, end: end }, "");
                 }
             }
         }

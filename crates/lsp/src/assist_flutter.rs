@@ -15,9 +15,9 @@
 //! | `Wrap with Center`/`Container`/`Padding`/`SizedBox`/`Column`/`Row` | `refactor.flutter.wrap.*` | `FlutterWrap` |
 //! | `Move child property to end of arguments` | `refactor.sort.child.properties.last` | `SortChildPropertyLast` |
 
-use crate::actions::AcaoDeCodigo;
-use crate::refactorings::Contexto;
-use crate::refactorings_exec::{Mudanca, Texto, UM_RECUO};
+use crate::actions::CodeAction;
+use crate::refactorings::Context;
+use crate::refactorings_exec::{Change, Text, ONE_INDENT};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, ClassKind, Element};
 use dartforge_types::{Resolved, Type, TypeId};
@@ -28,941 +28,941 @@ const URI_CONTAINER: &str = "package:flutter/src/widgets/container.dart";
 const URI_ASYNC: &str = "package:flutter/src/widgets/async.dart";
 const URI_WIDGETS: &str = "package:flutter/widgets.dart";
 
-impl Contexto<'_> {
-    /// `_isExactly`: a `ClassElement` de nome `nome` declarada no arquivo
+impl Context<'_> {
+    /// `_isExactly`: a `ClassElement` de nome `name` declarada no arquivo
     /// `uri`.
-    pub(crate) fn flutter_exatamente(&self, c: ClassId, nome: &str, uri: &str) -> bool {
-        let p = self.p.programa();
+    pub(crate) fn flutter_exactly(&self, c: ClassId, name: &str, uri: &str) -> bool {
+        let p = self.p.program();
         let k = p.class(c);
-        matches!(k.kind, ClassKind::Class | ClassKind::MixinApplication) && self.p.nome(k.name) == nome && k.decl.is_some_and(|d| p.unit(d.unit).uri == uri)
+        matches!(k.kind, ClassKind::Class | ClassKind::MixinApplication) && self.p.name(k.name) == name && k.decl.is_some_and(|d| p.unit(d.unit).uri == uri)
     }
 
     /// `isWidget`: a classe `Widget` ou uma subclasse dela.
-    pub(crate) fn classe_e_widget(&self, c: ClassId) -> bool {
-        let p = self.p.programa();
+    pub(crate) fn class_and_widget(&self, c: ClassId) -> bool {
+        let p = self.p.program();
         if !matches!(p.class(c).kind, ClassKind::Class | ClassKind::MixinApplication) {
             return false;
         }
-        self.flutter_exatamente(c, "Widget", URI_FRAMEWORK) || self.p.supertipos(c).into_iter().any(|s| self.flutter_exatamente(s, "Widget", URI_FRAMEWORK))
+        self.flutter_exactly(c, "Widget", URI_FRAMEWORK) || self.p.supertypes(c).into_iter().any(|s| self.flutter_exactly(s, "Widget", URI_FRAMEWORK))
     }
 
     /// A classe de um tipo de interface.
-    pub(crate) fn classe_do_tipo_flutter(&self, t: TypeId) -> Option<ClassId> {
-        match self.p.consulta.tabela.get(t) {
+    pub(crate) fn flutter_type_class(&self, t: TypeId) -> Option<ClassId> {
+        match self.p.query.table.get(t) {
             Type::Interface { class, .. } => Some(*class),
             _ => None,
         }
     }
 
     /// `isWidgetType`.
-    fn tipo_widget(&self, t: TypeId) -> bool {
-        self.classe_do_tipo_flutter(t).is_some_and(|c| self.classe_e_widget(c))
+    fn type_widget(&self, t: TypeId) -> bool {
+        self.flutter_type_class(t).is_some_and(|c| self.class_and_widget(c))
     }
 
     /// O `staticType` do nó de expressão.
-    pub(crate) fn tipo_do_no_flutter(&self, n: usize) -> Option<TypeId> {
-        self.expr_do_no(n).and_then(|x| self.corpos.get_type(x))
+    pub(crate) fn flutter_node_type(&self, n: usize) -> Option<TypeId> {
+        self.node_expr(n).and_then(|x| self.bodies.get_type(x))
     }
 
     /// `isWidgetExpression`.
-    pub(crate) fn e_expressao_widget(&self, n: usize) -> bool {
-        if let Some(pai) = self.pai(n) {
-            if self.especie(pai) == "NamedType" || self.pai(pai).is_some_and(|a| self.especie(a) == "NamedType") {
+    pub(crate) fn is_expression_widget(&self, n: usize) -> bool {
+        if let Some(parent) = self.parent(n) {
+            if self.kind(parent) == "NamedType" || self.parent(parent).is_some_and(|a| self.kind(a) == "NamedType") {
                 return false;
             }
-            if self.especie(pai) == "ConstructorName" {
+            if self.kind(parent) == "ConstructorName" {
                 return false;
             }
         }
-        if self.especie(n) == "NamedExpression" || !self.e_expressao(n) {
+        if self.kind(n) == "NamedExpression" || !self.is_expression(n) {
             return false;
         }
-        self.tipo_do_no_flutter(n).is_some_and(|t| self.tipo_widget(t))
+        self.flutter_node_type(n).is_some_and(|t| self.type_widget(t))
     }
 
     /// `findWidgetExpression`.
-    pub(crate) fn achar_expressao_widget(&self, n: usize) -> Option<usize> {
-        let mut atual = Some(n);
-        while let Some(k) = atual {
-            if !self.e_expressao_widget(k) {
-                let e = self.especie(k);
-                if e == "ArgumentList" || self.e_comando(k) || e.ends_with("FunctionBody") {
+    pub(crate) fn find_expression_widget(&self, n: usize) -> Option<usize> {
+        let mut current = Some(n);
+        while let Some(k) = current {
+            if !self.is_expression_widget(k) {
+                let e = self.kind(k);
+                if e == "ArgumentList" || self.is_command(k) || e.ends_with("FunctionBody") {
                     return None;
                 }
-                atual = self.pai(k);
+                current = self.parent(k);
                 continue;
             }
-            if self.especie(k) == "AssignmentExpression" {
+            if self.kind(k) == "AssignmentExpression" {
                 return None;
             }
-            let Some(pai) = self.pai(k) else { return None };
-            let filhos = self.filhos(pai);
-            let ultimo = filhos.last() == Some(&k);
-            match self.especie(pai) {
-                "AssignmentExpression" => return if ultimo { Some(k) } else { None },
+            let Some(parent) = self.parent(k) else { return None };
+            let children = self.children(parent);
+            let last = children.last() == Some(&k);
+            match self.kind(parent) {
+                "AssignmentExpression" => return if last { Some(k) } else { None },
                 "ArgumentList" | "ListLiteral" | "VariableDeclaration" => return Some(k),
-                "ConditionalExpression" if filhos.first() != Some(&k) => return Some(k),
-                "ExpressionFunctionBody" | "NamedExpression" | "SwitchExpressionCase" if ultimo => return Some(k),
-                "ForElement" if ultimo => return Some(k),
+                "ConditionalExpression" if children.first() != Some(&k) => return Some(k),
+                "ExpressionFunctionBody" | "NamedExpression" | "SwitchExpressionCase" if last => return Some(k),
+                "ForElement" if last => return Some(k),
                 "IfElement" => {
                     // `thenElement`/`elseElement`: não a condição (nem o
                     // padrão do `case`).
-                    let condicao = filhos.first() == Some(&k) || self.especie(k) == "CaseClause";
-                    if !condicao {
+                    let condition = children.first() == Some(&k) || self.kind(k) == "CaseClause";
+                    if !condition {
                         return Some(k);
                     }
                 }
-                _ if self.e_comando(pai) => return Some(k),
+                _ if self.is_command(parent) => return Some(k),
                 _ => {}
             }
-            atual = Some(pai);
+            current = Some(parent);
         }
         None
     }
 
     /// `findInstanceCreationExpression`.
-    pub(crate) fn achar_criacao(&self, n: usize) -> Option<usize> {
+    pub(crate) fn find_creation(&self, n: usize) -> Option<usize> {
         let mut no = n;
-        for especie in ["ImportPrefixReference", "SimpleIdentifier", "PrefixedIdentifier", "NamedType", "ConstructorName"] {
-            if self.especie(no) == especie {
-                no = self.pai(no)?;
+        for kind in ["ImportPrefixReference", "SimpleIdentifier", "PrefixedIdentifier", "NamedType", "ConstructorName"] {
+            if self.kind(no) == kind {
+                no = self.parent(no)?;
             }
         }
-        (self.especie(no) == "InstanceCreationExpression").then_some(no)
+        (self.kind(no) == "InstanceCreationExpression").then_some(no)
     }
 
     /// `isWidgetCreation`.
-    pub(crate) fn criacao_de_widget(&self, n: usize) -> bool {
-        if self.especie(n) != "InstanceCreationExpression" {
+    pub(crate) fn widget_creation(&self, n: usize) -> bool {
+        if self.kind(n) != "InstanceCreationExpression" {
             return false;
         }
-        match self.expr_do_no(n).and_then(|x| self.corpos.get_resolved(x)) {
-            Some(Resolved::Constructor(f)) => self.p.programa().function(*f).class.is_some_and(|c| self.classe_e_widget(c)),
+        match self.node_expr(n).and_then(|x| self.bodies.get_resolved(x)) {
+            Some(Resolved::Constructor(f)) => self.p.program().function(*f).class.is_some_and(|c| self.class_and_widget(c)),
             _ => false,
         }
     }
 
     /// A `ArgumentList` de uma invocação.
-    fn lista_de_argumentos_flutter(&self, invocacao: usize) -> Option<usize> {
-        self.filhos(invocacao).iter().copied().find(|&k| self.especie(k) == "ArgumentList")
+    fn flutter_argument_list(&self, invocation: usize) -> Option<usize> {
+        self.children(invocation).iter().copied().find(|&k| self.kind(k) == "ArgumentList")
     }
 
     /// O nome do rótulo de uma `NamedExpression`.
-    pub(crate) fn rotulo_do_nomeado(&self, nomeado: usize) -> Option<&str> {
-        let rotulo = *self.filhos(nomeado).first()?;
-        if self.especie(rotulo) != "Label" {
+    pub(crate) fn named_label(&self, named: usize) -> Option<&str> {
+        let label = *self.children(named).first()?;
+        if self.kind(label) != "Label" {
             return None;
         }
-        Some(self.texto_do_no(*self.filhos(rotulo).first()?))
+        Some(self.node_text(*self.children(label).first()?))
     }
 
     /// `childArgument`, `childrenArgument`, `builderArgument`…: o argumento
-    /// nomeado `nome` da criação.
-    pub(crate) fn argumento_nomeado_flutter(&self, criacao: usize, nome: &str) -> Option<usize> {
-        let lista = self.lista_de_argumentos_flutter(criacao)?;
-        self.filhos(lista).iter().copied().find(|&a| self.especie(a) == "NamedExpression" && self.rotulo_do_nomeado(a) == Some(nome))
+    /// nomeado `name` da criação.
+    pub(crate) fn flutter_named_argument(&self, creation: usize, name: &str) -> Option<usize> {
+        let list = self.flutter_argument_list(creation)?;
+        self.children(list).iter().copied().find(|&a| self.kind(a) == "NamedExpression" && self.named_label(a) == Some(name))
     }
 
     /// A expressão de uma `NamedExpression`.
-    pub(crate) fn expressao_do_nomeado(&self, nomeado: usize) -> Option<usize> {
-        self.filhos(nomeado).last().copied().filter(|&e| self.especie(e) != "Label")
+    pub(crate) fn named_expression(&self, named: usize) -> Option<usize> {
+        self.children(named).last().copied().filter(|&e| self.kind(e) != "Label")
     }
 
-    /// `findArgumentNamed`: o identificador é o rótulo `nome:` de um
+    /// `findArgumentNamed`: o identificador é o rótulo `name:` de um
     /// argumento de uma criação de widget.
-    fn argumento_nomeado_no_rotulo(&self, n: usize, nome: &str) -> Option<usize> {
-        if self.especie(n) != "SimpleIdentifier" || self.texto_do_no(n) != nome {
+    fn named_argument_in_label(&self, n: usize, name: &str) -> Option<usize> {
+        if self.kind(n) != "SimpleIdentifier" || self.node_text(n) != name {
             return None;
         }
-        let rotulo = self.pai(n).filter(|&p| self.especie(p) == "Label")?;
-        let nomeado = self.pai(rotulo).filter(|&p| self.especie(p) == "NamedExpression")?;
-        let invocacao = self.pai(nomeado).and_then(|l| self.pai(l))?;
-        (self.especie(invocacao) == "InstanceCreationExpression" && self.criacao_de_widget(invocacao)).then_some(nomeado)
+        let label = self.parent(n).filter(|&p| self.kind(p) == "Label")?;
+        let named = self.parent(label).filter(|&p| self.kind(p) == "NamedExpression")?;
+        let invocation = self.parent(named).and_then(|l| self.parent(l))?;
+        (self.kind(invocation) == "InstanceCreationExpression" && self.widget_creation(invocation)).then_some(named)
     }
 
-    /// `sessionHelper.getClass(uri, nome)`: a classe exportada pela
+    /// `sessionHelper.getClass(uri, name)`: a classe exportada pela
     /// biblioteca `uri`.
-    pub(crate) fn classe_flutter(&self, uri: &str, nome: &str) -> Option<ClassId> {
-        let p = self.p.programa();
+    pub(crate) fn flutter_class(&self, uri: &str, name: &str) -> Option<ClassId> {
+        let p = self.p.program();
         let lib = p.libraries.iter().position(|l| l.uri == uri)?;
-        let s = self.p.consulta.nomes.lookup(nome)?;
+        let s = self.p.query.names.lookup(name)?;
         match p.library(dartforge_elements::model::LibraryId(lib as u32)).exported.get(&s)?.getter? {
             Element::Class(c) => Some(c),
             _ => None,
         }
     }
 
-    /// [`Self::acao_com_mudanca`] com a seleção e os grupos ligados de `e`,
-    /// que é o texto da edição em `trecho` (as outras edições, de imports,
+    /// [`Self::action_with_change`] com a seleção e os grupos ligados de `e`,
+    /// que é o texto da edição em `snippet` (as outras edições, de imports,
     /// tiram a ação do caminho do snippet).
-    fn acao_ligada(&self, titulo: &str, especie: &str, m: Mudanca, trecho: Span, e: &crate::snippets::Escrita) -> Option<AcaoDeCodigo> {
-        let a = self.acao_com_mudanca(titulo, especie, m)?;
-        Some(match a.edicoes.iter().position(|x| x.span == trecho) {
-            Some(i) => a.com_escrita(i, e),
+    fn linked_action(&self, title: &str, kind: &str, m: Change, snippet: Span, e: &crate::snippets::Write) -> Option<CodeAction> {
+        let a = self.action_with_change(title, kind, m)?;
+        Some(match a.edits.iter().position(|x| x.span == snippet) {
+            Some(i) => a.with_write(i, e),
             None => a,
         })
     }
 
-    fn acao_com_mudanca(&self, titulo: &str, especie: &str, m: Mudanca) -> Option<AcaoDeCodigo> {
-        if m.conflito.is_some() {
+    fn action_with_change(&self, title: &str, kind: &str, m: Change) -> Option<CodeAction> {
+        if m.conflict.is_some() {
             return None;
         }
-        Some(AcaoDeCodigo {
-            titulo: titulo.into(),
-            especie: especie.into(),
-            edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
-            diagnostico: None,
-            criar_arquivo: None, ligado: Default::default(),
+        Some(CodeAction {
+            title: title.into(),
+            kind: kind.into(),
+            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            diagnostic: None,
+            create_file: None, linked: Default::default(),
         })
     }
 
     /// As assistências do Flutter no cursor.
-    pub(crate) fn assistencias_flutter(&self, uri: &str, inicio: usize, fim: usize) -> Vec<AcaoDeCodigo> {
-        let Some(no) = self.arvore.localizar(inicio, fim) else { return Vec::new() };
+    pub(crate) fn flutter_assists(&self, uri: &str, start: usize, end: usize) -> Vec<CodeAction> {
+        let Some(no) = self.tree.localizar(start, end) else { return Vec::new() };
         let mut v = Vec::new();
-        v.extend(self.flutter_para_children(uri, no));
-        v.extend(self.flutter_mover(uri, no, false));
-        v.extend(self.flutter_mover(uri, no, true));
-        v.extend(self.flutter_remover(uri, no));
-        v.extend(self.flutter_trocar_com_filho(uri, no));
-        v.extend(self.flutter_trocar_com_pai(uri, no));
-        v.extend(self.flutter_embrulhar_builder(uri, no, false));
-        v.extend(self.flutter_embrulhar_lista(uri, no));
-        v.extend(self.flutter_embrulhar_builder(uri, no, true));
-        v.extend(self.flutter_filho_por_ultimo(uri, no));
-        v.extend(self.flutter_embrulhar(uri, no, inicio, fim));
+        v.extend(self.flutter_to_children(uri, no));
+        v.extend(self.flutter_move(uri, no, false));
+        v.extend(self.flutter_move(uri, no, true));
+        v.extend(self.flutter_remove(uri, no));
+        v.extend(self.flutter_swap_with_child(uri, no));
+        v.extend(self.flutter_swap_with_parent(uri, no));
+        v.extend(self.flutter_wrap_builder(uri, no, false));
+        v.extend(self.flutter_wrap_list(uri, no));
+        v.extend(self.flutter_wrap_builder(uri, no, true));
+        v.extend(self.flutter_child_last(uri, no));
+        v.extend(self.flutter_wrap(uri, no, start, end));
         v
     }
 
     /// O nome declarado (`library a.b;`) da biblioteca da classe.
-    fn nome_da_biblioteca_da_classe(&self, c: ClassId) -> String {
-        let p = self.p.programa();
-        p.library(p.class(c).library).name.as_ref().map(|ns| ns.iter().map(|&s| self.p.nome(s)).collect::<Vec<_>>().join(".")).unwrap_or_default()
+    fn class_library_name(&self, c: ClassId) -> String {
+        let p = self.p.program();
+        p.library(p.class(c).library).name.as_ref().map(|ns| ns.iter().map(|&s| self.p.name(s)).collect::<Vec<_>>().join(".")).unwrap_or_default()
     }
 
     /// O tipo e os supertipos (`[self, ...allSupertypes]`) têm a classe
-    /// `nome` (pelo critério `aceita`).
-    fn tipo_ou_supertipo(&self, t: TypeId, aceita: &dyn Fn(ClassId) -> bool) -> bool {
-        let Some(c) = self.classe_do_tipo_flutter(t) else { return false };
-        aceita(c) || self.p.supertipos(c).into_iter().any(aceita)
+    /// `name` (pelo critério `accepts`).
+    fn type_or_supertype(&self, t: TypeId, accepts: &dyn Fn(ClassId) -> bool) -> bool {
+        let Some(c) = self.flutter_type_class(t) else { return false };
+        accepts(c) || self.p.supertypes(c).into_iter().any(accepts)
     }
 
     /// `AddDiagnosticPropertyReference` (o assist, sem o modo em lote).
-    pub(crate) fn adicionar_referencia_de_diagnostico(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
-        let p = self.p.programa();
-        let consulta = &self.p.consulta;
-        let no = self.arvore.localizar(inicio, fim)?;
+    pub(crate) fn add_diagnostic_reference(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+        let p = self.p.program();
+        let query = &self.p.query;
+        let no = self.tree.localizar(start, end)?;
         // O nome e o tipo (`_getReturnType`: o getter declarado ou o campo).
-        let (nome, tipo, tipo_escrito): (String, TypeId, Option<usize>) = match self.especie(no) {
+        let (name, ty, written_type): (String, TypeId, Option<usize>) = match self.kind(no) {
             "MethodDeclaration" => {
-                let crate::arvore_analyzer::Marca::Funcao(fid) = self.arvore.nos[no].marca else { return None };
+                let crate::arvore_analyzer::Marca::Funcao(fid) = self.tree.nos[no].marca else { return None };
                 let func = self.ast.function(fid);
                 let n = func.name?;
                 if func.kind != dartforge_frontend::ast::FunctionKind::Getter {
                     return None;
                 }
-                let f = self.p.funcao_do_no(self.unidade, fid)?;
-                let ret = consulta.outline.functions.get(f.0 as usize)?.return_type;
-                let anotacao = self.filhos(no).iter().copied().find(|&k| matches!(self.especie(k), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"));
-                (self.p.nome(n.sym).to_string(), ret, anotacao)
+                let f = self.p.node_function(self.unit, fid)?;
+                let ret = query.outline.functions.get(f.0 as usize)?.return_type;
+                let annotation = self.children(no).iter().copied().find(|&k| matches!(self.kind(k), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"));
+                (self.p.name(n.sym).to_string(), ret, annotation)
             }
             "VariableDeclaration" => {
-                let lista = self.pai(no).filter(|&l| self.especie(l) == "VariableDeclarationList")?;
-                self.pai(lista).filter(|&d| self.especie(d) == "FieldDeclaration")?;
-                let nome = crate::refactorings_exec::nome_no_inicio_pub(self.texto_do_no(no)).to_string();
-                let classe_no = self.com_pais(no).find(|&k| self.especie(k) == "ClassDeclaration")?;
-                let crate::arvore_analyzer::Marca::Decl(d) = self.arvore.nos[classe_no].marca else { return None };
-                let classe = self.classe_da_declaracao(self.unidade, d)?;
-                let v = p.class(classe).fields.iter().copied().find(|&v| self.p.nome(p.variable(v).name) == nome)?;
-                let tipo = consulta.tipo_da_variavel(v)?;
-                let anotacao = self.filhos(lista).iter().copied().find(|&k| matches!(self.especie(k), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"));
-                (nome, tipo, anotacao)
+                let list = self.parent(no).filter(|&l| self.kind(l) == "VariableDeclarationList")?;
+                self.parent(list).filter(|&d| self.kind(d) == "FieldDeclaration")?;
+                let name = crate::refactorings_exec::name_at_start_pub(self.node_text(no)).to_string();
+                let class_node = self.with_parents(no).find(|&k| self.kind(k) == "ClassDeclaration")?;
+                let crate::arvore_analyzer::Marca::Decl(d) = self.tree.nos[class_node].marca else { return None };
+                let class = self.declaration_class(self.unit, d)?;
+                let v = p.class(class).fields.iter().copied().find(|&v| self.p.name(p.variable(v).name) == name)?;
+                let ty = query.variable_type(v)?;
+                let annotation = self.children(list).iter().copied().find(|&k| matches!(self.kind(k), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"));
+                (name, ty, annotation)
             }
             _ => return None,
         };
-        let classe_no = self.com_pais(no).find(|&k| self.especie(k) == "ClassDeclaration")?;
-        let crate::arvore_analyzer::Marca::Decl(d) = self.arvore.nos[classe_no].marca else { return None };
-        let classe = self.classe_da_declaracao(self.unidade, d)?;
-        let diagnosticavel = |c: ClassId| self.p.nome(p.class(c).name) == "Diagnosticable" && p.class(c).decl.is_some_and(|x| p.unit(x.unit).uri == "package:flutter/src/foundation/diagnostics.dart");
-        if !(diagnosticavel(classe) || self.p.supertipos(classe).into_iter().any(diagnosticavel)) {
+        let class_node = self.with_parents(no).find(|&k| self.kind(k) == "ClassDeclaration")?;
+        let crate::arvore_analyzer::Marca::Decl(d) = self.tree.nos[class_node].marca else { return None };
+        let class = self.declaration_class(self.unit, d)?;
+        let diagnosable = |c: ClassId| self.p.name(p.class(c).name) == "Diagnosticable" && p.class(c).decl.is_some_and(|x| p.unit(x.unit).uri == "package:flutter/src/foundation/diagnostics.dart");
+        if !(diagnosable(class) || self.p.supertypes(class).into_iter().any(diagnosable)) {
             return None;
         }
-        let tabela = &consulta.tabela;
-        let dinamico = matches!(tabela.get(tipo), Type::Dynamic) || tabela.e_invalido(tipo);
-        let mut argumentos: Option<Vec<TypeId>> = None;
-        let mut nome_do_construtor = "";
-        let id = if matches!(tabela.get(tipo), Type::Function { .. }) {
-            argumentos = Some(vec![tipo]);
-            nome_do_construtor = ".has";
+        let table = &query.table;
+        let dynamic = matches!(table.get(ty), Type::Dynamic) || table.e_invalido(ty);
+        let mut arguments: Option<Vec<TypeId>> = None;
+        let mut constructor_name = "";
+        let id = if matches!(table.get(ty), Type::Function { .. }) {
+            arguments = Some(vec![ty]);
+            constructor_name = ".has";
             "ObjectFlagProperty"
-        } else if self.classe_do_tipo_flutter(tipo) == consulta.core.int_class && consulta.core.int_class.is_some() {
+        } else if self.flutter_type_class(ty) == query.core.int_class && query.core.int_class.is_some() {
             "IntProperty"
-        } else if self.classe_do_tipo_flutter(tipo) == consulta.core.double_class && consulta.core.double_class.is_some() {
+        } else if self.flutter_type_class(ty) == query.core.double_class && query.core.double_class.is_some() {
             "DoubleProperty"
-        } else if self.classe_do_tipo_flutter(tipo) == consulta.core.string_class && consulta.core.string_class.is_some() {
+        } else if self.flutter_type_class(ty) == query.core.string_class && query.core.string_class.is_some() {
             "StringProperty"
-        } else if self.classe_do_tipo_flutter(tipo).is_some_and(|c| p.class(c).kind == ClassKind::Enum) {
-            argumentos = Some(vec![tipo]);
+        } else if self.flutter_type_class(ty).is_some_and(|c| p.class(c).kind == ClassKind::Enum) {
+            arguments = Some(vec![ty]);
             "EnumProperty"
-        } else if let Some(iteravel) = consulta.core.iterable_class
-            && self.tipo_ou_supertipo(tipo, &|c| c == iteravel)
+        } else if let Some(iterable) = query.core.iterable_class
+            && self.type_or_supertype(ty, &|c| c == iterable)
         {
-            argumentos = Some(match tabela.get(tipo) {
+            arguments = Some(match table.get(ty) {
                 Type::Interface { args, .. } => args.to_vec(),
                 _ => Vec::new(),
             });
             "IterableProperty"
-        } else if self.tipo_ou_supertipo(tipo, &|c| self.p.nome(p.class(c).name) == "Color" && self.nome_da_biblioteca_da_classe(c) == "dart.ui") {
+        } else if self.type_or_supertype(ty, &|c| self.p.name(p.class(c).name) == "Color" && self.class_library_name(c) == "dart.ui") {
             "ColorProperty"
-        } else if self.tipo_ou_supertipo(tipo, &|c| self.p.nome(p.class(c).name) == "Matrix4" && self.nome_da_biblioteca_da_classe(c) == "vector_math_64") {
+        } else if self.type_or_supertype(ty, &|c| self.p.name(p.class(c).name) == "Matrix4" && self.class_library_name(c) == "vector_math_64") {
             "TransformProperty"
         } else {
-            if !dinamico {
-                argumentos = Some(vec![tipo]);
+            if !dynamic {
+                arguments = Some(vec![ty]);
             }
             "DiagnosticsProperty"
         };
-        let tx = Texto::novo(self.fonte);
+        let tx = Text::new(self.source);
         let eol = tx.eol();
-        let mut escritor = crate::write_type::Escritor::novo(self, self.arvore.nos[no].inicio);
-        let mut referencia = |prefixo: &str, construtor: &str| -> Option<String> {
-            let mut s = format!("{prefixo}{construtor}.add({id}");
-            match &argumentos {
+        let mut writer = crate::write_type::Writer::new(self, self.tree.nos[no].inicio);
+        let mut reference = |prefix: &str, constructor: &str| -> Option<String> {
+            let mut s = format!("{prefix}{constructor}.add({id}");
+            match &arguments {
                 Some(args) => {
-                    let textos: Vec<String> = args.iter().map(|&a| escritor.escrever(a, false).unwrap_or_default()).collect();
-                    s.push_str(&format!("<{}>", textos.join(", ")));
+                    let texts: Vec<String> = args.iter().map(|&a| writer.write(a, false).unwrap_or_default()).collect();
+                    s.push_str(&format!("<{}>", texts.join(", ")));
                 }
-                None if dinamico => {
-                    if let Some(a) = tipo_escrito {
-                        let texto = self.texto_do_no(a);
-                        if texto != "dynamic" {
-                            s.push_str(&format!("<{texto}>"));
+                None if dynamic => {
+                    if let Some(a) = written_type {
+                        let text = self.node_text(a);
+                        if text != "dynamic" {
+                            s.push_str(&format!("<{text}>"));
                         }
                     }
                 }
                 None => {}
             }
-            s.push_str(&format!("{nome_do_construtor}('{nome}', {nome}));{eol}"));
+            s.push_str(&format!("{constructor_name}('{name}', {name}));{eol}"));
             Some(s)
         };
-        let mut m = Mudanca::default();
-        let membros = self.membros_do_conteiner(classe_no);
-        let preencher: Vec<usize> = membros
+        let mut m = Change::default();
+        let members = self.container_members(class_node);
+        let fill: Vec<usize> = members
             .iter()
             .copied()
-            .filter(|&k| self.especie(k) == "MethodDeclaration" && matches!(self.arvore.nos[k].marca, crate::arvore_analyzer::Marca::Funcao(f) if self.ast.function(f).name.is_some_and(|n| self.p.nome(n.sym) == "debugFillProperties")))
+            .filter(|&k| self.kind(k) == "MethodDeclaration" && matches!(self.tree.nos[k].marca, crate::arvore_analyzer::Marca::Funcao(f) if self.ast.function(f).name.is_some_and(|n| self.p.name(n.sym) == "debugFillProperties")))
             .collect();
-        match preencher[..] {
+        match fill[..] {
             [] => {
-                let recuo1 = UM_RECUO;
-                let recuo2 = format!("{UM_RECUO}{UM_RECUO}");
-                let corpo = referencia(&recuo2, "properties")?;
-                let texto = format!("@override{eol}{recuo1}void debugFillProperties(DiagnosticPropertiesBuilder properties) {{{eol}{recuo2}super.debugFillProperties(properties);{eol}{corpo}{recuo1}}}");
-                let (offset, inserido) = self.inserir_no_membro(classe_no, crate::insert::Filtro::Metodo, &texto)?;
-                m.adicionar(uri, Span { start: offset, end: offset }, inserido);
+                let indent1 = ONE_INDENT;
+                let indent2 = format!("{ONE_INDENT}{ONE_INDENT}");
+                let body = reference(&indent2, "properties")?;
+                let text = format!("@override{eol}{indent1}void debugFillProperties(DiagnosticPropertiesBuilder properties) {{{eol}{indent2}super.debugFillProperties(properties);{eol}{body}{indent1}}}");
+                let (offset, inserted) = self.insert_in_member(class_node, crate::insert::Filter::Method, &text)?;
+                m.add(uri, Span { start: offset, end: offset }, inserted);
             }
-            [metodo] => {
-                let corpo = *self.filhos(metodo).last()?;
-                if self.especie(corpo) != "BlockFunctionBody" {
+            [method] => {
+                let body = *self.children(method).last()?;
+                if self.kind(body) != "BlockFunctionBody" {
                     return None;
                 }
-                let bloco = *self.filhos(corpo).first()?;
-                let comandos = self.filhos(bloco).to_vec();
-                let (offset, prefixo) = match comandos.last() {
+                let block = *self.children(body).first()?;
+                let commands = self.children(block).to_vec();
+                let (offset, prefix) = match commands.last() {
                     None => {
-                        let o = self.arvore.nos[bloco].inicio;
-                        (o, format!("{}{UM_RECUO}", tx.prefixo_da_linha(o)))
+                        let o = self.tree.nos[block].inicio;
+                        (o, format!("{}{ONE_INDENT}", tx.line_prefix(o)))
                     }
                     Some(&c) => {
-                        let o = self.token_anterior(self.arvore.nos[c].fim)?.start;
-                        (o, tx.prefixo_da_linha(o).to_string())
+                        let o = self.previous_token(self.tree.nos[c].fim)?.start;
+                        (o, tx.line_prefix(o).to_string())
                     }
                 };
                 // O parâmetro `DiagnosticPropertiesBuilder x`.
-                let lista = self.filhos(metodo).iter().copied().find(|&k| self.especie(k) == "FormalParameterList")?;
-                let construtor = self.filhos(lista).iter().copied().find_map(|q| {
-                    if self.especie(q) != "SimpleFormalParameter" {
+                let list = self.children(method).iter().copied().find(|&k| self.kind(k) == "FormalParameterList")?;
+                let constructor = self.children(list).iter().copied().find_map(|q| {
+                    if self.kind(q) != "SimpleFormalParameter" {
                         return None;
                     }
-                    let tipo = self.filhos(q).iter().copied().find(|&k| self.especie(k) == "NamedType")?;
-                    let nome_tipo = crate::refactorings_exec::nome_no_inicio_pub(self.texto_do_no(tipo).rsplit('.').next().unwrap_or(""));
-                    if nome_tipo != "DiagnosticPropertiesBuilder" {
+                    let ty = self.children(q).iter().copied().find(|&k| self.kind(k) == "NamedType")?;
+                    let type_name_ = crate::refactorings_exec::name_at_start_pub(self.node_text(ty).rsplit('.').next().unwrap_or(""));
+                    if type_name_ != "DiagnosticPropertiesBuilder" {
                         return None;
                     }
-                    let n = self.token_anterior(self.arvore.nos[q].fim)?;
-                    Some(self.fonte[n.start..n.end].to_string())
+                    let n = self.previous_token(self.tree.nos[q].fim)?;
+                    Some(self.source[n.start..n.end].to_string())
                 })?;
-                let texto = referencia(&prefixo, &construtor)?;
-                let proxima = tx.proxima_linha(offset);
-                m.adicionar(uri, Span { start: proxima, end: proxima }, texto);
+                let text = reference(&prefix, &constructor)?;
+                let next = tx.next_line(offset);
+                m.add(uri, Span { start: next, end: next }, text);
             }
             _ => return None,
         }
-        crate::refactorings_move::imports_do_builder(self, &mut m, &escritor.importar);
-        self.acao_com_mudanca("Add a debug reference to this property", "refactor.add.diagnosticPropertyReference", m)
+        crate::refactorings_move::builder_imports(self, &mut m, &writer.import);
+        self.action_with_change("Add a debug reference to this property", "refactor.add.diagnosticPropertyReference", m)
     }
 
     /// `FlutterConvertToChildren`.
-    fn flutter_para_children(&self, uri: &str, n: usize) -> Option<AcaoDeCodigo> {
-        if self.especie(n) != "SimpleIdentifier" || self.texto_do_no(n) != "child" {
+    fn flutter_to_children(&self, uri: &str, n: usize) -> Option<CodeAction> {
+        if self.kind(n) != "SimpleIdentifier" || self.node_text(n) != "child" {
             return None;
         }
-        let rotulo = self.pai(n).filter(|&p| self.especie(p) == "Label")?;
-        let nomeado = self.pai(rotulo).filter(|&p| self.especie(p) == "NamedExpression")?;
+        let label = self.parent(n).filter(|&p| self.kind(p) == "Label")?;
+        let named = self.parent(label).filter(|&p| self.kind(p) == "NamedExpression")?;
         // `node.element != null`: o rótulo resolve para o parâmetro.
-        let invocacao = self.pai(nomeado).and_then(|l| self.pai(l))?;
-        let f = match self.expr_do_no(invocacao).and_then(|x| self.corpos.get_resolved(x)) {
+        let invocation = self.parent(named).and_then(|l| self.parent(l))?;
+        let f = match self.node_expr(invocation).and_then(|x| self.bodies.get_resolved(x)) {
             Some(Resolved::Constructor(f)) | Some(Resolved::Element(Element::Function(f))) => *f,
             Some(Resolved::Member { member: dartforge_types::MemberRef::Function(f), .. }) => *f,
             _ => return None,
         };
-        let child = self.p.consulta.nomes.lookup("child")?;
-        if !self.p.consulta.outline.functions.get(f.0 as usize)?.parameters.iter().any(|q| q.kind == dartforge_frontend::ast::ParameterKind::Named && q.name == Some(child)) {
+        let child = self.p.query.names.lookup("child")?;
+        if !self.p.query.outline.functions.get(f.0 as usize)?.parameters.iter().any(|q| q.kind == dartforge_frontend::ast::ParameterKind::Named && q.name == Some(child)) {
             return None;
         }
-        let arg = self.expressao_do_nomeado(nomeado)?;
-        if !self.e_expressao_widget(arg) {
+        let arg = self.named_expression(named)?;
+        if !self.is_expression_widget(arg) {
             return None;
         }
-        let tx = Texto::novo(self.fonte);
+        let tx = Text::new(self.source);
         let eol = tx.eol();
-        let mut m = Mudanca::default();
-        let ini_nomeado = self.arvore.nos[nomeado].inicio;
-        let (ini_arg, fim_arg) = (self.arvore.nos[arg].inicio, self.arvore.nos[arg].fim);
-        let vazio = |o: usize| Span { start: o, end: o };
-        m.adicionar(uri, vazio(ini_nomeado + "child".len()), "ren");
-        let fonte_arg = self.texto_do_no(arg);
-        if !fonte_arg.contains(eol) {
-            m.adicionar(uri, vazio(ini_arg), "[");
-            m.adicionar(uri, vazio(fim_arg), "]");
+        let mut m = Change::default();
+        let named_start = self.tree.nos[named].inicio;
+        let (start_arg, end_arg) = (self.tree.nos[arg].inicio, self.tree.nos[arg].fim);
+        let empty = |o: usize| Span { start: o, end: o };
+        m.add(uri, empty(named_start + "child".len()), "ren");
+        let source_arg = self.node_text(arg);
+        if !source_arg.contains(eol) {
+            m.add(uri, empty(start_arg), "[");
+            m.add(uri, empty(end_arg), "]");
         } else {
-            let mut nova_linha = fonte_arg.rfind(eol).unwrap_or(0);
-            if nova_linha == fonte_arg.len() {
-                nova_linha -= 1;
+            let mut new_line = source_arg.rfind(eol).unwrap_or(0);
+            if new_line == source_arg.len() {
+                new_line -= 1;
             }
-            let recuo_velho = tx.prefixo_da_linha(ini_arg + eol.len() + nova_linha).to_string();
-            let recuo_novo = format!("{recuo_velho}{UM_RECUO}");
-            let separador = &self.fonte[ini_nomeado..ini_arg];
-            let prefixo = if separador.contains(eol) { String::new() } else { format!("{eol}{recuo_novo}") };
-            if prefixo.is_empty() {
-                m.adicionar(uri, vazio(ini_nomeado + "child:".len()), " [");
-                m.adicionar(uri, Span { start: ini_arg - 2, end: ini_arg }, "");
+            let old_indent = tx.line_prefix(start_arg + eol.len() + new_line).to_string();
+            let new_indent = format!("{old_indent}{ONE_INDENT}");
+            let separator = &self.source[named_start..start_arg];
+            let prefix = if separator.contains(eol) { String::new() } else { format!("{eol}{new_indent}") };
+            if prefix.is_empty() {
+                m.add(uri, empty(named_start + "child:".len()), " [");
+                m.add(uri, Span { start: start_arg - 2, end: start_arg }, "");
             } else {
-                m.adicionar(uri, vazio(ini_arg), "[");
+                m.add(uri, empty(start_arg), "[");
             }
-            let novo = tx.trocar_recuo(fonte_arg, &recuo_velho, &recuo_novo, false, false);
-            m.adicionar(uri, Span { start: ini_arg, end: fim_arg }, format!("{prefixo}{novo},{eol}{recuo_velho}]"));
+            let new = tx.swap_indent(source_arg, &old_indent, &new_indent, false, false);
+            m.add(uri, Span { start: start_arg, end: end_arg }, format!("{prefix}{new},{eol}{old_indent}]"));
         }
-        self.acao_com_mudanca("Convert to children:", "refactor.flutter.convert.childToChildren", m)
+        self.action_with_change("Convert to children:", "refactor.flutter.convert.childToChildren", m)
     }
 
     /// `FlutterMoveUp`/`FlutterMoveDown`.
-    fn flutter_mover(&self, uri: &str, n: usize, para_baixo: bool) -> Option<AcaoDeCodigo> {
-        let widget = self.achar_expressao_widget(n)?;
-        let lista = self.pai(widget).filter(|&p| self.especie(p) == "ListLiteral")?;
-        let elementos: Vec<usize> = self.filhos(lista).iter().copied().filter(|&k| self.especie(k) != "TypeArgumentList").collect();
-        let i = elementos.iter().position(|&k| k == widget)?;
-        let outro = if para_baixo {
-            if i + 1 == elementos.len() {
+    fn flutter_move(&self, uri: &str, n: usize, downward: bool) -> Option<CodeAction> {
+        let widget = self.find_expression_widget(n)?;
+        let list = self.parent(widget).filter(|&p| self.kind(p) == "ListLiteral")?;
+        let elements: Vec<usize> = self.children(list).iter().copied().filter(|&k| self.kind(k) != "TypeArgumentList").collect();
+        let i = elements.iter().position(|&k| k == widget)?;
+        let other = if downward {
+            if i + 1 == elements.len() {
                 return None;
             }
-            elementos[i + 1]
+            elements[i + 1]
         } else {
             if i == 0 {
                 return None;
             }
-            elementos[i - 1]
+            elements[i - 1]
         };
-        let mut m = Mudanca::default();
-        m.adicionar(uri, self.arvore.span(outro), self.texto_do_no(widget));
-        m.adicionar(uri, self.arvore.span(widget), self.texto_do_no(outro));
-        let (titulo, especie) = if para_baixo { ("Move widget down", "refactor.flutter.move.down") } else { ("Move widget up", "refactor.flutter.move.up") };
-        self.acao_com_mudanca(titulo, especie, m)
+        let mut m = Change::default();
+        m.add(uri, self.tree.span(other), self.node_text(widget));
+        m.add(uri, self.tree.span(widget), self.node_text(other));
+        let (title, kind) = if downward { ("Move widget down", "refactor.flutter.move.down") } else { ("Move widget up", "refactor.flutter.move.up") };
+        self.action_with_change(title, kind, m)
     }
 
     /// `FlutterRemoveWidget`.
-    fn flutter_remover(&self, uri: &str, n: usize) -> Option<AcaoDeCodigo> {
-        let criacao = self.achar_criacao(n)?;
-        if !self.criacao_de_widget(criacao) {
+    fn flutter_remove(&self, uri: &str, n: usize) -> Option<CodeAction> {
+        let creation = self.find_creation(n)?;
+        if !self.widget_creation(creation) {
             return None;
         }
-        let elementos_da_lista = |lista: usize| -> Vec<usize> { self.filhos(lista).iter().copied().filter(|&k| self.especie(k) != "TypeArgumentList").collect() };
-        let m = if let Some(a) = self.argumento_nomeado_flutter(criacao, "children") {
-            let e = self.expressao_do_nomeado(a)?;
-            if self.especie(e) != "ListLiteral" || elementos_da_lista(e).is_empty() {
+        let list_elements = |list: usize| -> Vec<usize> { self.children(list).iter().copied().filter(|&k| self.kind(k) != "TypeArgumentList").collect() };
+        let m = if let Some(a) = self.flutter_named_argument(creation, "children") {
+            let e = self.named_expression(a)?;
+            if self.kind(e) != "ListLiteral" || list_elements(e).is_empty() {
                 return None;
             }
-            self.flutter_remover_filhos(uri, criacao, &elementos_da_lista(e))?
-        } else if let Some(a) = self.argumento_nomeado_flutter(criacao, "child") {
-            self.flutter_remover_um(uri, criacao, self.expressao_do_nomeado(a)?)
-        } else if let Some(a) = self.argumento_nomeado_flutter(criacao, "builder") {
-            let e = self.expressao_do_nomeado(a)?;
-            if self.especie(e) != "FunctionExpression" {
+            self.flutter_remove_children(uri, creation, &list_elements(e))?
+        } else if let Some(a) = self.flutter_named_argument(creation, "child") {
+            self.flutter_remove_one(uri, creation, self.named_expression(a)?)
+        } else if let Some(a) = self.flutter_named_argument(creation, "builder") {
+            let e = self.named_expression(a)?;
+            if self.kind(e) != "FunctionExpression" {
                 return None;
             }
             // O primeiro parâmetro do builder sem uso no corpo.
-            let lista = self.filhos(e).iter().copied().find(|&k| self.especie(k) == "FormalParameterList")?;
-            let parametro = *self.filhos(lista).first()?;
-            let nome = self.token_anterior(self.arvore.nos[parametro].fim)?;
-            let corpo = *self.filhos(e).last()?;
+            let list = self.children(e).iter().copied().find(|&k| self.kind(k) == "FormalParameterList")?;
+            let parameter = *self.children(list).first()?;
+            let name = self.previous_token(self.tree.nos[parameter].fim)?;
+            let body = *self.children(e).last()?;
             // `_UsageFinder`: um identificador do corpo que lê o parâmetro.
-            let usado = self.arvore.nos.iter().any(|no| {
+            let used = self.tree.nos.iter().any(|no| {
                 no.especie == "SimpleIdentifier"
-                    && no.inicio >= self.arvore.nos[corpo].inicio
-                    && no.fim <= self.arvore.nos[corpo].fim
-                    && matches!(no.marca, crate::arvore_analyzer::Marca::Expr(x) if self.corpos.declaracao_local(x) == Some(nome.start))
+                    && no.inicio >= self.tree.nos[body].inicio
+                    && no.fim <= self.tree.nos[body].fim
+                    && matches!(no.marca, crate::arvore_analyzer::Marca::Expr(x) if self.bodies.declaracao_local(x) == Some(name.start))
             });
-            if usado {
+            if used {
                 return None;
             }
-            let expressao = match self.especie(corpo) {
+            let expression = match self.kind(body) {
                 "BlockFunctionBody" => {
-                    let bloco = *self.filhos(corpo).first()?;
-                    let [r] = self.filhos(bloco)[..] else { return None };
-                    if self.especie(r) != "ReturnStatement" {
+                    let block = *self.children(body).first()?;
+                    let [r] = self.children(block)[..] else { return None };
+                    if self.kind(r) != "ReturnStatement" {
                         return None;
                     }
-                    *self.filhos(r).first()?
+                    *self.children(r).first()?
                 }
-                "ExpressionFunctionBody" => *self.filhos(corpo).first()?,
+                "ExpressionFunctionBody" => *self.children(body).first()?,
                 _ => return None,
             };
-            self.flutter_remover_um(uri, criacao, expressao)
-        } else if let Some(a) = self.argumento_nomeado_flutter(criacao, "slivers") {
-            let e = self.expressao_do_nomeado(a)?;
-            if self.especie(e) != "ListLiteral" || elementos_da_lista(e).is_empty() {
+            self.flutter_remove_one(uri, creation, expression)
+        } else if let Some(a) = self.flutter_named_argument(creation, "slivers") {
+            let e = self.named_expression(a)?;
+            if self.kind(e) != "ListLiteral" || list_elements(e).is_empty() {
                 return None;
             }
-            self.flutter_remover_filhos(uri, criacao, &elementos_da_lista(e))?
-        } else if let Some(a) = self.argumento_nomeado_flutter(criacao, "sliver") {
-            self.flutter_remover_um(uri, criacao, self.expressao_do_nomeado(a)?)
+            self.flutter_remove_children(uri, creation, &list_elements(e))?
+        } else if let Some(a) = self.flutter_named_argument(creation, "sliver") {
+            self.flutter_remove_one(uri, creation, self.named_expression(a)?)
         } else {
             // `_removeSingleWhenInList`.
-            let lista = self.pai(criacao).filter(|&p| self.especie(p) == "ListLiteral")?;
-            let mut m = Mudanca::default();
-            m.adicionar(uri, self.no_em_lista(&elementos_da_lista(lista), criacao), "");
+            let list = self.parent(creation).filter(|&p| self.kind(p) == "ListLiteral")?;
+            let mut m = Change::default();
+            m.add(uri, self.node_in_list(&list_elements(list), creation), "");
             m
         };
-        self.acao_com_mudanca("Remove this widget", "refactor.flutter.removeWidget", m)
+        self.action_with_change("Remove this widget", "refactor.flutter.removeWidget", m)
     }
 
-    fn flutter_remover_filhos(&self, uri: &str, criacao: usize, filhos: &[usize]) -> Option<Mudanca> {
-        if filhos.len() > 1 && self.pai(criacao).is_none_or(|p| self.especie(p) != "ListLiteral") {
+    fn flutter_remove_children(&self, uri: &str, creation: usize, children: &[usize]) -> Option<Change> {
+        if children.len() > 1 && self.parent(creation).is_none_or(|p| self.kind(p) != "ListLiteral") {
             return None;
         }
-        let tx = Texto::novo(self.fonte);
-        let (primeiro, ultimo) = (*filhos.first()?, *filhos.last()?);
-        let texto = &self.fonte[self.arvore.nos[primeiro].inicio..self.arvore.nos[ultimo].fim];
-        let velho = tx.prefixo_da_linha(self.arvore.nos[primeiro].inicio);
-        let novo = tx.prefixo_da_linha(self.arvore.nos[criacao].inicio);
-        let mut m = Mudanca::default();
-        m.adicionar(uri, self.arvore.span(criacao), tx.trocar_recuo(texto, velho, novo, false, false));
+        let tx = Text::new(self.source);
+        let (first, last) = (*children.first()?, *children.last()?);
+        let text = &self.source[self.tree.nos[first].inicio..self.tree.nos[last].fim];
+        let old = tx.line_prefix(self.tree.nos[first].inicio);
+        let new = tx.line_prefix(self.tree.nos[creation].inicio);
+        let mut m = Change::default();
+        m.add(uri, self.tree.span(creation), tx.swap_indent(text, old, new, false, false));
         Some(m)
     }
 
-    fn flutter_remover_um(&self, uri: &str, criacao: usize, expressao: usize) -> Mudanca {
-        let tx = Texto::novo(self.fonte);
-        let velho = tx.prefixo_da_linha(self.arvore.nos[expressao].inicio);
-        let novo = tx.prefixo_da_linha(self.arvore.nos[criacao].inicio);
-        let mut m = Mudanca::default();
-        m.adicionar(uri, self.arvore.span(criacao), tx.trocar_recuo(self.texto_do_no(expressao), velho, novo, false, false));
+    fn flutter_remove_one(&self, uri: &str, creation: usize, expression: usize) -> Change {
+        let tx = Text::new(self.source);
+        let old = tx.line_prefix(self.tree.nos[expression].inicio);
+        let new = tx.line_prefix(self.tree.nos[creation].inicio);
+        let mut m = Change::default();
+        m.add(uri, self.tree.span(creation), tx.swap_indent(self.node_text(expression), old, new, false, false));
         m
     }
 
     /// `_singleChildInChildren`.
-    fn filho_unico_em_children(&self, criacao: usize) -> Option<usize> {
-        let a = self.argumento_nomeado_flutter(criacao, "children")?;
-        let lista = self.expressao_do_nomeado(a).filter(|&e| self.especie(e) == "ListLiteral")?;
-        let elementos: Vec<usize> = self.filhos(lista).iter().copied().filter(|&k| self.especie(k) != "TypeArgumentList").collect();
-        let [unico] = elementos[..] else { return None };
-        (self.especie(unico) == "InstanceCreationExpression").then_some(unico)
+    fn single_child_in_children(&self, creation: usize) -> Option<usize> {
+        let a = self.flutter_named_argument(creation, "children")?;
+        let list = self.named_expression(a).filter(|&e| self.kind(e) == "ListLiteral")?;
+        let elements: Vec<usize> = self.children(list).iter().copied().filter(|&k| self.kind(k) != "TypeArgumentList").collect();
+        let [single] = elements[..] else { return None };
+        (self.kind(single) == "InstanceCreationExpression").then_some(single)
     }
 
     /// `FlutterSwapWithChild`.
-    fn flutter_trocar_com_filho(&self, uri: &str, n: usize) -> Option<AcaoDeCodigo> {
-        let pai = self.achar_criacao(n)?;
-        if !self.criacao_de_widget(pai) {
+    fn flutter_swap_with_child(&self, uri: &str, n: usize) -> Option<CodeAction> {
+        let parent = self.find_creation(n)?;
+        if !self.widget_creation(parent) {
             return None;
         }
-        let mut pai_com_um_filho = true;
-        let mut filho = None;
-        if let Some(primeiro) = self.filho_unico_em_children(pai) {
-            filho = Some(primeiro);
-            pai_com_um_filho = false;
+        let mut parent_with_one_child = true;
+        let mut child = None;
+        if let Some(first) = self.single_child_in_children(parent) {
+            child = Some(first);
+            parent_with_one_child = false;
         }
-        let filho = filho.or_else(|| self.argumento_nomeado_flutter(pai, "child").and_then(|a| self.expressao_do_nomeado(a)))?;
-        if self.especie(filho) != "InstanceCreationExpression" || !self.criacao_de_widget(filho) {
+        let child = child.or_else(|| self.flutter_named_argument(parent, "child").and_then(|a| self.named_expression(a)))?;
+        if self.kind(child) != "InstanceCreationExpression" || !self.widget_creation(child) {
             return None;
         }
-        self.trocar_pai_e_filho(uri, pai, filho, pai_com_um_filho, "Swap with child", "refactor.flutter.swap.withChild")
+        self.swap_parent_and_child(uri, parent, child, parent_with_one_child, "Swap with child", "refactor.flutter.swap.withChild")
     }
 
     /// `FlutterSwapWithParent`.
-    fn flutter_trocar_com_pai(&self, uri: &str, n: usize) -> Option<AcaoDeCodigo> {
-        let filho = self.achar_criacao(n)?;
-        if !self.criacao_de_widget(filho) {
+    fn flutter_swap_with_parent(&self, uri: &str, n: usize) -> Option<CodeAction> {
+        let child = self.find_creation(n)?;
+        if !self.widget_creation(child) {
             return None;
         }
-        let mut pai_com_um_filho = true;
-        let mut nomeado = None;
-        if let Some(lista) = self.pai(filho).filter(|&p| self.especie(p) == "ListLiteral") {
-            let elementos = self.filhos(lista).iter().filter(|&&k| self.especie(k) != "TypeArgumentList").count();
-            if elementos != 1 {
+        let mut parent_with_one_child = true;
+        let mut named = None;
+        if let Some(list) = self.parent(child).filter(|&p| self.kind(p) == "ListLiteral") {
+            let elements = self.children(list).iter().filter(|&&k| self.kind(k) != "TypeArgumentList").count();
+            if elements != 1 {
                 return None;
             }
-            if let Some(p) = self.pai(lista).filter(|&p| self.especie(p) == "NamedExpression") {
-                nomeado = Some(p);
-                pai_com_um_filho = false;
+            if let Some(p) = self.parent(list).filter(|&p| self.kind(p) == "NamedExpression") {
+                named = Some(p);
+                parent_with_one_child = false;
             }
         }
-        let base = nomeado.or_else(|| self.pai(filho))?;
-        let expr = self.pai(base).and_then(|x| self.pai(x))?;
-        if self.especie(expr) != "InstanceCreationExpression" {
+        let base = named.or_else(|| self.parent(child))?;
+        let expr = self.parent(base).and_then(|x| self.parent(x))?;
+        if self.kind(expr) != "InstanceCreationExpression" {
             return None;
         }
-        self.trocar_pai_e_filho(uri, expr, filho, pai_com_um_filho, "Swap with parent", "refactor.flutter.swap.withParent")
+        self.swap_parent_and_child(uri, expr, child, parent_with_one_child, "Swap with parent", "refactor.flutter.swap.withParent")
     }
 
     /// `swapParentAndChild`.
-    fn trocar_pai_e_filho(&self, uri: &str, pai: usize, filho: usize, pai_com_um_filho: bool, titulo: &str, especie: &str) -> Option<AcaoDeCodigo> {
-        let estavel = match self.filho_unico_em_children(filho) {
-            Some(primeiro) => primeiro,
-            None => self.argumento_nomeado_flutter(filho, "child")?,
+    fn swap_parent_and_child(&self, uri: &str, parent: usize, child: usize, parent_with_one_child: bool, title: &str, kind: &str) -> Option<CodeAction> {
+        let stable = match self.single_child_in_children(child) {
+            Some(first) => first,
+            None => self.flutter_named_argument(child, "child")?,
         };
-        let tx = Texto::novo(self.fonte);
+        let tx = Text::new(self.source);
         let eol = tx.eol();
-        let args_filho = self.lista_de_argumentos_flutter(filho)?;
-        let args_pai = self.lista_de_argumentos_flutter(pai)?;
-        let texto_filho = &self.fonte[self.arvore.nos[filho].inicio..self.arvore.nos[args_filho].inicio];
-        let texto_pai = &self.fonte[self.arvore.nos[pai].inicio..self.arvore.nos[args_pai].inicio];
-        let recuo_pai = tx.prefixo_da_linha(self.arvore.nos[pai].inicio).to_string();
-        let recuo_filho = format!("{recuo_pai}  ");
+        let child_args = self.flutter_argument_list(child)?;
+        let parent_args = self.flutter_argument_list(parent)?;
+        let text_child = &self.source[self.tree.nos[child].inicio..self.tree.nos[child_args].inicio];
+        let text_parent = &self.source[self.tree.nos[parent].inicio..self.tree.nos[parent_args].inicio];
+        let parent_indent = tx.line_prefix(self.tree.nos[parent].inicio).to_string();
+        let child_indent = format!("{parent_indent}  ");
         let mut s = String::new();
-        s.push_str(texto_filho);
+        s.push_str(text_child);
         s.push('(');
         s.push_str(eol);
-        for &a in self.filhos(args_filho) {
-            if a != estavel {
-                let texto = tx.trocar_recuo(self.texto_do_no(a), &recuo_filho, &recuo_pai, false, false);
-                s.push_str(&format!("{recuo_pai}  {texto},{eol}"));
+        for &a in self.children(child_args) {
+            if a != stable {
+                let text = tx.swap_indent(self.node_text(a), &child_indent, &parent_indent, false, false);
+                s.push_str(&format!("{parent_indent}  {text},{eol}"));
             }
         }
-        s.push_str(&format!("{recuo_pai}  child: {texto_pai}({eol}"));
-        for &a in self.filhos(args_pai) {
-            let rotulo = if self.especie(a) == "NamedExpression" { self.rotulo_do_nomeado(a) } else { None };
-            if !matches!(rotulo, Some("child") | Some("children")) {
-                let texto = tx.trocar_recuo(self.texto_do_no(a), &recuo_pai, &recuo_filho, false, false);
-                s.push_str(&format!("{recuo_filho}  {texto},{eol}"));
+        s.push_str(&format!("{parent_indent}  child: {text_parent}({eol}"));
+        for &a in self.children(parent_args) {
+            let label = if self.kind(a) == "NamedExpression" { self.named_label(a) } else { None };
+            if !matches!(label, Some("child") | Some("children")) {
+                let text = tx.swap_indent(self.node_text(a), &parent_indent, &child_indent, false, false);
+                s.push_str(&format!("{child_indent}  {text},{eol}"));
             }
         }
         {
-            let mut texto = self.texto_do_no(estavel).to_string();
-            if texto.trim().starts_with("child: ") {
-                texto = texto["child: ".len()..].to_string();
-            } else if texto.trim().starts_with("children: ") {
-                texto = texto["children: ".len()..].to_string();
+            let mut text = self.node_text(stable).to_string();
+            if text.trim().starts_with("child: ") {
+                text = text["child: ".len()..].to_string();
+            } else if text.trim().starts_with("children: ") {
+                text = text["children: ".len()..].to_string();
             }
-            s.push_str(&recuo_filho);
+            s.push_str(&child_indent);
             s.push_str("  ");
-            if pai_com_um_filho {
+            if parent_with_one_child {
                 s.push_str("child: ");
             } else {
                 s.push_str("children: [");
                 s.push_str(eol);
-                s.push_str(&recuo_filho);
+                s.push_str(&child_indent);
                 s.push_str("    ");
             }
-            s.push_str(&texto);
+            s.push_str(&text);
             s.push(',');
             s.push_str(eol);
         }
-        s.push_str(&recuo_filho);
-        if !pai_com_um_filho {
+        s.push_str(&child_indent);
+        if !parent_with_one_child {
             s.push_str("  ]");
             s.push(',');
             s.push_str(eol);
-            s.push_str(&recuo_filho);
+            s.push_str(&child_indent);
         }
         s.push_str("),");
         s.push_str(eol);
-        s.push_str(&recuo_pai);
+        s.push_str(&parent_indent);
         s.push(')');
-        let mut m = Mudanca::default();
-        m.adicionar(uri, self.arvore.span(pai), s);
-        self.acao_com_mudanca(titulo, especie, m)
+        let mut m = Change::default();
+        m.add(uri, self.tree.span(parent), s);
+        self.action_with_change(title, kind, m)
     }
 
     /// `FlutterWrapBuilder` e `FlutterWrapStreamBuilder`.
-    fn flutter_embrulhar_builder(&self, uri: &str, n: usize, stream: bool) -> Option<AcaoDeCodigo> {
-        let widget = self.achar_expressao_widget(n)?;
-        let t = self.tipo_do_no_flutter(widget)?;
-        let (nome, uri_classe) = if stream { ("StreamBuilder", URI_ASYNC) } else { ("Builder", URI_BASIC) };
-        if self.classe_do_tipo_flutter(t).is_some_and(|c| self.flutter_exatamente(c, nome, uri_classe)) {
+    fn flutter_wrap_builder(&self, uri: &str, n: usize, stream: bool) -> Option<CodeAction> {
+        let widget = self.find_expression_widget(n)?;
+        let t = self.flutter_node_type(widget)?;
+        let (name, uri_class) = if stream { ("StreamBuilder", URI_ASYNC) } else { ("Builder", URI_BASIC) };
+        if self.flutter_type_class(t).is_some_and(|c| self.flutter_exactly(c, name, uri_class)) {
             return None;
         }
-        let classe = self.classe_flutter(URI_WIDGETS, nome)?;
-        let tx = Texto::novo(self.fonte);
+        let class = self.flutter_class(URI_WIDGETS, name)?;
+        let tx = Text::new(self.source);
         let eol = tx.eol();
-        let mut escritor = crate::write_type::Escritor::novo(self, self.arvore.nos[widget].inicio);
-        let referencia = escritor.referencia_de(Element::Class(classe), nome);
-        let recuo = tx.prefixo_da_linha(self.arvore.nos[widget].inicio).to_string();
-        let recuo1 = format!("{recuo}{UM_RECUO}");
-        let recuo2 = format!("{recuo}{UM_RECUO}{UM_RECUO}");
-        let virgulas = crate::refactorings_exec::regra_ligada(self.p, self.unidade, "require_trailing_commas");
-        let fonte_widget = tx.trocar_recuo(self.texto_do_no(widget), &recuo, &recuo2, false, false);
-        let mut s = referencia;
-        let mut marcas = crate::snippets::Escrita::default();
+        let mut writer = crate::write_type::Writer::new(self, self.tree.nos[widget].inicio);
+        let reference = writer.reference_of(Element::Class(class), name);
+        let indent = tx.line_prefix(self.tree.nos[widget].inicio).to_string();
+        let indent1 = format!("{indent}{ONE_INDENT}");
+        let indent2 = format!("{indent}{ONE_INDENT}{ONE_INDENT}");
+        let commas = crate::refactorings_exec::enabled_rule(self.p, self.unit, "require_trailing_commas");
+        let source_widget = tx.swap_indent(self.node_text(widget), &indent, &indent2, false, false);
+        let mut s = reference;
+        let mut marks = crate::snippets::Write::default();
         if stream {
             // `addSimpleLinkedEdit('type', 'Object')`.
             s.push('<');
-            marcas.texto = s.clone();
-            marcas.ligado("type", "Object", &[]);
-            s = marcas.texto.clone();
+            marks.text = s.clone();
+            marks.linked("type", "Object", &[]);
+            s = marks.text.clone();
             s.push_str(">(");
         } else {
             s.push('(');
         }
         s.push_str(eol);
         if stream {
-            s.push_str(&format!("{recuo1}stream: null,{eol}"));
-            s.push_str(&format!("{recuo1}builder: (context, snapshot) {{{eol}"));
+            s.push_str(&format!("{indent1}stream: null,{eol}"));
+            s.push_str(&format!("{indent1}builder: (context, snapshot) {{{eol}"));
         } else {
-            s.push_str(&format!("{recuo1}builder: (context) {{{eol}"));
+            s.push_str(&format!("{indent1}builder: (context) {{{eol}"));
         }
-        s.push_str(&format!("{recuo2}return {fonte_widget};{eol}"));
-        s.push_str(&format!("{recuo1}}}{}{eol}", if virgulas { "," } else { "" }));
-        s.push_str(&recuo);
+        s.push_str(&format!("{indent2}return {source_widget};{eol}"));
+        s.push_str(&format!("{indent1}}}{}{eol}", if commas { "," } else { "" }));
+        s.push_str(&indent);
         s.push(')');
-        let mut m = Mudanca::default();
-        m.adicionar(uri, self.arvore.span(widget), s);
-        crate::refactorings_move::imports_do_builder(self, &mut m, &escritor.importar);
-        let (titulo, especie) = if stream { ("Wrap with StreamBuilder", "refactor.flutter.wrap.streamBuilder") } else { ("Wrap with Builder", "refactor.flutter.wrap.builder") };
-        self.acao_ligada(titulo, especie, m, self.arvore.span(widget), &marcas)
+        let mut m = Change::default();
+        m.add(uri, self.tree.span(widget), s);
+        crate::refactorings_move::builder_imports(self, &mut m, &writer.import);
+        let (title, kind) = if stream { ("Wrap with StreamBuilder", "refactor.flutter.wrap.streamBuilder") } else { ("Wrap with Builder", "refactor.flutter.wrap.builder") };
+        self.linked_action(title, kind, m, self.tree.span(widget), &marks)
     }
 
     /// `FlutterWrapGeneric` (o produtor da lista de widgets).
-    fn flutter_embrulhar_lista(&self, uri: &str, n: usize) -> Option<AcaoDeCodigo> {
-        if self.especie(n) != "ListLiteral" {
+    fn flutter_wrap_list(&self, uri: &str, n: usize) -> Option<CodeAction> {
+        if self.kind(n) != "ListLiteral" {
             return None;
         }
-        let elementos: Vec<usize> = self.filhos(n).iter().copied().filter(|&k| self.especie(k) != "TypeArgumentList").collect();
-        if elementos.iter().any(|&e| !(self.especie(e) == "InstanceCreationExpression" && self.criacao_de_widget(e))) {
+        let elements: Vec<usize> = self.children(n).iter().copied().filter(|&k| self.kind(k) != "TypeArgumentList").collect();
+        if elements.iter().any(|&e| !(self.kind(e) == "InstanceCreationExpression" && self.widget_creation(e))) {
             return None;
         }
-        let tx = Texto::novo(self.fonte);
+        let tx = Text::new(self.source);
         let eol = tx.eol();
-        let fonte = self.texto_do_no(n);
-        let nova_linha = fonte.rfind(eol)?;
-        if nova_linha == fonte.len() - 1 {
+        let source = self.node_text(n);
+        let new_line = source.rfind(eol)?;
+        if new_line == source.len() - 1 {
             return None;
         }
-        let recuo = tx.prefixo_da_linha(self.arvore.nos[n].inicio + eol.len() + nova_linha).to_string();
-        let recuo_arg = format!("{recuo}{UM_RECUO}");
-        let recuo_lista = format!("{recuo}{UM_RECUO}{UM_RECUO}");
-        let lista = tx.trocar_recuo(fonte, &recuo, &recuo_lista, false, false);
+        let indent = tx.line_prefix(self.tree.nos[n].inicio + eol.len() + new_line).to_string();
+        let indent_arg = format!("{indent}{ONE_INDENT}");
+        let list_indent = format!("{indent}{ONE_INDENT}{ONE_INDENT}");
+        let list = tx.swap_indent(source, &indent, &list_indent, false, false);
         // `addSimpleLinkedEdit('WIDGET', 'widget')`.
-        let mut marcas = crate::snippets::Escrita::default();
-        marcas
-            .escrever(&format!("[{eol}{recuo_arg}"))
-            .ligado("WIDGET", "widget", &[])
-            .escrever(&format!("({eol}{recuo_lista}children: {lista},{eol}{recuo_arg}),{eol}{recuo}]"));
-        let mut m = Mudanca::default();
-        m.adicionar(uri, self.arvore.span(n), marcas.texto.clone());
-        self.acao_ligada("Wrap with widget...", "refactor.flutter.wrap.generic", m, self.arvore.span(n), &marcas)
+        let mut marks = crate::snippets::Write::default();
+        marks
+            .write(&format!("[{eol}{indent_arg}"))
+            .linked("WIDGET", "widget", &[])
+            .write(&format!("({eol}{list_indent}children: {list},{eol}{indent_arg}),{eol}{indent}]"));
+        let mut m = Change::default();
+        m.add(uri, self.tree.span(n), marks.text.clone());
+        self.linked_action("Wrap with widget...", "refactor.flutter.wrap.generic", m, self.tree.span(n), &marks)
     }
 
     /// `SortChildPropertyLast`.
-    fn flutter_filho_por_ultimo(&self, uri: &str, n: usize) -> Option<AcaoDeCodigo> {
-        let filho = if self.especie(n) == "NamedExpression" && matches!(self.rotulo_do_nomeado(n), Some("child") | Some("children")) {
+    fn flutter_child_last(&self, uri: &str, n: usize) -> Option<CodeAction> {
+        let child = if self.kind(n) == "NamedExpression" && matches!(self.named_label(n), Some("child") | Some("children")) {
             n
         } else {
-            self.argumento_nomeado_no_rotulo(n, "child").or_else(|| self.argumento_nomeado_no_rotulo(n, "children"))?
+            self.named_argument_in_label(n, "child").or_else(|| self.named_argument_in_label(n, "children"))?
         };
-        let lista = self.pai(filho)?;
-        let criacao = self.pai(lista)?;
-        if self.especie(criacao) != "InstanceCreationExpression" || !self.criacao_de_widget(criacao) {
+        let list = self.parent(child)?;
+        let creation = self.parent(list)?;
+        if self.kind(creation) != "InstanceCreationExpression" || !self.widget_creation(creation) {
             return None;
         }
-        let argumentos = self.filhos(lista).to_vec();
-        let ultimo = *argumentos.last()?;
-        if ultimo == filho {
+        let arguments = self.children(list).to_vec();
+        let last = *arguments.last()?;
+        if last == child {
             return None;
         }
-        let depois = |k: usize| self.token_seguinte(self.arvore.nos[k].fim);
-        let virgula_final = depois(ultimo).is_some_and(|t| &self.fonte[t.start..t.end] == ",");
-        let ini_filho = self.token_anterior(self.arvore.nos[filho].inicio)?.end;
-        let mut fim_filho = depois(filho)?.end;
-        let mut exclusao = Span { start: ini_filho, end: fim_filho };
-        if argumentos.first() == Some(&filho) {
-            exclusao = Span { start: self.arvore.nos[filho].inicio, end: self.arvore.nos[*argumentos.get(1)?].inicio };
+        let after = |k: usize| self.next_token(self.tree.nos[k].fim);
+        let trailing_comma = after(last).is_some_and(|t| &self.source[t.start..t.end] == ",");
+        let child_start = self.previous_token(self.tree.nos[child].inicio)?.end;
+        let mut child_end = after(child)?.end;
+        let mut exclusion = Span { start: child_start, end: child_end };
+        if arguments.first() == Some(&child) {
+            exclusion = Span { start: self.tree.nos[child].inicio, end: self.tree.nos[*arguments.get(1)?].inicio };
         }
-        if !virgula_final {
-            fim_filho = self.arvore.nos[filho].fim;
+        if !trailing_comma {
+            child_end = self.tree.nos[child].fim;
         }
-        let mut texto = self.fonte[ini_filho..fim_filho].to_string();
-        let mut insercao = self.arvore.nos[ultimo].fim;
-        if virgula_final {
-            insercao = depois(ultimo)?.end;
-        } else if ini_filho == self.arvore.nos[filho].inicio {
-            texto = format!(", {texto}");
+        let mut text = self.source[child_start..child_end].to_string();
+        let mut insertion = self.tree.nos[last].fim;
+        if trailing_comma {
+            insertion = after(last)?.end;
+        } else if child_start == self.tree.nos[child].inicio {
+            text = format!(", {text}");
         } else {
-            texto = format!(",{texto}");
+            text = format!(",{text}");
         }
-        let mut m = Mudanca::default();
-        m.adicionar(uri, exclusao, "");
-        m.adicionar(uri, Span { start: insercao, end: insercao }, texto);
-        self.acao_com_mudanca("Move child property to end of arguments", "refactor.sort.child.properties.last", m)
+        let mut m = Change::default();
+        m.add(uri, exclusion, "");
+        m.add(uri, Span { start: insertion, end: insertion }, text);
+        self.action_with_change("Move child property to end of arguments", "refactor.sort.child.properties.last", m)
     }
 
     /// `FlutterWrap`: o embrulho genérico e os de `Center`, `Container`,
     /// `Padding`, `SizedBox` de um widget; `Column` e `Row` de um ou mais
     /// widgets selecionados.
-    fn flutter_embrulhar(&self, uri: &str, n: usize, inicio: usize, fim: usize) -> Vec<AcaoDeCodigo> {
+    fn flutter_wrap(&self, uri: &str, n: usize, start: usize, end: usize) -> Vec<CodeAction> {
         let mut v = Vec::new();
-        if let Some(widget) = self.achar_expressao_widget(n)
-            && let Some(t) = self.tipo_do_no_flutter(widget)
+        if let Some(widget) = self.find_expression_widget(n)
+            && let Some(t) = self.flutter_node_type(widget)
         {
-            let classe = self.classe_do_tipo_flutter(t);
-            let exato = |nome: &str, uri_c: &str| classe.is_some_and(|c| self.flutter_exatamente(c, nome, uri_c));
-            v.extend(self.embrulhar_um(uri, widget, None));
-            if !exato("Center", URI_BASIC) {
-                v.extend(self.embrulhar_um(uri, widget, Some("Center")));
+            let class = self.flutter_type_class(t);
+            let exact = |name: &str, uri_c: &str| class.is_some_and(|c| self.flutter_exactly(c, name, uri_c));
+            v.extend(self.wrap_one(uri, widget, None));
+            if !exact("Center", URI_BASIC) {
+                v.extend(self.wrap_one(uri, widget, Some("Center")));
             }
-            if !exato("Container", URI_CONTAINER) {
-                v.extend(self.embrulhar_um(uri, widget, Some("Container")));
+            if !exact("Container", URI_CONTAINER) {
+                v.extend(self.wrap_one(uri, widget, Some("Container")));
             }
-            if !exato("Padding", URI_BASIC) {
-                v.extend(self.embrulhar_um(uri, widget, Some("Padding")));
+            if !exact("Padding", URI_BASIC) {
+                v.extend(self.wrap_one(uri, widget, Some("Padding")));
             }
-            if !exato("SizedBox", URI_BASIC) {
-                v.extend(self.embrulhar_um(uri, widget, Some("SizedBox")));
+            if !exact("SizedBox", URI_BASIC) {
+                v.extend(self.wrap_one(uri, widget, Some("SizedBox")));
             }
         }
         // `_wrapMultipleWidgets`.
-        let analise = self.analisar(inicio, fim);
+        let analysis = self.analyze(start, end);
         let mut widgets: Vec<usize> = Vec::new();
-        if !analise.selecionados.is_empty() {
-            for &s in &analise.selecionados {
+        if !analysis.selected.is_empty() {
+            for &s in &analysis.selected {
                 let mut s = s;
-                if self.especie(s) == "ConstructorName"
-                    && let Some(p) = self.pai(s).filter(|&p| self.especie(p) == "InstanceCreationExpression")
+                if self.kind(s) == "ConstructorName"
+                    && let Some(p) = self.parent(s).filter(|&p| self.kind(p) == "InstanceCreationExpression")
                 {
                     s = p;
                 }
-                if !self.e_expressao(s) || !self.e_expressao_widget(s) {
+                if !self.is_expression(s) || !self.is_expression_widget(s) {
                     return v;
                 }
                 widgets.push(s);
             }
-        } else if let Some(mut cobertura) = analise.cobertura {
-            if self.especie(cobertura) == "ArgumentList"
-                && self.arvore.nos[cobertura].inicio == inicio
-                && let Some(p) = self.pai(cobertura)
+        } else if let Some(mut coverage) = analysis.coverage {
+            if self.kind(coverage) == "ArgumentList"
+                && self.tree.nos[coverage].inicio == start
+                && let Some(p) = self.parent(coverage)
             {
-                cobertura = p;
+                coverage = p;
             }
-            if let Some(w) = self.achar_expressao_widget(cobertura) {
+            if let Some(w) = self.find_expression_widget(coverage) {
                 widgets.push(w);
             }
         }
-        let (Some(&primeiro), Some(&ultimo)) = (widgets.first(), widgets.last()) else { return v };
-        for nome in ["Column", "Row"] {
-            v.extend(self.embrulhar_varios(uri, primeiro, ultimo, nome));
+        let (Some(&first), Some(&last)) = (widgets.first(), widgets.last()) else { return v };
+        for name in ["Column", "Row"] {
+            v.extend(self.wrap_several(uri, first, last, name));
         }
         v
     }
 
     /// `_WrapSingleWidget`.
-    fn embrulhar_um(&self, uri: &str, widget: usize, nome: Option<&str>) -> Option<AcaoDeCodigo> {
-        let tx = Texto::novo(self.fonte);
+    fn wrap_one(&self, uri: &str, widget: usize, name: Option<&str>) -> Option<CodeAction> {
+        let tx = Text::new(self.source);
         let eol = tx.eol();
-        let mut fonte = self.texto_do_no(widget).to_string();
-        let classe = match nome {
-            Some(x) => Some(self.classe_flutter(URI_WIDGETS, x)?),
+        let mut source = self.node_text(widget).to_string();
+        let class = match name {
+            Some(x) => Some(self.flutter_class(URI_WIDGETS, x)?),
             None => None,
         };
-        let mut escritor = crate::write_type::Escritor::novo(self, self.arvore.nos[widget].inicio);
+        let mut writer = crate::write_type::Writer::new(self, self.tree.nos[widget].inicio);
         // Sem classe, os grupos `WIDGET` e `CHILD`; com ela, a seleção logo
         // depois do `(` (`flutter_wrap.dart:302-345`).
-        let mut marcas = crate::snippets::Escrita::default();
-        match (classe, nome) {
+        let mut marks = crate::snippets::Write::default();
+        match (class, name) {
             (Some(c), Some(x)) => {
-                marcas.escrever(&escritor.referencia_de(Element::Class(c), x));
-                marcas.escrever("(").aqui();
+                marks.write(&writer.reference_of(Element::Class(c), x));
+                marks.write("(").here();
             }
             _ => {
-                marcas.ligado("WIDGET", "widget", &[]).escrever("(");
+                marks.linked("WIDGET", "widget", &[]).write("(");
             }
         }
-        let mut s = marcas.texto.clone();
-        let linhas: Vec<String> = if nome == Some("Padding") {
-            let palavra = if crate::create::em_contexto_constante(self, widget) { "" } else { " const" };
-            let valor = if crate::refactorings_exec::regra_ligada(self.p, self.unidade, "prefer_int_literals") { "8" } else { "8.0" };
-            vec![format!("padding:{palavra} EdgeInsets.all({valor}),")]
+        let mut s = marks.text.clone();
+        let lines: Vec<String> = if name == Some("Padding") {
+            let word = if crate::create::in_constant_context(self, widget) { "" } else { " const" };
+            let value = if crate::refactorings_exec::enabled_rule(self.p, self.unit, "prefer_int_literals") { "8" } else { "8.0" };
+            vec![format!("padding:{word} EdgeInsets.all({value}),")]
         } else {
             Vec::new()
         };
-        if fonte.contains(eol) || !linhas.is_empty() {
-            let recuo = tx.prefixo_da_linha(self.arvore.nos[widget].inicio).to_string();
-            let recuo_novo = format!("{recuo}{UM_RECUO}");
-            for l in &linhas {
+        if source.contains(eol) || !lines.is_empty() {
+            let indent = tx.line_prefix(self.tree.nos[widget].inicio).to_string();
+            let new_indent = format!("{indent}{ONE_INDENT}");
+            for l in &lines {
                 s.push_str(eol);
-                s.push_str(&recuo_novo);
+                s.push_str(&new_indent);
                 s.push_str(l);
             }
             s.push_str(eol);
-            s.push_str(&recuo_novo);
-            fonte = tx.trocar_recuo(&fonte, &recuo, &recuo_novo, false, false);
-            fonte = format!("{fonte},{eol}{recuo}");
+            s.push_str(&new_indent);
+            source = tx.swap_indent(&source, &indent, &new_indent, false, false);
+            source = format!("{source},{eol}{indent}");
         }
-        marcas.texto = s;
-        if classe.is_none() {
-            marcas.ligado("CHILD", "child", &[]);
+        marks.text = s;
+        if class.is_none() {
+            marks.linked("CHILD", "child", &[]);
         } else {
-            marcas.escrever("child");
+            marks.write("child");
         }
-        marcas.escrever(": ").escrever(&fonte).escrever(")");
-        let mut m = Mudanca::default();
-        m.adicionar(uri, self.arvore.span(widget), marcas.texto.clone());
-        crate::refactorings_move::imports_do_builder(self, &mut m, &escritor.importar);
-        let (titulo, especie) = match nome {
+        marks.write(": ").write(&source).write(")");
+        let mut m = Change::default();
+        m.add(uri, self.tree.span(widget), marks.text.clone());
+        crate::refactorings_move::builder_imports(self, &mut m, &writer.import);
+        let (title, kind) = match name {
             None => ("Wrap with widget...".to_string(), "refactor.flutter.wrap.generic".to_string()),
             Some("SizedBox") => ("Wrap with SizedBox".to_string(), "refactor.flutter.wrap.sizedBox".to_string()),
             Some(x) => (format!("Wrap with {x}"), format!("refactor.flutter.wrap.{}", x.to_lowercase())),
         };
-        self.acao_ligada(&titulo, &especie, m, self.arvore.span(widget), &marcas)
+        self.linked_action(&title, &kind, m, self.tree.span(widget), &marks)
     }
 
     /// `_WrapMultipleWidgets`.
-    fn embrulhar_varios(&self, uri: &str, primeiro: usize, ultimo: usize, nome: &str) -> Option<AcaoDeCodigo> {
-        let tx = Texto::novo(self.fonte);
+    fn wrap_several(&self, uri: &str, first: usize, last: usize, name: &str) -> Option<CodeAction> {
+        let tx = Text::new(self.source);
         let eol = tx.eol();
-        let faixa = Span { start: self.arvore.nos[primeiro].inicio, end: self.arvore.nos[ultimo].fim };
-        let fonte = &self.fonte[faixa.start..faixa.end];
-        let classe = self.classe_flutter(URI_WIDGETS, nome)?;
-        self.classe_flutter(URI_WIDGETS, "Widget")?;
-        let mut escritor = crate::write_type::Escritor::novo(self, faixa.start);
-        let mut s = escritor.referencia_de(Element::Class(classe), nome);
+        let range = Span { start: self.tree.nos[first].inicio, end: self.tree.nos[last].fim };
+        let source = &self.source[range.start..range.end];
+        let class = self.flutter_class(URI_WIDGETS, name)?;
+        self.flutter_class(URI_WIDGETS, "Widget")?;
+        let mut writer = crate::write_type::Writer::new(self, range.start);
+        let mut s = writer.reference_of(Element::Class(class), name);
         s.push('(');
-        let recuo = tx.prefixo_da_linha(faixa.start).to_string();
-        let recuo1 = format!("{recuo}{UM_RECUO}");
-        let recuo2 = format!("{recuo}{UM_RECUO}{UM_RECUO}");
+        let indent = tx.line_prefix(range.start).to_string();
+        let indent1 = format!("{indent}{ONE_INDENT}");
+        let indent2 = format!("{indent}{ONE_INDENT}{ONE_INDENT}");
         s.push_str(eol);
-        s.push_str(&recuo1);
+        s.push_str(&indent1);
         s.push_str("children: [");
         s.push_str(eol);
-        s.push_str(&recuo2);
-        s.push_str(&tx.trocar_recuo(fonte, &recuo, &recuo2, false, false));
+        s.push_str(&indent2);
+        s.push_str(&tx.swap_indent(source, &indent, &indent2, false, false));
         s.push(',');
         s.push_str(eol);
-        s.push_str(&recuo1);
+        s.push_str(&indent1);
         s.push_str("],");
         s.push_str(eol);
-        s.push_str(&recuo);
+        s.push_str(&indent);
         s.push(')');
-        let mut m = Mudanca::default();
-        m.adicionar(uri, faixa, s);
-        crate::refactorings_move::imports_do_builder(self, &mut m, &escritor.importar);
-        self.acao_com_mudanca(&format!("Wrap with {nome}"), &format!("refactor.flutter.wrap.{}", nome.to_lowercase()), m)
+        let mut m = Change::default();
+        m.add(uri, range, s);
+        crate::refactorings_move::builder_imports(self, &mut m, &writer.import);
+        self.action_with_change(&format!("Wrap with {name}"), &format!("refactor.flutter.wrap.{}", name.to_lowercase()), m)
     }
 }

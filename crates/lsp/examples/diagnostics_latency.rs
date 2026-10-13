@@ -1,6 +1,6 @@
 //! Mede a latência dos diagnósticos do LSP (imediatos e tipados) por arquivo.
 //!
-//! `cargo run -q --release -p dartforge-lsp --example diagnostics_latency -- <arquivo.dart>...`
+//! `cargo run -q --release -p dartforge-lsp --example diagnostics_latency -- <file.dart>...`
 //!
 //! Para cada arquivo, pelo protocolo (`didOpen`/`didChange` em JSON, como
 //! um editor): abre, espera a publicação tipada, aplica 10 edições
@@ -8,27 +8,27 @@
 //! O SDK é o de `SdkLayout::discover` (`DARTFORGE_SDK_LIB`, `DART_SDK`,
 //! `PATH`). Imprime:
 //!
-//! * `imediato`: tempo do `bombear` do `didChange` (parser + verificadores
+//! * `immediate`: tempo do `pump` do `didChange` (parser + verificadores
 //!   locais), a publicação que sai na hora;
-//! * `tipado`: do `didChange` até a publicação tipada (análise do
+//! * `typed`: do `didChange` até a publicação tipada (análise do
 //!   `dartforge analyze` em segundo plano), mediana e máximo;
 //! * a rajada: quantas publicações tipadas saíram (a coalescência quer 1) e
 //!   quanto tempo até a última;
 //! * memória viva acima da base depois de fechar tudo (nada retido).
 #[global_allocator]
-static ALOCADOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
+static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
-use dartforge_lsp::{AnalisadorSemantico, Servidor};
+use dartforge_lsp::{SemanticAnalyzer, Server};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
-const LIMITE: Duration = Duration::from_secs(600);
+const LIMIT: Duration = Duration::from_secs(600);
 
-fn edicao(uri: &str, versao: i64) -> Value {
+fn edit(uri: &str, version: i64) -> Value {
     json!({
         "jsonrpc": "2.0", "method": "textDocument/didChange",
         "params": {
-            "textDocument": {"uri": uri, "version": versao},
+            "textDocument": {"uri": uri, "version": version},
             "contentChanges": [{
                 "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}},
                 "text": " ",
@@ -37,36 +37,36 @@ fn edicao(uri: &str, versao: i64) -> Value {
     })
 }
 
-/// Espera a publicação tipada de `uri` (as imediatas saem no `bombear`).
-fn esperar_tipada(servidor: &mut Servidor<AnalisadorSemantico>, uri: &str) -> Option<Value> {
-    servidor
-        .aguardar_diagnosticos(LIMITE)
+/// Espera a publicação tipada de `uri` (as imediatas saem no `pump`).
+fn wait_typed(server: &mut Server<SemanticAnalyzer>, uri: &str) -> Option<Value> {
+    server
+        .await_diagnostics(LIMIT)
         .into_iter()
         .rev()
         .find(|m| m["params"]["uri"] == uri)
 }
 
 /// Compara a publicação tipada com o que o `dartforge analyze` publica para
-/// o mesmo arquivo (mesmo caminho de código: `Motor` + `diagnosticos_json`),
+/// o mesmo arquivo (mesmo caminho de código: `Engine` + `diagnosticos_json`),
 /// por (código, linha, coluna).
-fn conferir_com_analyze(arquivo: &std::path::Path, publicacao: &Value) -> String {
-    let mut raiz = arquivo.parent().unwrap().to_path_buf();
-    while !raiz.join("pubspec.yaml").is_file() {
-        match raiz.parent() {
-            Some(p) => raiz = p.to_path_buf(),
+fn check_with_analyze(file: &std::path::Path, publication: &Value) -> String {
+    let mut root = file.parent().unwrap().to_path_buf();
+    while !root.join("pubspec.yaml").is_file() {
+        match root.parent() {
+            Some(p) => root = p.to_path_buf(),
             None => {
-                raiz = arquivo.parent().unwrap().to_path_buf();
+                root = file.parent().unwrap().to_path_buf();
                 break;
             }
         }
     }
-    let motor = dartforge_parity::analise::Motor::descobrir().expect("SDK");
-    let config = raiz.join(".dart_tool/package_config.json");
+    let engine = dartforge_parity::analise::Motor::descobrir().expect("SDK");
+    let config = root.join(".dart_tool/package_config.json");
     let config = config.is_file().then_some(config);
-    let opcoes = dartforge_parity::filtros::Opcoes::ler(&raiz);
-    let analise = motor.analisar(&raiz, &[arquivo.to_path_buf()], config.as_deref());
+    let options = dartforge_parity::filtros::Opcoes::ler(&root);
+    let analysis = engine.analisar(&root, &[file.to_path_buf()], config.as_deref());
     let mut cli: Vec<(String, u64, u64)> =
-        dartforge_parity::diagnosticos_json(&analise, &raiz, &opcoes, true)
+        dartforge_parity::diagnosticos_json(&analysis, &root, &options, true)
             .iter()
             .map(|d| {
                 (
@@ -76,7 +76,7 @@ fn conferir_com_analyze(arquivo: &std::path::Path, publicacao: &Value) -> String
                 )
             })
             .collect();
-    let mut lsp: Vec<(String, u64, u64)> = publicacao["params"]["diagnostics"]
+    let mut lsp: Vec<(String, u64, u64)> = publication["params"]["diagnostics"]
         .as_array()
         .unwrap()
         .iter()
@@ -93,18 +93,18 @@ fn conferir_com_analyze(arquivo: &std::path::Path, publicacao: &Value) -> String
         .collect();
     cli.sort();
     lsp.sort();
-    let semanticos = lsp
+    let semantic = lsp
         .iter()
         .filter(|(c, _, _)| dartforge_analysis::publicacao::verificados().contains(&c.as_str()))
         .count();
-    let so_cli: Vec<_> = cli.iter().filter(|x| !lsp.contains(x)).take(5).collect();
+    let cli_only: Vec<_> = cli.iter().filter(|x| !lsp.contains(x)).take(5).collect();
     let so_lsp: Vec<_> = lsp.iter().filter(|x| !cli.contains(x)).take(5).collect();
     format!(
         "paridade com `dartforge analyze`: analyze {} / LSP {} ({} semânticos publicados); só no analyze {:?}; só no LSP {:?}",
         cli.len(),
         lsp.len(),
-        semanticos,
-        so_cli,
+        semantic,
+        cli_only,
         so_lsp
     )
 }
@@ -114,100 +114,100 @@ fn ms(d: Duration) -> f64 {
 }
 
 fn main() {
-    let arquivos: Vec<std::path::PathBuf> = std::env::args().skip(1).map(Into::into).collect();
+    let files: Vec<std::path::PathBuf> = std::env::args().skip(1).map(Into::into).collect();
     let base = dartforge_instrument::live_bytes();
-    let mut servidor = Servidor::com_analisador(AnalisadorSemantico::descobrir());
-    servidor.receber(json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}));
-    servidor.bombear();
-    for arquivo in &arquivos {
-        let arquivo = std::fs::canonicalize(arquivo).expect("arquivo existe");
-        let texto = std::fs::read_to_string(&arquivo).expect("texto");
-        let uri = url::Url::from_file_path(&arquivo).unwrap().to_string();
-        let linhas = texto.lines().count();
+    let mut server = Server::with_analyzer(SemanticAnalyzer::discover());
+    server.receive(json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}));
+    server.pump();
+    for file in &files {
+        let file = std::fs::canonicalize(file).expect("arquivo existe");
+        let text = std::fs::read_to_string(&file).expect("texto");
+        let uri = url::Url::from_file_path(&file).unwrap().to_string();
+        let lines = text.lines().count();
 
         let t = Instant::now();
-        servidor.receber(json!({
+        server.receive(json!({
             "jsonrpc": "2.0", "method": "textDocument/didOpen",
-            "params": {"textDocument": {"uri": uri, "languageId": "dart", "version": 1, "text": texto}},
+            "params": {"textDocument": {"uri": uri, "languageId": "dart", "version": 1, "text": text}},
         }));
-        servidor.bombear();
-        let abrir_imediato = t.elapsed();
-        let tipada = esperar_tipada(&mut servidor, &uri);
-        let abrir_tipado = t.elapsed();
-        let n = tipada
+        server.pump();
+        let open_immediate = t.elapsed();
+        let typed_ = wait_typed(&mut server, &uri);
+        let open_typed = t.elapsed();
+        let n = typed_
             .as_ref()
             .and_then(|p| p["params"]["diagnostics"].as_array().map(Vec::len));
-        let paridade = tipada.as_ref().map(|p| conferir_com_analyze(&arquivo, p));
+        let parity = typed_.as_ref().map(|p| check_with_analyze(&file, p));
 
-        let mut imediatos = Vec::new();
-        let mut tipados = Vec::new();
+        let mut immediate = Vec::new();
+        let mut typed = Vec::new();
         for v in 2..12 {
             let t = Instant::now();
-            servidor.receber(edicao(&uri, v));
-            servidor.bombear();
-            imediatos.push(t.elapsed());
+            server.receive(edit(&uri, v));
+            server.pump();
+            immediate.push(t.elapsed());
             // Sem mudança nos diagnósticos, a lista repetida não é publicada
             // (`_filesWithClientDiagnostics`): mede-se até o trabalhador
             // ficar ocioso, com ou sem publicação.
-            let _ = esperar_tipada(&mut servidor, &uri);
-            tipados.push(t.elapsed());
+            let _ = wait_typed(&mut server, &uri);
+            typed.push(t.elapsed());
         }
-        imediatos.sort();
-        tipados.sort();
+        immediate.sort();
+        typed.sort();
 
         // Rajada: 20 edições seguidas, sem esperar a análise.
         let t = Instant::now();
-        let mut publicadas = 0;
+        let mut published = 0;
         for v in 12..32 {
-            servidor.receber(edicao(&uri, v));
-            publicadas += servidor
-                .bombear()
+            server.receive(edit(&uri, v));
+            published += server
+                .pump()
                 .iter()
                 .filter(|m| m["params"]["uri"] == uri)
                 .count()
                 .saturating_sub(1);
         }
-        let finais = servidor.aguardar_diagnosticos(LIMITE);
-        publicadas += finais.iter().filter(|m| m["params"]["uri"] == uri).count();
-        let rajada = t.elapsed();
-        let ultima_versao = finais
+        let finals = server.await_diagnostics(LIMIT);
+        published += finals.iter().filter(|m| m["params"]["uri"] == uri).count();
+        let burst = t.elapsed();
+        let last_version = finals
             .last()
             .map(|m| m["params"]["version"].clone())
             .unwrap_or(Value::Null);
 
         println!(
-            "{} ({} bytes, {linhas} linhas)",
-            arquivo.display(),
-            texto.len()
+            "{} ({} bytes, {lines} linhas)",
+            file.display(),
+            text.len()
         );
         println!(
             "  abrir: imediato {:.1} ms; tipado {:.1} ms ({} diagnósticos publicados)",
-            ms(abrir_imediato),
-            ms(abrir_tipado),
+            ms(open_immediate),
+            ms(open_typed),
             n.map_or("?".to_string(), |n| n.to_string())
         );
-        if let Some(p) = paridade {
+        if let Some(p) = parity {
             println!("  {p}");
         }
         println!(
             "  10 edições: imediato mediana {:.1} ms (máx {:.1}); tipado mediana {:.1} ms (mín {:.1}, máx {:.1})",
-            ms(imediatos[imediatos.len() / 2]),
-            ms(imediatos[imediatos.len() - 1]),
-            ms(tipados[tipados.len() / 2]),
-            ms(tipados[0]),
-            ms(tipados[tipados.len() - 1])
+            ms(immediate[immediate.len() / 2]),
+            ms(immediate[immediate.len() - 1]),
+            ms(typed[typed.len() / 2]),
+            ms(typed[0]),
+            ms(typed[typed.len() - 1])
         );
         println!(
-            "  rajada de 20 edições: {publicadas} publicação(ões) tipada(s), última da versão {ultima_versao}, {:.1} ms até ela; {} resultados velhos descartados até aqui",
-            ms(rajada),
-            servidor.tipados_descartados()
+            "  rajada de 20 edições: {published} publicação(ões) tipada(s), última da versão {last_version}, {:.1} ms até ela; {} resultados velhos descartados até aqui",
+            ms(burst),
+            server.typed_discarded()
         );
-        servidor.receber(json!({
+        server.receive(json!({
             "jsonrpc": "2.0", "method": "textDocument/didClose",
             "params": {"textDocument": {"uri": uri}},
         }));
-        servidor.bombear();
-        servidor.aguardar_diagnosticos(LIMITE);
+        server.pump();
+        server.await_diagnostics(LIMIT);
     }
     println!(
         "vivo acima da base com o servidor ainda aberto e os documentos fechados: {:.2} MiB",

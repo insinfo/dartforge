@@ -16,7 +16,7 @@
 //!
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use crate::project::Projeto;
+use crate::project::Project;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, MemberKind};
@@ -24,47 +24,47 @@ use std::collections::HashMap;
 
 /// Um elo da cadeia: o nome declarado e os vizinhos.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Elo {
-    pub unidade: UnitId,
-    pub nome: Span,
+pub(crate) struct Link {
+    pub unit: UnitId,
+    pub name: Span,
     /// O span da declaração inteira (o "subir pelos nós" do cursor).
-    pub declaracao: Span,
+    pub declaration: Span,
     /// `augmentationTarget`.
-    pub anterior: Option<usize>,
+    pub previous: Option<usize>,
     /// `augmentation`.
-    pub proximo: Option<usize>,
+    pub next: Option<usize>,
 }
 
-impl Projeto {
+impl Project {
     /// Os elos de todas as cadeias das bibliotecas com augmentations.
-    pub(crate) fn elos_de_augmentation(&self) -> Vec<Elo> {
-        let p = self.programa();
-        let mut elos: Vec<Elo> = Vec::new();
-        let ligar = |elos: &mut Vec<Elo>, atual: &mut HashMap<String, usize>, chave: String, novo: Elo, augment: bool| {
-            let i = elos.len();
-            elos.push(novo);
+    pub(crate) fn augmentation_links(&self) -> Vec<Link> {
+        let p = self.program();
+        let mut links: Vec<Link> = Vec::new();
+        let link_ = |links: &mut Vec<Link>, current: &mut HashMap<String, usize>, key: String, new: Link, augment: bool| {
+            let i = links.len();
+            links.push(new);
             if augment
-                && let Some(&anterior) = atual.get(&chave)
+                && let Some(&previous) = current.get(&key)
             {
-                elos[anterior].proximo = Some(i);
-                elos[i].anterior = Some(anterior);
+                links[previous].next = Some(i);
+                links[i].previous = Some(previous);
             }
-            atual.insert(chave, i);
+            current.insert(key, i);
         };
         for (li, lib) in p.libraries.iter().enumerate() {
             if !p.biblioteca_com_augmentations(dartforge_elements::model::LibraryId(li as u32)) {
                 continue;
             }
             // O topo, na ordem de aplicação.
-            let mut atual: HashMap<String, usize> = HashMap::new();
+            let mut current: HashMap<String, usize> = HashMap::new();
             for &u in &lib.units {
                 let a = &p.unit(u).ast;
                 for &d in &p.unit(u).unit.declarations {
                     let decl = a.decl(d);
-                    for (nome, setter) in nomes_da_declaracao(a, decl) {
-                        let chave = format!("{}{}", self.nome(nome.sym), if setter { "=" } else { "" });
-                        let elo = Elo { unidade: u, nome: nome.span, declaracao: decl.span, anterior: None, proximo: None };
-                        ligar(&mut elos, &mut atual, chave, elo, decl.augment);
+                    for (name, setter) in declaration_names(a, decl) {
+                        let key = format!("{}{}", self.name(name.sym), if setter { "=" } else { "" });
+                        let link = Link { unit: u, name: name.span, declaration: decl.span, previous: None, next: None };
+                        link_(&mut links, &mut current, key, link, decl.augment);
                     }
                 }
             }
@@ -75,60 +75,60 @@ impl Projeto {
             if !p.biblioteca_com_augmentations(p.class(c).library) || p.class(c).decl.is_none() {
                 continue;
             }
-            let mut atual: HashMap<String, usize> = HashMap::new();
+            let mut current: HashMap<String, usize> = HashMap::new();
             for (u, mid) in p.membros_da_classe(c) {
                 let a = &p.unit(u).ast;
                 let m = a.member(mid);
-                for (nome, chave) in nomes_do_membro(a, m, |s| self.nome(s).to_string()) {
-                    let elo = Elo { unidade: u, nome: nome.span, declaracao: m.span, anterior: None, proximo: None };
-                    ligar(&mut elos, &mut atual, chave, elo, m.augment);
+                for (name, key) in member_names(a, m, |s| self.name(s).to_string()) {
+                    let link = Link { unit: u, name: name.span, declaration: m.span, previous: None, next: None };
+                    link_(&mut links, &mut current, key, link, m.augment);
                 }
             }
         }
-        elos
+        links
     }
 
-    /// As lentes de `unidade`: primeiro os "Go to Augmented" (o alvo é o
+    /// As lentes de `unit`: primeiro os "Go to Augmented" (o alvo é o
     /// anterior), depois os "Go to Augmentation" (o próximo), na ordem do
     /// texto. Cada uma: o nome, o título e o alvo.
-    pub(crate) fn lentes_de_augmentation(&self, unidade: UnitId, aumentados: bool, aumentacoes: bool) -> Vec<(Span, &'static str, UnitId, Span)> {
-        let elos = self.elos_de_augmentation();
-        let mut daqui: Vec<&Elo> = elos.iter().filter(|e| e.unidade == unidade).collect();
-        daqui.sort_by_key(|e| e.nome.start);
-        let mut saida = Vec::new();
-        if aumentados {
-            for e in &daqui {
-                if let Some(a) = e.anterior {
-                    saida.push((e.nome, "Go to Augmented", elos[a].unidade, elos[a].nome));
+    pub(crate) fn augmentation_lenses(&self, unit: UnitId, augmented: bool, augmentations: bool) -> Vec<(Span, &'static str, UnitId, Span)> {
+        let links = self.augmentation_links();
+        let mut from_here: Vec<&Link> = links.iter().filter(|e| e.unit == unit).collect();
+        from_here.sort_by_key(|e| e.name.start);
+        let mut output = Vec::new();
+        if augmented {
+            for e in &from_here {
+                if let Some(a) = e.previous {
+                    output.push((e.name, "Go to Augmented", links[a].unit, links[a].name));
                 }
             }
         }
-        if aumentacoes {
-            for e in &daqui {
-                if let Some(a) = e.proximo {
-                    saida.push((e.nome, "Go to Augmentation", elos[a].unidade, elos[a].nome));
+        if augmentations {
+            for e in &from_here {
+                if let Some(a) = e.next {
+                    output.push((e.name, "Go to Augmentation", links[a].unit, links[a].name));
                 }
             }
         }
-        saida
+        output
     }
 
-    /// `dart/textDocument/augmented` (`proximo` falso) e
+    /// `dart/textDocument/augmented` (`next` falso) e
     /// `dart/textDocument/augmentation` (verdadeiro): o elo da declaração que
     /// contém `offset` (a mais interna) e o vizinho dele.
-    pub(crate) fn vizinho_de_augmentation(&self, unidade: UnitId, offset: usize, proximo: bool) -> Option<(UnitId, Span)> {
-        let elos = self.elos_de_augmentation();
-        let e = elos
+    pub(crate) fn augmentation_neighbor(&self, unit: UnitId, offset: usize, next: bool) -> Option<(UnitId, Span)> {
+        let links = self.augmentation_links();
+        let e = links
             .iter()
-            .filter(|e| e.unidade == unidade && e.declaracao.start <= offset && offset <= e.declaracao.end)
-            .min_by_key(|e| e.declaracao.end - e.declaracao.start)?;
-        let alvo = if proximo { e.proximo } else { e.anterior }?;
-        Some((elos[alvo].unidade, elos[alvo].nome))
+            .filter(|e| e.unit == unit && e.declaration.start <= offset && offset <= e.declaration.end)
+            .min_by_key(|e| e.declaration.end - e.declaration.start)?;
+        let target = if next { e.next } else { e.previous }?;
+        Some((links[target].unit, links[target].name))
     }
 }
 
-/// Os nomes declarados por uma declaração de topo: `(nome, é setter)`.
-fn nomes_da_declaracao(a: &ast::Ast, d: &ast::Decl) -> Vec<(ast::Name, bool)> {
+/// Os nomes declarados por uma declaração de topo: `(name, é setter)`.
+fn declaration_names(a: &ast::Ast, d: &ast::Decl) -> Vec<(ast::Name, bool)> {
     match &d.kind {
         DeclKind::Class(x) => vec![(x.name, false)],
         DeclKind::Mixin(x) => vec![(x.name, false)],
@@ -146,22 +146,22 @@ fn nomes_da_declaracao(a: &ast::Ast, d: &ast::Decl) -> Vec<(ast::Name, bool)> {
 
 /// Os nomes declarados por um membro, com a chave da cadeia (estático à
 /// parte; o construtor pelo nome).
-fn nomes_do_membro(a: &ast::Ast, m: &ast::Member, nome: impl Fn(dartforge_intern::SymbolId) -> String) -> Vec<(ast::Name, String)> {
+fn member_names(a: &ast::Ast, m: &ast::Member, name: impl Fn(dartforge_intern::SymbolId) -> String) -> Vec<(ast::Name, String)> {
     match &m.kind {
         MemberKind::Method(f) => {
             let f = a.function(*f);
             let Some(n) = f.name else { return Vec::new() };
             let setter = if f.kind == ast::FunctionKind::Setter { "=" } else { "" };
-            vec![(n, format!("{}{}{setter}", if f.static_ { "static " } else { "" }, nome(n.sym)))]
+            vec![(n, format!("{}{}{setter}", if f.static_ { "static " } else { "" }, name(n.sym)))]
         }
         MemberKind::Constructor(k) => {
             let n = k.name.unwrap_or(k.class_name);
-            vec![(n, format!("new {}", k.name.map(|x| nome(x.sym)).unwrap_or_default()))]
+            vec![(n, format!("new {}", k.name.map(|x| name(x.sym)).unwrap_or_default()))]
         }
         MemberKind::Field(l) => l
             .variables
             .iter()
-            .map(|v| (v.name, format!("{}{}", if l.static_ { "static " } else { "" }, nome(v.name.sym))))
+            .map(|v| (v.name, format!("{}{}", if l.static_ { "static " } else { "" }, name(v.name.sym))))
             .collect(),
     }
 }

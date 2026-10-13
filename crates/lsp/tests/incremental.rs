@@ -7,41 +7,41 @@
 
 mod common;
 
-use common::Projeto;
+use common::Project;
 use dartforge_elements::sdk::SdkLayout;
-use dartforge_lsp::{AnalisadorSemantico, Servidor};
+use dartforge_lsp::{SemanticAnalyzer, Server};
 use serde_json::{Value, json};
 
 /// Um projeto cujo servidor não usa o caminho incremental.
-fn sem_incremental(nome: &str) -> Projeto {
-    let mut p = Projeto::novo(nome);
-    let sdk = SdkLayout::load(&p.raiz.join("sdk/lib"), "dartdevc").unwrap();
-    p.servidor = Servidor::com_analisador(AnalisadorSemantico::novo(Some(sdk)).sem_incremental());
-    let raiz = p.uri("");
-    p.requisitar("initialize", json!({"rootUri": raiz, "capabilities": {}}));
+fn without_incremental(name: &str) -> Project {
+    let mut p = Project::new(name);
+    let sdk = SdkLayout::load(&p.root.join("sdk/lib"), "dartdevc").unwrap();
+    p.server = Server::with_analyzer(SemanticAnalyzer::new(Some(sdk)).without_incremental());
+    let root = p.uri("");
+    p.request("initialize", json!({"rootUri": root, "capabilities": {}}));
     p
 }
 
-/// (linha, coluna) da `n`-ésima ocorrência (0: a primeira) de `agulha` em
-/// `texto`, mais `delta` colunas (ASCII).
-fn posicao(texto: &str, agulha: &str, n: usize, delta: u32) -> (u32, u32) {
-    let i = texto.match_indices(agulha).nth(n).unwrap_or_else(|| panic!("sem {agulha}")).0;
-    let antes = &texto[..i];
-    let linha = antes.matches('\n').count() as u32;
-    let coluna = antes.rsplit('\n').next().unwrap().len() as u32;
-    (linha, coluna + delta)
+/// (linha, coluna) da `n`-ésima ocorrência (0: a primeira) de `needle` em
+/// `text`, mais `delta` colunas (ASCII).
+fn position(text: &str, needle: &str, n: usize, delta: u32) -> (u32, u32) {
+    let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("sem {needle}")).0;
+    let before = &text[..i];
+    let line = before.matches('\n').count() as u32;
+    let column = before.rsplit('\n').next().unwrap().len() as u32;
+    (line, column + delta)
 }
 
 /// As respostas comparadas numa posição, com a raiz do projeto (que
 /// muda de um projeto temporário para o outro, com o SDK ao lado) trocada
 /// por `RAIZ/`.
-fn respostas(p: &mut Projeto, l: u32, c: u32) -> Vec<Value> {
-    let projeto = p.uri("");
-    let raiz = projeto.trim_end_matches('/').trim_end_matches("projeto");
+fn responses(p: &mut Project, l: u32, c: u32) -> Vec<Value> {
+    let project = p.uri("");
+    let root = project.trim_end_matches('/').trim_end_matches("projeto");
     let mut v = Vec::new();
-    for metodo in ["textDocument/hover", "textDocument/definition", "textDocument/documentHighlight", "textDocument/completion"] {
-        let r = p.na_posicao(metodo, "lib/a.dart", l, c, json!({}))["result"].clone();
-        v.push(serde_json::from_str(&r.to_string().replace(raiz, "RAIZ/")).unwrap());
+    for method in ["textDocument/hover", "textDocument/definition", "textDocument/documentHighlight", "textDocument/completion"] {
+        let r = p.in_position(method, "lib/a.dart", l, c, json!({}))["result"].clone();
+        v.push(serde_json::from_str(&r.to_string().replace(root, "RAIZ/")).unwrap());
     }
     v
 }
@@ -157,77 +157,77 @@ void main() {
 ";
 
 /// As posições amostradas de um texto.
-fn amostras(texto: &str) -> Vec<(u32, u32)> {
-    let mut v = vec![posicao(texto, "b.valor", 0, 2), posicao(texto, "B()", 1, 0), posicao(texto, "total", 1, 0), posicao(texto, "xs", 1, 1)];
-    if texto.contains("  b.\n") {
-        v.push(posicao(texto, "  b.\n", 0, 4));
+fn samples(text: &str) -> Vec<(u32, u32)> {
+    let mut v = vec![position(text, "b.valor", 0, 2), position(text, "B()", 1, 0), position(text, "total", 1, 0), position(text, "xs", 1, 1)];
+    if text.contains("  b.\n") {
+        v.push(position(text, "  b.\n", 0, 4));
     }
-    if texto.contains("lista.length") {
-        v.push(posicao(texto, "lista.length", 0, 6));
+    if text.contains("lista.length") {
+        v.push(position(text, "lista.length", 0, 6));
     }
     v
 }
 
 #[test]
-fn edicoes_de_corpo_e_de_assinatura_dao_o_mesmo_que_do_zero() {
-    let mut quente = Projeto::novo("incremental-quente");
-    let mut frio = sem_incremental("incremental-frio");
-    quente.abrir("lib/a.dart", V0);
-    frio.abrir("lib/a.dart", V0);
-    for (l, c) in amostras(V0) {
-        assert_eq!(respostas(&mut quente, l, c), respostas(&mut frio, l, c), "V0 em {l}:{c}");
+fn body_and_signature_edits_match_from_scratch() {
+    let mut hot = Project::new("incremental-quente");
+    let mut cold = without_incremental("incremental-frio");
+    hot.open("lib/a.dart", V0);
+    cold.open("lib/a.dart", V0);
+    for (l, c) in samples(V0) {
+        assert_eq!(responses(&mut hot, l, c), responses(&mut cold, l, c), "V0 em {l}:{c}");
     }
-    let mut versao = 1;
-    let mut trocas = 0;
-    for (texto, corpo) in [(V1, true), (V2, true), (V3, false), (V2, false), (V1, true), (V0, true)] {
-        versao += 1;
-        let antes = quente.servidor.analisador().estatisticas_da_sessao();
-        quente.mudar("lib/a.dart", versao, texto);
-        frio.mudar("lib/a.dart", versao, texto);
-        let depois = quente.servidor.analisador().estatisticas_da_sessao();
-        if corpo {
-            trocas += 1;
-            assert_eq!((depois.trocas_de_corpo, depois.invalidadas), (trocas, antes.invalidadas), "{depois:?}");
+    let mut version = 1;
+    let mut swaps = 0;
+    for (text, body) in [(V1, true), (V2, true), (V3, false), (V2, false), (V1, true), (V0, true)] {
+        version += 1;
+        let before = hot.server.analyzer().session_stats();
+        hot.change("lib/a.dart", version, text);
+        cold.change("lib/a.dart", version, text);
+        let after = hot.server.analyzer().session_stats();
+        if body {
+            swaps += 1;
+            assert_eq!((after.body_swaps, after.invalidated), (swaps, before.invalidated), "{after:?}");
         } else {
-            assert_eq!(depois.trocas_de_corpo, trocas, "{depois:?}");
+            assert_eq!(after.body_swaps, swaps, "{after:?}");
         }
-        for (l, c) in amostras(texto) {
-            let r = respostas(&mut quente, l, c);
-            assert_eq!(r, respostas(&mut frio, l, c), "versão {versao} em {l}:{c}");
+        for (l, c) in samples(text) {
+            let r = responses(&mut hot, l, c);
+            assert_eq!(r, responses(&mut cold, l, c), "versão {version} em {l}:{c}");
             // O completar especulativo desfaz a troca: o estado retido
             // responde igual depois dele.
-            assert_eq!(respostas(&mut quente, l, c), r, "repetido, versão {versao} em {l}:{c}");
+            assert_eq!(responses(&mut hot, l, c), r, "repetido, versão {version} em {l}:{c}");
         }
     }
     // Edições de corpo sem recarga: a sessão quente carregou menos.
-    let q = quente.servidor.analisador().estatisticas_da_sessao();
-    let f = frio.servidor.analisador().estatisticas_da_sessao();
-    assert!(q.carregadas < f.carregadas, "{q:?} {f:?}");
+    let q = hot.server.analyzer().session_stats();
+    let f = cold.server.analyzer().session_stats();
+    assert!(q.loaded < f.loaded, "{q:?} {f:?}");
 }
 
 #[test]
-fn diretivas_e_forma_derrubam_a_sessao() {
-    let mut p = Projeto::novo("incremental-diretivas");
-    p.abrir("lib/a.dart", V0);
-    respostas(&mut p, 1, 4);
-    let e = p.servidor.analisador().estatisticas_da_sessao();
+fn directives_and_shape_drop_session() {
+    let mut p = Project::new("incremental-diretivas");
+    p.open("lib/a.dart", V0);
+    responses(&mut p, 1, 4);
+    let e = p.server.analyzer().session_stats();
     // Uma diretiva nova.
-    p.mudar("lib/a.dart", 2, &format!("import 'dart:math';\n{V0}"));
-    let d = p.servidor.analisador().estatisticas_da_sessao();
-    assert_eq!((d.invalidadas, d.trocas_de_corpo), (e.invalidadas + 1, 0), "{d:?}");
-    respostas(&mut p, 2, 4);
+    p.change("lib/a.dart", 2, &format!("import 'dart:math';\n{V0}"));
+    let d = p.server.analyzer().session_stats();
+    assert_eq!((d.invalidated, d.body_swaps), (e.invalidated + 1, 0), "{d:?}");
+    responses(&mut p, 2, 4);
     // Uma declaração nova (forma).
-    p.mudar("lib/a.dart", 3, &format!("import 'dart:math';\n{V0}int z() => 0;\n"));
-    let f = p.servidor.analisador().estatisticas_da_sessao();
-    assert_eq!((f.invalidadas, f.trocas_de_corpo), (d.invalidadas + 1, 0), "{f:?}");
+    p.change("lib/a.dart", 3, &format!("import 'dart:math';\n{V0}int z() => 0;\n"));
+    let f = p.server.analyzer().session_stats();
+    assert_eq!((f.invalidated, f.body_swaps), (d.invalidated + 1, 0), "{f:?}");
     // Um corpo que vaza (chave aberta): recusa ou troca, nunca resposta
     // diferente da do zero.
-    respostas(&mut p, 2, 4);
-    let vaza = format!("import 'dart:math';\n{}int z() => 0;\n", V0.replace("return total;", "return total; {"));
-    p.mudar("lib/a.dart", 4, &vaza);
-    let mut frio = sem_incremental("incremental-vaza");
-    frio.abrir("lib/a.dart", &vaza);
+    responses(&mut p, 2, 4);
+    let leaks = format!("import 'dart:math';\n{}int z() => 0;\n", V0.replace("return total;", "return total; {"));
+    p.change("lib/a.dart", 4, &leaks);
+    let mut cold = without_incremental("incremental-vaza");
+    cold.open("lib/a.dart", &leaks);
     for (l, c) in [(2, 4), (21, 9)] {
-        assert_eq!(respostas(&mut p, l, c), respostas(&mut frio, l, c), "{l}:{c}");
+        assert_eq!(responses(&mut p, l, c), responses(&mut cold, l, c), "{l}:{c}");
     }
 }

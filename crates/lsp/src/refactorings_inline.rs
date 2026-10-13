@@ -6,335 +6,335 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use crate::arvore_analyzer::Marca;
-use crate::refactorings::{Contexto, Elem, PedidoDeRefatoracao, ResultadoDeRefatoracao};
-use crate::refactorings_exec::{Estado, Mudanca, Severidade, Texto};
+use crate::refactorings::{Context, Elem, RefactoringRequest, RefactoringResult};
+use crate::refactorings_exec::{State, Change, Severity, Text};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, FunctionKind, FunctionRef, UnitId};
 use dartforge_frontend::ast::{self, AsyncModifier, ExprId};
 use dartforge_types::{MemberRef, Resolved, Type};
 use std::collections::HashMap;
 
-type R = ResultadoDeRefatoracao;
+type R = RefactoringResult;
 
 /// `_ParameterOccurrence`.
 #[derive(Debug, Clone)]
-struct OcorrenciaDeParametro {
-    faixa: (usize, usize),
-    precedencia_do_pai: u8,
-    em_interpolacao: bool,
+struct ParameterOccurrence {
+    range: (usize, usize),
+    parent_precedence: u8,
+    in_interpolation: bool,
 }
 
 /// `_SourcePart`.
 #[derive(Debug, Clone, Default)]
-struct Parte {
+struct Part {
     base: usize,
-    fonte: String,
-    prefixo: String,
+    source: String,
+    prefix: String,
     /// Pelo nome do parâmetro, na ordem da primeira ocorrência.
-    parametros: Vec<(String, Vec<OcorrenciaDeParametro>)>,
+    parameters: Vec<(String, Vec<ParameterOccurrence>)>,
     /// Pela declaração do local: o nome e as faixas.
-    variaveis: Vec<(usize, String, Vec<(usize, usize)>)>,
-    this_explicitos: Vec<usize>,
-    this_implicitos: Vec<usize>,
-    classes_implicitas: Vec<(String, Vec<usize>)>,
+    variables: Vec<(usize, String, Vec<(usize, usize)>)>,
+    explicit_this: Vec<usize>,
+    implicit_this: Vec<usize>,
+    implicit_classes: Vec<(String, Vec<usize>)>,
 }
 
 /// O método embutido.
-struct Metodo<'c, 'p> {
+struct Method<'c, 'p> {
     /// A árvore da unidade da declaração.
-    cxm: &'c Contexto<'p>,
-    elemento: Elem,
+    cxm: &'c Context<'p>,
+    element: Elem,
     no: usize,
-    parametros: Option<usize>,
-    expressao: Option<usize>,
-    parte_expressao: Option<Parte>,
-    parte_comandos: Option<Parte>,
+    parameters: Option<usize>,
+    expression: Option<usize>,
+    expression_part: Option<Part>,
+    part_commands: Option<Part>,
     /// Os parâmetros declarados: nome, posicional obrigatório, nomeado e o
     /// texto do valor padrão.
-    declarados: Vec<(String, bool, bool, Option<String>)>,
-    assincrono: bool,
+    declared: Vec<(String, bool, bool, Option<String>)>,
+    is_async: bool,
 }
 
 /// `refactor.perform`/`refactor.validate` do `INLINE_METHOD`.
-pub(crate) fn executar(cx: &Contexto<'_>, uri: &str, pedido: &PedidoDeRefatoracao) -> ResultadoDeRefatoracao {
+pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> RefactoringResult {
     let _ = uri;
     let p = cx.p;
-    let prog = p.programa();
+    let prog = p.program();
     let fatal = "Method declaration or reference must be selected to activate this refactoring.";
-    let falhar = |e: Estado| crate::refactorings_exec::concluir(pedido, e, Estado::default, Mudanca::default);
+    let fail = |e: State| crate::refactorings_exec::finish(request, e, State::default, Change::default);
     // `_prepareMethod`.
-    let Some((e, _, declaracao)) = cx.elemento_de_inline_method(pedido.offset) else { return falhar(Estado::fatal(fatal)) };
-    if !cx.executavel(e) || cx.sintetico(e) {
-        return falhar(Estado::fatal(fatal));
+    let Some((e, _, declaration)) = cx.inline_method_element(request.offset) else { return fail(State::fatal(fatal)) };
+    if !cx.executable(e) || cx.synthetic(e) {
+        return fail(State::fatal(fatal));
     }
-    let (unidade_m, fid) = match e {
-        Elem::FuncaoLocal(fid) => (cx.unidade, fid),
-        Elem::Funcao(f) => match prog.function(f).node {
+    let (unit_m, fid) = match e {
+        Elem::LocalFunction(fid) => (cx.unit, fid),
+        Elem::Function(f) => match prog.function(f).node {
             FunctionRef::Function { unit, function } => (unit, function),
-            _ => return falhar(Estado::fatal(fatal)),
+            _ => return fail(State::fatal(fatal)),
         },
-        _ => return falhar(Estado::fatal(fatal)),
+        _ => return fail(State::fatal(fatal)),
     };
-    let contexto_m;
-    let cxm: &Contexto<'_> = if unidade_m == cx.unidade {
+    let context_m;
+    let cxm: &Context<'_> = if unit_m == cx.unit {
         cx
     } else {
-        contexto_m = Contexto::novo(p, unidade_m);
-        &contexto_m
+        context_m = Context::new(p, unit_m);
+        &context_m
     };
     let Some(no) = cxm
-        .arvore
+        .tree
         .nos
         .iter()
         .position(|k| k.marca == Marca::Funcao(fid) && matches!(k.especie, "FunctionDeclaration" | "MethodDeclaration"))
     else {
-        return falhar(Estado::fatal(fatal));
+        return fail(State::fatal(fatal));
     };
-    let excluir_fonte = declaracao;
-    let embutir_tudo = excluir_fonte;
-    if cx.operador(e) {
-        return falhar(Estado::fatal("Cannot inline operator."));
+    let exclude_source = declaration;
+    let inline_all = exclude_source;
+    if cx.operator(e) {
+        return fail(State::fatal("Cannot inline operator."));
     }
-    if cx.gerador(e) {
-        return falhar(Estado::fatal("Cannot inline a generator."));
+    if cx.generator(e) {
+        return fail(State::fatal("Cannot inline a generator."));
     }
     // Os parâmetros e o corpo.
-    let funcao_no = if cxm.especie(no) == "FunctionDeclaration" {
-        cxm.filhos(no).iter().copied().find(|&c| cxm.especie(c) == "FunctionExpression").unwrap_or(no)
+    let function_node = if cxm.kind(no) == "FunctionDeclaration" {
+        cxm.children(no).iter().copied().find(|&c| cxm.kind(c) == "FunctionExpression").unwrap_or(no)
     } else {
         no
     };
-    let parametros = cxm.filhos(funcao_no).iter().copied().find(|&c| cxm.especie(c) == "FormalParameterList");
-    let corpo = cxm.filhos(funcao_no).iter().copied().find(|&c| matches!(cxm.especie(c), "BlockFunctionBody" | "ExpressionFunctionBody" | "EmptyFunctionBody" | "NativeFunctionBody"));
-    let funcao = cxm.ast.function(fid);
-    let declarados: Vec<(String, bool, bool, Option<String>)> = funcao
+    let parameters = cxm.children(function_node).iter().copied().find(|&c| cxm.kind(c) == "FormalParameterList");
+    let body = cxm.children(function_node).iter().copied().find(|&c| matches!(cxm.kind(c), "BlockFunctionBody" | "ExpressionFunctionBody" | "EmptyFunctionBody" | "NativeFunctionBody"));
+    let function_ = cxm.ast.function(fid);
+    let declared: Vec<(String, bool, bool, Option<String>)> = function_
         .parameters
         .as_deref()
         .unwrap_or(&[])
         .iter()
         .map(|q| {
-            let nome = q.name.map(|n| cxm.fonte[n.span.start..n.span.end].to_string()).unwrap_or_default();
-            let padrao = q.default_value.map(|d| {
+            let name = q.name.map(|n| cxm.source[n.span.start..n.span.end].to_string()).unwrap_or_default();
+            let pattern = q.default_value.map(|d| {
                 let s = cxm.ast.expr(d).span;
-                cxm.fonte[s.start..s.end].to_string()
+                cxm.source[s.start..s.end].to_string()
             });
-            (nome, q.kind == ast::ParameterKind::Required, q.kind == ast::ParameterKind::Named, padrao)
+            (name, q.kind == ast::ParameterKind::Required, q.kind == ast::ParameterKind::Named, pattern)
         })
         .collect();
-    let mut m = Metodo {
+    let mut m = Method {
         cxm,
-        elemento: e,
+        element: e,
         no,
-        parametros,
-        expressao: None,
-        parte_expressao: None,
-        parte_comandos: None,
-        declarados,
-        assincrono: matches!(funcao.modifier, AsyncModifier::Async | AsyncModifier::AsyncStar),
+        parameters,
+        expression: None,
+        expression_part: None,
+        part_commands: None,
+        declared,
+        is_async: matches!(function_.modifier, AsyncModifier::Async | AsyncModifier::AsyncStar),
     };
     // `_prepareMethodParts`.
-    let mut iniciais = Estado::default();
-    match corpo.map(|c| cxm.especie(c)) {
+    let mut initial = State::default();
+    match body.map(|c| cxm.kind(c)) {
         Some("ExpressionFunctionBody") => {
-            let c = corpo.unwrap();
-            if let Some(&x) = cxm.filhos(c).first() {
-                m.expressao = Some(x);
-                let (a, b) = faixa(cxm, x);
-                match m.parte(cx, (a, b), fid) {
-                    Ok(p) => m.parte_expressao = Some(p),
-                    Err(e) => return R::ErroInterno(e),
+            let c = body.unwrap();
+            if let Some(&x) = cxm.children(c).first() {
+                m.expression = Some(x);
+                let (a, b) = range(cxm, x);
+                match m.part(cx, (a, b), fid) {
+                    Ok(p) => m.expression_part = Some(p),
+                    Err(e) => return R::InternalError(e),
                 }
             }
         }
         Some("BlockFunctionBody") => {
-            let c = corpo.unwrap();
-            let Some(&bloco) = cxm.filhos(c).first() else { return falhar(Estado::fatal("Cannot inline method without body.")) };
-            let mut comandos: Vec<usize> = cxm.filhos(bloco).to_vec();
-            if let Some(&ultimo) = comandos.last()
-                && cxm.especie(ultimo) == "ReturnStatement"
+            let c = body.unwrap();
+            let Some(&block) = cxm.children(c).first() else { return fail(State::fatal("Cannot inline method without body.")) };
+            let mut commands: Vec<usize> = cxm.children(block).to_vec();
+            if let Some(&last) = commands.last()
+                && cxm.kind(last) == "ReturnStatement"
             {
-                m.expressao = cxm.filhos(ultimo).first().copied();
-                if let Some(x) = m.expressao {
-                    match m.parte(cx, faixa(cxm, x), fid) {
-                        Ok(p) => m.parte_expressao = Some(p),
-                        Err(e) => return R::ErroInterno(e),
+                m.expression = cxm.children(last).first().copied();
+                if let Some(x) = m.expression {
+                    match m.part(cx, range(cxm, x), fid) {
+                        Ok(p) => m.expression_part = Some(p),
+                        Err(e) => return R::InternalError(e),
                     }
                 }
-                comandos.pop();
+                commands.pop();
             }
-            if !comandos.is_empty() {
-                let tx = Texto::novo(cxm.fonte);
-                let s = tx.faixa_de_linhas(faixa(cxm, comandos[0]).0, faixa(cxm, *comandos.last().unwrap()).1);
-                match m.parte(cx, (s.start, s.end), fid) {
-                    Ok(p) => m.parte_comandos = Some(p),
-                    Err(e) => return R::ErroInterno(e),
+            if !commands.is_empty() {
+                let tx = Text::new(cxm.source);
+                let s = tx.line_range(range(cxm, commands[0]).0, range(cxm, *commands.last().unwrap()).1);
+                match m.part(cx, (s.start, s.end), fid) {
+                    Ok(p) => m.part_commands = Some(p),
+                    Err(e) => return R::InternalError(e),
                 }
             }
             // `_ReturnsValidatorVisitor`: o segundo `return` (closures
             // incluídas).
-            let mut quantos = 0;
-            let mut pilha = vec![bloco];
-            let mut ordem = Vec::new();
-            while let Some(k) = pilha.pop() {
-                ordem.push(k);
-                pilha.extend(cxm.filhos(k).iter().rev().copied());
+            let mut how_many = 0;
+            let mut stack = vec![block];
+            let mut order = Vec::new();
+            while let Some(k) = stack.pop() {
+                order.push(k);
+                stack.extend(cxm.children(k).iter().rev().copied());
             }
-            for k in ordem {
-                if cxm.especie(k) == "ReturnStatement" {
-                    quantos += 1;
-                    if quantos == 2 {
-                        iniciais.adicionar(Severidade::Erro, "Ambiguous return value.");
+            for k in order {
+                if cxm.kind(k) == "ReturnStatement" {
+                    how_many += 1;
+                    if how_many == 2 {
+                        initial.add(Severity::Error, "Ambiguous return value.");
                     }
                 }
             }
         }
-        _ => return falhar(Estado::fatal("Cannot inline method without body.")),
+        _ => return fail(State::fatal("Cannot inline method without body.")),
     }
     // As referências.
-    let referencias: Vec<(UnitId, Span)> = match e {
-        Elem::FuncaoLocal(f) => {
+    let references: Vec<(UnitId, Span)> = match e {
+        Elem::LocalFunction(f) => {
             let d = cxm.ast.function(f).name.map(|n| n.span.start);
             let mut v: Vec<(UnitId, Span)> = cxm
                 .ast
                 .exprs
                 .iter()
                 .enumerate()
-                .filter(|(i, x)| matches!(x.kind, ast::ExprKind::Identifier(_)) && cxm.corpos.declaracao_local(ExprId(*i as u32)) == d && d.is_some())
-                .map(|(_, x)| (unidade_m, x.span))
+                .filter(|(i, x)| matches!(x.kind, ast::ExprKind::Identifier(_)) && cxm.bodies.declaracao_local(ExprId(*i as u32)) == d && d.is_some())
+                .map(|(_, x)| (unit_m, x.span))
                 .collect();
             v.sort_by_key(|(_, s)| s.start);
             v
         }
-        Elem::Funcao(f) => {
+        Elem::Function(f) => {
             let getter = prog.function(f).kind == FunctionKind::Getter;
-            let mut v = crate::refactorings_exec::referencias_de_funcao(p, f, getter);
+            let mut v = crate::refactorings_exec::function_references(p, f, getter);
             v.sort_by_key(|(u, s)| (u.0, s.start));
             v
         }
         _ => Vec::new(),
     };
-    if pedido.so_validar {
-        return crate::refactorings_exec::concluir(pedido, iniciais, Estado::default, Mudanca::default);
+    if request.only_validate {
+        return crate::refactorings_exec::finish(request, initial, State::default, Change::default);
     }
-    if iniciais.tem_fatal() {
-        return R::Erro(iniciais.mensagem().unwrap_or_default());
+    if initial.has_fatal() {
+        return R::Error(initial.message().unwrap_or_default());
     }
     // `checkFinalConditions`: a mudança.
-    let mut finais = Estado::default();
-    let mut mudanca = Mudanca::default();
-    let mut contextos: HashMap<UnitId, Contexto<'_>> = HashMap::new();
-    let mut ja_assincronos: Vec<(UnitId, usize)> = Vec::new();
-    for (u, s) in referencias {
-        let cxr: &Contexto<'_> = if u == cx.unidade {
+    let mut finals = State::default();
+    let mut change = Change::default();
+    let mut contexts: HashMap<UnitId, Context<'_>> = HashMap::new();
+    let mut already_async: Vec<(UnitId, usize)> = Vec::new();
+    for (u, s) in references {
+        let cxr: &Context<'_> = if u == cx.unit {
             cx
-        } else if u == unidade_m {
+        } else if u == unit_m {
             cxm
         } else {
-            contextos.entry(u).or_insert_with(|| Contexto::novo(p, u));
-            contextos.get(&u).unwrap()
+            contexts.entry(u).or_insert_with(|| Context::new(p, u));
+            contexts.get(&u).unwrap()
         };
-        let Some(uri_r) = p.uri_da_unidade(u) else { continue };
-        let Some(n) = cxr.arvore.localizar(s.start, s.start) else { continue };
-        if cxr.especie(n) != "SimpleIdentifier" {
-            return R::ErroInterno(format!("type '{}Impl' is not a subtype of type 'SimpleIdentifier' in type cast", cxr.especie(n)));
+        let Some(uri_r) = p.unit_uri(u) else { continue };
+        let Some(n) = cxr.tree.localizar(s.start, s.start) else { continue };
+        if cxr.kind(n) != "SimpleIdentifier" {
+            return R::InternalError(format!("type '{}Impl' is not a subtype of type 'SimpleIdentifier' in type cast", cxr.kind(n)));
         }
-        if let Err(e) = m.processar(cxr, &uri_r, u, n, pedido.offset, embutir_tudo, &mut finais, &mut mudanca, &mut ja_assincronos) {
-            return R::ErroInterno(e);
+        if let Err(e) = m.process(cxr, &uri_r, u, n, request.offset, inline_all, &mut finals, &mut change, &mut already_async) {
+            return R::InternalError(e);
         }
     }
-    if excluir_fonte && embutir_tudo
-        && let Some(uri_m) = p.uri_da_unidade(unidade_m)
+    if exclude_source && inline_all
+        && let Some(uri_m) = p.unit_uri(unit_m)
     {
-        let (a, b) = faixa(cxm, no);
-        let tx = Texto::novo(cxm.fonte);
-        let inicio = pular_linhas_vazias_a_esquerda(cxm.fonte, tx.inicio_do_conteudo(a));
+        let (a, b) = range(cxm, no);
+        let tx = Text::new(cxm.source);
+        let start = skip_empty_lines_left(cxm.source, tx.content_start(a));
         let s = {
-            let mut fim = b;
-            if tx.inicio_da_linha(inicio) == inicio {
-                fim = tx.fim_do_conteudo(b);
+            let mut end = b;
+            if tx.line_start(start) == start {
+                end = tx.content_end(b);
             }
-            Span { start: inicio, end: fim }
+            Span { start: start, end: end }
         };
-        mudanca.adicionar(&uri_m, s, "");
+        change.add(&uri_m, s, "");
     }
-    let mut todas = iniciais;
-    todas.somar(finais);
-    if todas.tem_erro() {
-        return R::Erro(todas.mensagem().unwrap_or_default());
+    let mut all = initial;
+    all.absorb(finals);
+    if all.has_error() {
+        return R::Error(all.message().unwrap_or_default());
     }
-    mudanca.resultado()
+    change.result()
 }
 
 /// O intervalo de um nó.
-fn faixa(cx: &Contexto<'_>, n: usize) -> (usize, usize) {
-    (cx.arvore.nos[n].inicio, cx.arvore.nos[n].fim)
+fn range(cx: &Context<'_>, n: usize) -> (usize, usize) {
+    (cx.tree.nos[n].inicio, cx.tree.nos[n].fim)
 }
 
 /// `_skipEmptyLinesLeft`.
-fn pular_linhas_vazias_a_esquerda(t: &str, mut i: usize) -> usize {
+fn skip_empty_lines_left(t: &str, mut i: usize) -> usize {
     let b = t.as_bytes();
-    let mut ultima = i;
+    let mut last = i;
     while i > 0 {
         let c = b[i - 1];
         if !matches!(c, b' ' | b'\t' | b'\r' | b'\n') {
-            return ultima;
+            return last;
         }
         if matches!(c, b'\r' | b'\n') {
-            ultima = i;
+            last = i;
         }
         i -= 1;
     }
     0
 }
 
-impl<'c, 'p> Metodo<'c, 'p> {
+impl<'c, 'p> Method<'c, 'p> {
     /// `_createSourcePart(range)`: o texto, o prefixo da linha (sic: no
     /// texto da unidade do cursor) e o `_VariablesVisitor`.
-    fn parte(&self, cx: &Contexto<'_>, (a, b): (usize, usize), fid: ast::FunctionId) -> Result<Parte, String> {
+    fn part(&self, cx: &Context<'_>, (a, b): (usize, usize), fid: ast::FunctionId) -> Result<Part, String> {
         let cxm = self.cxm;
-        if a > cx.fonte.len() {
-            return Err(format!("RangeError (offset): Invalid value: Not in inclusive range 0..{}: {a}", cx.fonte.len()));
+        if a > cx.source.len() {
+            return Err(format!("RangeError (offset): Invalid value: Not in inclusive range 0..{}: {a}", cx.source.len()));
         }
-        let prefixo = Texto::novo(cx.fonte).prefixo_da_linha(a).to_string();
-        let mut parte = Parte { base: a, fonte: cxm.fonte[a..b].to_string(), prefixo, ..Default::default() };
+        let prefix = Text::new(cx.source).line_prefix(a).to_string();
+        let mut part = Part { base: a, source: cxm.source[a..b].to_string(), prefix, ..Default::default() };
         // Os nomes dos parâmetros do método (pelo offset do nome).
-        let nomes_dos_parametros: Vec<(usize, String)> = cxm
+        let parameter_names: Vec<(usize, String)> = cxm
             .ast
             .function(fid)
             .parameters
             .as_deref()
             .unwrap_or(&[])
             .iter()
-            .filter_map(|q| q.name.map(|n| (n.span.start, cxm.fonte[n.span.start..n.span.end].to_string())))
+            .filter_map(|q| q.name.map(|n| (n.span.start, cxm.source[n.span.start..n.span.end].to_string())))
             .collect();
-        let mut pilha = vec![0usize];
-        while let Some(k) = pilha.pop() {
-            let (ki, kf) = faixa(cxm, k);
-            match cxm.especie(k) {
+        let mut stack = vec![0usize];
+        while let Some(k) = stack.pop() {
+            let (ki, kf) = range(cxm, k);
+            match cxm.kind(k) {
                 "SimpleIdentifier" => {
                     if a <= ki && kf <= b {
-                        self.qualificador_implicito(k, &mut parte);
-                        self.parametro(k, &nomes_dos_parametros, &mut parte);
-                        let e = cxm.elemento_do_identificador(k, true);
-                        if e == Elem::VariavelLocal
-                            && let Marca::Expr(x) = cxm.arvore.nos[k].marca
-                            && let Some(d) = cxm.corpos.declaracao_local(x)
+                        self.implicit_qualifier(k, &mut part);
+                        self.parameter(k, &parameter_names, &mut part);
+                        let e = cxm.identifier_element(k, true);
+                        if e == Elem::LocalVariable
+                            && let Marca::Expr(x) = cxm.tree.nos[k].marca
+                            && let Some(d) = cxm.bodies.declaracao_local(x)
                         {
-                            adicionar_variavel(&mut parte, d, cxm.texto_do_no(k).to_string(), (ki - a, kf - a));
+                            add_variable(&mut part, d, cxm.node_text(k).to_string(), (ki - a, kf - a));
                         }
                     }
                     continue;
                 }
                 "ThisExpression" => {
                     if a <= ki && ki <= b {
-                        parte.this_explicitos.push(ki - a);
+                        part.explicit_this.push(ki - a);
                     }
                     continue;
                 }
                 "VariableDeclaration" => {
-                    let nome = crate::refactorings_exec::nome_no_inicio_pub(cxm.texto_do_no(k));
-                    if a <= ki && ki + nome.len() <= b {
-                        adicionar_variavel(&mut parte, ki, nome.clone(), (ki - a, ki + nome.len() - a));
+                    let name = crate::refactorings_exec::name_at_start_pub(cxm.node_text(k));
+                    if a <= ki && ki + name.len() <= b {
+                        add_variable(&mut part, ki, name.clone(), (ki - a, ki + name.len() - a));
                     }
                 }
                 _ => {}
@@ -343,29 +343,29 @@ impl<'c, 'p> Metodo<'c, 'p> {
             if k != 0 && (kf <= a || ki >= b) {
                 continue;
             }
-            pilha.extend(cxm.filhos(k).iter().rev().copied());
+            stack.extend(cxm.children(k).iter().rev().copied());
         }
-        Ok(parte)
+        Ok(part)
     }
 
     /// `_addMemberQualifier`.
-    fn qualificador_implicito(&self, n: usize, parte: &mut Parte) {
+    fn implicit_qualifier(&self, n: usize, part: &mut Part) {
         let cxm = self.cxm;
-        let prog = cxm.p.programa();
+        let prog = cxm.p.program();
         // `getNodeQualifier`.
-        if let Some(pai) = cxm.pai(n) {
-            let tem = match cxm.especie(pai) {
-                "MethodInvocation" => cxm.nome_do_metodo(pai) == Some(n) && cxm.filhos(pai).first() != Some(&n),
-                "PropertyAccess" => cxm.filhos(pai).last() == Some(&n) && cxm.filhos(pai).len() > 1,
-                "PrefixedIdentifier" => cxm.filhos(pai).get(1) == Some(&n),
+        if let Some(parent) = cxm.parent(n) {
+            let tem = match cxm.kind(parent) {
+                "MethodInvocation" => cxm.method_name(parent) == Some(n) && cxm.children(parent).first() != Some(&n),
+                "PropertyAccess" => cxm.children(parent).last() == Some(&n) && cxm.children(parent).len() > 1,
+                "PrefixedIdentifier" => cxm.children(parent).get(1) == Some(&n),
                 _ => false,
             };
             if tem {
                 return;
             }
         }
-        let Marca::Expr(x) = cxm.arvore.nos[n].marca else { return };
-        let (classe, estatico): (Option<ClassId>, bool) = match cxm.corpos.get_resolved(x) {
+        let Marca::Expr(x) = cxm.tree.nos[n].marca else { return };
+        let (class, is_static): (Option<ClassId>, bool) = match cxm.bodies.get_resolved(x) {
             Some(Resolved::Member { member: MemberRef::Function(f), .. }) => {
                 let fe = prog.function(*f);
                 if fe.extension.is_some() || !matches!(fe.kind, FunctionKind::Function | FunctionKind::Operator | FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor) {
@@ -382,369 +382,369 @@ impl<'c, 'p> Metodo<'c, 'p> {
             }
             _ => return,
         };
-        let Some(c) = classe else { return };
-        let o = cxm.arvore.nos[n].inicio - parte.base;
-        if estatico {
-            let nome = cxm.p.nome(prog.class(c).name).to_string();
-            match parte.classes_implicitas.iter_mut().find(|(k, _)| *k == nome) {
+        let Some(c) = class else { return };
+        let o = cxm.tree.nos[n].inicio - part.base;
+        if is_static {
+            let name = cxm.p.name(prog.class(c).name).to_string();
+            match part.implicit_classes.iter_mut().find(|(k, _)| *k == name) {
                 Some((_, v)) => v.push(o),
-                None => parte.classes_implicitas.push((nome, vec![o])),
+                None => part.implicit_classes.push((name, vec![o])),
             }
         } else {
-            parte.this_implicitos.push(o);
+            part.implicit_this.push(o);
         }
     }
 
     /// `_addParameter`.
-    fn parametro(&self, n: usize, nomes: &[(usize, String)], parte: &mut Parte) {
+    fn parameter(&self, n: usize, names: &[(usize, String)], part: &mut Part) {
         let cxm = self.cxm;
-        if cxm.elemento_do_identificador(n, true) != Elem::Parametro {
+        if cxm.identifier_element(n, true) != Elem::Parameter {
             return;
         }
-        let Marca::Expr(x) = cxm.arvore.nos[n].marca else { return };
-        let Some(d) = cxm.corpos.declaracao_local(x) else { return };
-        let Some((_, nome)) = nomes.iter().find(|(o, _)| *o == d) else { return };
-        let (ki, kf) = faixa(cxm, n);
-        let ocorrencia = OcorrenciaDeParametro {
-            faixa: (ki - parte.base, kf - parte.base),
-            precedencia_do_pai: cxm.precedencia_do_pai(n),
-            em_interpolacao: cxm.pai(n).is_some_and(|p| cxm.especie(p) == "InterpolationExpression"),
+        let Marca::Expr(x) = cxm.tree.nos[n].marca else { return };
+        let Some(d) = cxm.bodies.declaracao_local(x) else { return };
+        let Some((_, name)) = names.iter().find(|(o, _)| *o == d) else { return };
+        let (ki, kf) = range(cxm, n);
+        let occurrence = ParameterOccurrence {
+            range: (ki - part.base, kf - part.base),
+            parent_precedence: cxm.parent_precedence(n),
+            in_interpolation: cxm.parent(n).is_some_and(|p| cxm.kind(p) == "InterpolationExpression"),
         };
-        match parte.parametros.iter_mut().find(|(k, _)| k == nome) {
-            Some((_, v)) => v.push(ocorrencia),
-            None => parte.parametros.push((nome.clone(), vec![ocorrencia])),
+        match part.parameters.iter_mut().find(|(k, _)| k == name) {
+            Some((_, v)) => v.push(occurrence),
+            None => part.parameters.push((name.clone(), vec![occurrence])),
         }
     }
 
     /// `_ReferenceProcessor.init` e `_process`.
     #[allow(clippy::too_many_arguments)]
-    fn processar(
+    fn process(
         &self,
-        cxr: &Contexto<'_>,
+        cxr: &Context<'_>,
         uri_r: &str,
         u: UnitId,
         n: usize,
         offset: usize,
-        embutir_tudo: bool,
-        estado: &mut Estado,
-        m: &mut Mudanca,
-        ja_assincronos: &mut Vec<(UnitId, usize)>,
+        inline_all: bool,
+        state: &mut State,
+        m: &mut Change,
+        already_async: &mut Vec<(UnitId, usize)>,
     ) -> Result<(), String> {
-        let tx = Texto::novo(cxr.fonte);
+        let tx = Text::new(cxr.source);
         // `init`.
-        let comando = cxr.com_pais(n).find(|&k| crate::refactorings::e_comando_especie(cxr.especie(k)));
-        let (linhas_do_ref, prefixo_do_ref) = match comando {
+        let command = cxr.with_parents(n).find(|&k| crate::refactorings::is_command_kind(cxr.kind(k)));
+        let (ref_lines, ref_prefix) = match command {
             Some(c) => {
-                let (a, b) = faixa(cxr, c);
-                (Some(tx.faixa_de_linhas(a, b)), cxr.prefixo_do_no(c))
+                let (a, b) = range(cxr, c);
+                (Some(tx.line_range(a, b)), cxr.node_prefix(c))
             }
-            None => (None, tx.prefixo_da_linha(cxr.arvore.nos[n].inicio).to_string()),
+            None => (None, tx.line_prefix(cxr.tree.nos[n].inicio).to_string()),
         };
         // `_shouldProcess`.
-        if !embutir_tudo {
-            let (a, b) = faixa(cxr, n);
+        if !inline_all {
+            let (a, b) = range(cxr, n);
             if !(a <= offset && offset <= b) {
                 return Ok(());
             }
         }
         // O método `async` num corpo síncrono.
-        if self.assincrono
-            && let Some(corpo) = cxr.com_pais(n).find(|&k| matches!(cxr.especie(k), "BlockFunctionBody" | "ExpressionFunctionBody" | "EmptyFunctionBody" | "NativeFunctionBody"))
+        if self.is_async
+            && let Some(body) = cxr.with_parents(n).find(|&k| matches!(cxr.kind(k), "BlockFunctionBody" | "ExpressionFunctionBody" | "EmptyFunctionBody" | "NativeFunctionBody"))
         {
-            let texto = cxr.texto_do_no(corpo);
-            let sincrono = !texto.starts_with("async");
-            if sincrono {
-                if texto.starts_with("sync") {
-                    estado.adicionar(Severidade::Fatal, "Cannot inline async into sync*.");
+            let text = cxr.node_text(body);
+            let sync = !text.starts_with("async");
+            if sync {
+                if text.starts_with("sync") {
+                    state.add(Severity::Fatal, "Cannot inline async into sync*.");
                     return Ok(());
                 }
-                let elemento_do_ref = executavel_envolvente(cxr, n);
-                if let Some((_, futuro)) = elemento_do_ref
-                    && !futuro
+                let ref_element = enclosing_executable(cxr, n);
+                if let Some((_, future)) = ref_element
+                    && !future
                 {
-                    estado.adicionar(Severidade::Fatal, "Cannot inline async into a function that does not return a Future.");
+                    state.add(Severity::Fatal, "Cannot inline async into a function that does not return a Future.");
                     return Ok(());
                 }
-                let chave = (u, elemento_do_ref.map_or(usize::MAX, |(k, _)| k));
-                if !ja_assincronos.contains(&chave) {
-                    ja_assincronos.push(chave);
-                    let o = cxr.arvore.nos[corpo].inicio;
-                    m.adicionar(uri_r, Span { start: o, end: o }, "async ");
+                let key = (u, ref_element.map_or(usize::MAX, |(k, _)| k));
+                if !already_async.contains(&key) {
+                    already_async.push(key);
+                    let o = cxr.tree.nos[body].inicio;
+                    m.add(uri_r, Span { start: o, end: o }, "async ");
                 }
             }
         }
-        let pai = cxr.pai(n);
-        if let Some(inv) = pai.filter(|&k| cxr.especie(k) == "MethodInvocation") {
-            let nome = cxr.nome_do_metodo(inv);
-            let alvo = cxr.filhos(inv).first().copied().filter(|&a| Some(a) != nome);
-            let em_cascata = alvo.is_none() && cxr.pai(inv).is_some_and(|c| cxr.especie(c) == "CascadeExpression");
-            let argumentos: Vec<usize> = cxr
-                .filhos(inv)
+        let parent = cxr.parent(n);
+        if let Some(inv) = parent.filter(|&k| cxr.kind(k) == "MethodInvocation") {
+            let name = cxr.method_name(inv);
+            let target = cxr.children(inv).first().copied().filter(|&a| Some(a) != name);
+            let in_cascade = target.is_none() && cxr.parent(inv).is_some_and(|c| cxr.kind(c) == "CascadeExpression");
+            let arguments: Vec<usize> = cxr
+                .children(inv)
                 .iter()
                 .copied()
-                .find(|&k| cxr.especie(k) == "ArgumentList")
-                .map(|l| cxr.filhos(l).to_vec())
+                .find(|&k| cxr.kind(k) == "ArgumentList")
+                .map(|l| cxr.children(l).to_vec())
                 .unwrap_or_default();
-            self.embutir_invocacao(cxr, uri_r, n, inv, em_cascata, alvo, &argumentos, linhas_do_ref, &prefixo_do_ref, estado, m);
+            self.inline_invocation(cxr, uri_r, n, inv, in_cascade, target, &arguments, ref_lines, &ref_prefix, state, m);
             return Ok(());
         }
-        let prog = cxr.p.programa();
-        let e_acessor = match self.elemento {
-            Elem::Funcao(f) => matches!(prog.function(f).kind, FunctionKind::Getter | FunctionKind::Setter),
+        let prog = cxr.p.program();
+        let is_accessor = match self.element {
+            Elem::Function(f) => matches!(prog.function(f).kind, FunctionKind::Getter | FunctionKind::Setter),
             _ => false,
         };
-        if cxr.e_metodo(self.elemento) {
-            estado.adicionar(Severidade::Fatal, "Cannot inline class method reference.");
+        if cxr.is_method(self.element) {
+            state.add(Severity::Fatal, "Cannot inline class method reference.");
             return Ok(());
         }
-        if e_acessor {
-            let mut uso = n;
-            let mut alvo: Option<usize> = None;
-            let mut cascata = false;
-            if let Some(pp) = pai {
-                match cxr.especie(pp) {
+        if is_accessor {
+            let mut usage = n;
+            let mut target: Option<usize> = None;
+            let mut cascade = false;
+            if let Some(pp) = parent {
+                match cxr.kind(pp) {
                     "PrefixedIdentifier" => {
-                        uso = pp;
-                        alvo = cxr.filhos(pp).first().copied();
+                        usage = pp;
+                        target = cxr.children(pp).first().copied();
                     }
                     "PropertyAccess" => {
-                        uso = pp;
-                        let f = cxr.filhos(pp);
+                        usage = pp;
+                        let f = cxr.children(pp);
                         if f.len() >= 2 {
-                            alvo = f.first().copied();
+                            target = f.first().copied();
                         } else {
                             // `realTarget` de uma seção de cascata.
-                            alvo = cxr.com_pais(pp).find(|&k| cxr.especie(k) == "CascadeExpression").and_then(|c| cxr.filhos(c).first().copied());
-                            cascata = true;
+                            target = cxr.with_parents(pp).find(|&k| cxr.kind(k) == "CascadeExpression").and_then(|c| cxr.children(c).first().copied());
+                            cascade = true;
                         }
                     }
                     _ => {}
                 }
             }
-            let mut argumentos = Vec::new();
-            let escrita = match cxr.arvore.nos[n].marca {
-                Marca::Expr(x) => cxr.escritas.contains(&x),
+            let mut arguments = Vec::new();
+            let write = match cxr.tree.nos[n].marca {
+                Marca::Expr(x) => cxr.writes.contains(&x),
                 _ => false,
             };
-            if escrita
-                && let Some(atrib) = cxr.com_pais(n).find(|&k| cxr.especie(k) == "AssignmentExpression")
-                && let Some(&lado_direito) = cxr.filhos(atrib).get(1)
+            if write
+                && let Some(assign) = cxr.with_parents(n).find(|&k| cxr.kind(k) == "AssignmentExpression")
+                && let Some(&right_side) = cxr.children(assign).get(1)
             {
-                argumentos.push(lado_direito);
+                arguments.push(right_side);
             }
-            self.embutir_invocacao(cxr, uri_r, n, uso, cascata, alvo, &argumentos, linhas_do_ref, &prefixo_do_ref, estado, m);
+            self.inline_invocation(cxr, uri_r, n, usage, cascade, target, &arguments, ref_lines, &ref_prefix, state, m);
             return Ok(());
         }
         // Referência a função (tear-off): a closure.
-        let fonte = self.fonte_da_closure(cxr, &prefixo_do_ref);
-        let fonte = fonte.strip_suffix(';').unwrap_or(&fonte).to_string();
-        let (a, b) = faixa(cxr, n);
-        m.adicionar(uri_r, Span { start: a, end: b }, fonte);
+        let source = self.closure_source(cxr, &ref_prefix);
+        let source = source.strip_suffix(';').unwrap_or(&source).to_string();
+        let (a, b) = range(cxr, n);
+        m.add(uri_r, Span { start: a, end: b }, source);
         Ok(())
     }
 
     /// O texto do `(` dos parâmetros ao fim da declaração, reindentado para
     /// o prefixo da referência e aparado.
-    fn fonte_da_closure(&self, cxr: &Contexto<'_>, prefixo_do_ref: &str) -> String {
+    fn closure_source(&self, cxr: &Context<'_>, ref_prefix: &str) -> String {
         let cxm = self.cxm;
-        let inicio = self.parametros.map_or(faixa(cxm, self.no).1, |l| faixa(cxm, l).0);
-        let fim = faixa(cxm, self.no).1;
-        let fonte = &cxm.fonte[inicio.min(fim)..fim];
-        let prefixo_do_metodo = Texto::novo(cxm.fonte).prefixo_da_linha(faixa(cxm, self.no).0).to_string();
-        Texto::novo(cxr.fonte).trocar_recuo(fonte, &prefixo_do_metodo, prefixo_do_ref, false, false).trim().to_string()
+        let start = self.parameters.map_or(range(cxm, self.no).1, |l| range(cxm, l).0);
+        let end = range(cxm, self.no).1;
+        let source = &cxm.source[start.min(end)..end];
+        let method_prefix = Text::new(cxm.source).line_prefix(range(cxm, self.no).0).to_string();
+        Text::new(cxr.source).swap_indent(source, &method_prefix, ref_prefix, false, false).trim().to_string()
     }
 
     /// `_canInlineBody(usage)`.
-    fn pode_embutir_corpo(&self, cxr: &Contexto<'_>, uso: usize) -> bool {
-        if self.parte_comandos.is_none() {
-            return self.parte_expressao.is_some();
+    fn can_inline_body(&self, cxr: &Context<'_>, usage: usize) -> bool {
+        if self.part_commands.is_none() {
+            return self.expression_part.is_some();
         }
-        let pai = cxr.pai(uso);
-        let avo = pai.and_then(|p| cxr.pai(p));
-        let e = |k: Option<usize>, s: &str| k.is_some_and(|k| cxr.especie(k) == s);
-        if let Some(pp) = pai {
-            if crate::refactorings::e_comando_especie(cxr.especie(pp)) {
-                return e(avo, "Block");
+        let parent = cxr.parent(usage);
+        let grandparent = parent.and_then(|p| cxr.parent(p));
+        let e = |k: Option<usize>, s: &str| k.is_some_and(|k| cxr.kind(k) == s);
+        if let Some(pp) = parent {
+            if crate::refactorings::is_command_kind(cxr.kind(pp)) {
+                return e(grandparent, "Block");
             }
-            if cxr.especie(pp) == "AssignmentExpression" {
-                if cxr.filhos(pp).first() == Some(&uso) {
-                    return avo.is_some_and(|a| crate::refactorings::e_comando_especie(cxr.especie(a)) && e(cxr.pai(a), "Block"));
+            if cxr.kind(pp) == "AssignmentExpression" {
+                if cxr.children(pp).first() == Some(&usage) {
+                    return grandparent.is_some_and(|a| crate::refactorings::is_command_kind(cxr.kind(a)) && e(cxr.parent(a), "Block"));
                 }
-                return self.parte_expressao.is_some();
+                return self.expression_part.is_some();
             }
         }
-        if self.parte_expressao.is_some() && e(pai, "VariableDeclaration") && e(avo, "VariableDeclarationList") {
-            let p3 = avo.and_then(|a| cxr.pai(a));
-            return e(p3, "VariableDeclarationStatement") && e(p3.and_then(|x| cxr.pai(x)), "Block");
+        if self.expression_part.is_some() && e(parent, "VariableDeclaration") && e(grandparent, "VariableDeclarationList") {
+            let p3 = grandparent.and_then(|a| cxr.parent(a));
+            return e(p3, "VariableDeclarationStatement") && e(p3.and_then(|x| cxr.parent(x)), "Block");
         }
         false
     }
 
     /// `_inlineMethodInvocation`.
     #[allow(clippy::too_many_arguments)]
-    fn embutir_invocacao(
+    fn inline_invocation(
         &self,
-        cxr: &Contexto<'_>,
+        cxr: &Context<'_>,
         uri_r: &str,
-        no_ref: usize,
-        uso: usize,
-        cascata: bool,
-        alvo: Option<usize>,
-        argumentos: &[usize],
-        linhas_do_ref: Option<Span>,
-        prefixo_do_ref: &str,
-        estado: &mut Estado,
-        m: &mut Mudanca,
+        ref_node: usize,
+        usage: usize,
+        cascade: bool,
+        target: Option<usize>,
+        arguments: &[usize],
+        ref_lines: Option<Span>,
+        ref_prefix: &str,
+        state: &mut State,
+        m: &mut Change,
     ) {
-        if cascata {
-            estado.adicionar(Severidade::Erro, "Cannot inline cascade invocation.");
+        if cascade {
+            state.add(Severity::Error, "Cannot inline cascade invocation.");
         }
-        if self.pode_embutir_corpo(cxr, uso) {
-            if let Some(parte) = &self.parte_comandos {
-                let fonte = self.fonte_para_invocacao(cxr, parte, uso, alvo, argumentos, estado);
-                let fonte = Texto::novo(cxr.fonte).trocar_recuo(&fonte, &parte.prefixo, prefixo_do_ref, true, true);
-                if let Some(l) = linhas_do_ref {
-                    m.adicionar(uri_r, Span { start: l.start, end: l.start }, fonte);
+        if self.can_inline_body(cxr, usage) {
+            if let Some(part) = &self.part_commands {
+                let source = self.source_to_invocation(cxr, part, usage, target, arguments, state);
+                let source = Text::new(cxr.source).swap_indent(&source, &part.prefix, ref_prefix, true, true);
+                if let Some(l) = ref_lines {
+                    m.add(uri_r, Span { start: l.start, end: l.start }, source);
                 }
             }
-            if let Some(parte) = &self.parte_expressao {
-                let mut fonte = self.fonte_para_invocacao(cxr, parte, uso, alvo, argumentos, estado);
-                if let Some(x) = self.expressao
-                    && self.cxm.precedencia(x) < cxr.precedencia_do_pai(uso)
+            if let Some(part) = &self.expression_part {
+                let mut source = self.source_to_invocation(cxr, part, usage, target, arguments, state);
+                if let Some(x) = self.expression
+                    && self.cxm.precedence(x) < cxr.parent_precedence(usage)
                 {
-                    fonte = format!("({fonte})");
+                    source = format!("({source})");
                 }
-                if cxr.pai(uso).is_some_and(|p| cxr.especie(p) == "AwaitExpression") && fonte.starts_with("await") {
-                    fonte = fonte.get(6..).unwrap_or("").to_string();
+                if cxr.parent(usage).is_some_and(|p| cxr.kind(p) == "AwaitExpression") && source.starts_with("await") {
+                    source = source.get(6..).unwrap_or("").to_string();
                 }
-                let (a, b) = faixa(cxr, uso);
-                m.adicionar(uri_r, Span { start: a, end: b }, fonte);
-            } else if let Some(l) = linhas_do_ref {
-                m.adicionar(uri_r, l, "");
+                let (a, b) = range(cxr, usage);
+                m.add(uri_r, Span { start: a, end: b }, source);
+            } else if let Some(l) = ref_lines {
+                m.add(uri_r, l, "");
             }
             return;
         }
         // Closure imediata: o identificador vira a closure.
-        let fonte = self.fonte_da_closure(cxr, prefixo_do_ref);
-        let (a, b) = faixa(cxr, no_ref);
-        m.adicionar(uri_r, Span { start: a, end: b }, fonte);
+        let source = self.closure_source(cxr, ref_prefix);
+        let (a, b) = range(cxr, ref_node);
+        m.add(uri_r, Span { start: a, end: b }, source);
     }
 
     /// `_getMethodSourceForInvocation`.
-    fn fonte_para_invocacao(&self, cxr: &Contexto<'_>, parte: &Parte, contexto: usize, alvo: Option<usize>, argumentos: &[usize], estado: &mut Estado) -> String {
-        let mut edicoes: Vec<(usize, usize, String)> = Vec::new();
+    fn source_to_invocation(&self, cxr: &Context<'_>, part: &Part, context: usize, target: Option<usize>, arguments: &[usize], state: &mut State) -> String {
+        let mut edits: Vec<(usize, usize, String)> = Vec::new();
         // O parâmetro de cada argumento (`staticParameterElement.name`).
-        let posicionais: Vec<&(String, bool, bool, Option<String>)> = self.declarados.iter().filter(|d| !d.2).collect();
-        let mut indice = 0usize;
-        let mut por_nome: Vec<(String, usize)> = Vec::new();
-        for &a in argumentos {
-            if cxr.especie(a) == "NamedExpression" {
-                let rotulo = cxr.filhos(a).first().and_then(|&l| cxr.filhos(l).first().copied());
-                if let Some(r) = rotulo {
-                    por_nome.push((cxr.texto_do_no(r).to_string(), a));
+        let positional: Vec<&(String, bool, bool, Option<String>)> = self.declared.iter().filter(|d| !d.2).collect();
+        let mut index = 0usize;
+        let mut by_name: Vec<(String, usize)> = Vec::new();
+        for &a in arguments {
+            if cxr.kind(a) == "NamedExpression" {
+                let label = cxr.children(a).first().and_then(|&l| cxr.children(l).first().copied());
+                if let Some(r) = label {
+                    by_name.push((cxr.node_text(r).to_string(), a));
                 }
             } else {
-                if let Some(d) = posicionais.get(indice) {
-                    por_nome.push((d.0.clone(), a));
+                if let Some(d) = positional.get(index) {
+                    by_name.push((d.0.clone(), a));
                 }
-                indice += 1;
+                index += 1;
             }
         }
-        for (nome, ocorrencias) in &parte.parametros {
-            let mut argumento = por_nome.iter().find(|(n, _)| n == nome).map(|(_, a)| *a);
-            if let Some(a) = argumento
-                && cxr.especie(a) == "NamedExpression"
+        for (name, occurrences) in &part.parameters {
+            let mut argument = by_name.iter().find(|(n, _)| n == name).map(|(_, a)| *a);
+            if let Some(a) = argument
+                && cxr.kind(a) == "NamedExpression"
             {
-                argumento = cxr.filhos(a).get(1).copied();
+                argument = cxr.children(a).get(1).copied();
             }
-            let (precedencia, fonte, e_identificador) = match argumento {
-                Some(a) => (cxr.precedencia(a), cxr.texto_do_no(a).to_string(), cxr.especie(a) == "SimpleIdentifier"),
+            let (precedence, source, is_identifier) = match argument {
+                Some(a) => (cxr.precedence(a), cxr.node_text(a).to_string(), cxr.kind(a) == "SimpleIdentifier"),
                 None => {
-                    let declarado = self.declarados.iter().find(|d| &d.0 == nome);
-                    if declarado.is_some_and(|d| d.1) {
-                        estado.adicionar(Severidade::Erro, format!("No argument for the parameter \"{nome}\"."));
+                    let declared = self.declared.iter().find(|d| &d.0 == name);
+                    if declared.is_some_and(|d| d.1) {
+                        state.add(Severity::Error, format!("No argument for the parameter \"{name}\"."));
                         continue;
                     }
-                    (0, declarado.and_then(|d| d.3.clone()).unwrap_or_else(|| "null".to_string()), false)
+                    (0, declared.and_then(|d| d.3.clone()).unwrap_or_else(|| "null".to_string()), false)
                 }
             };
-            for o in ocorrencias {
-                let texto = if o.em_interpolacao && !e_identificador {
-                    format!("{{{fonte}}}")
-                } else if precedencia < o.precedencia_do_pai {
-                    format!("({fonte})")
+            for o in occurrences {
+                let text = if o.in_interpolation && !is_identifier {
+                    format!("{{{source}}}")
+                } else if precedence < o.parent_precedence {
+                    format!("({source})")
                 } else {
-                    fonte.clone()
+                    source.clone()
                 };
-                edicoes.push((o.faixa.0, o.faixa.1, texto));
+                edits.push((o.range.0, o.range.1, text));
             }
         }
-        for (classe, offsets) in &parte.classes_implicitas {
+        for (class, offsets) in &part.implicit_classes {
             for &o in offsets {
-                edicoes.push((o, o, format!("{classe}.")));
+                edits.push((o, o, format!("{class}.")));
             }
         }
-        if let Some(a) = alvo {
-            let fonte_do_alvo = cxr.texto_do_no(a).to_string();
-            for &o in &parte.this_explicitos {
-                edicoes.push((o, o + 4, fonte_do_alvo.clone()));
+        if let Some(a) = target {
+            let target_source = cxr.node_text(a).to_string();
+            for &o in &part.explicit_this {
+                edits.push((o, o + 4, target_source.clone()));
             }
-            for &o in &parte.this_implicitos {
-                edicoes.push((o, o, format!("{fonte_do_alvo}.")));
+            for &o in &part.implicit_this {
+                edits.push((o, o, format!("{target_source}.")));
             }
         }
-        let conflitos = nomes_em_conflito(cxr, contexto);
-        for (_, original, faixas) in &parte.variaveis {
-            let mut unico = original.clone();
+        let conflicts = names_in_conflict(cxr, context);
+        for (_, original, ranges) in &part.variables {
+            let mut single = original.clone();
             let mut k = 2;
-            while conflitos.contains(&unico) {
-                unico = format!("{original}{k}");
+            while conflicts.contains(&single) {
+                single = format!("{original}{k}");
                 k += 1;
             }
-            if &unico != original {
-                for &(a, b) in faixas {
-                    edicoes.push((a, b, unico.clone()));
+            if &single != original {
+                for &(a, b) in ranges {
+                    edits.push((a, b, single.clone()));
                 }
             }
         }
-        edicoes.sort_by(|a, b| b.0.cmp(&a.0));
-        let mut fonte = parte.fonte.clone();
-        for (a, b, t) in edicoes {
-            if a <= b && b <= fonte.len() {
-                fonte.replace_range(a..b, &t);
+        edits.sort_by(|a, b| b.0.cmp(&a.0));
+        let mut source = part.source.clone();
+        for (a, b, t) in edits {
+            if a <= b && b <= source.len() {
+                source.replace_range(a..b, &t);
             }
         }
-        fonte
+        source
     }
 }
 
 /// `addVariable`.
-fn adicionar_variavel(parte: &mut Parte, d: usize, nome: String, faixa: (usize, usize)) {
-    match parte.variaveis.iter_mut().find(|(k, _, _)| *k == d) {
-        Some((_, _, v)) => v.push(faixa),
-        None => parte.variaveis.push((d, nome, vec![faixa])),
+fn add_variable(part: &mut Part, d: usize, name: String, range: (usize, usize)) {
+    match part.variables.iter_mut().find(|(k, _, _)| *k == d) {
+        Some((_, _, v)) => v.push(range),
+        None => part.variables.push((d, name, vec![range])),
     }
 }
 
 /// O elemento envolvente da referência (`SearchMatch.element`): o membro de
 /// unidade ou de classe executável que a contém, e se o retorno dele é
 /// `Future`.
-fn executavel_envolvente(cx: &Contexto<'_>, n: usize) -> Option<(usize, bool)> {
+fn enclosing_executable(cx: &Context<'_>, n: usize) -> Option<(usize, bool)> {
     let p = cx.p;
-    for k in cx.com_pais(n) {
-        let especie = cx.especie(k);
-        let local = especie == "FunctionDeclaration" && cx.pai(k).is_some_and(|x| cx.especie(x) == "FunctionDeclarationStatement");
-        if matches!(especie, "MethodDeclaration" | "FunctionDeclaration") && !local {
-            let Marca::Funcao(fid) = cx.arvore.nos[k].marca else { return None };
-            let f = p.funcao_do_no(cx.unidade, fid)?;
-            let ret = p.consulta.outline.functions.get(f.0 as usize).map(|d| d.return_type);
-            let futuro = ret.is_some_and(|t| matches!(p.consulta.tabela.get(t), Type::Interface { class, .. } if Some(*class) == p.consulta.core.future_class));
-            return Some((k, futuro));
+    for k in cx.with_parents(n) {
+        let kind = cx.kind(k);
+        let local = kind == "FunctionDeclaration" && cx.parent(k).is_some_and(|x| cx.kind(x) == "FunctionDeclarationStatement");
+        if matches!(kind, "MethodDeclaration" | "FunctionDeclaration") && !local {
+            let Marca::Funcao(fid) = cx.tree.nos[k].marca else { return None };
+            let f = p.node_function(cx.unit, fid)?;
+            let ret = p.query.outline.functions.get(f.0 as usize).map(|d| d.return_type);
+            let future = ret.is_some_and(|t| matches!(p.query.table.get(t), Type::Interface { class, .. } if Some(*class) == p.query.core.future_class));
+            return Some((k, future));
         }
-        if especie == "ConstructorDeclaration" {
+        if kind == "ConstructorDeclaration" {
             return Some((k, false));
         }
-        if matches!(especie, "FieldDeclaration" | "TopLevelVariableDeclaration") {
+        if matches!(kind, "FieldDeclaration" | "TopLevelVariableDeclaration") {
             return None;
         }
     }
@@ -752,51 +752,51 @@ fn executavel_envolvente(cx: &Contexto<'_>, n: usize) -> Option<(usize, bool)> {
 }
 
 /// `_getNamesConflictingAt(node)`.
-fn nomes_em_conflito(cx: &Contexto<'_>, n: usize) -> Vec<String> {
+fn names_in_conflict(cx: &Context<'_>, n: usize) -> Vec<String> {
     let mut v: Vec<String> = Vec::new();
     // `_getLocalsConflictingRange`.
-    let (ini, fim) = match cx.com_pais(n).find(|&k| cx.especie(k) == "Block") {
-        Some(b) => (cx.arvore.nos[n].inicio, cx.arvore.nos[b].fim),
-        None => match cx.com_pais(n).find(|&k| matches!(cx.especie(k), "FunctionDeclaration" | "ConstructorDeclaration" | "MethodDeclaration")) {
-            Some(x) => faixa(cx, x),
+    let (start, end) = match cx.with_parents(n).find(|&k| cx.kind(k) == "Block") {
+        Some(b) => (cx.tree.nos[n].inicio, cx.tree.nos[b].fim),
+        None => match cx.with_parents(n).find(|&k| matches!(cx.kind(k), "FunctionDeclaration" | "ConstructorDeclaration" | "MethodDeclaration")) {
+            Some(x) => range(cx, x),
             None => (0, 0),
         },
     };
-    if let Some(executavel) = cx.com_pais(n).find(|&k| matches!(cx.especie(k), "FunctionDeclaration" | "ConstructorDeclaration" | "MethodDeclaration")) {
-        for (nome, (a, b)) in faixas_visiveis(cx, executavel) {
-            if !(b <= ini) && !(a >= fim) && !v.contains(&nome) {
-                v.push(nome);
+    if let Some(executable) = cx.with_parents(n).find(|&k| matches!(cx.kind(k), "FunctionDeclaration" | "ConstructorDeclaration" | "MethodDeclaration")) {
+        for (name, (a, b)) in visible_ranges(cx, executable) {
+            if !(b <= start) && !(a >= end) && !v.contains(&name) {
+                v.push(name);
             }
         }
     }
     // Os membros da classe envolvente e das superclasses.
     let p = cx.p;
-    let prog = p.programa();
-    if let Some(decl) = cx.com_pais(n).find(|&k| matches!(cx.especie(k), "ClassDeclaration" | "MixinDeclaration" | "EnumDeclaration" | "ExtensionTypeDeclaration"))
-        && let Marca::Decl(d) = cx.arvore.nos[decl].marca
-        && let Some(c) = cx.classe_da_declaracao(cx.unidade, d)
+    let prog = p.program();
+    if let Some(decl) = cx.with_parents(n).find(|&k| matches!(cx.kind(k), "ClassDeclaration" | "MixinDeclaration" | "EnumDeclaration" | "ExtensionTypeDeclaration"))
+        && let Marca::Decl(d) = cx.tree.nos[decl].marca
+        && let Some(c) = cx.declaration_class(cx.unit, d)
     {
-        let mut classes: Vec<ClassId> = p.supertipos(c).into_iter().filter(|&x| x != c).collect();
+        let mut classes: Vec<ClassId> = p.supertypes(c).into_iter().filter(|&x| x != c).collect();
         classes.sort_by_key(|x| x.0);
         classes.push(c);
         for k in classes {
             let ce = prog.class(k);
-            let mut nomes: Vec<String> = Vec::new();
+            let mut names: Vec<String> = Vec::new();
             for (s, _) in ce.instance_members.iter().chain(ce.static_members.iter()) {
-                nomes.push(p.nome(*s).trim_end_matches('=').to_string());
+                names.push(p.name(*s).trim_end_matches('=').to_string());
             }
             for f in ce.fields.iter() {
-                nomes.push(p.nome(prog.variable(*f).name).to_string());
+                names.push(p.name(prog.variable(*f).name).to_string());
             }
             for (s, _) in ce.constructors.iter() {
-                nomes.push(p.nome(*s).to_string());
+                names.push(p.name(*s).to_string());
             }
             for tp in ce.type_params.iter() {
-                nomes.push(p.nome(tp.name).to_string());
+                names.push(p.name(tp.name).to_string());
             }
-            for nome in nomes {
-                if !v.contains(&nome) {
-                    v.push(nome);
+            for name in names {
+                if !v.contains(&name) {
+                    v.push(name);
                 }
             }
         }
@@ -804,65 +804,65 @@ fn nomes_em_conflito(cx: &Contexto<'_>, n: usize) -> Vec<String> {
     v
 }
 
-/// `VisibleRangesComputer.forNode(executavel)`: o nome de cada local e a
+/// `VisibleRangesComputer.forNode(executable)`: o nome de cada local e a
 /// faixa onde é visível.
-pub(crate) fn faixas_visiveis(cx: &Contexto<'_>, raiz: usize) -> Vec<(String, (usize, usize))> {
+pub(crate) fn visible_ranges(cx: &Context<'_>, root: usize) -> Vec<(String, (usize, usize))> {
     let mut v: Vec<(String, (usize, usize))> = Vec::new();
-    let nome_de = |t: &str| crate::refactorings_exec::nome_no_inicio_pub(t);
-    let mut pilha = vec![raiz];
-    while let Some(k) = pilha.pop() {
-        match cx.especie(k) {
+    let name_of = |t: &str| crate::refactorings_exec::name_at_start_pub(t);
+    let mut stack = vec![root];
+    while let Some(k) = stack.pop() {
+        match cx.kind(k) {
             "CatchClause" => {
-                for &f in cx.filhos(k) {
-                    if cx.especie(f) == "CatchClauseParameter" {
-                        v.push((cx.texto_do_no(f).to_string(), faixa(cx, k)));
+                for &f in cx.children(k) {
+                    if cx.kind(f) == "CatchClauseParameter" {
+                        v.push((cx.node_text(f).to_string(), range(cx, k)));
                     }
                 }
-                if let Some(&b) = cx.filhos(k).last() {
-                    pilha.push(b);
+                if let Some(&b) = cx.children(k).last() {
+                    stack.push(b);
                 }
                 continue;
             }
             "SimpleFormalParameter" | "FieldFormalParameter" | "SuperFormalParameter" | "FunctionTypedFormalParameter" | "DefaultFormalParameter" => {
                 // O corpo da função dona.
-                let dona = cx.com_pais(k).find(|&x| matches!(cx.especie(x), "FunctionExpression" | "MethodDeclaration" | "ConstructorDeclaration"));
-                let corpo = dona.and_then(|d| cx.filhos(d).iter().copied().find(|&c| matches!(cx.especie(c), "BlockFunctionBody" | "ExpressionFunctionBody")));
-                if let Some(c) = corpo {
-                    v.push((nome_do_parametro(cx, k), faixa(cx, c)));
+                let owning = cx.with_parents(k).find(|&x| matches!(cx.kind(x), "FunctionExpression" | "MethodDeclaration" | "ConstructorDeclaration"));
+                let body = owning.and_then(|d| cx.children(d).iter().copied().find(|&c| matches!(cx.kind(c), "BlockFunctionBody" | "ExpressionFunctionBody")));
+                if let Some(c) = body {
+                    v.push((parameter_name(cx, k), range(cx, c)));
                 }
                 continue;
             }
             "ForPartsWithDeclarations" => {
-                if let Some(laco) = cx.pai(k)
-                    && let Some(&lista) = cx.filhos(k).first()
+                if let Some(loop_) = cx.parent(k)
+                    && let Some(&list) = cx.children(k).first()
                 {
-                    for &d in cx.filhos(lista) {
-                        if cx.especie(d) == "VariableDeclaration" {
-                            v.push((nome_de(cx.texto_do_no(d)), faixa(cx, laco)));
-                            pilha.extend(cx.filhos(d).iter().copied());
+                    for &d in cx.children(list) {
+                        if cx.kind(d) == "VariableDeclaration" {
+                            v.push((name_of(cx.node_text(d)), range(cx, loop_)));
+                            stack.extend(cx.children(d).iter().copied());
                         }
                     }
                 }
                 continue;
             }
             "FunctionDeclaration" => {
-                if let Some(s) = cx.pai(k)
-                    && let Some(b) = cx.pai(s)
-                    && cx.especie(b) == "Block"
-                    && let Marca::Funcao(fid) = cx.arvore.nos[k].marca
-                    && let Some(nome) = cx.ast.function(fid).name
+                if let Some(s) = cx.parent(k)
+                    && let Some(b) = cx.parent(s)
+                    && cx.kind(b) == "Block"
+                    && let Marca::Funcao(fid) = cx.tree.nos[k].marca
+                    && let Some(name) = cx.ast.function(fid).name
                 {
-                    v.push((cx.fonte[nome.span.start..nome.span.end].to_string(), faixa(cx, b)));
+                    v.push((cx.source[name.span.start..name.span.end].to_string(), range(cx, b)));
                 }
             }
             "VariableDeclarationStatement" => {
-                if let Some(bloco) = cx.pai(k)
-                    && let Some(&lista) = cx.filhos(k).iter().find(|&&c| cx.especie(c) == "VariableDeclarationList")
+                if let Some(block) = cx.parent(k)
+                    && let Some(&list) = cx.children(k).iter().find(|&&c| cx.kind(c) == "VariableDeclarationList")
                 {
-                    for &d in cx.filhos(lista) {
-                        if cx.especie(d) == "VariableDeclaration" {
-                            v.push((nome_de(cx.texto_do_no(d)), faixa(cx, bloco)));
-                            pilha.extend(cx.filhos(d).iter().copied());
+                    for &d in cx.children(list) {
+                        if cx.kind(d) == "VariableDeclaration" {
+                            v.push((name_of(cx.node_text(d)), range(cx, block)));
+                            stack.extend(cx.children(d).iter().copied());
                         }
                     }
                 }
@@ -870,22 +870,22 @@ pub(crate) fn faixas_visiveis(cx: &Contexto<'_>, raiz: usize) -> Vec<(String, (u
             }
             _ => {}
         }
-        pilha.extend(cx.filhos(k).iter().rev().copied());
+        stack.extend(cx.children(k).iter().rev().copied());
     }
     v
 }
 
 /// O nome declarado de um parâmetro formal (o último identificador antes de
 /// `=`, `:` ou `(`).
-fn nome_do_parametro(cx: &Contexto<'_>, k: usize) -> String {
-    let t = cx.texto_do_no(k);
-    let corte = t.find(['=', ':']).unwrap_or(t.len());
-    let antes = &t[..corte];
-    let antes = match antes.find('(') {
-        Some(i) if cx.especie(k) == "FunctionTypedFormalParameter" => &antes[..i],
-        _ => antes,
+fn parameter_name(cx: &Context<'_>, k: usize) -> String {
+    let t = cx.node_text(k);
+    let cut = t.find(['=', ':']).unwrap_or(t.len());
+    let before = &t[..cut];
+    let before = match before.find('(') {
+        Some(i) if cx.kind(k) == "FunctionTypedFormalParameter" => &before[..i],
+        _ => before,
     };
-    antes
+    before
         .trim_end()
         .rsplit(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
         .next()

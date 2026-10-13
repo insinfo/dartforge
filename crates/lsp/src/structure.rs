@@ -30,83 +30,83 @@ use dartforge_intern::Interner;
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 
-use crate::utf16::TabelaLinhas;
+use crate::utf16::LineTable;
 
 /// Uma região de dobra em linhas (0-based), com a espécie LSP
 /// (`comment`, `imports` ou nenhuma).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Dobra {
-    pub linha_inicio: u32,
-    pub coluna_inicio: u32,
-    pub linha_fim: u32,
-    pub coluna_fim: u32,
-    pub especie: Option<&'static str>,
+pub struct Fold {
+    pub line_begin: u32,
+    pub column_start: u32,
+    pub line_end: u32,
+    pub column_end: u32,
+    pub kind: Option<&'static str>,
 }
 
 /// Espécie de região do analyzer, reduzida ao que o LSP distingue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Especie {
-    Comentario,
-    Diretivas,
-    Outra,
+enum FoldKind {
+    Comment,
+    Directives,
+    Other,
 }
 
 /// Uma região candidata, com a chave de visita (início e fim do nó que a
 /// produz; o pai antes do filho, a ordem de produção entre iguais).
-struct Candidata {
+struct Candidate {
     no: (usize, Reverse<usize>, usize),
-    inicio: usize,
-    fim: usize,
-    especie: Especie,
-    alternativo: Option<usize>,
+    start: usize,
+    end: usize,
+    kind: FoldKind,
+    alternative: Option<usize>,
 }
 
 /// Tokens do texto com o par de cada parêntese, colchete e chave.
 struct Tokens<'a> {
-    fonte: &'a str,
-    lista: Vec<Token>,
-    par: HashMap<usize, usize>,
+    source: &'a str,
+    list: Vec<Token>,
+    pair: HashMap<usize, usize>,
 }
 
 impl<'a> Tokens<'a> {
-    fn novos(fonte: &'a str) -> Option<Self> {
-        let lista = dartforge_frontend::lexer::lex(fonte).ok()?;
-        let mut par = HashMap::new();
-        let mut pilha: Vec<(Op, usize)> = Vec::new();
-        for (i, t) in lista.iter().enumerate() {
+    fn new(source: &'a str) -> Option<Self> {
+        let list = dartforge_frontend::lexer::lex(source).ok()?;
+        let mut pair = HashMap::new();
+        let mut stack: Vec<(Op, usize)> = Vec::new();
+        for (i, t) in list.iter().enumerate() {
             if let Kind::Op(op) = t.kind {
                 match op {
-                    Op::LParen | Op::LBracket | Op::LBrace => pilha.push((op, i)),
+                    Op::LParen | Op::LBracket | Op::LBrace => stack.push((op, i)),
                     Op::RParen | Op::RBracket | Op::RBrace => {
-                        let abre = match op {
+                        let opens = match op {
                             Op::RParen => Op::LParen,
                             Op::RBracket => Op::LBracket,
                             _ => Op::LBrace,
                         };
-                        if let Some(pos) = pilha.iter().rposition(|(o, _)| *o == abre) {
-                            let (_, j) = pilha[pos];
-                            pilha.truncate(pos);
-                            par.insert(j, i);
-                            par.insert(i, j);
+                        if let Some(pos) = stack.iter().rposition(|(o, _)| *o == opens) {
+                            let (_, j) = stack[pos];
+                            stack.truncate(pos);
+                            pair.insert(j, i);
+                            pair.insert(i, j);
                         }
                     }
                     _ => {}
                 }
             }
         }
-        Some(Self { fonte, lista, par })
+        Some(Self { source, list, pair })
     }
 
     /// Índice do primeiro token que começa em `offset` ou depois.
-    fn indice(&self, offset: usize) -> usize {
-        self.lista.partition_point(|t| t.span.start < offset)
+    fn index(&self, offset: usize) -> usize {
+        self.list.partition_point(|t| t.span.start < offset)
     }
 
-    /// O primeiro token `op` em `[de, ate)`.
-    fn primeiro(&self, op: Op, de: usize, ate: usize) -> Option<usize> {
-        let mut i = self.indice(de);
-        while let Some(t) = self.lista.get(i) {
-            if t.span.start >= ate {
+    /// O primeiro token `op` em `[de, until)`.
+    fn first(&self, op: Op, de: usize, until: usize) -> Option<usize> {
+        let mut i = self.index(de);
+        while let Some(t) = self.list.get(i) {
+            if t.span.start >= until {
                 return None;
             }
             if t.kind == Kind::Op(op) {
@@ -117,387 +117,387 @@ impl<'a> Tokens<'a> {
         None
     }
 
-    /// O último token `op` em `[de, ate)`.
-    fn ultimo(&self, op: Op, de: usize, ate: usize) -> Option<usize> {
-        let i0 = self.indice(de);
-        let i1 = self.indice(ate);
-        (i0..i1).rev().find(|i| self.lista[*i].kind == Kind::Op(op))
+    /// O último token `op` em `[de, until)`.
+    fn last(&self, op: Op, de: usize, until: usize) -> Option<usize> {
+        let i0 = self.index(de);
+        let i1 = self.index(until);
+        (i0..i1).rev().find(|i| self.list[*i].kind == Kind::Op(op))
     }
 
     fn span(&self, i: usize) -> Span {
-        self.lista[i].span
+        self.list[i].span
     }
 
-    /// `(abre, fecha)` do par que começa no token `i`.
-    fn par_de(&self, i: usize) -> Option<(Span, Span)> {
-        let j = *self.par.get(&i)?;
+    /// `(opens, closes)` do par que começa no token `i`.
+    fn pair_of(&self, i: usize) -> Option<(Span, Span)> {
+        let j = *self.pair.get(&i)?;
         Some((self.span(i), self.span(j)))
     }
 
     /// Fim do último comentário entre o token anterior a `offset` e
     /// `offset` (os comentários que precedem o token em `offset`).
-    fn fim_de_comentario_antes(&self, offset: usize) -> Option<usize> {
-        let i = self.indice(offset);
-        let de = if i == 0 { 0 } else { self.lista[i - 1].span.end };
-        comentarios(self.fonte, de, offset).last().map(|c| c.fim)
+    fn comment_end_before(&self, offset: usize) -> Option<usize> {
+        let i = self.index(offset);
+        let de = if i == 0 { 0 } else { self.list[i - 1].span.end };
+        comments(self.source, de, offset).last().map(|c| c.end)
     }
 }
 
 /// Um comentário no texto.
 #[derive(Debug, Clone, Copy)]
-struct Comentario {
-    inicio: usize,
-    fim: usize,
-    bloco: bool,
-    tripla: bool,
+struct Comment {
+    start: usize,
+    end: usize,
+    block: bool,
+    triple: bool,
 }
 
 /// Os comentários de uma lacuna entre tokens.
-fn comentarios(fonte: &str, de: usize, ate: usize) -> Vec<Comentario> {
-    let b = fonte.as_bytes();
-    let mut saida = Vec::new();
+fn comments(source: &str, de: usize, until: usize) -> Vec<Comment> {
+    let b = source.as_bytes();
+    let mut output = Vec::new();
     let mut i = de;
-    let ate = ate.min(b.len());
-    while i < ate {
+    let until = until.min(b.len());
+    while i < until {
         if b[i] == b'/' && b.get(i + 1) == Some(&b'/') {
-            let fim = fonte[i..ate].find(['\n', '\r']).map_or(ate, |k| i + k);
-            saida.push(Comentario { inicio: i, fim, bloco: false, tripla: fonte[i..].starts_with("///") });
-            i = fim;
+            let end = source[i..until].find(['\n', '\r']).map_or(until, |k| i + k);
+            output.push(Comment { start: i, end, block: false, triple: source[i..].starts_with("///") });
+            i = end;
         } else if b[i] == b'/' && b.get(i + 1) == Some(&b'*') {
             // Comentários de bloco aninham em Dart.
-            let mut nivel = 0usize;
+            let mut level = 0usize;
             let mut j = i;
-            while j + 1 < ate {
+            while j + 1 < until {
                 if b[j] == b'/' && b[j + 1] == b'*' {
-                    nivel += 1;
+                    level += 1;
                     j += 2;
                 } else if b[j] == b'*' && b[j + 1] == b'/' {
-                    nivel -= 1;
+                    level -= 1;
                     j += 2;
-                    if nivel == 0 {
+                    if level == 0 {
                         break;
                     }
                 } else {
                     j += 1;
                 }
             }
-            let fim = j.min(ate);
-            saida.push(Comentario { inicio: i, fim, bloco: true, tripla: false });
-            i = fim;
+            let end = j.min(until);
+            output.push(Comment { start: i, end, block: true, triple: false });
+            i = end;
         } else {
             i += 1;
         }
     }
-    saida
+    output
 }
 
-/// As regiões de dobra de `texto`.
-pub(crate) fn dobras(texto: &str, features: LibraryFeatures, so_linhas: bool) -> Vec<Dobra> {
-    let mut nomes = Interner::new();
-    let analisado = dartforge_frontend::parser::parse_com(texto, &mut nomes, features);
-    let Some(tokens) = Tokens::novos(texto) else { return Vec::new() };
-    let linhas = TabelaLinhas::construir(texto);
-    let mut c = Coletor { ast: &analisado.ast, t: &tokens, candidatas: Vec::new() };
-    c.coletar(&analisado.unit);
-    let mut candidatas = c.candidatas;
+/// As regiões de dobra de `text`.
+pub(crate) fn folds(text: &str, features: LibraryFeatures, lines_only: bool) -> Vec<Fold> {
+    let mut names = Interner::new();
+    let analyzed = dartforge_frontend::parser::parse_com(text, &mut names, features);
+    let Some(tokens) = Tokens::new(text) else { return Vec::new() };
+    let lines = LineTable::build(text);
+    let mut c = Collector { ast: &analyzed.ast, t: &tokens, candidates: Vec::new() };
+    c.collect(&analyzed.unit);
+    let mut candidates = c.candidates;
     // A ordem de visita da árvore (pré-ordem): o nó de início menor; entre
     // iguais, o maior (pai) e então a ordem de produção.
-    candidatas.sort_by_key(|r| r.no);
+    candidates.sort_by_key(|r| r.no);
 
-    let linha = |o: usize| linhas.linha_de(texto, o.min(texto.len()));
-    let mut ocupadas: HashSet<usize> = HashSet::new();
-    let mut regioes: Vec<(usize, usize, Especie)> = Vec::new();
-    let mut adicionar = |inicio: usize, fim: usize, especie: Especie, alternativo: Option<usize>, ocupadas: &mut HashSet<usize>| {
-        let mut inicio = inicio;
-        if ocupadas.contains(&linha(inicio)) {
-            let Some(a) = alternativo else { return };
-            inicio = a;
-            if ocupadas.contains(&linha(inicio)) {
+    let line = |o: usize| lines.line_of(text, o.min(text.len()));
+    let mut occupied: HashSet<usize> = HashSet::new();
+    let mut regions: Vec<(usize, usize, FoldKind)> = Vec::new();
+    let mut add = |start: usize, end: usize, kind: FoldKind, alternative: Option<usize>, occupied: &mut HashSet<usize>| {
+        let mut start = start;
+        if occupied.contains(&line(start)) {
+            let Some(a) = alternative else { return };
+            start = a;
+            if occupied.contains(&line(start)) {
                 return;
             }
         }
-        if fim >= inicio && linha(fim) > linha(inicio) {
-            regioes.push((inicio, fim, especie));
-            ocupadas.insert(linha(inicio));
+        if end >= start && line(end) > line(start) {
+            regions.push((start, end, kind));
+            occupied.insert(line(start));
         }
     };
-    for r in &candidatas {
-        adicionar(r.inicio, r.fim, r.especie, r.alternativo, &mut ocupadas);
+    for r in &candidates {
+        add(r.start, r.end, r.kind, r.alternative, &mut occupied);
     }
     // Diretivas: da palavra-chave da primeira ao fim da última.
-    let diretivas: Vec<&ast::Directive> = analisado
+    let directives: Vec<&ast::Directive> = analyzed
         .unit
         .directives
         .iter()
         .filter(|d| !matches!(d.kind, ast::DirectiveKind::ImportAugment { .. } | ast::DirectiveKind::AugmentLibrary { .. }))
         .collect();
-    if diretivas.len() > 1 {
-        let primeira = diretivas[0];
-        let depois_dos_metadados = primeira.metadata.last().map_or(primeira.span.start, |a| a.span.end);
-        let i = tokens.indice(depois_dos_metadados);
-        if let Some(t) = tokens.lista.get(i) {
-            adicionar(t.span.end, diretivas[diretivas.len() - 1].span.end, Especie::Diretivas, None, &mut ocupadas);
+    if directives.len() > 1 {
+        let first = directives[0];
+        let after_metadata = first.metadata.last().map_or(first.span.start, |a| a.span.end);
+        let i = tokens.index(after_metadata);
+        if let Some(t) = tokens.list.get(i) {
+            add(t.span.end, directives[directives.len() - 1].span.end, FoldKind::Directives, None, &mut occupied);
         }
     }
     // Comentários, lacuna por lacuna (a cadeia que precede cada token).
-    let mut anterior = analisado.unit.script_tag.map_or(0, |s| s.end);
-    for t in &tokens.lista {
+    let mut previous = analyzed.unit.script_tag.map_or(0, |s| s.end);
+    for t in &tokens.list {
         if t.kind == Kind::ScriptTag {
-            anterior = t.span.end;
+            previous = t.span.end;
             continue;
         }
-        let cadeia = comentarios(texto, anterior, t.span.start);
+        let chain = comments(text, previous, t.span.start);
         let mut k = 0;
-        while k < cadeia.len() {
-            let atual = cadeia[k];
-            let (inicio, fim, proximo) = if atual.bloco {
-                let eol = texto[atual.inicio..atual.fim].find(['\r', '\n']).unwrap_or(0);
-                (atual.inicio + eol, atual.fim, k + 1)
+        while k < chain.len() {
+            let current = chain[k];
+            let (start, end, next_) = if current.block {
+                let eol = text[current.start..current.end].find(['\r', '\n']).unwrap_or(0);
+                (current.start + eol, current.end, k + 1)
             } else {
-                let mut ultimo = k;
-                while ultimo + 1 < cadeia.len()
-                    && !cadeia[ultimo + 1].bloco
-                    && cadeia[ultimo + 1].tripla == atual.tripla
-                    && linha(cadeia[ultimo + 1].inicio) - linha(cadeia[ultimo].fim) <= 1
+                let mut last = k;
+                while last + 1 < chain.len()
+                    && !chain[last + 1].block
+                    && chain[last + 1].triple == current.triple
+                    && line(chain[last + 1].start) - line(chain[last].end) <= 1
                 {
-                    ultimo += 1;
+                    last += 1;
                 }
-                (atual.fim, cadeia[ultimo].fim, ultimo + 1)
+                (current.end, chain[last].end, last + 1)
             };
-            adicionar(inicio, fim, Especie::Comentario, None, &mut ocupadas);
-            k = proximo;
+            add(start, end, FoldKind::Comment, None, &mut occupied);
+            k = next_;
         }
-        anterior = t.span.end;
+        previous = t.span.end;
     }
-    regioes.sort_by_key(|r| r.0);
-    let mut saida: Vec<Dobra> = regioes
+    regions.sort_by_key(|r| r.0);
+    let mut output: Vec<Fold> = regions
         .into_iter()
-        .map(|(inicio, fim, especie)| {
-            let (l0, c0) = linhas.posicao_de_offset(texto, inicio);
-            let (l1, c1) = linhas.posicao_de_offset(texto, fim);
-            Dobra {
-                linha_inicio: l0,
-                coluna_inicio: c0,
-                linha_fim: l1,
-                coluna_fim: c1,
-                especie: match especie {
-                    Especie::Comentario => Some("comment"),
-                    Especie::Diretivas => Some("imports"),
-                    Especie::Outra => None,
+        .map(|(start, end, kind)| {
+            let (l0, c0) = lines.offset_position(text, start);
+            let (l1, c1) = lines.offset_position(text, end);
+            Fold {
+                line_begin: l0,
+                column_start: c0,
+                line_end: l1,
+                column_end: c1,
+                kind: match kind {
+                    FoldKind::Comment => Some("comment"),
+                    FoldKind::Directives => Some("imports"),
+                    FoldKind::Other => None,
                 },
             }
         })
         .collect();
-    if so_linhas {
+    if lines_only {
         // A que termina na linha em que a seguinte começa (sem contê-la)
         // é encurtada até a linha anterior.
         let mut i = 0;
-        while i + 1 < saida.len() {
-            let (atual, prox) = (&saida[i], &saida[i + 1]);
-            if atual.linha_fim >= prox.linha_inicio && atual.linha_fim <= prox.linha_fim {
-                let novo_fim = prox.linha_inicio.saturating_sub(1);
-                if novo_fim <= atual.linha_inicio {
-                    saida.remove(i);
+        while i + 1 < output.len() {
+            let (current, next) = (&output[i], &output[i + 1]);
+            if current.line_end >= next.line_begin && current.line_end <= next.line_end {
+                let new_end = next.line_begin.saturating_sub(1);
+                if new_end <= current.line_begin {
+                    output.remove(i);
                     i = i.saturating_sub(1);
                     continue;
                 }
-                saida[i].linha_fim = novo_fim;
+                output[i].line_end = new_end;
             }
             i += 1;
         }
     }
-    saida
+    output
 }
 
 /// Percorre a árvore produzindo as regiões candidatas.
-struct Coletor<'a> {
+struct Collector<'a> {
     ast: &'a Ast,
     t: &'a Tokens<'a>,
-    candidatas: Vec<Candidata>,
+    candidates: Vec<Candidate>,
 }
 
-impl Coletor<'_> {
-    fn regiao(&mut self, no: Span, inicio: usize, fim: usize, alternativo: Option<usize>) {
-        let seq = self.candidatas.len();
-        self.candidatas.push(Candidata {
+impl Collector<'_> {
+    fn region(&mut self, no: Span, start: usize, end: usize, alternative: Option<usize>) {
+        let seq = self.candidates.len();
+        self.candidates.push(Candidate {
             no: (no.start, Reverse(no.end), seq),
-            inicio,
-            fim,
-            especie: Especie::Outra,
-            alternativo,
+            start,
+            end,
+            kind: FoldKind::Other,
+            alternative,
         });
     }
 
-    fn anotacoes(&mut self, no: Span, anotacoes: &[Annotation]) {
-        let (Some(primeira), Some(ultima)) = (anotacoes.first(), anotacoes.last()) else { return };
-        let Some(nome) = primeira.name.get(primeira.name.len().min(2).saturating_sub(1)) else { return };
-        self.regiao(no, nome.span.end, ultima.span.end, None);
-        for a in anotacoes {
+    fn annotations(&mut self, no: Span, annotations: &[Annotation]) {
+        let (Some(first), Some(last)) = (annotations.first(), annotations.last()) else { return };
+        let Some(name) = first.name.get(first.name.len().min(2).saturating_sub(1)) else { return };
+        self.region(no, name.span.end, last.span.end, None);
+        for a in annotations {
             if let Some(args) = &a.arguments {
-                self.argumentos(args);
+                self.arguments(args);
             }
         }
     }
 
     /// Lista de argumentos: entre os parênteses; alternativo, o primeiro
     /// argumento.
-    fn argumentos(&mut self, a: &Arguments) {
+    fn arguments(&mut self, a: &Arguments) {
         let (ast, toks) = (self.ast, self.t);
         let s = a.span;
-        if s.end <= s.start || toks.fonte.as_bytes().get(s.end - 1) != Some(&b')') {
+        if s.end <= s.start || toks.source.as_bytes().get(s.end - 1) != Some(&b')') {
             return;
         }
-        let primeiro = a.args.first().map(|x| x.name.map_or(ast.expr(x.value).span.start, |n| n.span.start));
-        self.regiao(s, s.start + 1, s.end - 1, primeiro);
+        let first = a.args.first().map(|x| x.name.map_or(ast.expr(x.value).span.start, |n| n.span.start));
+        self.region(s, s.start + 1, s.end - 1, first);
     }
 
-    /// Lista de parâmetros a partir do primeiro `(` em `[ancora, limite)`.
-    fn parametros(&mut self, ancora: usize, limite: usize, ps: &[Parameter]) {
+    /// Lista de parâmetros a partir do primeiro `(` em `[anchor, limit)`.
+    fn parameters(&mut self, anchor: usize, limit: usize, ps: &[Parameter]) {
         let toks = self.t;
-        let Some(i) = toks.primeiro(Op::LParen, ancora, limite) else { return };
-        let Some((abre, fecha)) = toks.par_de(i) else { return };
-        self.regiao(Span { start: abre.start, end: fecha.end }, abre.end, fecha.start, ps.first().map(|p| p.span.start));
+        let Some(i) = toks.first(Op::LParen, anchor, limit) else { return };
+        let Some((opens, closes)) = toks.pair_of(i) else { return };
+        self.region(Span { start: opens.start, end: closes.end }, opens.end, closes.start, ps.first().map(|p| p.span.start));
         for p in ps {
-            self.parametro(p);
+            self.parameter(p);
         }
     }
 
-    fn parametro(&mut self, p: &Parameter) {
+    fn parameter(&mut self, p: &Parameter) {
         if let Some(fps) = &p.function_parameters {
-            let ancora = p.name.map_or(p.span.start, |n| n.span.end);
-            self.parametros(ancora, p.span.end, fps);
+            let anchor = p.name.map_or(p.span.start, |n| n.span.end);
+            self.parameters(anchor, p.span.end, fps);
         }
         if let Some(ty) = p.ty {
-            self.tipo(ty);
+            self.ty(ty);
         }
     }
 
-    fn tipo(&mut self, ty: ast::TypeId) {
+    fn ty(&mut self, ty: ast::TypeId) {
         let (ast, toks) = (self.ast, self.t);
         let t = ast.ty(ty);
         if let TypeKind::Function { parameters, .. } = &t.kind {
             // A lista vem depois da palavra `Function` (e dos parâmetros de tipo).
-            let mut i = toks.indice(t.span.start);
-            while let Some(tok) = toks.lista.get(i) {
+            let mut i = toks.index(t.span.start);
+            while let Some(tok) = toks.list.get(i) {
                 if tok.span.start >= t.span.end {
                     return;
                 }
-                if tok.text(toks.fonte) == "Function" {
+                if tok.text(toks.source) == "Function" {
                     break;
                 }
                 i += 1;
             }
-            let Some(tok) = toks.lista.get(i) else { return };
-            self.parametros(tok.span.end, t.span.end, parameters);
+            let Some(tok) = toks.list.get(i) else { return };
+            self.parameters(tok.span.end, t.span.end, parameters);
         }
     }
 
     /// Bloco de `if`/`while`/`do`: do fim do `{` ao fim do último
     /// comentário antes do `}`, senão ao fim do último comando.
-    fn bloco_condicional(&mut self, no: Span, bloco: ast::StmtId) {
+    fn conditional_block(&mut self, no: Span, block: ast::StmtId) {
         let (ast, toks) = (self.ast, self.t);
-        let b = ast.stmt(bloco);
+        let b = ast.stmt(block);
         let StmtKind::Block(cmds) = &b.kind else { return };
         let s = b.span;
         if s.end <= s.start {
             return;
         }
-        let inicio = s.start + 1;
-        if let Some(fim) = toks.fim_de_comentario_antes(s.end - 1).filter(|f| *f > inicio) {
-            self.regiao(no, inicio, fim, None);
-        } else if let Some(ultimo) = cmds.last() {
-            self.regiao(no, inicio, ast.stmt(*ultimo).span.end, None);
+        let start = s.start + 1;
+        if let Some(end) = toks.comment_end_before(s.end - 1).filter(|f| *f > start) {
+            self.region(no, start, end, None);
+        } else if let Some(last) = cmds.last() {
+            self.region(no, start, ast.stmt(*last).span.end, None);
         }
     }
 
     /// Corpo de `{` a `}` de uma expressão de função ou de um `for`.
-    fn bloco_inteiro(&mut self, no: Span, bloco: ast::StmtId) {
+    fn whole_block(&mut self, no: Span, block: ast::StmtId) {
         let ast = self.ast;
-        let b = ast.stmt(bloco);
+        let b = ast.stmt(block);
         if matches!(b.kind, StmtKind::Block(_)) {
-            self.regiao(no, b.span.start, b.span.end, None);
+            self.region(no, b.span.start, b.span.end, None);
         }
     }
 
-    fn coletar(&mut self, unidade: &ast::CompilationUnit) {
+    fn collect(&mut self, unit: &ast::CompilationUnit) {
         let ast = self.ast;
         let toks = self.t;
-        for d in &unidade.directives {
+        for d in &unit.directives {
             for a in &d.metadata {
                 if let Some(args) = &a.arguments {
-                    self.argumentos(args);
+                    self.arguments(args);
                 }
             }
         }
         // Funções que são `FunctionExpression` no analyzer (todas menos os
         // métodos) e as que são declarações (topo e locais).
-        let mut metodos: HashSet<u32> = HashSet::new();
+        let mut methods: HashSet<u32> = HashSet::new();
         for m in &ast.members {
             if let MemberKind::Method(f) = m.kind {
-                metodos.insert(f.0);
+                methods.insert(f.0);
             }
         }
         for d in &ast.decls {
-            self.anotacoes(d.span, &d.metadata);
+            self.annotations(d.span, &d.metadata);
             match &d.kind {
-                DeclKind::Class(k) if !k.mixin_application => self.regiao(d.span, k.name.span.end, d.span.end, None),
-                DeclKind::Mixin(k) => self.regiao(d.span, k.name.span.end, d.span.end, None),
+                DeclKind::Class(k) if !k.mixin_application => self.region(d.span, k.name.span.end, d.span.end, None),
+                DeclKind::Mixin(k) => self.region(d.span, k.name.span.end, d.span.end, None),
                 DeclKind::Enum(k) => {
-                    self.corpo_entre_chaves(d.span, k.name.span.end);
+                    self.body_in_braces(d.span, k.name.span.end);
                     for c in &k.constants {
-                        self.anotacoes(c.span, &c.metadata);
+                        self.annotations(c.span, &c.metadata);
                         if let Some(a) = &c.arguments {
-                            self.argumentos(a);
+                            self.arguments(a);
                         }
                     }
                 }
                 DeclKind::Extension(k) => {
-                    let ancora = ast.ty(k.on).span.end;
-                    self.corpo_entre_chaves(d.span, ancora);
+                    let anchor = ast.ty(k.on).span.end;
+                    self.body_in_braces(d.span, anchor);
                 }
                 DeclKind::ExtensionType(k) => {
-                    let ancora = k.representation_span.end;
-                    self.corpo_entre_chaves(d.span, ancora);
+                    let anchor = k.representation_span.end;
+                    self.body_in_braces(d.span, anchor);
                 }
                 DeclKind::Typedef(k) => match &k.kind {
-                    ast::TypedefKind::Alias(t) => self.tipo(*t),
-                    ast::TypedefKind::Legacy { parameters, .. } => self.parametros(k.name.span.end, d.span.end, parameters),
+                    ast::TypedefKind::Alias(t) => self.ty(*t),
+                    ast::TypedefKind::Legacy { parameters, .. } => self.parameters(k.name.span.end, d.span.end, parameters),
                 },
                 DeclKind::Function(f) => {
                     let func = ast.function(*f);
                     if let Some(n) = func.name {
-                        self.regiao(d.span, n.span.end, d.span.end, None);
+                        self.region(d.span, n.span.end, d.span.end, None);
                     }
                 }
                 DeclKind::Variables(v) => {
                     if let Some(t) = v.ty {
-                        self.tipo(t);
+                        self.ty(t);
                     }
                 }
                 _ => {}
             }
         }
         for m in &ast.members {
-            self.anotacoes(m.span, &m.metadata);
+            self.annotations(m.span, &m.metadata);
             match &m.kind {
                 MemberKind::Method(f) => {
                     if let Some(n) = ast.function(*f).name {
-                        self.regiao(m.span, n.span.end, m.span.end, None);
+                        self.region(m.span, n.span.end, m.span.end, None);
                     }
                 }
                 MemberKind::Constructor(k) => {
-                    let ancora = k.name.unwrap_or(k.class_name).span.end;
-                    self.regiao(m.span, ancora, m.span.end, None);
-                    self.parametros(ancora, m.span.end, &k.parameters);
-                    for ini in k.initializers.iter() {
-                        match ini {
-                            Initializer::Super { arguments, .. } | Initializer::Redirect { arguments, .. } => self.argumentos(arguments),
+                    let anchor = k.name.unwrap_or(k.class_name).span.end;
+                    self.region(m.span, anchor, m.span.end, None);
+                    self.parameters(anchor, m.span.end, &k.parameters);
+                    for start in k.initializers.iter() {
+                        match start {
+                            Initializer::Super { arguments, .. } | Initializer::Redirect { arguments, .. } => self.arguments(arguments),
                             Initializer::Assert { span, condition, .. } => {
-                                if let Some(i) = toks.primeiro(Op::LParen, span.start, span.end)
-                                    && let Some((abre, fecha)) = toks.par_de(i)
+                                if let Some(i) = toks.first(Op::LParen, span.start, span.end)
+                                    && let Some((opens, closes)) = toks.pair_of(i)
                                 {
                                     let c = ast.expr(*condition).span.start;
-                                    self.regiao(*span, abre.end, fecha.start, Some(c));
+                                    self.region(*span, opens.end, closes.start, Some(c));
                                 }
                             }
                             Initializer::Field { .. } => {}
@@ -506,65 +506,65 @@ impl Coletor<'_> {
                 }
                 MemberKind::Field(v) => {
                     if let Some(t) = v.ty {
-                        self.tipo(t);
+                        self.ty(t);
                     }
                 }
             }
         }
         for (i, f) in ast.functions.iter().enumerate() {
-            let ancora = f.name.map_or(f.span.start, |n| n.span.end);
-            if !metodos.contains(&(i as u32))
+            let anchor = f.name.map_or(f.span.start, |n| n.span.end);
+            if !methods.contains(&(i as u32))
                 && let FunctionBody::Block(b) = f.body
             {
                 // O nó da expressão de função começa nos parâmetros.
-                let no_inicio = toks.primeiro(Op::LParen, ancora, f.span.end).map_or(f.span.start, |k| toks.span(k).start);
-                self.bloco_inteiro(Span { start: no_inicio, end: f.span.end }, b);
+                let at_start = toks.first(Op::LParen, anchor, f.span.end).map_or(f.span.start, |k| toks.span(k).start);
+                self.whole_block(Span { start: at_start, end: f.span.end }, b);
             }
             if let Some(ps) = &f.parameters {
-                self.parametros(ancora, f.span.end, ps);
+                self.parameters(anchor, f.span.end, ps);
             }
             if let Some(t) = f.return_type {
-                self.tipo(t);
+                self.ty(t);
             }
         }
         for s in &ast.stmts {
             match &s.kind {
                 StmtKind::If { then, else_, .. } => {
-                    self.bloco_condicional(s.span, *then);
+                    self.conditional_block(s.span, *then);
                     if let Some(e) = else_ {
-                        self.bloco_condicional(s.span, *e);
+                        self.conditional_block(s.span, *e);
                     }
                 }
-                StmtKind::While { body, .. } | StmtKind::DoWhile { body, .. } => self.bloco_condicional(s.span, *body),
-                StmtKind::For { body, .. } | StmtKind::ForIn { body, .. } => self.bloco_inteiro(s.span, *body),
+                StmtKind::While { body, .. } | StmtKind::DoWhile { body, .. } => self.conditional_block(s.span, *body),
+                StmtKind::For { body, .. } | StmtKind::ForIn { body, .. } => self.whole_block(s.span, *body),
                 StmtKind::Function(f) => {
                     if let Some(n) = ast.function(*f).name {
-                        self.regiao(s.span, n.span.end, s.span.end, None);
+                        self.region(s.span, n.span.end, s.span.end, None);
                     }
                 }
                 StmtKind::Switch { cases, .. } => {
-                    if let Some(i) = toks.primeiro(Op::LBrace, s.span.start, s.span.end)
-                        && let Some((abre, fecha)) = toks.par_de(i)
+                    if let Some(i) = toks.first(Op::LBrace, s.span.start, s.span.end)
+                        && let Some((opens, closes)) = toks.pair_of(i)
                     {
-                        self.regiao(s.span, abre.end, fecha.end, None);
+                        self.region(s.span, opens.end, closes.end, None);
                     }
-                    for caso in cases.iter() {
-                        let ate = caso.body.first().map_or(caso.span.end, |b| ast.stmt(*b).span.start);
-                        if let Some(i) = toks.ultimo(Op::Colon, caso.span.start, ate) {
-                            self.regiao(caso.span, toks.span(i).end, caso.span.end, None);
+                    for case in cases.iter() {
+                        let until = case.body.first().map_or(case.span.end, |b| ast.stmt(*b).span.start);
+                        if let Some(i) = toks.last(Op::Colon, case.span.start, until) {
+                            self.region(case.span, toks.span(i).end, case.span.end, None);
                         }
                     }
                 }
                 StmtKind::Assert { .. } => {
-                    if let Some(i) = toks.primeiro(Op::LParen, s.span.start, s.span.end)
-                        && let Some((abre, fecha)) = toks.par_de(i)
+                    if let Some(i) = toks.first(Op::LParen, s.span.start, s.span.end)
+                        && let Some((opens, closes)) = toks.pair_of(i)
                     {
-                        self.regiao(s.span, abre.end, fecha.start, None);
+                        self.region(s.span, opens.end, closes.start, None);
                     }
                 }
                 StmtKind::Variables(v) => {
                     if let Some(t) = v.ty {
-                        self.tipo(t);
+                        self.ty(t);
                     }
                 }
                 _ => {}
@@ -573,43 +573,43 @@ impl Coletor<'_> {
         for e in &ast.exprs {
             let s = e.span;
             match &e.kind {
-                ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => self.argumentos(arguments),
+                ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => self.arguments(arguments),
                 ExprKind::List { elements, .. } => self.literal(s, Op::LBracket, elements),
                 ExprKind::SetOrMap { elements, .. } => self.literal(s, Op::LBrace, elements),
                 ExprKind::Record { .. } => {
-                    if let Some(i) = toks.primeiro(Op::LParen, s.start, s.end)
-                        && let Some((abre, fecha)) = toks.par_de(i)
+                    if let Some(i) = toks.first(Op::LParen, s.start, s.end)
+                        && let Some((opens, closes)) = toks.pair_of(i)
                     {
-                        self.regiao(s, abre.end, fecha.start, None);
+                        self.region(s, opens.end, closes.start, None);
                     }
                 }
                 ExprKind::Switch { cases, .. } => {
-                    if let Some(i) = toks.primeiro(Op::LBrace, s.start, s.end)
-                        && let Some((abre, fecha)) = toks.par_de(i)
+                    if let Some(i) = toks.first(Op::LBrace, s.start, s.end)
+                        && let Some((opens, closes)) = toks.pair_of(i)
                     {
-                        self.regiao(s, abre.end, fecha.end, None);
+                        self.region(s, opens.end, closes.end, None);
                     }
-                    for caso in cases.iter() {
-                        let corpo = ast.expr(caso.body).span.start;
-                        if let Some(i) = toks.ultimo(Op::Arrow, caso.span.start, corpo) {
-                            self.regiao(caso.span, toks.span(i).end, caso.span.end, None);
+                    for case in cases.iter() {
+                        let body_ = ast.expr(case.body).span.start;
+                        if let Some(i) = toks.last(Op::Arrow, case.span.start, body_) {
+                            self.region(case.span, toks.span(i).end, case.span.end, None);
                         }
                     }
                 }
-                ExprKind::As { ty, .. } | ExprKind::Is { ty, .. } => self.tipo(*ty),
+                ExprKind::As { ty, .. } | ExprKind::Is { ty, .. } => self.ty(*ty),
                 _ => {}
             }
         }
         // Strings de várias linhas (simples ou interpoladas), cada literal
         // adjacente por si.
-        let mut pilha: Vec<usize> = Vec::new();
-        for tok in &toks.lista {
+        let mut stack: Vec<usize> = Vec::new();
+        for tok in &toks.list {
             match tok.kind {
-                Kind::Str(_) => self.regiao(tok.span, tok.span.start, tok.span.end, None),
-                Kind::StrBegin(..) => pilha.push(tok.span.start),
+                Kind::Str(_) => self.region(tok.span, tok.span.start, tok.span.end, None),
+                Kind::StrBegin(..) => stack.push(tok.span.start),
                 Kind::StrEnd(_) => {
-                    if let Some(ini) = pilha.pop() {
-                        self.regiao(Span { start: ini, end: tok.span.end }, ini, tok.span.end, None);
+                    if let Some(start) = stack.pop() {
+                        self.region(Span { start: start, end: tok.span.end }, start, tok.span.end, None);
                     }
                 }
                 _ => {}
@@ -619,21 +619,21 @@ impl Coletor<'_> {
 
     /// Corpo de enum, extensão ou extension type: do fim do `{` ao início
     /// do `}`.
-    fn corpo_entre_chaves(&mut self, no: Span, ancora: usize) {
+    fn body_in_braces(&mut self, no: Span, anchor: usize) {
         let toks = self.t;
-        if let Some(i) = toks.primeiro(Op::LBrace, ancora, no.end)
-            && let Some((abre, fecha)) = toks.par_de(i)
+        if let Some(i) = toks.first(Op::LBrace, anchor, no.end)
+            && let Some((opens, closes)) = toks.pair_of(i)
         {
-            self.regiao(no, abre.end, fecha.start, None);
+            self.region(no, opens.end, closes.start, None);
         }
     }
 
-    fn literal(&mut self, s: Span, abre: Op, _elementos: &[CollectionElement]) {
+    fn literal(&mut self, s: Span, opens: Op, _elements: &[CollectionElement]) {
         let toks = self.t;
-        if let Some(i) = toks.primeiro(abre, s.start, s.end)
-            && let Some((a, f)) = toks.par_de(i)
+        if let Some(i) = toks.first(opens, s.start, s.end)
+            && let Some((a, f)) = toks.pair_of(i)
         {
-            self.regiao(s, a.end, f.start, None);
+            self.region(s, a.end, f.start, None);
         }
     }
 }
@@ -641,34 +641,34 @@ impl Coletor<'_> {
 /// As faixas de seleção em `offset`: os nós da árvore que o contêm, do mais
 /// interno ao mais externo, sem repetir intervalos iguais
 /// (`DartSelectionRangeComputer`).
-pub(crate) fn selecoes(texto: &str, features: LibraryFeatures, offset: usize) -> Vec<Span> {
+pub(crate) fn selections(text: &str, features: LibraryFeatures, offset: usize) -> Vec<Span> {
     // A árvore no formato do analyzer e o `NodeLocator` (§7.2 a §7.6).
-    crate::arvore_analyzer::selecoes(texto, features, offset)
+    crate::arvore_analyzer::selecoes(text, features, offset)
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    fn linhas_de(texto: &str) -> Vec<(u32, u32, Option<&'static str>)> {
-        dobras(texto, LibraryFeatures::new(dartforge_frontend::LanguageVersion::ATUAL, &[]), true)
+    fn lines_of(text: &str) -> Vec<(u32, u32, Option<&'static str>)> {
+        folds(text, LibraryFeatures::new(dartforge_frontend::LanguageVersion::ATUAL, &[]), true)
             .into_iter()
-            .map(|d| (d.linha_inicio, d.linha_fim, d.especie))
+            .map(|d| (d.line_begin, d.line_end, d.kind))
             .collect()
     }
 
     #[test]
-    fn classe_metodo_comentario_e_diretivas() {
-        let texto = "import 'a.dart';\nimport 'b.dart';\n\n/// Doc\n/// mais\nclass A {\n  void m() {\n    print(1);\n  }\n}\n";
+    fn class_method_comment_and_directives() {
+        let text = "import 'a.dart';\nimport 'b.dart';\n\n/// Doc\n/// mais\nclass A {\n  void m() {\n    print(1);\n  }\n}\n";
         assert_eq!(
-            linhas_de(texto),
+            lines_of(text),
             vec![(0, 1, Some("imports")), (3, 4, Some("comment")), (5, 9, None), (6, 8, None)]
         );
     }
 
     #[test]
-    fn argumentos_em_varias_linhas() {
-        let texto = "void main() {\n  f(\n    1,\n    2,\n  );\n}\n";
-        assert_eq!(linhas_de(texto), vec![(0, 5, None), (1, 4, None)]);
+    fn arguments_on_several_lines() {
+        let text = "void main() {\n  f(\n    1,\n    2,\n  );\n}\n";
+        assert_eq!(lines_of(text), vec![(0, 5, None), (1, 4, None)]);
     }
 }

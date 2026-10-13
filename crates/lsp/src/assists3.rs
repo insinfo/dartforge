@@ -8,54 +8,54 @@
 //! | `Join 'if' statement with inner 'if' statement` | `refactor.joinWithInnerIf` |
 //!
 //! As três usam o `invertCondition` do `CorrectionUtils`
-//! (`correction_utils.dart:345-410`), aqui `Projeto::inverter`. Diferença
+//! (`correction_utils.dart:345-410`), aqui `Project::invert`. Diferença
 //! conhecida: no `Invert conditional expression` o cursor vale em qualquer
 //! ponto da condicional mais interna que não esteja dentro dos argumentos
 //! de uma chamada aninhada (o original sobe um número fixo de nós).
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use crate::actions::AcaoDeCodigo;
-use crate::project::Projeto;
-use crate::Edicao;
+use crate::actions::CodeAction;
+use crate::project::Project;
+use crate::Edit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::UnitId;
 use dartforge_frontend::ast::{self, BinaryOp, ExprId, ExprKind, StmtId, StmtKind, UnaryOp};
 
-fn acao(uri: &str, titulo: &str, especie: &str, edicoes: Vec<(Span, String)>) -> AcaoDeCodigo {
-    AcaoDeCodigo {
-        titulo: titulo.into(),
-        especie: especie.into(),
-        edicoes: edicoes.into_iter().map(|(span, texto)| Edicao { uri: uri.to_string(), span, texto }).collect(),
-        diagnostico: None,
-        criar_arquivo: None, ligado: Default::default(),
+fn action(uri: &str, title: &str, kind: &str, edits: Vec<(Span, String)>) -> CodeAction {
+    CodeAction {
+        title: title.into(),
+        kind: kind.into(),
+        edits: edits.into_iter().map(|(span, text)| Edit { uri: uri.to_string(), span, text }).collect(),
+        diagnostic: None,
+        create_file: None, linked: Default::default(),
     }
 }
 
-const PRECEDENCIA_DO_OU: u32 = 1;
-const PRECEDENCIA_DO_E: u32 = 2;
-const PRECEDENCIA_MAXIMA: u32 = 1 << 20;
+const OR_PRECEDENCE: u32 = 1;
+const AND_PRECEDENCE: u32 = 2;
+const MAX_PRECEDENCE: u32 = 1 << 20;
 
 /// A indentação da linha que contém `offset`.
-fn indentacao(fonte: &str, offset: usize) -> &str {
-    let ini = fonte[..offset.min(fonte.len())].rfind('\n').map_or(0, |i| i + 1);
-    let resto = &fonte[ini..];
-    &resto[..resto.len() - resto.trim_start_matches([' ', '\t']).len()]
+fn indentation(source: &str, offset: usize) -> &str {
+    let start = source[..offset.min(source.len())].rfind('\n').map_or(0, |i| i + 1);
+    let rest = &source[start..];
+    &rest[..rest.len() - rest.trim_start_matches([' ', '\t']).len()]
 }
 
-impl Projeto {
+impl Project {
     /// `invertCondition`: o texto da condição negada e a precedência dele.
-    fn inverter(&self, unidade: UnitId, e: ExprId) -> (String, u32) {
-        let u = self.programa().unit(unidade);
+    fn invert(&self, unit: UnitId, e: ExprId) -> (String, u32) {
+        let u = self.program().unit(unit);
         let a = &u.ast;
-        let fonte = u.source.as_str();
-        let texto = |x: ExprId| {
+        let source = u.source.as_str();
+        let text = |x: ExprId| {
             let s = a.expr(x).span;
-            fonte.get(s.start..s.end).unwrap_or("").to_string()
+            source.get(s.start..s.end).unwrap_or("").to_string()
         };
         match &a.expr(e).kind {
-            ExprKind::Bool(v) => ((!*v).to_string(), PRECEDENCIA_MAXIMA),
+            ExprKind::Bool(v) => ((!*v).to_string(), MAX_PRECEDENCE),
             ExprKind::Binary { op, left, right } => {
-                let comparacao = match op {
+                let comparison = match op {
                     BinaryOp::Lt => Some(">="),
                     BinaryOp::Gt => Some("<="),
                     BinaryOp::LtEq => Some(">"),
@@ -64,132 +64,132 @@ impl Projeto {
                     BinaryOp::NotEq => Some("=="),
                     _ => None,
                 };
-                if let Some(novo) = comparacao {
-                    return (format!("{} {novo} {}", texto(*left), texto(*right)), PRECEDENCIA_MAXIMA);
+                if let Some(new) = comparison {
+                    return (format!("{} {new} {}", text(*left), text(*right)), MAX_PRECEDENCE);
                 }
                 // De Morgan; cada lado entre parênteses se liga mais fraco
                 // que o operador novo.
-                let (junta, precedencia) = match op {
-                    BinaryOp::And => ("||", PRECEDENCIA_DO_OU),
-                    BinaryOp::Or => ("&&", PRECEDENCIA_DO_E),
-                    _ => return self.negar_outra(unidade, e),
+                let (junta, precedence) = match op {
+                    BinaryOp::And => ("||", OR_PRECEDENCE),
+                    BinaryOp::Or => ("&&", AND_PRECEDENCE),
+                    _ => return self.negate_other(unit, e),
                 };
-                let lado = |x: ExprId| {
-                    let (t, p) = self.inverter(unidade, x);
-                    if p < precedencia { format!("({t})") } else { t }
+                let side = |x: ExprId| {
+                    let (t, p) = self.invert(unit, x);
+                    if p < precedence { format!("({t})") } else { t }
                 };
-                (format!("{} {junta} {}", lado(*left), lado(*right)), precedencia)
+                (format!("{} {junta} {}", side(*left), side(*right)), precedence)
             }
             ExprKind::Is { value, ty, negated } => {
-                let tipo = a.types[ty.0 as usize].span;
-                let palavra = if *negated { "is" } else { "is!" };
-                (format!("{} {palavra} {}", texto(*value), fonte.get(tipo.start..tipo.end).unwrap_or("")), PRECEDENCIA_MAXIMA)
+                let ty_ = a.types[ty.0 as usize].span;
+                let word = if *negated { "is" } else { "is!" };
+                (format!("{} {word} {}", text(*value), source.get(ty_.start..ty_.end).unwrap_or("")), MAX_PRECEDENCE)
             }
             // `!e`: o operando sem os parênteses de fora.
             ExprKind::Unary { op: UnaryOp::Not, operand } => {
-                let mut dentro = *operand;
-                while let ExprKind::Parenthesized(x) = &a.expr(dentro).kind {
-                    dentro = *x;
+                let mut inside = *operand;
+                while let ExprKind::Parenthesized(x) = &a.expr(inside).kind {
+                    inside = *x;
                 }
-                (texto(dentro), PRECEDENCIA_MAXIMA)
+                (text(inside), MAX_PRECEDENCE)
             }
-            ExprKind::Parenthesized(x) => self.inverter(unidade, *x),
-            _ => self.negar_outra(unidade, e),
+            ExprKind::Parenthesized(x) => self.invert(unit, *x),
+            _ => self.negate_other(unit, e),
         }
     }
 
-    /// As duas últimas linhas da tabela: `!texto` para uma expressão de tipo
+    /// As duas últimas linhas da tabela: `!text` para uma expressão de tipo
     /// estático `bool`, o texto inalterado para as outras.
-    fn negar_outra(&self, unidade: UnitId, e: ExprId) -> (String, u32) {
-        let u = self.programa().unit(unidade);
+    fn negate_other(&self, unit: UnitId, e: ExprId) -> (String, u32) {
+        let u = self.program().unit(unit);
         let s = u.ast.expr(e).span;
-        let texto = u.source.get(s.start..s.end).unwrap_or("");
-        let e_bool = self.consulta.corpos.units[unidade.0 as usize].get_type(e) == Some(self.consulta.core.bool_);
-        (if e_bool { format!("!{texto}") } else { texto.to_string() }, PRECEDENCIA_MAXIMA)
+        let text = u.source.get(s.start..s.end).unwrap_or("");
+        let is_bool = self.query.bodies.units[unit.0 as usize].get_type(e) == Some(self.query.core.bool_);
+        (if is_bool { format!("!{text}") } else { text.to_string() }, MAX_PRECEDENCE)
     }
 
-    /// As assistências desta lista com o cursor em `offset` de `unidade`.
-    pub(crate) fn assistencias_de_condicao(&self, uri: &str, unidade: UnitId, offset: usize) -> Vec<AcaoDeCodigo> {
-        let mut saida = Vec::new();
-        let u = self.programa().unit(unidade);
+    /// As assistências desta lista com o cursor em `offset` de `unit`.
+    pub(crate) fn condition_assists(&self, uri: &str, unit: UnitId, offset: usize) -> Vec<CodeAction> {
+        let mut output = Vec::new();
+        let u = self.program().unit(unit);
         let a = &u.ast;
-        let fonte = u.source.as_str();
-        let texto_do_comando = |s: StmtId| {
+        let source = u.source.as_str();
+        let command_text = |s: StmtId| {
             let span = a.stmt(s).span;
-            fonte.get(span.start..span.end).unwrap_or("").to_string()
+            source.get(span.start..span.end).unwrap_or("").to_string()
         };
-        let e_bloco = |s: StmtId| matches!(a.stmt(s).kind, StmtKind::Block(_));
+        let is_block = |s: StmtId| matches!(a.stmt(s).kind, StmtKind::Block(_));
 
         // O `if` mais interno que contém o cursor.
-        let o_if = a
+        let the_if = a
             .stmts
             .iter()
             .filter(|s| matches!(s.kind, StmtKind::If { .. }) && s.span.start <= offset && offset <= s.span.end)
             .min_by_key(|s| s.span.end - s.span.start);
-        if let Some(s) = o_if
+        if let Some(s) = the_if
             && let StmtKind::If { condition, case_pattern, then, else_, .. } = &s.kind
         {
             let cond = a.expr(*condition).span;
-            let entao = a.stmt(*then).span;
+            let then_stmt = a.stmt(*then).span;
             // `Invert 'if' statement`: o cursor no próprio comando (no `if`,
             // nos parênteses ou no `else`), fora da condição e dos blocos.
-            if let Some(senao) = else_
+            if let Some(else_stmt) = else_
                 && case_pattern.is_none()
-                && e_bloco(*then)
-                && e_bloco(*senao)
+                && is_block(*then)
+                && is_block(*else_stmt)
             {
-                let no_comando = offset < cond.start || (offset > cond.end && offset <= entao.start) || (offset >= entao.end && offset <= a.stmt(*senao).span.start);
-                if no_comando {
-                    let (invertida, _) = self.inverter(unidade, *condition);
-                    saida.push(acao(
+                let in_command = offset < cond.start || (offset > cond.end && offset <= then_stmt.start) || (offset >= then_stmt.end && offset <= a.stmt(*else_stmt).span.start);
+                if in_command {
+                    let (inverted, _) = self.invert(unit, *condition);
+                    output.push(action(
                         uri,
                         "Invert 'if' statement",
                         "refactor.invertIf",
-                        vec![(cond, invertida), (entao, texto_do_comando(*senao)), (a.stmt(*senao).span, texto_do_comando(*then))],
+                        vec![(cond, inverted), (then_stmt, command_text(*else_stmt)), (a.stmt(*else_stmt).span, command_text(*then))],
                     ));
                 }
             }
             // `Join 'if' statement with inner 'if' statement`: o cursor no
             // comando ou na condição; sem `else`; o corpo é um `if` sem `else`.
-            if else_.is_none() && offset <= entao.start {
+            if else_.is_none() && offset <= then_stmt.start {
                 // `getSingleStatement`: o comando, ou o único de um bloco.
-                let unico = match &a.stmt(*then).kind {
+                let single = match &a.stmt(*then).kind {
                     StmtKind::Block(l) if l.len() == 1 => Some(l[0]),
                     StmtKind::Block(_) => None,
                     _ => Some(*then),
                 };
-                if let Some(interno) = unico
-                    && let StmtKind::If { condition: cond_interna, then: corpo, else_: None, .. } = &a.stmt(interno).kind
+                if let Some(internal) = single
+                    && let StmtKind::If { condition: internal_cond, then: body, else_: None, .. } = &a.stmt(internal).kind
                 {
                     // `shouldWrapParenthesisBeforeAnd`: binária mais fraca que `&&`.
-                    let para_o_e = |x: ExprId| {
+                    let to_is = |x: ExprId| {
                         let sp = a.expr(x).span;
-                        let t = fonte.get(sp.start..sp.end).unwrap_or("");
+                        let t = source.get(sp.start..sp.end).unwrap_or("");
                         if matches!(a.expr(x).kind, ExprKind::Binary { op: BinaryOp::Or | BinaryOp::IfNull, .. }) { format!("({t})") } else { t.to_string() }
                     };
-                    let prefixo = indentacao(fonte, s.span.start);
-                    let eol = if fonte.contains("\r\n") { "\r\n" } else { "\n" };
+                    let prefix = indentation(source, s.span.start);
+                    let eol = if source.contains("\r\n") { "\r\n" } else { "\n" };
                     // Os comandos do corpo interno, por linhas inteiras, com
                     // um nível de indentação a menos.
-                    let comandos: Vec<StmtId> = match &a.stmt(*corpo).kind {
+                    let commands: Vec<StmtId> = match &a.stmt(*body).kind {
                         StmtKind::Block(l) => l.to_vec(),
-                        _ => vec![*corpo],
+                        _ => vec![*body],
                     };
-                    let mut novo = String::new();
-                    if let (Some(primeiro), Some(ultimo)) = (comandos.first(), comandos.last()) {
-                        let de = fonte[..a.stmt(*primeiro).span.start].rfind('\n').map_or(0, |i| i + 1);
-                        let fim_do_ultimo = a.stmt(*ultimo).span.end;
-                        let ate = fonte[fim_do_ultimo..].find('\n').map_or(fonte.len(), |i| fim_do_ultimo + i + 1);
-                        for linha in fonte[de..ate].split_inclusive('\n') {
-                            novo.push_str(linha.strip_prefix("  ").unwrap_or(linha));
+                    let mut new = String::new();
+                    if let (Some(first), Some(last)) = (commands.first(), commands.last()) {
+                        let de = source[..a.stmt(*first).span.start].rfind('\n').map_or(0, |i| i + 1);
+                        let last_end = a.stmt(*last).span.end;
+                        let until = source[last_end..].find('\n').map_or(source.len(), |i| last_end + i + 1);
+                        for line in source[de..until].split_inclusive('\n') {
+                            new.push_str(line.strip_prefix("  ").unwrap_or(line));
                         }
                     }
-                    let juntas = format!("{} && {}", para_o_e(*condition), para_o_e(*cond_interna));
-                    saida.push(acao(
+                    let joined = format!("{} && {}", to_is(*condition), to_is(*internal_cond));
+                    output.push(action(
                         uri,
                         "Join 'if' statement with inner 'if' statement",
                         "refactor.joinWithInnerIf",
-                        vec![(s.span, format!("if ({juntas}) {{{eol}{novo}{prefixo}}}"))],
+                        vec![(s.span, format!("if ({joined}) {{{eol}{new}{prefix}}}"))],
                     ));
                 }
             }
@@ -197,33 +197,33 @@ impl Projeto {
 
         // `Invert conditional expression`: a condicional do
         // `_getConditionalExpressionAncestor`, sobre a árvore do analyzer.
-        let condicional = {
-            let cx = crate::refactorings::Contexto::novo(self, unidade);
-            cx.condicional_proxima(offset).and_then(|n| cx.expr_do_no(n))
+        let conditional = {
+            let cx = crate::refactorings::Context::new(self, unit);
+            cx.next_conditional(offset).and_then(|n| cx.node_expr(n))
         };
-        if let Some(e) = condicional.map(|x| a.expr(x))
+        if let Some(e) = conditional.map(|x| a.expr(x))
             && let ExprKind::Conditional { condition, then, else_ } = &e.kind
         {
             {
-                let trecho = |x: ExprId| {
+                let snippet = |x: ExprId| {
                     let s = a.expr(x).span;
-                    (s, fonte.get(s.start..s.end).unwrap_or("").to_string())
+                    (s, source.get(s.start..s.end).unwrap_or("").to_string())
                 };
-                let (invertida, _) = self.inverter(unidade, *condition);
-                let ((span_entao, texto_entao), (span_senao, texto_senao)) = (trecho(*then), trecho(*else_));
-                saida.push(acao(
+                let (inverted, _) = self.invert(unit, *condition);
+                let ((span_then, text_then), (span_else, text_else)) = (snippet(*then), snippet(*else_));
+                output.push(action(
                     uri,
                     "Invert conditional expression",
                     "refactor.invertConditional",
-                    vec![(a.expr(*condition).span, invertida), (span_entao, texto_senao), (span_senao, texto_entao)],
+                    vec![(a.expr(*condition).span, inverted), (span_then, text_else), (span_else, text_then)],
                 ));
             }
         }
-        saida
+        output
     }
 }
 
-impl Projeto {
+impl Project {
     /// Mais três assistências sintáticas (docs/LSP-ESPECIFICACAO.md §13.10):
     /// `Join 'if' statement with outer 'if' statement`
     /// (`refactor.joinWithOuterIf`), `Replace 'if-else' with conditional
@@ -231,98 +231,98 @@ impl Projeto {
     /// variable declaration` (`refactor.joinVariableDeclaration`). Na
     /// última, "a mesma variável" é o mesmo nome no comando vizinho do mesmo
     /// bloco. Escrito sem compilar nem executar (2026-10-05).
-    pub(crate) fn assistencias_de_juncao(&self, uri: &str, unidade: UnitId, offset: usize) -> Vec<AcaoDeCodigo> {
-        let mut saida = Vec::new();
-        let u = self.programa().unit(unidade);
+    pub(crate) fn join_assists(&self, uri: &str, unit: UnitId, offset: usize) -> Vec<CodeAction> {
+        let mut output = Vec::new();
+        let u = self.program().unit(unit);
         let a = &u.ast;
-        let fonte = u.source.as_str();
-        let eol = if fonte.contains("\r\n") { "\r\n" } else { "\n" };
-        let texto_da_expressao = |x: ExprId| {
+        let source = u.source.as_str();
+        let eol = if source.contains("\r\n") { "\r\n" } else { "\n" };
+        let expression_text = |x: ExprId| {
             let s = a.expr(x).span;
-            fonte.get(s.start..s.end).unwrap_or("")
+            source.get(s.start..s.end).unwrap_or("")
         };
         // `getSingleStatement`: o comando, ou o único de um bloco.
-        let unico = |s: StmtId| match &a.stmt(s).kind {
+        let single = |s: StmtId| match &a.stmt(s).kind {
             StmtKind::Block(l) if l.len() == 1 => Some(l[0]),
             StmtKind::Block(_) => None,
             _ => Some(s),
         };
 
         // O `if` mais interno que contém o cursor.
-        let o_if = a
+        let the_if = a
             .stmts
             .iter()
             .enumerate()
             .filter(|(_, s)| matches!(s.kind, StmtKind::If { .. }) && s.span.start <= offset && offset <= s.span.end)
             .min_by_key(|(_, s)| s.span.end - s.span.start);
-        if let Some((indice, s)) = o_if
+        if let Some((index, s)) = the_if
             && let StmtKind::If { condition, case_pattern, then, else_, .. } = &s.kind
         {
-            let id = StmtId(indice as u32);
+            let id = StmtId(index as u32);
             let cond = a.expr(*condition).span;
-            let entao = a.stmt(*then).span;
+            let then_stmt = a.stmt(*then).span;
             // `Join … with outer`: sem `else`; o pai (pulando um bloco de um
             // comando só) é um `if` sem `else`.
-            if else_.is_none() && offset <= entao.start {
-                let externo = a.stmts.iter().find(|x| match &x.kind {
-                    StmtKind::If { then: t, else_: None, .. } => *t == id || (*t != id && unico(*t) == Some(id)),
+            if else_.is_none() && offset <= then_stmt.start {
+                let external = a.stmts.iter().find(|x| match &x.kind {
+                    StmtKind::If { then: t, else_: None, .. } => *t == id || (*t != id && single(*t) == Some(id)),
                     _ => false,
                 });
-                if let Some(externo) = externo
-                    && let StmtKind::If { condition: cond_externa, .. } = &externo.kind
+                if let Some(external) = external
+                    && let StmtKind::If { condition: external_cond, .. } = &external.kind
                 {
-                    let para_o_e = |x: ExprId| {
-                        let t = texto_da_expressao(x);
+                    let to_is = |x: ExprId| {
+                        let t = expression_text(x);
                         if matches!(a.expr(x).kind, ExprKind::Binary { op: BinaryOp::Or | BinaryOp::IfNull, .. }) { format!("({t})") } else { t.to_string() }
                     };
-                    let prefixo = indentacao(fonte, externo.span.start);
-                    let comandos: Vec<StmtId> = match &a.stmt(*then).kind {
+                    let prefix = indentation(source, external.span.start);
+                    let commands: Vec<StmtId> = match &a.stmt(*then).kind {
                         StmtKind::Block(l) => l.to_vec(),
                         _ => vec![*then],
                     };
-                    let mut novo = String::new();
-                    if let (Some(primeiro), Some(ultimo)) = (comandos.first(), comandos.last()) {
-                        let de = fonte[..a.stmt(*primeiro).span.start].rfind('\n').map_or(0, |i| i + 1);
-                        let fim_do_ultimo = a.stmt(*ultimo).span.end;
-                        let ate = fonte[fim_do_ultimo..].find('\n').map_or(fonte.len(), |i| fim_do_ultimo + i + 1);
-                        for linha in fonte[de..ate].split_inclusive('\n') {
-                            novo.push_str(linha.strip_prefix("  ").unwrap_or(linha));
+                    let mut new = String::new();
+                    if let (Some(first), Some(last)) = (commands.first(), commands.last()) {
+                        let de = source[..a.stmt(*first).span.start].rfind('\n').map_or(0, |i| i + 1);
+                        let last_end = a.stmt(*last).span.end;
+                        let until = source[last_end..].find('\n').map_or(source.len(), |i| last_end + i + 1);
+                        for line in source[de..until].split_inclusive('\n') {
+                            new.push_str(line.strip_prefix("  ").unwrap_or(line));
                         }
                     }
-                    let juntas = format!("{} && {}", para_o_e(*cond_externa), para_o_e(*condition));
-                    saida.push(acao(
+                    let joined = format!("{} && {}", to_is(*external_cond), to_is(*condition));
+                    output.push(action(
                         uri,
                         "Join 'if' statement with outer 'if' statement",
                         "refactor.joinWithOuterIf",
-                        vec![(externo.span, format!("if ({juntas}) {{{eol}{novo}{prefixo}}}"))],
+                        vec![(external.span, format!("if ({joined}) {{{eol}{new}{prefix}}}"))],
                     ));
                 }
             }
             // `Replace 'if-else' with conditional`: o cursor no próprio
             // comando; cada ramo é um comando só.
-            if let Some(senao) = else_
+            if let Some(else_stmt) = else_
                 && case_pattern.is_none()
             {
-                let no_comando = offset < cond.start || (offset > cond.end && offset <= entao.start) || (offset >= entao.end && offset <= a.stmt(*senao).span.start);
-                if no_comando && let (Some(x), Some(y)) = (unico(*then), unico(*senao)) {
-                    let c = texto_da_expressao(*condition);
-                    let novo = match (&a.stmt(x).kind, &a.stmt(y).kind) {
+                let in_command = offset < cond.start || (offset > cond.end && offset <= then_stmt.start) || (offset >= then_stmt.end && offset <= a.stmt(*else_stmt).span.start);
+                if in_command && let (Some(x), Some(y)) = (single(*then), single(*else_stmt)) {
+                    let c = expression_text(*condition);
+                    let new = match (&a.stmt(x).kind, &a.stmt(y).kind) {
                         (StmtKind::Return(Some(p)), StmtKind::Return(Some(q))) => {
-                            Some(format!("return {c} ? {} : {};", texto_da_expressao(*p), texto_da_expressao(*q)))
+                            Some(format!("return {c} ? {} : {};", expression_text(*p), expression_text(*q)))
                         }
                         (StmtKind::Expression(p), StmtKind::Expression(q)) => match (&a.expr(*p).kind, &a.expr(*q).kind) {
                             (
                                 ExprKind::Assign { op: ast::AssignOp::Assign, target: t1, value: v1 },
                                 ExprKind::Assign { op: ast::AssignOp::Assign, target: t2, value: v2 },
-                            ) if texto_da_expressao(*t1) == texto_da_expressao(*t2) => {
-                                Some(format!("{} = {c} ? {} : {};", texto_da_expressao(*t1), texto_da_expressao(*v1), texto_da_expressao(*v2)))
+                            ) if expression_text(*t1) == expression_text(*t2) => {
+                                Some(format!("{} = {c} ? {} : {};", expression_text(*t1), expression_text(*v1), expression_text(*v2)))
                             }
                             _ => None,
                         },
                         _ => None,
                     };
-                    if let Some(novo) = novo {
-                        saida.push(acao(uri, "Replace 'if-else' with conditional ('c ? x : y')", "refactor.convert.ifElseToConditional", vec![(s.span, novo)]));
+                    if let Some(new) = new {
+                        output.push(action(uri, "Replace 'if-else' with conditional ('c ? x : y')", "refactor.convert.ifElseToConditional", vec![(s.span, new)]));
                     }
                 }
             }
@@ -330,69 +330,69 @@ impl Projeto {
 
         // `Join variable declaration`: `T v;` seguido de `v = e;` no mesmo
         // bloco, com o cursor no nome atribuído ou na declaração.
-        'blocos: for bloco in a.stmts.iter() {
-            let StmtKind::Block(lista) = &bloco.kind else { continue };
-            for par in lista.windows(2) {
-                let (declaracao, atribuicao) = (a.stmt(par[0]), a.stmt(par[1]));
-                let StmtKind::Variables(l) = &declaracao.kind else { continue };
-                let [variavel] = &l.variables[..] else { continue };
-                if variavel.initializer.is_some() {
+        'blocos: for block in a.stmts.iter() {
+            let StmtKind::Block(list) = &block.kind else { continue };
+            for pair in list.windows(2) {
+                let (declaration, assignment) = (a.stmt(pair[0]), a.stmt(pair[1]));
+                let StmtKind::Variables(l) = &declaration.kind else { continue };
+                let [variable] = &l.variables[..] else { continue };
+                if variable.initializer.is_some() {
                     continue;
                 }
-                let StmtKind::Expression(e) = &atribuicao.kind else { continue };
+                let StmtKind::Expression(e) = &assignment.kind else { continue };
                 let ExprKind::Assign { op: ast::AssignOp::Assign, target, value } = &a.expr(*e).kind else { continue };
                 let ExprKind::Identifier(n) = &a.expr(*target).kind else { continue };
-                if n.sym != variavel.name.sym {
+                if n.sym != variable.name.sym {
                     continue;
                 }
-                let alvo = a.expr(*target).span;
-                let no_nome_atribuido = alvo.start <= offset && offset <= alvo.end;
-                let na_declaracao = declaracao.span.start <= offset && offset < declaracao.span.end;
-                if !(no_nome_atribuido || na_declaracao) {
+                let target_ = a.expr(*target).span;
+                let assigned_name_node = target_.start <= offset && offset <= target_.end;
+                let in_declaration = declaration.span.start <= offset && offset < declaration.span.end;
+                if !(assigned_name_node || in_declaration) {
                     continue;
                 }
                 // O `=` fica entre o alvo e o valor.
-                let Some(k) = fonte.get(alvo.end..a.expr(*value).span.start).and_then(|t| t.find('=')) else { continue };
-                saida.push(acao(
+                let Some(k) = source.get(target_.end..a.expr(*value).span.start).and_then(|t| t.find('=')) else { continue };
+                output.push(action(
                     uri,
                     "Join variable declaration",
                     "refactor.joinVariableDeclaration",
-                    vec![(Span { start: variavel.name.span.end, end: alvo.end + k }, " ".to_string())],
+                    vec![(Span { start: variable.name.span.end, end: target_.end + k }, " ".to_string())],
                 ));
                 break 'blocos;
             }
         }
-        saida
+        output
     }
 }
 
-impl crate::refactorings::Contexto<'_> {
+impl crate::refactorings::Context<'_> {
     /// `_thisOrParentOfType`: o nó, ou o pai, se for de uma das espécies.
-    fn este_ou_pai_de(&self, n: usize, especies: &[&str]) -> Option<usize> {
-        if especies.contains(&self.especie(n)) {
+    fn this_or_parent_of(&self, n: usize, kinds: &[&str]) -> Option<usize> {
+        if kinds.contains(&self.kind(n)) {
             return Some(n);
         }
-        self.pai(n).filter(|&p| especies.contains(&self.especie(p)))
+        self.parent(n).filter(|&p| kinds.contains(&self.kind(p)))
     }
 
     /// `InvertConditionalExpression._getConditionalExpressionAncestor`
     /// (invert_conditional_expression.dart): a condicional "perto o
     /// bastante" do nó da seleção.
-    pub(crate) fn condicional_proxima(&self, offset: usize) -> Option<usize> {
-        let mut no = self.arvore.localizar(offset, offset)?;
-        no = self.este_ou_pai_de(no, &["MethodInvocation"]).unwrap_or(no);
-        no = self.este_ou_pai_de(no, &["AwaitExpression"]).unwrap_or(no);
-        let booleanas = ["IsExpression", "BinaryExpression", "BooleanLiteral"];
-        let booleana = if booleanas.contains(&self.especie(no)) {
+    pub(crate) fn next_conditional(&self, offset: usize) -> Option<usize> {
+        let mut no = self.tree.localizar(offset, offset)?;
+        no = self.this_or_parent_of(no, &["MethodInvocation"]).unwrap_or(no);
+        no = self.this_or_parent_of(no, &["AwaitExpression"]).unwrap_or(no);
+        let boolean = ["IsExpression", "BinaryExpression", "BooleanLiteral"];
+        let boolean_ = if boolean.contains(&self.kind(no)) {
             Some(no)
-        } else if let Some(p) = self.pai(no).filter(|&p| booleanas.contains(&self.especie(p))) {
+        } else if let Some(p) = self.parent(no).filter(|&p| boolean.contains(&self.kind(p))) {
             Some(p)
         } else {
-            self.este_ou_pai_de(no, &["PrefixExpression"])
+            self.this_or_parent_of(no, &["PrefixExpression"])
         };
-        no = booleana.unwrap_or(no);
-        no = self.este_ou_pai_de(no, &["ParenthesizedExpression"]).unwrap_or(no);
-        no = self.este_ou_pai_de(no, &["AwaitExpression"]).unwrap_or(no);
-        self.este_ou_pai_de(no, &["ConditionalExpression"])
+        no = boolean_.unwrap_or(no);
+        no = self.this_or_parent_of(no, &["ParenthesizedExpression"]).unwrap_or(no);
+        no = self.this_or_parent_of(no, &["AwaitExpression"]).unwrap_or(no);
+        self.this_or_parent_of(no, &["ConditionalExpression"])
     }
 }

@@ -1,17 +1,17 @@
 //! Índices de nomes públicos de topo, para o completar com importação
 //! automática e para a ação "importar biblioteca".
 //!
-//! * [`IndiceSdk`]: as bibliotecas públicas do SDK (sem `_`) com as suas
+//! * [`SdkIndex`]: as bibliotecas públicas do SDK (sem `_`) com as suas
 //!   partes, montado uma vez por SDK; o tamanho é o do SDK.
-//! * [`IndiceProjeto`]: os arquivos `.dart` de **um** projeto (o último
+//! * [`ProjectIndex`]: os arquivos `.dart` de **um** projeto (o último
 //!   consultado), por arquivo, com a impressão de cada um (versão do texto
 //!   aberto ou data e tamanho no disco). Só o arquivo que mudou é analisado
 //!   de novo; arquivo que sumiu sai do índice; trocar de projeto descarta o
 //!   anterior. Guarda só nomes, espécies e offsets, nunca árvores.
 
 use crate::DocumentStore;
-use crate::completion::especie;
-use crate::project::{arquivos_do_projeto, eh_parte};
+use crate::completion::kind;
+use crate::project::{project_files, is_part};
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_frontend::ast::{self, DeclKind, DirectiveKind};
 use std::collections::{BTreeMap, HashMap};
@@ -21,260 +21,260 @@ use url::Url;
 
 /// Um nome público de topo declarado num arquivo.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Declarado {
-    pub nome: String,
+pub(crate) struct Declared {
+    pub name: String,
     /// `CompletionItemKind`.
-    pub especie: u32,
+    pub kind: u32,
     /// Nomeia um tipo (classe, mixin, enum, extension type, typedef).
-    pub tipo: bool,
+    pub ty: bool,
     /// Função sem parâmetros (o rótulo é `f()`, não `f(…)`).
-    pub sem_parametros: bool,
+    pub without_parameters: bool,
     /// Arquivo e início da declaração (com metadados), para a documentação.
-    pub arquivo: PathBuf,
-    pub inicio: usize,
+    pub file: PathBuf,
+    pub start: usize,
 }
 
 /// Os nomes públicos de topo de uma unidade analisada.
-pub(crate) fn declarados(
+pub(crate) fn declared(
     ast: &ast::Ast,
     unit: &ast::CompilationUnit,
-    nomes: &dartforge_intern::Interner,
-    arquivo: &Path,
-) -> Vec<Declarado> {
-    let mut saida = Vec::new();
+    names: &dartforge_intern::Interner,
+    file: &Path,
+) -> Vec<Declared> {
+    let mut output = Vec::new();
     for &d in &unit.declarations {
         let decl = ast.decl(d);
-        let mut empurrar =
-            |n: Option<ast::Name>, especie: u32, tipo: bool, sem_parametros: bool| {
+        let mut push =
+            |n: Option<ast::Name>, kind: u32, ty: bool, without_parameters: bool| {
                 if let Some(n) = n {
-                    let s = nomes.resolve(n.sym);
+                    let s = names.resolve(n.sym);
                     if !s.starts_with('_') {
-                        saida.push(Declarado {
-                            nome: s.to_string(),
-                            especie,
-                            tipo,
-                            sem_parametros,
-                            arquivo: arquivo.to_path_buf(),
-                            inicio: decl.span.start,
+                        output.push(Declared {
+                            name: s.to_string(),
+                            kind,
+                            ty,
+                            without_parameters,
+                            file: file.to_path_buf(),
+                            start: decl.span.start,
                         });
                     }
                 }
             };
         match &decl.kind {
-            DeclKind::Class(c) => empurrar(Some(c.name), especie::CLASSE, true, false),
-            DeclKind::Mixin(m) => empurrar(Some(m.name), especie::CLASSE, true, false),
-            DeclKind::Enum(e) => empurrar(Some(e.name), especie::ENUM, true, false),
-            DeclKind::ExtensionType(e) => empurrar(Some(e.name), especie::CLASSE, true, false),
-            DeclKind::Typedef(t) => empurrar(Some(t.name), especie::CLASSE, true, false),
-            DeclKind::Extension(x) => empurrar(x.name, especie::CLASSE, false, false),
+            DeclKind::Class(c) => push(Some(c.name), kind::CLASS, true, false),
+            DeclKind::Mixin(m) => push(Some(m.name), kind::CLASS, true, false),
+            DeclKind::Enum(e) => push(Some(e.name), kind::ENUM, true, false),
+            DeclKind::ExtensionType(e) => push(Some(e.name), kind::CLASS, true, false),
+            DeclKind::Typedef(t) => push(Some(t.name), kind::CLASS, true, false),
+            DeclKind::Extension(x) => push(x.name, kind::CLASS, false, false),
             DeclKind::Function(f) => {
                 let func = ast.function(*f);
-                let (esp, sem) = match func.kind {
+                let (space, sem) = match func.kind {
                     ast::FunctionKind::Getter | ast::FunctionKind::Setter => {
-                        (especie::VARIAVEL, false)
+                        (kind::VARIABLE, false)
                     }
                     _ => (
-                        especie::FUNCAO,
+                        kind::FUNCTION,
                         func.parameters.as_ref().is_none_or(|p| p.is_empty()),
                     ),
                 };
-                empurrar(func.name, esp, false, sem)
+                push(func.name, space, false, sem)
             }
             DeclKind::Variables(vl) => {
                 for v in vl.variables.iter() {
-                    empurrar(Some(v.name), especie::VARIAVEL, false, false);
+                    push(Some(v.name), kind::VARIABLE, false, false);
                 }
             }
         }
     }
-    saida
+    output
 }
 
 /// Nomes públicos de topo do SDK: nome → (URI `dart:` → declaração).
 #[derive(Debug, Default)]
-pub(crate) struct IndiceSdk {
-    pub por_nome: HashMap<String, BTreeMap<String, Declarado>>,
+pub(crate) struct SdkIndex {
+    pub by_name: HashMap<String, BTreeMap<String, Declared>>,
 }
 
 /// Monta o índice do SDK: cada biblioteca pública (sem `_`) com as suas
 /// partes.
-pub(crate) fn indexar_sdk(sdk: &SdkLayout) -> IndiceSdk {
-    let mut indice = IndiceSdk::default();
-    let mut bibliotecas: Vec<_> = sdk
+pub(crate) fn index_sdk(sdk: &SdkLayout) -> SdkIndex {
+    let mut index = SdkIndex::default();
+    let mut libraries: Vec<_> = sdk
         .libraries
         .values()
         .filter(|l| !l.name.starts_with('_') && l.supported)
         .collect();
-    bibliotecas.sort_by(|a, b| a.name.cmp(&b.name));
-    for lib in bibliotecas {
+    libraries.sort_by(|a, b| a.name.cmp(&b.name));
+    for lib in libraries {
         let uri = format!("dart:{}", lib.name);
-        let mut pendentes = vec![lib.path.clone()];
-        let mut vistos = std::collections::BTreeSet::new();
-        while let Some(caminho) = pendentes.pop() {
-            if !vistos.insert(caminho.clone()) {
+        let mut pending = vec![lib.path.clone()];
+        let mut seen = std::collections::BTreeSet::new();
+        while let Some(path) = pending.pop() {
+            if !seen.insert(path.clone()) {
                 continue;
             }
-            let Ok(texto) = std::fs::read_to_string(&caminho) else {
+            let Ok(text) = std::fs::read_to_string(&path) else {
                 continue;
             };
-            let mut nomes = dartforge_intern::Interner::new();
-            let analisado = dartforge_frontend::parser::parse(&texto, &mut nomes);
-            for d in declarados(&analisado.ast, &analisado.unit, &nomes, &caminho) {
-                indice
-                    .por_nome
-                    .entry(d.nome.clone())
+            let mut names = dartforge_intern::Interner::new();
+            let analyzed = dartforge_frontend::parser::parse(&text, &mut names);
+            for d in declared(&analyzed.ast, &analyzed.unit, &names, &path) {
+                index
+                    .by_name
+                    .entry(d.name.clone())
                     .or_default()
                     .entry(uri.clone())
                     .or_insert(d);
             }
-            for d in &analisado.unit.directives {
+            for d in &analyzed.unit.directives {
                 if let DirectiveKind::Part { uri } = &d.kind
-                    && let Some(relativo) = dartforge_elements::load::string_lit_value(uri)
-                    && let Some(dir) = caminho.parent()
+                    && let Some(relative) = dartforge_elements::load::string_lit_value(uri)
+                    && let Some(dir) = path.parent()
                 {
-                    pendentes.push(dir.join(relativo));
+                    pending.push(dir.join(relative));
                 }
             }
         }
     }
-    indice
+    index
 }
 
 /// Impressão de um arquivo: versão e tamanho do texto aberto, ou data e
 /// tamanho no disco.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Impressao {
-    Aberto(i32, usize),
-    Disco(Option<(SystemTime, u64)>),
+enum Fingerprint {
+    Open(i32, usize),
+    Disk(Option<(SystemTime, u64)>),
 }
 
 #[derive(Debug)]
-struct EntradaDeArquivo {
-    impressao: Impressao,
+struct FileEntry {
+    fingerprint: Fingerprint,
     /// O arquivo é uma parte (os nomes dele são da biblioteca dona e não se
     /// importam por ele).
-    parte: bool,
-    nomes: Vec<Declarado>,
+    part: bool,
+    names: Vec<Declared>,
 }
 
 /// Índice incremental dos nomes públicos de topo de um projeto.
 #[derive(Debug, Default)]
-pub(crate) struct IndiceProjeto {
-    raiz: Option<PathBuf>,
-    arquivos: HashMap<PathBuf, EntradaDeArquivo>,
+pub(crate) struct ProjectIndex {
+    root: Option<PathBuf>,
+    files: HashMap<PathBuf, FileEntry>,
     /// Arquivos analisados na última atualização (medição e testes).
-    pub(crate) reanalisados: usize,
+    pub(crate) reanalyzed: usize,
 }
 
-impl IndiceProjeto {
-    /// Atualiza o índice do projeto `raiz` com os textos vigentes e devolve
+impl ProjectIndex {
+    /// Atualiza o índice do projeto `root` com os textos vigentes e devolve
     /// as bibliotecas (arquivos que não são partes) com os nomes delas.
-    pub(crate) fn atualizar(
+    pub(crate) fn update(
         &mut self,
-        raiz: &Path,
-        documentos: &DocumentStore,
-    ) -> Vec<(&Path, &[Declarado])> {
-        if self.raiz.as_deref() != Some(raiz) {
-            self.raiz = Some(raiz.to_path_buf());
-            self.arquivos.clear();
+        root: &Path,
+        documents: &DocumentStore,
+    ) -> Vec<(&Path, &[Declared])> {
+        if self.root.as_deref() != Some(root) {
+            self.root = Some(root.to_path_buf());
+            self.files.clear();
         }
-        self.reanalisados = 0;
-        let arquivos = arquivos_do_projeto(raiz);
-        self.arquivos
-            .retain(|p, _| arquivos.binary_search(p).is_ok());
-        for arquivo in &arquivos {
-            let uri = Url::from_file_path(arquivo).ok();
-            let aberto = uri
+        self.reanalyzed = 0;
+        let files = project_files(root);
+        self.files
+            .retain(|p, _| files.binary_search(p).is_ok());
+        for file in &files {
+            let uri = Url::from_file_path(file).ok();
+            let open = uri
                 .as_ref()
-                .and_then(|u| Some((documentos.version(u.as_str())?, documentos.get(u.as_str())?)));
-            let impressao = match aberto {
-                Some((v, t)) => Impressao::Aberto(v, t.len()),
-                None => Impressao::Disco(
-                    std::fs::metadata(arquivo)
+                .and_then(|u| Some((documents.version(u.as_str())?, documents.get(u.as_str())?)));
+            let fingerprint = match open {
+                Some((v, t)) => Fingerprint::Open(v, t.len()),
+                None => Fingerprint::Disk(
+                    std::fs::metadata(file)
                         .ok()
                         .and_then(|m| Some((m.modified().ok()?, m.len()))),
                 ),
             };
             if self
-                .arquivos
-                .get(arquivo)
-                .is_some_and(|e| e.impressao == impressao)
+                .files
+                .get(file)
+                .is_some_and(|e| e.fingerprint == fingerprint)
             {
                 continue;
             }
-            let texto = match aberto {
+            let text = match open {
                 Some((_, t)) => Some(t.to_string()),
-                None => std::fs::read_to_string(arquivo).ok(),
+                None => std::fs::read_to_string(file).ok(),
             };
-            let Some(texto) = texto else {
-                self.arquivos.remove(arquivo);
+            let Some(text) = text else {
+                self.files.remove(file);
                 continue;
             };
-            self.reanalisados += 1;
-            let parte = eh_parte(&texto);
-            let mut nomes = dartforge_intern::Interner::new();
-            let analisado = dartforge_frontend::parser::parse(&texto, &mut nomes);
-            let declarados = declarados(&analisado.ast, &analisado.unit, &nomes, arquivo);
-            self.arquivos.insert(
-                arquivo.clone(),
-                EntradaDeArquivo {
-                    impressao,
-                    parte,
-                    nomes: declarados,
+            self.reanalyzed += 1;
+            let part = is_part(&text);
+            let mut names = dartforge_intern::Interner::new();
+            let analyzed = dartforge_frontend::parser::parse(&text, &mut names);
+            let declared = declared(&analyzed.ast, &analyzed.unit, &names, file);
+            self.files.insert(
+                file.clone(),
+                FileEntry {
+                    fingerprint,
+                    part,
+                    names: declared,
                 },
             );
         }
-        let mut saida: Vec<(&Path, &[Declarado])> = self
-            .arquivos
+        let mut output: Vec<(&Path, &[Declared])> = self
+            .files
             .iter()
-            .filter(|(_, e)| !e.parte)
-            .map(|(p, e)| (p.as_path(), e.nomes.as_slice()))
+            .filter(|(_, e)| !e.part)
+            .map(|(p, e)| (p.as_path(), e.names.as_slice()))
             .collect();
-        saida.sort_by(|a, b| a.0.cmp(b.0));
-        saida
+        output.sort_by(|a, b| a.0.cmp(b.0));
+        output
     }
 }
 
-/// Caminho de `destino` relativo ao diretório `base`, com `/`.
-pub(crate) fn relativo(destino: &Path, base: &Path) -> Option<String> {
+/// Caminho de `target` relativo ao diretório `base`, com `/`.
+pub(crate) fn relative(target: &Path, base: &Path) -> Option<String> {
     use std::path::Component;
-    let d: Vec<Component> = destino.components().collect();
+    let d: Vec<Component> = target.components().collect();
     let b: Vec<Component> = base.components().collect();
-    let comum = d.iter().zip(&b).take_while(|(x, y)| x == y).count();
-    if comum == 0 {
+    let common = d.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    if common == 0 {
         return None;
     }
-    let mut partes: Vec<String> = b[comum..].iter().map(|_| "..".to_string()).collect();
-    partes.extend(
-        d[comum..]
+    let mut parts: Vec<String> = b[common..].iter().map(|_| "..".to_string()).collect();
+    parts.extend(
+        d[common..]
             .iter()
             .map(|c| c.as_os_str().to_string_lossy().into_owned()),
     );
-    Some(partes.join("/"))
+    Some(parts.join("/"))
 }
 
 /// Nome do pacote no `pubspec.yaml` da raiz.
-pub(crate) fn nome_do_pacote(raiz: &Path) -> Option<String> {
-    let texto = std::fs::read_to_string(raiz.join("pubspec.yaml")).ok()?;
-    texto.lines().find_map(|l| {
+pub(crate) fn package_name(root: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(root.join("pubspec.yaml")).ok()?;
+    text.lines().find_map(|l| {
         l.strip_prefix("name:")
             .map(|n| n.trim().trim_matches(['\'', '"']).to_string())
     })
 }
 
-/// A URI com que `arquivo` importa `destino` do mesmo projeto: `package:`
-/// quando `arquivo` está fora de `lib/` e `destino` dentro; senão relativa.
-pub(crate) fn uri_de_import(
-    arquivo: &Path,
-    destino: &Path,
-    raiz: &Path,
-    pacote: Option<&str>,
+/// A URI com que `file` importa `target` do mesmo projeto: `package:`
+/// quando `file` está fora de `lib/` e `target` dentro; senão relativa.
+pub(crate) fn import_uri(
+    file: &Path,
+    target: &Path,
+    root: &Path,
+    package: Option<&str>,
 ) -> Option<String> {
-    let lib = raiz.join("lib");
-    match pacote {
-        Some(p) if destino.starts_with(&lib) && !arquivo.starts_with(&lib) => {
-            relativo(destino, &lib).map(|r| format!("package:{p}/{r}"))
+    let lib = root.join("lib");
+    match package {
+        Some(p) if target.starts_with(&lib) && !file.starts_with(&lib) => {
+            relative(target, &lib).map(|r| format!("package:{p}/{r}"))
         }
-        _ => arquivo.parent().and_then(|dir| relativo(destino, dir)),
+        _ => file.parent().and_then(|dir| relative(target, dir)),
     }
 }

@@ -6,10 +6,10 @@
 //! |---|---|
 //! | `Convert to using super parameters` | `refactor.convert.toSuperParameters` |
 
-use crate::actions::AcaoDeCodigo;
+use crate::actions::CodeAction;
 use crate::arvore_analyzer::Marca;
-use crate::refactorings::Contexto;
-use crate::refactorings_exec::Mudanca;
+use crate::refactorings::Context;
+use crate::refactorings_exec::Change;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{FunctionElementId, FunctionRef, LibraryId, UnitId};
 use dartforge_frontend::ast::{self, ExprId, MemberKind, ParameterKind};
@@ -17,35 +17,35 @@ use dartforge_types::{Resolved, Type, TypeId};
 use std::collections::{HashMap, HashSet};
 
 /// Um parâmetro do construtor da superclasse.
-struct ParametroSuper {
-    nome: String,
-    nomeado: bool,
-    tipo: TypeId,
+struct SuperParameter {
+    name: String,
+    named: bool,
+    ty: TypeId,
     /// A expressão do valor padrão (unidade, biblioteca, expressão).
-    padrao: Option<(UnitId, LibraryId, ExprId)>,
+    pattern: Option<(UnitId, LibraryId, ExprId)>,
 }
 
 /// Um parâmetro a converter (`_ParameterData`).
-struct Dados {
+struct Data {
     final_: Option<Span>,
-    tipo_a_tirar: Option<(Option<Span>, Option<Span>)>,
-    nome: Span,
-    inicializador_nulo: bool,
-    faixa_do_padrao: Option<Span>,
-    indice_do_parametro: usize,
-    indice_do_argumento: usize,
+    type_to_remove: Option<(Option<Span>, Option<Span>)>,
+    name: Span,
+    null_initializer: bool,
+    pattern_range: Option<Span>,
+    parameter_index: usize,
+    argument_index: usize,
 }
 
-impl Contexto<'_> {
+impl Context<'_> {
     /// `_findConstructor`.
-    fn construtor_da_selecao(&self, no: usize) -> Option<usize> {
-        match self.especie(no) {
+    fn selection_constructor(&self, no: usize) -> Option<usize> {
+        match self.kind(no) {
             "ConstructorDeclaration" => Some(no),
             "SimpleIdentifier" => {
-                let p = self.pai(no)?;
-                match self.especie(p) {
+                let p = self.parent(no)?;
+                match self.kind(p) {
                     "ConstructorDeclaration" => Some(p),
-                    "ConstructorName" => self.pai(p).filter(|&a| self.especie(a) == "ConstructorDeclaration"),
+                    "ConstructorName" => self.parent(p).filter(|&a| self.kind(a) == "ConstructorDeclaration"),
                     _ => None,
                 }
             }
@@ -56,31 +56,31 @@ impl Contexto<'_> {
     /// Os parâmetros do construtor da superclasse, com os tipos vistos da
     /// classe (`ConstructorMember`: os argumentos de tipo da superclasse
     /// substituídos).
-    fn parametros_do_super(&self, classe: dartforge_elements::model::ClassId, sf: FunctionElementId, tabela: &mut dartforge_types::TypeTable) -> Option<Vec<ParametroSuper>> {
-        let prog = self.p.programa();
-        let consulta = &self.p.consulta;
-        let dados = consulta.outline.functions.get(sf.0 as usize)?;
+    fn super_parameters(&self, class: dartforge_elements::model::ClassId, sf: FunctionElementId, table: &mut dartforge_types::TypeTable) -> Option<Vec<SuperParameter>> {
+        let prog = self.p.program();
+        let query = &self.p.query;
+        let data = query.outline.functions.get(sf.0 as usize)?;
         let sfe = prog.function(sf);
-        let dono = sfe.class?;
+        let owner = sfe.class?;
         // `C<…>` com os próprios parâmetros, visto como a classe do super.
-        let parametros_c: Vec<TypeId> = consulta
+        let parameters_c: Vec<TypeId> = query
             .outline
             .classes
-            .get(classe.0 as usize)
-            .map(|c| c.type_params.iter().map(|&p| tabela.intern(Type::TypeParameter { param: p, nullable: false })).collect())
+            .get(class.0 as usize)
+            .map(|c| c.type_params.iter().map(|&p| table.intern(Type::TypeParameter { param: p, nullable: false })).collect())
             .unwrap_or_default();
-        let este = tabela.intern(Type::Interface { class: classe, args: parametros_c.into_boxed_slice(), nullable: false });
-        let mut mapa: HashMap<dartforge_types::TypeParamId, TypeId> = HashMap::new();
-        if let Some(visto) = consulta.outline.hierarchy.supertype_of(este, dono, tabela, &consulta.core)
-            && let Type::Interface { args, .. } = tabela.get(visto).clone()
-            && let Some(cd) = consulta.outline.classes.get(dono.0 as usize)
+        let this = table.intern(Type::Interface { class: class, args: parameters_c.into_boxed_slice(), nullable: false });
+        let mut map: HashMap<dartforge_types::TypeParamId, TypeId> = HashMap::new();
+        if let Some(seen) = query.outline.hierarchy.supertype_of(this, owner, table, &query.core)
+            && let Type::Interface { args, .. } = table.get(seen).clone()
+            && let Some(cd) = query.outline.classes.get(owner.0 as usize)
         {
             for (p, a) in cd.type_params.iter().zip(args.iter()) {
-                mapa.insert(*p, *a);
+                map.insert(*p, *a);
             }
         }
         // Os valores padrão, do AST do construtor da superclasse.
-        let padroes: Vec<Option<(UnitId, LibraryId, ExprId)>> = match sfe.node {
+        let patterns: Vec<Option<(UnitId, LibraryId, ExprId)>> = match sfe.node {
             FunctionRef::Constructor { unit, member } => match &prog.unit(unit).ast.member(member).kind {
                 MemberKind::Constructor(k) => k.parameters.iter().map(|p| p.default_value.map(|d| (unit, prog.unit(unit).library, d))).collect(),
                 _ => Vec::new(),
@@ -88,282 +88,282 @@ impl Contexto<'_> {
             _ => Vec::new(),
         };
         Some(
-            dados
+            data
                 .parameters
                 .iter()
                 .enumerate()
-                .map(|(i, p)| ParametroSuper {
-                    nome: p.externo.or(p.name).map(|n| self.p.nome(n).to_string()).unwrap_or_default(),
-                    nomeado: p.kind == ParameterKind::Named,
-                    tipo: dartforge_types::ops::substitute(p.ty, &mapa, tabela),
-                    padrao: padroes.get(i).copied().flatten(),
+                .map(|(i, p)| SuperParameter {
+                    name: p.externo.or(p.name).map(|n| self.p.name(n).to_string()).unwrap_or_default(),
+                    named: p.kind == ParameterKind::Named,
+                    ty: dartforge_types::ops::substitute(p.ty, &map, table),
+                    pattern: patterns.get(i).copied().flatten(),
                 })
                 .collect(),
         )
     }
 
     /// `ConvertToSuperParameters`.
-    pub(crate) fn converter_em_super_parametros(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
-        let prog = self.p.programa();
-        if prog.library(prog.unit(self.unidade).library).features.versao() < dartforge_frontend::features::LanguageVersion::new(2, 17) {
+    pub(crate) fn convert_to_super_parameters(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+        let prog = self.p.program();
+        if prog.library(prog.unit(self.unit).library).features.versao() < dartforge_frontend::features::LanguageVersion::new(2, 17) {
             return None;
         }
-        let no = self.arvore.localizar(inicio, fim)?;
-        let construtor = self.construtor_da_selecao(no)?;
+        let no = self.tree.localizar(start, end)?;
+        let constructor = self.selection_constructor(no)?;
         // `_superInvocation`: o último `super(…)` dos inicializadores.
-        let inicializadores: Vec<usize> = self
-            .filhos(construtor)
+        let initializers: Vec<usize> = self
+            .children(constructor)
             .iter()
             .copied()
-            .filter(|&k| matches!(self.especie(k), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
+            .filter(|&k| matches!(self.kind(k), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
             .collect();
-        let invocacao = *inicializadores.iter().rev().find(|&&k| self.especie(k) == "SuperConstructorInvocation")?;
-        let fim_do_no = self.arvore.nos[construtor].fim;
-        let mi = self.ast.members.iter().position(|m| matches!(m.kind, MemberKind::Constructor(_)) && m.span.end == fim_do_no)?;
+        let invocation = *initializers.iter().rev().find(|&&k| self.kind(k) == "SuperConstructorInvocation")?;
+        let node_end = self.tree.nos[constructor].fim;
+        let mi = self.ast.members.iter().position(|m| matches!(m.kind, MemberKind::Constructor(_)) && m.span.end == node_end)?;
         let MemberKind::Constructor(k) = &self.ast.member(ast::MemberId(mi as u32)).kind else { return None };
-        let f = self.p.construtor_do_no(self.unidade, ast::MemberId(mi as u32))?;
-        let sf = self.p.construtor_super(f)?;
-        let classe = prog.function(f).class?;
-        let consulta = &self.p.consulta;
-        let mut tabela = consulta.tabela.clone();
-        let parametros_super = self.parametros_do_super(classe, sf, &mut tabela)?;
-        let tipos_deste: Vec<TypeId> = consulta.outline.functions.get(f.0 as usize)?.parameters.iter().map(|p| p.ty).collect();
-        let lista = self.filhos(construtor).iter().copied().find(|&c| self.especie(c) == "FormalParameterList")?;
-        let nos_dos_parametros = self.filhos(lista).to_vec();
+        let f = self.p.node_constructor(self.unit, ast::MemberId(mi as u32))?;
+        let sf = self.p.super_constructor(f)?;
+        let class = prog.function(f).class?;
+        let query = &self.p.query;
+        let mut table = query.table.clone();
+        let super_parameters_ = self.super_parameters(class, sf, &mut table)?;
+        let types_of_this: Vec<TypeId> = query.outline.functions.get(f.0 as usize)?.parameters.iter().map(|p| p.ty).collect();
+        let list = self.children(constructor).iter().copied().find(|&c| self.kind(c) == "FormalParameterList")?;
+        let parameter_nodes = self.children(list).to_vec();
         // `_parameterMap`: os simples e os de função, pelo offset do nome.
-        let mut mapa: HashMap<usize, usize> = HashMap::new();
-        for (i, &p) in nos_dos_parametros.iter().enumerate() {
-            let interno = if self.especie(p) == "DefaultFormalParameter" { *self.filhos(p).first()? } else { p };
-            if matches!(self.especie(interno), "SimpleFormalParameter" | "FunctionTypedFormalParameter")
+        let mut map: HashMap<usize, usize> = HashMap::new();
+        for (i, &p) in parameter_nodes.iter().enumerate() {
+            let internal = if self.kind(p) == "DefaultFormalParameter" { *self.children(p).first()? } else { p };
+            if matches!(self.kind(internal), "SimpleFormalParameter" | "FunctionTypedFormalParameter")
                 && let Some(n) = k.parameters.get(i).and_then(|x| x.name)
             {
-                mapa.insert(n.span.start, i);
+                map.insert(n.span.start, i);
             }
         }
         // O parâmetro (índice) que um identificador cita.
-        let parametro_de = |e: usize| -> Option<usize> {
-            if self.especie(e) != "SimpleIdentifier" {
+        let parameter_of = |e: usize| -> Option<usize> {
+            if self.kind(e) != "SimpleIdentifier" {
                 return None;
             }
-            let Marca::Expr(x) = self.arvore.nos[e].marca else { return None };
-            let decl = match self.corpos.get_resolved(x)? {
-                Resolved::Local(_) => self.corpos.declaracao_local(x)?,
+            let Marca::Expr(x) = self.tree.nos[e].marca else { return None };
+            let decl = match self.bodies.get_resolved(x)? {
+                Resolved::Local(_) => self.bodies.declaracao_local(x)?,
                 Resolved::Parameter { name, .. } => k.parameters.iter().find(|p| p.name.is_some_and(|n| n.sym == *name))?.name?.span.start,
                 _ => return None,
             };
-            mapa.get(&decl).copied()
+            map.get(&decl).copied()
         };
         // `_referencedParameters`: os parâmetros citados no corpo.
-        let mut citados: HashSet<usize> = HashSet::new();
-        if let Some(&corpo) = self.filhos(construtor).iter().find(|&&c| matches!(self.especie(c), "BlockFunctionBody" | "ExpressionFunctionBody")) {
-            let mut pilha = vec![corpo];
-            while let Some(n) = pilha.pop() {
-                if self.especie(n) == "SimpleIdentifier"
-                    && let Marca::Expr(x) = self.arvore.nos[n].marca
+        let mut cited: HashSet<usize> = HashSet::new();
+        if let Some(&body) = self.children(constructor).iter().find(|&&c| matches!(self.kind(c), "BlockFunctionBody" | "ExpressionFunctionBody")) {
+            let mut stack = vec![body];
+            while let Some(n) = stack.pop() {
+                if self.kind(n) == "SimpleIdentifier"
+                    && let Marca::Expr(x) = self.tree.nos[n].marca
                 {
-                    match self.corpos.get_resolved(x) {
+                    match self.bodies.get_resolved(x) {
                         Some(Resolved::Parameter { name, .. }) => {
                             if let Some(i) = k.parameters.iter().position(|p| p.name.is_some_and(|q| q.sym == *name)) {
-                                citados.insert(i);
+                                cited.insert(i);
                             }
                         }
                         Some(Resolved::Local(_)) => {
-                            if let Some(d) = self.corpos.declaracao_local(x)
-                                && let Some(&i) = mapa.get(&d)
+                            if let Some(d) = self.bodies.declaracao_local(x)
+                                && let Some(&i) = map.get(&d)
                             {
-                                citados.insert(i);
+                                cited.insert(i);
                             }
                         }
                         _ => {}
                     }
                 }
-                pilha.extend(self.filhos(n).iter().copied());
+                stack.extend(self.children(n).iter().copied());
             }
         }
-        let argumentos = self.argumentos_da_lista(invocacao);
-        let mut motor = None;
-        let mut dados_de = |i: usize, indice_arg: usize, super_p: &ParametroSuper, tabela: &mut dartforge_types::TypeTable| -> Option<Dados> {
-            let este_tipo = *tipos_deste.get(i)?;
-            let mut env = dartforge_types::subtyping::SubtypeEnv::new(tabela, &consulta.outline.hierarchy, &consulta.core);
-            if !dartforge_types::subtyping::is_subtype(este_tipo, super_p.tipo, &mut env) {
+        let arguments = self.list_arguments(invocation);
+        let mut engine = None;
+        let mut data_of = |i: usize, index_arg: usize, super_p: &SuperParameter, table: &mut dartforge_types::TypeTable| -> Option<Data> {
+            let this_type = *types_of_this.get(i)?;
+            let mut env = dartforge_types::subtyping::SubtypeEnv::new(table, &query.outline.hierarchy, &query.core);
+            if !dartforge_types::subtyping::is_subtype(this_type, super_p.ty, &mut env) {
                 return None;
             }
             let p = k.parameters.get(i)?;
-            let nome = p.name?.span;
-            let no_p = nos_dos_parametros[i];
-            let interno = if self.especie(no_p) == "DefaultFormalParameter" { *self.filhos(no_p).first()? } else { no_p };
+            let name_ = p.name?.span;
+            let node_p = parameter_nodes[i];
+            let internal = if self.kind(node_p) == "DefaultFormalParameter" { *self.children(node_p).first()? } else { node_p };
             // `_defaultValueRange`: o padrão igual ao do super sai.
-            let faixa_do_padrao = match (p.default_value, super_p.padrao) {
+            let pattern_range = match (p.default_value, super_p.pattern) {
                 (Some(d), Some((su, sl, se))) => {
-                    let m = motor.get_or_insert_with(|| tabela.clone());
-                    let mut mt = dartforge_types::constantes::avaliador::Motor::novo(prog, &consulta.nomes, m, &consulta.core, &consulta.outline, &consulta.corpos, &self.p.bibliotecas);
-                    let lib = prog.unit(self.unidade).library;
-                    let deste = mt.avaliar(&dartforge_types::constantes::avaliador::Ctx::simples(self.unidade, lib), d, true);
-                    let dele = mt.avaliar(&dartforge_types::constantes::avaliador::Ctx::simples(su, sl), se, true);
-                    match (dele.valor(), deste.valor()) {
-                        (Some(a), Some(b)) if mt.iguais(a, b) => Some(Span { start: nome.end, end: self.ast.expr(d).span.end }),
+                    let m = engine.get_or_insert_with(|| table.clone());
+                    let mut mt = dartforge_types::constantes::avaliador::Motor::novo(prog, &query.names, m, &query.core, &query.outline, &query.bodies, &self.p.libraries);
+                    let lib = prog.unit(self.unit).library;
+                    let this = mt.avaliar(&dartforge_types::constantes::avaliador::Ctx::simples(self.unit, lib), d, true);
+                    let its = mt.avaliar(&dartforge_types::constantes::avaliador::Ctx::simples(su, sl), se, true);
+                    match (its.valor(), this.valor()) {
+                        (Some(a), Some(b)) if mt.iguais(a, b) => Some(Span { start: name_.end, end: self.ast.expr(d).span.end }),
                         _ => None,
                     }
                 }
                 _ => None,
             };
-            let final_ = if p.final_ && self.especie(interno) == "SimpleFormalParameter" {
-                self.tokens.iter().find(|t| t.span.start >= self.arvore.nos[interno].inicio && t.span.end <= nome.start && &self.fonte[t.span.start..t.span.end] == "final").map(|t| t.span)
+            let final_ = if p.final_ && self.kind(internal) == "SimpleFormalParameter" {
+                self.tokens.iter().find(|t| t.span.start >= self.tree.nos[internal].inicio && t.span.end <= name_.start && &self.source[t.span.start..t.span.end] == "final").map(|t| t.span)
             } else {
                 None
             };
-            let inicializador_nulo = p.kind != ParameterKind::Required && !p.required && p.default_value.is_none() && super_p.padrao.is_some();
-            let tipo_a_tirar = if este_tipo == super_p.tipo {
-                match self.especie(interno) {
-                    "SimpleFormalParameter" => p.ty.map(|t| (Some(Span { start: self.ast.ty(t).span.start, end: nome.start }), None)),
+            let null_initializer = p.kind != ParameterKind::Required && !p.required && p.default_value.is_none() && super_p.pattern.is_some();
+            let type_to_remove = if this_type == super_p.ty {
+                match self.kind(internal) {
+                    "SimpleFormalParameter" => p.ty.map(|t| (Some(Span { start: self.ast.ty(t).span.start, end: name_.start }), None)),
                     "FunctionTypedFormalParameter" => {
-                        let lista_f = self.filhos(interno).iter().rev().find(|&&c| self.especie(c) == "FormalParameterList").map(|&l| self.arvore.span(l));
-                        Some((p.ty.map(|t| Span { start: self.ast.ty(t).span.start, end: nome.start }), lista_f))
+                        let list_f = self.children(internal).iter().rev().find(|&&c| self.kind(c) == "FormalParameterList").map(|&l| self.tree.span(l));
+                        Some((p.ty.map(|t| Span { start: self.ast.ty(t).span.start, end: name_.start }), list_f))
                     }
                     _ => None,
                 }
             } else {
                 None
             };
-            Some(Dados { final_, tipo_a_tirar, nome, inicializador_nulo, faixa_do_padrao, indice_do_parametro: i, indice_do_argumento: indice_arg })
+            Some(Data { final_, type_to_remove, name: name_, null_initializer, pattern_range, parameter_index: i, argument_index: index_arg })
         };
-        let mut posicionais: Option<Vec<Dados>> = Some(Vec::new());
-        let mut nomeados: Vec<Dados> = Vec::new();
-        let mut posicao = 0usize;
-        let super_posicionais: Vec<&ParametroSuper> = parametros_super.iter().filter(|p| !p.nomeado).collect();
-        for (ia, &arg) in argumentos.iter().enumerate() {
-            if self.especie(arg) == "NamedExpression" {
-                let f = self.filhos(arg);
-                let rotulo = self.texto_do_no(*f.first()?).trim_end_matches(':').trim().to_string();
+        let mut positional: Option<Vec<Data>> = Some(Vec::new());
+        let mut named: Vec<Data> = Vec::new();
+        let mut position = 0usize;
+        let super_positional: Vec<&SuperParameter> = super_parameters_.iter().filter(|p| !p.named).collect();
+        for (ia, &arg) in arguments.iter().enumerate() {
+            if self.kind(arg) == "NamedExpression" {
+                let f = self.children(arg);
+                let label = self.node_text(*f.first()?).trim_end_matches(':').trim().to_string();
                 let Some(&exp) = f.get(1) else { continue };
-                if let Some(i) = parametro_de(exp)
+                if let Some(i) = parameter_of(exp)
                     && k.parameters[i].kind == ParameterKind::Named
-                    && k.parameters[i].nome_externo().is_some_and(|n| self.p.nome(n.sym) == rotulo)
-                    && !citados.contains(&i)
-                    && let Some(sp) = parametros_super.iter().find(|p| p.nomeado && p.nome == rotulo)
-                    && let Some(d) = dados_de(i, ia, sp, &mut tabela)
+                    && k.parameters[i].nome_externo().is_some_and(|n| self.p.name(n.sym) == label)
+                    && !cited.contains(&i)
+                    && let Some(sp) = super_parameters_.iter().find(|p| p.named && p.name == label)
+                    && let Some(d) = data_of(i, ia, sp, &mut table)
                 {
-                    nomeados.push(d);
+                    named.push(d);
                 }
             } else {
-                let super_p = super_posicionais.get(posicao).copied();
-                posicao += 1;
-                if posicionais.is_some() {
-                    match parametro_de(arg) {
-                        Some(i) if k.parameters[i].kind != ParameterKind::Named && !citados.contains(&i) => {
-                            match super_p.and_then(|sp| dados_de(i, ia, sp, &mut tabela)) {
-                                Some(d) => posicionais.as_mut().expect("posicionais").push(d),
-                                None => posicionais = None,
+                let super_p = super_positional.get(position).copied();
+                position += 1;
+                if positional.is_some() {
+                    match parameter_of(arg) {
+                        Some(i) if k.parameters[i].kind != ParameterKind::Named && !cited.contains(&i) => {
+                            match super_p.and_then(|sp| data_of(i, ia, sp, &mut table)) {
+                                Some(d) => positional.as_mut().expect("posicionais").push(d),
+                                None => positional = None,
                             }
                         }
-                        _ => posicionais = None,
+                        _ => positional = None,
                     }
                 }
             }
         }
         // `_inOrder`.
-        if let Some(p) = &posicionais
-            && p.windows(2).any(|w| w[1].indice_do_parametro < w[0].indice_do_parametro)
+        if let Some(p) = &positional
+            && p.windows(2).any(|w| w[1].parameter_index < w[0].parameter_index)
         {
-            posicionais = None;
+            positional = None;
         }
-        if posicionais.as_ref().is_none_or(Vec::is_empty) && nomeados.is_empty() {
+        if positional.as_ref().is_none_or(Vec::is_empty) && named.is_empty() {
             return None;
         }
-        let todos: Vec<Dados> = posicionais.unwrap_or_default().into_iter().chain(nomeados).collect();
-        let mut a_tirar: Vec<usize> = todos.iter().map(|d| d.indice_do_argumento).collect();
-        a_tirar.sort_unstable();
-        let mut m = Mudanca::default();
-        let antes = |m: &mut Mudanca, s: usize| m.adicionar(uri, Span { start: s, end: s }, "super.");
-        for d in &todos {
-            let inserir_super = |m: &mut Mudanca| match d.final_ {
-                None => antes(m, d.nome.start),
+        let all: Vec<Data> = positional.unwrap_or_default().into_iter().chain(named).collect();
+        let mut to_remove: Vec<usize> = all.iter().map(|d| d.argument_index).collect();
+        to_remove.sort_unstable();
+        let mut m = Change::default();
+        let before = |m: &mut Change, s: usize| m.add(uri, Span { start: s, end: s }, "super.");
+        for d in &all {
+            let insert_super = |m: &mut Change| match d.final_ {
+                None => before(m, d.name.start),
                 Some(kw) => {
-                    let depois = self.token_seguinte(kw.end).map_or(d.nome.start, |s| s.start);
-                    if depois == d.nome.start {
-                        m.adicionar(uri, Span { start: kw.start, end: depois }, "super.");
+                    let after = self.next_token(kw.end).map_or(d.name.start, |s| s.start);
+                    if after == d.name.start {
+                        m.add(uri, Span { start: kw.start, end: after }, "super.");
                     } else {
-                        m.adicionar(uri, Span { start: kw.start, end: depois }, String::new());
-                        antes(m, d.nome.start);
+                        m.add(uri, Span { start: kw.start, end: after }, String::new());
+                        before(m, d.name.start);
                     }
                 }
             };
-            match &d.tipo_a_tirar {
-                None => inserir_super(&mut m),
-                Some((primaria, faixa_dos_parametros)) => {
-                    match primaria {
-                        None => antes(&mut m, d.nome.start),
+            match &d.type_to_remove {
+                None => insert_super(&mut m),
+                Some((primary, parameter_range)) => {
+                    match primary {
+                        None => before(&mut m, d.name.start),
                         Some(pr) => match d.final_ {
-                            None => m.adicionar(uri, *pr, "super."),
+                            None => m.add(uri, *pr, "super."),
                             Some(kw) => {
-                                let depois = self.token_seguinte(kw.end).map_or(pr.start, |s| s.start);
-                                if depois == pr.start {
-                                    m.adicionar(uri, Span { start: kw.start, end: pr.end }, "super.");
+                                let after = self.next_token(kw.end).map_or(pr.start, |s| s.start);
+                                if after == pr.start {
+                                    m.add(uri, Span { start: kw.start, end: pr.end }, "super.");
                                 } else {
-                                    m.adicionar(uri, Span { start: kw.start, end: depois }, String::new());
-                                    m.adicionar(uri, *pr, "super.");
+                                    m.add(uri, Span { start: kw.start, end: after }, String::new());
+                                    m.add(uri, *pr, "super.");
                                 }
                             }
                         },
                     }
-                    if d.inicializador_nulo {
-                        m.adicionar(uri, Span { start: d.nome.end, end: d.nome.end }, " = null");
+                    if d.null_initializer {
+                        m.add(uri, Span { start: d.name.end, end: d.name.end }, " = null");
                     }
-                    if let Some(fp) = faixa_dos_parametros {
-                        m.adicionar(uri, *fp, String::new());
+                    if let Some(fp) = parameter_range {
+                        m.add(uri, *fp, String::new());
                     }
                 }
             }
-            if let Some(fp) = d.faixa_do_padrao {
-                m.adicionar(uri, fp, String::new());
+            if let Some(fp) = d.pattern_range {
+                m.add(uri, fp, String::new());
             }
         }
-        let nome_do_super = self.filhos(invocacao).iter().any(|&c| self.especie(c) == "SimpleIdentifier");
-        let lista_de_argumentos = self.filhos(invocacao).iter().copied().find(|&c| self.especie(c) == "ArgumentList")?;
-        if a_tirar.len() == argumentos.len() {
-            if !nome_do_super {
-                let faixa = if inicializadores.len() == 1 {
-                    Span { start: self.arvore.nos[lista].fim, end: self.arvore.nos[invocacao].fim }
+        let super_name = self.children(invocation).iter().any(|&c| self.kind(c) == "SimpleIdentifier");
+        let argument_list = self.children(invocation).iter().copied().find(|&c| self.kind(c) == "ArgumentList")?;
+        if to_remove.len() == arguments.len() {
+            if !super_name {
+                let range = if initializers.len() == 1 {
+                    Span { start: self.tree.nos[list].fim, end: self.tree.nos[invocation].fim }
                 } else {
-                    let i = inicializadores.iter().position(|&x| x == invocacao)?;
+                    let i = initializers.iter().position(|&x| x == invocation)?;
                     if i == 0 {
-                        Span { start: self.arvore.nos[invocacao].inicio, end: self.arvore.nos[inicializadores[1]].inicio }
+                        Span { start: self.tree.nos[invocation].inicio, end: self.tree.nos[initializers[1]].inicio }
                     } else {
-                        Span { start: self.arvore.nos[inicializadores[i - 1]].fim, end: self.arvore.nos[invocacao].fim }
+                        Span { start: self.tree.nos[initializers[i - 1]].fim, end: self.tree.nos[invocation].fim }
                     }
                 };
-                m.adicionar(uri, faixa, String::new());
+                m.add(uri, range, String::new());
             } else {
-                let s = self.arvore.span(lista_de_argumentos);
-                m.adicionar(uri, Span { start: s.start + 1, end: s.end - 1 }, String::new());
+                let s = self.tree.span(argument_list);
+                m.add(uri, Span { start: s.start + 1, end: s.end - 1 }, String::new());
             }
         } else {
             // `nodesInList`.
-            let mut grupos: Vec<(usize, usize)> = Vec::new();
-            for &i in &a_tirar {
-                match grupos.last_mut() {
-                    Some((_, fim)) if *fim + 1 == i => *fim = i,
-                    _ => grupos.push((i, i)),
+            let mut groups: Vec<(usize, usize)> = Vec::new();
+            for &i in &to_remove {
+                match groups.last_mut() {
+                    Some((_, end)) if *end + 1 == i => *end = i,
+                    _ => groups.push((i, i)),
                 }
             }
-            for (de, ate) in grupos {
-                let faixa = if de == 0 {
-                    Span { start: self.arvore.nos[argumentos[de]].inicio, end: self.arvore.nos[argumentos[ate + 1]].inicio }
+            for (de, until) in groups {
+                let range = if de == 0 {
+                    Span { start: self.tree.nos[arguments[de]].inicio, end: self.tree.nos[arguments[until + 1]].inicio }
                 } else {
-                    Span { start: self.arvore.nos[argumentos[de - 1]].fim, end: self.arvore.nos[argumentos[ate]].fim }
+                    Span { start: self.tree.nos[arguments[de - 1]].fim, end: self.tree.nos[arguments[until]].fim }
                 };
-                m.adicionar(uri, faixa, String::new());
+                m.add(uri, range, String::new());
             }
         }
-        if m.conflito.is_some() {
+        if m.conflict.is_some() {
             return None;
         }
-        Some(AcaoDeCodigo {
-            titulo: "Convert to using super parameters".into(),
-            especie: "refactor.convert.toSuperParameters".into(),
-            edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
-            diagnostico: None,
-            criar_arquivo: None, ligado: Default::default(),
+        Some(CodeAction {
+            title: "Convert to using super parameters".into(),
+            kind: "refactor.convert.toSuperParameters".into(),
+            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            diagnostic: None,
+            create_file: None, linked: Default::default(),
         })
     }
 }

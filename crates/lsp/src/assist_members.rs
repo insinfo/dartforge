@@ -11,57 +11,57 @@
 //! | `Convert to field formal parameter` | `refactor.convert.toConstructorFieldParameter` | `ConvertToFieldParameter` |
 //! | `Create a local variable that shadows the field` | `refactor.shadowField` | `ShadowField` |
 
-use crate::actions::AcaoDeCodigo;
+use crate::actions::CodeAction;
 use crate::arvore_analyzer::Marca;
-use crate::refactorings::Contexto;
-use crate::Edicao;
+use crate::refactorings::Context;
+use crate::Edit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{self, FunctionBody, StmtKind};
 use dartforge_types::TypeId;
 
 /// As espécies de `TypeAnnotation`.
-const TIPOS: &[&str] = &["NamedType", "GenericFunctionType", "RecordTypeAnnotation"];
+const TYPES: &[&str] = &["NamedType", "GenericFunctionType", "RecordTypeAnnotation"];
 
-impl Contexto<'_> {
-    fn acao_de_membro(&self, uri: &str, titulo: &str, especie: &str, span: Span, texto: String) -> AcaoDeCodigo {
-        AcaoDeCodigo {
-            titulo: titulo.into(),
-            especie: especie.into(),
-            edicoes: vec![Edicao { uri: uri.to_string(), span, texto }],
-            diagnostico: None,
-            criar_arquivo: None, ligado: Default::default(),
+impl Context<'_> {
+    fn member_action(&self, uri: &str, title: &str, kind: &str, span: Span, text: String) -> CodeAction {
+        CodeAction {
+            title: title.into(),
+            kind: kind.into(),
+            edits: vec![Edit { uri: uri.to_string(), span, text }],
+            diagnostic: None,
+            create_file: None, linked: Default::default(),
         }
     }
 
     /// `ConvertIntoFinalField` (convert_into_final_field.dart).
-    pub(crate) fn converter_em_campo_final(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
-        let no = self.arvore.localizar(inicio, fim)?;
+    pub(crate) fn convert_to_final_field(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+        let no = self.tree.localizar(start, end)?;
         // O getter envolvente: passa por identificadores e tipos.
         let mut getter = None;
-        for n in self.com_pais(no) {
-            let e = self.especie(n);
+        for n in self.with_parents(no) {
+            let e = self.kind(n);
             if e == "MethodDeclaration" {
                 getter = Some(n);
                 break;
             }
-            if e == "SimpleIdentifier" || TIPOS.contains(&e) || e == "TypeArgumentList" {
+            if e == "SimpleIdentifier" || TYPES.contains(&e) || e == "TypeArgumentList" {
                 continue;
             }
             break;
         }
         let getter = getter?;
-        let Marca::Funcao(fid) = self.arvore.nos[getter].marca else { return None };
+        let Marca::Funcao(fid) = self.tree.nos[getter].marca else { return None };
         let f = self.ast.function(fid);
         if f.kind != ast::FunctionKind::Getter {
             return None;
         }
-        let nome = f.name?;
+        let name = f.name?;
         // Sem setter correspondente (`variable.setter2`).
-        let elemento = self.p.funcao_do_no(self.unidade, fid)?;
-        let prog = self.p.programa();
-        let fe = prog.function(elemento);
-        let chave = self.p.consulta.nomes.lookup(&format!("{}=", self.p.nome(fe.name)));
-        let tem_setter = chave.is_some_and(|k| match (fe.class, fe.extension) {
+        let element = self.p.node_function(self.unit, fid)?;
+        let prog = self.p.program();
+        let fe = prog.function(element);
+        let key = self.p.query.names.lookup(&format!("{}=", self.p.name(fe.name)));
+        let has_setter = key.is_some_and(|k| match (fe.class, fe.extension) {
             (Some(c), _) => {
                 let k_ = prog.class(c);
                 if fe.static_ { k_.static_members.contains_key(&k) } else { k_.instance_members.contains_key(&k) }
@@ -72,11 +72,11 @@ impl Contexto<'_> {
             }
             _ => false,
         });
-        if tem_setter {
+        if has_setter {
             return None;
         }
         // A expressão devolvida.
-        let expressao = match &f.body {
+        let expression = match &f.body {
             FunctionBody::Expression(e) => Some(*e),
             FunctionBody::Block(b) => match &self.ast.stmt(*b).kind {
                 StmtKind::Block(cmds) if cmds.len() == 1 => match &self.ast.stmt(cmds[0]).kind {
@@ -87,147 +87,147 @@ impl Contexto<'_> {
             },
             _ => None,
         }?;
-        let mut codigo = String::from("final");
+        let mut code = String::from("final");
         if let Some(t) = f.return_type {
             let s = self.ast.ty(t).span;
-            codigo.push(' ');
-            codigo.push_str(&self.fonte[s.start..s.end]);
+            code.push(' ');
+            code.push_str(&self.source[s.start..s.end]);
         }
-        codigo.push(' ');
-        codigo.push_str(&self.fonte[nome.span.start..nome.span.end]);
-        let es = self.ast.expr(expressao).span;
-        if !matches!(self.ast.expr(expressao).kind, ast::ExprKind::Null) {
-            codigo.push_str(" = ");
-            codigo.push_str(&self.fonte[es.start..es.end]);
+        code.push(' ');
+        code.push_str(&self.source[name.span.start..name.span.end]);
+        let es = self.ast.expr(expression).span;
+        if !matches!(self.ast.expr(expression).kind, ast::ExprKind::Null) {
+            code.push_str(" = ");
+            code.push_str(&self.source[es.start..es.end]);
         }
-        codigo.push(';');
+        code.push(';');
         // `range.startEnd(returnType ?? propertyKeywordGet, getter)`.
-        let inicio_troca = match f.return_type {
+        let start_swap = match f.return_type {
             Some(t) => self.ast.ty(t).span.start,
             None => self
                 .tokens
                 .iter()
-                .filter(|t| t.span.end <= nome.span.start && &self.fonte[t.span.start..t.span.end] == "get")
+                .filter(|t| t.span.end <= name.span.start && &self.source[t.span.start..t.span.end] == "get")
                 .map(|t| t.span.start)
                 .next_back()?,
         };
-        let faixa = Span { start: inicio_troca, end: self.arvore.nos[getter].fim };
-        Some(self.acao_de_membro(uri, "Convert to final field", "refactor.convert.getterToFinalField", faixa, codigo))
+        let range = Span { start: start_swap, end: self.tree.nos[getter].fim };
+        Some(self.member_action(uri, "Convert to final field", "refactor.convert.getterToFinalField", range, code))
     }
 
     /// `ConvertIntoGetter` (convert_into_getter.dart).
-    pub(crate) fn converter_em_getter(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
-        let no = self.arvore.localizar(inicio, fim)?;
-        let mut declaracao = None;
-        for n in self.com_pais(no) {
-            let e = self.especie(n);
+    pub(crate) fn convert_to_getter(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+        let no = self.tree.localizar(start, end)?;
+        let mut declaration = None;
+        for n in self.with_parents(no) {
+            let e = self.kind(n);
             if e == "FieldDeclaration" {
-                declaracao = Some(n);
+                declaration = Some(n);
                 break;
             }
-            if matches!(e, "SimpleIdentifier" | "VariableDeclaration" | "VariableDeclarationList" | "TypeArgumentList") || TIPOS.contains(&e) {
+            if matches!(e, "SimpleIdentifier" | "VariableDeclaration" | "VariableDeclarationList" | "TypeArgumentList") || TYPES.contains(&e) {
                 continue;
             }
             break;
         }
-        let declaracao = declaracao?;
-        let lista = self.filhos(declaracao).iter().copied().find(|&f| self.especie(f) == "VariableDeclarationList")?;
-        let variaveis = self.filhos_da_especie(lista, "VariableDeclaration");
-        if variaveis.len() != 1 {
+        let declaration = declaration?;
+        let list = self.children(declaration).iter().copied().find(|&f| self.kind(f) == "VariableDeclarationList")?;
+        let variables = self.kind_children(list, "VariableDeclaration");
+        if variables.len() != 1 {
             return None;
         }
-        let campo = variaveis[0];
+        let field = variables[0];
         // O `keyword` da lista (`final`, `const` ou `var`).
-        let tipo = self.filhos(lista).iter().copied().find(|&f| TIPOS.contains(&self.especie(f)));
-        let limite = tipo.map_or(self.arvore.nos[campo].inicio, |t| self.arvore.nos[t].inicio);
-        let palavra = self
+        let ty = self.children(list).iter().copied().find(|&f| TYPES.contains(&self.kind(f)));
+        let limit = ty.map_or(self.tree.nos[field].inicio, |t| self.tree.nos[t].inicio);
+        let word = self
             .tokens
             .iter()
-            .find(|t| t.span.start >= self.arvore.nos[lista].inicio && t.span.end <= limite && matches!(&self.fonte[t.span.start..t.span.end], "final" | "const" | "var"))?
+            .find(|t| t.span.start >= self.tree.nos[list].inicio && t.span.end <= limit && matches!(&self.source[t.span.start..t.span.end], "final" | "const" | "var"))?
             .span;
-        let inicializador = *self.filhos(campo).first()?;
-        let nome = self.token_seguinte(self.arvore.nos[campo].inicio)?;
-        let mut codigo = String::new();
-        if let Some(t) = tipo {
-            codigo.push_str(self.texto_do_no(t));
-            codigo.push(' ');
+        let initializer = *self.children(field).first()?;
+        let name = self.next_token(self.tree.nos[field].inicio)?;
+        let mut code = String::new();
+        if let Some(t) = ty {
+            code.push_str(self.node_text(t));
+            code.push(' ');
         }
-        codigo.push_str("get ");
-        codigo.push_str(&self.fonte[nome.start..nome.end]);
-        codigo.push_str(" => ");
-        codigo.push_str(self.texto_do_no(inicializador));
-        codigo.push(';');
-        let faixa = Span { start: palavra.start, end: self.arvore.nos[declaracao].fim };
-        Some(self.acao_de_membro(uri, "Convert to getter", "refactor.convert.finalFieldToGetter", faixa, codigo))
+        code.push_str("get ");
+        code.push_str(&self.source[name.start..name.end]);
+        code.push_str(" => ");
+        code.push_str(self.node_text(initializer));
+        code.push(';');
+        let range = Span { start: word.start, end: self.tree.nos[declaration].fim };
+        Some(self.member_action(uri, "Convert to getter", "refactor.convert.finalFieldToGetter", range, code))
     }
 
     /// `ConvertToNormalParameter` (convert_to_normal_parameter.dart): um
     /// `this.x` direto na lista de parâmetros de um construtor vira
     /// parâmetro comum com o inicializador `x = x`.
-    pub(crate) fn converter_em_parametro_normal(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
-        let parametro = self.arvore.localizar(inicio, fim)?;
-        if self.especie(parametro) != "FieldFormalParameter" {
+    pub(crate) fn convert_to_normal_parameter(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+        let parameter = self.tree.localizar(start, end)?;
+        if self.kind(parameter) != "FieldFormalParameter" {
             return None;
         }
-        let lista = self.pai(parametro)?;
-        if self.especie(lista) != "FormalParameterList" {
+        let list = self.parent(parameter)?;
+        if self.kind(list) != "FormalParameterList" {
             return None;
         }
-        let construtor = self.pai(lista)?;
-        if self.especie(construtor) != "ConstructorDeclaration" {
+        let constructor = self.parent(list)?;
+        if self.kind(constructor) != "ConstructorDeclaration" {
             return None;
         }
         // O nome: o último token do parâmetro (`this.x`).
-        let nome_span = self.token_anterior(self.arvore.nos[parametro].fim)?;
-        let nome = self.fonte[nome_span.start..nome_span.end].to_string();
+        let name_span = self.previous_token(self.tree.nos[parameter].fim)?;
+        let name = self.source[name_span.start..name_span.end].to_string();
         // O tipo do elemento: o do parâmetro do construtor, pela posição.
-        let indice = self.filhos(lista).iter().position(|&k| k == parametro)?;
-        let fim_do_no = self.arvore.nos[construtor].fim;
-        let mi = self.ast.members.iter().position(|m| matches!(m.kind, ast::MemberKind::Constructor(_)) && m.span.end == fim_do_no)?;
-        let elemento = self.p.construtor_do_no(self.unidade, ast::MemberId(mi as u32))?;
-        let tipo = self.p.consulta.outline.functions.get(elemento.0 as usize)?.parameters.get(indice)?.ty;
-        let mut importar = std::collections::BTreeSet::new();
-        let substituto = if matches!(self.p.consulta.tabela.get(tipo), dartforge_types::Type::Dynamic) {
-            nome.clone()
+        let index = self.children(list).iter().position(|&k| k == parameter)?;
+        let node_end = self.tree.nos[constructor].fim;
+        let mi = self.ast.members.iter().position(|m| matches!(m.kind, ast::MemberKind::Constructor(_)) && m.span.end == node_end)?;
+        let element = self.p.node_constructor(self.unit, ast::MemberId(mi as u32))?;
+        let ty = self.p.query.outline.functions.get(element.0 as usize)?.parameters.get(index)?.ty;
+        let mut import = std::collections::BTreeSet::new();
+        let replacement = if matches!(self.p.query.table.get(ty), dartforge_types::Type::Dynamic) {
+            name.clone()
         } else {
-            let mut escritor = crate::write_type::Escritor::novo(self, self.arvore.nos[parametro].inicio);
-            let escrito = escritor.escrever(tipo, false).unwrap_or_default();
-            importar = escritor.importar;
-            format!("{escrito} {nome}")
+            let mut writer = crate::write_type::Writer::new(self, self.tree.nos[parameter].inicio);
+            let written = writer.write(ty, false).unwrap_or_default();
+            import = writer.import;
+            format!("{written} {name}")
         };
-        let inicializadores: Vec<usize> = self
-            .filhos(construtor)
+        let initializers: Vec<usize> = self
+            .children(constructor)
             .iter()
             .copied()
-            .filter(|&k| matches!(self.especie(k), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
+            .filter(|&k| matches!(self.kind(k), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
             .collect();
-        let (em, texto) = match inicializadores.last() {
-            None => (self.arvore.nos[lista].fim, format!(" : {nome} = {nome}")),
-            Some(&u) => (self.arvore.nos[u].fim, format!(", {nome} = {nome}")),
+        let (em, text) = match initializers.last() {
+            None => (self.tree.nos[list].fim, format!(" : {name} = {name}")),
+            Some(&u) => (self.tree.nos[u].fim, format!(", {name} = {name}")),
         };
-        let mut m = crate::refactorings_exec::Mudanca::default();
-        m.adicionar(uri, self.arvore.span(parametro), substituto);
-        m.adicionar(uri, Span { start: em, end: em }, texto);
-        crate::refactorings_move::imports_do_builder(self, &mut m, &importar);
-        if m.conflito.is_some() {
+        let mut m = crate::refactorings_exec::Change::default();
+        m.add(uri, self.tree.span(parameter), replacement);
+        m.add(uri, Span { start: em, end: em }, text);
+        crate::refactorings_move::builder_imports(self, &mut m, &import);
+        if m.conflict.is_some() {
             return None;
         }
-        Some(AcaoDeCodigo {
-            titulo: "Convert to normal parameter".into(),
-            especie: "refactor.convert.toConstructorNormalParameter".into(),
-            edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
-            diagnostico: None,
-            criar_arquivo: None, ligado: Default::default(),
+        Some(CodeAction {
+            title: "Convert to normal parameter".into(),
+            kind: "refactor.convert.toConstructorNormalParameter".into(),
+            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            diagnostic: None,
+            create_file: None, linked: Default::default(),
         })
     }
 
     /// `_SuperclassReferenceFinder`: a classe (não mixin) que declara cada
     /// membro alcançado por `super` dentro de `span`, com repetições.
-    fn classes_referidas_por_super(&self, span: Span) -> Vec<dartforge_elements::model::ClassId> {
+    fn classes_referenced_by_super(&self, span: Span) -> Vec<dartforge_elements::model::ClassId> {
         use dartforge_types::{MemberRef, Resolved};
-        let prog = self.p.programa();
-        let mut saida = Vec::new();
-        let dono = |r: Option<&Resolved>| -> Option<dartforge_elements::model::ClassId> {
+        let prog = self.p.program();
+        let mut output = Vec::new();
+        let owner = |r: Option<&Resolved>| -> Option<dartforge_elements::model::ClassId> {
             let f = match r? {
                 Resolved::Member { member: MemberRef::Function(f), .. } => *f,
                 Resolved::Member { member: MemberRef::Variable(v), .. } => prog.variable(*v).getter?,
@@ -236,40 +236,40 @@ impl Contexto<'_> {
             let c = prog.function(f).class?;
             (prog.class(c).kind != dartforge_elements::model::ClassKind::Mixin).then_some(c)
         };
-        let e_super = |x: ast::ExprId| matches!(self.ast.expr(x).kind, ast::ExprKind::Super);
+        let is_super = |x: ast::ExprId| matches!(self.ast.expr(x).kind, ast::ExprKind::Super);
         for (i, e) in self.ast.exprs.iter().enumerate() {
             if e.span.start < span.start || e.span.end > span.end {
                 continue;
             }
             let id = ast::ExprId(i as u32);
-            let alvo = match &e.kind {
+            let target_ = match &e.kind {
                 // `super.x`, `super.m(…)` (o nome está no `Property`).
-                ast::ExprKind::Property { target, .. } if e_super(*target) => Some(id),
-                ast::ExprKind::Binary { left, .. } if e_super(*left) => Some(id),
-                ast::ExprKind::Index { target, .. } if e_super(*target) => Some(id),
+                ast::ExprKind::Property { target, .. } if is_super(*target) => Some(id),
+                ast::ExprKind::Binary { left, .. } if is_super(*left) => Some(id),
+                ast::ExprKind::Index { target, .. } if is_super(*target) => Some(id),
                 _ => None,
             };
-            if let Some(c) = alvo.and_then(|x| dono(self.corpos.get_resolved(x))) {
-                saida.push(c);
+            if let Some(c) = target_.and_then(|x| owner(self.bodies.get_resolved(x))) {
+                output.push(c);
             }
         }
-        saida
+        output
     }
 
     /// `ConvertClassToMixin` (convert_class_to_mixin.dart).
-    pub(crate) fn converter_classe_em_mixin(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
-        let no = self.arvore.localizar(inicio, fim)?;
-        let declaracao = self.com_pais(no).find(|&k| self.especie(k) == "ClassDeclaration")?;
-        let Marca::Decl(d) = self.arvore.nos[declaracao].marca else { return None };
+    pub(crate) fn convert_class_to_mixin(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+        let no = self.tree.localizar(start, end)?;
+        let declaration = self.with_parents(no).find(|&k| self.kind(k) == "ClassDeclaration")?;
+        let Marca::Decl(d) = self.tree.nos[declaration].marca else { return None };
         let ast::DeclKind::Class(k) = &self.ast.decl(d).kind else { return None };
         // `class` (a palavra) e o nome.
-        let palavra_class = self
+        let class_word = self
             .tokens
             .iter()
-            .filter(|t| t.span.end <= k.name.span.start && &self.fonte[t.span.start..t.span.end] == "class")
+            .filter(|t| t.span.end <= k.name.span.start && &self.source[t.span.start..t.span.end] == "class")
             .map(|t| t.span)
             .next_back()?;
-        if inicio > k.name.span.end || fim < palavra_class.start {
+        if start > k.name.span.end || end < class_word.start {
             return None;
         }
         if k.members.iter().any(|&m| matches!(self.ast.member(m).kind, ast::MemberKind::Constructor(_))) {
@@ -278,112 +278,112 @@ impl Contexto<'_> {
         if k.modifiers.final_ || k.modifiers.interface || k.modifiers.sealed {
             return None;
         }
-        let classe = self.classe_da_declaracao(self.unidade, d)?;
-        let dados = self.p.consulta.outline.classes.get(classe.0 as usize)?;
-        let referidas = self.classes_referidas_por_super(self.arvore.span(declaracao));
-        let tabela = &self.p.consulta.tabela;
-        let classe_do_tipo = |t: TypeId| match tabela.get(t) {
+        let class_ = self.declaration_class(self.unit, d)?;
+        let data = self.p.query.outline.classes.get(class_.0 as usize)?;
+        let referred = self.classes_referenced_by_super(self.tree.span(declaration));
+        let table = &self.p.query.table;
+        let type_class = |t: TypeId| match table.get(t) {
             dartforge_types::Type::Interface { class, .. } => Some(*class),
             _ => None,
         };
-        let mut restricoes: Vec<TypeId> = Vec::new();
+        let mut constraints: Vec<TypeId> = Vec::new();
         let mut interfaces: Vec<TypeId> = Vec::new();
-        for &m in dados.mixins.iter() {
-            if classe_do_tipo(m).is_some_and(|c| referidas.contains(&c)) {
-                restricoes.push(m);
+        for &m in data.mixins.iter() {
+            if type_class(m).is_some_and(|c| referred.contains(&c)) {
+                constraints.push(m);
             } else {
                 interfaces.push(m);
             }
         }
         if k.extends.is_some()
-            && let Some(s) = dados.supertype
+            && let Some(s) = data.supertype
         {
-            if referidas.len() > restricoes.len() {
-                restricoes.insert(0, s);
+            if referred.len() > constraints.len() {
+                constraints.insert(0, s);
             } else {
                 interfaces.insert(0, s);
             }
         }
-        interfaces.extend(dados.interfaces.iter().copied());
-        let mut escritor = crate::write_type::Escritor::novo(self, palavra_class.start);
-        let mut texto = format!("mixin {}", &self.fonte[k.name.span.start..k.name.span.end]);
+        interfaces.extend(data.interfaces.iter().copied());
+        let mut writer = crate::write_type::Writer::new(self, class_word.start);
+        let mut text = format!("mixin {}", &self.source[k.name.span.start..k.name.span.end]);
         // `writeTypeParameters2`.
         if !k.type_params.is_empty() {
-            let mut partes = Vec::new();
+            let mut parts = Vec::new();
             for (i, tp) in k.type_params.iter().enumerate() {
-                let mut s = self.fonte[tp.name.span.start..tp.name.span.end].to_string();
+                let mut s = self.source[tp.name.span.start..tp.name.span.end].to_string();
                 if tp.bound.is_some()
-                    && let Some(&param) = dados.type_params.get(i)
+                    && let Some(&param) = data.type_params.get(i)
                 {
-                    let limite = tabela.param(param).bound;
-                    if let Some(b) = escritor.escrever(limite, false) {
+                    let limit = table.param(param).bound;
+                    if let Some(b) = writer.write(limit, false) {
                         s.push_str(" extends ");
                         s.push_str(&b);
                     }
                 }
-                partes.push(s);
+                parts.push(s);
             }
-            texto.push('<');
-            texto.push_str(&partes.join(", "));
-            texto.push('>');
+            text.push('<');
+            text.push_str(&parts.join(", "));
+            text.push('>');
         }
-        let escrever_lista = |escritor: &mut crate::write_type::Escritor<'_, '_>, tipos: &[TypeId], prefixo: &str, texto: &mut String| {
-            if tipos.is_empty() {
+        let write_list = |writer: &mut crate::write_type::Writer<'_, '_>, types: &[TypeId], prefix: &str, text: &mut String| {
+            if types.is_empty() {
                 return;
             }
-            let partes: Vec<String> = tipos.iter().map(|&t| escritor.escrever(t, false).unwrap_or_default()).collect();
-            texto.push_str(prefixo);
-            texto.push_str(&partes.join(", "));
+            let parts: Vec<String> = types.iter().map(|&t| writer.write(t, false).unwrap_or_default()).collect();
+            text.push_str(prefix);
+            text.push_str(&parts.join(", "));
         };
-        escrever_lista(&mut escritor, &restricoes, " on ", &mut texto);
-        escrever_lista(&mut escritor, &interfaces, " implements ", &mut texto);
-        texto.push(' ');
-        let inicio_troca = if k.modifiers.abstract_ {
+        write_list(&mut writer, &constraints, " on ", &mut text);
+        write_list(&mut writer, &interfaces, " implements ", &mut text);
+        text.push(' ');
+        let start_swap = if k.modifiers.abstract_ {
             self.tokens
                 .iter()
-                .filter(|t| t.span.end <= palavra_class.start && &self.fonte[t.span.start..t.span.end] == "abstract")
+                .filter(|t| t.span.end <= class_word.start && &self.source[t.span.start..t.span.end] == "abstract")
                 .map(|t| t.span.start)
                 .next_back()
-                .unwrap_or(palavra_class.start)
+                .unwrap_or(class_word.start)
         } else {
-            palavra_class.start
+            class_word.start
         };
-        let abre = self.tokens.iter().find(|t| t.span.start >= k.name.span.end && &self.fonte[t.span.start..t.span.end] == "{")?.span.start;
-        let mut m = crate::refactorings_exec::Mudanca::default();
-        m.adicionar(uri, Span { start: inicio_troca, end: abre }, texto);
-        crate::refactorings_move::imports_do_builder(self, &mut m, &escritor.importar);
-        if m.conflito.is_some() {
+        let opens = self.tokens.iter().find(|t| t.span.start >= k.name.span.end && &self.source[t.span.start..t.span.end] == "{")?.span.start;
+        let mut m = crate::refactorings_exec::Change::default();
+        m.add(uri, Span { start: start_swap, end: opens }, text);
+        crate::refactorings_move::builder_imports(self, &mut m, &writer.import);
+        if m.conflict.is_some() {
             return None;
         }
-        Some(AcaoDeCodigo {
-            titulo: "Convert class to a mixin".into(),
-            especie: "refactor.convert.classToMixin".into(),
-            edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
-            diagnostico: None,
-            criar_arquivo: None, ligado: Default::default(),
+        Some(CodeAction {
+            title: "Convert class to a mixin".into(),
+            kind: "refactor.convert.classToMixin".into(),
+            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            diagnostic: None,
+            create_file: None, linked: Default::default(),
         })
     }
 
-    /// `inheritanceManager.getOverridden4(classe, Name(nome))`: algum
+    /// `inheritanceManager.getOverridden4(class, Name(name))`: algum
     /// supertipo (superclasse, mixins, interfaces, restrições `on`, de forma
     /// transitiva) declara um membro de instância com esse nome — o getter ou
-    /// o método (`setter` falso), ou o setter (`nome=`).
-    fn membro_sobrescrito(&self, classe: dartforge_elements::model::ClassId, nome: &str, setter: bool) -> bool {
-        let prog = self.p.programa();
-        let chave = if setter { format!("{nome}_=") } else { nome.to_string() };
-        let mut vistos = std::collections::HashSet::new();
-        let ce = prog.class(classe);
-        let mut pilha: Vec<dartforge_elements::model::ClassId> =
+    /// o método (`setter` falso), ou o setter (`name=`).
+    fn overridden_member(&self, class: dartforge_elements::model::ClassId, name: &str, setter: bool) -> bool {
+        let prog = self.p.program();
+        let key = if setter { format!("{name}_=") } else { name.to_string() };
+        let mut seen = std::collections::HashSet::new();
+        let ce = prog.class(class);
+        let mut stack: Vec<dartforge_elements::model::ClassId> =
             ce.supertype_class.iter().chain(&ce.mixin_classes).chain(&ce.interface_classes).chain(&ce.on_classes).copied().collect();
-        while let Some(c) = pilha.pop() {
-            if !vistos.insert(c) {
+        while let Some(c) = stack.pop() {
+            if !seen.insert(c) {
                 continue;
             }
             let e = prog.class(c);
-            if e.instance_members.keys().any(|k| self.p.nome(*k) == chave) {
+            if e.instance_members.keys().any(|k| self.p.name(*k) == key) {
                 return true;
             }
-            pilha.extend(e.supertype_class.iter().chain(&e.mixin_classes).chain(&e.interface_classes).chain(&e.on_classes).copied());
+            stack.extend(e.supertype_class.iter().chain(&e.mixin_classes).chain(&e.interface_classes).chain(&e.on_classes).copied());
         }
         false
     }
@@ -391,171 +391,171 @@ impl Contexto<'_> {
     /// `EncapsulateField` (encapsulate_field.dart): no nome de um campo de
     /// instância público, não final, único na declaração, de classe ou mixin,
     /// o campo vira privado e ganha getter e setter com o nome dele.
-    pub(crate) fn encapsular_campo(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
-        let no = self.arvore.localizar(inicio, fim)?;
-        let declaracao = self.com_pais(no).find(|&k| self.especie(k) == "FieldDeclaration")?;
-        let lista = self.filhos(declaracao).iter().copied().find(|&k| self.especie(k) == "VariableDeclarationList")?;
+    pub(crate) fn encapsulate_field(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+        let no = self.tree.localizar(start, end)?;
+        let declaration = self.with_parents(no).find(|&k| self.kind(k) == "FieldDeclaration")?;
+        let list = self.children(declaration).iter().copied().find(|&k| self.kind(k) == "VariableDeclarationList")?;
         // As palavras antes da lista (`static`, `covariant`…) e as da lista.
-        let palavras = |de: usize, ate: usize| -> Vec<&str> {
-            self.tokens.iter().filter(|t| t.span.start >= de && t.span.end <= ate).map(|t| &self.fonte[t.span.start..t.span.end]).collect()
+        let words = |de: usize, until: usize| -> Vec<&str> {
+            self.tokens.iter().filter(|t| t.span.start >= de && t.span.end <= until).map(|t| &self.source[t.span.start..t.span.end]).collect()
         };
-        let anotacoes: Vec<usize> = self.filhos(declaracao).iter().copied().filter(|&k| self.especie(k) == "Annotation").collect();
-        let depois_dos_metadados = anotacoes.last().map_or(self.arvore.nos[declaracao].inicio, |&a| self.arvore.nos[a].fim);
-        let antes = palavras(depois_dos_metadados, self.arvore.nos[lista].inicio);
-        if antes.contains(&"static") {
+        let annotations: Vec<usize> = self.children(declaration).iter().copied().filter(|&k| self.kind(k) == "Annotation").collect();
+        let after_metadata = annotations.last().map_or(self.tree.nos[declaration].inicio, |&a| self.tree.nos[a].fim);
+        let before = words(after_metadata, self.tree.nos[list].inicio);
+        if before.contains(&"static") {
             return None;
         }
-        let tipo = self.filhos(lista).iter().copied().find(|&k| TIPOS.contains(&self.especie(k)));
-        let variaveis: Vec<usize> = self.filhos(lista).iter().copied().filter(|&k| self.especie(k) == "VariableDeclaration").collect();
-        let ate_o_nome = variaveis.first().map_or(self.arvore.nos[lista].fim, |&v| self.arvore.nos[v].inicio);
-        let da_lista = palavras(self.arvore.nos[lista].inicio, ate_o_nome);
-        let palavra = da_lista.iter().find(|w| matches!(**w, "var" | "final" | "const")).copied();
-        if palavra.is_none() && tipo.is_none() {
+        let ty = self.children(list).iter().copied().find(|&k| TYPES.contains(&self.kind(k)));
+        let variables: Vec<usize> = self.children(list).iter().copied().filter(|&k| self.kind(k) == "VariableDeclaration").collect();
+        let up_to_name = variables.first().map_or(self.tree.nos[list].fim, |&v| self.tree.nos[v].inicio);
+        let of_list = words(self.tree.nos[list].inicio, up_to_name);
+        let word = of_list.iter().find(|w| matches!(**w, "var" | "final" | "const")).copied();
+        if word.is_none() && ty.is_none() {
             return None;
         }
-        if palavra == Some("final") || variaveis.len() != 1 {
+        if word == Some("final") || variables.len() != 1 {
             return None;
         }
-        let nome_tk = self.token_seguinte(self.arvore.nos[variaveis[0]].inicio)?;
-        let nome = &self.fonte[nome_tk.start..nome_tk.end];
-        if nome.starts_with('_') {
+        let name_tk = self.next_token(self.tree.nos[variables[0]].inicio)?;
+        let name = &self.source[name_tk.start..name_tk.end];
+        if name.starts_with('_') {
             return None;
         }
         // `nameToken != token`: o token da seleção é o nome.
-        if !(nome_tk.start <= inicio && inicio <= nome_tk.end) {
+        if !(name_tk.start <= start && start <= name_tk.end) {
             return None;
         }
-        let corpo_da_classe = self.pai(declaracao)?;
-        if !matches!(self.especie(corpo_da_classe), "ClassDeclaration" | "MixinDeclaration") {
+        let class_body = self.parent(declaration)?;
+        if !matches!(self.kind(class_body), "ClassDeclaration" | "MixinDeclaration") {
             return None;
         }
-        let Marca::Decl(d) = self.arvore.nos[corpo_da_classe].marca else { return None };
-        let classe = self.classe_da_declaracao(self.unidade, d)?;
-        let tx = crate::refactorings_exec::Texto::novo(self.fonte);
+        let Marca::Decl(d) = self.tree.nos[class_body].marca else { return None };
+        let class = self.declaration_class(self.unit, d)?;
+        let tx = crate::refactorings_exec::Text::new(self.source);
         let eol = tx.eol();
-        let mut m = crate::refactorings_exec::Mudanca::default();
+        let mut m = crate::refactorings_exec::Change::default();
         // Sem as anotações no campo.
-        if let (Some(&primeira), Some(&ultima)) = (anotacoes.first(), anotacoes.last()) {
-            m.adicionar(uri, tx.faixa_de_linhas(self.arvore.nos[primeira].inicio, self.arvore.nos[ultima].fim), String::new());
+        if let (Some(&first), Some(&last)) = (annotations.first(), annotations.last()) {
+            m.add(uri, tx.line_range(self.tree.nos[first].inicio, self.tree.nos[last].fim), String::new());
         }
-        m.adicionar(uri, nome_tk, format!("_{nome}"));
-        let codigo_do_tipo = tipo.map_or(String::new(), |t| self.texto_do_no(t).to_string());
+        m.add(uri, name_tk, format!("_{name}"));
+        let type_code = ty.map_or(String::new(), |t| self.node_text(t).to_string());
         // Os construtores: os `this.x` e os inicializadores do campo.
-        for &membro in self.filhos(corpo_da_classe) {
-            if self.especie(membro) != "ConstructorDeclaration" {
+        for &member in self.children(class_body) {
+            if self.kind(member) != "ConstructorDeclaration" {
                 continue;
             }
-            let Some(&parametros) = self.filhos(membro).iter().find(|&&k| self.especie(k) == "FormalParameterList") else { continue };
-            let inicializadores: Vec<usize> = self
-                .filhos(membro)
+            let Some(&parameters) = self.children(member).iter().find(|&&k| self.kind(k) == "FormalParameterList") else { continue };
+            let initializers: Vec<usize> = self
+                .children(member)
                 .iter()
                 .copied()
-                .filter(|&k| matches!(self.especie(k), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
+                .filter(|&k| matches!(self.kind(k), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
                 .collect();
-            for &parametro in self.filhos(parametros) {
-                let (interno, nomeado) = if self.especie(parametro) == "DefaultFormalParameter" {
-                    let Some(&i) = self.filhos(parametro).first() else { continue };
+            for &parameter in self.children(parameters) {
+                let (internal, named) = if self.kind(parameter) == "DefaultFormalParameter" {
+                    let Some(&i) = self.children(parameter).first() else { continue };
                     // `isNamed`: entre `{ }`.
-                    let antes_do_parametro = &self.fonte[self.arvore.nos[parametros].inicio..self.arvore.nos[parametro].inicio];
-                    (i, antes_do_parametro.contains('{'))
+                    let before_parameter = &self.source[self.tree.nos[parameters].inicio..self.tree.nos[parameter].inicio];
+                    (i, before_parameter.contains('{'))
                 } else {
-                    (parametro, false)
+                    (parameter, false)
                 };
-                if self.especie(interno) != "FieldFormalParameter" {
+                if self.kind(internal) != "FieldFormalParameter" {
                     continue;
                 }
-                let Some(identificador) = self.token_anterior(self.arvore.nos[interno].fim) else { continue };
-                if &self.fonte[identificador.start..identificador.end] != nome {
+                let Some(identifier) = self.previous_token(self.tree.nos[internal].fim) else { continue };
+                if &self.source[identifier.start..identifier.end] != name {
                     continue;
                 }
-                if nomeado {
+                if named {
                     // `this.` sai (com o tipo do campo no lugar) e o campo é
                     // inicializado na lista.
-                    let this_ = self.tokens.iter().find(|t| t.span.start >= self.arvore.nos[interno].inicio && &self.fonte[t.span.start..t.span.end] == "this")?.span;
-                    let ponto = self.token_seguinte(this_.end)?;
-                    let texto = if codigo_do_tipo.is_empty() { String::new() } else { format!("{codigo_do_tipo} ") };
-                    m.adicionar(uri, Span { start: this_.start, end: ponto.end }, texto);
-                    if inicializadores.is_empty() {
-                        let fim_dos_parametros = self.arvore.nos[parametros].fim;
-                        m.adicionar(uri, Span { start: fim_dos_parametros, end: fim_dos_parametros }, format!(" : _{nome} = {nome}"));
+                    let this_ = self.tokens.iter().find(|t| t.span.start >= self.tree.nos[internal].inicio && &self.source[t.span.start..t.span.end] == "this")?.span;
+                    let dot = self.next_token(this_.end)?;
+                    let text = if type_code.is_empty() { String::new() } else { format!("{type_code} ") };
+                    m.add(uri, Span { start: this_.start, end: dot.end }, text);
+                    if initializers.is_empty() {
+                        let parameter_end = self.tree.nos[parameters].fim;
+                        m.add(uri, Span { start: parameter_end, end: parameter_end }, format!(" : _{name} = {name}"));
                     } else {
-                        let separador = self.token_anterior(self.arvore.nos[inicializadores[0]].inicio)?;
-                        m.adicionar(uri, Span { start: separador.end, end: separador.end }, format!(" _{nome} = {nome},"));
+                        let separator = self.previous_token(self.tree.nos[initializers[0]].inicio)?;
+                        m.add(uri, Span { start: separator.end, end: separator.end }, format!(" _{name} = {name},"));
                     }
                     break;
                 }
-                m.adicionar(uri, identificador, format!("_{nome}"));
+                m.add(uri, identifier, format!("_{name}"));
             }
-            for &i in &inicializadores {
-                if self.especie(i) != "ConstructorFieldInitializer" {
+            for &i in &initializers {
+                if self.kind(i) != "ConstructorFieldInitializer" {
                     continue;
                 }
-                let Some(&campo) = self.filhos(i).first() else { continue };
-                if self.texto_do_no(campo) == nome {
-                    m.adicionar(uri, self.arvore.span(campo), format!("_{nome}"));
+                let Some(&field) = self.children(i).first() else { continue };
+                if self.node_text(field) == name {
+                    m.add(uri, self.tree.span(field), format!("_{name}"));
                 }
             }
         }
         // O getter e o setter, depois da declaração.
-        let documentacao = self.filhos(declaracao).iter().copied().find(|&k| self.especie(k) == "Comment").map(|c| self.texto_do_no(c).to_string());
-        let codigo = if codigo_do_tipo.is_empty() { String::new() } else { format!("{codigo_do_tipo} ") };
-        let cabecalho = |preservar_override: bool| -> String {
+        let documentation = self.children(declaration).iter().copied().find(|&k| self.kind(k) == "Comment").map(|c| self.node_text(c).to_string());
+        let code = if type_code.is_empty() { String::new() } else { format!("{type_code} ") };
+        let header = |preserve_override: bool| -> String {
             let mut s = format!("{eol}{eol}");
-            if let Some(doc) = &documentacao {
+            if let Some(doc) = &documentation {
                 s.push_str(&format!("  {doc}{eol}"));
             }
-            for &a in &anotacoes {
-                let texto = self.texto_do_no(a);
-                if texto != "@override" || preservar_override {
-                    s.push_str(&format!("  {texto}{eol}"));
+            for &a in &annotations {
+                let text = self.node_text(a);
+                if text != "@override" || preserve_override {
+                    s.push_str(&format!("  {text}{eol}"));
                 }
             }
             s
         };
-        let mut s = cabecalho(self.membro_sobrescrito(classe, nome, false));
-        s.push_str(&format!("  {codigo}get {nome} => _{nome};"));
-        s.push_str(&cabecalho(self.membro_sobrescrito(classe, nome, true)));
-        s.push_str(&format!("  set {nome}({codigo}value) {{{eol}    _{nome} = value;{eol}  }}"));
-        let fim_da_declaracao = self.arvore.nos[declaracao].fim;
-        m.adicionar(uri, Span { start: fim_da_declaracao, end: fim_da_declaracao }, s);
-        if m.conflito.is_some() {
+        let mut s = header(self.overridden_member(class, name, false));
+        s.push_str(&format!("  {code}get {name} => _{name};"));
+        s.push_str(&header(self.overridden_member(class, name, true)));
+        s.push_str(&format!("  set {name}({code}value) {{{eol}    _{name} = value;{eol}  }}"));
+        let declaration_end = self.tree.nos[declaration].fim;
+        m.add(uri, Span { start: declaration_end, end: declaration_end }, s);
+        if m.conflict.is_some() {
             return None;
         }
-        Some(AcaoDeCodigo {
-            titulo: "Encapsulate field".into(),
-            especie: "refactor.encapsulateField".into(),
-            edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
-            diagnostico: None,
-            criar_arquivo: None, ligado: Default::default(),
+        Some(CodeAction {
+            title: "Encapsulate field".into(),
+            kind: "refactor.encapsulateField".into(),
+            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            diagnostic: None,
+            create_file: None, linked: Default::default(),
         })
     }
 
     /// `ConvertToFieldParameter._findParameter`: o parâmetro simples (direto
     /// na lista de um construtor) da seleção, ou o citado pela expressão de
     /// um inicializador de campo.
-    fn parametro_para_campo(&self, no: usize) -> Option<(usize, Span, usize)> {
-        let pai = self.pai(no)?;
-        if self.especie(no) == "SimpleFormalParameter" {
-            let nome = self.token_anterior(self.arvore.nos[no].fim)?;
-            if self.especie(pai) != "FormalParameterList" {
+    fn parameter_to_field(&self, no: usize) -> Option<(usize, Span, usize)> {
+        let parent = self.parent(no)?;
+        if self.kind(no) == "SimpleFormalParameter" {
+            let name = self.previous_token(self.tree.nos[no].fim)?;
+            if self.kind(parent) != "FormalParameterList" {
                 return None;
             }
-            let construtor = self.pai(pai)?;
-            return (self.especie(construtor) == "ConstructorDeclaration").then_some((no, nome, construtor));
+            let constructor = self.parent(parent)?;
+            return (self.kind(constructor) == "ConstructorDeclaration").then_some((no, name, constructor));
         }
-        if self.especie(no) == "SimpleIdentifier" && self.especie(pai) == "ConstructorFieldInitializer" {
-            let construtor = self.pai(pai)?;
-            if self.especie(construtor) != "ConstructorDeclaration" || self.filhos(pai).get(1) != Some(&no) {
+        if self.kind(no) == "SimpleIdentifier" && self.kind(parent) == "ConstructorFieldInitializer" {
+            let constructor = self.parent(parent)?;
+            if self.kind(constructor) != "ConstructorDeclaration" || self.children(parent).get(1) != Some(&no) {
                 return None;
             }
-            let lista = self.filhos(construtor).iter().copied().find(|&k| self.especie(k) == "FormalParameterList")?;
-            let texto = self.texto_do_no(no);
-            for &f in self.filhos(lista) {
-                if self.especie(f) == "SimpleFormalParameter"
-                    && let Some(nome) = self.token_anterior(self.arvore.nos[f].fim)
-                    && &self.fonte[nome.start..nome.end] == texto
+            let list = self.children(constructor).iter().copied().find(|&k| self.kind(k) == "FormalParameterList")?;
+            let text = self.node_text(no);
+            for &f in self.children(list) {
+                if self.kind(f) == "SimpleFormalParameter"
+                    && let Some(name) = self.previous_token(self.tree.nos[f].fim)
+                    && &self.source[name.start..name.end] == text
                 {
-                    return Some((f, nome, construtor));
+                    return Some((f, name, constructor));
                 }
             }
         }
@@ -563,76 +563,76 @@ impl Contexto<'_> {
     }
 
     /// `ConvertToFieldParameter` (convert_to_field_parameter.dart): o
-    /// parâmetro citado uma só vez nos inicializadores, num `campo = p`, vira
-    /// `this.campo` e o inicializador sai.
-    pub(crate) fn converter_em_parametro_de_campo(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
-        let no = self.arvore.localizar(inicio, fim)?;
-        let (parametro, nome, construtor) = self.parametro_para_campo(no)?;
-        let nome_do_parametro = &self.fonte[nome.start..nome.end];
-        let inicializadores: Vec<usize> = self
-            .filhos(construtor)
+    /// parâmetro citado uma só vez nos inicializadores, num `field = p`, vira
+    /// `this.field` e o inicializador sai.
+    pub(crate) fn convert_to_field_parameter(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+        let no = self.tree.localizar(start, end)?;
+        let (parameter, name_, constructor) = self.parameter_to_field(no)?;
+        let parameter_name = &self.source[name_.start..name_.end];
+        let initializers: Vec<usize> = self
+            .children(constructor)
             .iter()
             .copied()
-            .filter(|&k| matches!(self.especie(k), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
+            .filter(|&k| matches!(self.kind(k), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
             .collect();
         // `_ReferenceCounter`: os identificadores dos inicializadores cujo
         // elemento é o parâmetro.
-        let mut contagem = 0;
-        let mut pilha = inicializadores.clone();
-        while let Some(k) = pilha.pop() {
-            if self.especie(k) == "SimpleIdentifier"
-                && let Marca::Expr(x) = self.arvore.nos[k].marca
-                && match self.corpos.get_resolved(x) {
-                    Some(dartforge_types::Resolved::Parameter { name, .. }) => self.p.nome(*name) == nome_do_parametro,
+        let mut count = 0;
+        let mut stack = initializers.clone();
+        while let Some(k) = stack.pop() {
+            if self.kind(k) == "SimpleIdentifier"
+                && let Marca::Expr(x) = self.tree.nos[k].marca
+                && match self.bodies.get_resolved(x) {
+                    Some(dartforge_types::Resolved::Parameter { name, .. }) => self.p.name(*name) == parameter_name,
                     // Nos inicializadores o parâmetro é um local declarado no nome dele.
-                    Some(dartforge_types::Resolved::Local(_)) => self.corpos.declaracao_local(x) == Some(nome.start),
+                    Some(dartforge_types::Resolved::Local(_)) => self.bodies.declaracao_local(x) == Some(name_.start),
                     _ => false,
                 }
             {
-                contagem += 1;
+                count += 1;
             }
-            pilha.extend(self.filhos(k).iter().copied());
+            stack.extend(self.children(k).iter().copied());
         }
-        if contagem != 1 {
+        if count != 1 {
             return None;
         }
-        let inicializador = inicializadores.iter().copied().filter(|&i| {
-            self.especie(i) == "ConstructorFieldInitializer"
-                && self.filhos(i).get(1).is_some_and(|&e| self.especie(e) == "SimpleIdentifier" && self.texto_do_no(e) == nome_do_parametro)
+        let initializer = initializers.iter().copied().filter(|&i| {
+            self.kind(i) == "ConstructorFieldInitializer"
+                && self.children(i).get(1).is_some_and(|&e| self.kind(e) == "SimpleIdentifier" && self.node_text(e) == parameter_name)
         }).last()?;
-        let campo = self.texto_do_no(*self.filhos(inicializador).first()?).to_string();
-        let mut edicoes = vec![(self.arvore.span(parametro), format!("this.{campo}"))];
-        let indice = inicializadores.iter().position(|&i| i == inicializador)?;
-        let lista = self.filhos(construtor).iter().copied().find(|&k| self.especie(k) == "FormalParameterList")?;
-        if inicializadores.len() == 1 {
-            edicoes.push((Span { start: self.arvore.nos[lista].fim, end: self.arvore.nos[inicializador].fim }, String::new()));
-        } else if indice == 0 {
-            edicoes.push((Span { start: self.arvore.nos[inicializador].inicio, end: self.arvore.nos[inicializadores[1]].inicio }, String::new()));
+        let field = self.node_text(*self.children(initializer).first()?).to_string();
+        let mut edits = vec![(self.tree.span(parameter), format!("this.{field}"))];
+        let index = initializers.iter().position(|&i| i == initializer)?;
+        let list = self.children(constructor).iter().copied().find(|&k| self.kind(k) == "FormalParameterList")?;
+        if initializers.len() == 1 {
+            edits.push((Span { start: self.tree.nos[list].fim, end: self.tree.nos[initializer].fim }, String::new()));
+        } else if index == 0 {
+            edits.push((Span { start: self.tree.nos[initializer].inicio, end: self.tree.nos[initializers[1]].inicio }, String::new()));
         } else {
-            edicoes.push((Span { start: self.arvore.nos[inicializadores[indice - 1]].fim, end: self.arvore.nos[inicializador].fim }, String::new()));
+            edits.push((Span { start: self.tree.nos[initializers[index - 1]].fim, end: self.tree.nos[initializer].fim }, String::new()));
         }
-        Some(AcaoDeCodigo {
-            titulo: "Convert to field formal parameter".into(),
-            especie: "refactor.convert.toConstructorFieldParameter".into(),
-            edicoes: edicoes.into_iter().rev().map(|(span, texto)| Edicao { uri: uri.to_string(), span, texto }).collect(),
-            diagnostico: None,
-            criar_arquivo: None, ligado: Default::default(),
+        Some(CodeAction {
+            title: "Convert to field formal parameter".into(),
+            kind: "refactor.convert.toConstructorFieldParameter".into(),
+            edits: edits.into_iter().rev().map(|(span, text)| Edit { uri: uri.to_string(), span, text }).collect(),
+            diagnostic: None,
+            create_file: None, linked: Default::default(),
         })
     }
 
     /// `ShadowField` (shadow_field.dart): o campo testado com `is` ou com
     /// `==`/`!=` na condição de um `if` (através de `&&`) dentro de um bloco
     /// que não escreve nele ganha um local de mesmo nome antes do `if`.
-    pub(crate) fn sombrear_campo(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
+    pub(crate) fn shadow_field(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
         use dartforge_types::{MemberRef, Resolved};
-        let no = self.arvore.localizar(inicio, fim)?;
-        if self.especie(no) != "SimpleIdentifier" {
+        let no = self.tree.localizar(start, end)?;
+        if self.kind(no) != "SimpleIdentifier" {
             return None;
         }
-        let Marca::Expr(x) = self.arvore.nos[no].marca else { return None };
-        let prog = self.p.programa();
+        let Marca::Expr(x) = self.tree.nos[no].marca else { return None };
+        let prog = self.p.program();
         // O getter de uma classe (o acessor do campo ou o declarado).
-        let (variavel, getter, classe) = match self.corpos.get_resolved(x)? {
+        let (variable, getter, class) = match self.bodies.get_resolved(x)? {
             Resolved::Member { member: MemberRef::Variable(v), .. } => (Some(*v), None, prog.variable(*v).class?),
             Resolved::Member { member: MemberRef::Function(f), .. } => {
                 let fe = prog.function(*f);
@@ -651,61 +651,61 @@ impl Contexto<'_> {
             }
             _ => return None,
         };
-        if self.escritas.contains(&x) {
+        if self.writes.contains(&x) {
             return None;
         }
         // `_getStatement`.
-        let pai = self.pai(no)?;
-        let condicao = match self.especie(pai) {
-            "IsExpression" if self.filhos(pai).first() == Some(&no) => pai,
-            "BinaryExpression" if matches!(self.operador_binario(pai), Some("==" | "!=")) => pai,
+        let parent = self.parent(no)?;
+        let condition = match self.kind(parent) {
+            "IsExpression" if self.children(parent).first() == Some(&no) => parent,
+            "BinaryExpression" if matches!(self.binary_operator(parent), Some("==" | "!=")) => parent,
             _ => return None,
         };
-        let mut acima = self.pai(condicao)?;
-        while self.especie(acima) == "BinaryExpression" && self.operador_binario(acima) == Some("&&") {
-            acima = self.pai(acima)?;
+        let mut above = self.parent(condition)?;
+        while self.kind(above) == "BinaryExpression" && self.binary_operator(above) == Some("&&") {
+            above = self.parent(above)?;
         }
-        if self.especie(acima) != "IfStatement" {
+        if self.kind(above) != "IfStatement" {
             return None;
         }
-        let comando = acima;
-        let bloco = self.pai(comando)?;
-        if self.especie(bloco) != "Block" {
+        let command = above;
+        let block = self.parent(command)?;
+        if self.kind(block) != "Block" {
             return None;
         }
         // `correspondingSetter2`.
-        let nome = self.texto_do_no(no).to_string();
-        let setter: Option<dartforge_elements::model::FunctionElementId> = match (variavel, getter) {
+        let name = self.node_text(no).to_string();
+        let setter: Option<dartforge_elements::model::FunctionElementId> = match (variable, getter) {
             (Some(v), _) => prog.variable(v).setter,
-            (None, Some(_)) => prog.class(classe).instance_members.iter().find(|(k, _)| self.p.nome(**k) == format!("{nome}_=")).map(|(_, f)| *f),
+            (None, Some(_)) => prog.class(class).instance_members.iter().find(|(k, _)| self.p.name(**k) == format!("{name}_=")).map(|(_, f)| *f),
             _ => None,
         };
         let setter = setter?;
         // `_ReferenceFinder`: uma escrita no setter dentro do bloco.
-        let span_do_bloco = self.arvore.span(bloco);
-        let escreve = self.escritas.iter().any(|&e| {
+        let block_span = self.tree.span(block);
+        let writes = self.writes.iter().any(|&e| {
             let s = self.ast.expr(e).span;
-            s.start >= span_do_bloco.start
-                && s.end <= span_do_bloco.end
-                && match self.corpos.get_resolved(e) {
+            s.start >= block_span.start
+                && s.end <= block_span.end
+                && match self.bodies.get_resolved(e) {
                     Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => prog.variable(*v).setter == Some(setter),
                     Some(Resolved::Member { member: MemberRef::Function(f), .. }) => *f == setter,
                     _ => false,
                 }
         });
-        if escreve {
+        if writes {
             return None;
         }
-        let tx = crate::refactorings_exec::Texto::novo(self.fonte);
-        let offset = self.arvore.nos[comando].inicio;
-        let prefixo = tx.prefixo_da_linha(offset);
+        let tx = crate::refactorings_exec::Text::new(self.source);
+        let offset = self.tree.nos[command].inicio;
+        let prefix = tx.line_prefix(offset);
         let eol = tx.eol();
-        Some(AcaoDeCodigo {
-            titulo: "Create a local variable that shadows the field".into(),
-            especie: "refactor.shadowField".into(),
-            edicoes: vec![Edicao { uri: uri.to_string(), span: Span { start: offset, end: offset }, texto: format!("var {nome} = this.{nome};{eol}{prefixo}") }],
-            diagnostico: None,
-            criar_arquivo: None, ligado: Default::default(),
+        Some(CodeAction {
+            title: "Create a local variable that shadows the field".into(),
+            kind: "refactor.shadowField".into(),
+            edits: vec![Edit { uri: uri.to_string(), span: Span { start: offset, end: offset }, text: format!("var {name} = this.{name};{eol}{prefix}") }],
+            diagnostic: None,
+            create_file: None, linked: Default::default(),
         })
     }
 }

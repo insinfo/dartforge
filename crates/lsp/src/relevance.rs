@@ -26,115 +26,115 @@ use dartforge_frontend::ast::{self, ExprId};
 
 /// Espécie de elemento das tabelas do Dart (`computeElementKind`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Especie {
-    Classe,
-    Construtor,
+pub(crate) enum Kind {
+    Class,
+    Constructor,
     Enum,
-    Campo,
-    Funcao,
-    AliasDeFuncao,
+    Field,
+    Function,
+    FunctionAlias,
     Local,
-    Metodo,
+    Method,
     Mixin,
-    Parametro,
-    Prefixo,
-    VariavelDeTopo,
-    ParametroDeTipo,
-    Desconhecido,
+    Parameter,
+    Prefix,
+    TopLevelVariable,
+    TypeParameter,
+    Unknown,
     /// Espécies sem tabela (constante de enum, extensão, alias de tipo):
     /// característica de espécie 0.
-    SemTabela,
+    NoTable,
 }
 
 /// O que se sabe de um item para pontuá-lo.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Rel {
     /// Espécie, quando o item é um elemento.
-    pub especie: Option<Especie>,
+    pub kind: Option<Kind>,
     /// O tipo do item (variável, retorno, getter), para o tipo de contexto.
-    pub tipo: Option<dartforge_types::TypeId>,
+    pub ty: Option<dartforge_types::TypeId>,
     /// Distância (`d`, que vira `0,9^d`): local pela proximidade, membro
     /// pela herança.
-    pub distancia: Option<u32>,
+    pub distance: Option<u32>,
     /// Local ou parâmetro: a distância entra também como característica.
     pub local: bool,
-    pub nao_importado: bool,
+    pub not_imported: bool,
     /// Palavra-chave (o texto).
-    pub palavra: Option<&'static str>,
+    pub word: Option<&'static str>,
     /// Relevância fixa (argumentos nomeados).
-    pub fixa: Option<i32>,
-    pub comeca_com_dolar: bool,
+    pub fixed: Option<i32>,
+    pub starts_with_dollar: bool,
     pub no_such_method: bool,
     /// `hasOrInheritsDeprecated` (`hasDeprecated`, peso 0,5).
-    pub obsoleto: bool,
+    pub deprecated: bool,
     /// `isConstantFeature`: construtor `const`, campo estático `const`,
     /// variável de topo `const` (só vale com `preferConstants`).
-    pub constante: bool,
+    pub constant: bool,
     /// `superMatches`: o nome é o do método que contém o `super.▮`.
-    pub super_corresponde: bool,
+    pub super_matches: bool,
 }
 
 /// `distanceToPercent`.
-pub(crate) fn porcentagem(distancia: usize) -> f64 {
-    0.9f64.powi(distancia as i32)
+pub(crate) fn percentage(distance: usize) -> f64 {
+    0.9f64.powi(distance as i32)
 }
 
 /// A característica de espécie no `local`.
-fn caracteristica_de_especie(especie: Especie, local: Option<&str>, distancia: Option<f64>) -> f64 {
+fn kind_feature(kind: Kind, local: Option<&str>, distance: Option<f64>) -> f64 {
     let Some(local) = local else { return 0.0 };
-    let Some((_, baixo, alto)) = super::relevance_tables::especies(local).iter().find(|(e, _, _)| *e == especie) else {
+    let Some((_, low, high)) = super::relevance_tables::kinds(local).iter().find(|(e, _, _)| *e == kind) else {
         return 0.0;
     };
-    let meio = (baixo + alto) / 2.0;
-    match distancia {
-        None => meio,
-        Some(d) => meio + ((alto - baixo) * d / 2.0),
+    let middle = (low + high) / 2.0;
+    match distance {
+        None => middle,
+        Some(d) => middle + ((high - low) * d / 2.0),
     }
 }
 
 /// A característica de palavra-chave no `local` (o alto da faixa).
-fn caracteristica_de_palavra(palavra: &str, local: Option<&str>) -> f64 {
+fn word_feature(word: &str, local: Option<&str>) -> f64 {
     let Some(local) = local else { return 0.0 };
-    let tabela = super::relevance_tables::palavras(local);
-    let achar = |p: &str| tabela.iter().find(|(k, _, _)| *k == p).map(|(_, _, alto)| *alto);
-    achar(palavra)
-        .or_else(|| palavra.find(|c: char| !c.is_ascii_lowercase()).filter(|i| *i > 0).and_then(|i| achar(&palavra[..i])))
+    let table = super::relevance_tables::words(local);
+    let find = |p: &str| table.iter().find(|(k, _, _)| *k == p).map(|(_, _, high)| *high);
+    find(word)
+        .or_else(|| word.find(|c: char| !c.is_ascii_lowercase()).filter(|i| *i > 0).and_then(|i| find(&word[..i])))
         .unwrap_or(0.0)
 }
 
 /// A relevância (`0..1000`) de um item.
-pub(crate) fn relevancia(rel: &Rel, local: Option<&str>, tipo_de_contexto: f64, preferir_constantes: bool) -> i32 {
-    if let Some(f) = rel.fixa {
+pub(crate) fn relevance(rel: &Rel, local: Option<&str>, context_type: f64, prefer_constants: bool) -> i32 {
+    if let Some(f) = rel.fixed {
         return f;
     }
-    let distancia = rel.distancia.map(|d| porcentagem(d as usize));
+    let distance = rel.distance.map(|d| percentage(d as usize));
     // `_computeFormalParameterRelevance`: a espécie do parâmetro é sem a
     // distância (só o local a usa, `_computeLocalVariableRelevance`).
-    let especie = rel.especie.map_or(0.0, |e| caracteristica_de_especie(e, local, if e == Especie::Parametro { None } else { distancia }));
-    let palavra = rel.palavra.map_or(0.0, |p| caracteristica_de_palavra(p, local));
-    let nao_importado = if rel.nao_importado { -1.0 } else { 0.0 };
-    let dolar = if rel.comeca_com_dolar { -1.0 } else { 0.0 };
+    let kind = rel.kind.map_or(0.0, |e| kind_feature(e, local, if e == Kind::Parameter { None } else { distance }));
+    let word = rel.word.map_or(0.0, |p| word_feature(p, local));
+    let not_imported = if rel.not_imported { -1.0 } else { 0.0 };
+    let dollar = if rel.starts_with_dollar { -1.0 } else { 0.0 };
     let nsm = if rel.no_such_method { -1.0 } else { 0.0 };
-    let distancia_local = if rel.local { distancia.unwrap_or(0.0) } else { 0.0 };
-    let obsoleto = if rel.obsoleto { -1.0 } else { 0.0 };
-    let constante = if preferir_constantes && rel.constante { 1.0 } else { 0.0 };
-    let super_corresponde = if rel.super_corresponde { 1.0 } else { 0.0 };
+    let local_distance = if rel.local { distance.unwrap_or(0.0) } else { 0.0 };
+    let deprecated = if rel.deprecated { -1.0 } else { 0.0 };
+    let constant = if prefer_constants && rel.constant { 1.0 } else { 0.0 };
+    let super_matches = if rel.super_matches { 1.0 } else { 0.0 };
     // Pesos do Dart: contexto 1, espécie 1, depreciado 0,5, constante 1,
     // noSuchMethod 1, não importado 1, palavra 1, `$` 0,5, super 1,
     // distância do local 1 — total 9.
-    let soma = tipo_de_contexto + especie + 0.5 * obsoleto + constante + nsm + nao_importado + palavra + 0.5 * dolar + super_corresponde + distancia_local;
-    let media = soma / 9.0;
+    let sum = context_type + kind + 0.5 * deprecated + constant + nsm + not_imported + word + 0.5 * dollar + super_matches + local_distance;
+    let media = sum / 9.0;
     (((media + 1.0) / 2.0) * 1000.0) as i32
 }
 
-fn elementos_contem(elementos: &[ast::CollectionElement], alvo: ExprId) -> bool {
-    elementos.iter().any(|e| match e {
-        ast::CollectionElement::Expression(x) | ast::CollectionElement::NullAwareExpression(x) => *x == alvo,
-        ast::CollectionElement::MapEntry { key, value, .. } => *key == alvo || *value == alvo,
+fn elements_contains(elements: &[ast::CollectionElement], target: ExprId) -> bool {
+    elements.iter().any(|e| match e {
+        ast::CollectionElement::Expression(x) | ast::CollectionElement::NullAwareExpression(x) => *x == target,
+        ast::CollectionElement::MapEntry { key, value, .. } => *key == target || *value == target,
         _ => false,
     })
 }
 
-fn elementos_valor(elementos: &[ast::CollectionElement], alvo: ExprId) -> bool {
-    elementos.iter().any(|e| matches!(e, ast::CollectionElement::MapEntry { value, .. } if *value == alvo))
+fn elements_value(elements: &[ast::CollectionElement], target: ExprId) -> bool {
+    elements.iter().any(|e| matches!(e, ast::CollectionElement::MapEntry { value, .. } if *value == target))
 }

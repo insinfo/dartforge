@@ -1,7 +1,7 @@
 //! Os rótulos de fechamento (`dart/textDocument/publishClosingLabels`), como
 //! o `DartUnitClosingLabelsComputer` do servidor do Dart 3.6.2
 //! (`AS:src/computer/computer_closing_labels.dart:22-133`;
-//! docs/LSP-ESPECIFICACAO.md §3.4): um rótulo `Tipo` ou `Tipo.nome` para
+//! docs/LSP-ESPECIFICACAO.md §3.4): um rótulo `Type` ou `Type.name` para
 //! cada criação de instância e `<T>[]` para cada lista com argumento de
 //! tipo, quando o nó ocupa mais de uma linha **e** está aninhado com outro
 //! rótulo (dentro de um, ou com um dentro dele).
@@ -13,44 +13,44 @@
 //! `toString` do original.
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use crate::project::Projeto;
+use crate::project::Project;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::UnitId;
 use dartforge_frontend::ast::{self, ExprId, ExprKind, StringPart, TypeKind};
 use dartforge_types::Resolved;
 
 /// Um candidato a rótulo.
-struct Candidato {
+struct Candidate {
     /// O nó inteiro.
     span: Span,
     /// O trecho cuja primeira e última linha decidem se é de várias linhas.
-    medida: Span,
-    rotulo: String,
+    measured: Span,
+    label: String,
 }
 
-/// O nome qualificado escrito no alvo de uma chamada: `A`, `p.A`, `A.nome`.
-fn nome_do_alvo(projeto: &Projeto, a: &ast::Ast, e: ExprId) -> Option<String> {
+/// O nome qualificado escrito no alvo de uma chamada: `A`, `p.A`, `A.name`.
+fn target_name(project: &Project, a: &ast::Ast, e: ExprId) -> Option<String> {
     match &a.expr(e).kind {
-        ExprKind::Identifier(n) => Some(projeto.consulta.nomes.resolve(n.sym).to_string()),
+        ExprKind::Identifier(n) => Some(project.query.names.resolve(n.sym).to_string()),
         ExprKind::Property { target, name, .. } => {
-            Some(format!("{}.{}", nome_do_alvo(projeto, a, *target)?, projeto.consulta.nomes.resolve(name.sym)))
+            Some(format!("{}.{}", target_name(project, a, *target)?, project.query.names.resolve(name.sym)))
         }
-        ExprKind::TypeArguments { target, .. } => nome_do_alvo(projeto, a, *target),
+        ExprKind::TypeArguments { target, .. } => target_name(project, a, *target),
         _ => None,
     }
 }
 
-impl Projeto {
+impl Project {
     /// Os rótulos de fechamento da unidade: o intervalo do nó e o texto, em
     /// pré-ordem.
-    pub(crate) fn rotulos_de_fechamento(&self, unidade: UnitId) -> Vec<(Span, String)> {
-        let u = self.consulta.programa.unit(unidade);
+    pub(crate) fn closing_labels(&self, unit: UnitId) -> Vec<(Span, String)> {
+        let u = self.query.program.unit(unit);
         let a = &u.ast;
-        let fonte = u.source.as_str();
-        let corpos = &self.consulta.corpos.units[unidade.0 as usize];
-        let nomes = &self.consulta.nomes;
+        let source = u.source.as_str();
+        let bodies = &self.query.bodies.units[unit.0 as usize];
+        let names = &self.query.names;
         // As expressões interpoladas: nada dentro delas ganha rótulo.
-        let interpoladas: Vec<Span> = a
+        let interpolated: Vec<Span> = a
             .exprs
             .iter()
             .filter_map(|e| match &e.kind {
@@ -63,53 +63,53 @@ impl Projeto {
                 _ => None,
             })
             .collect();
-        let em_interpolacao = |s: Span| interpoladas.iter().any(|i| i.start <= s.start && s.end <= i.end);
-        let mut candidatos: Vec<Candidato> = Vec::new();
+        let in_interpolation = |s: Span| interpolated.iter().any(|i| i.start <= s.start && s.end <= i.end);
+        let mut candidates: Vec<Candidate> = Vec::new();
         for (i, e) in a.exprs.iter().enumerate() {
-            if em_interpolacao(e.span) {
+            if in_interpolation(e.span) {
                 continue;
             }
             let id = ExprId(i as u32);
             match &e.kind {
                 ExprKind::InstanceCreation { ty, constructor, arguments, .. } => {
                     let TypeKind::Named { name, .. } = &a.types[ty.0 as usize].kind else { continue };
-                    let mut rotulo = name.iter().map(|n| nomes.resolve(n.sym)).collect::<Vec<_>>().join(".");
+                    let mut label = name.iter().map(|n| names.resolve(n.sym)).collect::<Vec<_>>().join(".");
                     if let Some(k) = constructor {
-                        rotulo.push('.');
-                        rotulo.push_str(nomes.resolve(k.sym));
+                        label.push('.');
+                        label.push_str(names.resolve(k.sym));
                     }
-                    candidatos.push(Candidato { span: e.span, medida: arguments.span, rotulo });
+                    candidates.push(Candidate { span: e.span, measured: arguments.span, label });
                 }
                 // `A(...)` sem `new`: criação quando resolve para construtor.
                 ExprKind::Call { target, arguments } => {
-                    let construtor = matches!(corpos.get_resolved(id), Some(Resolved::Constructor(_)))
-                        || matches!(corpos.get_resolved(*target), Some(Resolved::Constructor(_)));
-                    if construtor && let Some(rotulo) = nome_do_alvo(self, a, *target) {
-                        candidatos.push(Candidato { span: e.span, medida: arguments.span, rotulo });
+                    let constructor_ = matches!(bodies.get_resolved(id), Some(Resolved::Constructor(_)))
+                        || matches!(bodies.get_resolved(*target), Some(Resolved::Constructor(_)));
+                    if constructor_ && let Some(label) = target_name(self, a, *target) {
+                        candidates.push(Candidate { span: e.span, measured: arguments.span, label });
                     }
                 }
                 ExprKind::List { type_args, .. } => {
                     if let Some(t) = type_args.first() {
                         let s = a.types[t.0 as usize].span;
-                        let texto = fonte.get(s.start..s.end).unwrap_or("");
-                        candidatos.push(Candidato { span: e.span, medida: e.span, rotulo: format!("<{texto}>[]") });
+                        let text = source.get(s.start..s.end).unwrap_or("");
+                        candidates.push(Candidate { span: e.span, measured: e.span, label: format!("<{text}>[]") });
                     }
                 }
                 _ => {}
             }
         }
         // Pré-ordem: pelo início; no mesmo início, o de fora primeiro.
-        candidatos.sort_by(|x, y| x.span.start.cmp(&y.span.start).then(y.span.end.cmp(&x.span.end)));
-        let linha = |offset: usize| fonte.as_bytes()[..offset.min(fonte.len())].iter().filter(|b| **b == b'\n').count();
-        let contem = |fora: Span, dentro: Span| fora.start <= dentro.start && dentro.end <= fora.end && fora != dentro;
-        candidatos
+        candidates.sort_by(|x, y| x.span.start.cmp(&y.span.start).then(y.span.end.cmp(&x.span.end)));
+        let line = |offset: usize| source.as_bytes()[..offset.min(source.len())].iter().filter(|b| **b == b'\n').count();
+        let contains = |outside: Span, inside: Span| outside.start <= inside.start && inside.end <= outside.end && outside != inside;
+        candidates
             .iter()
             .filter(|k| {
-                let varias_linhas = linha(k.medida.start) != linha(k.medida.end.saturating_sub(1));
-                let aninhado = candidatos.iter().any(|o| contem(o.span, k.span) || contem(k.span, o.span));
-                varias_linhas && aninhado
+                let several_lines = line(k.measured.start) != line(k.measured.end.saturating_sub(1));
+                let nested = candidates.iter().any(|o| contains(o.span, k.span) || contains(k.span, o.span));
+                several_lines && nested
             })
-            .map(|k| (k.span, k.rotulo.clone()))
+            .map(|k| (k.span, k.label.clone()))
             .collect()
     }
 }

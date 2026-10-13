@@ -6,9 +6,9 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use crate::arvore_analyzer::Marca;
-use crate::write_type::Escritor;
-use crate::refactorings::Contexto;
-use crate::refactorings_exec::{Texto, UM_RECUO, adicionar_letra, adicionar_todos, combinacoes_camel};
+use crate::write_type::Writer;
+use crate::refactorings::Context;
+use crate::refactorings_exec::{Text, ONE_INDENT, add_letter, add_all, camel_combinations};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassKind, LibraryId, UnitId};
 use dartforge_frontend::ast;
@@ -17,109 +17,109 @@ use std::collections::{BTreeSet, HashSet};
 
 /// O filtro do último membro compatível (`lastMemberFilter`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Filtro {
+pub(crate) enum Filter {
     /// `insertField`.
-    Campo,
+    Field,
     /// `insertConstructor` (com `sort_constructors_first`, só construtores).
-    Construtor { construtores_primeiro: bool },
+    Constructor { first_constructors: bool },
     /// `insertGetter`.
     Getter,
     /// `insertMethod`.
-    Metodo,
+    Method,
     /// Sem filtro: o último membro.
-    Nenhum,
+    None,
 }
 
 /// Os prefixos de nome de método que a sugestão tira (`get`, `is`, `to`).
-const PREFIXOS_CONHECIDOS: [&str; 3] = ["get", "is", "to"];
+const KNOWN_PREFIXES: [&str; 3] = ["get", "is", "to"];
 
-impl Contexto<'_> {
+impl Context<'_> {
     /// Os membros (`ClassMember`) de uma declaração.
-    pub(crate) fn membros_do_conteiner(&self, c: usize) -> Vec<usize> {
-        self.filhos(c).iter().copied().filter(|&f| matches!(self.especie(f), "ConstructorDeclaration" | "MethodDeclaration" | "FieldDeclaration")).collect()
+    pub(crate) fn container_members(&self, c: usize) -> Vec<usize> {
+        self.children(c).iter().copied().filter(|&f| matches!(self.kind(f), "ConstructorDeclaration" | "MethodDeclaration" | "FieldDeclaration")).collect()
     }
 
-    fn e_getter(&self, m: usize) -> bool {
-        match self.arvore.nos[m].marca {
+    fn is_getter(&self, m: usize) -> bool {
+        match self.tree.nos[m].marca {
             Marca::Funcao(fid) => self.ast.function(fid).kind == ast::FunctionKind::Getter,
             _ => false,
         }
     }
 
     /// `insertIntoUnitMember(container, filter)`: o offset e o texto
-    /// completo (prefixo, membro, sufixo) da inserção de `membro`.
-    pub(crate) fn inserir_no_membro(&self, conteiner: usize, filtro: Filtro, membro: &str) -> Option<(usize, String)> {
-        let tx = Texto::novo(self.fonte);
+    /// completo (prefixo, membro, sufixo) da inserção de `member`.
+    pub(crate) fn insert_in_member(&self, container: usize, filter: Filter, member: &str) -> Option<(usize, String)> {
+        let tx = Text::new(self.source);
         let eol = tx.eol();
-        let membros = self.membros_do_conteiner(conteiner);
-        let passa = |m: usize| match filtro {
-            Filtro::Campo => self.especie(m) == "FieldDeclaration",
-            Filtro::Construtor { construtores_primeiro: true } => self.especie(m) == "ConstructorDeclaration",
-            Filtro::Construtor { construtores_primeiro: false } => matches!(self.especie(m), "ConstructorDeclaration" | "FieldDeclaration"),
-            Filtro::Getter => matches!(self.especie(m), "FieldDeclaration" | "ConstructorDeclaration") || (self.especie(m) == "MethodDeclaration" && self.e_getter(m)),
-            Filtro::Metodo => matches!(self.especie(m), "FieldDeclaration" | "ConstructorDeclaration" | "MethodDeclaration"),
-            Filtro::Nenhum => true,
+        let members = self.container_members(container);
+        let passes = |m: usize| match filter {
+            Filter::Field => self.kind(m) == "FieldDeclaration",
+            Filter::Constructor { first_constructors: true } => self.kind(m) == "ConstructorDeclaration",
+            Filter::Constructor { first_constructors: false } => matches!(self.kind(m), "ConstructorDeclaration" | "FieldDeclaration"),
+            Filter::Getter => matches!(self.kind(m), "FieldDeclaration" | "ConstructorDeclaration") || (self.kind(m) == "MethodDeclaration" && self.is_getter(m)),
+            Filter::Method => matches!(self.kind(m), "FieldDeclaration" | "ConstructorDeclaration" | "MethodDeclaration"),
+            Filter::None => true,
         };
-        let alvo = membros.iter().rev().copied().find(|&m| passa(m));
-        let enum_ = self.especie(conteiner) == "EnumDeclaration";
-        let constantes = self.filhos_da_especie(conteiner, "EnumConstantDeclaration");
+        let target = members.iter().rev().copied().find(|&m| passes(m));
+        let enum_ = self.kind(container) == "EnumDeclaration";
+        let constants = self.kind_children(container, "EnumConstantDeclaration");
         // O `;` das constantes.
-        let ponto_e_virgula = if enum_ {
-            constantes.last().and_then(|&c| {
-                let mut t = self.token_seguinte(self.arvore.nos[c].fim)?;
-                if &self.fonte[t.start..t.end] == "," {
-                    t = self.token_seguinte(t.end)?;
+        let semicolon = if enum_ {
+            constants.last().and_then(|&c| {
+                let mut t = self.next_token(self.tree.nos[c].fim)?;
+                if &self.source[t.start..t.end] == "," {
+                    t = self.next_token(t.end)?;
                 }
-                (&self.fonte[t.start..t.end] == ";").then_some(t)
+                (&self.source[t.start..t.end] == ";").then_some(t)
             })
         } else {
             None
         };
         // O `{` da declaração (o primeiro depois do cabeçalho).
-        let chave = {
-            let mut pos = self.arvore.nos[conteiner].inicio;
-            let limite = membros.first().map_or(self.arvore.nos[conteiner].fim, |&m| self.arvore.nos[m].inicio).min(constantes.first().map_or(usize::MAX, |&c| self.arvore.nos[c].inicio));
-            let mut achada = None;
-            while let Some(t) = self.token_seguinte(pos) {
-                if t.start >= limite {
+        let key = {
+            let mut pos = self.tree.nos[container].inicio;
+            let limit = members.first().map_or(self.tree.nos[container].fim, |&m| self.tree.nos[m].inicio).min(constants.first().map_or(usize::MAX, |&c| self.tree.nos[c].inicio));
+            let mut found = None;
+            while let Some(t) = self.next_token(pos) {
+                if t.start >= limit {
                     break;
                 }
-                if &self.fonte[t.start..t.end] == "{" {
-                    achada = Some(t);
+                if &self.source[t.start..t.end] == "{" {
+                    found = Some(t);
                 }
                 pos = t.end;
             }
-            achada
+            found
         };
-        let offset = match alvo {
-            Some(m) => self.arvore.nos[m].fim,
-            None if enum_ => match ponto_e_virgula {
+        let offset = match target {
+            Some(m) => self.tree.nos[m].fim,
+            None if enum_ => match semicolon {
                 Some(p) => p.end,
-                None => self.arvore.nos[*constantes.last()?].fim,
+                None => self.tree.nos[*constants.last()?].fim,
             },
-            None => chave?.end,
+            None => key?.end,
         };
         let mut s = String::new();
-        if enum_ && ponto_e_virgula.is_none() && alvo.is_none() {
+        if enum_ && semicolon.is_none() && target.is_none() {
             s.push(';');
         }
-        if alvo.is_some() || (enum_ && !constantes.is_empty()) {
+        if target.is_some() || (enum_ && !constants.is_empty()) {
             s.push_str(eol);
             s.push_str(eol);
         } else {
             s.push_str(eol);
         }
-        s.push_str(UM_RECUO);
-        s.push_str(membro);
+        s.push_str(ONE_INDENT);
+        s.push_str(member);
         // O sufixo.
-        if alvo.is_none() && !(enum_ && !constantes.is_empty()) {
-            if !membros.is_empty() {
+        if target.is_none() && !(enum_ && !constants.is_empty()) {
+            if !members.is_empty() {
                 s.push_str(eol);
             } else {
-                let inicio = self.primeiro_token_apos_comentario_e_metadados(conteiner).map_or(self.arvore.nos[conteiner].inicio, |t| t.start);
-                let linha_inicio = self.fonte[..inicio].matches('\n').count();
-                let linha_fim = self.fonte[..self.arvore.nos[conteiner].fim].matches('\n').count();
-                if linha_inicio == linha_fim {
+                let start = self.first_token_after_comment_and_metadata(container).map_or(self.tree.nos[container].inicio, |t| t.start);
+                let line_begin = self.source[..start].matches('\n').count();
+                let line_end = self.source[..self.tree.nos[container].fim].matches('\n').count();
+                if line_begin == line_end {
                     s.push_str(eol);
                 }
             }
@@ -128,43 +128,43 @@ impl Contexto<'_> {
     }
 
     /// `_getBaseNameFromExpression`.
-    fn nome_base_da_expressao_ins(&self, e: usize) -> Option<String> {
-        match self.especie(e) {
-            "AsExpression" | "ParenthesizedExpression" => self.nome_base_da_expressao_ins(*self.filhos(e).first()?),
-            _ => self.nome_base_desembrulhado(e),
+    fn ins_expression_base_name(&self, e: usize) -> Option<String> {
+        match self.kind(e) {
+            "AsExpression" | "ParenthesizedExpression" => self.ins_expression_base_name(*self.children(e).first()?),
+            _ => self.unwrapped_base_name(e),
         }
     }
 
     /// `_getBaseNameFromUnwrappedExpression`.
-    fn nome_base_desembrulhado(&self, e: usize) -> Option<String> {
-        let mut nome: Option<String> = None;
-        match self.especie(e) {
-            "SimpleIdentifier" => return Some(self.texto_do_no(e).to_string()),
-            "PrefixedIdentifier" => return Some(self.texto_do_no(*self.filhos(e).get(1)?).to_string()),
-            "PropertyAccess" => return Some(self.texto_do_no(*self.filhos(e).last()?).to_string()),
-            "MethodInvocation" => nome = self.nome_do_metodo(e).map(|m| self.texto_do_no(m).to_string()),
+    fn unwrapped_base_name(&self, e: usize) -> Option<String> {
+        let mut name: Option<String> = None;
+        match self.kind(e) {
+            "SimpleIdentifier" => return Some(self.node_text(e).to_string()),
+            "PrefixedIdentifier" => return Some(self.node_text(*self.children(e).get(1)?).to_string()),
+            "PropertyAccess" => return Some(self.node_text(*self.children(e).last()?).to_string()),
+            "MethodInvocation" => name = self.method_name(e).map(|m| self.node_text(m).to_string()),
             "InstanceCreationExpression" => {
-                let cn = self.filhos_da_especie(e, "ConstructorName").first().copied()?;
-                let tipo = self.filhos_da_especie(cn, "NamedType").first().copied()?;
+                let cn = self.kind_children(e, "ConstructorName").first().copied()?;
+                let ty = self.kind_children(cn, "NamedType").first().copied()?;
                 // O `name2` do tipo: o identificador depois do prefixo.
-                let fim_prefixo = self.filhos_da_especie(tipo, "ImportPrefixReference").first().map_or(self.arvore.nos[tipo].inicio, |&p| self.arvore.nos[p].fim);
-                let s = crate::project::palavra(self.fonte, self.token_seguinte(fim_prefixo)?.start)?;
-                return Some(self.fonte[s.start..s.end].to_string());
+                let prefix_end = self.kind_children(ty, "ImportPrefixReference").first().map_or(self.tree.nos[ty].inicio, |&p| self.tree.nos[p].fim);
+                let s = crate::project::word(self.source, self.next_token(prefix_end)?.start)?;
+                return Some(self.source[s.start..s.end].to_string());
             }
             "IndexExpression" => {
-                nome = self.nome_base_da_expressao_ins(*self.filhos(e).first()?);
-                if let Some(n) = &nome {
+                name = self.ins_expression_base_name(*self.children(e).first()?);
+                if let Some(n) = &name {
                     if let Some(x) = n.strip_suffix("es") {
-                        nome = Some(x.to_string());
+                        name = Some(x.to_string());
                     } else if let Some(x) = n.strip_suffix('s') {
-                        nome = Some(x.to_string());
+                        name = Some(x.to_string());
                     }
                 }
             }
             _ => {}
         }
-        if let Some(n) = &nome {
-            for p in PREFIXOS_CONHECIDOS {
+        if let Some(n) = &name {
+            for p in KNOWN_PREFIXES {
                 if n.starts_with(p) {
                     if n == p {
                         return None;
@@ -174,155 +174,155 @@ impl Contexto<'_> {
                 }
             }
         }
-        nome
+        name
     }
 
     /// `_getParameterNameSuggestions(usedNames, type, expression, index)`.
-    fn sugestoes_de_parametro(&self, usados: &HashSet<String>, tipo: Option<&Type>, arg: usize, indice: usize) -> Vec<String> {
+    fn parameter_suggestions(&self, used: &HashSet<String>, ty: Option<&Type>, arg: usize, index: usize) -> Vec<String> {
         let mut res: Vec<String> = Vec::new();
-        if let Some(n) = self.nome_base_da_expressao_ins(arg) {
+        if let Some(n) = self.ins_expression_base_name(arg) {
             let n = n.strip_prefix('_').unwrap_or(&n).to_string();
-            adicionar_todos(usados, &mut res, combinacoes_camel(&n), None);
+            add_all(used, &mut res, camel_combinations(&n), None);
         }
         // `_getBaseNameFromLocationInParent`: o rótulo do nomeado (o
         // parâmetro de um posicional não existe: a chamada não resolve).
-        if let Some(p) = self.pai(arg)
-            && self.especie(p) == "NamedExpression"
-            && self.filhos(p).get(1) == Some(&arg)
-            && let Some(&rotulo) = self.filhos(p).first()
-            && let Some(&id) = self.filhos(rotulo).first()
+        if let Some(p) = self.parent(arg)
+            && self.kind(p) == "NamedExpression"
+            && self.children(p).get(1) == Some(&arg)
+            && let Some(&label) = self.children(p).first()
+            && let Some(&id) = self.children(label).first()
         {
-            adicionar_todos(usados, &mut res, combinacoes_camel(self.texto_do_no(id)), None);
+            add_all(used, &mut res, camel_combinations(self.node_text(id)), None);
         }
-        let core = &self.p.consulta.core;
-        match tipo {
-            Some(Type::Interface { class, .. }) if Some(*class) == core.int_class => adicionar_letra(usados, &mut res, b'i'),
-            Some(Type::Interface { class, .. }) if Some(*class) == core.double_class => adicionar_letra(usados, &mut res, b'd'),
-            Some(Type::Interface { class, .. }) if Some(*class) == core.string_class => adicionar_letra(usados, &mut res, b's'),
+        let core = &self.p.query.core;
+        match ty {
+            Some(Type::Interface { class, .. }) if Some(*class) == core.int_class => add_letter(used, &mut res, b'i'),
+            Some(Type::Interface { class, .. }) if Some(*class) == core.double_class => add_letter(used, &mut res, b'd'),
+            Some(Type::Interface { class, .. }) if Some(*class) == core.string_class => add_letter(used, &mut res, b's'),
             Some(Type::Interface { class, .. }) => {
-                let nome = self.p.nome(self.p.programa().class(*class).name).to_string();
-                adicionar_todos(usados, &mut res, combinacoes_camel(&nome), None);
+                let name = self.p.name(self.p.program().class(*class).name).to_string();
+                add_all(used, &mut res, camel_combinations(&name), None);
             }
             _ => {}
         }
         if res.is_empty() {
-            return vec![format!("param{indice}")];
+            return vec![format!("param{index}")];
         }
         res
     }
 
     /// `writeParametersMatchingArguments(argumentList)`: os tipos vêm deste
-    /// contexto e são escritos pelo `escritor` (o do arquivo de destino).
-    pub(crate) fn parametros_para_argumentos(&self, lista: usize, escritor: &mut Escritor<'_, '_>) -> String {
-        let mut e = crate::snippets::Escrita::default();
-        self.parametros_para_argumentos_em(lista, escritor, &mut e);
-        e.texto
+    /// contexto e são escritos pelo `writer` (o do arquivo de destino).
+    pub(crate) fn parameters_to_arguments(&self, list: usize, writer: &mut Writer<'_, '_>) -> String {
+        let mut e = crate::snippets::Write::default();
+        self.parameters_to_arguments_in(list, writer, &mut e);
+        e.text
     }
 
-    /// [`Self::parametros_para_argumentos`] escrito em `e`, com os grupos
+    /// [`Self::parameters_to_arguments`] escrito em `e`, com os grupos
     /// ligados do `writeParameterMatchingArgument`: `TYPE<i>` no tipo (com as
     /// sugestões de supertipos) e `PARAM<i>` no nome de um argumento
     /// posicional (com todas as sugestões de nome).
-    pub(crate) fn parametros_para_argumentos_em(&self, lista: usize, escritor: &mut Escritor<'_, '_>, e: &mut crate::snippets::Escrita) {
-        let mut copia: Option<dartforge_types::TypeTable> = None;
-        let mut usados: HashSet<String> = HashSet::new();
+    pub(crate) fn parameters_to_arguments_in(&self, list: usize, writer: &mut Writer<'_, '_>, e: &mut crate::snippets::Write) {
+        let mut copy: Option<dartforge_types::TypeTable> = None;
+        let mut used: HashSet<String> = HashSet::new();
         let mut s = String::new();
-        let mut nomeados = false;
-        let argumentos: Vec<usize> = self.filhos(lista).to_vec();
-        for (i, &arg) in argumentos.iter().enumerate() {
+        let mut named_ = false;
+        let arguments: Vec<usize> = self.children(list).to_vec();
+        for (i, &arg) in arguments.iter().enumerate() {
             if i > 0 {
                 s.push_str(", ");
             }
-            let nomeado = self.especie(arg) == "NamedExpression";
-            if nomeado && !nomeados {
-                nomeados = true;
+            let named = self.kind(arg) == "NamedExpression";
+            if named && !named_ {
+                named_ = true;
                 s.push('{');
             }
             // `writeParameterMatchingArgument`.
-            let valor = if nomeado { self.filhos(arg).get(1).copied().unwrap_or(arg) } else { arg };
-            let tabela = &self.p.consulta.tabela;
-            let tipo = self.tipo_do_no(valor).filter(|t| !matches!(tabela.get(*t), Type::Never | Type::Null) && !matches!(tabela.exibicao(*t), Some(dartforge_types::table::Exibicao::NeverAnulavel)));
-            let sem_sufixo = tipo.is_none_or(|t| !tabela.get(t).is_declared_nullable());
-            if nomeado && sem_sufixo {
+            let value = if named { self.children(arg).get(1).copied().unwrap_or(arg) } else { arg };
+            let table = &self.p.query.table;
+            let ty = self.node_type(value).filter(|t| !matches!(table.get(*t), Type::Never | Type::Null) && !matches!(table.exibicao(*t), Some(dartforge_types::table::Exibicao::NeverAnulavel)));
+            let without_suffix = ty.is_none_or(|t| !table.get(t).is_declared_nullable());
+            if named && without_suffix {
                 s.push_str("required ");
             }
-            if let Some(t) = escritor.escrever_tipo(tipo, false) {
-                e.escrever(&s);
+            if let Some(t) = writer.write_type(ty, false) {
+                e.write(&s);
                 s.clear();
-                let sugestoes = tipo.map(|x| crate::create::sugestoes_de_supertipos_em(self.p, &mut copia, x)).unwrap_or_default();
-                e.ligado(&format!("TYPE{i}"), &t, &sugestoes);
+                let suggestions = ty.map(|x| crate::create::supertype_suggestions_at(self.p, &mut copy, x)).unwrap_or_default();
+                e.linked(&format!("TYPE{i}"), &t, &suggestions);
                 s.push(' ');
             }
-            if nomeado {
-                let rotulo = self.filhos(arg).first().and_then(|&r| self.filhos(r).first().copied());
-                s.push_str(rotulo.map_or("", |id| self.texto_do_no(id)));
+            if named {
+                let label = self.children(arg).first().and_then(|&r| self.children(r).first().copied());
+                s.push_str(label.map_or("", |id| self.node_text(id)));
             } else {
-                let sugestoes = self.sugestoes_de_parametro(&usados, tipo.map(|t| tabela.get(t)), valor, i);
-                let favorita = sugestoes[0].clone();
-                usados.insert(favorita.clone());
-                e.escrever(&s);
+                let suggestions = self.parameter_suggestions(&used, ty.map(|t| table.get(t)), value, i);
+                let favorite = suggestions[0].clone();
+                used.insert(favorite.clone());
+                e.write(&s);
                 s.clear();
-                e.ligado(&format!("PARAM{i}"), &favorita, &sugestoes);
+                e.linked(&format!("PARAM{i}"), &favorite, &suggestions);
             }
         }
-        if nomeados {
+        if named_ {
             s.push('}');
         }
-        e.escrever(&s);
+        e.write(&s);
     }
 }
 
 /// O resultado do `CreateConstructor`: o nome (`{0}`), as edições por
 /// unidade e as bibliotecas a importar na de destino.
-pub(crate) struct Construtor {
-    pub(crate) nome: String,
-    pub(crate) unidade: UnitId,
-    pub(crate) edicao: (Span, String),
-    pub(crate) importar: BTreeSet<LibraryId>,
+pub(crate) struct Constructor {
+    pub(crate) name: String,
+    pub(crate) unit: UnitId,
+    pub(crate) edit: (Span, String),
+    pub(crate) import: BTreeSet<LibraryId>,
     /// Os grupos ligados da declaração e o offset dela no texto da edição.
-    pub(crate) marcas: Option<(usize, crate::snippets::Escrita)>,
+    pub(crate) marks: Option<(usize, crate::snippets::Write)>,
 }
 
 /// `CreateConstructor._proposeFromConstructorName` (o caminho do
 /// `new_with_undefined_constructor`): o `node` é o nome do construtor numa
 /// `InstanceCreationExpression` (`new A.b()`); a classe (só
-/// `ClassDeclaration`) ganha `A.b(<parâmetros>);` pelo `insertConstructor`.
-pub(crate) fn criar_construtor(cx: &Contexto<'_>, erro: Span) -> Option<Construtor> {
-    let node = cx.arvore.localizar(erro.start, erro.end)?;
-    if cx.especie(node) != "SimpleIdentifier" {
+/// `ClassDeclaration`) ganha `A.b(<pairâmetros>);` pelo `insertConstructor`.
+pub(crate) fn create_constructor(cx: &Context<'_>, error: Span) -> Option<Constructor> {
+    let node = cx.tree.localizar(error.start, error.end)?;
+    if cx.kind(node) != "SimpleIdentifier" {
         return None;
     }
-    let cn = cx.pai(node).filter(|&c| cx.especie(c) == "ConstructorName")?;
-    if cx.filhos(cn).get(1) != Some(&node) {
+    let cn = cx.parent(node).filter(|&c| cx.kind(c) == "ConstructorName")?;
+    if cx.children(cn).get(1) != Some(&node) {
         return None;
     }
-    let criacao = cx.pai(cn).filter(|&c| cx.especie(c) == "InstanceCreationExpression")?;
-    let nome = cx.texto_do_no(cn).split_whitespace().collect::<String>();
+    let creation = cx.parent(cn).filter(|&c| cx.kind(c) == "InstanceCreationExpression")?;
+    let name = cx.node_text(cn).split_whitespace().collect::<String>();
     // A classe do tipo.
-    let ty = cx.ast.types.iter().enumerate().find(|(_, t)| t.span.start == cx.arvore.nos[cn].inicio).map(|(i, _)| ast::TypeId(i as u32))?;
-    let classe = cx.p.classe_do_tipo(cx.unidade, ty)?;
-    let prog = cx.p.programa();
-    let c = prog.class(classe);
+    let ty = cx.ast.types.iter().enumerate().find(|(_, t)| t.span.start == cx.tree.nos[cn].inicio).map(|(i, _)| ast::TypeId(i as u32))?;
+    let class = cx.p.type_class(cx.unit, ty)?;
+    let prog = cx.p.program();
+    let c = prog.class(class);
     if c.kind != ClassKind::Class {
         return None;
     }
     let decl = c.decl?;
-    let destino = crate::refactorings::Contexto::novo(cx.p, decl.unit);
-    let conteiner = destino.arvore.nos.iter().position(|n| n.especie == "ClassDeclaration" && matches!(n.marca, Marca::Decl(d) if d == decl.decl))?;
-    let construtores_primeiro = crate::refactorings_exec::regra_ligada(cx.p, decl.unit, "sort_constructors_first");
-    let lista = cx.filhos_da_especie(criacao, "ArgumentList").first().copied()?;
+    let target = crate::refactorings::Context::new(cx.p, decl.unit);
+    let container = target.tree.nos.iter().position(|n| n.especie == "ClassDeclaration" && matches!(n.marca, Marca::Decl(d) if d == decl.decl))?;
+    let first_constructors = crate::refactorings_exec::enabled_rule(cx.p, decl.unit, "sort_constructors_first");
+    let list = cx.kind_children(creation, "ArgumentList").first().copied()?;
     // O ponto de inserção (para o escritor de tipos) antes de escrever.
-    let (offset, _) = destino.inserir_no_membro(conteiner, Filtro::Construtor { construtores_primeiro }, "")?;
-    let mut escritor = Escritor::novo(&destino, offset);
+    let (offset, _) = target.insert_in_member(container, Filter::Constructor { first_constructors }, "")?;
+    let mut writer = Writer::new(&target, offset);
     // O grupo `NAME` no nome do construtor (`_write`,
     // `constructorNameGroupName`) e os dos parâmetros
     // (`writeParametersMatchingArguments`).
-    let nome_da_classe = cx.p.nome(c.name).to_string();
-    let mut e = crate::snippets::Escrita::default();
-    e.escrever(&format!("{nome_da_classe}.")).ligado("NAME", cx.texto_do_no(node), &[]).escrever("(");
-    cx.parametros_para_argumentos_em(lista, &mut escritor, &mut e);
-    e.escrever(");");
-    let (offset, texto) = destino.inserir_no_membro(conteiner, Filtro::Construtor { construtores_primeiro }, &e.texto)?;
-    let marcas = texto.find(&e.texto).map(|k| (k, e));
-    Some(Construtor { nome, unidade: decl.unit, edicao: (Span { start: offset, end: offset }, texto), importar: escritor.importar, marcas })
+    let class_name = cx.p.name(c.name).to_string();
+    let mut e = crate::snippets::Write::default();
+    e.write(&format!("{class_name}.")).linked("NAME", cx.node_text(node), &[]).write("(");
+    cx.parameters_to_arguments_in(list, &mut writer, &mut e);
+    e.write(");");
+    let (offset, text) = target.insert_in_member(container, Filter::Constructor { first_constructors }, &e.text)?;
+    let marks = text.find(&e.text).map(|k| (k, e));
+    Some(Constructor { name, unit: decl.unit, edit: (Span { start: offset, end: offset }, text), import: writer.import, marks })
 }

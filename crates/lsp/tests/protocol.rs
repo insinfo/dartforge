@@ -5,13 +5,13 @@
 //! `Content-Length` no `stdin` e lê quadros do `stdout`. O que vale é o fio,
 //! não a API.
 //!
-//! O teste de platô (`plato_pelo_protocolo`) vive em
+//! O teste de platô (`plateau_through_protocol`) vive em
 //! `tests/plateau_protocol.rs`, num binário separado: o alocador contador é
 //! global ao processo e os testes de um mesmo binário rodam em threads
 //! paralelas, então a medição de memória precisa do processo só para ela
 //! (a razão documentada em `plateau_documents.rs`).
 
-use dartforge_lsp::transport::{enquadrar, ler_mensagem};
+use dartforge_lsp::transport::{frame, read_message};
 use serde_json::{Value, json};
 use std::io::{BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -19,127 +19,127 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 /// Tempo máximo por espera: binário debug arranca devagar no Windows.
-const TEMPO_LIMITE: Duration = Duration::from_secs(20);
+const TIME_LIMIT: Duration = Duration::from_secs(20);
 
 /// Leitura da thread que drena o `stdout` do filho continuamente.
 ///
 /// Drenar sem parar importa: se o filho encher o pipe de saída ele bloqueia
 /// e a sessão trava — o teste travaria junto, em vez de medir.
-enum Leitura {
-    Quadro(Value),
-    Erro(String),
-    Fim,
+enum Read {
+    Frame(Value),
+    Error(String),
+    End,
 }
 
 /// Sessão com o servidor em processo filho.
-struct Sessao {
-    filho: Child,
-    entrada: ChildStdin,
-    leituras: Receiver<Leitura>,
+struct Session {
+    child: Child,
+    entry: ChildStdin,
+    reads: Receiver<Read>,
     /// Notificações e respostas que chegaram mas ainda não foram consumidas.
-    pendentes: Vec<Value>,
-    /// Quadros com erro de enquadramento (o teste `stdout_limpo` os proíbe).
-    erros: Vec<String>,
+    pending: Vec<Value>,
+    /// Quadros com erro de enquadramento (o teste `clean_stdout` os proíbe).
+    errors: Vec<String>,
 }
 
-impl Sessao {
+impl Session {
     /// Gera o servidor com as variáveis de ambiente dadas.
-    fn nova(variaveis: &[(&str, &str)]) -> Self {
-        let caminho = env!("CARGO_BIN_EXE_dartforge-lsp");
-        let mut comando = Command::new(caminho);
-        comando
+    fn new(variables: &[(&str, &str)]) -> Self {
+        let path = env!("CARGO_BIN_EXE_dartforge-lsp");
+        let mut command = Command::new(path);
+        command
             .args(["--stdio"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        for (chave, valor) in variaveis {
-            comando.env(chave, valor);
+        for (key, value) in variables {
+            command.env(key, value);
         }
-        let mut filho = comando.spawn().expect("gerar dartforge-lsp");
-        let entrada = filho.stdin.take().expect("stdin do filho");
-        let saida = filho.stdout.take().expect("stdout do filho");
+        let mut child = command.spawn().expect("gerar dartforge-lsp");
+        let entry = child.stdin.take().expect("stdin do filho");
+        let output = child.stdout.take().expect("stdout do filho");
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let mut leitor = BufReader::new(saida);
+            let mut reader = BufReader::new(output);
             loop {
-                match ler_mensagem(&mut leitor) {
-                    Ok(Some(quadro)) => {
-                        if tx.send(Leitura::Quadro(quadro)).is_err() {
+                match read_message(&mut reader) {
+                    Ok(Some(frame)) => {
+                        if tx.send(Read::Frame(frame)).is_err() {
                             return;
                         }
                     }
                     Ok(None) => {
-                        let _ = tx.send(Leitura::Fim);
+                        let _ = tx.send(Read::End);
                         return;
                     }
                     Err(e) => {
-                        let _ = tx.send(Leitura::Erro(e.to_string()));
+                        let _ = tx.send(Read::Error(e.to_string()));
                         return;
                     }
                 }
             }
         });
         Self {
-            filho,
-            entrada,
-            leituras: rx,
-            pendentes: Vec::new(),
-            erros: Vec::new(),
+            child,
+            entry,
+            reads: rx,
+            pending: Vec::new(),
+            errors: Vec::new(),
         }
     }
 
     /// Envia uma mensagem JSON como um quadro.
-    fn enviar(&mut self, mensagem: &Value) {
-        let quadro = enquadrar(mensagem);
-        self.entrada
-            .write_all(&quadro)
+    fn send(&mut self, message: &Value) {
+        let framed = frame(message);
+        self.entry
+            .write_all(&framed)
             .expect("escrever no stdin do filho");
-        self.entrada.flush().expect("descarregar stdin do filho");
+        self.entry.flush().expect("descarregar stdin do filho");
     }
 
-    /// Bombeia leituras até `condicao` achar a mensagem, ou estoura o limite.
-    fn esperar_por(&mut self, o_que: &str, mut condicao: impl FnMut(&Value) -> bool) -> Value {
-        let inicio = Instant::now();
+    /// Bombeia leituras até `condition` achar a mensagem, ou estoura o limite.
+    fn wait_for(&mut self, what: &str, mut condition: impl FnMut(&Value) -> bool) -> Value {
+        let start = Instant::now();
         loop {
-            if let Some(pos) = self.pendentes.iter().position(&mut condicao) {
-                return self.pendentes.remove(pos);
+            if let Some(pos) = self.pending.iter().position(&mut condition) {
+                return self.pending.remove(pos);
             }
-            let restante = TEMPO_LIMITE.saturating_sub(inicio.elapsed());
+            let remaining = TIME_LIMIT.saturating_sub(start.elapsed());
             assert!(
-                !restante.is_zero(),
-                "tempo esgotado esperando {o_que}; pendentes: {:?}",
-                self.pendentes
+                !remaining.is_zero(),
+                "tempo esgotado esperando {what}; pendentes: {:?}",
+                self.pending
             );
-            match self.leituras.recv_timeout(restante) {
-                Ok(Leitura::Quadro(quadro)) => self.pendentes.push(quadro),
-                Ok(Leitura::Erro(e)) => self.erros.push(e),
-                Ok(Leitura::Fim) => {
+            match self.reads.recv_timeout(remaining) {
+                Ok(Read::Frame(frame)) => self.pending.push(frame),
+                Ok(Read::Error(e)) => self.errors.push(e),
+                Ok(Read::End) => {
                     panic!(
-                        "stdout fechou esperando {o_que}; pendentes: {:?}",
-                        self.pendentes
+                        "stdout fechou esperando {what}; pendentes: {:?}",
+                        self.pending
                     )
                 }
                 Err(_) => panic!(
-                    "tempo esgotado esperando {o_que}; pendentes: {:?}",
-                    self.pendentes
+                    "tempo esgotado esperando {what}; pendentes: {:?}",
+                    self.pending
                 ),
             }
         }
     }
 
     /// Resposta com o `id` dado.
-    fn resposta(&mut self, id: i64) -> Value {
-        self.esperar_por(&format!("resposta {id}"), |m| {
+    fn response(&mut self, id: i64) -> Value {
+        self.wait_for(&format!("resposta {id}"), |m| {
             m.get("id").is_some_and(|v| v.as_i64() == Some(id))
                 && (m.get("result").is_some() || m.get("error").is_some())
         })
     }
 
     /// Última publicação de diagnósticos para a `uri` (descarta as anteriores).
-    fn diagnosticos(&mut self, uri: &str) -> Value {
+    fn diagnostics(&mut self, uri: &str) -> Value {
         // Dá ao servidor uma chance de publicar após a edição: espera até
         // haver ao menos uma publicação nova para a uri.
-        self.esperar_por(&format!("diagnósticos de {uri}"), |m| {
+        self.wait_for(&format!("diagnósticos de {uri}"), |m| {
             m.get("method")
                 .is_some_and(|v| v.as_str() == Some("textDocument/publishDiagnostics"))
                 && m.get("params")
@@ -150,59 +150,59 @@ impl Sessao {
     }
 
     /// Encerra o protocolo (`shutdown` + `exit`) e devolve o código de saída.
-    fn encerrar(mut self, id: i64) -> i32 {
-        self.enviar(&json!({"jsonrpc": "2.0", "id": id, "method": "shutdown"}));
-        let resposta = self.resposta(id);
-        assert_eq!(resposta["result"], Value::Null, "shutdown responde nulo");
-        self.enviar(&json!({"jsonrpc": "2.0", "method": "exit"}));
-        drop(self.entrada);
-        let saida = self.filho.wait().expect("esperar o filho");
+    fn shutdown(mut self, id: i64) -> i32 {
+        self.send(&json!({"jsonrpc": "2.0", "id": id, "method": "shutdown"}));
+        let response = self.response(id);
+        assert_eq!(response["result"], Value::Null, "shutdown responde nulo");
+        self.send(&json!({"jsonrpc": "2.0", "method": "exit"}));
+        drop(self.entry);
+        let output = self.child.wait().expect("esperar o filho");
         // Drena o que restou para não mascarar erro de enquadramento.
-        while let Ok(leitura) = self.leituras.try_recv() {
-            match leitura {
-                Leitura::Quadro(quadro) => self.pendentes.push(quadro),
-                Leitura::Erro(e) => self.erros.push(e),
-                Leitura::Fim => break,
+        while let Ok(read) = self.reads.try_recv() {
+            match read {
+                Read::Frame(frame) => self.pending.push(frame),
+                Read::Error(e) => self.errors.push(e),
+                Read::End => break,
             }
         }
         assert!(
-            self.erros.is_empty(),
+            self.errors.is_empty(),
             "stdout com bytes fora do enquadramento: {:?}",
-            self.erros
+            self.errors
         );
-        saida.code().expect("código de saída")
+        output.code().expect("código de saída")
     }
 }
 
 /// Aperto de mãos mínimo de toda sessão.
-fn iniciar(sessao: &mut Sessao) {
-    sessao.enviar(&json!({
+fn start(session: &mut Session) {
+    session.send(&json!({
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
         "params": {"processId": null, "rootUri": "file:///tmp", "capabilities": {}},
     }));
-    let resposta = sessao.resposta(1);
+    let response = session.response(1);
     assert_eq!(
-        resposta["result"]["capabilities"]["textDocumentSync"], 2,
+        response["result"]["capabilities"]["textDocumentSync"], 2,
         "capacidade anunciada é sincronização incremental"
     );
-    sessao.enviar(&json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}));
+    session.send(&json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}));
 }
 
-fn publicar(uri: &str, versao: i32, texto: &str) -> Value {
+fn publish(uri: &str, version: i32, text: &str) -> Value {
     json!({
         "jsonrpc": "2.0", "method": "textDocument/didOpen",
-        "params": {"textDocument": {"uri": uri, "languageId": "dart", "version": versao, "text": texto}},
+        "params": {"textDocument": {"uri": uri, "languageId": "dart", "version": version, "text": text}},
     })
 }
 
-fn editar(uri: &str, versao: i32, mudancas: Value) -> Value {
+fn edit(uri: &str, version: i32, changes: Value) -> Value {
     json!({
         "jsonrpc": "2.0", "method": "textDocument/didChange",
-        "params": {"textDocument": {"uri": uri, "version": versao}, "contentChanges": mudancas},
+        "params": {"textDocument": {"uri": uri, "version": version}, "contentChanges": changes},
     })
 }
 
-fn fechar(uri: &str) -> Value {
+fn close(uri: &str) -> Value {
     json!({
         "jsonrpc": "2.0", "method": "textDocument/didClose",
         "params": {"textDocument": {"uri": uri}},
@@ -210,8 +210,8 @@ fn fechar(uri: &str) -> Value {
 }
 
 /// Lista de diagnósticos da publicação.
-fn itens(publicacao: &Value) -> &Vec<Value> {
-    publicacao["params"]["diagnostics"]
+fn items(publication: &Value) -> &Vec<Value> {
+    publication["params"]["diagnostics"]
         .as_array()
         .expect("publishDiagnostics traz lista")
 }
@@ -219,37 +219,37 @@ fn itens(publicacao: &Value) -> &Vec<Value> {
 /// Transcrição completa pelo fio: dois erros, correção incremental de um,
 /// fechamento com lista vazia e saída com código 0.
 #[test]
-fn sessao_completa() {
-    let mut sessao = Sessao::nova(&[]);
-    iniciar(&mut sessao);
+fn complete_session() {
+    let mut session = Session::new(&[]);
+    start(&mut session);
 
     let uri = "file:///sessao/teste.dart";
     // As variáveis são lidas (`x;`): `unused_local_variable` é publicado, e
     // o teste conta só os erros de sintaxe.
-    sessao.enviar(&publicar(
+    session.send(&publish(
         uri,
         1,
         "void main() { int x = ; x; }\nvoid outra() { int y = ; y; }\n",
     ));
-    let primeira = sessao.diagnosticos(uri);
+    let first = session.diagnostics(uri);
     assert_eq!(
-        itens(&primeira).len(),
+        items(&first).len(),
         2,
-        "dois erros de sintaxe: {primeira}"
+        "dois erros de sintaxe: {first}"
     );
-    assert_eq!(primeira["params"]["diagnostics"][0]["source"], "dartforge");
+    assert_eq!(first["params"]["diagnostics"][0]["source"], "dartforge");
     assert_eq!(
-        primeira["params"]["diagnostics"][0]["range"]["start"],
+        first["params"]["diagnostics"][0]["range"]["start"],
         json!({"line": 0, "character": 22}),
-        "span de bytes vira posição UTF-16: {primeira}"
+        "span de bytes vira posição UTF-16: {first}"
     );
     assert_eq!(
-        primeira["params"]["diagnostics"][0]["severity"], 1,
-        "sintaxe quebrada é erro: {primeira}"
+        first["params"]["diagnostics"][0]["severity"], 1,
+        "sintaxe quebrada é erro: {first}"
     );
 
     // Correção incremental: troca o `;` da linha 0 por `1;` (intervalo UTF-16).
-    sessao.enviar(&editar(
+    session.send(&edit(
         uri,
         2,
         json!([{
@@ -257,57 +257,57 @@ fn sessao_completa() {
             "text": "1;",
         }]),
     ));
-    let segunda = sessao.diagnosticos(uri);
-    assert_eq!(itens(&segunda).len(), 1, "um erro restante: {segunda}");
+    let second = session.diagnostics(uri);
+    assert_eq!(items(&second).len(), 1, "um erro restante: {second}");
     assert_eq!(
-        segunda["params"]["diagnostics"][0]["range"]["start"],
+        second["params"]["diagnostics"][0]["range"]["start"],
         json!({"line": 1, "character": 23}),
-        "o erro que sobrou é o da segunda declaração: {segunda}"
+        "o erro que sobrou é o da segunda declaração: {second}"
     );
 
-    sessao.enviar(&fechar(uri));
-    let terceira = sessao.diagnosticos(uri);
+    session.send(&close(uri));
+    let third = session.diagnostics(uri);
     assert!(
-        itens(&terceira).is_empty(),
-        "documento fechado publica lista vazia: {terceira}"
+        items(&third).is_empty(),
+        "documento fechado publica lista vazia: {third}"
     );
 
-    assert_eq!(sessao.encerrar(10), 0, "exit após shutdown sai com 0");
+    assert_eq!(session.shutdown(10), 0, "exit após shutdown sai com 0");
 }
 
 /// Colunas contam unidades UTF-16 nos dois sentidos, com CRLF e escape de
 /// surrogate solto no mesmo arquivo.
 #[test]
-fn utf16_correto() {
-    let mut sessao = Sessao::nova(&[]);
-    iniciar(&mut sessao);
+fn correct_utf16() {
+    let mut session = Session::new(&[]);
+    start(&mut session);
 
     // `👭` ocupa 4 bytes e 2 unidades UTF-16; o `;` do erro está no byte 38
     // da linha 0 e na unidade UTF-16 36. O `\uD800` é ASCII (escape), e o
     // lexer o aceita como literal válido: não gera diagnóstico.
     let uri = "file:///utf16/emoji.dart";
-    sessao.enviar(&publicar(
+    session.send(&publish(
         uri,
         1,
         "var s = '👭'; void main() { int x = ; x; }\r\nvar e = '\\uD800';\r\n",
     ));
-    let primeira = sessao.diagnosticos(uri);
-    assert_eq!(itens(&primeira).len(), 1, "só o `;`: {primeira}");
+    let first = session.diagnostics(uri);
+    assert_eq!(items(&first).len(), 1, "só o `;`: {first}");
     assert_eq!(
-        primeira["params"]["diagnostics"][0]["range"]["start"],
+        first["params"]["diagnostics"][0]["range"]["start"],
         json!({"line": 0, "character": 36}),
-        "coluna publicada é UTF-16, não byte: {primeira}"
+        "coluna publicada é UTF-16, não byte: {first}"
     );
     assert_eq!(
-        primeira["params"]["diagnostics"][0]["range"]["end"],
+        first["params"]["diagnostics"][0]["range"]["end"],
         json!({"line": 0, "character": 37}),
-        "fim do span também é UTF-16: {primeira}"
+        "fim do span também é UTF-16: {first}"
     );
 
     // Edição incremental endereçada em UTF-16 depois do emoji: trocar o `;`
     // (unidades 36..37) por `1;` conserta; tratando coluna como byte, o corte
     // cairia no `=` e o erro continuaria.
-    sessao.enviar(&editar(
+    session.send(&edit(
         uri,
         2,
         json!([{
@@ -315,70 +315,70 @@ fn utf16_correto() {
             "text": "1;",
         }]),
     ));
-    let segunda = sessao.diagnosticos(uri);
+    let second = session.diagnostics(uri);
     assert!(
-        itens(&segunda).is_empty(),
-        "edição UTF-16 acertou o byte: {segunda}"
+        items(&second).is_empty(),
+        "edição UTF-16 acertou o byte: {second}"
     );
 
-    assert_eq!(sessao.encerrar(10), 0);
+    assert_eq!(session.shutdown(10), 0);
 }
 
 /// Com log detalhado ligado, o `stdout` continua sendo só protocolo.
 #[test]
-fn stdout_limpo() {
-    let mut sessao = Sessao::nova(&[("RUST_LOG", "debug")]);
-    iniciar(&mut sessao);
+fn clean_stdout() {
+    let mut session = Session::new(&[("RUST_LOG", "debug")]);
+    start(&mut session);
 
     let uri = "file:///limpo/a.dart";
-    sessao.enviar(&publicar(uri, 1, "void main() { int x = ; x; }\n"));
-    let primeira = sessao.diagnosticos(uri);
-    assert_eq!(itens(&primeira).len(), 1);
-    sessao.enviar(&editar(
+    session.send(&publish(uri, 1, "void main() { int x = ; x; }\n"));
+    let first = session.diagnostics(uri);
+    assert_eq!(items(&first).len(), 1);
+    session.send(&edit(
         uri,
         2,
         json!([{"text": "void main() { int x = 1; x; }\n"}]),
     ));
-    let segunda = sessao.diagnosticos(uri);
-    assert!(itens(&segunda).is_empty());
+    let second = session.diagnostics(uri);
+    assert!(items(&second).is_empty());
     // O fechamento não republica: o cliente já tem a lista vazia (o
     // servidor do Dart só publica vazio sobre erros publicados antes).
-    sessao.enviar(&fechar(uri));
+    session.send(&close(uri));
 
-    assert_eq!(sessao.encerrar(10), 0);
-    // `encerrar` já afirmou: nenhum byte fora de `Content-Length` no stdout.
+    assert_eq!(session.shutdown(10), 0);
+    // `shutdown` já afirmou: nenhum byte fora de `Content-Length` no stdout.
 }
 
 /// Duas requisições enfileiradas e cancelamento da segunda antes de a
 /// primeira terminar: a resposta dela é `RequestCancelled` (-32800).
 #[test]
-fn cancelamento() {
-    let mut sessao = Sessao::nova(&[]);
-    iniciar(&mut sessao);
+fn cancellation() {
+    let mut session = Session::new(&[]);
+    start(&mut session);
 
     // As três mensagens saem em rajada: a leitora enfileira enquanto a
     // principal ainda executa o dormir, e o cancelamento vale de todo jeito
-    // porque `bombear` aplica os cancels da fila inteira antes de executar.
-    sessao.enviar(&json!({
+    // porque `pump` aplica os cancels da fila inteira antes de executar.
+    session.send(&json!({
         "jsonrpc": "2.0", "id": 2, "method": "dartforge/dormir",
         "params": {"ms": 1500},
     }));
-    sessao.enviar(&json!({"jsonrpc": "2.0", "id": 3, "method": "shutdown"}));
-    sessao.enviar(&json!({
+    session.send(&json!({"jsonrpc": "2.0", "id": 3, "method": "shutdown"}));
+    session.send(&json!({
         "jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 3},
     }));
 
-    let dormir = sessao.resposta(2);
+    let sleep = session.response(2);
     assert_eq!(
-        dormir["result"],
+        sleep["result"],
         Value::Null,
-        "a primeira termina: {dormir}"
+        "a primeira termina: {sleep}"
     );
-    let cancelada = sessao.resposta(3);
+    let cancelled = session.response(3);
     assert_eq!(
-        cancelada["error"]["code"], -32800,
-        "a segunda foi cancelada na fila: {cancelada}"
+        cancelled["error"]["code"], -32800,
+        "a segunda foi cancelada na fila: {cancelled}"
     );
 
-    assert_eq!(sessao.encerrar(4), 0);
+    assert_eq!(session.shutdown(4), 0);
 }

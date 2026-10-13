@@ -6,15 +6,15 @@
 //! portado nos caminhos que o fix usa.
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use crate::actions::AcaoDeCodigo;
-use crate::Edicao;
+use crate::actions::CodeAction;
+use crate::Edit;
 use dartforge_analysis::naodart::yaml::{self, No, Valor};
 use dartforge_diagnostics::{Diagnostic, Span};
 use std::path::{Path, PathBuf};
 use url::Url;
 
 /// `LineInfo.fromContent`: os inícios de linha (`\n`, `\r\n` e `\r`).
-fn inicios_de_linha(t: &str) -> Vec<usize> {
+fn line_starts(t: &str) -> Vec<usize> {
     let b = t.as_bytes();
     let mut v = vec![0];
     let mut i = 0;
@@ -34,39 +34,39 @@ fn inicios_de_linha(t: &str) -> Vec<usize> {
 }
 
 /// `IgnoreInfo.ignoreMatcher` (`//+[ ]*ignore:`) no começo do texto.
-fn comeca_com_ignore(linha: &str) -> bool {
-    let barras = linha.len() - linha.trim_start_matches('/').len();
-    if barras < 2 {
+fn starts_with_ignore(line: &str) -> bool {
+    let slashes = line.len() - line.trim_start_matches('/').len();
+    if slashes < 2 {
         return false;
     }
-    linha[barras..].trim_start_matches(' ').starts_with("ignore:")
+    line[slashes..].trim_start_matches(' ').starts_with("ignore:")
 }
 
 /// As opções aplicáveis ao arquivo e o caminho do `analysis_options.yaml`
 /// (`analysisOptions.file`), quando existe.
-pub(crate) fn opcoes_do_arquivo(caminho: &Path) -> (dartforge_parity::filtros::Opcoes, Option<PathBuf>) {
-    let raiz = crate::project::raiz_do_projeto(caminho);
-    let arquivo = dartforge_parity::filtros::Opcoes::de_subpasta(caminho, &raiz).unwrap_or_else(|| raiz.join("analysis_options.yaml"));
-    let existe = arquivo.is_file();
-    (dartforge_parity::filtros::Opcoes::ler_arquivo(&arquivo), existe.then_some(arquivo))
+pub(crate) fn file_options(path: &Path) -> (dartforge_parity::filtros::Opcoes, Option<PathBuf>) {
+    let root = crate::project::project_root(path);
+    let file = dartforge_parity::filtros::Opcoes::de_subpasta(path, &root).unwrap_or_else(|| root.join("analysis_options.yaml"));
+    let exists = file.is_file();
+    (dartforge_parity::filtros::Opcoes::ler_arquivo(&file), exists.then_some(file))
 }
 
 /// Os três fixes de cada diagnóstico `HintCode`/`WarningCode` das linhas
-/// `inicio..fim`, um conjunto por diagnóstico (o dedupe por título é do
+/// `start..end`, um conjunto por diagnóstico (o dedupe por título é do
 /// ordenador).
-pub(crate) fn ignorar(uri: &str, texto: &str, diagnosticos: &[Diagnostic], inicio: usize, fim: usize) -> Vec<AcaoDeCodigo> {
-    let caminho = crate::project::arquivo_da_uri(uri);
-    let (opcoes, arquivo_de_opcoes) = match caminho.as_deref() {
-        Some(c) => opcoes_do_arquivo(c),
+pub(crate) fn ignore(uri: &str, text: &str, diagnostics: &[Diagnostic], start_: usize, end: usize) -> Vec<CodeAction> {
+    let path = crate::project::uri_file(uri);
+    let (options, options_file) = match path.as_deref() {
+        Some(c) => file_options(c),
         None => (dartforge_parity::filtros::Opcoes::default(), None),
     };
-    let tx = crate::refactorings_exec::Texto::novo(texto);
+    let tx = crate::refactorings_exec::Text::new(text);
     let eol = tx.eol();
-    let linhas = inicios_de_linha(texto);
-    let linha_de = |o: usize| linhas.partition_point(|&s| s <= o).saturating_sub(1);
-    let mut saida = Vec::new();
-    for d in diagnosticos {
-        if !(d.span.start <= fim && inicio <= d.span.end) {
+    let lines = line_starts(text);
+    let line_of = |o: usize| lines.partition_point(|&s| s <= o).saturating_sub(1);
+    let mut output = Vec::new();
+    for d in diagnostics {
+        if !(d.span.start <= end && start_ <= d.span.end) {
             continue;
         }
         let Some(c) = d.code else { continue };
@@ -76,57 +76,57 @@ pub(crate) fn ignorar(uri: &str, texto: &str, diagnosticos: &[Diagnostic], inici
             continue;
         }
         // `_isCodeUnignorable`.
-        if !opcoes.ignoravel(d) || matches!(opcoes.errors.get(info.nome), Some(None)) {
+        if !options.ignoravel(d) || matches!(options.errors.get(info.nome), Some(None)) {
             continue;
         }
-        let codigo = info.nome;
-        let inserir_em = |o: usize, antes: bool, depois: bool, prefixo: &str| -> (Span, String) {
-            let recuo = tx.prefixo_da_linha(o);
+        let code = info.nome;
+        let insert_in = |o: usize, before: bool, after: bool, prefix: &str| -> (Span, String) {
+            let indent = tx.line_prefix(o);
             let mut s = String::new();
-            if antes {
+            if before {
                 s.push_str(eol);
             }
-            s.push_str(recuo);
-            s.push_str(&format!("// {prefixo}: {codigo}"));
+            s.push_str(indent);
+            s.push_str(&format!("// {prefix}: {code}"));
             s.push_str(eol);
-            if depois {
+            if after {
                 s.push_str(eol);
             }
             (Span { start: o, end: o }, s)
         };
         // `IgnoreDiagnosticOnLine`.
-        let n = linha_de(d.span.start.min(texto.len()));
-        let edicao = if n == 0 {
-            inserir_em(0, false, false, "ignore")
+        let n = line_of(d.span.start.min(text.len()));
+        let edit = if n == 0 {
+            insert_in(0, false, false, "ignore")
         } else {
-            let anterior = linhas[n - 1];
-            let comeco = linhas[n];
-            if comeca_com_ignore(texto[anterior..comeco].trim()) {
-                let o = comeco - eol.len();
-                (Span { start: o, end: o }, format!(", {codigo}"))
+            let previous = lines[n - 1];
+            let start = lines[n];
+            if starts_with_ignore(text[previous..start].trim()) {
+                let o = start - eol.len();
+                (Span { start: o, end: o }, format!(", {code}"))
             } else {
-                inserir_em(comeco, false, false, "ignore")
+                insert_in(start, false, false, "ignore")
             }
         };
-        saida.push(acao(uri, format!("Ignore '{codigo}' for this line"), "quickfix.ignore.line", vec![edicao], d));
+        output.push(action(uri, format!("Ignore '{code}' for this line"), "quickfix.ignore.line", vec![edit], d));
         // `IgnoreDiagnosticInFile`.
-        let total = linhas.len();
-        let edicao = if total == 1 {
-            inserir_em(0, false, true, "ignore_for_file")
+        let total = lines.len();
+        let edit = if total == 1 {
+            insert_in(0, false, true, "ignore_for_file")
         } else {
-            let mut em_branco = None;
-            let mut comeco = 0;
-            let mut existente = None;
+            let mut blank = None;
+            let mut start = 0;
+            let mut existing = None;
             for k in 0..total - 1 {
-                comeco = linhas[k];
-                let seguinte = linhas[k + 1];
-                let l = texto[comeco..seguinte].trim();
+                start = lines[k];
+                let next = lines[k + 1];
+                let l = text[start..next].trim();
                 if l.starts_with("// ignore_for_file:") {
-                    existente = Some(seguinte - eol.len());
+                    existing = Some(next - eol.len());
                     break;
                 }
                 if l.is_empty() {
-                    em_branco = Some(comeco);
+                    blank = Some(start);
                     continue;
                 }
                 if l.starts_with("#!") || l.starts_with("//") {
@@ -134,51 +134,51 @@ pub(crate) fn ignorar(uri: &str, texto: &str, diagnosticos: &[Diagnostic], inici
                 }
                 break;
             }
-            match (existente, em_branco) {
-                (Some(o), _) => (Span { start: o, end: o }, format!(", {codigo}")),
-                (None, Some(o)) => inserir_em(o, true, false, "ignore_for_file"),
-                (None, None) => inserir_em(comeco, false, true, "ignore_for_file"),
+            match (existing, blank) {
+                (Some(o), _) => (Span { start: o, end: o }, format!(", {code}")),
+                (None, Some(o)) => insert_in(o, true, false, "ignore_for_file"),
+                (None, None) => insert_in(start, false, true, "ignore_for_file"),
             }
         };
-        saida.push(acao(uri, format!("Ignore '{codigo}' for the whole file"), "quickfix.ignore.file", vec![edicao], d));
+        output.push(action(uri, format!("Ignore '{code}' for the whole file"), "quickfix.ignore.file", vec![edit], d));
         // `IgnoreDiagnosticInAnalysisOptionsFile`.
-        if let Some(arquivo) = &arquivo_de_opcoes
-            && let Ok(conteudo) = std::fs::read_to_string(arquivo)
-            && let Some((offset, texto_novo)) = ignorar_no_yaml(&conteudo, codigo)
-            && let Ok(uri_yaml) = Url::from_file_path(arquivo)
+        if let Some(file) = &options_file
+            && let Ok(content) = std::fs::read_to_string(file)
+            && let Some((offset, new_text)) = ignore_in_yaml(&content, code)
+            && let Ok(uri_yaml) = Url::from_file_path(file)
         {
-            saida.push(AcaoDeCodigo {
-                titulo: format!("Ignore '{codigo}' in `analysis_options.yaml`"),
-                especie: "quickfix.ignore.analysis".into(),
-                edicoes: vec![Edicao { uri: uri_yaml.to_string(), span: Span { start: offset, end: offset }, texto: texto_novo }],
-                diagnostico: Some(d.clone()),
-                criar_arquivo: None, ligado: Default::default(),
+            output.push(CodeAction {
+                title: format!("Ignore '{code}' in `analysis_options.yaml`"),
+                kind: "quickfix.ignore.analysis".into(),
+                edits: vec![Edit { uri: uri_yaml.to_string(), span: Span { start: offset, end: offset }, text: new_text }],
+                diagnostic: Some(d.clone()),
+                create_file: None, linked: Default::default(),
             });
         }
     }
-    saida
+    output
 }
 
-fn acao(uri: &str, titulo: String, especie: &str, edicoes: Vec<(Span, String)>, d: &Diagnostic) -> AcaoDeCodigo {
-    AcaoDeCodigo {
-        titulo,
-        especie: especie.into(),
-        edicoes: edicoes.into_iter().map(|(span, texto)| Edicao { uri: uri.to_string(), span, texto }).collect(),
-        diagnostico: Some(d.clone()),
-        criar_arquivo: None, ligado: Default::default(),
+fn action(uri: &str, title: String, kind: &str, edits: Vec<(Span, String)>, d: &Diagnostic) -> CodeAction {
+    CodeAction {
+        title,
+        kind: kind.into(),
+        edits: edits.into_iter().map(|(span, text)| Edit { uri: uri.to_string(), span, text }).collect(),
+        diagnostic: Some(d.clone()),
+        create_file: None, linked: Default::default(),
     }
 }
 
 // -- yaml_edit ------------------------------------------------------------------
 
 /// Um valor novo: escalar simples ou mapa (`wrapAsYamlNode` de um `Map`).
-enum Novo {
-    Escalar(String),
-    Mapa(Vec<(String, Novo)>),
+enum New {
+    Scalar(String),
+    Map(Vec<(String, New)>),
 }
 
 /// `getLineEnding`: `\r\n` se mais da metade das quebras o usam.
-fn fim_de_linha(t: &str) -> &'static str {
+fn line_end(t: &str) -> &'static str {
     let b = t.as_bytes();
     let (mut unix, mut windows) = (0, 0);
     for (i, &c) in b.iter().enumerate() {
@@ -193,38 +193,38 @@ fn fim_de_linha(t: &str) -> &'static str {
     if windows > unix { "\r\n" } else { "\n" }
 }
 
-/// `String.lastIndexOf(c, inicio)` (inclusivo).
-fn ultimo_indice(t: &str, c: u8, inicio: usize) -> Option<usize> {
+/// `String.lastIndexOf(c, start)` (inclusivo).
+fn last_index(t: &str, c: u8, start: usize) -> Option<usize> {
     let b = t.as_bytes();
-    let fim = inicio.min(b.len().saturating_sub(1));
+    let end = start.min(b.len().saturating_sub(1));
     if b.is_empty() {
         return None;
     }
-    (0..=fim).rev().find(|&i| b[i] == c)
+    (0..=end).rev().find(|&i| b[i] == c)
 }
 
-fn em_fluxo(t: &str, no: &No) -> bool {
+fn in_flow(t: &str, no: &No) -> bool {
     t[no.span.start.min(t.len())..].starts_with(['{', '['])
 }
 
 /// `getContentSensitiveEnd`.
-fn fim_sensivel(t: &str, no: &No) -> usize {
+fn sensitive_end(t: &str, no: &No) -> usize {
     match &no.valor {
-        Valor::Lista(l) if !em_fluxo(t, no) => l.last().map_or(no.span.end, |x| fim_sensivel(t, x)),
-        Valor::Mapa(m) if !em_fluxo(t, no) => m.last().map_or(no.span.end, |(_, v)| fim_sensivel(t, v)),
+        Valor::Lista(l) if !in_flow(t, no) => l.last().map_or(no.span.end, |x| sensitive_end(t, x)),
+        Valor::Mapa(m) if !in_flow(t, no) => m.last().map_or(no.span.end, |(_, v)| sensitive_end(t, v)),
         _ => no.span.end,
     }
 }
 
 /// `getMapIndentation` (`None`: o mapa de bloco vazio, `UnsupportedError`).
-fn recuo_do_mapa(t: &str, mapa: &No) -> Option<usize> {
-    if em_fluxo(t, mapa) {
+fn map_indent(t: &str, map: &No) -> Option<usize> {
+    if in_flow(t, map) {
         return Some(0);
     }
-    let (ultima, _) = mapa.mapa()?.last()?;
-    let o = ultima.span.start;
-    let nl = ultimo_indice(t, b'\n', o);
-    let q = ultimo_indice(t, b'?', o);
+    let (last, _) = map.mapa()?.last()?;
+    let o = last.span.start;
+    let nl = last_index(t, b'\n', o);
+    let q = last_index(t, b'?', o);
     Some(match (q, nl) {
         (None, None) => o,
         (None, Some(n)) => o - n - 1,
@@ -235,46 +235,46 @@ fn recuo_do_mapa(t: &str, mapa: &No) -> Option<usize> {
 }
 
 /// `getListIndentation`.
-fn recuo_da_lista(t: &str, lista: &No) -> Option<usize> {
-    if em_fluxo(t, lista) {
+fn list_indent(t: &str, list: &No) -> Option<usize> {
+    if in_flow(t, list) {
         return Some(0);
     }
-    let ultimo = lista.lista()?.last()?;
-    let hifen = ultimo_indice(t, b'-', ultimo.span.start.checked_sub(1)?)?;
-    if hifen == 0 {
+    let last = list.lista()?.last()?;
+    let hyphen = last_index(t, b'-', last.span.start.checked_sub(1)?)?;
+    if hyphen == 0 {
         return Some(0);
     }
-    let nl = hifen.checked_sub(1).and_then(|h| ultimo_indice(t, b'\n', h));
+    let nl = hyphen.checked_sub(1).and_then(|h| last_index(t, b'\n', h));
     Some(match nl {
-        Some(n) => hifen - n - 1,
-        None => hifen,
+        Some(n) => hyphen - n - 1,
+        None => hyphen,
     })
 }
 
 /// `getIndentation(editor)`: o recuo da última coleção de bloco não nula
 /// no segundo nível; 2 sem nenhuma.
-fn recuo_do_editor(t: &str, raiz: &No) -> usize {
-    let mut recuo = 2;
-    let filhos: Vec<&No> = match &raiz.valor {
-        Valor::Mapa(m) if !em_fluxo(t, raiz) => m.iter().map(|(_, v)| v).collect(),
-        Valor::Lista(l) if !em_fluxo(t, raiz) => l.iter().collect(),
+fn editor_indent(t: &str, root: &No) -> usize {
+    let mut indent = 2;
+    let children: Vec<&No> = match &root.valor {
+        Valor::Mapa(m) if !in_flow(t, root) => m.iter().map(|(_, v)| v).collect(),
+        Valor::Lista(l) if !in_flow(t, root) => l.iter().collect(),
         _ => Vec::new(),
     };
-    for f in filhos {
+    for f in children {
         let r = match &f.valor {
-            Valor::Lista(_) => recuo_da_lista(t, f).unwrap_or(0),
-            Valor::Mapa(_) => recuo_do_mapa(t, f).unwrap_or(0),
+            Valor::Lista(_) => list_indent(t, f).unwrap_or(0),
+            Valor::Mapa(_) => map_indent(t, f).unwrap_or(0),
             _ => 0,
         };
         if r != 0 {
-            recuo = r;
+            indent = r;
         }
     }
-    recuo
+    indent
 }
 
 /// O `toString` de uma chave escalar.
-fn texto_da_chave(k: &No) -> String {
+fn key_text(k: &No) -> String {
     match &k.valor {
         Valor::Texto(s) | Valor::Outro(s) => s.clone(),
         Valor::Nulo => "null".to_string(),
@@ -283,37 +283,37 @@ fn texto_da_chave(k: &No) -> String {
 }
 
 /// `getMapInsertionIndex`.
-fn indice_de_insercao(mapa: &[(No, No)], chave: &str) -> usize {
-    let chaves: Vec<String> = mapa.iter().map(|(k, _)| texto_da_chave(k)).collect();
-    for i in 1..chaves.len() {
-        if chaves[i] < chaves[i - 1] {
-            return mapa.len();
+fn insertion_index(map: &[(No, No)], key: &str) -> usize {
+    let keys: Vec<String> = map.iter().map(|(k, _)| key_text(k)).collect();
+    for i in 1..keys.len() {
+        if keys[i] < keys[i - 1] {
+            return map.len();
         }
     }
-    chaves.iter().position(|k| k.as_str() > chave).unwrap_or(mapa.len())
+    keys.iter().position(|k| k.as_str() > key).unwrap_or(map.len())
 }
 
 /// `yamlEncodeFlow`.
-fn em_fluxo_texto(v: &Novo) -> String {
+fn in_flow_text(v: &New) -> String {
     match v {
-        Novo::Escalar(s) => s.clone(),
-        Novo::Mapa(m) => format!("{{{}}}", m.iter().map(|(k, x)| format!("{k}: {}", em_fluxo_texto(x))).collect::<Vec<_>>().join(", ")),
+        New::Scalar(s) => s.clone(),
+        New::Map(m) => format!("{{{}}}", m.iter().map(|(k, x)| format!("{k}: {}", in_flow_text(x))).collect::<Vec<_>>().join(", ")),
     }
 }
 
 /// `yamlEncodeBlock`.
-fn em_bloco(v: &Novo, recuo: usize, eol: &str) -> String {
+fn in_block(v: &New, indent: usize, eol: &str) -> String {
     match v {
-        Novo::Escalar(s) => s.clone(),
-        Novo::Mapa(m) if m.is_empty() => format!("{}{{}}", " ".repeat(recuo)),
-        Novo::Mapa(m) => m
+        New::Scalar(s) => s.clone(),
+        New::Map(m) if m.is_empty() => format!("{}{{}}", " ".repeat(indent)),
+        New::Map(m) => m
             .iter()
             .map(|(k, x)| {
-                let chave = format!("{}{k}", " ".repeat(recuo));
-                let valor = em_bloco(x, recuo + 2, eol);
+                let key = format!("{}{k}", " ".repeat(indent));
+                let value = in_block(x, indent + 2, eol);
                 match x {
-                    Novo::Mapa(n) if !n.is_empty() => format!("{chave}:{eol}{valor}"),
-                    _ => format!("{chave}: {valor}"),
+                    New::Map(n) if !n.is_empty() => format!("{key}:{eol}{value}"),
+                    _ => format!("{key}: {value}"),
                 }
             })
             .collect::<Vec<_>>()
@@ -321,111 +321,111 @@ fn em_bloco(v: &Novo, recuo: usize, eol: &str) -> String {
     }
 }
 
-fn colecao_nao_vazia(v: &Novo) -> bool {
-    matches!(v, Novo::Mapa(m) if !m.is_empty())
+fn non_empty_collection(v: &New) -> bool {
+    matches!(v, New::Map(m) if !m.is_empty())
 }
 
-/// `updateInMap(editor, mapa, chave, valor)`: o edit (offset, texto).
-fn atualizar_no_mapa(t: &str, raiz: &No, mapa: &No, chave: &str, valor: &Novo) -> Option<(usize, String)> {
-    let pares = mapa.mapa()?;
-    let existente = pares.iter().rev().find(|(k, _)| texto_da_chave(k) == chave);
-    let fluxo = em_fluxo(t, mapa);
-    let eol = fim_de_linha(t);
-    match (existente, fluxo) {
+/// `updateInMap(editor, map, key, value)`: o edit (offset, texto).
+fn update_in_map(t: &str, root: &No, map: &No, key: &str, value: &New) -> Option<(usize, String)> {
+    let pairs = map.mapa()?;
+    let existing = pairs.iter().rev().find(|(k, _)| key_text(k) == key);
+    let flow = in_flow(t, map);
+    let eol = line_end(t);
+    match (existing, flow) {
         (None, true) => {
             // `_addToFlowMap`.
-            let par = format!("{chave}: {}", em_fluxo_texto(valor));
-            if pares.is_empty() {
-                return Some((mapa.span.end - 1, par));
+            let pair = format!("{key}: {}", in_flow_text(value));
+            if pairs.is_empty() {
+                return Some((map.span.end - 1, pair));
             }
-            let i = indice_de_insercao(pares, chave);
-            if i == pares.len() {
-                return Some((mapa.span.end - 1, format!(", {par}")));
+            let i = insertion_index(pairs, key);
+            if i == pairs.len() {
+                return Some((map.span.end - 1, format!(", {pair}")));
             }
-            Some((pares[i].0.span.start, format!("{par}, ")))
+            Some((pairs[i].0.span.start, format!("{pair}, ")))
         }
         (None, false) => {
             // `_addToBlockMap`.
-            let recuo_mapa = recuo_do_mapa(t, mapa)?;
-            let novo_recuo = recuo_mapa + recuo_do_editor(t, raiz);
-            let mut formatado = " ".repeat(recuo_mapa);
-            let mut offset = mapa.span.end;
-            let i = indice_de_insercao(pares, chave);
-            if !pares.is_empty() {
-                if i == pares.len() {
-                    let fim = fim_sensivel(t, &pares[pares.len() - 1].1);
-                    match t[fim.min(t.len())..].find('\n') {
-                        Some(k) => offset = fim + k + 1,
-                        None => formatado = format!("{eol}{formatado}"),
+            let indent_map = map_indent(t, map)?;
+            let new_indent = indent_map + editor_indent(t, root);
+            let mut formatted = " ".repeat(indent_map);
+            let mut offset = map.span.end;
+            let i = insertion_index(pairs, key);
+            if !pairs.is_empty() {
+                if i == pairs.len() {
+                    let end = sensitive_end(t, &pairs[pairs.len() - 1].1);
+                    match t[end.min(t.len())..].find('\n') {
+                        Some(k) => offset = end + k + 1,
+                        None => formatted = format!("{eol}{formatted}"),
                     }
                 } else {
-                    offset = ultimo_indice(t, b'\n', pares[i].0.span.start).map_or(0, |n| n + 1);
+                    offset = last_index(t, b'\n', pairs[i].0.span.start).map_or(0, |n| n + 1);
                 }
             }
-            let valor_texto = em_bloco(valor, novo_recuo, eol);
-            if colecao_nao_vazia(valor) {
-                formatado.push_str(&format!("{chave}:{eol}{valor_texto}{eol}"));
+            let value_text = in_block(value, new_indent, eol);
+            if non_empty_collection(value) {
+                formatted.push_str(&format!("{key}:{eol}{value_text}{eol}"));
             } else {
-                formatado.push_str(&format!("{chave}: {valor_texto}{eol}"));
+                formatted.push_str(&format!("{key}: {value_text}{eol}"));
             }
-            Some((offset, formatado))
+            Some((offset, formatted))
         }
         (Some((_, v)), true) => {
             // `_replaceInFlowMap`.
-            Some((v.span.start, em_fluxo_texto(valor)))
+            Some((v.span.start, in_flow_text(value)))
         }
         (Some((k, _)), false) => {
             // `_replaceInBlockMap`: do fim da chave + 1 (o `:`).
-            let recuo_mapa = recuo_do_mapa(t, mapa)?;
-            let novo_recuo = recuo_mapa + recuo_do_editor(t, raiz);
-            let mut texto = em_bloco(valor, novo_recuo, eol);
-            if colecao_nao_vazia(valor) {
-                texto = format!("{eol}{texto}");
+            let indent_map = map_indent(t, map)?;
+            let new_indent = indent_map + editor_indent(t, root);
+            let mut text = in_block(value, new_indent, eol);
+            if non_empty_collection(value) {
+                text = format!("{eol}{text}");
             }
-            if !texto.starts_with(eol) {
-                texto = format!(" {texto}");
+            if !text.starts_with(eol) {
+                text = format!(" {text}");
             }
-            Some((k.span.end + 1, texto))
+            Some((k.span.end + 1, text))
         }
     }
 }
 
 /// O edit do `IgnoreDiagnosticInAnalysisOptionsFile` (o offset e o
 /// `replacement`, emitido como inserção); `None` no YAML inválido.
-pub(crate) fn ignorar_no_yaml(conteudo: &str, codigo: &str) -> Option<(usize, String)> {
-    let raiz = yaml::ler(conteudo).ok()?;
-    let erros = || Novo::Mapa(vec![(codigo.to_string(), Novo::Escalar("ignore".to_string()))]);
-    let Some(r) = raiz.as_ref().filter(|r| r.mapa().is_some()) else {
+pub(crate) fn ignore_in_yaml(content: &str, code: &str) -> Option<(usize, String)> {
+    let root = yaml::ler(content).ok()?;
+    let errors = || New::Map(vec![(code.to_string(), New::Scalar("ignore".to_string()))]);
+    let Some(r) = root.as_ref().filter(|r| r.mapa().is_some()) else {
         // `path = []`: o documento inteiro (a inserção no começo dele).
-        let eol = fim_de_linha(conteudo);
-        let inicio = raiz.as_ref().map_or(conteudo.len(), |r| r.span.start);
-        let valor = Novo::Mapa(vec![("analyzer".to_string(), Novo::Mapa(vec![("errors".to_string(), erros())]))]);
-        return Some((inicio, em_bloco(&valor, 0, eol)));
+        let eol = line_end(content);
+        let start = root.as_ref().map_or(content.len(), |r| r.span.start);
+        let value = New::Map(vec![("analyzer".to_string(), New::Map(vec![("errors".to_string(), errors())]))]);
+        return Some((start, in_block(&value, 0, eol)));
     };
     let analyzer = r.campo("analyzer").filter(|a| a.mapa().is_some() && a.par("errors").is_some());
     match analyzer {
-        None => atualizar_no_mapa(conteudo, r, r, "analyzer", &Novo::Mapa(vec![("errors".to_string(), erros())])),
+        None => update_in_map(content, r, r, "analyzer", &New::Map(vec![("errors".to_string(), errors())])),
         Some(a) => {
             let e = a.campo("errors")?;
             e.mapa()?;
-            atualizar_no_mapa(conteudo, r, e, codigo, &Novo::Escalar("ignore".to_string()))
+            update_in_map(content, r, e, code, &New::Scalar("ignore".to_string()))
         }
     }
 }
 
 #[cfg(test)]
-mod testes {
-    use super::ignorar_no_yaml;
+mod tests {
+    use super::ignore_in_yaml;
 
     #[test]
-    fn yaml_do_ignore() {
-        assert_eq!(ignorar_no_yaml("", "x"), Some((0, "analyzer:\n  errors:\n    x: ignore".to_string())));
+    fn ignore_yaml() {
+        assert_eq!(ignore_in_yaml("", "x"), Some((0, "analyzer:\n  errors:\n    x: ignore".to_string())));
         assert_eq!(
-            ignorar_no_yaml("analyzer:\n  errors:\n    a: ignore\n    z: ignore\n", "m"),
+            ignore_in_yaml("analyzer:\n  errors:\n    a: ignore\n    z: ignore\n", "m"),
             Some((34, "    m: ignore\n".to_string()))
         );
         assert_eq!(
-            ignorar_no_yaml("include: package:lints/recommended.yaml\n", "x"),
+            ignore_in_yaml("include: package:lints/recommended.yaml\n", "x"),
             Some((0, "analyzer:\n  errors:\n    x: ignore\n".to_string()))
         );
     }

@@ -21,9 +21,9 @@
 //! Cada edição é conferida contra a árvore do texto vigente: diagnóstico
 //! que não corresponde ao nó esperado não gera ação.
 
-use crate::actions::AcaoDeCodigo;
-use crate::project::{Projeto, nome_base};
-use crate::Edicao;
+use crate::actions::CodeAction;
+use crate::project::{Project, base_name};
+use crate::Edit;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{ClassId, FunctionElementId, FunctionKind, FunctionRef, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, MemberKind, ParameterKind, StmtKind};
@@ -31,54 +31,54 @@ use dartforge_types::{Type, TypeId};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Uma ação cujas edições (num arquivo) vêm com os imports que o
-/// `writeType`/`writeReference` agendou (`Mudanca`, com a detecção de
+/// `writeType`/`writeReference` agendou (`Change`, com a detecção de
 /// conflito do `ChangeBuilder`).
-fn acao_com_imports(
-    cx: &crate::refactorings::Contexto<'_>,
+fn action_with_imports(
+    cx: &crate::refactorings::Context<'_>,
     uri: &str,
-    titulo: String,
-    especie: &str,
-    edicoes: Vec<(Span, String)>,
-    importar: &std::collections::BTreeSet<dartforge_elements::model::LibraryId>,
+    title: String,
+    kind: &str,
+    edits: Vec<(Span, String)>,
+    import: &std::collections::BTreeSet<dartforge_elements::model::LibraryId>,
     d: &Diagnostic,
-) -> Option<AcaoDeCodigo> {
-    let mut m = crate::refactorings_exec::Mudanca::default();
-    for (s, x) in edicoes {
-        m.adicionar(uri, s, x);
+) -> Option<CodeAction> {
+    let mut m = crate::refactorings_exec::Change::default();
+    for (s, x) in edits {
+        m.add(uri, s, x);
     }
-    crate::refactorings_move::imports_do_builder(cx, &mut m, importar);
-    if m.conflito.is_some() {
+    crate::refactorings_move::builder_imports(cx, &mut m, import);
+    if m.conflict.is_some() {
         return None;
     }
-    Some(AcaoDeCodigo {
-        titulo,
-        especie: especie.into(),
-        edicoes: m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
-        diagnostico: Some(d.clone()),
-        criar_arquivo: None, ligado: Default::default(),
+    Some(CodeAction {
+        title,
+        kind: kind.into(),
+        edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+        diagnostic: Some(d.clone()),
+        create_file: None, linked: Default::default(),
     })
 }
 
 /// `AddMissingRequiredArgument` nas chamadas das linhas pedidas (o código
 /// `missing_required_argument` não é publicado; a ação sai sem
 /// diagnóstico).
-pub(crate) fn argumentos_requeridos(projeto: &Projeto, uri: &str, inicio: usize, fim: usize) -> Vec<AcaoDeCodigo> {
-    let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
-    let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-    cx.argumentos_requeridos(inicio, fim)
+pub(crate) fn required_arguments(project: &Project, uri: &str, start: usize, end: usize) -> Vec<CodeAction> {
+    let Some(unit) = project.uri_unit(uri) else { return Vec::new() };
+    let cx = crate::refactorings::Context::new(project, unit);
+    cx.required_arguments(start, end)
         .into_iter()
-        .map(|(nome, s, texto, cursor)| {
-            let a = AcaoDeCodigo {
-                titulo: format!("Add required argument '{nome}'"),
-                especie: "quickfix.add.missingRequiredArgument".into(),
-                edicoes: vec![Edicao { uri: uri.to_string(), span: s, texto }],
-                diagnostico: None,
-                criar_arquivo: None,
-                ligado: Default::default(),
+        .map(|(name, s, text, cursor)| {
+            let a = CodeAction {
+                title: format!("Add required argument '{name}'"),
+                kind: "quickfix.add.missingRequiredArgument".into(),
+                edits: vec![Edit { uri: uri.to_string(), span: s, text }],
+                diagnostic: None,
+                create_file: None,
+                linked: Default::default(),
             };
             match cursor {
-                Ok(k) => a.com_selecao(0, k, 0),
-                Err((k, n)) => a.com_grupo(0, &[k], n, Vec::new()),
+                Ok(k) => a.with_selection(0, k, 0),
+                Err((k, n)) => a.with_group(0, &[k], n, Vec::new()),
             }
         })
         .collect()
@@ -86,379 +86,379 @@ pub(crate) fn argumentos_requeridos(projeto: &Projeto, uri: &str, inicio: usize,
 
 /// `ConvertIntoBlockBody.missingBody`: `selectHere` antes da quebra de linha
 /// que precede o `}` final (`convert_into_block_body.dart:52-53`).
-pub(crate) fn corpo_de_bloco(a: AcaoDeCodigo) -> AcaoDeCodigo {
-    match a.edicoes.first().and_then(|e| e.texto.rfind('\n')) {
-        Some(k) => a.com_selecao(0, k, 0),
+pub(crate) fn block_body(a: CodeAction) -> CodeAction {
+    match a.edits.first().and_then(|e| e.text.rfind('\n')) {
+        Some(k) => a.with_selection(0, k, 0),
         None => a,
     }
 }
 
-fn acao(uri: &str, titulo: String, especie: &str, edicoes: Vec<(Span, String)>, d: &Diagnostic) -> AcaoDeCodigo {
-    AcaoDeCodigo {
-        titulo,
-        especie: especie.into(),
-        edicoes: edicoes.into_iter().map(|(span, texto)| Edicao { uri: uri.to_string(), span, texto }).collect(),
-        diagnostico: Some(d.clone()),
-        criar_arquivo: None, ligado: Default::default(),
+fn action(uri: &str, title: String, kind: &str, edits: Vec<(Span, String)>, d: &Diagnostic) -> CodeAction {
+    CodeAction {
+        title,
+        kind: kind.into(),
+        edits: edits.into_iter().map(|(span, text)| Edit { uri: uri.to_string(), span, text }).collect(),
+        diagnostic: Some(d.clone()),
+        create_file: None, linked: Default::default(),
     }
 }
 
 /// O trecho estendido à linha inteira quando ele ocupa a linha sozinho.
-fn linhas_inteiras(texto: &str, span: Span) -> Span {
-    let ini = texto[..span.start].rfind('\n').map_or(0, |i| i + 1);
-    let fim = texto[span.end..].find('\n').map_or(texto.len(), |i| span.end + i);
-    if texto[ini..span.start].trim().is_empty() && texto[span.end..fim].trim().is_empty() {
-        Span { start: ini, end: (fim + 1).min(texto.len()) }
+fn whole_lines(text: &str, span: Span) -> Span {
+    let start = text[..span.start].rfind('\n').map_or(0, |i| i + 1);
+    let end = text[span.end..].find('\n').map_or(text.len(), |i| span.end + i);
+    if text[start..span.start].trim().is_empty() && text[span.end..end].trim().is_empty() {
+        Span { start: start, end: (end + 1).min(text.len()) }
     } else {
         span
     }
 }
 
-/// As correções desta lista para os diagnósticos que tocam `inicio..fim`.
-pub(crate) fn corrigir(projeto: &mut Projeto, uri: &str, diagnosticos: &[Diagnostic], inicio: usize, fim: usize) -> Vec<AcaoDeCodigo> {
-    let Some(unidade) = projeto.unidade_do_uri(uri) else { return Vec::new() };
-    let mut saida = Vec::new();
-    for d in diagnosticos {
-        if !(d.span.start <= fim && inicio <= d.span.end) {
+/// As correções desta lista para os diagnósticos que tocam `start..end`.
+pub(crate) fn fix(project: &mut Project, uri: &str, diagnostics: &[Diagnostic], start_: usize, end: usize) -> Vec<CodeAction> {
+    let Some(unit) = project.uri_unit(uri) else { return Vec::new() };
+    let mut output = Vec::new();
+    for d in diagnostics {
+        if !(d.span.start <= end && start_ <= d.span.end) {
             continue;
         }
-        let Some(codigo) = d.code.map(|c| c.info().nome) else { continue };
-        let texto = projeto.programa().unit(unidade).source.clone();
-        if d.span.end > texto.len() {
+        let Some(code) = d.code.map(|c| c.info().nome) else { continue };
+        let text = project.program().unit(unit).source.clone();
+        if d.span.end > text.len() {
             continue;
         }
-        match codigo {
+        match code {
             "non_abstract_class_inherits_abstract_member" => {
-                let Some((c, decl)) = classe_com_nome(projeto, unidade, d.span) else { continue };
-                if let Some((titulo, edicao, selecao, grupos)) = sobrescritas_ausentes(projeto, c, unidade, decl) {
+                let Some((c, decl)) = class_with_name(project, unit, d.span) else { continue };
+                if let Some((title, edit, selection, groups)) = missing_overrides(project, c, unit, decl) {
                     // Os grupos `<método>:TYPE<i>`/`PARAM<i>` dos parâmetros
                     // (`writeParameters` com `methodBeingCopied`) e a seleção.
-                    let mut a = acao(uri, titulo, "quickfix.create.missingOverrides", vec![edicao], d);
-                    for (r, n, sugestoes) in grupos {
-                        a = a.com_grupo(0, &[r], n, sugestoes);
+                    let mut a = action(uri, title, "quickfix.create.missingOverrides", vec![edit], d);
+                    for (r, n, suggestions) in groups {
+                        a = a.with_group(0, &[r], n, suggestions);
                     }
-                    saida.push(match selecao {
-                        Some((rel, n)) => a.com_selecao(0, rel, n),
+                    output.push(match selection {
+                        Some((rel, n)) => a.with_selection(0, rel, n),
                         None => a,
                     });
                 }
-                if let Some(e) = no_such_method(projeto, unidade, decl) {
+                if let Some(e) = no_such_method(project, unit, decl) {
                     // `selectHere` antes de tudo (`create_no_such_method.dart:33`).
-                    saida.push(acao(uri, "Create 'noSuchMethod' method".into(), "quickfix.create.noSuchMethod", vec![e], d).com_selecao(0, 0, 0));
+                    output.push(action(uri, "Create 'noSuchMethod' method".into(), "quickfix.create.noSuchMethod", vec![e], d).with_selection(0, 0, 0));
                 }
-                if let Some((nome, e)) = classe_abstrata(projeto, unidade, decl) {
-                    saida.push(acao(uri, format!("Make class '{nome}' abstract"), "quickfix.makeClassAbstract", vec![e], d));
+                if let Some((name, e)) = abstract_class(project, unit, decl) {
+                    output.push(action(uri, format!("Make class '{name}' abstract"), "quickfix.makeClassAbstract", vec![e], d));
                 }
             }
             "concrete_class_with_abstract_member" => {
                 // `ConvertIntoBlockBody.missingBody`, `CreateNoSuchMethod`
                 // (só com `node` na `ClassDeclaration`: aqui o erro está no
                 // membro, nunca sai) e `MakeClassAbstract`.
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some(e) = cx.converter_em_corpo_de_bloco(d.span) {
-                    saida.push(corpo_de_bloco(acao(uri, "Convert to block body".into(), "quickfix.convert.bodyToBlock", vec![e], d)));
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some(e) = cx.convert_to_block_body(d.span) {
+                    output.push(block_body(action(uri, "Convert to block body".into(), "quickfix.convert.bodyToBlock", vec![e], d)));
                 }
                 drop(cx);
-                let Some(decl) = classe_que_contem(projeto, unidade, d.span.start) else { continue };
-                if let Some((nome, e)) = classe_abstrata(projeto, unidade, decl) {
-                    saida.push(acao(uri, format!("Make class '{nome}' abstract"), "quickfix.makeClassAbstract", vec![e], d));
+                let Some(decl) = containing_class(project, unit, d.span.start) else { continue };
+                if let Some((name, e)) = abstract_class(project, unit, decl) {
+                    output.push(action(uri, format!("Make class '{name}' abstract"), "quickfix.makeClassAbstract", vec![e], d));
                 }
             }
             "unused_field" => {
                 // `RemoveUnusedField`: a declaração e cada referência.
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some(faixas) = cx.remover_campo(d.span) {
-                    let edicoes = faixas.into_iter().map(|s| (s, String::new())).collect();
-                    saida.push(acao(uri, "Remove unused field".into(), "quickfix.remove.unusedField", edicoes, d));
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some(ranges) = cx.remove_field(d.span) {
+                    let edits = ranges.into_iter().map(|s| (s, String::new())).collect();
+                    output.push(action(uri, "Remove unused field".into(), "quickfix.remove.unusedField", edits, d));
                 }
             }
             "unused_catch_clause" | "unused_catch_stack" => {
-                let ast = &projeto.programa().unit(unidade).ast;
+                let ast = &project.program().unit(unit).ast;
                 for s in &ast.stmts {
                     let StmtKind::Try { catches, .. } = &s.kind else { continue };
                     for k in catches.iter() {
-                        let corpo = ast.stmt(k.body).span.start;
-                        if codigo == "unused_catch_clause" && k.exception.is_some_and(|n| n.span == d.span) {
+                        let body = ast.stmt(k.body).span.start;
+                        if code == "unused_catch_clause" && k.exception.is_some_and(|n| n.span == d.span) {
                             // De `catch` ao corpo (fica o `on T`).
-                            let Some(c) = texto[k.span.start..corpo].find("catch").map(|i| k.span.start + i) else { continue };
+                            let Some(c) = text[k.span.start..body].find("catch").map(|i| k.span.start + i) else { continue };
                             if k.on_type.is_some() {
-                                saida.push(acao(uri, "Remove unused 'catch' clause".into(), "quickfix.remove.unusedCatchClause", vec![(Span { start: c, end: corpo }, String::new())], d));
+                                output.push(action(uri, "Remove unused 'catch' clause".into(), "quickfix.remove.unusedCatchClause", vec![(Span { start: c, end: body }, String::new())], d));
                             }
                         }
-                        if codigo == "unused_catch_stack"
+                        if code == "unused_catch_stack"
                             && let (Some(e), Some(st)) = (k.exception, k.stack_trace)
                             && st.span == d.span
                         {
-                            saida.push(acao(uri, "Remove unused stack trace variable".into(), "quickfix.remove.unusedCatchStack", vec![(Span { start: e.span.end, end: st.span.end }, String::new())], d));
+                            output.push(action(uri, "Remove unused stack trace variable".into(), "quickfix.remove.unusedCatchStack", vec![(Span { start: e.span.end, end: st.span.end }, String::new())], d));
                         }
                     }
                 }
             }
             "assignment_to_final_local" => {
-                if let Some((nome, e)) = local_nao_final(projeto, unidade, d.span) {
-                    saida.push(acao(uri, format!("Make variable '{nome}' not final"), "quickfix.makeVariableNotFinal", e, d));
+                if let Some((name, e)) = local_not_final(project, unit, d.span) {
+                    output.push(action(uri, format!("Make variable '{name}' not final"), "quickfix.makeVariableNotFinal", e, d));
                 }
             }
             "missing_default_value_for_parameter" => {
-                let ast = &projeto.programa().unit(unidade).ast;
-                if let Some(p) = parametro_com_nome(ast, d.span) {
+                let ast = &project.program().unit(unit).ast;
+                if let Some(p) = parameter_with_name(ast, d.span) {
                     if p.kind == ParameterKind::Named && !p.required {
-                        let ini = p.metadata.last().map_or(p.span.start, |a| {
-                            let resto = &texto[a.span.end..];
-                            a.span.end + (resto.len() - resto.trim_start().len())
+                        let start = p.metadata.last().map_or(p.span.start, |a| {
+                            let rest = &text[a.span.end..];
+                            a.span.end + (rest.len() - rest.trim_start().len())
                         });
-                        saida.push(acao(uri, "Add 'required' keyword".into(), "quickfix.add.required", vec![(Span { start: ini, end: ini }, "required ".into())], d));
+                        output.push(action(uri, "Add 'required' keyword".into(), "quickfix.add.required", vec![(Span { start: start, end: start }, "required ".into())], d));
                     }
                     if let Some(t) = p.ty {
                         let ts = ast.ty(t).span;
-                        let nome = &texto[d.span.start..d.span.end];
-                        saida.push(acao(uri, format!("Make '{nome}' nullable"), "quickfix.makeVariableNullable", vec![(Span { start: ts.end, end: ts.end }, "?".into())], d));
+                        let name = &text[d.span.start..d.span.end];
+                        output.push(action(uri, format!("Make '{name}' nullable"), "quickfix.makeVariableNullable", vec![(Span { start: ts.end, end: ts.end }, "?".into())], d));
                     }
                 }
             }
             "await_in_wrong_context" => {
                 // `AddAsync` com o `convertFunctionFromSyncToAsync`; as
                 // bibliotecas que o `writeType` agendou entram como imports.
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some((edicoes, importar)) = cx.adicionar_async(d.span) {
-                    let mut m = crate::refactorings_exec::Mudanca::default();
-                    for (s, x) in edicoes {
-                        m.adicionar(uri, s, x);
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some((edits, import)) = cx.add_async(d.span) {
+                    let mut m = crate::refactorings_exec::Change::default();
+                    for (s, x) in edits {
+                        m.add(uri, s, x);
                     }
-                    crate::refactorings_move::imports_do_builder(&cx, &mut m, &importar);
-                    if m.conflito.is_none() {
-                        let todas: Vec<Edicao> = m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect();
-                        saida.push(AcaoDeCodigo {
-                            titulo: "Add 'async' modifier".into(),
-                            especie: "quickfix.add.async".into(),
-                            edicoes: todas,
-                            diagnostico: Some(d.clone()),
-                            criar_arquivo: None, ligado: Default::default(),
+                    crate::refactorings_move::builder_imports(&cx, &mut m, &import);
+                    if m.conflict.is_none() {
+                        let all: Vec<Edit> = m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect();
+                        output.push(CodeAction {
+                            title: "Add 'async' modifier".into(),
+                            kind: "quickfix.add.async".into(),
+                            edits: all,
+                            diagnostic: Some(d.clone()),
+                            create_file: None, linked: Default::default(),
                         });
                     }
                 }
             }
             "nullable_type_in_extends_clause" | "nullable_type_in_implements_clause" | "nullable_type_in_on_clause" | "nullable_type_in_with_clause" => {
-                let trecho = &texto[d.span.start..d.span.end];
-                if trecho.ends_with('?') {
-                    saida.push(acao(uri, "Remove the '?'".into(), "quickfix.remove.questionMark", vec![(Span { start: d.span.end - 1, end: d.span.end }, String::new())], d));
+                let snippet = &text[d.span.start..d.span.end];
+                if snippet.ends_with('?') {
+                    output.push(action(uri, "Remove the '?'".into(), "quickfix.remove.questionMark", vec![(Span { start: d.span.end - 1, end: d.span.end }, String::new())], d));
                 }
             }
             "const_instance_field" => {
-                let ast = &projeto.programa().unit(unidade).ast;
+                let ast = &project.program().unit(unit).ast;
                 if let Some(m) = ast.members.iter().find(|m| m.span.start <= d.span.start && d.span.end <= m.span.end && matches!(m.kind, MemberKind::Field(_))) {
-                    let ini = m.metadata.last().map_or(m.span.start, |a| {
-                        let resto = &texto[a.span.end..];
-                        a.span.end + (resto.len() - resto.trim_start().len())
+                    let start = m.metadata.last().map_or(m.span.start, |a| {
+                        let rest = &text[a.span.end..];
+                        a.span.end + (rest.len() - rest.trim_start().len())
                     });
-                    saida.push(acao(uri, "Add 'static' modifier".into(), "quickfix.add.static", vec![(Span { start: ini, end: ini }, "static ".into())], d));
+                    output.push(action(uri, "Add 'static' modifier".into(), "quickfix.add.static", vec![(Span { start: start, end: start }, "static ".into())], d));
                 }
             }
             "non_final_field_in_enum" => {
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some(e) = cx.tornar_final(d.span) {
-                    saida.push(acao(uri, "Make final".into(), "quickfix.makeFinal", vec![e], d));
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some(e) = cx.make_final(d.span) {
+                    output.push(action(uri, "Make final".into(), "quickfix.makeFinal", vec![e], d));
                 }
             }
             "extension_declares_member_of_object" | "extension_type_declares_member_of_object" => {
-                let ast = &projeto.programa().unit(unidade).ast;
+                let ast = &project.program().unit(unit).ast;
                 if let Some(m) = ast.members.iter().find(|m| m.span.start <= d.span.start && d.span.end <= m.span.end) {
-                    let span = com_documentacao(&texto, linhas_inteiras(&texto, m.span));
-                    saida.push(acao(uri, "Remove method declaration".into(), "quickfix.remove.methodDeclaration", vec![(span, String::new())], d));
+                    let span = with_documentation(&text, whole_lines(&text, m.span));
+                    output.push(action(uri, "Remove method declaration".into(), "quickfix.remove.methodDeclaration", vec![(span, String::new())], d));
                 }
             }
             "assert_in_redirecting_constructor" => {
                 // `RemoveAssertion`.
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some(s) = cx.remover_assercao(d.span) {
-                    saida.push(acao(uri, "Remove the assertion".into(), "quickfix.remove.assertion", vec![(s, String::new())], d));
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some(s) = cx.remove_assertion(d.span) {
+                    output.push(action(uri, "Remove the assertion".into(), "quickfix.remove.assertion", vec![(s, String::new())], d));
                 }
             }
             "cast_to_non_type" | "not_a_type" => {
-                saida.extend(projeto.criar_para_diagnostico(unidade, d, crate::create::Codigo::NaoTipo));
+                output.extend(project.create_for_diagnostic(unit, d, crate::create::Code::NotType));
             }
             "implements_non_class" | "mixin_of_non_class" | "new_with_non_type" => {
-                saida.extend(projeto.criar_para_diagnostico(unidade, d, crate::create::Codigo::NaoClasse));
+                output.extend(project.create_for_diagnostic(unit, d, crate::create::Code::NonClass));
             }
             "invalid_annotation" | "undefined_annotation" => {
-                saida.extend(projeto.criar_para_diagnostico(unidade, d, crate::create::Codigo::Anotacao));
+                output.extend(project.create_for_diagnostic(unit, d, crate::create::Code::Annotation));
             }
-            "undefined_extension_getter" => saida.extend(projeto.criar_para_diagnostico(unidade, d, crate::create::Codigo::GetterDeExtensao)),
-            "undefined_extension_method" => saida.extend(projeto.criar_para_diagnostico(unidade, d, crate::create::Codigo::MetodoDeExtensao)),
-            "undefined_extension_setter" => saida.extend(projeto.criar_para_diagnostico(unidade, d, crate::create::Codigo::SetterDeExtensao)),
+            "undefined_extension_getter" => output.extend(project.create_for_diagnostic(unit, d, crate::create::Code::ExtensionGetter)),
+            "undefined_extension_method" => output.extend(project.create_for_diagnostic(unit, d, crate::create::Code::ExtensionMethod)),
+            "undefined_extension_setter" => output.extend(project.create_for_diagnostic(unit, d, crate::create::Code::ExtensionSetter)),
             "implements_repeated" | "implements_super_class" | "mixin_super_class_constraint_non_interface" | "subtype_of_disallowed_type" | "invalid_use_of_type_outside_library" | "extends_non_class" => {
                 // `RemoveNameFromDeclarationClause` (no `extends_non_class`,
                 // depois de `ChangeTo.classOrMixin` e `CreateClass`).
-                if codigo == "extends_non_class" {
-                    saida.extend(projeto.criar_para_diagnostico(unidade, d, crate::create::Codigo::NaoClasse));
+                if code == "extends_non_class" {
+                    output.extend(project.create_for_diagnostic(unit, d, crate::create::Code::NonClass));
                 }
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some((titulo, s)) = cx.remover_nome_da_clausula(d.span) {
-                    saida.push(acao(uri, titulo, "quickfix.remove.nameFromDeclarationClause", vec![(s, String::new())], d));
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some((title, s)) = cx.remove_clause_name(d.span) {
+                    output.push(action(uri, title, "quickfix.remove.nameFromDeclarationClause", vec![(s, String::new())], d));
                 }
             }
             "subtype_of_base_or_final_is_not_base_final_or_sealed" => {
                 // `AddClassModifier.baseModifier`, `.finalModifier`,
                 // `.sealedModifier`.
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some(o) = cx.ponto_do_modificador(d.span) {
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some(o) = cx.modifier_dot(d.span) {
                     for m in ["base", "final", "sealed"] {
-                        saida.push(acao(uri, format!("Add '{m}' modifier"), &format!("quickfix.add.class.modifier.{m}"), vec![(Span { start: o, end: o }, format!("{m} "))], d));
+                        output.push(action(uri, format!("Add '{m}' modifier"), &format!("quickfix.add.class.modifier.{m}"), vec![(Span { start: o, end: o }, format!("{m} "))], d));
                     }
                 }
             }
             "type_check_with_null" => {
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some(s) = cx.faixa_do_is_null(d.span) {
-                    let negado = d.code.is_some_and(|c| c.info().unico.ends_with("TYPE_CHECK_IS_NOT_NULL"));
-                    let (titulo, especie, texto_novo) = if negado {
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some(s) = cx.is_null_range(d.span) {
+                    let negated = d.code.is_some_and(|c| c.info().unico.ends_with("TYPE_CHECK_IS_NOT_NULL"));
+                    let (title, kind, new_text) = if negated {
                         ("Use != null instead of 'is! Null'", "quickfix.use.notEqNull", " != null")
                     } else {
                         ("Use == null instead of 'is Null'", "quickfix.use.eqEqNull", " == null")
                     };
-                    saida.push(acao(uri, titulo.into(), especie, vec![(s, texto_novo.into())], d));
+                    output.push(action(uri, title.into(), kind, vec![(s, new_text.into())], d));
                 }
             }
             "mixin_class_declaration_extends_not_object" => {
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some(s) = cx.remover_extends(d.span) {
-                    saida.push(acao(uri, "Remove the invalid 'extends' clause".into(), "quickfix.remove.extends.clause", vec![(s, String::new())], d));
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some(s) = cx.remove_extends(d.span) {
+                    output.push(action(uri, "Remove the invalid 'extends' clause".into(), "quickfix.remove.extends.clause", vec![(s, String::new())], d));
                 }
             }
             "mixin_application_not_implemented_interface" => {
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some((nome, o)) = cx.estender_para_mixin(d.span, &d.message) {
-                    saida.push(acao(uri, format!("Extend the class '{nome}'"), "quickfix.extendClassForMixin", vec![(Span { start: o, end: o }, format!(" extends {nome}"))], d));
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some((name, o)) = cx.extend_to_mixin(d.span, &d.message) {
+                    output.push(action(uri, format!("Extend the class '{name}'"), "quickfix.extendClassForMixin", vec![(Span { start: o, end: o }, format!(" extends {name}"))], d));
                 }
             }
             "extension_override_access_to_static_member" => {
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some((nome, s)) = cx.nome_da_extensao(d.span) {
-                    saida.push(acao(uri, format!("Replace with '{nome}'"), "quickfix.replace.withExtensionName", vec![(s, nome.clone())], d));
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some((name, s)) = cx.extension_name(d.span) {
+                    output.push(action(uri, format!("Replace with '{name}'"), "quickfix.replace.withExtensionName", vec![(s, name.clone())], d));
                 }
             }
             "invocation_of_non_function_expression" => {
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some(s) = cx.parenteses_do_getter(d.span) {
-                    saida.push(acao(uri, "Remove parentheses in getter invocation".into(), "quickfix.remove.parenthesisInGetterInvocation", vec![(s, String::new())], d));
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some(s) = cx.getter_parens(d.span) {
+                    output.push(action(uri, "Remove parentheses in getter invocation".into(), "quickfix.remove.parenthesisInGetterInvocation", vec![(s, String::new())], d));
                 }
             }
             "super_invocation_not_last" => {
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some(e) = cx.super_por_ultimo(d.span) {
-                    saida.push(acao(uri, "Move the invocation to the end of the initializer list".into(), "quickfix.makeSuperInvocationLast", e, d));
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some(e) = cx.super_last(d.span) {
+                    output.push(action(uri, "Move the invocation to the end of the initializer list".into(), "quickfix.makeSuperInvocationLast", e, d));
                 }
             }
             "yield_of_invalid_type" => {
-                let estritas = projeto
-                    .programa()
-                    .unit(unidade)
+                let strict = project
+                    .program()
+                    .unit(unit)
                     .path
                     .as_deref()
-                    .is_some_and(|c| crate::ignore_diagnostic::opcoes_do_arquivo(c).0.strict_casts);
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some(o) = cx.retorno_anulavel(d.span, estritas) {
-                    saida.push(acao(uri, "Make the return type nullable".into(), "quickfix.makeReturnTypeNullable", vec![(Span { start: o, end: o }, "?".into())], d));
+                    .is_some_and(|c| crate::ignore_diagnostic::file_options(c).0.strict_casts);
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some(o) = cx.nullable_return(d.span, strict) {
+                    output.push(action(uri, "Make the return type nullable".into(), "quickfix.makeReturnTypeNullable", vec![(Span { start: o, end: o }, "?".into())], d));
                 }
             }
             "unreachable_switch_case" | "unreachable_switch_default" => {
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some(s) = cx.remover_membro_morto(d.span) {
-                    saida.push(acao(uri, "Remove dead code".into(), "quickfix.remove.deadCode", vec![(s, String::new())], d));
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some(s) = cx.remove_dead_member(d.span) {
+                    output.push(action(uri, "Remove dead code".into(), "quickfix.remove.deadCode", vec![(s, String::new())], d));
                 }
             }
             "unnecessary_null_comparison" => {
-                let verdadeira = d.code.is_some_and(|c| c.info().unico.ends_with("_TRUE"));
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some(e) = cx.remover_comparacao(d.span, verdadeira) {
-                    saida.push(acao(uri, "Remove comparison".into(), "quickfix.remove.comparison", e, d));
+                let is_true = d.code.is_some_and(|c| c.info().unico.ends_with("_TRUE"));
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some(e) = cx.remove_comparison(d.span, is_true) {
+                    output.push(action(uri, "Remove comparison".into(), "quickfix.remove.comparison", e, d));
                 }
             }
             "enum_with_abstract_member" | "extension_type_with_abstract_member" => {
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some(e) = cx.converter_em_corpo_de_bloco(d.span) {
-                    saida.push(corpo_de_bloco(acao(uri, "Convert to block body".into(), "quickfix.convert.bodyToBlock", vec![e], d)));
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some(e) = cx.convert_to_block_body(d.span) {
+                    output.push(block_body(action(uri, "Convert to block body".into(), "quickfix.convert.bodyToBlock", vec![e], d)));
                 }
             }
             "non_constant_map_pattern_key" => {
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some(e) = cx.adicionar_const(d.span) {
-                    saida.push(acao(uri, "Add 'const' modifier".into(), "quickfix.add.const", e, d));
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some(e) = cx.add_const(d.span) {
+                    output.push(action(uri, "Add 'const' modifier".into(), "quickfix.add.const", e, d));
                 }
             }
             "non_exhaustive_switch_statement" | "non_exhaustive_switch_expression" => {
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some((s, texto_novo, importar)) = cx.casos_ausentes(d.span)
-                    && let Some(a) = acao_com_imports(&cx, uri, "Add missing switch cases".into(), "quickfix.add.missingSwitchCases", vec![(s, texto_novo)], &importar, d)
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some((s, new_text, import)) = cx.missing_cases(d.span)
+                    && let Some(a) = action_with_imports(&cx, uri, "Add missing switch cases".into(), "quickfix.add.missingSwitchCases", vec![(s, new_text)], &import, d)
                 {
-                    saida.push(a);
+                    output.push(a);
                 }
             }
             "new_with_undefined_constructor" => {
-                let cx = crate::refactorings::Contexto::novo(projeto, unidade);
-                if let Some(c) = crate::insert::criar_construtor(&cx, d.span) {
-                    let destino = crate::refactorings::Contexto::novo(projeto, c.unidade);
-                    let (s, t) = c.edicao.clone();
-                    if let Some(uri_destino) = projeto.uri_da_unidade(c.unidade)
-                        && let Some(mut a) = acao_com_imports(&destino, &uri_destino, format!("Create constructor '{}'", c.nome), "quickfix.create.constructor", vec![c.edicao], &c.importar, d)
+                let cx = crate::refactorings::Context::new(project, unit);
+                if let Some(c) = crate::insert::create_constructor(&cx, d.span) {
+                    let target = crate::refactorings::Context::new(project, c.unit);
+                    let (s, t) = c.edit.clone();
+                    if let Some(target_uri) = project.unit_uri(c.unit)
+                        && let Some(mut a) = action_with_imports(&target, &target_uri, format!("Create constructor '{}'", c.name), "quickfix.create.constructor", vec![c.edit], &c.import, d)
                     {
-                        if let Some((base, e)) = &c.marcas
-                            && let Some(i) = a.edicoes.iter().position(|x| x.span == s && x.texto == t)
+                        if let Some((base, e)) = &c.marks
+                            && let Some(i) = a.edits.iter().position(|x| x.span == s && x.text == t)
                         {
-                            a = a.com_escrita_em(i, *base, e);
+                            a = a.with_write_at(i, *base, e);
                         }
-                        saida.push(a);
+                        output.push(a);
                     }
                 }
             }
             _ => {}
         }
     }
-    saida
+    output
 }
 
 /// `span` estendido para cima pelas linhas `///` logo acima dele.
-fn com_documentacao(texto: &str, span: Span) -> Span {
-    let mut inicio = span.start;
-    while inicio > 0 {
-        let fim_anterior = inicio - 1;
-        let comeco = texto[..fim_anterior].rfind('\n').map_or(0, |i| i + 1);
-        if texto[comeco..fim_anterior].trim_start().starts_with("///") {
-            inicio = comeco;
+fn with_documentation(text: &str, span: Span) -> Span {
+    let mut start = span.start;
+    while start > 0 {
+        let previous_end = start - 1;
+        let start_ = text[..previous_end].rfind('\n').map_or(0, |i| i + 1);
+        if text[start_..previous_end].trim_start().starts_with("///") {
+            start = start_;
         } else {
             break;
         }
     }
-    Span { start: inicio, end: span.end }
+    Span { start: start, end: span.end }
 }
 
-/// O parâmetro (de função, método ou construtor) cujo nome está em `nome`.
-fn parametro_com_nome(ast: &ast::Ast, nome: Span) -> Option<&ast::Parameter> {
-    let funcoes = ast.functions.iter().flat_map(|f| f.parameters.iter().flatten());
-    let construtores = ast.members.iter().flat_map(|m| match &m.kind {
+/// O parâmetro (de função, método ou construtor) cujo nome está em `name`.
+fn parameter_with_name(ast: &ast::Ast, name: Span) -> Option<&ast::Parameter> {
+    let functions = ast.functions.iter().flat_map(|f| f.parameters.iter().flatten());
+    let constructors = ast.members.iter().flat_map(|m| match &m.kind {
         MemberKind::Constructor(k) => k.parameters.iter(),
         _ => [].iter(),
     });
-    funcoes.chain(construtores).find(|p| p.name.is_some_and(|n| n.span == nome))
+    functions.chain(constructors).find(|p| p.name.is_some_and(|n| n.span == name))
 }
 
-/// A classe (elemento e declaração) cujo nome está em `nome`.
-fn classe_com_nome(projeto: &Projeto, unidade: UnitId, nome: Span) -> Option<(ClassId, ast::DeclId)> {
-    let p = projeto.programa();
-    let ast = &p.unit(unidade).ast;
+/// A classe (elemento e declaração) cujo nome está em `name`.
+fn class_with_name(project: &Project, unit: UnitId, name: Span) -> Option<(ClassId, ast::DeclId)> {
+    let p = project.program();
+    let ast = &p.unit(unit).ast;
     let (i, _) = ast.decls.iter().enumerate().find(|(_, d)| match &d.kind {
-        DeclKind::Class(k) => k.name.span == nome,
-        DeclKind::Enum(k) => k.name.span == nome,
+        DeclKind::Class(k) => k.name.span == name,
+        DeclKind::Enum(k) => k.name.span == name,
         _ => false,
     })?;
     let decl = ast::DeclId(i as u32);
-    let c = (0..p.classes.len()).map(|x| ClassId(x as u32)).find(|c| p.class(*c).decl.is_some_and(|d| d.unit == unidade && d.decl == decl))?;
+    let c = (0..p.classes.len()).map(|x| ClassId(x as u32)).find(|c| p.class(*c).decl.is_some_and(|d| d.unit == unit && d.decl == decl))?;
     Some((c, decl))
 }
 
 /// A declaração de classe que contém `offset`.
-fn classe_que_contem(projeto: &Projeto, unidade: UnitId, offset: usize) -> Option<ast::DeclId> {
-    let ast = &projeto.programa().unit(unidade).ast;
+fn containing_class(project: &Project, unit: UnitId, offset: usize) -> Option<ast::DeclId> {
+    let ast = &project.program().unit(unit).ast;
     ast.decls
         .iter()
         .enumerate()
@@ -467,67 +467,67 @@ fn classe_que_contem(projeto: &Projeto, unidade: UnitId, offset: usize) -> Optio
 }
 
 /// `abstract ` antes da palavra `class` (depois dos metadados).
-fn classe_abstrata(projeto: &Projeto, unidade: UnitId, decl: ast::DeclId) -> Option<(String, (Span, String))> {
-    let u = projeto.programa().unit(unidade);
+fn abstract_class(project: &Project, unit: UnitId, decl: ast::DeclId) -> Option<(String, (Span, String))> {
+    let u = project.program().unit(unit);
     let d = u.ast.decl(decl);
     let DeclKind::Class(k) = &d.kind else { return None };
     if k.modifiers.abstract_ || k.modifiers.sealed {
         return None;
     }
-    let ini = d.metadata.last().map_or(d.span.start, |a| a.span.end);
-    let resto = &u.source[ini..];
-    let ini = ini + (resto.len() - resto.trim_start().len());
-    Some((u.source[k.name.span.start..k.name.span.end].to_string(), (Span { start: ini, end: ini }, "abstract ".into())))
+    let start = d.metadata.last().map_or(d.span.start, |a| a.span.end);
+    let rest = &u.source[start..];
+    let start = start + (rest.len() - rest.trim_start().len());
+    Some((u.source[k.name.span.start..k.name.span.end].to_string(), (Span { start: start, end: start }, "abstract ".into())))
 }
 
 /// `noSuchMethod` antes do `}` da classe.
-fn no_such_method(projeto: &Projeto, unidade: UnitId, decl: ast::DeclId) -> Option<(Span, String)> {
-    let u = projeto.programa().unit(unidade);
+fn no_such_method(project: &Project, unit: UnitId, decl: ast::DeclId) -> Option<(Span, String)> {
+    let u = project.program().unit(unit);
     let d = u.ast.decl(decl);
     let DeclKind::Class(k) = &d.kind else { return None };
     if !u.source[..d.span.end].ends_with('}') {
         return None;
     }
     let pos = d.span.end - 1;
-    let separador = if k.members.is_empty() { "" } else { "\n" };
-    Some((Span { start: pos, end: pos }, format!("{separador}  @override\n  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);\n")))
+    let separator = if k.members.is_empty() { "" } else { "\n" };
+    Some((Span { start: pos, end: pos }, format!("{separator}  @override\n  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);\n")))
 }
 
-/// `Make variable 'x' not final` para a atribuição em `uso`.
-fn local_nao_final(projeto: &Projeto, unidade: UnitId, uso: Span) -> Option<(String, Vec<(Span, String)>)> {
-    let u = projeto.programa().unit(unidade);
+/// `Make variable 'x' not final` para a atribuição em `usage`.
+fn local_not_final(project: &Project, unit: UnitId, usage: Span) -> Option<(String, Vec<(Span, String)>)> {
+    let u = project.program().unit(unit);
     let ast = &u.ast;
-    let corpos = &projeto.consulta.corpos.units[unidade.0 as usize];
-    let expr = ast.exprs.iter().position(|e| e.span == uso && matches!(e.kind, ast::ExprKind::Identifier(_)))?;
-    let decl = corpos.declaracao_local(ast::ExprId(expr as u32))?;
-    let lista = ast.stmts.iter().find_map(|s| match &s.kind {
+    let bodies = &project.query.bodies.units[unit.0 as usize];
+    let expr = ast.exprs.iter().position(|e| e.span == usage && matches!(e.kind, ast::ExprKind::Identifier(_)))?;
+    let decl = bodies.declaracao_local(ast::ExprId(expr as u32))?;
+    let list = ast.stmts.iter().find_map(|s| match &s.kind {
         StmtKind::Variables(l) if l.variables.len() == 1 && l.variables[0].name.span.start == decl => Some((s.span, l)),
         _ => None,
     })?;
-    let (span, l) = lista;
+    let (span, l) = list;
     if !l.final_ {
         return None;
     }
-    let trecho = &u.source[span.start..];
-    let f = span.start + trecho.find("final")?;
-    let nome = u.source[decl..].split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).next()?.to_string();
-    let edicao = match l.ty {
+    let snippet = &u.source[span.start..];
+    let f = span.start + snippet.find("final")?;
+    let name = u.source[decl..].split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).next()?.to_string();
+    let edit = match l.ty {
         Some(t) => (Span { start: f, end: ast.ty(t).span.start }, String::new()),
         None => (Span { start: f, end: f + 5 }, "var".to_string()),
     };
-    Some((nome, vec![edicao]))
+    Some((name, vec![edit]))
 }
 
 /// O título, a inserção e a seleção relativa do `Create N missing override(s)`.
-type Sobrescritas = (String, (Span, String), Option<(usize, usize)>, Vec<Marca>);
+type Overrides = (String, (Span, String), Option<(usize, usize)>, Vec<Mark>);
 
 /// Um membro a sobrescrever: nome exibido, se é getter/setter e o elemento.
-struct Ausente {
-    nome: String,
+struct Missing {
+    name: String,
     getter: bool,
     setter: bool,
-    funcao: FunctionElementId,
-    dono: ClassId,
+    function: FunctionElementId,
+    owner: ClassId,
 }
 
 /// `Create N missing override(s)`: os membros abstratos ou de interface sem
@@ -538,62 +538,62 @@ struct Ausente {
 ///
 /// A seleção (relativa ao texto inserido): com mais de um membro, no começo
 /// do primeiro (`selectHere`); com um só, a do `writeOverride(setSelection:
-/// true)` (o corpo `throw` inteiro, ou logo depois do `// TODO`); um campo
+/// true)` (o body `throw` integer, or logo after do `// TODO`); um campo
 /// sozinho não tem seleção.
-fn sobrescritas_ausentes(projeto: &mut Projeto, c: ClassId, unidade: UnitId, decl: ast::DeclId) -> Option<Sobrescritas> {
-    let ausentes = ausentes(projeto, c);
-    if ausentes.is_empty() {
+fn missing_overrides(project: &mut Project, c: ClassId, unit: UnitId, decl: ast::DeclId) -> Option<Overrides> {
+    let missing = missing(project, c);
+    if missing.is_empty() {
         return None;
     }
-    let p = projeto.programa();
-    let u = p.unit(unidade);
+    let p = project.program();
+    let u = p.unit(unit);
     let d = u.ast.decl(decl);
-    let (membros, enum_) = match &d.kind {
+    let (members, enum_) = match &d.kind {
         DeclKind::Class(k) => (k.members.clone(), false),
         DeclKind::Enum(k) => (k.members.clone(), true),
         _ => return None,
     };
-    let fonte = u.source.clone();
-    let ultimo = membros.iter().map(|m| u.ast.member(*m).span.end).max();
-    let abre = fonte[d.span.start..d.span.end].find('{').map(|i| d.span.start + i + 1);
-    let (posicao, prefixo) = match (ultimo, abre) {
+    let source = u.source.clone();
+    let last = members.iter().map(|m| u.ast.member(*m).span.end).max();
+    let opens = source[d.span.start..d.span.end].find('{').map(|i| d.span.start + i + 1);
+    let (position, prefix) = match (last, opens) {
         (Some(f), _) => (f, "\n\n  ".to_string()),
         (None, Some(a)) => (a, "\n  ".to_string()),
         _ => return None,
     };
-    let linha_unica = !fonte[d.span.start..d.span.end].contains('\n');
-    let mapa = mapeamento(projeto, c);
-    let mut campos = Vec::new();
-    let mut textos = Vec::new();
-    let mut n = ausentes.len();
+    let single_line = !source[d.span.start..d.span.end].contains('\n');
+    let map = mapping(project, c);
+    let mut fields = Vec::new();
+    let mut texts = Vec::new();
+    let mut n = missing.len();
     let mut i = 0;
-    while i < ausentes.len() {
-        let a = &ausentes[i];
-        if a.getter && ausentes.get(i + 1).is_some_and(|b| b.setter && b.nome == a.nome) {
-            let tipo = retorno(projeto, a.funcao, mapa.get(&a.dono));
+    while i < missing.len() {
+        let a = &missing[i];
+        if a.getter && missing.get(i + 1).is_some_and(|b| b.setter && b.name == a.name) {
+            let ty = return_(project, a.function, map.get(&a.owner));
             let final_ = if enum_ { "final " } else { "" };
-            campos.push(format!("@override\n  {final_}{tipo} {};", a.nome));
+            fields.push(format!("@override\n  {final_}{ty} {};", a.name));
             n -= 1;
             i += 2;
             continue;
         }
-        textos.push(sobrescrita(projeto, a, mapa.get(&a.dono)));
+        texts.push(override_(project, a, map.get(&a.owner)));
         i += 1;
     }
-    let selecao = if n > 1 {
-        Some((prefixo.len(), 0))
-    } else if let [(s, _)] = textos.as_slice()
-        && campos.is_empty()
+    let selection = if n > 1 {
+        Some((prefix.len(), 0))
+    } else if let [(s, _)] = texts.as_slice()
+        && fields.is_empty()
     {
-        let corpo = "throw UnimplementedError()";
-        if let Some(k) = s.find(&format!("=> {corpo};")) {
-            Some((prefixo.len() + k + 3, corpo.len()))
-        } else if let Some(k) = s.find(&format!("{corpo};")) {
-            Some((prefixo.len() + k, corpo.len() + 1))
+        let body = "throw UnimplementedError()";
+        if let Some(k) = s.find(&format!("=> {body};")) {
+            Some((prefix.len() + k + 3, body.len()))
+        } else if let Some(k) = s.find(&format!("{body};")) {
+            Some((prefix.len() + k, body.len() + 1))
         } else {
             s.find("// TODO: implement ").map(|k| {
-                let fim = s[k..].find('\n').map_or(s.len(), |x| k + x);
-                (prefixo.len() + fim, 0)
+                let end = s[k..].find('\n').map_or(s.len(), |x| k + x);
+                (prefix.len() + end, 0)
             })
         }
     } else {
@@ -601,161 +601,161 @@ fn sobrescritas_ausentes(projeto: &mut Projeto, c: ClassId, unidade: UnitId, dec
     };
     // O texto: os campos, depois as sobrescritas; os grupos dos parâmetros
     // passam a valer no texto inteiro.
-    let mut texto = prefixo.clone();
-    let mut grupos: Vec<Marca> = Vec::new();
-    let partes: Vec<(String, Vec<Marca>)> = campos.into_iter().map(|c| (c, Vec::new())).chain(textos).collect();
-    for (k, (s, marcas)) in partes.into_iter().enumerate() {
+    let mut text = prefix.clone();
+    let mut groups: Vec<Mark> = Vec::new();
+    let parts: Vec<(String, Vec<Mark>)> = fields.into_iter().map(|c| (c, Vec::new())).chain(texts).collect();
+    for (k, (s, marks)) in parts.into_iter().enumerate() {
         if k > 0 {
-            texto.push_str("\n\n  ");
+            text.push_str("\n\n  ");
         }
-        let base = texto.len();
-        grupos.extend(marcas.into_iter().map(|(r, n, sug)| (base + r, n, sug)));
-        texto.push_str(&s);
+        let base = text.len();
+        groups.extend(marks.into_iter().map(|(r, n, sug)| (base + r, n, sug)));
+        text.push_str(&s);
     }
-    if ultimo.is_none() && linha_unica {
-        texto.push('\n');
+    if last.is_none() && single_line {
+        text.push('\n');
     }
-    let titulo = format!("Create {n} missing override{}", if n == 1 { "" } else { "s" });
-    Some((titulo, (Span { start: posicao, end: posicao }, texto), selecao, grupos))
+    let title = format!("Create {n} missing override{}", if n == 1 { "" } else { "s" });
+    Some((title, (Span { start: position, end: position }, text), selection, groups))
 }
 
 /// Os membros sem implementação concreta na cadeia de `c`.
-fn ausentes(projeto: &Projeto, c: ClassId) -> Vec<Ausente> {
-    let p = projeto.programa();
+fn missing(project: &Project, c: ClassId) -> Vec<Missing> {
+    let p = project.program();
     // Cadeia de implementação: a classe, os mixins (do último ao primeiro) e
     // a superclasse, recursivamente.
-    let mut cadeia = Vec::new();
-    let mut atual = Some(c);
-    let mut vistos = HashSet::new();
-    while let Some(x) = atual {
-        if !vistos.insert(x) {
+    let mut chain = Vec::new();
+    let mut current = Some(c);
+    let mut seen = HashSet::new();
+    while let Some(x) = current {
+        if !seen.insert(x) {
             break;
         }
-        cadeia.push(x);
+        chain.push(x);
         for m in p.class(x).mixin_classes.iter().rev() {
-            cadeia.push(*m);
+            chain.push(*m);
         }
-        atual = p.class(x).supertype_class;
+        current = p.class(x).supertype_class;
     }
-    let concreto = |nome: &str| {
-        cadeia.iter().any(|x| {
-            p.class(*x).instance_members.iter().any(|(s, f)| projeto.nome(*s) == nome && !p.function(*f).abstract_)
+    let concrete = |name: &str| {
+        chain.iter().any(|x| {
+            p.class(*x).instance_members.iter().any(|(s, f)| project.name(*s) == name && !p.function(*f).abstract_)
         })
     };
-    let mut supers: Vec<ClassId> = projeto.supertipos(c).into_iter().collect();
+    let mut supers: Vec<ClassId> = project.supertypes(c).into_iter().collect();
     supers.sort();
-    let mut por_nome: BTreeMap<String, (FunctionElementId, ClassId)> = BTreeMap::new();
+    let mut by_name: BTreeMap<String, (FunctionElementId, ClassId)> = BTreeMap::new();
     for s in supers {
         for (sym, f) in &p.class(s).instance_members {
-            let nome = projeto.nome(*sym).to_string();
-            if nome == "noSuchMethod" {
+            let name = project.name(*sym).to_string();
+            if name == "noSuchMethod" {
                 continue;
             }
-            por_nome.entry(nome).or_insert((*f, s));
+            by_name.entry(name).or_insert((*f, s));
         }
     }
-    let mut saida: Vec<Ausente> = por_nome
+    let mut output: Vec<Missing> = by_name
         .into_iter()
-        .filter(|(nome, _)| !concreto(nome))
-        .map(|(nome, (f, dono))| {
+        .filter(|(name, _)| !concrete(name))
+        .map(|(name, (f, owner))| {
             let fe = p.function(f);
-            let setter = nome.ends_with('=') && nome != "==" && !matches!(fe.kind, FunctionKind::Operator);
+            let setter = name.ends_with('=') && name != "==" && !matches!(fe.kind, FunctionKind::Operator);
             let getter = matches!(fe.kind, FunctionKind::Getter) || (fe.kind == FunctionKind::ImplicitAccessor && !setter);
-            Ausente { nome: nome_base(&nome).to_string(), getter, setter, funcao: f, dono }
+            Missing { name: base_name(&name).to_string(), getter, setter, function: f, owner }
         })
         .collect();
     // Pelo nome exibido; getter antes de setter.
-    saida.sort_by(|a, b| (a.nome.as_str(), !a.getter).cmp(&(b.nome.as_str(), !b.getter)));
-    saida
+    output.sort_by(|a, b| (a.name.as_str(), !a.getter).cmp(&(b.name.as_str(), !b.getter)));
+    output
 }
 
 /// Para cada supertipo de `c`, os argumentos de tipo como `c` o vê.
-fn mapeamento(projeto: &mut Projeto, c: ClassId) -> HashMap<ClassId, HashMap<dartforge_types::TypeParamId, TypeId>> {
-    let supers: Vec<ClassId> = projeto.supertipos(c).into_iter().collect();
-    let consulta = &mut projeto.consulta;
-    let Some(dados) = consulta.outline.classes.get(c.0 as usize) else { return HashMap::new() };
-    let args: Box<[TypeId]> = dados
+fn mapping(project: &mut Project, c: ClassId) -> HashMap<ClassId, HashMap<dartforge_types::TypeParamId, TypeId>> {
+    let supers: Vec<ClassId> = project.supertypes(c).into_iter().collect();
+    let query = &mut project.query;
+    let Some(data) = query.outline.classes.get(c.0 as usize) else { return HashMap::new() };
+    let args: Box<[TypeId]> = data
         .type_params
         .clone()
         .iter()
-        .map(|tp| consulta.tabela.intern(Type::TypeParameter { param: *tp, nullable: false }))
+        .map(|tp| query.table.intern(Type::TypeParameter { param: *tp, nullable: false }))
         .collect();
-    let este = consulta.tabela.intern(Type::Interface { class: c, args, nullable: false });
-    let mut saida = HashMap::new();
+    let this = query.table.intern(Type::Interface { class: c, args, nullable: false });
+    let mut output = HashMap::new();
     for s in supers {
-        let Some(t) = consulta.outline.hierarchy.supertype_of(este, s, &mut consulta.tabela, &consulta.core) else { continue };
-        let Type::Interface { args, .. } = consulta.tabela.get(t).clone() else { continue };
-        let Some(ds) = consulta.outline.classes.get(s.0 as usize) else { continue };
+        let Some(t) = query.outline.hierarchy.supertype_of(this, s, &mut query.table, &query.core) else { continue };
+        let Type::Interface { args, .. } = query.table.get(t).clone() else { continue };
+        let Some(ds) = query.outline.classes.get(s.0 as usize) else { continue };
         if ds.type_params.len() == args.len() {
-            saida.insert(s, ds.type_params.iter().copied().zip(args.iter().copied()).collect());
+            output.insert(s, ds.type_params.iter().copied().zip(args.iter().copied()).collect());
         }
     }
-    saida
+    output
 }
 
-fn formatar(projeto: &mut Projeto, t: TypeId, mapa: Option<&HashMap<dartforge_types::TypeParamId, TypeId>>) -> String {
-    let t = match mapa {
-        Some(m) => dartforge_types::ops::substitute(t, m, &mut projeto.consulta.tabela),
+fn format(project: &mut Project, t: TypeId, map: Option<&HashMap<dartforge_types::TypeParamId, TypeId>>) -> String {
+    let t = match map {
+        Some(m) => dartforge_types::ops::substitute(t, m, &mut project.query.table),
         None => t,
     };
-    projeto.consulta.formatar(t)
+    project.query.format(t)
 }
 
 /// O tipo de retorno (ou do getter) de `f` como `c` o vê.
-fn retorno(projeto: &mut Projeto, f: FunctionElementId, mapa: Option<&HashMap<dartforge_types::TypeParamId, TypeId>>) -> String {
-    let fe = projeto.programa().function(f);
+fn return_(project: &mut Project, f: FunctionElementId, map: Option<&HashMap<dartforge_types::TypeParamId, TypeId>>) -> String {
+    let fe = project.program().function(f);
     let t = match (fe.kind, fe.variable) {
-        (FunctionKind::ImplicitAccessor, Some(v)) => projeto.consulta.tipo_da_variavel(v).unwrap_or(projeto.consulta.outline.functions[f.0 as usize].return_type),
-        _ => projeto.consulta.outline.functions[f.0 as usize].return_type,
+        (FunctionKind::ImplicitAccessor, Some(v)) => project.query.variable_type(v).unwrap_or(project.query.outline.functions[f.0 as usize].return_type),
+        _ => project.query.outline.functions[f.0 as usize].return_type,
     };
-    formatar(projeto, t, mapa)
+    format(project, t, map)
 }
 
 /// O texto de uma sobrescrita (`writeOverride` do Dart).
 /// O texto de `writeOverride` e os grupos ligados dos parâmetros (em bytes
 /// do texto).
-fn sobrescrita(projeto: &mut Projeto, a: &Ausente, mapa: Option<&HashMap<dartforge_types::TypeParamId, TypeId>>) -> (String, Vec<Marca>) {
-    let nome = a.nome.clone();
+fn override_(project: &mut Project, a: &Missing, map: Option<&HashMap<dartforge_types::TypeParamId, TypeId>>) -> (String, Vec<Mark>) {
+    let name = a.name.clone();
     if a.getter {
-        let tipo = retorno(projeto, a.funcao, mapa);
-        let tipo = if tipo == "dynamic" { String::new() } else { format!("{tipo} ") };
-        return (format!("@override\n  // TODO: implement {nome}\n  {tipo}get {nome} => throw UnimplementedError();"), Vec::new());
+        let ty = return_(project, a.function, map);
+        let ty = if ty == "dynamic" { String::new() } else { format!("{ty} ") };
+        return (format!("@override\n  // TODO: implement {name}\n  {ty}get {name} => throw UnimplementedError();"), Vec::new());
     }
-    let (parametros, marcas) = lista_de_parametros(projeto, a.funcao, mapa);
-    let deslocar = |base: usize, marcas: Vec<Marca>| marcas.into_iter().map(|(r, n, s)| (base + r, n, s)).collect::<Vec<_>>();
+    let (parameters, marks) = parameter_list(project, a.function, map);
+    let shift = |base: usize, marks: Vec<Mark>| marks.into_iter().map(|(r, n, s)| (base + r, n, s)).collect::<Vec<_>>();
     if a.setter {
-        let antes = format!("@override\n  set {nome}");
-        return (format!("{antes}{parametros} {{\n    // TODO: implement {nome}\n  }}"), deslocar(antes.len(), marcas));
+        let before = format!("@override\n  set {name}");
+        return (format!("{before}{parameters} {{\n    // TODO: implement {name}\n  }}"), shift(before.len(), marks));
     }
-    let tipo = retorno(projeto, a.funcao, mapa);
-    let operador = if projeto.programa().function(a.funcao).kind == FunctionKind::Operator { "operator " } else { "" };
-    let corpo = if tipo == "void" { String::new() } else { "\n    throw UnimplementedError();".to_string() };
+    let ty = return_(project, a.function, map);
+    let operator = if project.program().function(a.function).kind == FunctionKind::Operator { "operator " } else { "" };
+    let body = if ty == "void" { String::new() } else { "\n    throw UnimplementedError();".to_string() };
     // `writeType` não escreve o retorno `dynamic`.
-    let antes = if tipo == "dynamic" { format!("@override\n  {operador}{nome}") } else { format!("@override\n  {tipo} {operador}{nome}") };
-    (format!("{antes}{parametros} {{\n    // TODO: implement {nome}{corpo}\n  }}"), deslocar(antes.len(), marcas))
+    let before = if ty == "dynamic" { format!("@override\n  {operator}{name}") } else { format!("@override\n  {ty} {operator}{name}") };
+    (format!("{before}{parameters} {{\n    // TODO: implement {name}{body}\n  }}"), shift(before.len(), marks))
 }
 
 /// `<T>(int a, [int b = 0], {required int c})` de `f`, com os tipos como a
 /// classe os vê.
 /// Um grupo ligado de um texto gerado: posição e comprimento (bytes do
 /// texto) e as sugestões.
-pub(crate) type Marca = (usize, usize, Vec<String>);
+pub(crate) type Mark = (usize, usize, Vec<String>);
 
 /// `addSuperTypesAsSuggestions(type)`: num tipo de interface, o próprio tipo
 /// e os de `allSupertypes` (a ordem de `implementedInterfaces`), como o Dart
 /// os exibe; nos demais, nada.
-pub(crate) fn sugestoes_de_supertipos(projeto: &mut Projeto, t: TypeId) -> Vec<String> {
-    let Type::Interface { class, args, nullable } = projeto.consulta.tabela.get(t).clone() else { return Vec::new() };
-    let mut v = vec![projeto.consulta.formatar(t)];
-    let base = projeto.consulta.tabela.intern(Type::Interface { class, args, nullable: false });
-    for s in crate::create::todos_os_supertipos(projeto, class) {
-        let consulta = &mut projeto.consulta;
-        if let Some(mut st) = consulta.outline.hierarchy.supertype_of(base, s, &mut consulta.tabela, &consulta.core) {
+pub(crate) fn supertype_suggestions(project: &mut Project, t: TypeId) -> Vec<String> {
+    let Type::Interface { class, args, nullable } = project.query.table.get(t).clone() else { return Vec::new() };
+    let mut v = vec![project.query.format(t)];
+    let base = project.query.table.intern(Type::Interface { class, args, nullable: false });
+    for s in crate::create::all_supertypes(project, class) {
+        let query = &mut project.query;
+        if let Some(mut st) = query.outline.hierarchy.supertype_of(base, s, &mut query.table, &query.core) {
             // Os supertipos de `T?` saem anuláveis (`Object?`, `Pattern?`).
-            if nullable && let Type::Interface { class, args, .. } = consulta.tabela.get(st).clone() {
-                st = consulta.tabela.intern(Type::Interface { class, args, nullable: true });
+            if nullable && let Type::Interface { class, args, .. } = query.table.get(st).clone() {
+                st = query.table.intern(Type::Interface { class, args, nullable: true });
             }
-            v.push(consulta.formatar(st));
+            v.push(query.format(st));
         }
     }
     v
@@ -764,8 +764,8 @@ pub(crate) fn sugestoes_de_supertipos(projeto: &mut Projeto, t: TypeId) -> Vec<S
 /// `writeParameters(parameters, methodBeingCopied: f)` de `writeOverride`:
 /// o texto e os grupos ligados `TYPE<i>` (com as sugestões de supertipos) e
 /// `PARAM<i>` (só nos não nomeados), em bytes do texto.
-fn lista_de_parametros(projeto: &mut Projeto, f: FunctionElementId, mapa: Option<&HashMap<dartforge_types::TypeParamId, TypeId>>) -> (String, Vec<Marca>) {
-    let p = projeto.programa();
+fn parameter_list(project: &mut Project, f: FunctionElementId, map: Option<&HashMap<dartforge_types::TypeParamId, TypeId>>) -> (String, Vec<Mark>) {
+    let p = project.program();
     let (unit, ps, tps): (UnitId, Vec<(ParameterKind, bool, Option<String>, Option<String>)>, String) = match p.function(f).node {
         FunctionRef::Function { unit, function } => {
             let u = p.unit(unit);
@@ -775,12 +775,12 @@ fn lista_de_parametros(projeto: &mut Projeto, f: FunctionElementId, mapa: Option
                 .iter()
                 .flatten()
                 .map(|x| {
-                    let nome = x.public_name.or(x.name).map(|n| u.source[n.span.start..n.span.end].to_string());
-                    let padrao = x.default_value.map(|e| {
+                    let name = x.public_name.or(x.name).map(|n| u.source[n.span.start..n.span.end].to_string());
+                    let pattern = x.default_value.map(|e| {
                         let s = u.ast.expr(e).span;
                         u.source[s.start..s.end].to_string()
                     });
-                    (x.kind, x.required, nome, padrao)
+                    (x.kind, x.required, name, pattern)
                 })
                 .collect();
             let tps = if func.type_params.is_empty() {
@@ -797,76 +797,76 @@ fn lista_de_parametros(projeto: &mut Projeto, f: FunctionElementId, mapa: Option
         }
     };
     let _ = unit;
-    let tipos: Vec<TypeId> = projeto.consulta.outline.functions[f.0 as usize].parameters.iter().map(|q| q.ty).collect();
+    let types: Vec<TypeId> = project.query.outline.functions[f.0 as usize].parameters.iter().map(|q| q.ty).collect();
     // Cada parâmetro: (espécie, texto, marcas relativas ao texto dele).
-    let mut obrigatorios: Vec<(String, Vec<Marca>)> = Vec::new();
-    let mut opcionais: Vec<(String, Vec<Marca>)> = Vec::new();
-    let mut nomeados: Vec<(String, Vec<Marca>)> = Vec::new();
-    for (i, (tipo_p, req, nome, padrao)) in ps.into_iter().enumerate() {
+    let mut required: Vec<(String, Vec<Mark>)> = Vec::new();
+    let mut optional: Vec<(String, Vec<Mark>)> = Vec::new();
+    let mut named: Vec<(String, Vec<Mark>)> = Vec::new();
+    for (i, (type_p, req, name, pattern)) in ps.into_iter().enumerate() {
         let mut s = String::new();
-        let mut marcas = Vec::new();
-        if tipo_p == ParameterKind::Named && req {
+        let mut marks = Vec::new();
+        if type_p == ParameterKind::Named && req {
             s.push_str("required ");
         }
-        let tipo = tipos.get(i).map_or_else(|| "dynamic".to_string(), |t| formatar(projeto, *t, mapa));
-        let sugestoes = match tipos.get(i) {
+        let ty = types.get(i).map_or_else(|| "dynamic".to_string(), |t| format(project, *t, map));
+        let suggestions = match types.get(i) {
             Some(t) => {
-                let t = match mapa {
-                    Some(m) => dartforge_types::ops::substitute(*t, m, &mut projeto.consulta.tabela),
+                let t = match map {
+                    Some(m) => dartforge_types::ops::substitute(*t, m, &mut project.query.table),
                     None => *t,
                 };
-                sugestoes_de_supertipos(projeto, t)
+                supertype_suggestions(project, t)
             }
             None => Vec::new(),
         };
         // `_writeType` não escreve `dynamic` (nem o tipo inválido) num
         // parâmetro: sem tipo, sem o grupo.
-        let dinamico = tipos.get(i).is_some_and(|t| matches!(projeto.consulta.tabela.get(*t), Type::Dynamic));
-        if !dinamico {
-            marcas.push((s.len(), tipo.len(), sugestoes));
-            s.push_str(&tipo);
+        let dynamic = types.get(i).is_some_and(|t| matches!(project.query.table.get(*t), Type::Dynamic));
+        if !dynamic {
+            marks.push((s.len(), ty.len(), suggestions));
+            s.push_str(&ty);
             s.push(' ');
         }
-        let nome = nome.unwrap_or_else(|| format!("p{i}"));
-        if tipo_p != ParameterKind::Named {
-            marcas.push((s.len(), nome.len(), Vec::new()));
+        let name = name.unwrap_or_else(|| format!("p{i}"));
+        if type_p != ParameterKind::Named {
+            marks.push((s.len(), name.len(), Vec::new()));
         }
-        s.push_str(&nome);
-        if let Some(v) = padrao {
+        s.push_str(&name);
+        if let Some(v) = pattern {
             s.push_str(&format!(" = {v}"));
         }
-        match tipo_p {
-            ParameterKind::Required => obrigatorios.push((s, marcas)),
-            ParameterKind::Optional => opcionais.push((s, marcas)),
-            ParameterKind::Named => nomeados.push((s, marcas)),
+        match type_p {
+            ParameterKind::Required => required.push((s, marks)),
+            ParameterKind::Optional => optional.push((s, marks)),
+            ParameterKind::Named => named.push((s, marks)),
         }
     }
-    let mut texto = format!("{tps}(");
-    let mut todas: Vec<Marca> = Vec::new();
-    let mut juntar = |texto: &mut String, lista: Vec<(String, Vec<Marca>)>, abre: &str, fecha: &str, primeiro: &mut bool| {
-        for (k, (s, marcas)) in lista.into_iter().enumerate() {
-            if !*primeiro {
-                texto.push_str(", ");
+    let mut text = format!("{tps}(");
+    let mut all: Vec<Mark> = Vec::new();
+    let mut join = |text: &mut String, list: Vec<(String, Vec<Mark>)>, opens: &str, closes: &str, first: &mut bool| {
+        for (k, (s, marks)) in list.into_iter().enumerate() {
+            if !*first {
+                text.push_str(", ");
             }
-            *primeiro = false;
+            *first = false;
             if k == 0 {
-                texto.push_str(abre);
+                text.push_str(opens);
             }
-            let base = texto.len();
-            todas.extend(marcas.into_iter().map(|(r, n, sug)| (base + r, n, sug)));
-            texto.push_str(&s);
+            let base = text.len();
+            all.extend(marks.into_iter().map(|(r, n, sug)| (base + r, n, sug)));
+            text.push_str(&s);
         }
-        texto.push_str(fecha);
+        text.push_str(closes);
     };
-    let mut primeiro = true;
-    juntar(&mut texto, obrigatorios, "", "", &mut primeiro);
-    if !opcionais.is_empty() {
-        juntar(&mut texto, opcionais, "[", "]", &mut primeiro);
+    let mut first = true;
+    join(&mut text, required, "", "", &mut first);
+    if !optional.is_empty() {
+        join(&mut text, optional, "[", "]", &mut first);
     }
-    if !nomeados.is_empty() {
-        juntar(&mut texto, nomeados, "{", "}", &mut primeiro);
+    if !named.is_empty() {
+        join(&mut text, named, "{", "}", &mut first);
     }
-    texto.push(')');
-    (texto, todas)
+    text.push(')');
+    (text, all)
 }
 

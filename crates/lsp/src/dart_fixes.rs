@@ -1,14 +1,14 @@
 //! Produtores de correção portados do servidor do Dart 3.6.2 sobre a árvore
-//! do analyzer ([`crate::arvore_analyzer`]): `RemoveUnusedLocalVariable`,
+//! do analyzer ([`crate::analyzer_tree`]): `RemoveUnusedLocalVariable`,
 //! `RemoveUnusedElement` e `RemoveUnusedField` (`COR:remove_unused*.dart`),
 //! com os utilitários de intervalo do `RangeFactory`
 //! (docs/LSP-ESPECIFICACAO.md §13.7.4.0 e §13.7.4.5).
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use crate::arvore_analyzer::Marca;
-use crate::project::{Alvo, Concreto, palavra};
-use crate::refactorings::Contexto;
-use crate::refactorings_exec::Texto;
+use crate::project::{Target, Concrete, word};
+use crate::refactorings::Context;
+use crate::refactorings_exec::Text;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, Element, FunctionElementId, TypedefId, VariableId};
 use dartforge_frontend::ast::{self, ExprKind, MemberKind};
@@ -18,133 +18,133 @@ use dartforge_types::{MemberRef, Resolved};
 /// Um `Add required argument`: o nome do parâmetro, a inserção e o cursor
 /// (`Ok`: seleção no byte do texto; `Err`: o grupo `VALUE`, início e
 /// comprimento).
-pub(crate) type ArgumentoRequerido = (String, Span, String, Result<usize, (usize, usize)>);
+pub(crate) type RequiredArgument = (String, Span, String, Result<usize, (usize, usize)>);
 
 /// O elemento declarado por um nó (o `declaredElement`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Declarado {
-    Classe(ClassId),
+enum Declared {
+    Class(ClassId),
     Typedef(TypedefId),
-    Funcao(FunctionElementId),
+    Function(FunctionElementId),
     /// Função local, pelo offset do nome.
-    FuncaoLocal(usize),
-    Variavel(VariableId),
+    LocalFunction(usize),
+    Variable(VariableId),
 }
 
-impl Contexto<'_> {
+impl Context<'_> {
     // -- Tokens e intervalos ----------------------------------------------------
 
     /// O primeiro token que começa em `pos` ou depois (sem o fim de arquivo).
-    pub(crate) fn token_seguinte(&self, pos: usize) -> Option<Span> {
+    pub(crate) fn next_token(&self, pos: usize) -> Option<Span> {
         let i = self.tokens.partition_point(|t| t.span.start < pos);
         self.tokens.get(i).filter(|t| t.kind != Kind::Eof).map(|t| t.span)
     }
 
     /// O último token que termina em `pos` ou antes.
-    pub(crate) fn token_anterior(&self, pos: usize) -> Option<Span> {
+    pub(crate) fn previous_token(&self, pos: usize) -> Option<Span> {
         let i = self.tokens.partition_point(|t| t.span.end <= pos);
         i.checked_sub(1).map(|k| self.tokens[k].span)
     }
 
-    fn lexema(&self, s: Span) -> &str {
-        &self.fonte[s.start..s.end]
+    fn lexeme(&self, s: Span) -> &str {
+        &self.source[s.start..s.end]
     }
 
     /// Os filhos de `n` de uma espécie.
-    pub(crate) fn filhos_da_especie(&self, n: usize, especie: &str) -> Vec<usize> {
-        self.filhos(n).iter().copied().filter(|&f| self.especie(f) == especie).collect()
+    pub(crate) fn kind_children(&self, n: usize, kind: &str) -> Vec<usize> {
+        self.children(n).iter().copied().filter(|&f| self.kind(f) == kind).collect()
     }
 
     /// `thisOrAncestorMatching`.
-    fn este_ou_ancestral(&self, n: usize, pred: impl Fn(&str) -> bool) -> Option<usize> {
-        let mut atual = Some(n);
-        while let Some(k) = atual {
-            if pred(self.especie(k)) {
+    fn this_or_ancestor(&self, n: usize, pred: impl Fn(&str) -> bool) -> Option<usize> {
+        let mut current = Some(n);
+        while let Some(k) = current {
+            if pred(self.kind(k)) {
                 return Some(k);
             }
-            atual = self.pai(k);
+            current = self.parent(k);
         }
         None
     }
 
     /// `thisOrAncestorOfType` pela espécie.
-    pub(crate) fn este_ou_ancestral_pub(&self, n: usize, especie: &str) -> Option<usize> {
-        self.este_ou_ancestral(n, |e| e == especie)
+    pub(crate) fn this_or_ancestor_pub(&self, n: usize, kind: &str) -> Option<usize> {
+        self.this_or_ancestor(n, |e| e == kind)
     }
 
     /// `range.nodeInList(list, item)`.
-    pub(crate) fn no_em_lista(&self, lista: &[usize], item: usize) -> Span {
-        let s = self.arvore.span(item);
-        if lista.len() == 1 {
-            if let Some(t) = self.token_seguinte(s.end)
-                && self.lexema(t) == ","
+    pub(crate) fn node_in_list(&self, list: &[usize], item: usize) -> Span {
+        let s = self.tree.span(item);
+        if list.len() == 1 {
+            if let Some(t) = self.next_token(s.end)
+                && self.lexeme(t) == ","
             {
                 return Span { start: s.start, end: t.end };
             }
             // O dono é a `ConstructorDeclaration` (os inicializadores):
             // do token antes do `:` ao corpo.
-            if let Some(dono) = self.pai(item)
-                && self.especie(dono) == "ConstructorDeclaration"
-                && let Some(sep) = self.token_anterior(self.arvore.nos[lista[0]].inicio)
-                && self.lexema(sep) == ":"
-                && let Some(antes) = self.token_anterior(sep.start)
-                && let Some(corpo) = self.filhos(dono).iter().copied().find(|&f| self.especie(f).ends_with("FunctionBody"))
+            if let Some(owner) = self.parent(item)
+                && self.kind(owner) == "ConstructorDeclaration"
+                && let Some(sep) = self.previous_token(self.tree.nos[list[0]].inicio)
+                && self.lexeme(sep) == ":"
+                && let Some(before) = self.previous_token(sep.start)
+                && let Some(body) = self.children(owner).iter().copied().find(|&f| self.kind(f).ends_with("FunctionBody"))
             {
-                return Span { start: antes.end, end: self.arvore.nos[corpo].inicio };
+                return Span { start: before.end, end: self.tree.nos[body].inicio };
             }
             return s;
         }
-        let i = lista.iter().position(|&x| x == item).unwrap_or(0);
+        let i = list.iter().position(|&x| x == item).unwrap_or(0);
         if i == 0 {
-            Span { start: s.start, end: self.arvore.nos[lista[1]].inicio }
+            Span { start: s.start, end: self.tree.nos[list[1]].inicio }
         } else {
-            Span { start: self.arvore.nos[lista[i - 1]].fim, end: s.end }
+            Span { start: self.tree.nos[list[i - 1]].fim, end: s.end }
         }
     }
 
     /// `utils.getLinesRange(range.node(n))`.
-    fn linhas_do_no(&self, n: usize) -> Span {
-        let s = self.arvore.span(n);
-        Texto::novo(self.fonte).faixa_de_linhas(s.start, s.end)
+    fn node_lines(&self, n: usize) -> Span {
+        let s = self.tree.span(n);
+        Text::new(self.source).line_range(s.start, s.end)
     }
 
     /// O nome (o último identificador) de um `DeclaredVariablePattern`.
-    fn nome_do_padrao(&self, n: usize) -> Option<Span> {
-        let fim = self.arvore.nos[n].fim;
-        palavra(self.fonte, fim.checked_sub(1)?).filter(|s| s.end == fim)
+    fn pattern_name(&self, n: usize) -> Option<Span> {
+        let end = self.tree.nos[n].fim;
+        word(self.source, end.checked_sub(1)?).filter(|s| s.end == end)
     }
 
     /// O `DartPattern.patternContext`.
-    fn contexto_do_padrao(&self, padrao: usize) -> Option<usize> {
-        let mut atual = padrao;
+    fn pattern_context(&self, pattern: usize) -> Option<usize> {
+        let mut current = pattern;
         loop {
-            let mut pai = self.pai(atual)?;
-            if matches!(self.especie(pai), "MapPatternEntry" | "PatternField" | "RestPatternElement") {
-                pai = self.pai(pai)?;
+            let mut parent = self.parent(current)?;
+            if matches!(self.kind(parent), "MapPatternEntry" | "PatternField" | "RestPatternElement") {
+                parent = self.parent(parent)?;
             }
-            match self.especie(pai) {
-                "ForEachPartsWithPattern" | "PatternVariableDeclaration" | "PatternAssignment" | "GuardedPattern" => return Some(pai),
-                e if e.ends_with("Pattern") => atual = pai,
+            match self.kind(parent) {
+                "ForEachPartsWithPattern" | "PatternVariableDeclaration" | "PatternAssignment" | "GuardedPattern" => return Some(parent),
+                e if e.ends_with("Pattern") => current = parent,
                 _ => return None,
             }
         }
     }
 
     /// `AssignedVariablePattern`: o `x` solto de um padrão de atribuição.
-    fn padrao_atribuido(&self, n: usize) -> bool {
-        self.especie(n) == "DeclaredVariablePattern"
-            && self.filhos(n).is_empty()
-            && self.contexto_do_padrao(n).is_some_and(|c| self.especie(c) == "PatternAssignment")
-            && !self.texto_do_no(n).contains(char::is_whitespace)
+    fn assigned_pattern(&self, n: usize) -> bool {
+        self.kind(n) == "DeclaredVariablePattern"
+            && self.children(n).is_empty()
+            && self.pattern_context(n).is_some_and(|c| self.kind(c) == "PatternAssignment")
+            && !self.node_text(n).contains(char::is_whitespace)
     }
 
-    /// O local visível em `pos` com o nome `nome` é o declarado em `decl`
+    /// O local visível em `pos` com o nome `name` é o declarado em `decl`
     /// (a faixa mais interna do `VisibleRangesComputer` que cobre `pos`
     /// cobre a declaração).
-    fn local_em(&self, corpo: usize, pos: usize, nome: &str, decl: usize) -> bool {
-        crate::refactorings_inline::faixas_visiveis(self, corpo)
+    fn local_in(&self, body: usize, pos: usize, name: &str, decl: usize) -> bool {
+        crate::refactorings_inline::visible_ranges(self, body)
             .into_iter()
-            .filter(|(n, (a, b))| n == nome && *a <= pos && pos <= *b)
+            .filter(|(n, (a, b))| n == name && *a <= pos && pos <= *b)
             .min_by_key(|(_, (a, b))| b - a)
             .is_some_and(|(_, (a, b))| a <= decl && decl <= b)
     }
@@ -153,137 +153,137 @@ impl Contexto<'_> {
 
     /// `RemoveUnusedLocalVariable.compute` (`remove_unused_local_variable.dart`):
     /// as edições (intervalo, texto), ou `None` quando o Dart não oferece.
-    pub(crate) fn remover_variavel_local(&self, erro: Span) -> Option<Vec<(Span, String)>> {
-        let node = self.arvore.localizar(erro.start, erro.end)?;
-        let mut comandos: Vec<(Span, String)> = Vec::new();
+    pub(crate) fn remove_local_variable(&self, error: Span) -> Option<Vec<(Span, String)>> {
+        let node = self.tree.localizar(error.start, error.end)?;
+        let mut commands: Vec<(Span, String)> = Vec::new();
         // `_deleteDeclaration`.
-        let declarado = match self.especie(node) {
+        let declared = match self.kind(node) {
             "VariableDeclaration" => {
-                let lista = self.pai(node).filter(|&l| self.especie(l) == "VariableDeclarationList")?;
-                let comando = self.pai(lista).filter(|&c| self.especie(c) == "VariableDeclarationStatement")?;
-                let variaveis = self.filhos_da_especie(lista, "VariableDeclaration");
-                if variaveis.len() == 1 {
-                    let inicializador = self.filhos(variaveis[0]).first().copied();
-                    match inicializador {
-                        Some(i) if self.especie(i) == "MethodInvocation" => {
-                            comandos.push((Span { start: self.arvore.nos[comando].inicio, end: self.arvore.nos[i].inicio }, String::new()));
+                let list = self.parent(node).filter(|&l| self.kind(l) == "VariableDeclarationList")?;
+                let command = self.parent(list).filter(|&c| self.kind(c) == "VariableDeclarationStatement")?;
+                let variables = self.kind_children(list, "VariableDeclaration");
+                if variables.len() == 1 {
+                    let initializer = self.children(variables[0]).first().copied();
+                    match initializer {
+                        Some(i) if self.kind(i) == "MethodInvocation" => {
+                            commands.push((Span { start: self.tree.nos[command].inicio, end: self.tree.nos[i].inicio }, String::new()));
                         }
-                        _ => comandos.push((self.linhas_do_no(comando), String::new())),
+                        _ => commands.push((self.node_lines(command), String::new())),
                     }
                 } else {
-                    comandos.push((self.no_em_lista(&variaveis, node), String::new()));
+                    commands.push((self.node_in_list(&variables, node), String::new()));
                 }
                 true
             }
-            "DeclaredVariablePattern" => self.excluir_padrao_declarado(node, &mut comandos),
+            "DeclaredVariablePattern" => self.exclude_declared_pattern(node, &mut commands),
             _ => false,
         };
-        if !declarado {
+        if !declared {
             return None;
         }
         // `_deleteReferences`: o elemento (na `VariableDeclaration`, só com o
         // erro no nome).
-        let (decl, nome) = match self.especie(node) {
+        let (decl, name) = match self.kind(node) {
             "VariableDeclaration" => {
-                let s = palavra(self.fonte, self.arvore.nos[node].inicio)?;
-                if erro.start < s.start || erro.start > s.end {
+                let s = word(self.source, self.tree.nos[node].inicio)?;
+                if error.start < s.start || error.start > s.end {
                     return None;
                 }
-                (s.start, self.lexema(s).to_string())
+                (s.start, self.lexeme(s).to_string())
             }
             _ => {
-                let s = self.nome_do_padrao(node)?;
-                (s.start, self.lexema(s).to_string())
+                let s = self.pattern_name(node)?;
+                (s.start, self.lexeme(s).to_string())
             }
         };
-        let corpo = self.este_ou_ancestral(node, |e| e.ends_with("FunctionBody"))?;
-        let mut apagados: Vec<Span> = Vec::new();
-        for referencia in self.referencias_locais(corpo, decl, &nome) {
-            let faixa = self.faixa_da_referencia(referencia)?;
-            let mut coberta = false;
-            for outra in &apagados {
-                if outra.start <= faixa.start && faixa.end <= outra.end {
-                    coberta = true;
+        let body = self.this_or_ancestor(node, |e| e.ends_with("FunctionBody"))?;
+        let mut deleted: Vec<Span> = Vec::new();
+        for reference in self.local_reference_offsets(body, decl, &name) {
+            let range = self.reference_range(reference)?;
+            let mut covered = false;
+            for other in &deleted {
+                if other.start <= range.start && range.end <= other.end {
+                    covered = true;
                     break;
-                } else if faixa.start < outra.end && outra.start < faixa.end {
+                } else if range.start < other.end && other.start < range.end {
                     return None;
                 }
             }
-            if coberta {
+            if covered {
                 continue;
             }
-            comandos.push((faixa, String::new()));
-            apagados.push(faixa);
+            commands.push((range, String::new()));
+            deleted.push(range);
         }
-        Some(comandos)
+        Some(commands)
     }
 
     /// A declaração de um `DeclaredVariablePattern` pelo pai (a lista,
     /// o `&&`, o campo de objeto ou de record).
-    fn excluir_padrao_declarado(&self, node: usize, comandos: &mut Vec<(Span, String)>) -> bool {
-        let Some(pai) = self.pai(node) else { return false };
-        let tipo = self.filhos(node).first().copied();
-        let s = self.arvore.span(node);
-        match self.especie(pai) {
+    fn exclude_declared_pattern(&self, node: usize, commands: &mut Vec<(Span, String)>) -> bool {
+        let Some(parent) = self.parent(node) else { return false };
+        let ty = self.children(node).first().copied();
+        let s = self.tree.span(node);
+        match self.kind(parent) {
             "ListPattern" | "MapPatternEntry" => {
-                let novo = match tipo {
-                    Some(t) => format!("{} _", self.texto_do_no(t)),
+                let new = match ty {
+                    Some(t) => format!("{} _", self.node_text(t)),
                     None => "_".to_string(),
                 };
-                comandos.push((s, novo));
+                commands.push((s, new));
                 true
             }
             "LogicalAndPattern" => {
-                let filhos = self.filhos(pai);
-                let (Some(&esq), Some(&dir)) = (filhos.first(), filhos.get(1)) else { return false };
-                if let Some(t) = tipo {
-                    comandos.push((s, format!("{} _", self.texto_do_no(t))));
-                } else if esq == node {
-                    comandos.push((Span { start: s.start, end: self.arvore.nos[dir].inicio }, String::new()));
+                let children = self.children(parent);
+                let (Some(&left), Some(&dir)) = (children.first(), children.get(1)) else { return false };
+                if let Some(t) = ty {
+                    commands.push((s, format!("{} _", self.node_text(t))));
+                } else if left == node {
+                    commands.push((Span { start: s.start, end: self.tree.nos[dir].inicio }, String::new()));
                 } else {
-                    comandos.push((Span { start: self.arvore.nos[esq].fim, end: s.end }, String::new()));
+                    commands.push((Span { start: self.tree.nos[left].fim, end: s.end }, String::new()));
                 }
                 true
             }
             "PatternField" => {
-                let campo = pai;
-                let Some(dono) = self.pai(campo) else { return false };
-                let nome_do_campo = self.filhos_da_especie(campo, "PatternFieldName").first().copied();
-                let Some(nome) = self.nome_do_padrao(node) else { return false };
+                let field = parent;
+                let Some(owner) = self.parent(field) else { return false };
+                let field_name = self.kind_children(field, "PatternFieldName").first().copied();
+                let Some(name) = self.pattern_name(node) else { return false };
                 // `:x` → `x: ` antes do padrão.
-                let explicito = |comandos: &mut Vec<(Span, String)>, n: usize| {
-                    let dois_pontos = self.arvore.nos[n].fim - 1;
-                    comandos.push((Span { start: dois_pontos, end: s.start }, format!("{}: ", self.lexema(nome))));
+                let explicit = |commands: &mut Vec<(Span, String)>, n: usize| {
+                    let colon = self.tree.nos[n].fim - 1;
+                    commands.push((Span { start: colon, end: s.start }, format!("{}: ", self.lexeme(name))));
                 };
-                let sem_nome = |n: usize| self.texto_do_no(n).trim() == ":";
-                match self.especie(dono) {
+                let unnamed = |n: usize| self.node_text(n).trim() == ":";
+                match self.kind(owner) {
                     "ObjectPattern" => {
-                        let Some(n) = nome_do_campo else { return false };
-                        let campos = self.filhos_da_especie(dono, "PatternField");
-                        if campos.len() == 1
-                            && let Some(decl) = self.pai(dono).filter(|&d| self.especie(d) == "PatternVariableDeclaration")
-                            && let Some(cmd) = self.pai(decl).filter(|&c| self.especie(c) == "PatternVariableDeclarationStatement")
+                        let Some(n) = field_name else { return false };
+                        let fields = self.kind_children(owner, "PatternField");
+                        if fields.len() == 1
+                            && let Some(decl) = self.parent(owner).filter(|&d| self.kind(d) == "PatternVariableDeclaration")
+                            && let Some(cmd) = self.parent(decl).filter(|&c| self.kind(c) == "PatternVariableDeclarationStatement")
                         {
-                            comandos.push((self.linhas_do_no(cmd), String::new()));
+                            commands.push((self.node_lines(cmd), String::new()));
                             return true;
                         }
-                        if tipo.is_some() && self.contexto_do_padrao(dono).is_some_and(|c| self.especie(c) == "GuardedPattern") {
-                            if sem_nome(n) {
-                                explicito(comandos, n);
+                        if ty.is_some() && self.pattern_context(owner).is_some_and(|c| self.kind(c) == "GuardedPattern") {
+                            if unnamed(n) {
+                                explicit(commands, n);
                             }
-                            comandos.push((nome, "_".to_string()));
+                            commands.push((name, "_".to_string()));
                             return true;
                         }
-                        comandos.push((self.no_em_lista(&campos, campo), String::new()));
+                        commands.push((self.node_in_list(&fields, field), String::new()));
                         true
                     }
                     "RecordPattern" => {
-                        if let Some(n) = nome_do_campo
-                            && sem_nome(n)
+                        if let Some(n) = field_name
+                            && unnamed(n)
                         {
-                            explicito(comandos, n);
+                            explicit(commands, n);
                         }
-                        comandos.push((nome, "_".to_string()));
+                        commands.push((name, "_".to_string()));
                         true
                     }
                     _ => false,
@@ -293,93 +293,93 @@ impl Contexto<'_> {
         }
     }
 
-    /// `findLocalElementReferences3(corpo, elemento)`: os `SimpleIdentifier`
+    /// `findLocalElementReferences3(body, element)`: os `SimpleIdentifier`
     /// do local e os `AssignedVariablePattern` dele que são elementos diretos
     /// de uma `ListPattern` ou o padrão (sem parênteses) de um campo de
     /// `RecordPattern` (o visitante não desce nesses dois padrões).
-    fn referencias_locais(&self, corpo: usize, decl: usize, nome: &str) -> Vec<usize> {
+    fn local_reference_offsets(&self, body: usize, decl: usize, name: &str) -> Vec<usize> {
         let mut v = Vec::new();
-        let mut pilha = vec![corpo];
-        let mut ordem: Vec<usize> = Vec::new();
-        while let Some(k) = pilha.pop() {
-            ordem.push(k);
-            match self.especie(k) {
+        let mut stack = vec![body];
+        let mut order: Vec<usize> = Vec::new();
+        while let Some(k) = stack.pop() {
+            order.push(k);
+            match self.kind(k) {
                 "ListPattern" => {
-                    for &f in self.filhos(k) {
-                        if self.padrao_atribuido(f) && self.texto_do_no(f) == nome && self.local_em(corpo, self.arvore.nos[f].inicio, nome, decl) {
+                    for &f in self.children(k) {
+                        if self.assigned_pattern(f) && self.node_text(f) == name && self.local_in(body, self.tree.nos[f].inicio, name, decl) {
                             v.push(f);
                         }
                     }
                     continue;
                 }
                 "RecordPattern" => {
-                    for &campo in self.filhos(k) {
-                        let Some(&padrao) = self.filhos(campo).iter().rev().find(|&&f| self.especie(f) != "PatternFieldName") else { continue };
-                        let mut interno = padrao;
-                        while self.especie(interno) == "ParenthesizedPattern" {
-                            let Some(&i) = self.filhos(interno).first() else { break };
-                            interno = i;
+                    for &field in self.children(k) {
+                        let Some(&pattern) = self.children(field).iter().rev().find(|&&f| self.kind(f) != "PatternFieldName") else { continue };
+                        let mut internal = pattern;
+                        while self.kind(internal) == "ParenthesizedPattern" {
+                            let Some(&i) = self.children(internal).first() else { break };
+                            internal = i;
                         }
-                        if self.padrao_atribuido(interno) && self.texto_do_no(interno) == nome && self.local_em(corpo, self.arvore.nos[interno].inicio, nome, decl) {
-                            v.push(padrao);
+                        if self.assigned_pattern(internal) && self.node_text(internal) == name && self.local_in(body, self.tree.nos[internal].inicio, name, decl) {
+                            v.push(pattern);
                         }
                     }
                     continue;
                 }
                 "SimpleIdentifier" => {
-                    if let Marca::Expr(x) = self.arvore.nos[k].marca
-                        && self.corpos.declaracao_local(x) == Some(decl)
+                    if let Marca::Expr(x) = self.tree.nos[k].marca
+                        && self.bodies.declaracao_local(x) == Some(decl)
                     {
                         v.push(k);
                     }
                 }
                 _ => {}
             }
-            for &f in self.filhos(k).iter().rev() {
-                pilha.push(f);
+            for &f in self.children(k).iter().rev() {
+                stack.push(f);
             }
         }
-        v.sort_by_key(|&k| self.arvore.nos[k].inicio);
+        v.sort_by_key(|&k| self.tree.nos[k].inicio);
         v
     }
 
     /// `_referenceRangeToDelete`: só o lado esquerdo de uma atribuição.
-    fn faixa_da_referencia(&self, referencia: usize) -> Option<Span> {
-        let pai = self.pai(referencia)?;
-        if self.especie(pai) != "AssignmentExpression" || self.filhos(pai).first() != Some(&referencia) {
+    fn reference_range(&self, reference: usize) -> Option<Span> {
+        let parent = self.parent(reference)?;
+        if self.kind(parent) != "AssignmentExpression" || self.children(parent).first() != Some(&reference) {
             return None;
         }
-        let avo = self.pai(pai)?;
-        if self.especie(avo) == "ArgumentList" {
-            let operador = self.token_seguinte(self.arvore.nos[referencia].fim)?;
-            let depois = self.token_seguinte(operador.end)?;
-            return Some(Span { start: self.arvore.nos[pai].inicio, end: depois.start });
+        let grandparent = self.parent(parent)?;
+        if self.kind(grandparent) == "ArgumentList" {
+            let operator = self.next_token(self.tree.nos[reference].fim)?;
+            let after = self.next_token(operator.end)?;
+            return Some(Span { start: self.tree.nos[parent].inicio, end: after.start });
         }
-        Some(self.linhas_do_no(avo))
+        Some(self.node_lines(grandparent))
     }
 
     // -- RemoveUnusedElement / RemoveUnusedField --------------------------------
 
     /// O `declaredElement` dos nós que o `RemoveUnusedElement` aceita.
-    fn declarado(&self, n: usize) -> Option<Declarado> {
-        let p = self.p.programa();
-        match (self.especie(n), self.arvore.nos[n].marca) {
-            ("ClassDeclaration" | "EnumDeclaration", Marca::Decl(d)) => self.classe_da_declaracao(self.unidade, d).map(Declarado::Classe),
+    fn declared(&self, n: usize) -> Option<Declared> {
+        let p = self.p.program();
+        match (self.kind(n), self.tree.nos[n].marca) {
+            ("ClassDeclaration" | "EnumDeclaration", Marca::Decl(d)) => self.declaration_class(self.unit, d).map(Declared::Class),
             ("FunctionTypeAlias", Marca::Decl(d)) => (0..p.typedefs.len())
                 .map(|i| TypedefId(i as u32))
-                .find(|&t| p.typedef(t).decl.unit == self.unidade && p.typedef(t).decl.decl == d)
-                .map(Declarado::Typedef),
+                .find(|&t| p.typedef(t).decl.unit == self.unit && p.typedef(t).decl.decl == d)
+                .map(Declared::Typedef),
             ("FunctionDeclaration", Marca::Funcao(fid)) => {
-                if self.pai(n).is_some_and(|x| self.especie(x) == "FunctionDeclarationStatement") {
-                    self.ast.function(fid).name.map(|nm| Declarado::FuncaoLocal(nm.span.start))
+                if self.parent(n).is_some_and(|x| self.kind(x) == "FunctionDeclarationStatement") {
+                    self.ast.function(fid).name.map(|nm| Declared::LocalFunction(nm.span.start))
                 } else {
-                    self.p.funcao_do_no(self.unidade, fid).map(Declarado::Funcao)
+                    self.p.node_function(self.unit, fid).map(Declared::Function)
                 }
             }
-            ("MethodDeclaration", Marca::Funcao(fid)) => self.p.funcao_do_no(self.unidade, fid).map(Declarado::Funcao),
+            ("MethodDeclaration", Marca::Funcao(fid)) => self.p.node_function(self.unit, fid).map(Declared::Function),
             ("VariableDeclaration", _) => {
-                let s = palavra(self.fonte, self.arvore.nos[n].inicio)?;
-                crate::document_highlight::variavel_declarada_em(self.p, self.unidade, s.start).map(Declarado::Variavel)
+                let s = word(self.source, self.tree.nos[n].inicio)?;
+                crate::document_highlight::variable_declared_in(self.p, self.unit, s.start).map(Declared::Variable)
             }
             _ => None,
         }
@@ -387,19 +387,19 @@ impl Contexto<'_> {
 
     /// A resolução casa com o elemento (o `writeOrReadElement`, o acessor
     /// da variável).
-    fn resolve_para(&self, r: &Resolved, alvo: Declarado) -> bool {
-        let p = self.p.programa();
-        let funcao = |f: FunctionElementId| match alvo {
-            Declarado::Funcao(g) => f == g,
-            Declarado::Variavel(v) => p.function(f).variable == Some(v),
+    fn resolve_to(&self, r: &Resolved, target: Declared) -> bool {
+        let p = self.p.program();
+        let function = |f: FunctionElementId| match target {
+            Declared::Function(g) => f == g,
+            Declared::Variable(v) => p.function(f).variable == Some(v),
             _ => false,
         };
         match r {
-            Resolved::Element(Element::Class(c)) => alvo == Declarado::Classe(*c),
-            Resolved::Element(Element::Typedef(t)) => alvo == Declarado::Typedef(*t),
-            Resolved::Element(Element::Function(f)) => funcao(*f),
-            Resolved::Element(Element::Variable(v)) | Resolved::Member { member: MemberRef::Variable(v), .. } => alvo == Declarado::Variavel(*v),
-            Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => funcao(*f),
+            Resolved::Element(Element::Class(c)) => target == Declared::Class(*c),
+            Resolved::Element(Element::Typedef(t)) => target == Declared::Typedef(*t),
+            Resolved::Element(Element::Function(f)) => function(*f),
+            Resolved::Element(Element::Variable(v)) | Resolved::Member { member: MemberRef::Variable(v), .. } => target == Declared::Variable(*v),
+            Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => function(*f),
             _ => false,
         }
     }
@@ -409,42 +409,42 @@ impl Contexto<'_> {
     /// campo em inicializadores, o `returnType` dos construtores da
     /// classe, anotações, referências de documentação), dos `NamedType` e
     /// dos `this.x` do campo.
-    fn referencias_do_declarado(&self, alvo: Declarado) -> Vec<Span> {
-        let p = self.p.programa();
-        let u = p.unit(self.unidade);
+    fn declared_references(&self, target_: Declared) -> Vec<Span> {
+        let p = self.p.program();
+        let u = p.unit(self.unit);
         let ast = self.ast;
         let mut v: Vec<Span> = Vec::new();
         for (i, e) in ast.exprs.iter().enumerate() {
             let id = ast::ExprId(i as u32);
-            let nome = match &e.kind {
+            let name_ = match &e.kind {
                 ExprKind::Identifier(n) => n.span,
                 ExprKind::Property { name, .. } => name.span,
                 _ => continue,
             };
-            let por_local = matches!(alvo, Declarado::FuncaoLocal(d) if self.corpos.declaracao_local(id) == Some(d));
-            let resolvido = self.corpos.get_resolved(id).is_some_and(|r| self.resolve_para(r, alvo));
+            let by_local = matches!(target_, Declared::LocalFunction(d) if self.bodies.declaracao_local(id) == Some(d));
+            let resolved = self.bodies.get_resolved(id).is_some_and(|r| self.resolve_to(r, target_));
             // A chamada `o.m()`/`m()` guarda a resolução na chamada.
-            let pela_chamada = ast.exprs.iter().enumerate().any(|(j, c)| match &c.kind {
-                ExprKind::Call { target, .. } if *target == id => self.corpos.get_resolved(ast::ExprId(j as u32)).is_some_and(|r| match r {
-                    Resolved::Constructor(f) => matches!(alvo, Declarado::Classe(c) if p.function(*f).class == Some(c)) && matches!(e.kind, ExprKind::Identifier(_)),
-                    outro => self.resolve_para(outro, alvo),
+            let by_call = ast.exprs.iter().enumerate().any(|(j, c)| match &c.kind {
+                ExprKind::Call { target, .. } if *target == id => self.bodies.get_resolved(ast::ExprId(j as u32)).is_some_and(|r| match r {
+                    Resolved::Constructor(f) => matches!(target_, Declared::Class(c) if p.function(*f).class == Some(c)) && matches!(e.kind, ExprKind::Identifier(_)),
+                    other => self.resolve_to(other, target_),
                 }),
                 _ => false,
             });
-            if por_local || resolvido || pela_chamada {
-                v.push(nome);
+            if by_local || resolved || by_call {
+                v.push(name_);
             }
         }
-        let tipo = match alvo {
-            Declarado::Classe(c) => Some(Element::Class(c)),
-            Declarado::Typedef(t) => Some(Element::Typedef(t)),
+        let ty = match target_ {
+            Declared::Class(c) => Some(Element::Class(c)),
+            Declared::Typedef(t) => Some(Element::Typedef(t)),
             _ => None,
         };
-        if let Some(el) = tipo {
+        if let Some(el) = ty {
             for t in &ast.types {
                 let ast::TypeKind::Named { name, .. } = &t.kind else { continue };
                 let (b, n) = match &name[..] {
-                    [n] if crate::project::declaracao_de_parametro_de_tipo(ast, n.span.start, n.sym).is_none() => (p.lookup(u.library, n.sym), *n),
+                    [n] if crate::project::type_parameter_declaration(ast, n.span.start, n.sym).is_none() => (p.lookup(u.library, n.sym), *n),
                     [pr, n] => (p.lookup_prefixed(u.library, pr.sym, n.sym), *n),
                     _ => continue,
                 };
@@ -453,32 +453,32 @@ impl Contexto<'_> {
                 }
             }
         }
-        if let Declarado::Classe(c) = alvo {
+        if let Declared::Class(c) = target_ {
             for (mi, m) in ast.members.iter().enumerate() {
                 if let MemberKind::Constructor(k) = &m.kind
-                    && self.p.construtor_do_no(self.unidade, ast::MemberId(mi as u32)).and_then(|f| p.function(f).class) == Some(c)
+                    && self.p.node_constructor(self.unit, ast::MemberId(mi as u32)).and_then(|f| p.function(f).class) == Some(c)
                 {
                     v.push(k.class_name.span);
                 }
             }
         }
-        if let Declarado::Variavel(campo) = alvo
-            && let Some(classe) = p.variable(campo).class
+        if let Declared::Variable(field) = target_
+            && let Some(class) = p.variable(field).class
         {
-            let nome = p.variable(campo).name;
+            let name_ = p.variable(field).name;
             for (mi, m) in ast.members.iter().enumerate() {
                 let MemberKind::Constructor(k) = &m.kind else { continue };
-                if self.p.construtor_do_no(self.unidade, ast::MemberId(mi as u32)).and_then(|f| p.function(f).class) != Some(classe) {
+                if self.p.node_constructor(self.unit, ast::MemberId(mi as u32)).and_then(|f| p.function(f).class) != Some(class) {
                     continue;
                 }
                 for q in k.parameters.iter() {
-                    if q.this_ && q.name.is_some_and(|n| n.sym == nome) {
+                    if q.this_ && q.name.is_some_and(|n| n.sym == name_) {
                         v.push(q.span);
                     }
                 }
-                for ini in k.initializers.iter() {
-                    if let ast::Initializer::Field { name, .. } = ini
-                        && name.sym == nome
+                for start in k.initializers.iter() {
+                    if let ast::Initializer::Field { name, .. } = start
+                        && name.sym == name_
                     {
                         v.push(name.span);
                     }
@@ -486,7 +486,7 @@ impl Contexto<'_> {
             }
         }
         // Anotações: o nome resolve para a classe ou para o acessor.
-        for a in crate::project::metadados(ast, &u.unit) {
+        for a in crate::project::metadata(ast, &u.unit) {
             let b = match &a.name[..] {
                 [n, ..] if p.lookup(u.library, n.sym).is_some() => p.lookup(u.library, n.sym).map(|b| (b, n.span)),
                 [pr, n, ..] => p.lookup_prefixed(u.library, pr.sym, n.sym).map(|b| (b, n.span)),
@@ -494,24 +494,24 @@ impl Contexto<'_> {
             };
             if let Some((b, s)) = b
                 && let Some(g) = b.getter
-                && self.resolve_para(&Resolved::Element(g), alvo)
+                && self.resolve_to(&Resolved::Element(g), target_)
             {
                 v.push(s);
             }
         }
         // `[x]` em documentação.
-        for c in crate::dartdoc::comentarios(self.fonte) {
-            for r in &c.referencias {
+        for c in crate::dartdoc::comments(self.source) {
+            for r in &c.references {
                 for i in 0..r.len() {
-                    let Some((a, concreto)) = self.p.resolver_referencia_doc(self.unidade, c.span, &r[..=i]) else { continue };
-                    let casa = match (alvo, &a, concreto) {
-                        (_, Alvo::Topo(el), _) => self.resolve_para(&Resolved::Element(*el), alvo),
-                        (_, _, Some(Concreto::Funcao(f))) => self.resolve_para(&Resolved::Element(Element::Function(f)), alvo),
-                        (Declarado::Variavel(v0), _, Some(Concreto::Variavel(v1))) => v0 == v1,
-                        (Declarado::FuncaoLocal(d), Alvo::Local { unidade, declaracao }, _) => *unidade == self.unidade && *declaracao == d,
+                    let Some((a, concrete)) = self.p.resolve_doc_reference(self.unit, c.span, &r[..=i]) else { continue };
+                    let matches_ = match (target_, &a, concrete) {
+                        (_, Target::Top(el), _) => self.resolve_to(&Resolved::Element(*el), target_),
+                        (_, _, Some(Concrete::Function(f))) => self.resolve_to(&Resolved::Element(Element::Function(f)), target_),
+                        (Declared::Variable(v0), _, Some(Concrete::Variable(v1))) => v0 == v1,
+                        (Declared::LocalFunction(d), Target::Local { unit, declaration }, _) => *unit == self.unit && *declaration == d,
                         _ => false,
                     };
-                    if casa {
+                    if matches_ {
                         v.push(r[i].0);
                     }
                 }
@@ -523,102 +523,102 @@ impl Contexto<'_> {
     }
 
     /// `RemoveUnusedElement.compute`: as deleções, ou `None` sem fix.
-    pub(crate) fn remover_elemento(&self, erro: Span) -> Option<Vec<Span>> {
-        let node = self.arvore.localizar(erro.start, erro.end)?;
-        let especie = self.especie(node);
-        if especie == "ConstructorDeclaration" {
-            let dono = self.pai(node)?;
-            if !matches!(self.especie(dono), "ClassDeclaration" | "EnumDeclaration") {
+    pub(crate) fn remove_element(&self, error: Span) -> Option<Vec<Span>> {
+        let node = self.tree.localizar(error.start, error.end)?;
+        let kind = self.kind(node);
+        if kind == "ConstructorDeclaration" {
+            let owner = self.parent(node)?;
+            if !matches!(self.kind(owner), "ClassDeclaration" | "EnumDeclaration") {
                 return None;
             }
-            let membros: Vec<usize> = self
-                .filhos(dono)
+            let members: Vec<usize> = self
+                .children(owner)
                 .iter()
                 .copied()
-                .filter(|&f| matches!(self.especie(f), "ConstructorDeclaration" | "MethodDeclaration" | "FieldDeclaration"))
+                .filter(|&f| matches!(self.kind(f), "ConstructorDeclaration" | "MethodDeclaration" | "FieldDeclaration"))
                 .collect();
-            return Some(vec![self.no_em_lista(&membros, node)]);
+            return Some(vec![self.node_in_list(&members, node)]);
         }
-        if !matches!(especie, "ClassDeclaration" | "EnumDeclaration" | "FunctionDeclaration" | "FunctionTypeAlias" | "MethodDeclaration" | "VariableDeclaration") {
+        if !matches!(kind, "ClassDeclaration" | "EnumDeclaration" | "FunctionDeclaration" | "FunctionTypeAlias" | "MethodDeclaration" | "VariableDeclaration") {
             return None;
         }
-        let alvo = self.declarado(node)?;
-        if !self.referencias_do_declarado(alvo).is_empty() {
+        let target = self.declared(node)?;
+        if !self.declared_references(target).is_empty() {
             return None;
         }
-        let pai = self.pai(node);
-        let avo = pai.and_then(|x| self.pai(x));
-        let faixa = match (especie, pai, avo) {
-            ("VariableDeclaration", Some(lista), Some(avo)) if self.especie(lista) == "VariableDeclarationList" => {
-                let variaveis = self.filhos_da_especie(lista, "VariableDeclaration");
-                if variaveis.len() == 1 { self.linhas_do_no(avo) } else { self.no_em_lista(&variaveis, node) }
+        let parent = self.parent(node);
+        let grandparent = parent.and_then(|x| self.parent(x));
+        let range = match (kind, parent, grandparent) {
+            ("VariableDeclaration", Some(list), Some(grandparent)) if self.kind(list) == "VariableDeclarationList" => {
+                let variables = self.kind_children(list, "VariableDeclaration");
+                if variables.len() == 1 { self.node_lines(grandparent) } else { self.node_in_list(&variables, node) }
             }
-            _ => self.linhas_do_no(node),
+            _ => self.node_lines(node),
         };
-        Some(vec![faixa])
+        Some(vec![range])
     }
 
     /// `RemoveUnusedField.compute`: as deleções, ou `None` sem fix.
-    pub(crate) fn remover_campo(&self, erro: Span) -> Option<Vec<Span>> {
-        let node = self.arvore.localizar(erro.start, erro.end)?;
-        if self.especie(node) != "VariableDeclaration" {
+    pub(crate) fn remove_field(&self, error: Span) -> Option<Vec<Span>> {
+        let node = self.tree.localizar(error.start, error.end)?;
+        if self.kind(node) != "VariableDeclaration" {
             return None;
         }
-        let Declarado::Variavel(campo) = self.declarado(node)? else { return None };
-        if self.p.programa().variable(campo).class.is_none() {
+        let Declared::Variable(field) = self.declared(node)? else { return None };
+        if self.p.program().variable(field).class.is_none() {
             return None;
         }
-        let mut referencias = vec![node];
-        for s in self.referencias_do_declarado(Declarado::Variavel(campo)) {
-            referencias.push(self.arvore.localizar(s.start, s.end)?);
+        let mut references = vec![node];
+        for s in self.declared_references(Declared::Variable(field)) {
+            references.push(self.tree.localizar(s.start, s.end)?);
         }
-        let mut faixas: Vec<Span> = Vec::new();
-        for r in referencias {
-            let no = self.este_ou_ancestral(r, |e| matches!(e, "VariableDeclaration" | "ExpressionStatement" | "ConstructorFieldInitializer" | "FieldFormalParameter"))?;
-            let pai = self.pai(no);
-            let avo = pai.and_then(|x| self.pai(x));
-            let faixa = match self.especie(no) {
-                "VariableDeclaration" if pai.is_some_and(|l| self.especie(l) == "VariableDeclarationList") && avo.is_some() => {
-                    let variaveis = self.filhos_da_especie(pai?, "VariableDeclaration");
-                    if variaveis.len() == 1 { self.linhas_do_no(avo?) } else { self.no_em_lista(&variaveis, no) }
+        let mut ranges: Vec<Span> = Vec::new();
+        for r in references {
+            let no = self.this_or_ancestor(r, |e| matches!(e, "VariableDeclaration" | "ExpressionStatement" | "ConstructorFieldInitializer" | "FieldFormalParameter"))?;
+            let parent = self.parent(no);
+            let grandparent = parent.and_then(|x| self.parent(x));
+            let range = match self.kind(no) {
+                "VariableDeclaration" if parent.is_some_and(|l| self.kind(l) == "VariableDeclarationList") && grandparent.is_some() => {
+                    let variables = self.kind_children(parent?, "VariableDeclaration");
+                    if variables.len() == 1 { self.node_lines(grandparent?) } else { self.node_in_list(&variables, no) }
                 }
                 "ConstructorFieldInitializer" => {
-                    let construtor = pai?;
-                    let inicializadores: Vec<usize> = self
-                        .filhos(construtor)
+                    let constructor = parent?;
+                    let initializers: Vec<usize> = self
+                        .children(constructor)
                         .iter()
                         .copied()
-                        .filter(|&f| matches!(self.especie(f), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
+                        .filter(|&f| matches!(self.kind(f), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
                         .collect();
-                    if inicializadores.len() == 1 {
-                        let parametros = self.filhos_da_especie(construtor, "FormalParameterList").first().copied()?;
-                        Span { start: self.arvore.nos[parametros].fim, end: self.arvore.nos[no].fim }
+                    if initializers.len() == 1 {
+                        let parameters = self.kind_children(constructor, "FormalParameterList").first().copied()?;
+                        Span { start: self.tree.nos[parameters].fim, end: self.tree.nos[no].fim }
                     } else {
-                        self.no_em_lista(&inicializadores, no)
+                        self.node_in_list(&initializers, no)
                     }
                 }
-                "FieldFormalParameter" => self.faixa_de_parametro_de_campo(no)?,
-                _ => self.linhas_do_no(no),
+                "FieldFormalParameter" => self.field_parameter_range(no)?,
+                _ => self.node_lines(no),
             };
-            faixas.push(faixa);
+            ranges.push(range);
         }
         // `_uniqueSourceRanges`: sai a faixa coberta por outra (outra
         // entrada da lista, mesmo que igual).
-        let unicas: Vec<Span> = faixas
+        let unique: Vec<Span> = ranges
             .iter()
             .enumerate()
-            .filter(|(i, c)| !faixas.iter().enumerate().any(|(j, o)| j != *i && o.start <= c.start && c.end <= o.end))
+            .filter(|(i, c)| !ranges.iter().enumerate().any(|(j, o)| j != *i && o.start <= c.start && c.end <= o.end))
             .map(|(_, c)| *c)
             .collect();
         // Sobreposição parcial: `ConflictingEditException`.
-        for (i, a) in unicas.iter().enumerate() {
-            for b in &unicas[i + 1..] {
+        for (i, a) in unique.iter().enumerate() {
+            for b in &unique[i + 1..] {
                 if a.start < b.end && b.start < a.end {
                     return None;
                 }
             }
         }
-        Some(unicas)
+        Some(unique)
     }
 
     // -- AddAsync ------------------------------------------------------------------
@@ -630,102 +630,102 @@ impl Contexto<'_> {
     /// retorno escrito da função ou método envolvente (a closure não tem)
     /// vira `Future<flatten(T)>`, salvo `dynamic` e `Future`. As edições e as
     /// bibliotecas a importar.
-    pub(crate) fn adicionar_async(&self, erro: Span) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
+    pub(crate) fn add_async(&self, error: Span) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
         use dartforge_types::Type;
-        let node = self.arvore.localizar(erro.start, erro.end)?;
-        let corpo = self.este_ou_ancestral(node, |e| e.ends_with("FunctionBody"))?;
-        let texto = self.texto_do_no(corpo);
-        let palavra_chave = |k: &str| texto.strip_prefix(k).is_some_and(|r| !r.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$'));
-        if palavra_chave("async") || palavra_chave("sync") {
+        let node = self.tree.localizar(error.start, error.end)?;
+        let body = self.this_or_ancestor(node, |e| e.ends_with("FunctionBody"))?;
+        let text = self.node_text(body);
+        let keyword_ = |k: &str| text.strip_prefix(k).is_some_and(|r| !r.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$'));
+        if keyword_("async") || keyword_("sync") {
             return None;
         }
-        let mut edicoes = Vec::new();
-        let ini = self.arvore.nos[corpo].inicio;
-        if self.especie(corpo) != "EmptyFunctionBody" {
-            let colado = self.token_anterior(ini).is_some_and(|t| t.end == ini);
-            edicoes.push((Span { start: ini, end: ini }, format!("{}async ", if colado { " " } else { "" })));
+        let mut edits = Vec::new();
+        let start = self.tree.nos[body].inicio;
+        if self.kind(body) != "EmptyFunctionBody" {
+            let attached = self.previous_token(start).is_some_and(|t| t.end == start);
+            edits.push((Span { start: start, end: start }, format!("{}async ", if attached { " " } else { "" })));
         }
-        let mut escritor = crate::write_type::Escritor::novo(self, ini);
+        let mut writer = crate::write_type::Writer::new(self, start);
         // `_replaceReturnTypeWithFuture`.
-        let mut atual = self.pai(corpo);
-        while let Some(k) = atual {
-            match self.especie(k) {
+        let mut current = self.parent(body);
+        while let Some(k) = current {
+            match self.kind(k) {
                 "FunctionDeclaration" | "MethodDeclaration" => {
-                    let anotacao = self
-                        .filhos(k)
+                    let annotation = self
+                        .children(k)
                         .iter()
                         .copied()
-                        .find(|&f| matches!(self.especie(f), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"));
-                    let Some(anotacao) = anotacao else { break };
-                    let elemento = self.elemento_declarado(k);
-                    let tabela = &self.p.consulta.tabela;
-                    let tipo = match elemento {
-                        crate::refactorings::Elem::Funcao(f) => self.p.consulta.outline.functions.get(f.0 as usize).map(|d| d.return_type),
-                        crate::refactorings::Elem::FuncaoLocal(fid) => self.ast.function(fid).name.and_then(|n| match self.corpos.tipo_local(n.span.start).map(|t| tabela.get(t)) {
+                        .find(|&f| matches!(self.kind(f), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"));
+                    let Some(annotation) = annotation else { break };
+                    let element = self.declared_element(k);
+                    let table = &self.p.query.table;
+                    let ty = match element {
+                        crate::refactorings::Elem::Function(f) => self.p.query.outline.functions.get(f.0 as usize).map(|d| d.return_type),
+                        crate::refactorings::Elem::LocalFunction(fid) => self.ast.function(fid).name.and_then(|n| match self.bodies.tipo_local(n.span.start).map(|t| table.get(t)) {
                             Some(Type::Function { ret, .. }) => Some(*ret),
                             _ => None,
                         }),
                         _ => None,
                     };
-                    let Some(tipo) = tipo else { break };
-                    let futuro = self.p.consulta.core.future_class;
-                    let (achatado, anulavel) = match tabela.get(tipo) {
+                    let Some(ty) = ty else { break };
+                    let future = self.p.query.core.future_class;
+                    let (flattened, nullable_) = match table.get(ty) {
                         Type::Dynamic => break,
-                        Type::Interface { class, .. } if Some(*class) == futuro => break,
+                        Type::Interface { class, .. } if Some(*class) == future => break,
                         Type::FutureOr { arg, nullable } => (*arg, *nullable),
-                        _ => (tipo, false),
+                        _ => (ty, false),
                     };
-                    let texto_novo = escritor.escrever_future(achatado, anulavel).unwrap_or_else(|| "void".to_string());
-                    edicoes.push((self.arvore.span(anotacao), texto_novo));
+                    let new_text = writer.write_future(flattened, nullable_).unwrap_or_else(|| "void".to_string());
+                    edits.push((self.tree.span(annotation), new_text));
                     break;
                 }
-                "FunctionExpression" if self.pai(k).is_none_or(|x| self.especie(x) != "FunctionDeclaration") => break,
+                "FunctionExpression" if self.parent(k).is_none_or(|x| self.kind(x) != "FunctionDeclaration") => break,
                 _ => {}
             }
-            atual = self.pai(k);
+            current = self.parent(k);
         }
-        Some((edicoes, escritor.importar))
+        Some((edits, writer.import))
     }
 
     // -- ReplaceWithNotNullAware, ChangeToStaticAccess, RemoveAssertion ----------
 
     /// `ReplaceWithNotNullAware.compute` no `coveringNode`: o intervalo, o
     /// texto novo e o `{0}` do título.
-    pub(crate) fn trocar_operador_null_aware(&self, n: usize) -> Option<(Span, String, &'static str)> {
-        let s = self.arvore.span(n);
+    pub(crate) fn swap_null_aware_operator(&self, n: usize) -> Option<(Span, String, &'static str)> {
+        let s = self.tree.span(n);
         // O operador: o primeiro token da seção de cascata, ou o token
         // depois do alvo.
-        let operador_depois_do_alvo = |n: usize| -> Option<Span> {
-            let primeiro = self.token_seguinte(s.start)?;
-            if matches!(self.lexema(primeiro), "?.." | ".." | "?." | ".") && primeiro.start == s.start {
-                return Some(primeiro);
+        let operator_after_target = |n: usize| -> Option<Span> {
+            let first = self.next_token(s.start)?;
+            if matches!(self.lexeme(first), "?.." | ".." | "?." | ".") && first.start == s.start {
+                return Some(first);
             }
-            let alvo = *self.filhos(n).first()?;
-            self.token_seguinte(self.arvore.nos[alvo].fim)
+            let target = *self.children(n).first()?;
+            self.next_token(self.tree.nos[target].fim)
         };
-        match self.especie(n) {
+        match self.kind(n) {
             "MethodInvocation" | "PropertyAccess" => {
-                let op = operador_depois_do_alvo(n)?;
-                if !matches!(self.lexema(op), "?." | "?.." | "." | "..") {
+                let op = operator_after_target(n)?;
+                if !matches!(self.lexeme(op), "?." | "?.." | "." | "..") {
                     return None;
                 }
-                let novo = if self.lexema(op) == "?." { "." } else { ".." };
-                Some((op, novo.to_string(), novo))
+                let new = if self.lexeme(op) == "?." { "." } else { ".." };
+                Some((op, new.to_string(), new))
             }
             "IndexExpression" => {
-                let primeiro = self.token_seguinte(s.start)?;
-                if primeiro.start == s.start && matches!(self.lexema(primeiro), "?.." | "..") {
-                    return Some((primeiro, "..".to_string(), ".."));
+                let first = self.next_token(s.start)?;
+                if first.start == s.start && matches!(self.lexeme(first), "?.." | "..") {
+                    return Some((first, "..".to_string(), ".."));
                 }
-                let alvo = *self.filhos(n).first()?;
-                let q = self.token_seguinte(self.arvore.nos[alvo].fim)?;
-                if self.lexema(q) == "?" {
+                let target = *self.children(n).first()?;
+                let q = self.next_token(self.tree.nos[target].fim)?;
+                if self.lexeme(q) == "?" {
                     return Some((q, String::new(), "["));
                 }
                 None
             }
             "SpreadElement" => {
-                let op = self.token_seguinte(s.start)?;
+                let op = self.next_token(s.start)?;
                 Some((op, "...".to_string(), "..."))
             }
             _ => None,
@@ -735,109 +735,109 @@ impl Contexto<'_> {
     /// `ChangeToStaticAccess.compute`: o nome da classe ou extensão (`{0}`),
     /// o intervalo do alvo, o `writeReference` dela e as bibliotecas a
     /// importar.
-    pub(crate) fn acesso_estatico(&self, erro: Span) -> Option<(String, Span, String, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
+    pub(crate) fn static_access(&self, error: Span) -> Option<(String, Span, String, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
         use dartforge_elements::model::Element;
-        let node = self.arvore.localizar(erro.start, erro.end)?;
-        if self.especie(node) != "SimpleIdentifier" {
+        let node = self.tree.localizar(error.start, error.end)?;
+        if self.kind(node) != "SimpleIdentifier" {
             return None;
         }
-        let pai = self.pai(node)?;
-        let alvo = match self.especie(pai) {
-            "MethodInvocation" if self.nome_do_metodo(pai) == Some(node) => {
-                let f = self.filhos(pai);
-                let primeiro = *f.first()?;
-                (primeiro != node).then_some(primeiro)?
+        let parent = self.parent(node)?;
+        let target = match self.kind(parent) {
+            "MethodInvocation" if self.method_name(parent) == Some(node) => {
+                let f = self.children(parent);
+                let first = *f.first()?;
+                (first != node).then_some(first)?
             }
-            "PrefixedIdentifier" if self.filhos(pai).get(1) == Some(&node) => *self.filhos(pai).first()?,
+            "PrefixedIdentifier" if self.children(parent).get(1) == Some(&node) => *self.children(parent).first()?,
             _ => return None,
         };
-        let f = match self.elemento_do_identificador(node, true) {
-            crate::refactorings::Elem::Funcao(f) => f,
-            crate::refactorings::Elem::Variavel => {
-                let Marca::Expr(x) = self.arvore.nos[node].marca else { return None };
-                match self.corpos.get_resolved(x)? {
-                    Resolved::Member { member: MemberRef::Variable(v), .. } => self.p.programa().variable(*v).getter?,
+        let f = match self.identifier_element(node, true) {
+            crate::refactorings::Elem::Function(f) => f,
+            crate::refactorings::Elem::Variable => {
+                let Marca::Expr(x) = self.tree.nos[node].marca else { return None };
+                match self.bodies.get_resolved(x)? {
+                    Resolved::Member { member: MemberRef::Variable(v), .. } => self.p.program().variable(*v).getter?,
                     Resolved::Member { member: MemberRef::Function(f), .. } => *f,
                     _ => return None,
                 }
             }
             _ => return None,
         };
-        let prog = self.p.programa();
+        let prog = self.p.program();
         let fe = prog.function(f);
-        let mut escritor = crate::write_type::Escritor::novo(self, self.arvore.nos[alvo].inicio);
-        let (nome, referencia) = if let Some(c) = fe.class {
-            let nome = self.p.nome(prog.class(c).name).to_string();
-            (nome.clone(), escritor.referencia_de(Element::Class(c), &nome))
+        let mut writer = crate::write_type::Writer::new(self, self.tree.nos[target].inicio);
+        let (name, reference) = if let Some(c) = fe.class {
+            let name = self.p.name(prog.class(c).name).to_string();
+            (name.clone(), writer.reference_of(Element::Class(c), &name))
         } else if let Some(x) = fe.extension {
-            let nome = self.p.nome(prog.extension(x).name?).to_string();
-            (nome.clone(), escritor.referencia_de(Element::Extension(x), &nome))
+            let name = self.p.name(prog.extension(x).name?).to_string();
+            (name.clone(), writer.reference_of(Element::Extension(x), &name))
         } else {
             return None;
         };
-        Some((nome, self.arvore.span(alvo), referencia, escritor.importar))
+        Some((name, self.tree.span(target), reference, writer.import))
     }
 
     /// `RemoveAssertion`: o `AssertInitializer` filho de construtor sai
     /// por `nodeInList`.
-    pub(crate) fn remover_assercao(&self, erro: Span) -> Option<Span> {
-        let node = self.arvore.localizar(erro.start, erro.end)?;
-        let pai = self.pai(node)?;
-        if self.especie(pai) != "ConstructorDeclaration" {
+    pub(crate) fn remove_assertion(&self, error: Span) -> Option<Span> {
+        let node = self.tree.localizar(error.start, error.end)?;
+        let parent = self.parent(node)?;
+        if self.kind(parent) != "ConstructorDeclaration" {
             return None;
         }
-        let inicializadores: Vec<usize> = self
-            .filhos(pai)
+        let initializers: Vec<usize> = self
+            .children(parent)
             .iter()
             .copied()
-            .filter(|&f| matches!(self.especie(f), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
+            .filter(|&f| matches!(self.kind(f), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
             .collect();
-        if !inicializadores.contains(&node) {
+        if !initializers.contains(&node) {
             return None;
         }
-        Some(self.no_em_lista(&inicializadores, node))
+        Some(self.node_in_list(&initializers, node))
     }
 
     /// `MakeFinal` (`make_final.dart:84-97`) na lista do `node`
     /// (`_getVariableDeclarationList`) com uma variável: `var` → `final`;
     /// `late` → ` final` depois dele; sem palavra-chave → `final ` no começo
     /// da lista.
-    pub(crate) fn tornar_final(&self, erro: Span) -> Option<(Span, String)> {
-        let node = self.arvore.localizar(erro.start, erro.end)?;
-        let pai = self.pai(node);
-        let lista = match self.especie(node) {
+    pub(crate) fn make_final(&self, error: Span) -> Option<(Span, String)> {
+        let node = self.tree.localizar(error.start, error.end)?;
+        let parent = self.parent(node);
+        let list = match self.kind(node) {
             "VariableDeclarationList" => node,
-            "VariableDeclaration" | "NamedType" if pai.is_some_and(|x| self.especie(x) == "VariableDeclarationList") => pai?,
+            "VariableDeclaration" | "NamedType" if parent.is_some_and(|x| self.kind(x) == "VariableDeclarationList") => parent?,
             _ => {
-                let avo = pai.and_then(|x| self.pai(x))?;
-                if pai.is_some_and(|x| self.especie(x) == "NamedType") && self.especie(avo) == "VariableDeclarationList" {
-                    avo
+                let grandparent = parent.and_then(|x| self.parent(x))?;
+                if parent.is_some_and(|x| self.kind(x) == "NamedType") && self.kind(grandparent) == "VariableDeclarationList" {
+                    grandparent
                 } else {
                     return None;
                 }
             }
         };
-        if self.filhos_da_especie(lista, "VariableDeclaration").len() != 1 {
+        if self.kind_children(list, "VariableDeclaration").len() != 1 {
             return None;
         }
-        let s = self.arvore.span(lista);
+        let s = self.tree.span(list);
         // As palavras-chave do começo da lista (`late`, `var`/`final`/`const`).
         let mut late = None;
-        let mut palavra = None;
+        let mut word = None;
         let mut pos = s.start;
-        while let Some(t) = self.token_seguinte(pos) {
+        while let Some(t) = self.next_token(pos) {
             if t.start >= s.end {
                 break;
             }
-            match self.lexema(t) {
+            match self.lexeme(t) {
                 "late" => late = Some(t),
-                "var" | "final" | "const" => palavra = Some(t),
+                "var" | "final" | "const" => word = Some(t),
                 _ => break,
             }
             pos = t.end;
         }
-        match (palavra, late) {
-            (Some(k), _) if self.lexema(k) == "var" => Some((k, "final".to_string())),
+        match (word, late) {
+            (Some(k), _) if self.lexeme(k) == "var" => Some((k, "final".to_string())),
             (_, Some(l)) => Some((Span { start: l.end, end: l.end }, " final".to_string())),
             (None, None) => Some((Span { start: s.start, end: s.start }, "final ".to_string())),
             _ => None,
@@ -847,12 +847,12 @@ impl Contexto<'_> {
     // -- Comentários e intervalos com comentários ------------------------------
 
     /// A linha (0-based) do offset.
-    fn linha(&self, o: usize) -> usize {
-        let b = self.fonte.as_bytes();
-        let fim = o.min(b.len());
+    fn line(&self, o: usize) -> usize {
+        let b = self.source.as_bytes();
+        let end = o.min(b.len());
         let mut n = 0;
         let mut i = 0;
-        while i < fim {
+        while i < end {
             match b[i] {
                 b'\r' if b.get(i + 1) == Some(&b'\n') => {
                     n += 1;
@@ -869,211 +869,211 @@ impl Contexto<'_> {
 
     /// Os comentários entre o token anterior e o token `t`
     /// (`precedingComments`, em ordem).
-    pub(crate) fn comentarios_antes(&self, t: Span) -> Vec<Span> {
-        let a = self.token_anterior(t.start).map_or(0, |p| p.end);
-        self.comentarios.iter().copied().filter(|c| c.start >= a && c.end <= t.start).collect()
+    pub(crate) fn comments_before(&self, t: Span) -> Vec<Span> {
+        let a = self.previous_token(t.start).map_or(0, |p| p.end);
+        self.comments.iter().copied().filter(|c| c.start >= a && c.end <= t.start).collect()
     }
 
     /// O primeiro e o último token do nó.
-    fn tokens_do_no(&self, n: usize) -> Option<(Span, Span)> {
-        let s = self.arvore.span(n);
-        Some((self.token_seguinte(s.start)?, self.token_anterior(s.end)?))
+    fn node_tokens(&self, n: usize) -> Option<(Span, Span)> {
+        let s = self.tree.span(n);
+        Some((self.next_token(s.start)?, self.previous_token(s.end)?))
     }
 
     /// `range.deletionRange(node, overrideEnd)`.
-    pub(crate) fn faixa_de_exclusao(&self, n: usize, fim_forcado: Option<Span>) -> Option<Span> {
-        let (primeiro, ultimo) = self.tokens_do_no(n)?;
-        let comeco = self.comentarios_antes(primeiro).first().copied().unwrap_or(primeiro);
-        let fim_inicial = fim_forcado.unwrap_or(ultimo);
-        let seguinte = self.token_seguinte(fim_inicial.end);
-        let depois: Option<Span> = match seguinte {
-            Some(t) => Some(self.comentarios_antes(t).first().copied().unwrap_or(t)),
-            None => self.comentarios.iter().copied().find(|c| c.start >= fim_inicial.end),
+    pub(crate) fn exclusion_range(&self, n: usize, forced_end: Option<Span>) -> Option<Span> {
+        let (first, last) = self.node_tokens(n)?;
+        let start = self.comments_before(first).first().copied().unwrap_or(first);
+        let initial_end = forced_end.unwrap_or(last);
+        let next = self.next_token(initial_end.end);
+        let after: Option<Span> = match next {
+            Some(t) => Some(self.comments_before(t).first().copied().unwrap_or(t)),
+            None => self.comments.iter().copied().find(|c| c.start >= initial_end.end),
         };
-        match depois {
-            Some(e) => Some(Span { start: comeco.start, end: e.start }),
+        match after {
+            Some(e) => Some(Span { start: start.start, end: e.start }),
             None => {
                 // `end.isEof`.
-                let e_comentario = comeco != primeiro;
-                let anotado = matches!(self.especie(n), "ClassDeclaration" | "MixinDeclaration" | "EnumDeclaration" | "ExtensionDeclaration" | "ExtensionTypeDeclaration" | "FunctionDeclaration" | "MethodDeclaration" | "FieldDeclaration" | "ConstructorDeclaration" | "TopLevelVariableDeclaration" | "FunctionTypeAlias" | "GenericTypeAlias" | "ClassTypeAlias");
-                let inicio = if anotado && e_comentario {
-                    let primeiro_depois = self.primeiro_token_apos_comentario_e_metadados(n)?;
-                    self.token_anterior(primeiro_depois.start).map_or(primeiro_depois.start, |p| p.end)
+                let is_comment = start != first;
+                let annotated = matches!(self.kind(n), "ClassDeclaration" | "MixinDeclaration" | "EnumDeclaration" | "ExtensionDeclaration" | "ExtensionTypeDeclaration" | "FunctionDeclaration" | "MethodDeclaration" | "FieldDeclaration" | "ConstructorDeclaration" | "TopLevelVariableDeclaration" | "FunctionTypeAlias" | "GenericTypeAlias" | "ClassTypeAlias");
+                let start_ = if annotated && is_comment {
+                    let first_after = self.first_token_after_comment_and_metadata(n)?;
+                    self.previous_token(first_after.start).map_or(first_after.start, |p| p.end)
                 } else {
-                    match self.token_anterior(comeco.start) {
-                        None => comeco.start,
+                    match self.previous_token(start.start) {
+                        None => start.start,
                         Some(p) => p.end,
                     }
                 };
-                Some(Span { start: inicio, end: fim_inicial.end })
+                Some(Span { start: start_, end: initial_end.end })
             }
         }
     }
 
     /// `firstTokenAfterCommentAndMetadata`.
-    pub(crate) fn primeiro_token_apos_comentario_e_metadados(&self, n: usize) -> Option<Span> {
-        let mut pos = self.arvore.nos[n].inicio;
-        for &f in self.filhos(n) {
-            if matches!(self.especie(f), "Comment" | "Annotation") {
-                pos = pos.max(self.arvore.nos[f].fim);
+    pub(crate) fn first_token_after_comment_and_metadata(&self, n: usize) -> Option<Span> {
+        let mut pos = self.tree.nos[n].inicio;
+        for &f in self.children(n) {
+            if matches!(self.kind(f), "Comment" | "Annotation") {
+                pos = pos.max(self.tree.nos[f].fim);
             }
         }
-        self.token_seguinte(pos)
+        self.next_token(pos)
     }
 
     /// `_leadingComment(token)`.
-    fn comentario_inicial(&self, t: Span) -> Span {
-        let antes = self.comentarios_antes(t);
-        let Some(anterior) = self.token_anterior(t.start) else {
-            return antes.first().copied().unwrap_or(t);
+    fn initial_comment(&self, t: Span) -> Span {
+        let before = self.comments_before(t);
+        let Some(previous) = self.previous_token(t.start) else {
+            return before.first().copied().unwrap_or(t);
         };
-        let linha_t = self.linha(t.start);
-        let linha_anterior = self.linha(anterior.start);
+        let line_t = self.line(t.start);
+        let previous_line = self.line(previous.start);
         let mut i = 0;
-        if linha_t != linha_anterior {
-            while i < antes.len() && self.linha(antes[i].start) == linha_anterior {
+        if line_t != previous_line {
+            while i < before.len() && self.line(before[i].start) == previous_line {
                 i += 1;
             }
         }
-        antes.get(i).copied().unwrap_or(t)
+        before.get(i).copied().unwrap_or(t)
     }
 
     /// `_shouldIncludeCommentsAfterComma`.
-    fn incluir_comentarios_apos_virgula(&self, virgula: Span) -> bool {
-        let Some(depois) = self.token_seguinte(virgula.end) else { return false };
-        if matches!(self.lexema(depois), "}" | ")" | "]") {
+    fn include_comments_after_comma(&self, comma: Span) -> bool {
+        let Some(after) = self.next_token(comma.end) else { return false };
+        if matches!(self.lexeme(after), "}" | ")" | "]") {
             return true;
         }
-        self.linha(virgula.start) != self.linha(depois.start)
+        self.line(comma.start) != self.line(after.start)
     }
 
     /// `trailingComment(token, returnComma)`: o token (ou comentário) e se
     /// inclui a vírgula.
-    fn comentario_final(&self, t: Span, devolver_virgula: bool) -> (Span, bool) {
-        let mut ultimo = t;
-        let mut seguinte = self.token_seguinte(ultimo.end);
-        let inclui_virgula = seguinte.is_some_and(|s| self.lexema(s) == "," && self.incluir_comentarios_apos_virgula(s));
-        if inclui_virgula {
-            ultimo = seguinte.unwrap_or(t);
-            seguinte = self.token_seguinte(ultimo.end);
+    fn trailing_comment(&self, t: Span, return_comma: bool) -> (Span, bool) {
+        let mut last = t;
+        let mut next = self.next_token(last.end);
+        let includes_comma = next.is_some_and(|s| self.lexeme(s) == "," && self.include_comments_after_comma(s));
+        if includes_comma {
+            last = next.unwrap_or(t);
+            next = self.next_token(last.end);
         }
-        let precedentes = |s: Option<Span>, depois_de: usize| -> Vec<Span> {
+        let preceding = |s: Option<Span>, after: usize| -> Vec<Span> {
             match s {
-                Some(s) => self.comentarios_antes(s),
-                None => self.comentarios.iter().copied().filter(|c| c.start >= depois_de).collect(),
+                Some(s) => self.comments_before(s),
+                None => self.comments.iter().copied().filter(|c| c.start >= after).collect(),
             }
         };
-        let mut cadeia = precedentes(seguinte, ultimo.end);
-        if cadeia.is_empty() && inclui_virgula && self.linha(t.start) != self.linha(ultimo.start) {
-            cadeia = self.comentarios_antes(ultimo);
-            ultimo = t;
+        let mut chain = preceding(next, last.end);
+        if chain.is_empty() && includes_comma && self.line(t.start) != self.line(last.start) {
+            chain = self.comments_before(last);
+            last = t;
         }
-        if let Some(&primeiro) = cadeia.first() {
-            let linha = self.linha(ultimo.start);
-            if self.linha(primeiro.start) == linha {
-                let mut c = primeiro;
-                for &prox in &cadeia[1..] {
-                    if self.linha(prox.start) != linha {
+        if let Some(&first) = chain.first() {
+            let line = self.line(last.start);
+            if self.line(first.start) == line {
+                let mut c = first;
+                for &next_ in &chain[1..] {
+                    if self.line(next_.start) != line {
                         break;
                     }
-                    c = prox;
+                    c = next_;
                 }
-                return (c, inclui_virgula);
+                return (c, includes_comma);
             }
         }
-        (if devolver_virgula { ultimo } else { t }, false)
+        (if return_comma { last } else { t }, false)
     }
 
     /// `range.nodeInListWithComments(lineInfo, list, node)`.
-    fn no_em_lista_com_comentarios(&self, lista: &[usize], node: usize) -> Option<Span> {
-        let (ini, fim) = self.tokens_do_no(node)?;
-        if lista.len() == 1 {
-            let inicial = self.comentario_inicial(ini);
-            let (final_, _) = self.comentario_final(fim, true);
-            return Some(Span { start: inicial.start, end: final_.end });
+    fn node_in_list_with_comments(&self, list: &[usize], node: usize) -> Option<Span> {
+        let (start, end) = self.node_tokens(node)?;
+        if list.len() == 1 {
+            let initial = self.initial_comment(start);
+            let (final_, _) = self.trailing_comment(end, true);
+            return Some(Span { start: initial.start, end: final_.end });
         }
-        let i = lista.iter().position(|&x| x == node)?;
+        let i = list.iter().position(|&x| x == node)?;
         if i == 0 {
-            let este = self.comentario_inicial(ini);
-            let (ini_prox, _) = self.tokens_do_no(lista[1])?;
-            let proximo = self.comentario_inicial(ini_prox);
-            return Some(Span { start: este.start, end: proximo.start });
+            let this = self.initial_comment(start);
+            let (next_start, _) = self.node_tokens(list[1])?;
+            let next = self.initial_comment(next_start);
+            return Some(Span { start: this.start, end: next.start });
         }
-        let (_, fim_anterior) = self.tokens_do_no(lista[i - 1])?;
-        let (anterior, virgula_anterior) = self.comentario_final(fim_anterior, false);
-        let (este, virgula_este) = self.comentario_final(fim, virgula_anterior);
-        let mut token_anterior = anterior;
-        if !virgula_anterior && virgula_este {
-            token_anterior = self.token_seguinte(token_anterior.end)?;
+        let (_, previous_end) = self.node_tokens(list[i - 1])?;
+        let (previous, previous_comma) = self.trailing_comment(previous_end, false);
+        let (this, this_comma) = self.trailing_comment(end, previous_comma);
+        let mut previous_token = previous;
+        if !previous_comma && this_comma {
+            previous_token = self.next_token(previous_token.end)?;
         }
-        Some(Span { start: token_anterior.end, end: este.end })
+        Some(Span { start: previous_token.end, end: this.end })
     }
 
     /// `range.nodeWithComments(lineInfo, node)`.
-    fn no_com_comentarios(&self, node: usize) -> Option<Span> {
-        let (ini, fim) = self.tokens_do_no(node)?;
-        let primeiro_da_unidade = self.token_seguinte(0) == Some(ini);
-        let inicial = if primeiro_da_unidade { ini } else { self.comentario_inicial(ini) };
-        let (final_, _) = self.comentario_final(fim, false);
-        Some(Span { start: inicial.start, end: final_.end })
+    fn node_with_comments(&self, node: usize) -> Option<Span> {
+        let (start, end) = self.node_tokens(node)?;
+        let unit_first = self.next_token(0) == Some(start);
+        let initial = if unit_first { start } else { self.initial_comment(start) };
+        let (final_, _) = self.trailing_comment(end, false);
+        Some(Span { start: initial.start, end: final_.end })
     }
 
     // -- Produtores dos códigos publicados sem fix ---------------------------------
 
     /// `RemoveNameFromDeclarationClause`: o título e a deleção.
-    pub(crate) fn remover_nome_da_clausula(&self, erro: Span) -> Option<(String, Span)> {
-        let tipo = self.arvore.localizar(erro.start, erro.end)?;
-        let clausula = self.pai(tipo)?;
-        let nome = match self.especie(clausula) {
-            "ExtendsClause" => return Some(("Remove 'extends' clause".to_string(), self.faixa_de_exclusao(clausula, None)?)),
+    pub(crate) fn remove_clause_name(&self, error: Span) -> Option<(String, Span)> {
+        let ty = self.tree.localizar(error.start, error.end)?;
+        let clause = self.parent(ty)?;
+        let name = match self.kind(clause) {
+            "ExtendsClause" => return Some(("Remove 'extends' clause".to_string(), self.exclusion_range(clause, None)?)),
             "ImplementsClause" => "implements",
             "MixinOnClause" => "on",
             "WithClause" => "with",
             _ => return None,
         };
-        let nomes = self.filhos_da_especie(clausula, "NamedType");
-        if nomes.len() == 1 {
-            return Some((format!("Remove '{nome}' clause"), self.faixa_de_exclusao(clausula, None)?));
+        let names = self.kind_children(clause, "NamedType");
+        if names.len() == 1 {
+            return Some((format!("Remove '{name}' clause"), self.exclusion_range(clause, None)?));
         }
-        if !nomes.contains(&tipo) {
+        if !names.contains(&ty) {
             return None;
         }
-        Some((format!("Remove name from '{nome}' clause"), self.no_em_lista(&nomes, tipo)))
+        Some((format!("Remove name from '{name}' clause"), self.node_in_list(&names, ty)))
     }
 
     /// `AddClassModifier`: o ponto de inserção do modificador.
-    pub(crate) fn ponto_do_modificador(&self, erro: Span) -> Option<usize> {
-        let node = self.arvore.localizar(erro.start, erro.end)?;
+    pub(crate) fn modifier_dot(&self, error: Span) -> Option<usize> {
+        let node = self.tree.localizar(error.start, error.end)?;
         if !matches!(
-            self.especie(node),
+            self.kind(node),
             "ClassDeclaration" | "ClassTypeAlias" | "MixinDeclaration" | "EnumDeclaration" | "ExtensionTypeDeclaration" | "FunctionDeclaration" | "FunctionTypeAlias" | "GenericTypeAlias"
-        ) || self.pai(node) != Some(0)
+        ) || self.parent(node) != Some(0)
         {
             return None;
         }
-        Some(self.primeiro_token_apos_comentario_e_metadados(node)?.start)
+        Some(self.first_token_after_comment_and_metadata(node)?.start)
     }
 
     /// `UseEqEqNull`/`UseNotEqNull`: `[expression.end, is.end)`.
-    pub(crate) fn faixa_do_is_null(&self, erro: Span) -> Option<Span> {
-        let n = self.arvore.localizar2(erro.start, erro.end.saturating_sub(1))?;
-        if self.especie(n) != "IsExpression" {
+    pub(crate) fn is_null_range(&self, error: Span) -> Option<Span> {
+        let n = self.tree.localizar2(error.start, error.end.saturating_sub(1))?;
+        if self.kind(n) != "IsExpression" {
             return None;
         }
-        let e = *self.filhos(n).first()?;
-        Some(Span { start: self.arvore.nos[e].fim, end: self.arvore.nos[n].fim })
+        let e = *self.children(n).first()?;
+        Some(Span { start: self.tree.nos[e].fim, end: self.tree.nos[n].fim })
     }
 
     /// `RemoveExtendsClause`: `[extends, {)`.
-    pub(crate) fn remover_extends(&self, erro: Span) -> Option<Span> {
-        let node = self.arvore.localizar(erro.start, erro.end)?;
-        let classe = self.este_ou_ancestral(node, |e| e == "ClassDeclaration")?;
-        let extends = self.filhos_da_especie(classe, "ExtendsClause").first().copied()?;
-        let mut pos = self.arvore.nos[extends].fim;
+    pub(crate) fn remove_extends(&self, error: Span) -> Option<Span> {
+        let node = self.tree.localizar(error.start, error.end)?;
+        let class = self.this_or_ancestor(node, |e| e == "ClassDeclaration")?;
+        let extends = self.kind_children(class, "ExtendsClause").first().copied()?;
+        let mut pos = self.tree.nos[extends].fim;
         loop {
-            let t = self.token_seguinte(pos)?;
-            if self.lexema(t) == "{" {
-                return Some(Span { start: self.arvore.nos[extends].inicio, end: t.start });
+            let t = self.next_token(pos)?;
+            if self.lexeme(t) == "{" {
+                return Some(Span { start: self.tree.nos[extends].inicio, end: t.start });
             }
             pos = t.end;
         }
@@ -1081,232 +1081,232 @@ impl Contexto<'_> {
 
     /// `ExtendClassForMixin`: o nome (o último trecho entre aspas da
     /// mensagem) e o ponto depois dos parâmetros de tipo ou do nome.
-    pub(crate) fn estender_para_mixin(&self, erro: Span, mensagem: &str) -> Option<(String, usize)> {
-        let node = self.arvore.localizar(erro.start, erro.end)?;
-        let classe = self.este_ou_ancestral(node, |e| e == "ClassDeclaration")?;
-        if !self.filhos_da_especie(classe, "ExtendsClause").is_empty() {
+    pub(crate) fn extend_to_mixin(&self, error: Span, message: &str) -> Option<(String, usize)> {
+        let node = self.tree.localizar(error.start, error.end)?;
+        let class = self.this_or_ancestor(node, |e| e == "ClassDeclaration")?;
+        if !self.kind_children(class, "ExtendsClause").is_empty() {
             return None;
         }
-        let fim = mensagem.rfind('\'')?;
-        let ini = mensagem[..fim].rfind('\'').map_or(0, |i| i + 1);
-        let nome = mensagem[ini..fim].to_string();
-        let ponto = match self.filhos_da_especie(classe, "TypeParameterList").first() {
-            Some(&tp) => self.arvore.nos[tp].fim,
+        let end = message.rfind('\'')?;
+        let start = message[..end].rfind('\'').map_or(0, |i| i + 1);
+        let name = message[start..end].to_string();
+        let dot = match self.kind_children(class, "TypeParameterList").first() {
+            Some(&tp) => self.tree.nos[tp].fim,
             None => {
-                let Marca::Decl(d) = self.arvore.nos[classe].marca else { return None };
+                let Marca::Decl(d) = self.tree.nos[class].marca else { return None };
                 match &self.ast.decl(d).kind {
                     ast::DeclKind::Class(c) => c.name.span.end,
                     _ => return None,
                 }
             }
         };
-        Some((nome, ponto))
+        Some((name, dot))
     }
 
     /// `ReplaceWithExtensionName`: o nome (com o prefixo) e o alvo.
-    pub(crate) fn nome_da_extensao(&self, erro: Span) -> Option<(String, Span)> {
-        let node = self.arvore.localizar(erro.start, erro.end)?;
-        if self.especie(node) != "SimpleIdentifier" {
+    pub(crate) fn extension_name(&self, error: Span) -> Option<(String, Span)> {
+        let node = self.tree.localizar(error.start, error.end)?;
+        if self.kind(node) != "SimpleIdentifier" {
             return None;
         }
-        let pai = self.pai(node)?;
-        let alvo = match self.especie(pai) {
-            "MethodInvocation" if self.nome_do_metodo(pai) == Some(node) => *self.filhos(pai).first()?,
-            "PropertyAccess" if self.filhos(pai).get(1) == Some(&node) => *self.filhos(pai).first()?,
+        let parent = self.parent(node)?;
+        let target = match self.kind(parent) {
+            "MethodInvocation" if self.method_name(parent) == Some(node) => *self.children(parent).first()?,
+            "PropertyAccess" if self.children(parent).get(1) == Some(&node) => *self.children(parent).first()?,
             _ => return None,
         };
-        if alvo == node {
+        if target == node {
             return None;
         }
         // O `ExtensionOverride`: `E(x)`, `E<T>(x)` ou `p.E(x)`, com o nome
         // resolvido para a extensão.
-        let ids: Vec<usize> = self.filhos(alvo).iter().copied().filter(|&f| self.especie(f) == "SimpleIdentifier").collect();
-        let extensao = ids.iter().copied().find(|&i| match self.arvore.nos[i].marca {
-            Marca::Expr(x) => matches!(self.corpos.get_resolved(x), Some(Resolved::Element(dartforge_elements::model::Element::Extension(_)))),
+        let ids: Vec<usize> = self.children(target).iter().copied().filter(|&f| self.kind(f) == "SimpleIdentifier").collect();
+        let extension = ids.iter().copied().find(|&i| match self.tree.nos[i].marca {
+            Marca::Expr(x) => matches!(self.bodies.get_resolved(x), Some(Resolved::Element(dartforge_elements::model::Element::Extension(_)))),
             _ => false,
         })?;
-        let prefixo = ids.iter().copied().find(|&i| i != extensao && self.arvore.nos[i].fim <= self.arvore.nos[extensao].inicio);
-        let nome = match prefixo {
-            Some(p) => format!("{}.{}", self.texto_do_no(p), self.texto_do_no(extensao)),
-            None => self.texto_do_no(extensao).to_string(),
+        let prefix = ids.iter().copied().find(|&i| i != extension && self.tree.nos[i].fim <= self.tree.nos[extension].inicio);
+        let name = match prefix {
+            Some(p) => format!("{}.{}", self.node_text(p), self.node_text(extension)),
+            None => self.node_text(extension).to_string(),
         };
-        Some((nome, self.arvore.span(alvo)))
+        Some((name, self.tree.span(target)))
     }
 
     /// `RemoveParenthesesInGetterInvocation`: a lista de argumentos da
     /// `FunctionExpressionInvocation` pai do `coveringNode`.
-    pub(crate) fn parenteses_do_getter(&self, erro: Span) -> Option<Span> {
-        let n = self.arvore.localizar2(erro.start, erro.end.saturating_sub(1))?;
-        let pai = self.pai(n)?;
-        if self.especie(pai) != "FunctionExpressionInvocation" {
+    pub(crate) fn getter_parens(&self, error: Span) -> Option<Span> {
+        let n = self.tree.localizar2(error.start, error.end.saturating_sub(1))?;
+        let parent = self.parent(n)?;
+        if self.kind(parent) != "FunctionExpressionInvocation" {
             return None;
         }
-        let args = self.filhos_da_especie(pai, "ArgumentList").first().copied()?;
-        Some(self.arvore.span(args))
+        let args = self.kind_children(parent, "ArgumentList").first().copied()?;
+        Some(self.tree.span(args))
     }
 
-    /// `MakeSuperInvocationLast`: a deleção e a inserção `, <texto>`.
-    pub(crate) fn super_por_ultimo(&self, erro: Span) -> Option<Vec<(Span, String)>> {
-        let node = self.arvore.localizar(erro.start, erro.end)?;
-        if !matches!(self.especie(node), "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "ConstructorFieldInitializer" | "AssertInitializer") {
+    /// `MakeSuperInvocationLast`: a deleção e a inserção `, <text>`.
+    pub(crate) fn super_last(&self, error: Span) -> Option<Vec<(Span, String)>> {
+        let node = self.tree.localizar(error.start, error.end)?;
+        if !matches!(self.kind(node), "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "ConstructorFieldInitializer" | "AssertInitializer") {
             return None;
         }
-        let construtor = self.pai(node).filter(|&c| self.especie(c) == "ConstructorDeclaration")?;
-        let inicializadores: Vec<usize> = self
-            .filhos(construtor)
+        let constructor = self.parent(node).filter(|&c| self.kind(c) == "ConstructorDeclaration")?;
+        let initializers: Vec<usize> = self
+            .children(constructor)
             .iter()
             .copied()
-            .filter(|&f| matches!(self.especie(f), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
+            .filter(|&f| matches!(self.kind(f), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
             .collect();
-        let exclusao = self.no_em_lista_com_comentarios(&inicializadores, node)?;
-        let faixa = self.no_com_comentarios(node)?;
-        let texto = self.fonte[faixa.start..faixa.end].to_string();
-        let (_, fim_ultimo) = self.tokens_do_no(*inicializadores.last()?)?;
-        let (t, _) = self.comentario_final(fim_ultimo, false);
-        Some(vec![(exclusao, String::new()), (Span { start: t.end, end: t.end }, format!(", {texto}"))])
+        let exclusion = self.node_in_list_with_comments(&initializers, node)?;
+        let range = self.node_with_comments(node)?;
+        let text = self.source[range.start..range.end].to_string();
+        let (_, last_end_) = self.node_tokens(*initializers.last()?)?;
+        let (t, _) = self.trailing_comment(last_end_, false);
+        Some(vec![(exclusion, String::new()), (Span { start: t.end, end: t.end }, format!(", {text}"))])
     }
 
     /// `RemoveDeadCode` num `SwitchMember` (o `coveringNode` dos
     /// `unreachable_switch_*`): `deletionRange(member)`, até o `:` quando o
     /// membro anterior não tem comandos.
-    pub(crate) fn remover_membro_morto(&self, erro: Span) -> Option<Span> {
-        let n = self.arvore.localizar2(erro.start, erro.end.saturating_sub(1))?;
-        if !matches!(self.especie(n), "SwitchCase" | "SwitchDefault" | "SwitchPatternCase") {
+    pub(crate) fn remove_dead_member(&self, error: Span) -> Option<Span> {
+        let n = self.tree.localizar2(error.start, error.end.saturating_sub(1))?;
+        if !matches!(self.kind(n), "SwitchCase" | "SwitchDefault" | "SwitchPatternCase") {
             return None;
         }
-        let switch = self.pai(n)?;
-        if self.especie(switch) != "SwitchStatement" {
+        let switch = self.parent(n)?;
+        if self.kind(switch) != "SwitchStatement" {
             return None;
         }
-        let membros: Vec<usize> = self.filhos(switch).iter().copied().filter(|&f| matches!(self.especie(f), "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")).collect();
-        let i = membros.iter().position(|&m| m == n)?;
-        let sem_comandos = |m: usize| !self.filhos(m).iter().any(|&f| self.e_comando(f));
-        let mut fim_forcado = None;
-        if i > 0 && sem_comandos(membros[i - 1]) {
+        let members: Vec<usize> = self.children(switch).iter().copied().filter(|&f| matches!(self.kind(f), "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")).collect();
+        let i = members.iter().position(|&m| m == n)?;
+        let without_commands = |m: usize| !self.children(m).iter().any(|&f| self.is_command(f));
+        let mut forced_end = None;
+        if i > 0 && without_commands(members[i - 1]) {
             // O `:` do membro: depois do padrão, da guarda ou do `default`.
-            let depois = self
-                .filhos(n)
+            let after = self
+                .children(n)
                 .iter()
                 .copied()
-                .filter(|&f| !self.e_comando(f) && self.especie(f) != "Label")
-                .map(|f| self.arvore.nos[f].fim)
+                .filter(|&f| !self.is_command(f) && self.kind(f) != "Label")
+                .map(|f| self.tree.nos[f].fim)
                 .max()
-                .unwrap_or(self.arvore.nos[n].inicio);
-            let mut pos = depois;
+                .unwrap_or(self.tree.nos[n].inicio);
+            let mut pos = after;
             loop {
-                let t = self.token_seguinte(pos)?;
-                if self.lexema(t) == ":" {
-                    fim_forcado = Some(t);
+                let t = self.next_token(pos)?;
+                if self.lexeme(t) == ":" {
+                    forced_end = Some(t);
                     break;
                 }
                 pos = t.end;
             }
         }
-        self.faixa_de_exclusao(n, fim_forcado)
+        self.exclusion_range(n, forced_end)
     }
 
-    /// `RemoveComparison` (`remove_comparison.dart`): `verdadeira` para os
+    /// `RemoveComparison` (`remove_comparison.dart`): `is_true` para os
     /// `…_TRUE`, falsa para os `…_FALSE`.
-    pub(crate) fn remover_comparacao(&self, erro: Span, verdadeira: bool) -> Option<Vec<(Span, String)>> {
-        let node = self.arvore.localizar(erro.start, erro.end)?;
-        let pai = self.pai(node)?;
-        let tx = Texto::novo(self.fonte);
-        let tirar_recuo = |texto: &str| -> String {
+    pub(crate) fn remove_comparison(&self, error: Span, is_true: bool) -> Option<Vec<(Span, String)>> {
+        let node = self.tree.localizar(error.start, error.end)?;
+        let parent = self.parent(node)?;
+        let tx = Text::new(self.source);
+        let remove_indent = |text: &str| -> String {
             let eol = tx.eol();
-            texto
+            text
                 .split(eol)
-                .map(|l| l.strip_prefix(crate::refactorings_exec::UM_RECUO).unwrap_or(l))
+                .map(|l| l.strip_prefix(crate::refactorings_exec::ONE_INDENT).unwrap_or(l))
                 .collect::<Vec<_>>()
                 .join(eol)
         };
-        let com_comentarios = |n: usize| -> Option<String> {
-            let (ini, fim) = self.tokens_do_no(n)?;
-            let primeiro = self.comentarios_antes(ini).first().copied().unwrap_or(ini);
-            Some(self.fonte[primeiro.start..fim.end].to_string())
+        let with_comments = |n: usize| -> Option<String> {
+            let (start, end) = self.node_tokens(n)?;
+            let first = self.comments_before(start).first().copied().unwrap_or(start);
+            Some(self.source[first.start..end.end].to_string())
         };
-        match self.especie(pai) {
-            "AssertInitializer" if verdadeira => {
-                let construtor = self.pai(pai)?;
-                let lista: Vec<usize> = self
-                    .filhos(construtor)
+        match self.kind(parent) {
+            "AssertInitializer" if is_true => {
+                let constructor = self.parent(parent)?;
+                let list: Vec<usize> = self
+                    .children(constructor)
                     .iter()
                     .copied()
-                    .filter(|&f| matches!(self.especie(f), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
+                    .filter(|&f| matches!(self.kind(f), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
                     .collect();
-                if lista.len() == 1 {
-                    let parametros = self.filhos_da_especie(construtor, "FormalParameterList").first().copied()?;
-                    return Some(vec![(Span { start: self.arvore.nos[parametros].fim, end: self.arvore.nos[pai].fim }, String::new())]);
+                if list.len() == 1 {
+                    let parameters = self.kind_children(constructor, "FormalParameterList").first().copied()?;
+                    return Some(vec![(Span { start: self.tree.nos[parameters].fim, end: self.tree.nos[parent].fim }, String::new())]);
                 }
-                Some(vec![(self.no_em_lista(&lista, pai), String::new())])
+                Some(vec![(self.node_in_list(&list, parent), String::new())])
             }
-            "AssertStatement" if verdadeira => Some(vec![(self.linhas_do_no(pai), String::new())]),
+            "AssertStatement" if is_true => Some(vec![(self.node_lines(parent), String::new())]),
             "BinaryExpression" => {
-                let f = self.filhos(pai);
-                let (esq, dir) = (*f.first()?, *f.get(1)?);
-                let operador = self.token_seguinte(self.arvore.nos[esq].fim)?;
-                let e_e = self.lexema(operador) == "&&";
-                let ou = self.lexema(operador) == "||";
-                if !((e_e && verdadeira) || (ou && !verdadeira)) {
+                let f = self.children(parent);
+                let (left, dir) = (*f.first()?, *f.get(1)?);
+                let operator = self.next_token(self.tree.nos[left].fim)?;
+                let is_and = self.lexeme(operator) == "&&";
+                let or = self.lexeme(operator) == "||";
+                if !((is_and && is_true) || (or && !is_true)) {
                     return None;
                 }
-                let s = if esq == node {
-                    Span { start: self.arvore.nos[node].inicio, end: self.arvore.nos[dir].inicio }
+                let s = if left == node {
+                    Span { start: self.tree.nos[node].inicio, end: self.tree.nos[dir].inicio }
                 } else {
-                    Span { start: self.arvore.nos[esq].fim, end: self.arvore.nos[node].fim }
+                    Span { start: self.tree.nos[left].fim, end: self.tree.nos[node].fim }
                 };
                 Some(vec![(s, String::new())])
             }
             "IfElement" => {
-                let ramos: Vec<usize> = self.filhos(pai).iter().copied().filter(|&f| f != node).collect();
-                let (entao, senao) = (ramos.first().copied(), ramos.get(1).copied());
-                if verdadeira {
-                    let t = com_comentarios(entao?)?;
-                    return Some(vec![(self.arvore.span(pai), tirar_recuo(&t))]);
+                let branches: Vec<usize> = self.children(parent).iter().copied().filter(|&f| f != node).collect();
+                let (then, else_) = (branches.first().copied(), branches.get(1).copied());
+                if is_true {
+                    let t = with_comments(then?)?;
+                    return Some(vec![(self.tree.span(parent), remove_indent(&t))]);
                 }
-                match senao {
+                match else_ {
                     Some(e) => {
-                        let t = com_comentarios(e)?;
-                        Some(vec![(self.arvore.span(pai), tirar_recuo(&t))])
+                        let t = with_comments(e)?;
+                        Some(vec![(self.tree.span(parent), remove_indent(&t))])
                     }
                     None => {
-                        let colecao = self.pai(pai)?;
-                        if !matches!(self.especie(colecao), "ListLiteral" | "SetOrMapLiteral") {
+                        let collection = self.parent(parent)?;
+                        if !matches!(self.kind(collection), "ListLiteral" | "SetOrMapLiteral") {
                             return None;
                         }
-                        let elementos: Vec<usize> = self.filhos(colecao).iter().copied().filter(|&f| self.especie(f) != "TypeArgumentList").collect();
-                        Some(vec![(self.no_em_lista(&elementos, pai), String::new())])
+                        let elements: Vec<usize> = self.children(collection).iter().copied().filter(|&f| self.kind(f) != "TypeArgumentList").collect();
+                        Some(vec![(self.node_in_list(&elements, parent), String::new())])
                     }
                 }
             }
             "IfStatement" => {
-                let ramos: Vec<usize> = self.filhos(pai).iter().copied().filter(|&f| f != node).collect();
-                let (entao, senao) = (ramos.first().copied(), ramos.get(1).copied());
-                let substituir = |r: usize| -> Option<Vec<(Span, String)>> {
-                    if self.especie(r) == "Block" {
-                        let s = self.arvore.span(r);
+                let branches: Vec<usize> = self.children(parent).iter().copied().filter(|&f| f != node).collect();
+                let (then, else_) = (branches.first().copied(), branches.get(1).copied());
+                let replace = |r: usize| -> Option<Vec<(Span, String)>> {
+                    if self.kind(r) == "Block" {
+                        let s = self.tree.span(r);
                         // As linhas dos comandos do bloco (o servidor do Dart
                         // 3.6.2 conferido no oráculo não leva a quebra que
                         // segue o `{`); bloco vazio: o que há entre as chaves.
-                        let comandos = self.filhos(r);
-                        let linhas = match (comandos.first(), comandos.last()) {
-                            (Some(&a), Some(&b)) => tx.faixa_de_linhas(self.arvore.nos[a].inicio, self.arvore.nos[b].fim),
-                            _ => tx.faixa_de_linhas(s.start + 1, s.end - 1),
+                        let commands = self.children(r);
+                        let lines = match (commands.first(), commands.last()) {
+                            (Some(&a), Some(&b)) => tx.line_range(self.tree.nos[a].inicio, self.tree.nos[b].fim),
+                            _ => tx.line_range(s.start + 1, s.end - 1),
                         };
-                        let texto = tirar_recuo(&self.fonte[linhas.start..linhas.end]);
-                        return Some(vec![(self.linhas_do_no(pai), texto)]);
+                        let text = remove_indent(&self.source[lines.start..lines.end]);
+                        return Some(vec![(self.node_lines(parent), text)]);
                     }
-                    let t = com_comentarios(r)?;
-                    Some(vec![(self.arvore.span(pai), tirar_recuo(&t))])
+                    let t = with_comments(r)?;
+                    Some(vec![(self.tree.span(parent), remove_indent(&t))])
                 };
-                if verdadeira {
-                    return substituir(entao?);
+                if is_true {
+                    return replace(then?);
                 }
-                match senao {
-                    Some(e) => substituir(e),
+                match else_ {
+                    Some(e) => replace(e),
                     None => {
-                        let bloco = self.pai(pai).filter(|&b| self.especie(b) == "Block")?;
-                        let comandos: Vec<usize> = self.filhos(bloco).to_vec();
-                        Some(vec![(self.no_em_lista(&comandos, pai), String::new())])
+                        let block = self.parent(parent).filter(|&b| self.kind(b) == "Block")?;
+                        let commands: Vec<usize> = self.children(block).to_vec();
+                        Some(vec![(self.node_in_list(&commands, parent), String::new())])
                     }
                 }
             }
@@ -1316,86 +1316,86 @@ impl Contexto<'_> {
 
     /// `MakeReturnTypeNullable`: o fim da anotação de retorno (ou do
     /// argumento de tipo, num corpo assíncrono ou gerador).
-    pub(crate) fn retorno_anulavel(&self, erro: Span, conversoes_estritas: bool) -> Option<usize> {
+    pub(crate) fn nullable_return(&self, error: Span, strict_conversions: bool) -> Option<usize> {
         use dartforge_types::Type;
-        let node = self.arvore.localizar(erro.start, erro.end)?;
-        if !self.e_expressao(node) {
+        let node = self.tree.localizar(error.start, error.end)?;
+        if !self.is_expression(node) {
             return None;
         }
-        let tipo = self.tipo_do_no(node)?;
-        let corpo = self.este_ou_ancestral(node, |e| e.ends_with("FunctionBody"))?;
-        let mut funcao = self.pai(corpo)?;
-        if self.especie(funcao) == "FunctionExpression" {
-            funcao = self.pai(funcao)?;
+        let ty = self.node_type(node)?;
+        let body = self.this_or_ancestor(node, |e| e.ends_with("FunctionBody"))?;
+        let mut function = self.parent(body)?;
+        if self.kind(function) == "FunctionExpression" {
+            function = self.parent(function)?;
         }
-        if !matches!(self.especie(funcao), "MethodDeclaration" | "FunctionDeclaration") {
+        if !matches!(self.kind(function), "MethodDeclaration" | "FunctionDeclaration") {
             return None;
         }
-        let anotacao = self
-            .filhos(funcao)
+        let annotation = self
+            .children(function)
             .iter()
             .copied()
-            .find(|&f| matches!(self.especie(f), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"))?;
-        let elemento = self.elemento_declarado(funcao);
-        let tabela = &self.p.consulta.tabela;
-        let mut declarado = match elemento {
-            crate::refactorings::Elem::Funcao(f) => self.p.consulta.outline.functions.get(f.0 as usize).map(|d| d.return_type)?,
-            crate::refactorings::Elem::FuncaoLocal(fid) => match self.ast.function(fid).name.and_then(|n| self.corpos.tipo_local(n.span.start)).map(|t| tabela.get(t)) {
+            .find(|&f| matches!(self.kind(f), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"))?;
+        let element = self.declared_element(function);
+        let table = &self.p.query.table;
+        let mut declared = match element {
+            crate::refactorings::Elem::Function(f) => self.p.query.outline.functions.get(f.0 as usize).map(|d| d.return_type)?,
+            crate::refactorings::Elem::LocalFunction(fid) => match self.ast.function(fid).name.and_then(|n| self.bodies.tipo_local(n.span.start)).map(|t| table.get(t)) {
                 Some(Type::Function { ret, .. }) => *ret,
                 _ => return None,
             },
             _ => return None,
         };
-        let mut alvo = anotacao;
-        let texto_do_corpo = self.texto_do_no(corpo);
-        if texto_do_corpo.starts_with("async") || texto_do_corpo.starts_with("sync") {
-            if self.especie(anotacao) != "NamedType" {
+        let mut target = annotation;
+        let body_text = self.node_text(body);
+        if body_text.starts_with("async") || body_text.starts_with("sync") {
+            if self.kind(annotation) != "NamedType" {
                 return None;
             }
-            let args = self.filhos_da_especie(anotacao, "TypeArgumentList").first().copied()?;
-            let lista = self.filhos(args);
-            if lista.len() != 1 {
+            let args = self.kind_children(annotation, "TypeArgumentList").first().copied()?;
+            let list = self.children(args);
+            if list.len() != 1 {
                 return None;
             }
-            alvo = lista[0];
-            declarado = match tabela.get(declarado) {
+            target = list[0];
+            declared = match table.get(declared) {
                 Type::Interface { args, .. } if args.len() == 1 => args[0],
                 Type::FutureOr { arg, .. } => *arg,
                 _ => return None,
             };
         }
-        if self.especie(node) != "NullLiteral" {
-            let mut t = tabela.clone();
-            let nao_nulo = dartforge_types::non_nullable(tipo, &mut t);
-            let atribuivel = if !conversoes_estritas && matches!(t.get(declarado), Type::Dynamic) {
+        if self.kind(node) != "NullLiteral" {
+            let mut t = table.clone();
+            let non_null = dartforge_types::non_nullable(ty, &mut t);
+            let assignable = if !strict_conversions && matches!(t.get(declared), Type::Dynamic) {
                 true
             } else {
-                let mut env = dartforge_types::SubtypeEnv::new(&mut t, &self.p.consulta.outline.hierarchy, &self.p.consulta.core);
-                dartforge_types::is_subtype(declarado, nao_nulo, &mut env)
+                let mut env = dartforge_types::SubtypeEnv::new(&mut t, &self.p.query.outline.hierarchy, &self.p.query.core);
+                dartforge_types::is_subtype(declared, non_null, &mut env)
             };
-            if !atribuivel {
+            if !assignable {
                 return None;
             }
         }
-        Some(self.arvore.nos[alvo].fim)
+        Some(self.tree.nos[target].fim)
     }
 
     // -- RemoveUnusedParameter e AddConst ------------------------------------------
 
     /// O tipo (`isRequiredPositional`) de um nó de parâmetro, pelo
     /// parâmetro do parser no intervalo dele.
-    fn posicional_obrigatorio(&self, n: usize) -> bool {
-        let s = self.arvore.span(n);
-        let dentro = |q: &&ast::Parameter| q.span.start >= s.start && q.span.end <= s.end;
+    fn positional_required(&self, n: usize) -> bool {
+        let s = self.tree.span(n);
+        let inside = |q: &&ast::Parameter| q.span.start >= s.start && q.span.end <= s.end;
         let q = self
             .ast
             .functions
             .iter()
             .flat_map(|f| f.parameters.iter().flatten())
-            .find(dentro)
+            .find(inside)
             .or_else(|| {
                 self.ast.members.iter().find_map(|m| match &m.kind {
-                    MemberKind::Constructor(k) => k.parameters.iter().find(dentro),
+                    MemberKind::Constructor(k) => k.parameters.iter().find(inside),
                     _ => None,
                 })
             });
@@ -1403,130 +1403,130 @@ impl Contexto<'_> {
     }
 
     /// `RemoveUnusedParameter.compute`: a deleção.
-    pub(crate) fn remover_parametro(&self, erro: Span) -> Option<Span> {
-        let mut talvez = self.arvore.localizar(erro.start, erro.end)?;
-        if self.especie(talvez) == "SimpleIdentifier"
-            && let Some(p) = self.pai(talvez)
+    pub(crate) fn remove_parameter(&self, error: Span) -> Option<Span> {
+        let mut maybe = self.tree.localizar(error.start, error.end)?;
+        if self.kind(maybe) == "SimpleIdentifier"
+            && let Some(p) = self.parent(maybe)
         {
-            talvez = p;
+            maybe = p;
         }
-        if !matches!(self.especie(talvez), "SimpleFormalParameter" | "FieldFormalParameter" | "SuperFormalParameter" | "FunctionTypedFormalParameter" | "DefaultFormalParameter") {
+        if !matches!(self.kind(maybe), "SimpleFormalParameter" | "FieldFormalParameter" | "SuperFormalParameter" | "FunctionTypedFormalParameter" | "DefaultFormalParameter") {
             return None;
         }
-        let mut parametro = talvez;
-        if let Some(p) = self.pai(parametro)
-            && self.especie(p) == "DefaultFormalParameter"
+        let mut parameter = maybe;
+        if let Some(p) = self.parent(parameter)
+            && self.kind(p) == "DefaultFormalParameter"
         {
-            parametro = p;
+            parameter = p;
         }
-        let lista = self.pai(parametro).filter(|&l| self.especie(l) == "FormalParameterList")?;
-        let parametros: Vec<usize> = self.filhos(lista).to_vec();
-        let i = parametros.iter().position(|&x| x == parametro)?;
-        let s = |n: usize| self.arvore.span(n);
-        let ls = s(lista);
+        let list = self.parent(parameter).filter(|&l| self.kind(l) == "FormalParameterList")?;
+        let parameters: Vec<usize> = self.children(list).to_vec();
+        let i = parameters.iter().position(|&x| x == parameter)?;
+        let s = |n: usize| self.tree.span(n);
+        let ls = s(list);
         if i == 0 {
-            if parametros.len() == 1 {
+            if parameters.len() == 1 {
                 return Some(Span { start: ls.start + 1, end: ls.end - 1 });
             }
-            let seguinte = parametros[1];
-            if self.posicional_obrigatorio(parametro) && !self.posicional_obrigatorio(seguinte) {
+            let next = parameters[1];
+            if self.positional_required(parameter) && !self.positional_required(next) {
                 // O delimitador `[`/`{`: o token antes do primeiro opcional.
-                let delimitador = self.token_anterior(s(seguinte).start).filter(|t| matches!(&self.fonte[t.start..t.end], "[" | "{"));
-                return Some(match delimitador {
-                    Some(d) => Span { start: s(parametro).start, end: d.start },
-                    None => Span { start: s(parametro).start, end: s(seguinte).start },
+                let delimiter = self.previous_token(s(next).start).filter(|t| matches!(&self.source[t.start..t.end], "[" | "{"));
+                return Some(match delimiter {
+                    Some(d) => Span { start: s(parameter).start, end: d.start },
+                    None => Span { start: s(parameter).start, end: s(next).start },
                 });
             }
-            return Some(Span { start: s(parametro).start, end: s(seguinte).start });
+            return Some(Span { start: s(parameter).start, end: s(next).start });
         }
-        let anterior = parametros[i - 1];
-        if self.posicional_obrigatorio(anterior) && !self.posicional_obrigatorio(parametro) {
-            if i == parametros.len() - 1 {
+        let previous = parameters[i - 1];
+        if self.positional_required(previous) && !self.positional_required(parameter) {
+            if i == parameters.len() - 1 {
                 // `)` ou a vírgula final antes dele.
-                let fecha = Span { start: ls.end - 1, end: ls.end };
-                let antes = self.token_anterior(fecha.start);
-                let alvo = match antes {
-                    Some(a) if &self.fonte[a.start..a.end] == "," => a,
-                    _ => fecha,
+                let closes = Span { start: ls.end - 1, end: ls.end };
+                let before = self.previous_token(closes.start);
+                let target = match before {
+                    Some(a) if &self.source[a.start..a.end] == "," => a,
+                    _ => closes,
                 };
-                return Some(Span { start: s(anterior).end, end: alvo.start });
+                return Some(Span { start: s(previous).end, end: target.start });
             }
-            let seguinte = parametros[i + 1];
-            return Some(Span { start: s(parametro).start, end: s(seguinte).start });
+            let next = parameters[i + 1];
+            return Some(Span { start: s(parameter).start, end: s(next).start });
         }
-        Some(Span { start: s(anterior).end, end: s(parametro).end })
+        Some(Span { start: s(previous).end, end: s(parameter).end })
     }
 
     /// `AddConst.compute` nos caminhos que o `non_constant_map_pattern_key`
     /// alcança (a chave do `MapPatternEntry`): binário ou prefixo →
     /// `const (…)` na entrada; lista, conjunto/mapa ou criação sem palavra
     /// → `const ` e os `const` internos apagados.
-    pub(crate) fn adicionar_const(&self, erro: Span) -> Option<Vec<(Span, String)>> {
-        let mut alvo = self.arvore.localizar(erro.start, erro.end)?;
-        if self.especie(alvo) == "SimpleIdentifier" {
-            alvo = self.pai(alvo)?;
+    pub(crate) fn add_const(&self, error: Span) -> Option<Vec<(Span, String)>> {
+        let mut target = self.tree.localizar(error.start, error.end)?;
+        if self.kind(target) == "SimpleIdentifier" {
+            target = self.parent(target)?;
         }
-        if self.especie(alvo) == "ConstructorDeclaration" {
-            let t = self.primeiro_token_apos_comentario_e_metadados(alvo)?;
+        if self.kind(target) == "ConstructorDeclaration" {
+            let t = self.first_token_after_comment_and_metadata(target)?;
             return Some(vec![(Span { start: t.start, end: t.start }, "const ".to_string())]);
         }
-        let parenteses_e_const = |n: usize| {
-            let s = self.arvore.span(n);
+        let parens_and_const = |n: usize| {
+            let s = self.tree.span(n);
             vec![(Span { start: s.end, end: s.end }, ")".to_string()), (Span { start: s.start, end: s.start }, "const (".to_string())]
         };
-        if self.especie(alvo) == "TypeArgumentList" {
-            alvo = self.este_ou_ancestral(alvo, |e| e == "ConstantPattern")?;
+        if self.kind(target) == "TypeArgumentList" {
+            target = self.this_or_ancestor(target, |e| e == "ConstantPattern")?;
         }
-        if self.especie(alvo) == "ConstantPattern" {
+        if self.kind(target) == "ConstantPattern" {
             // `canBeConst`/literal de tipo: fora dos códigos publicados.
             return None;
         }
-        if matches!(self.especie(alvo), "BinaryExpression" | "PrefixExpression") {
-            let pai = self.pai(alvo)?;
-            if let Some(avo) = self.pai(pai)
-                && self.especie(avo) == "ParenthesizedPattern"
+        if matches!(self.kind(target), "BinaryExpression" | "PrefixExpression") {
+            let parent = self.parent(target)?;
+            if let Some(grandparent) = self.parent(parent)
+                && self.kind(grandparent) == "ParenthesizedPattern"
             {
-                let o = self.arvore.nos[avo].inicio;
+                let o = self.tree.nos[grandparent].inicio;
                 return Some(vec![(Span { start: o, end: o }, "const ".to_string())]);
             }
-            return Some(parenteses_e_const(pai));
+            return Some(parens_and_const(parent));
         }
-        let inserir = |n: usize| -> Vec<(Span, String)> {
-            let o = self.arvore.nos[n].inicio;
+        let insert = |n: usize| -> Vec<(Span, String)> {
+            let o = self.tree.nos[n].inicio;
             let mut v = vec![(Span { start: o, end: o }, "const ".to_string())];
             // `_ConstRangeFinder`: os `const` de criações e literais
             // internos (sem entrar em closures).
-            let mut pilha = vec![n];
-            while let Some(k) = pilha.pop() {
-                if self.especie(k) == "FunctionExpression" {
+            let mut stack = vec![n];
+            while let Some(k) = stack.pop() {
+                if self.kind(k) == "FunctionExpression" {
                     continue;
                 }
-                if matches!(self.especie(k), "InstanceCreationExpression" | "ListLiteral" | "SetOrMapLiteral")
-                    && let Some(t) = self.token_seguinte(self.arvore.nos[k].inicio)
-                    && &self.fonte[t.start..t.end] == "const"
-                    && let Some(prox) = self.token_seguinte(t.end)
+                if matches!(self.kind(k), "InstanceCreationExpression" | "ListLiteral" | "SetOrMapLiteral")
+                    && let Some(t) = self.next_token(self.tree.nos[k].inicio)
+                    && &self.source[t.start..t.end] == "const"
+                    && let Some(next) = self.next_token(t.end)
                 {
-                    v.push((Span { start: t.start, end: prox.start }, String::new()));
+                    v.push((Span { start: t.start, end: next.start }, String::new()));
                 }
-                for &f in self.filhos(k).iter().rev() {
-                    pilha.push(f);
+                for &f in self.children(k).iter().rev() {
+                    stack.push(f);
                 }
             }
             v
         };
-        if matches!(self.especie(alvo), "ListLiteral" | "SetOrMapLiteral") {
-            return Some(inserir(alvo));
+        if matches!(self.kind(target), "ListLiteral" | "SetOrMapLiteral") {
+            return Some(insert(target));
         }
-        if self.especie(alvo) == "NamedType" {
-            alvo = self.pai(alvo)?;
+        if self.kind(target) == "NamedType" {
+            target = self.parent(target)?;
         }
-        if self.especie(alvo) == "ConstructorName" {
-            alvo = self.pai(alvo)?;
+        if self.kind(target) == "ConstructorName" {
+            target = self.parent(target)?;
         }
-        if self.especie(alvo) == "InstanceCreationExpression" {
-            let sem_palavra = self.token_seguinte(self.arvore.nos[alvo].inicio).is_some_and(|t| !matches!(&self.fonte[t.start..t.end], "new" | "const"));
-            if sem_palavra {
-                return Some(inserir(alvo));
+        if self.kind(target) == "InstanceCreationExpression" {
+            let without_word = self.next_token(self.tree.nos[target].inicio).is_some_and(|t| !matches!(&self.source[t.start..t.end], "new" | "const"));
+            if without_word {
+                return Some(insert(target));
             }
         }
         None
@@ -1538,201 +1538,201 @@ impl Contexto<'_> {
     /// `node` é o `switch`; as testemunhas com partes vêm do verificador de
     /// constantes (o `diagnostic.data`). A edição e as bibliotecas a
     /// importar.
-    pub(crate) fn casos_ausentes(&self, erro: Span) -> Option<(Span, String, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
+    pub(crate) fn missing_cases(&self, error: Span) -> Option<(Span, String, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
         use dartforge_types::constantes::ParteDeTestemunha as P;
-        let node = self.arvore.localizar(erro.start, erro.end)?;
-        let expressao = match self.especie(node) {
+        let node = self.tree.localizar(error.start, error.end)?;
+        let expression = match self.kind(node) {
             "SwitchStatement" => false,
             "SwitchExpression" => true,
             _ => return None,
         };
-        let prog = self.p.programa();
-        let lib = prog.unit(self.unidade).library;
-        let consulta = &self.p.consulta;
-        let mut tabela = consulta.tabela.clone();
-        let mapa = dartforge_types::constantes::testemunhas_de_switch(
+        let prog = self.p.program();
+        let lib = prog.unit(self.unit).library;
+        let query = &self.p.query;
+        let mut table = query.table.clone();
+        let map = dartforge_types::constantes::testemunhas_de_switch(
             prog,
-            &consulta.nomes,
-            &mut tabela,
-            &consulta.core,
-            &consulta.outline,
-            &consulta.corpos,
-            &self.p.bibliotecas,
+            &query.names,
+            &mut table,
+            &query.core,
+            &query.outline,
+            &query.bodies,
+            &self.p.libraries,
             lib,
         );
-        let lista = mapa.get(&(self.unidade, self.arvore.nos[node].inicio))?;
-        if lista.is_empty() {
+        let list = map.get(&(self.unit, self.tree.nos[node].inicio))?;
+        if list.is_empty() {
             return None;
         }
-        let tx = Texto::novo(self.fonte);
+        let tx = Text::new(self.source);
         let eol = tx.eol();
-        let recuo_da_linha = tx.prefixo_da_linha(self.arvore.nos[node].inicio).to_string();
-        let um = crate::refactorings_exec::UM_RECUO;
+        let line_indent = tx.line_prefix(self.tree.nos[node].inicio).to_string();
+        let one = crate::refactorings_exec::ONE_INDENT;
         // Os tokens `)`, `{` e `}` do `switch`.
-        let s = self.arvore.span(node);
-        let fecha = Span { start: s.end - 1, end: s.end };
-        let escrutinio = *self.filhos(node).first()?;
-        let parentese = self.token_seguinte(self.arvore.nos[escrutinio].fim)?;
-        let abre = self.token_seguinte(parentese.end)?;
-        if &self.fonte[abre.start..abre.end] != "{" || &self.fonte[fecha.start..fecha.end] != "}" {
+        let s = self.tree.span(node);
+        let closes = Span { start: s.end - 1, end: s.end };
+        let scrutinee = *self.children(node).first()?;
+        let paren = self.next_token(self.tree.nos[scrutinee].fim)?;
+        let opens = self.next_token(paren.end)?;
+        if &self.source[opens.start..opens.end] != "{" || &self.source[closes.start..closes.end] != "}" {
             return None;
         }
-        let uma_linha = self.linha(abre.start) == self.linha(fecha.start);
-        let offset = if uma_linha { abre.end } else { tx.inicio_da_linha(fecha.start) };
-        let mut escritor = crate::write_type::Escritor::novo(self, offset);
+        let one_line = self.line(opens.start) == self.line(closes.start);
+        let offset = if one_line { opens.end } else { tx.line_start(closes.start) };
+        let mut writer = crate::write_type::Writer::new(self, offset);
         // Valor de enum privado de outra biblioteca: a testemunha sai e
         // entra o `default`.
-        let inacessivel = |partes: &[P]| {
-            partes.iter().any(|q| match q {
-                P::ValorDeEnum { enumeracao, valor } => {
+        let inaccessible = |parts: &[P]| {
+            parts.iter().any(|q| match q {
+                P::ValorDeEnum { enumeracao, valor: value } => {
                     let c = prog.class(*enumeracao);
-                    (self.p.nome(c.name).starts_with('_') || self.p.nome(prog.variable(*valor).name).starts_with('_')) && c.library != lib
+                    (self.p.name(c.name).starts_with('_') || self.p.name(prog.variable(*value).name).starts_with('_')) && c.library != lib
                 }
                 _ => false,
             })
         };
-        let mut texto = String::new();
-        if uma_linha {
-            texto.push_str(eol);
+        let mut text = String::new();
+        if one_line {
+            text.push_str(eol);
         }
-        let mut precisa_default = false;
-        for partes in lista {
-            if inacessivel(partes) {
-                precisa_default = true;
+        let mut needs_default = false;
+        for parts in list {
+            if inaccessible(parts) {
+                needs_default = true;
                 continue;
             }
-            let mut padrao = String::new();
-            for q in partes {
+            let mut pattern = String::new();
+            for q in parts {
                 match q {
-                    P::Texto(t) => padrao.push_str(t),
-                    P::ValorDeEnum { enumeracao, valor } => {
-                        let nome = self.p.nome(prog.class(*enumeracao).name).to_string();
-                        padrao.push_str(&escritor.referencia_de(dartforge_elements::model::Element::Class(*enumeracao), &nome));
-                        padrao.push('.');
-                        padrao.push_str(self.p.nome(prog.variable(*valor).name));
+                    P::Texto(t) => pattern.push_str(t),
+                    P::ValorDeEnum { enumeracao, valor: value } => {
+                        let name = self.p.name(prog.class(*enumeracao).name).to_string();
+                        pattern.push_str(&writer.reference_of(dartforge_elements::model::Element::Class(*enumeracao), &name));
+                        pattern.push('.');
+                        pattern.push_str(self.p.name(prog.variable(*value).name));
                     }
-                    P::Tipo(t) => padrao.push_str(&escritor.escrever_tipo(Some(*t), false).unwrap_or_default()),
+                    P::Tipo(t) => pattern.push_str(&writer.write_type(Some(*t), false).unwrap_or_default()),
                 }
             }
-            if expressao {
-                texto.push_str(&format!("{recuo_da_linha}{um}// TODO: Handle this case.{eol}{recuo_da_linha}{um}{padrao} => throw UnimplementedError(),{eol}"));
+            if expression {
+                text.push_str(&format!("{line_indent}{one}// TODO: Handle this case.{eol}{line_indent}{one}{pattern} => throw UnimplementedError(),{eol}"));
             } else {
-                texto.push_str(&format!(
-                    "{recuo_da_linha}{um}case {padrao}:{eol}{recuo_da_linha}{um}{um}// TODO: Handle this case.{eol}{recuo_da_linha}{um}{um}throw UnimplementedError();{eol}"
+                text.push_str(&format!(
+                    "{line_indent}{one}case {pattern}:{eol}{line_indent}{one}{one}// TODO: Handle this case.{eol}{line_indent}{one}{one}throw UnimplementedError();{eol}"
                 ));
             }
         }
-        if precisa_default {
-            if expressao {
-                texto.push_str(&format!("{recuo_da_linha}{um}// TODO: Handle this case.{eol}{recuo_da_linha}{um}_ => throw UnimplementedError(),{eol}"));
+        if needs_default {
+            if expression {
+                text.push_str(&format!("{line_indent}{one}// TODO: Handle this case.{eol}{line_indent}{one}_ => throw UnimplementedError(),{eol}"));
             } else {
-                texto.push_str(&format!(
-                    "{recuo_da_linha}{um}default:{eol}{recuo_da_linha}{um}{um}// TODO: Handle this case.{eol}{recuo_da_linha}{um}{um}throw UnimplementedError();{eol}"
+                text.push_str(&format!(
+                    "{line_indent}{one}default:{eol}{line_indent}{one}{one}// TODO: Handle this case.{eol}{line_indent}{one}{one}throw UnimplementedError();{eol}"
                 ));
             }
         }
-        if uma_linha {
+        if one_line {
             // `linePrefix(switchKeyword.offset)`.
-            texto.push_str(&recuo_da_linha);
+            text.push_str(&line_indent);
         }
-        Some((Span { start: offset, end: offset }, texto, escritor.importar))
+        Some((Span { start: offset, end: offset }, text, writer.import))
     }
 
     // -- AddMissingRequiredArgument -------------------------------------------------
 
     /// O tipo é `Widget` do Flutter ou subtipo (`isWidgetType`).
-    fn e_widget(&self, t: dartforge_types::TypeId) -> bool {
-        let prog = self.p.programa();
-        let dartforge_types::Type::Interface { class, .. } = self.p.consulta.tabela.get(t) else { return false };
+    fn is_widget(&self, t: dartforge_types::TypeId) -> bool {
+        let prog = self.p.program();
+        let dartforge_types::Type::Interface { class, .. } = self.p.query.table.get(t) else { return false };
         let widget = |c: dartforge_elements::model::ClassId| {
             let k = prog.class(c);
-            self.p.nome(k.name) == "Widget" && prog.library(k.library).uri == "package:flutter/src/widgets/framework.dart"
+            self.p.name(k.name) == "Widget" && prog.library(k.library).uri == "package:flutter/src/widgets/framework.dart"
         };
-        widget(*class) || self.p.supertipos(*class).into_iter().any(widget)
+        widget(*class) || self.p.supertypes(*class).into_iter().any(widget)
     }
 
     /// `getDefaultStringParameterValue2(parameter, quote)`: o texto e a
     /// posição do cursor.
-    fn valor_padrao_de_argumento(&self, tipo: dartforge_types::TypeId, aspas: &str, anotacao: Option<(&ast::Ast, ast::TypeId)>) -> Option<String> {
+    fn argument_default_value(&self, ty: dartforge_types::TypeId, quotes: &str, annotation: Option<(&ast::Ast, ast::TypeId)>) -> Option<String> {
         use dartforge_types::Type;
-        let core = &self.p.consulta.core;
-        let tabela = &self.p.consulta.tabela;
-        match tabela.get(tipo) {
+        let core = &self.p.query.core;
+        let table = &self.p.query.table;
+        match table.get(ty) {
             Type::Interface { class, .. } if Some(*class) == core.list_class => Some("[]".to_string()),
             Type::Interface { class, .. } if Some(*class) == core.map_class => Some("{}".to_string()),
-            Type::Interface { class, .. } if Some(*class) == core.string_class => Some(format!("{aspas}{aspas}")),
+            Type::Interface { class, .. } if Some(*class) == core.string_class => Some(format!("{quotes}{quotes}")),
             Type::Function { positional, optional, named, .. } => {
                 // Os nomes dos parâmetros vêm da anotação de tipo de função.
-                let nomes: Vec<String> = match anotacao.map(|(a, t)| &a.ty(t).kind) {
-                    Some(ast::TypeKind::Function { parameters, .. }) => parameters.iter().map(|q| q.name.map(|n| self.p.nome(n.sym).to_string()).unwrap_or_default()).collect(),
+                let names: Vec<String> = match annotation.map(|(a, t)| &a.ty(t).kind) {
+                    Some(ast::TypeKind::Function { parameters, .. }) => parameters.iter().map(|q| q.name.map(|n| self.p.name(n.sym).to_string()).unwrap_or_default()).collect(),
                     _ => Vec::new(),
                 };
-                let mut partes = Vec::new();
+                let mut parts = Vec::new();
                 let mut i = 0usize;
                 for &q in positional.iter().chain(optional.iter()) {
-                    let tipo = if matches!(tabela.get(q), Type::Dynamic) { String::new() } else { format!("{} ", self.p.consulta.formatar(q)) };
-                    partes.push(format!("{tipo}{}", nomes.get(i).cloned().unwrap_or_default()));
+                    let ty = if matches!(table.get(q), Type::Dynamic) { String::new() } else { format!("{} ", self.p.query.format(q)) };
+                    parts.push(format!("{ty}{}", names.get(i).cloned().unwrap_or_default()));
                     i += 1;
                 }
                 for (n, q, _) in named.iter() {
-                    let tipo = if matches!(tabela.get(*q), Type::Dynamic) { String::new() } else { format!("{} ", self.p.consulta.formatar(*q)) };
-                    partes.push(format!("{tipo}{}", self.p.nome(*n)));
+                    let ty = if matches!(table.get(*q), Type::Dynamic) { String::new() } else { format!("{} ", self.p.query.format(*q)) };
+                    parts.push(format!("{ty}{}", self.p.name(*n)));
                 }
-                Some(format!("({}) {{  }}", partes.join(", ")))
+                Some(format!("({}) {{  }}", parts.join(", ")))
             }
             _ => None,
         }
     }
 
     /// `AddMissingRequiredArgument` para cada parâmetro nomeado obrigatório
-    /// sem argumento nas chamadas cujo nome está nas linhas `ini..fim` (o
+    /// sem argumento nas chamadas cujo nome está nas linhas `start..end` (o
     /// `missing_required_argument` não é publicado: as chamadas são
     /// examinadas no pedido). O nome do parâmetro, a inserção e onde fica o
     /// cursor: `Ok(k)`, a seleção no byte `k` do valor padrão com
     /// `cursorPosition`; `Err((k, n))`, o grupo ligado `VALUE` do valor sem
     /// cursor (`add_missing_required_argument.dart:105-121`).
-    pub(crate) fn argumentos_requeridos(&self, ini: usize, fim: usize) -> Vec<ArgumentoRequerido> {
+    pub(crate) fn required_arguments(&self, start: usize, end: usize) -> Vec<RequiredArgument> {
         use dartforge_types::Resolved;
-        let prog = self.p.programa();
-        let aspas = if crate::refactorings_exec::regra_ligada(self.p, self.unidade, "prefer_double_quotes") { "\"" } else { "'" };
-        let mut saida = Vec::new();
-        for (n, no) in self.arvore.nos.iter().enumerate() {
-            let (alvo_do_erro, funcao, lista, criacao) = match no.especie {
+        let prog = self.p.program();
+        let quotes = if crate::refactorings_exec::enabled_rule(self.p, self.unit, "prefer_double_quotes") { "\"" } else { "'" };
+        let mut output = Vec::new();
+        for (n, no) in self.tree.nos.iter().enumerate() {
+            let (error_target, function_, list, creation) = match no.especie {
                 "MethodInvocation" => {
-                    let Some(m) = self.nome_do_metodo(n) else { continue };
-                    let crate::refactorings::Elem::Funcao(f) = self.elemento_do_identificador(m, true) else { continue };
-                    let Some(l) = self.filhos_da_especie(n, "ArgumentList").first().copied() else { continue };
+                    let Some(m) = self.method_name(n) else { continue };
+                    let crate::refactorings::Elem::Function(f) = self.identifier_element(m, true) else { continue };
+                    let Some(l) = self.kind_children(n, "ArgumentList").first().copied() else { continue };
                     (m, f, l, None)
                 }
                 "InstanceCreationExpression" => {
-                    let Some(cn) = self.filhos_da_especie(n, "ConstructorName").first().copied() else { continue };
-                    let Some(x) = self.expr_do_no(n) else { continue };
-                    let f = match self.corpos.get_resolved(x) {
+                    let Some(cn) = self.kind_children(n, "ConstructorName").first().copied() else { continue };
+                    let Some(x) = self.node_expr(n) else { continue };
+                    let f = match self.bodies.get_resolved(x) {
                         Some(Resolved::Constructor(f)) => *f,
-                        _ => match self.construtores_por_alvo.iter().find(|(alvo, _)| self.ast.expr(**alvo).span.start == no.inicio) {
+                        _ => match self.constructors_by_target.iter().find(|(target, _)| self.ast.expr(**target).span.start == no.inicio) {
                             Some((_, f)) => *f,
                             None => continue,
                         },
                     };
-                    let Some(l) = self.filhos_da_especie(n, "ArgumentList").first().copied() else { continue };
+                    let Some(l) = self.kind_children(n, "ArgumentList").first().copied() else { continue };
                     (cn, f, l, Some(n))
                 }
                 _ => continue,
             };
-            let s = self.arvore.span(alvo_do_erro);
-            if !(s.start <= fim && ini <= s.end) {
+            let s = self.tree.span(error_target);
+            if !(s.start <= end && start <= s.end) {
                 continue;
             }
-            let Some(dados) = self.p.consulta.outline.functions.get(funcao.0 as usize) else { continue };
-            let argumentos: Vec<usize> = self.filhos(lista).to_vec();
-            let dados_nomeados: Vec<String> = argumentos
+            let Some(data) = self.p.query.outline.functions.get(function_.0 as usize) else { continue };
+            let arguments: Vec<usize> = self.children(list).to_vec();
+            let named_data: Vec<String> = arguments
                 .iter()
-                .filter(|&&a| self.especie(a) == "NamedExpression")
-                .filter_map(|&a| self.filhos(a).first().and_then(|&r| self.filhos(r).first()).map(|&id| self.texto_do_no(id).to_string()))
+                .filter(|&&a| self.kind(a) == "NamedExpression")
+                .filter_map(|&a| self.children(a).first().and_then(|&r| self.children(r).first()).map(|&id| self.node_text(id).to_string()))
                 .collect();
             // As anotações dos parâmetros declarados (para os nomes de um
             // tipo de função).
-            let (ast_decl, declarados): (Option<&ast::Ast>, Vec<&ast::Parameter>) = match prog.function(funcao).node {
+            let (ast_decl, declared): (Option<&ast::Ast>, Vec<&ast::Parameter>) = match prog.function(function_).node {
                 dartforge_elements::model::FunctionRef::Function { unit, function } => {
                     (Some(&prog.unit(unit).ast), prog.unit(unit).ast.function(function).parameters.iter().flatten().collect())
                 }
@@ -1742,58 +1742,58 @@ impl Contexto<'_> {
                 },
                 _ => (None, Vec::new()),
             };
-            let widget = criacao.and_then(|c| self.tipo_do_no(c)).is_some_and(|t| self.e_widget(t));
-            for q in dados.parameters.iter() {
+            let widget = creation.and_then(|c| self.node_type(c)).is_some_and(|t| self.is_widget(t));
+            for q in data.parameters.iter() {
                 if !(q.required && q.kind == ast::ParameterKind::Named) {
                     continue;
                 }
-                let Some(nome) = q.externo.or(q.name).map(|s| self.p.nome(s).to_string()) else { continue };
-                if dados_nomeados.contains(&nome) {
+                let Some(name) = q.externo.or(q.name).map(|s| self.p.name(s).to_string()) else { continue };
+                if named_data.contains(&name) {
                     continue;
                 }
-                let lista_s = self.arvore.span(lista);
-                let (mut offset, mut virgula_final, mut entre) = (lista_s.start + 1, false, false);
-                if let Some(&ultimo) = argumentos.last() {
-                    offset = self.arvore.nos[ultimo].fim;
-                    virgula_final = self.token_seguinte(offset).is_some_and(|t| &self.fonte[t.start..t.end] == ",");
-                    if self.especie(ultimo) == "NamedExpression" && widget {
-                        let rotulo = self.filhos(ultimo).first().and_then(|&r| self.filhos(r).first()).map(|&id| self.texto_do_no(id).to_string());
-                        if matches!(rotulo.as_deref(), Some("child") | Some("children")) {
-                            offset = self.arvore.nos[ultimo].inicio;
-                            virgula_final = true;
-                            entre = true;
+                let list_s = self.tree.span(list);
+                let (mut offset, mut trailing_comma, mut between) = (list_s.start + 1, false, false);
+                if let Some(&last) = arguments.last() {
+                    offset = self.tree.nos[last].fim;
+                    trailing_comma = self.next_token(offset).is_some_and(|t| &self.source[t.start..t.end] == ",");
+                    if self.kind(last) == "NamedExpression" && widget {
+                        let label = self.children(last).first().and_then(|&r| self.children(r).first()).map(|&id| self.node_text(id).to_string());
+                        if matches!(label.as_deref(), Some("child") | Some("children")) {
+                            offset = self.tree.nos[last].inicio;
+                            trailing_comma = true;
+                            between = true;
                         }
                     }
                 }
-                let anotacao = declarados.iter().find(|p| p.name.is_some_and(|n| self.p.nome(n.sym) == nome)).and_then(|p| p.ty).and_then(|t| ast_decl.map(|a| (a, t)));
-                let padrao = self.valor_padrao_de_argumento(q.ty, aspas, anotacao);
-                let mut texto = String::new();
-                if !argumentos.is_empty() && !entre {
-                    texto.push_str(", ");
+                let annotation = declared.iter().find(|p| p.name.is_some_and(|n| self.p.name(n.sym) == name)).and_then(|p| p.ty).and_then(|t| ast_decl.map(|a| (a, t)));
+                let pattern = self.argument_default_value(q.ty, quotes, annotation);
+                let mut text = String::new();
+                if !arguments.is_empty() && !between {
+                    text.push_str(", ");
                 }
-                texto.push_str(&format!("{nome}: "));
+                text.push_str(&format!("{name}: "));
                 // `DefaultArgument.cursorPosition`: 1 em `[]`, `{}` e `''`;
                 // entre as chaves de `(…) {  }`.
-                let cursor = match &padrao {
-                    Some(v) if v.starts_with('(') => Ok(texto.len() + v.len() - 2),
-                    Some(_) => Ok(texto.len() + 1),
-                    None => Err((texto.len(), 4)),
+                let cursor = match &pattern {
+                    Some(v) if v.starts_with('(') => Ok(text.len() + v.len() - 2),
+                    Some(_) => Ok(text.len() + 1),
+                    None => Err((text.len(), 4)),
                 };
-                texto.push_str(padrao.as_deref().unwrap_or("null"));
+                text.push_str(pattern.as_deref().unwrap_or("null"));
                 if widget {
-                    if !virgula_final {
-                        texto.push(',');
-                    } else if entre {
-                        let eol = Texto::novo(self.fonte).eol();
-                        texto.push(',');
-                        texto.push_str(eol);
-                        texto.push_str(Texto::novo(self.fonte).prefixo_da_linha(offset));
+                    if !trailing_comma {
+                        text.push(',');
+                    } else if between {
+                        let eol = Text::new(self.source).eol();
+                        text.push(',');
+                        text.push_str(eol);
+                        text.push_str(Text::new(self.source).line_prefix(offset));
                     }
                 }
-                saida.push((nome, Span { start: offset, end: offset }, texto, cursor));
+                output.push((name, Span { start: offset, end: offset }, text, cursor));
             }
         }
-        saida
+        output
     }
 
     // -- ConvertIntoBlockBody.missingBody -----------------------------------------
@@ -1802,139 +1802,139 @@ impl Contexto<'_> {
     /// corpo envolvente (`getEnclosingFunctionBody`) vazio ou de expressão
     /// vira bloco (`// TODO: implement x` e `throw UnimplementedError();`, ou
     /// `[return ]e;`).
-    pub(crate) fn converter_em_corpo_de_bloco(&self, erro: Span) -> Option<(Span, String)> {
-        let node = self.arvore.localizar(erro.start, erro.end)?;
+    pub(crate) fn convert_to_block_body(&self, error: Span) -> Option<(Span, String)> {
+        let node = self.tree.localizar(error.start, error.end)?;
         // A closure, a função, o construtor ou o método envolvente.
-        let dono = ["FunctionExpression", "FunctionDeclaration", "ConstructorDeclaration", "MethodDeclaration"]
+        let owner = ["FunctionExpression", "FunctionDeclaration", "ConstructorDeclaration", "MethodDeclaration"]
             .iter()
-            .find_map(|e| self.este_ou_ancestral(node, |x| x == *e))?;
-        let corpo_de = |n: usize| self.filhos(n).iter().copied().rev().find(|&f| self.especie(f).ends_with("FunctionBody"));
-        let corpo = match self.especie(dono) {
+            .find_map(|e| self.this_or_ancestor(node, |x| x == *e))?;
+        let body_of = |n: usize| self.children(n).iter().copied().rev().find(|&f| self.kind(f).ends_with("FunctionBody"));
+        let body = match self.kind(owner) {
             "FunctionDeclaration" => {
-                let expr = self.filhos(dono).iter().copied().find(|&f| self.especie(f) == "FunctionExpression")?;
-                corpo_de(expr)?
+                let expr = self.children(owner).iter().copied().find(|&f| self.kind(f) == "FunctionExpression")?;
+                body_of(expr)?
             }
-            _ => corpo_de(dono)?,
+            _ => body_of(owner)?,
         };
-        let texto_do_corpo = self.texto_do_no(corpo);
-        if texto_do_corpo.starts_with("sync*") || texto_do_corpo.starts_with("async*") {
+        let body_text = self.node_text(body);
+        if body_text.starts_with("sync*") || body_text.starts_with("async*") {
             return None;
         }
         // `_getFunctionElement(body.parent)`: método, construtor ou
         // expressão de função.
-        let pai = self.pai(corpo)?;
-        let elemento = match self.especie(pai) {
-            "MethodDeclaration" | "FunctionExpression" | "ConstructorDeclaration" => self.elemento_do_corpo(pai)?,
+        let parent = self.parent(body)?;
+        let element = match self.kind(parent) {
+            "MethodDeclaration" | "FunctionExpression" | "ConstructorDeclaration" => self.body_element(parent)?,
             _ => return None,
         };
-        let linhas: Vec<String> = match self.especie(corpo) {
+        let lines: Vec<String> = match self.kind(body) {
             "EmptyFunctionBody" => {
-                let mut l = vec![format!("// TODO: implement {}", self.nome_exibido(pai)?)];
-                if !self.retorna_void(elemento) {
+                let mut l = vec![format!("// TODO: implement {}", self.displayed_name(parent)?)];
+                if !self.returns_void(element) {
                     l.push("throw UnimplementedError();".to_string());
                 }
                 l
             }
             "ExpressionFunctionBody" => {
-                let expr = *self.filhos(corpo).first()?;
-                if erro.start >= self.arvore.nos[expr].inicio {
+                let expr = *self.children(body).first()?;
+                if error.start >= self.tree.nos[expr].inicio {
                     return None;
                 }
-                let tipo = self.tipo_do_no(expr).map(|t| self.p.consulta.tabela.get(t).clone());
-                let void_ou_fundo = matches!(tipo, Some(dartforge_types::Type::Void) | Some(dartforge_types::Type::Never));
-                let retorno = if !void_ou_fundo && !self.retorna_void(elemento) { "return " } else { "" };
-                vec![format!("{retorno}{};", self.texto_do_no(expr))]
+                let ty = self.node_type(expr).map(|t| self.p.query.table.get(t).clone());
+                let void_or_bottom = matches!(ty, Some(dartforge_types::Type::Void) | Some(dartforge_types::Type::Never));
+                let return_ = if !void_or_bottom && !self.returns_void(element) { "return " } else { "" };
+                vec![format!("{return_}{};", self.node_text(expr))]
             }
             _ => return None,
         };
-        let tx = Texto::novo(self.fonte);
-        let prefixo = self.prefixo_do_no(pai);
+        let tx = Text::new(self.source);
+        let prefix = self.node_prefix(parent);
         let eol = tx.eol();
-        let anterior = self.token_anterior(self.arvore.nos[corpo].inicio)?;
+        let previous = self.previous_token(self.tree.nos[body].inicio)?;
         let mut s = String::from(" ");
-        if texto_do_corpo.starts_with("async") {
+        if body_text.starts_with("async") {
             s.push_str("async ");
         }
         s.push('{');
-        for l in &linhas {
+        for l in &lines {
             s.push_str(eol);
-            s.push_str(&prefixo);
-            s.push_str(crate::refactorings_exec::UM_RECUO);
+            s.push_str(&prefix);
+            s.push_str(crate::refactorings_exec::ONE_INDENT);
             s.push_str(l);
         }
         s.push_str(eol);
-        s.push_str(&prefixo);
+        s.push_str(&prefix);
         s.push('}');
-        Some((Span { start: anterior.end, end: self.arvore.nos[corpo].fim }, s))
+        Some((Span { start: previous.end, end: self.tree.nos[body].fim }, s))
     }
 
     /// O elemento executável de um método, construtor ou expressão de função.
-    fn elemento_do_corpo(&self, n: usize) -> Option<crate::refactorings::Elem> {
+    fn body_element(&self, n: usize) -> Option<crate::refactorings::Elem> {
         use crate::refactorings::Elem;
-        match (self.especie(n), self.arvore.nos[n].marca) {
-            ("MethodDeclaration", _) => Some(self.elemento_declarado(n)).filter(|e| *e != Elem::Nenhum),
-            ("FunctionExpression", Marca::Funcao(fid)) => Some(match self.p.funcao_do_no(self.unidade, fid) {
-                Some(f) => Elem::Funcao(f),
-                None => Elem::FuncaoLocal(fid),
+        match (self.kind(n), self.tree.nos[n].marca) {
+            ("MethodDeclaration", _) => Some(self.declared_element(n)).filter(|e| *e != Elem::None),
+            ("FunctionExpression", Marca::Funcao(fid)) => Some(match self.p.node_function(self.unit, fid) {
+                Some(f) => Elem::Function(f),
+                None => Elem::LocalFunction(fid),
             }),
             ("FunctionExpression", _) => {
                 // A expressão de uma `FunctionDeclaration`: a marca está no pai.
-                let pai = self.pai(n)?;
-                Some(self.elemento_declarado(pai)).filter(|e| *e != Elem::Nenhum)
+                let parent = self.parent(n)?;
+                Some(self.declared_element(parent)).filter(|e| *e != Elem::None)
             }
             ("ConstructorDeclaration", _) => {
-                let s = self.arvore.span(n);
+                let s = self.tree.span(n);
                 let (mi, _) = self.ast.members.iter().enumerate().find(|(_, m)| matches!(m.kind, MemberKind::Constructor(_)) && m.span.start >= s.start && m.span.end <= s.end)?;
-                self.p.construtor_do_no(self.unidade, ast::MemberId(mi as u32)).map(Elem::Funcao)
+                self.p.node_constructor(self.unit, ast::MemberId(mi as u32)).map(Elem::Function)
             }
             _ => None,
         }
     }
 
     /// O `displayName` do executável (o nome sem `=`; o construtor é o da
-    /// classe com `.nome`).
-    fn nome_exibido(&self, n: usize) -> Option<String> {
+    /// classe com `.name`).
+    fn displayed_name(&self, n: usize) -> Option<String> {
         use crate::refactorings::Elem;
-        match self.elemento_do_corpo(n)? {
-            Elem::Funcao(f) => {
-                let fe = self.p.programa().function(f);
+        match self.body_element(n)? {
+            Elem::Function(f) => {
+                let fe = self.p.program().function(f);
                 // O `displayName` do elemento novo (`ElementImpl2`): o nome
                 // do fragmento, sem a classe num construtor (vazio no sem
                 // nome; conferido no servidor do Dart 3.6.2).
-                Some(crate::project::nome_base(self.p.nome(fe.name)).to_string())
+                Some(crate::project::base_name(self.p.name(fe.name)).to_string())
             }
-            Elem::FuncaoLocal(fid) => Some(self.ast.function(fid).name.map(|x| self.lexema(x.span).to_string()).unwrap_or_default()),
+            Elem::LocalFunction(fid) => Some(self.ast.function(fid).name.map(|x| self.lexeme(x.span).to_string()).unwrap_or_default()),
             _ => None,
         }
     }
 
     /// `_forFieldFormalParameter`.
-    fn faixa_de_parametro_de_campo(&self, no: usize) -> Option<Span> {
-        let parametro = match self.pai(no) {
-            Some(p) if self.especie(p) == "DefaultFormalParameter" => p,
+    fn field_parameter_range(&self, no: usize) -> Option<Span> {
+        let parameter = match self.parent(no) {
+            Some(p) if self.kind(p) == "DefaultFormalParameter" => p,
             _ => no,
         };
-        let lista = self.pai(parametro)?;
-        let s = self.arvore.span(parametro);
-        let parametros: Vec<usize> = self.filhos(lista).to_vec();
-        if parametros.len() == 1 {
-            let ls = self.arvore.span(lista);
+        let list = self.parent(parameter)?;
+        let s = self.tree.span(parameter);
+        let parameters: Vec<usize> = self.children(list).to_vec();
+        if parameters.len() == 1 {
+            let ls = self.tree.span(list);
             return Some(Span { start: ls.start + 1, end: ls.end - 1 });
         }
-        let mut anterior = self.token_anterior(s.start)?;
-        let mut seguinte = self.token_seguinte(s.end)?;
-        if self.lexema(seguinte) == "," {
-            seguinte = self.token_seguinte(seguinte.end)?;
-            return Some(Span { start: s.start, end: seguinte.start });
+        let mut previous = self.previous_token(s.start)?;
+        let mut next = self.next_token(s.end)?;
+        if self.lexeme(next) == "," {
+            next = self.next_token(next.end)?;
+            return Some(Span { start: s.start, end: next.start });
         }
-        let primeiro_opcional = matches!(self.lexema(anterior), "{" | "[");
-        if primeiro_opcional {
-            anterior = self.token_anterior(anterior.start)?;
-            if matches!(self.lexema(seguinte), "}" | "]") {
-                seguinte = self.token_seguinte(seguinte.end)?;
+        let first_optional = matches!(self.lexeme(previous), "{" | "[");
+        if first_optional {
+            previous = self.previous_token(previous.start)?;
+            if matches!(self.lexeme(next), "}" | "]") {
+                next = self.next_token(next.end)?;
             }
         }
-        let antes = self.token_anterior(anterior.start)?;
-        Some(Span { start: antes.end, end: seguinte.start })
+        let before = self.previous_token(previous.start)?;
+        Some(Span { start: before.end, end: next.start })
     }
 }

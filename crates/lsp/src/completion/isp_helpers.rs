@@ -8,7 +8,7 @@
 //! Escrito sem compilar nem executar (2026-10-05).
 
 use super::isp::Isp;
-use super::isp_visits::ParametroInvocado;
+use super::isp_visits::InvokedParameter;
 use super::*;
 use dartforge_frontend::token::Op;
 
@@ -16,7 +16,7 @@ use dartforge_frontend::token::Op;
 /// `sdk_library_metadata/lib/libraries.dart` do SDK 3.6.2 com categorias
 /// (não internas), sem `implementation: true` e sem `dart:_`, na ordem do
 /// arquivo.
-const BIBLIOTECAS_DART: &[&str] = &[
+const LIBRARIES_DART: &[&str] = &[
     "dart:async",
     "dart:collection",
     "dart:concurrent",
@@ -42,43 +42,43 @@ const BIBLIOTECAS_DART: &[&str] = &[
 ];
 
 /// `getCamelWords` (`analyzer_plugin/src/utilities/string_utilities.dart`).
-pub(super) fn palavras_camel(s: &str) -> Vec<String> {
+pub(super) fn camel_words(s: &str) -> Vec<String> {
     if s.is_empty() {
         return Vec::new();
     }
     let b: Vec<u16> = s.encode_utf16().collect();
-    let minuscula = |c: u16| (b'a' as u16..=b'z' as u16).contains(&c);
-    let maiuscula = |c: u16| (b'A' as u16..=b'Z' as u16).contains(&c);
-    let mut partes = Vec::new();
-    let (mut era_min, mut era_mai) = (false, false);
-    let mut inicio = 0usize;
+    let lowercase = |c: u16| (b'a' as u16..=b'z' as u16).contains(&c);
+    let uppercase = |c: u16| (b'A' as u16..=b'Z' as u16).contains(&c);
+    let mut parts = Vec::new();
+    let (mut was_lower, mut was_upper) = (false, false);
+    let mut start = 0usize;
     for i in 0..b.len() {
         let c = b[i];
-        let (nova_min, nova_mai) = (minuscula(c), maiuscula(c));
-        if era_min && nova_mai {
-            partes.push(String::from_utf16_lossy(&b[inicio..i]));
-            inicio = i;
+        let (new_min, new_upper) = (lowercase(c), uppercase(c));
+        if was_lower && new_upper {
+            parts.push(String::from_utf16_lossy(&b[start..i]));
+            start = i;
         }
-        if era_mai && nova_mai && i + 1 < b.len() && minuscula(b[i + 1]) {
-            partes.push(String::from_utf16_lossy(&b[inicio..i]));
-            inicio = i;
+        if was_upper && new_upper && i + 1 < b.len() && lowercase(b[i + 1]) {
+            parts.push(String::from_utf16_lossy(&b[start..i]));
+            start = i;
         }
-        era_min = nova_min;
-        era_mai = nova_mai;
+        was_lower = new_min;
+        was_upper = new_upper;
     }
-    partes.push(String::from_utf16_lossy(&b[inicio..]));
-    partes
+    parts.push(String::from_utf16_lossy(&b[start..]));
+    parts
 }
 
 /// `getCamelWordCombinations`.
-pub(super) fn combinacoes_camel(nome: &str) -> Vec<String> {
-    let partes = palavras_camel(nome);
-    (0..partes.len()).map(|i| format!("{}{}", partes[i].to_lowercase(), partes[i + 1..].concat())).collect()
+pub(super) fn camel_combinations(name: &str) -> Vec<String> {
+    let parts = camel_words(name);
+    (0..parts.len()).map(|i| format!("{}{}", parts[i].to_lowercase(), parts[i + 1..].concat())).collect()
 }
 
 /// `String.toUpperCamelCase` (`utilities/extensions/string.dart:59-77`).
-fn camel_maiusculo(s: &str) -> Option<String> {
-    let capitalizar = |w: &str| {
+fn camel_upper(s: &str) -> Option<String> {
+    let capitalize = |w: &str| {
         let mut cs = w.chars();
         match cs.next() {
             None => String::new(),
@@ -86,28 +86,28 @@ fn camel_maiusculo(s: &str) -> Option<String> {
             Some(c) => format!("{}{}", c.to_uppercase(), cs.as_str().to_lowercase()),
         }
     };
-    let palavras: Vec<&str> = s.split('_').collect();
-    if palavras.len() < 2 {
-        let primeira = palavras.first()?;
-        if primeira.is_empty() {
+    let words: Vec<&str> = s.split('_').collect();
+    if words.len() < 2 {
+        let first = words.first()?;
+        if first.is_empty() {
             return None;
         }
-        return Some(capitalizar(primeira));
+        return Some(capitalize(first));
     }
     let mut r = String::new();
-    for w in palavras {
+    for w in words {
         if w.is_empty() {
             return None;
         }
-        r.push_str(&capitalizar(w));
+        r.push_str(&capitalize(w));
     }
     Some(r)
 }
 
 /// Uma regra de lint ligada no `analysis_options.yaml` que vale para o
 /// arquivo (`codeStyleOptions`).
-fn regra_ligada(caminho: Option<&std::path::Path>, nome: &str) -> bool {
-    caminho.is_some_and(|c| crate::refactorings_exec::regra_ligada_em(c, nome))
+fn enabled_rule(path: Option<&std::path::Path>, name: &str) -> bool {
+    path.is_some_and(|c| crate::refactorings_exec::rule_enabled_in(c, name))
 }
 
 impl<'a, 'c> Isp<'a, 'c> {
@@ -115,204 +115,204 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `identifierHelper(includePrivateIdentifiers: …)`: a primeira chamada
     /// fixa a opção.
-    pub(super) fn ih(&mut self, privados: bool) {
-        if self.privados.is_none() {
-            self.privados = Some(privados);
+    pub(super) fn ih(&mut self, private: bool) {
+        if self.private.is_none() {
+            self.private = Some(private);
         }
     }
 
     /// `_createNameSuggestion` / `IdentifierSuggestion` (`suggestName`, 500).
-    pub(super) fn item_nome(&mut self, nome: &str, corpo: bool) {
-        if nome.is_empty() {
+    pub(super) fn item_name(&mut self, name: &str, body: bool) {
+        if name.is_empty() {
             return;
         }
-        let Some(s) = self.pontuar(nome) else { return };
-        let completion = if corpo { format!("{nome} {{}}") } else { nome.to_string() };
-        let selecao = nome.encode_utf16().count() + if corpo { 2 } else { 0 };
-        let antes = self.coletor.itens.len();
-        let fim = completion.encode_utf16().count();
-        let item = self.coletor.empurrar(grupo::LOCAL, especie::VARIAVEL, completion.clone(), completion, None);
-        item.rel.fixa = Some(500);
-        if selecao != fim {
-            item.selecao = Some((selecao, 0));
+        let Some(s) = self.match_score(name) else { return };
+        let completion = if body { format!("{name} {{}}") } else { name.to_string() };
+        let selection = name.encode_utf16().count() + if body { 2 } else { 0 };
+        let before = self.collector.items.len();
+        let end = completion.encode_utf16().count();
+        let item = self.collector.push(group::LOCAL, kind::VARIABLE, completion.clone(), completion, None);
+        item.rel.fixed = Some(500);
+        if selection != end {
+            item.selection = Some((selection, 0));
         }
-        self.marcar(antes, s, false);
+        self.mark(before, s, false);
     }
 
     /// `addSuggestionsFromTypeName`.
-    pub(super) fn ih_do_nome_de_tipo(&mut self, nome_do_tipo: &str) {
-        let mut nomes = combinacoes_camel(nome_do_tipo);
-        if let Some(i) = nomes.iter().position(|n| n == nome_do_tipo) {
-            nomes.remove(i);
+    pub(super) fn type_name_ih(&mut self, type_name: &str) {
+        let mut names = camel_combinations(type_name);
+        if let Some(i) = names.iter().position(|n| n == type_name) {
+            names.remove(i);
         }
-        let privados = self.privados.unwrap_or(false);
-        for n in nomes {
-            self.item_nome(&n, false);
-            if privados {
-                self.item_nome(&format!("_{n}"), false);
+        let private = self.private.unwrap_or(false);
+        for n in names {
+            self.item_name(&n, false);
+            if private {
+                self.item_name(&format!("_{n}"), false);
             }
         }
     }
 
     /// `addVariable(type)`: só um `NamedType`.
-    pub(super) fn ih_variavel(&mut self, tipo: Option<usize>) {
-        if let Some(t) = tipo
-            && self.especie(t) == "NamedType"
+    pub(super) fn ih_variable(&mut self, ty: Option<usize>) {
+        if let Some(t) = ty
+            && self.kind(t) == "NamedType"
         {
-            let nome = self.nome_do_tipo_nomeado(t);
-            self.ih_do_nome_de_tipo(&nome);
+            let name = self.named_type_name(t);
+            self.type_name_ih(&name);
         }
     }
 
     /// `addTopLevelName`: o nome do arquivo em `UpperCamelCase`, se a
     /// biblioteca ainda não declara esse nome.
-    pub(super) fn ih_nome_de_topo(&mut self, corpo: bool) {
-        let Some(caminho) = self.caminho.clone() else { return };
-        let Some(base) = caminho.file_stem().and_then(|s| s.to_str()) else { return };
-        let Some(candidato) = camel_maiusculo(base) else { return };
-        let lib = self.consulta.programa.library(self.biblioteca());
-        if lib.declared.keys().any(|s| self.consulta.nome(*s) == candidato) {
+    pub(super) fn top_name_ih(&mut self, body: bool) {
+        let Some(path) = self.path.clone() else { return };
+        let Some(base) = path.file_stem().and_then(|s| s.to_str()) else { return };
+        let Some(candidate) = camel_upper(base) else { return };
+        let lib = self.query.program.library(self.library());
+        if lib.declared.keys().any(|s| self.query.name(*s) == candidate) {
             return;
         }
-        self.item_nome(&candidato, corpo);
+        self.item_name(&candidate, body);
     }
 
     // -- LabelHelper ----------------------------------------------------------------
 
     /// `addLabels`: os rótulos visíveis no `break`/`continue`.
-    pub(super) fn rotulos(&mut self, comando: usize) {
-        let com_casos = self.especie(comando) == "ContinueStatement";
-        let mut atual = Some(comando);
-        while let Some(k) = atual {
-            match self.especie(k) {
+    pub(super) fn labels(&mut self, command: usize) {
+        let with_cases = self.kind(command) == "ContinueStatement";
+        let mut current = Some(command);
+        while let Some(k) = current {
+            match self.kind(k) {
                 "SwitchStatement" => {
-                    if com_casos {
-                        for m in self.filhos_de(k, &["SwitchCase", "SwitchDefault", "SwitchPatternCase"]) {
-                            let rotulos = self.filhos_de(m, &["Label"]);
-                            self.visitar_rotulos(&rotulos);
+                    if with_cases {
+                        for m in self.children_of(k, &["SwitchCase", "SwitchDefault", "SwitchPatternCase"]) {
+                            let labels = self.children_of(m, &["Label"]);
+                            self.visit_labels(&labels);
                         }
                     }
                 }
                 "BlockFunctionBody" | "ExpressionFunctionBody" | "EmptyFunctionBody" | "NativeFunctionBody" => return,
                 "LabeledStatement" => {
-                    let rotulos = self.filhos_de(k, &["Label"]);
-                    self.visitar_rotulos(&rotulos);
+                    let labels = self.children_of(k, &["Label"]);
+                    self.visit_labels(&labels);
                 }
                 _ => {}
             }
-            atual = self.pai(k);
+            current = self.parent(k);
         }
     }
 
     /// `_visitLabels` / `suggestLabel` (`Relevance.label`, 1000).
-    pub(super) fn visitar_rotulos(&mut self, rotulos: &[usize]) {
-        for &r in rotulos {
-            let nome = self.fonte[self.ini(r)..self.fim(r)].trim_end_matches(':').trim().to_string();
-            let Some(s) = self.pontuar(&nome) else { continue };
-            if nome.is_empty() || nome == "_" {
+    pub(super) fn visit_labels(&mut self, labels: &[usize]) {
+        for &r in labels {
+            let name = self.source[self.start(r)..self.end(r)].trim_end_matches(':').trim().to_string();
+            let Some(s) = self.match_score(&name) else { continue };
+            if name.is_empty() || name == "_" {
                 continue;
             }
-            let antes = self.coletor.itens.len();
+            let before = self.collector.items.len();
             // `ElementKind.LABEL` → `CompletionItemKind.Text`.
-            let item = self.coletor.empurrar(grupo::LOCAL, 1, nome.clone(), nome, None);
-            item.rel.fixa = Some(1000);
-            self.marcar(antes, s, false);
+            let item = self.collector.push(group::LOCAL, 1, name.clone(), name, None);
+            item.rel.fixed = Some(1000);
+            self.mark(before, s, false);
         }
     }
 
     // -- OverrideHelper -------------------------------------------------------------
 
-    /// `interface.isSuperImplemented(nome)`: há implementação concreta na
+    /// `interface.isSuperImplemented(name)`: há implementação concreta na
     /// cadeia de superclasses (com os mixins).
-    pub(super) fn super_implementado(&self, c: ClassId, nome: SymbolId) -> bool {
-        let p = &self.consulta.programa;
-        let mut atual = p.class(p.dono_da_classe(c)).supertype_class;
-        let mut vistas = HashSet::new();
-        while let Some(x) = atual {
-            if !vistas.insert(x) {
+    pub(super) fn implemented_super(&self, c: ClassId, name: SymbolId) -> bool {
+        let p = &self.query.program;
+        let mut current = p.class(p.dono_da_classe(c)).supertype_class;
+        let mut seen = HashSet::new();
+        while let Some(x) = current {
+            if !seen.insert(x) {
                 break;
             }
             let cl = p.class(x);
-            let concreto = |k: ClassId| p.class(k).instance_members.get(&nome).is_some_and(|&f| !p.function(f).abstract_);
-            if concreto(x) || cl.mixin_classes.iter().any(|&m| concreto(m)) {
+            let concrete = |k: ClassId| p.class(k).instance_members.get(&name).is_some_and(|&f| !p.function(f).abstract_);
+            if concrete(x) || cl.mixin_classes.iter().any(|&m| concrete(m)) {
                 return true;
             }
-            atual = cl.supertype_class;
+            current = cl.supertype_class;
         }
         false
     }
 
     /// `containingNode.hasOverride`: o membro que contém o ponto já tem
     /// `@override`.
-    pub(super) fn membro_tem_override(&self) -> bool {
-        let Some(c) = self.no_coberto() else { return false };
-        let Some(m) = self.ancestral(c, &["MethodDeclaration", "FieldDeclaration"]) else { return false };
-        self.filhos_de(m, &["Annotation"]).iter().any(|&a| self.fonte[self.ini(a)..self.fim(a)].trim() == "@override")
+    pub(super) fn member_has_override(&self) -> bool {
+        let Some(c) = self.covered_node() else { return false };
+        let Some(m) = self.ancestor(c, &["MethodDeclaration", "FieldDeclaration"]) else { return false };
+        self.children_of(m, &["Annotation"]).iter().any(|&a| self.source[self.start(a)..self.end(a)].trim() == "@override")
     }
 
     /// `computeOverridesFor(interfaceElement, SourceRange(offset, 0), skipAt)`.
-    pub(super) fn sobrescritas(&mut self, c: ClassId, sem_arroba: bool) {
-        let p = &self.consulta.programa;
-        let dona = p.dono_da_classe(c);
-        let lib_c = p.class(dona).library;
-        let declarados: HashSet<SymbolId> = p.class(dona).instance_members.keys().copied().collect();
-        let membros = self.membros_da_interface(c, false, false);
-        let ja_tem_override = self.membro_tem_override();
-        for f in membros {
-            let fe = self.consulta.programa.function(f);
-            let simbolo = fe.name;
-            if declarados.contains(&simbolo) {
+    pub(super) fn overrides(&mut self, c: ClassId, without_at_sign: bool) {
+        let p = &self.query.program;
+        let owning = p.dono_da_classe(c);
+        let lib_c = p.class(owning).library;
+        let declared: HashSet<SymbolId> = p.class(owning).instance_members.keys().copied().collect();
+        let members = self.interface_members(c, false, false);
+        let already_has_override = self.member_has_override();
+        for f in members {
+            let fe = self.query.program.function(f);
+            let symbol = fe.name;
+            if declared.contains(&symbol) {
                 continue;
             }
-            let nome_cru = self.consulta.nome(simbolo).to_string();
-            if nome_cru.starts_with('_') && fe.library != lib_c {
+            let raw_name = self.query.name(symbol).to_string();
+            if raw_name.starts_with('_') && fe.library != lib_c {
                 continue;
             }
-            if self.anotacoes_do_membro(f).iter().any(|a| a == "nonVirtual") {
+            if self.member_annotations(f).iter().any(|a| a == "nonVirtual") {
                 continue;
             }
-            let exibicao = nome_cru.trim_end_matches('=').to_string();
-            let s = self.score("override").max(self.score("operator")).max(self.score(&exibicao));
+            let display = raw_name.trim_end_matches('=').to_string();
+            let s = self.score("override").max(self.score("operator")).max(self.score(&display));
             if s == -1.0 {
                 continue;
             }
-            let invocar_super = self.super_implementado(c, simbolo);
-            self.item_sobrescrita(c, f, invocar_super, sem_arroba, ja_tem_override, s);
+            let invoke_super = self.implemented_super(c, symbol);
+            self.item_override(c, f, invoke_super, without_at_sign, already_has_override, s);
         }
     }
 
     /// `suggestOverride`: o texto do `writeOverride`, a seleção e o rótulo.
-    pub(super) fn item_sobrescrita(&mut self, c: ClassId, f: FunctionElementId, invocar_super: bool, sem_arroba: bool, ja_tem_override: bool, score: f64) {
-        let fe = self.consulta.programa.function(f).clone();
-        let nome_cru = self.consulta.nome(fe.name).to_string();
-        let nome = nome_cru.trim_end_matches('=').to_string();
-        let setter = fe.kind == FunctionKind::Setter || (fe.kind == FunctionKind::ImplicitAccessor && nome_cru.ends_with('='));
+    pub(super) fn item_override(&mut self, c: ClassId, f: FunctionElementId, invoke_super: bool, without_at_sign: bool, already_has_override: bool, score: f64) {
+        let fe = self.query.program.function(f).clone();
+        let raw_name = self.query.name(fe.name).to_string();
+        let name = raw_name.trim_end_matches('=').to_string();
+        let setter = fe.kind == FunctionKind::Setter || (fe.kind == FunctionKind::ImplicitAccessor && raw_name.ends_with('='));
         let getter = !setter && matches!(fe.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor);
-        let operador = fe.kind == FunctionKind::Operator;
+        let operator = fe.kind == FunctionKind::Operator;
         // O membro como a classe o vê (os parâmetros de tipo dos supertipos
         // substituídos).
-        let this = self.tipo_this(c);
-        let lib = self.biblioteca();
-        let busca = if setter { self.consulta.nomes.lookup(&nome) } else { Some(fe.name) };
-        let tipo = busca
-            .and_then(|s| self.consulta.resolvedor().lookup_member(this, s, setter, lib))
+        let this = self.type_this(c);
+        let lib = self.library();
+        let search = if setter { self.query.names.lookup(&name) } else { Some(fe.name) };
+        let ty = search
+            .and_then(|s| self.query.resolver().lookup_member(this, s, setter, lib))
             .map(|(_, t)| t)
-            .unwrap_or_else(|| super::tipo_declarado(self.consulta, f));
-        let (retorno, posicionais, opcionais, nomeados, parametros_de_tipo) = match self.consulta.tabela.get(tipo).clone() {
+            .unwrap_or_else(|| super::declared_type(self.query, f));
+        let (return_, positional_, optional_, named_, type_parameters) = match self.query.table.get(ty).clone() {
             Type::Function { ret, positional, optional, named, type_params, .. } if !getter && !setter => (ret, positional.to_vec(), optional.to_vec(), named.to_vec(), type_params.to_vec()),
-            _ if setter => (self.consulta.core.void_, vec![tipo], Vec::new(), Vec::new(), Vec::new()),
-            _ => (tipo, Vec::new(), Vec::new(), Vec::new(), Vec::new()),
+            _ if setter => (self.query.core.void_, vec![ty], Vec::new(), Vec::new(), Vec::new()),
+            _ => (ty, Vec::new(), Vec::new(), Vec::new(), Vec::new()),
         };
-        let parametros_ast = self.parametros_do_membro(f);
-        let mut escritor = crate::write_type::Escritor::da_consulta(&*self.consulta, lib, Some(c), None);
-        escritor.copiado = Some(f);
+        let parameters_ast = self.member_parameters(f);
+        let mut writer = crate::write_type::Writer::of_query(&*self.query, lib, Some(c), None);
+        writer.copied = Some(f);
         let mut s = String::from("@override\n  ");
-        let mut exib = String::new();
-        let selecao: (usize, usize);
+        let mut display = String::new();
+        let selection: (usize, usize);
         if getter {
-            s.push_str(&format!("// TODO: implement {nome}\n  "));
+            s.push_str(&format!("// TODO: implement {name}\n  "));
         }
-        if !setter && let Some(t) = escritor.escrever_tipo(Some(retorno), false) {
+        if !setter && let Some(t) = writer.write_type(Some(return_), false) {
             s.push_str(&t);
             s.push(' ');
         }
@@ -320,237 +320,237 @@ impl<'a, 'c> Isp<'a, 'c> {
             s.push_str("get ");
         } else if setter {
             s.push_str("set ");
-        } else if operador {
+        } else if operator {
             s.push_str("operator ");
         }
-        s.push_str(&nome);
-        exib.push_str(&nome);
+        s.push_str(&name);
+        display.push_str(&name);
         if getter {
             s.push_str(" => ");
-            let corpo = if invocar_super { format!("super.{nome}") } else { "throw UnimplementedError()".to_string() };
-            selecao = (s.len(), corpo.len());
-            s.push_str(&corpo);
-            s.push_str(if invocar_super { ";\n" } else { ";" });
-            exib.push_str(" => …");
+            let body = if invoke_super { format!("super.{name}") } else { "throw UnimplementedError()".to_string() };
+            selection = (s.len(), body.len());
+            s.push_str(&body);
+            s.push_str(if invoke_super { ";\n" } else { ";" });
+            display.push_str(" => …");
         } else {
             // `writeTypeParameters` + `writeParameters`.
-            let mut cabeca = String::new();
-            if !parametros_de_tipo.is_empty() {
-                cabeca.push('<');
-                for (i, tp) in parametros_de_tipo.iter().enumerate() {
+            let mut head = String::new();
+            if !type_parameters.is_empty() {
+                head.push('<');
+                for (i, tp) in type_parameters.iter().enumerate() {
                     if i > 0 {
-                        cabeca.push_str(", ");
+                        head.push_str(", ");
                     }
-                    let dados = self.consulta.tabela.param(*tp);
-                    cabeca.push_str(self.consulta.nome(dados.name));
-                    if dados.explicito
-                        && let Some(b) = escritor.escrever(dados.bound, false)
+                    let data = self.query.table.param(*tp);
+                    head.push_str(self.query.name(data.name));
+                    if data.explicito
+                        && let Some(b) = writer.write(data.bound, false)
                     {
-                        cabeca.push_str(" extends ");
-                        cabeca.push_str(&b);
+                        head.push_str(" extends ");
+                        head.push_str(&b);
                     }
                 }
-                cabeca.push('>');
+                head.push('>');
             }
-            let tipos_dos_parametros: Vec<TypeId> = posicionais.iter().chain(opcionais.iter()).copied().collect();
-            let mut nomes_usados: HashSet<String> = parametros_ast.iter().filter_map(|x| x.nome.clone()).collect();
-            cabeca.push('(');
-            let (mut viu_nomeado, mut viu_opcional) = (false, false);
-            let mut nomes_da_chamada: Vec<(bool, String)> = Vec::new();
-            for (i, prm) in parametros_ast.iter().enumerate() {
+            let parameter_types: Vec<TypeId> = positional_.iter().chain(optional_.iter()).copied().collect();
+            let mut used_names: HashSet<String> = parameters_ast.iter().filter_map(|x| x.name.clone()).collect();
+            head.push('(');
+            let (mut saw_named, mut saw_optional) = (false, false);
+            let mut call_names: Vec<(bool, String)> = Vec::new();
+            for (i, prm) in parameters_ast.iter().enumerate() {
                 if i > 0 {
-                    cabeca.push_str(", ");
+                    head.push_str(", ");
                 }
-                if prm.nomeado && !viu_nomeado {
-                    cabeca.push('{');
-                    viu_nomeado = true;
-                } else if prm.opcional && !viu_opcional {
-                    cabeca.push('[');
-                    viu_opcional = true;
+                if prm.named && !saw_named {
+                    head.push('{');
+                    saw_named = true;
+                } else if prm.optional && !saw_optional {
+                    head.push('[');
+                    saw_optional = true;
                 }
-                let nome_p = match &prm.nome {
+                let name_p = match &prm.name {
                     Some(n) if !n.is_empty() => n.clone(),
                     _ => {
                         let mut k = 1;
-                        while nomes_usados.contains(&format!("p{k}")) {
+                        while used_names.contains(&format!("p{k}")) {
                             k += 1;
                         }
                         let n = format!("p{k}");
-                        nomes_usados.insert(n.clone());
+                        used_names.insert(n.clone());
                         n
                     }
                 };
-                let tipo_p = if prm.nomeado {
-                    nomeados.iter().find(|(s, _, _)| self.consulta.nome(*s) == nome_p).map(|(_, t, _)| *t)
+                let type_p = if prm.named {
+                    named_.iter().find(|(s, _, _)| self.query.name(*s) == name_p).map(|(_, t, _)| *t)
                 } else {
-                    tipos_dos_parametros.get(prm.posicao).copied()
+                    parameter_types.get(prm.position).copied()
                 };
-                if prm.covariante {
-                    cabeca.push_str("covariant ");
+                if prm.covariant {
+                    head.push_str("covariant ");
                 }
-                if prm.requerido_nomeado {
-                    cabeca.push_str("required ");
+                if prm.required_named {
+                    head.push_str("required ");
                 }
-                match escritor.escrever_tipo(tipo_p, false) {
+                match writer.write_type(type_p, false) {
                     Some(t) => {
-                        cabeca.push_str(&t);
-                        cabeca.push(' ');
-                        cabeca.push_str(&nome_p);
+                        head.push_str(&t);
+                        head.push(' ');
+                        head.push_str(&name_p);
                     }
-                    None => cabeca.push_str(&nome_p),
+                    None => head.push_str(&name_p),
                 }
-                if let Some(d) = &prm.padrao {
-                    cabeca.push_str(" = ");
-                    cabeca.push_str(d);
+                if let Some(d) = &prm.pattern {
+                    head.push_str(" = ");
+                    head.push_str(d);
                 }
-                nomes_da_chamada.push((prm.nomeado, nome_p));
+                call_names.push((prm.named, name_p));
             }
-            if viu_nomeado {
-                cabeca.push('}');
+            if saw_named {
+                head.push('}');
             }
-            if viu_opcional {
-                cabeca.push(']');
+            if saw_optional {
+                head.push(']');
             }
-            cabeca.push(')');
-            s.push_str(&cabeca);
-            exib.push_str(&cabeca);
+            head.push(')');
+            s.push_str(&head);
+            display.push_str(&head);
             s.push_str(" {\n    ");
-            s.push_str(&format!("// TODO: implement {nome}"));
-            let invocacao = {
-                let mut x = String::from(if operador { " " } else { "." });
-                x.push_str(&nome);
-                x.push_str(if operador { " " } else { "(" });
-                for (i, (nomeado, n)) in nomes_da_chamada.iter().enumerate() {
+            s.push_str(&format!("// TODO: implement {name}"));
+            let invocation = {
+                let mut x = String::from(if operator { " " } else { "." });
+                x.push_str(&name);
+                x.push_str(if operator { " " } else { "(" });
+                for (i, (named2, n)) in call_names.iter().enumerate() {
                     if i > 0 {
                         x.push_str(", ");
                     }
-                    if *nomeado {
+                    if *named2 {
                         x.push_str(n);
                         x.push_str(": ");
                     }
                     x.push_str(n);
                 }
-                x.push_str(if operador { ";" } else { ");" });
+                x.push_str(if operator { ";" } else { ");" });
                 x
             };
-            let e_void = matches!(self.consulta.tabela.get(retorno), Type::Void);
+            let is_void = matches!(self.query.table.get(return_), Type::Void);
             if setter {
-                if invocar_super {
+                if invoke_super {
                     s.push_str("\n    ");
-                    let primeiro = nomes_da_chamada.first().map(|(_, n)| n.clone()).unwrap_or_default();
-                    let corpo = format!("super.{nome} = {primeiro};");
-                    selecao = (s.len(), corpo.len());
-                    s.push_str(&corpo);
+                    let first = call_names.first().map(|(_, n)| n.clone()).unwrap_or_default();
+                    let body = format!("super.{name} = {first};");
+                    selection = (s.len(), body.len());
+                    s.push_str(&body);
                 } else {
-                    selecao = (s.len(), 0);
+                    selection = (s.len(), 0);
                 }
-            } else if e_void {
-                if invocar_super {
+            } else if is_void {
+                if invoke_super {
                     s.push_str("\n    ");
-                    let corpo = format!("super{invocacao}");
-                    selecao = (s.len(), corpo.len());
-                    s.push_str(&corpo);
+                    let body = format!("super{invocation}");
+                    selection = (s.len(), body.len());
+                    s.push_str(&body);
                 } else {
-                    selecao = (s.len(), 0);
+                    selection = (s.len(), 0);
                 }
             } else {
                 s.push_str("\n    ");
-                let corpo = if invocar_super { format!("return super{invocacao}") } else { "throw UnimplementedError();".to_string() };
-                selecao = (s.len(), corpo.len());
-                s.push_str(&corpo);
+                let body = if invoke_super { format!("return super{invocation}") } else { "throw UnimplementedError();".to_string() };
+                selection = (s.len(), body.len());
+                s.push_str(&body);
             }
             s.push_str("\n  }");
-            exib.push_str(" { … }");
+            display.push_str(" { … }");
         }
-        let importar: Vec<LibraryId> = escritor.importar.iter().copied().collect();
-        drop(escritor);
+        let import: Vec<LibraryId> = writer.import.iter().copied().collect();
+        drop(writer);
         // `completion = replacement.trim()`, sem o `@override` que o membro
         // já tem, ou sem o `@` já digitado.
         let mut completion = s.trim().to_string();
-        let mut inicio = s.find(&completion).unwrap_or(0);
-        if ja_tem_override && completion.starts_with("@override") {
-            let resto = completion["@override".len()..].trim().to_string();
-            inicio = s.find(&resto).unwrap_or(inicio);
-            completion = resto;
+        let mut start = s.find(&completion).unwrap_or(0);
+        if already_has_override && completion.starts_with("@override") {
+            let rest = completion["@override".len()..].trim().to_string();
+            start = s.find(&rest).unwrap_or(start);
+            completion = rest;
         }
-        if sem_arroba && completion.starts_with("@override") {
+        if without_at_sign && completion.starts_with("@override") {
             completion = completion[1..].to_string();
-            inicio += 1;
+            start += 1;
         }
-        if completion.is_empty() || exib.is_empty() {
+        if completion.is_empty() || display.is_empty() {
             return;
         }
-        if sem_arroba {
-            exib = format!("override {exib}");
+        if without_at_sign {
+            display = format!("override {display}");
         }
         let utf16 = |x: &str| x.encode_utf16().count();
-        let sel_ini = selecao.0.saturating_sub(inicio);
-        let selecao_utf16 = (utf16(&s[inicio..inicio + sel_ini.min(s.len() - inicio)]), utf16(&s[selecao.0..(selecao.0 + selecao.1).min(s.len())]));
-        let especie_lsp = if getter || setter { especie::PROPRIEDADE } else { especie::METODO };
-        let antes = self.coletor.itens.len();
-        let origem = self.consulta.origem(self.consulta.inicio_da_funcao(f));
-        let item = self.coletor.empurrar(grupo::MEMBRO, especie_lsp, completion.clone(), completion, None);
-        item.exibicao = Some(exib);
-        item.selecao = Some(selecao_utf16);
-        item.rel.fixa = Some(750);
-        item.origem = origem;
-        item.casar = Some(if operador { "override_operator".to_string() } else { format!("override_{nome}") });
-        if let Some(&l) = importar.first() {
-            let uri = self.consulta.programa.library(l).uri.clone();
+        let sel_start = selection.0.saturating_sub(start);
+        let selection_utf16 = (utf16(&s[start..start + sel_start.min(s.len() - start)]), utf16(&s[selection.0..(selection.0 + selection.1).min(s.len())]));
+        let lsp_kind = if getter || setter { kind::PROPERTY } else { kind::METHOD };
+        let before = self.collector.items.len();
+        let origin = self.query.origin(self.query.function_start(f));
+        let item = self.collector.push(group::MEMBER, lsp_kind, completion.clone(), completion, None);
+        item.display = Some(display);
+        item.selection = Some(selection_utf16);
+        item.rel.fixed = Some(750);
+        item.origin = origin;
+        item.match_ = Some(if operator { "override_operator".to_string() } else { format!("override_{name}") });
+        if let Some(&l) = import.first() {
+            let uri = self.query.program.library(l).uri.clone();
             if uri.starts_with("dart:") || uri.starts_with("package:") {
-                let (span, novo) = crate::actions::inserir_import(self.fonte, self.cu, &uri);
-                item.importar = Some(ImportAutomatico { uri, span, texto: novo });
+                let (span, new) = crate::actions::insert_import(self.source, self.cu, &uri);
+                item.import = Some(AutoImport { uri, span, text: new });
             }
         }
-        self.marcar(antes, score, false);
+        self.mark(before, score, false);
     }
 
     /// Os parâmetros declarados de um membro, na ordem (nome, espécie,
     /// `required`, `covariant`, o texto do valor padrão).
-    pub(super) fn parametros_do_membro(&self, f: FunctionElementId) -> Vec<ParametroEscrito> {
-        let p = &self.consulta.programa;
+    pub(super) fn member_parameters(&self, f: FunctionElementId) -> Vec<WrittenParameter> {
+        let p = &self.query.program;
         let fe = p.function(f);
         match fe.node {
             dartforge_elements::model::FunctionRef::Function { unit, function } => {
                 let u = p.unit(unit);
                 let func = u.ast.function(function);
-                let mut posicao = 0usize;
+                let mut position = 0usize;
                 func.parameters
                     .iter()
                     .flatten()
                     .map(|x| {
-                        let nomeado = x.kind == ast::ParameterKind::Named;
-                        let pos = posicao;
-                        if !nomeado {
-                            posicao += 1;
+                        let named = x.kind == ast::ParameterKind::Named;
+                        let pos = position;
+                        if !named {
+                            position += 1;
                         }
-                        ParametroEscrito {
-                            nome: x.nome_externo().map(|n| u.source[n.span.start..n.span.end].to_string()),
-                            nomeado,
-                            opcional: x.kind == ast::ParameterKind::Optional,
-                            requerido_nomeado: nomeado && x.required,
-                            covariante: x.covariant,
-                            padrao: x.default_value.map(|e| {
+                        WrittenParameter {
+                            name: x.nome_externo().map(|n| u.source[n.span.start..n.span.end].to_string()),
+                            named,
+                            optional: x.kind == ast::ParameterKind::Optional,
+                            required_named: named && x.required,
+                            covariant: x.covariant,
+                            pattern: x.default_value.map(|e| {
                                 let s = u.ast.expr(e).span;
                                 u.source[s.start..s.end].to_string()
                             }),
-                            posicao: pos,
+                            position: pos,
                         }
                     })
                     .collect()
             }
             _ => {
                 // O setter implícito de um campo: `_x`.
-                if fe.kind == FunctionKind::ImplicitAccessor && self.consulta.nome(fe.name).ends_with('=') {
-                    let base = self.consulta.nome(fe.name).trim_end_matches('=').to_string();
-                    let covariante = fe.variable.is_some_and(|v| match p.variable(v).node {
+                if fe.kind == FunctionKind::ImplicitAccessor && self.query.name(fe.name).ends_with('=') {
+                    let base = self.query.name(fe.name).trim_end_matches('=').to_string();
+                    let covariant = fe.variable.is_some_and(|v| match p.variable(v).node {
                         dartforge_elements::model::VariableRef::Field { unit, member, .. } => {
                             p.unit(unit).ast.member(member).span.start < p.unit(unit).source.len()
                                 && p.unit(unit).source[p.unit(unit).ast.member(member).span.start..p.unit(unit).ast.member(member).span.end].contains("covariant ")
                         }
                         _ => false,
                     });
-                    vec![ParametroEscrito { nome: Some(format!("_{base}")), nomeado: false, opcional: false, requerido_nomeado: false, covariante, padrao: None, posicao: 0 }]
+                    vec![WrittenParameter { name: Some(format!("_{base}")), named: false, optional: false, required_named: false, covariant, pattern: None, position: 0 }]
                 } else {
                     Vec::new()
                 }
@@ -562,151 +562,151 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `addSuggestions(uri)`: o nó é o `SimpleStringLiteral` da diretiva.
     pub(super) fn uris(&mut self, n: usize) {
-        let (inicio, fim) = (self.ini(n), self.fim(n));
-        let tamanho = self.fonte.len();
-        let ultimo_e_aspa = || {
-            let c = self.fonte[..fim].chars().last();
+        let (start, end) = (self.start(n), self.end(n));
+        let size = self.source.len();
+        let last_is_quote = || {
+            let c = self.source[..end].chars().last();
             matches!(c, Some('"') | Some('\''))
         };
-        let ok = if self.offset > inicio {
-            if self.offset < fim {
+        let ok = if self.offset > start {
+            if self.offset < end {
                 true
-            } else if self.offset == fim {
-                fim == inicio + 1 || (fim == tamanho && !ultimo_e_aspa())
+            } else if self.offset == end {
+                end == start + 1 || (end == size && !last_is_quote())
             } else {
                 false
             }
         } else {
-            self.offset == inicio && self.offset == fim && fim == tamanho && ultimo_e_aspa()
+            self.offset == start && self.offset == end && end == size && last_is_quote()
         };
         if ok {
-            self.literal_de_uri(n);
+            self.uri_literal(n);
         }
     }
 
     /// `_simpleStringLiteral`.
-    pub(super) fn literal_de_uri(&mut self, n: usize) {
-        let Some(pai) = self.pai(n) else { return };
-        let Some(parcial) = self.uri_parcial(n) else { return };
-        match self.especie(pai) {
+    pub(super) fn uri_literal(&mut self, n: usize) {
+        let Some(parent) = self.parent(n) else { return };
+        let Some(partial) = self.partial_uri(n) else { return };
+        match self.kind(parent) {
             "Configuration" | "ImportDirective" | "ExportDirective" => {
                 self.uris_dart();
-                self.uris_de_pacote(&parcial);
-                self.uris_de_arquivo(&parcial);
+                self.package_uris(&partial);
+                self.file_uris(&partial);
             }
-            "PartDirective" | "PartOfDirective" => self.uris_de_arquivo(&parcial),
+            "PartDirective" | "PartOfDirective" => self.file_uris(&partial),
             _ => {}
         }
     }
 
     /// `contentsOffset` do literal (depois de `r` e das aspas).
-    pub(super) fn inicio_do_conteudo(&self, n: usize) -> usize {
-        let t = &self.fonte[self.ini(n)..self.fim(n)];
+    pub(super) fn content_start(&self, n: usize) -> usize {
+        let t = &self.source[self.start(n)..self.end(n)];
         let mut k = 0usize;
         if t.starts_with('r') {
             k += 1;
         }
-        let resto = &t[k..];
-        if resto.starts_with("'''") || resto.starts_with("\"\"\"") {
+        let rest = &t[k..];
+        if rest.starts_with("'''") || rest.starts_with("\"\"\"") {
             k += 3;
-        } else if resto.starts_with('\'') || resto.starts_with('"') {
+        } else if rest.starts_with('\'') || rest.starts_with('"') {
             k += 1;
         }
-        self.ini(n) + k
+        self.start(n) + k
     }
 
     /// `_extractPartialUri`.
-    pub(super) fn uri_parcial(&self, n: usize) -> Option<String> {
-        let c = self.inicio_do_conteudo(n);
+    pub(super) fn partial_uri(&self, n: usize) -> Option<String> {
+        let c = self.content_start(n);
         if self.offset < c {
             return None;
         }
-        Some(self.fonte[c..self.offset.min(self.fonte.len())].to_string())
+        Some(self.source[c..self.offset.min(self.source.len())].to_string())
     }
 
     /// `_suggestUri` (`Relevance.import` 900; `dart:core` 100).
     pub(super) fn item_uri(&mut self, uri: &str) {
-        let Some(s) = self.pontuar(uri) else { return };
-        let especie_lsp = if uri.starts_with("dart:") {
-            especie::MODULO
+        let Some(s) = self.match_score(uri) else { return };
+        let lsp_kind = if uri.starts_with("dart:") {
+            kind::MODULE
         } else if uri.ends_with(".dart") {
             17
         } else {
             19
         };
-        let antes = self.coletor.itens.len();
-        let item = self.coletor.empurrar(grupo::BIBLIOTECA, especie_lsp, uri.to_string(), uri.to_string(), None);
-        item.rel.fixa = Some(if uri == "dart:core" { 100 } else { 900 });
-        self.marcar(antes, s, false);
+        let before = self.collector.items.len();
+        let item = self.collector.push(group::LIBRARY, lsp_kind, uri.to_string(), uri.to_string(), None);
+        item.rel.fixed = Some(if uri == "dart:core" { 100 } else { 900 });
+        self.mark(before, s, false);
     }
 
     /// `_addDartSuggestions`.
     pub(super) fn uris_dart(&mut self) {
         self.item_uri("dart:");
-        for u in BIBLIOTECAS_DART {
+        for u in LIBRARIES_DART {
             self.item_uri(u);
         }
     }
 
     /// `_addPackageSuggestions`.
-    pub(super) fn uris_de_pacote(&mut self, parcial: &str) {
-        let Some(arquivo) = self.caminho.clone() else { return };
-        let Some(config) = dartforge_elements::config::PackageConfig::discover(&arquivo).and_then(|c| dartforge_elements::config::PackageConfig::load(&c).ok()) else {
+    pub(super) fn package_uris(&mut self, partial: &str) {
+        let Some(file) = self.path.clone() else { return };
+        let Some(config) = dartforge_elements::config::PackageConfig::discover(&file).and_then(|c| dartforge_elements::config::PackageConfig::load(&c).ok()) else {
             return;
         };
         self.item_uri("package:");
-        for (nome, pasta) in config.package_dirs.iter() {
-            let prefixo = format!("package:{nome}/");
-            self.item_uri(&prefixo);
-            if pasta.is_dir() {
-                self.pasta_de_pacote(parcial, &prefixo, pasta);
+        for (name, folder) in config.package_dirs.iter() {
+            let prefix = format!("package:{name}/");
+            self.item_uri(&prefix);
+            if folder.is_dir() {
+                self.package_folder(partial, &prefix, folder);
             }
         }
     }
 
     /// `_addPackageFolderSuggestions`.
-    pub(super) fn pasta_de_pacote(&mut self, parcial: &str, prefixo: &str, pasta: &std::path::Path) {
-        let Ok(entradas) = std::fs::read_dir(pasta) else { return };
-        let mut filhos: Vec<std::path::PathBuf> = entradas.filter_map(|e| e.ok().map(|e| e.path())).collect();
-        filhos.sort();
-        for f in filhos {
-            let Some(nome) = f.file_name().and_then(|s| s.to_str()).map(str::to_string) else { continue };
+    pub(super) fn package_folder(&mut self, partial: &str, prefix: &str, folder: &std::path::Path) {
+        let Ok(entries) = std::fs::read_dir(folder) else { return };
+        let mut children: Vec<std::path::PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        children.sort();
+        for f in children {
+            let Some(name) = f.file_name().and_then(|s| s.to_str()).map(str::to_string) else { continue };
             if f.is_dir() {
-                let filho = format!("{prefixo}{nome}/");
-                self.item_uri(&filho);
-                if parcial.starts_with(&filho) {
-                    self.pasta_de_pacote(parcial, &filho, &f);
+                let child = format!("{prefix}{name}/");
+                self.item_uri(&child);
+                if partial.starts_with(&child) {
+                    self.package_folder(partial, &child, &f);
                 }
-            } else if nome.ends_with(".dart") {
-                self.item_uri(&format!("{prefixo}{nome}"));
+            } else if name.ends_with(".dart") {
+                self.item_uri(&format!("{prefix}{name}"));
             }
         }
     }
 
     /// `_addFileSuggestions`.
-    pub(super) fn uris_de_arquivo(&mut self, parcial: &str) {
-        let Some(arquivo) = self.caminho.clone() else { return };
-        let pai_uri = if parcial.ends_with('/') {
-            parcial.to_string()
+    pub(super) fn file_uris(&mut self, partial: &str) {
+        let Some(file) = self.path.clone() else { return };
+        let parent_uri = if partial.ends_with('/') {
+            partial.to_string()
         } else {
-            let d = match parcial.rfind('/') {
+            let d = match partial.rfind('/') {
                 Some(0) => "/".to_string(),
-                Some(i) => parcial[..i].to_string(),
+                Some(i) => partial[..i].to_string(),
                 None => ".".to_string(),
             };
             if d != "." && !d.ends_with('/') { format!("{d}/") } else { d }
         };
-        let prefixo_uri = if pai_uri == "." { String::new() } else { pai_uri.clone() };
-        let esquema = pai_uri.split_once(':').map(|(e, _)| e).filter(|e| !e.contains('/') && e.len() > 1);
-        if !pai_uri.starts_with("file://") && esquema.is_some() {
+        let prefix_uri = if parent_uri == "." { String::new() } else { parent_uri.clone() };
+        let scheme = parent_uri.split_once(':').map(|(e, _)| e).filter(|e| !e.contains('/') && e.len() > 1);
+        if !parent_uri.starts_with("file://") && scheme.is_some() {
             return;
         }
-        let caminho_dir = if let Some(r) = pai_uri.strip_prefix("file://") { std::path::PathBuf::from(r) } else { std::path::PathBuf::from(&pai_uri) };
-        let fonte_dir = arquivo.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
-        let mut dir = caminho_dir.clone();
+        let dir_path = if let Some(r) = parent_uri.strip_prefix("file://") { std::path::PathBuf::from(r) } else { std::path::PathBuf::from(&parent_uri) };
+        let source_dir = file.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+        let mut dir = dir_path.clone();
         if dir.is_relative() {
-            dir = fonte_dir.join(&caminho_dir);
-            let normalizar = |p: &std::path::Path| {
+            dir = source_dir.join(&dir_path);
+            let normalize = |p: &std::path::Path| {
                 let mut v: Vec<std::path::Component> = Vec::new();
                 for c in p.components() {
                     match c {
@@ -719,27 +719,27 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
                 v.iter().collect::<std::path::PathBuf>()
             };
-            dir = normalizar(&dir);
-            let em_lib = |p: &std::path::Path| p.components().any(|c| c.as_os_str() == "lib");
-            if em_lib(&fonte_dir) && !em_lib(&dir) {
+            dir = normalize(&dir);
+            let in_lib = |p: &std::path::Path| p.components().any(|c| c.as_os_str() == "lib");
+            if in_lib(&source_dir) && !in_lib(&dir) {
                 return;
             }
         }
-        let Ok(entradas) = std::fs::read_dir(&dir) else { return };
-        let mut filhos: Vec<std::path::PathBuf> = entradas.filter_map(|e| e.ok().map(|e| e.path())).collect();
-        filhos.sort();
-        let proprio = arquivo.file_name().and_then(|s| s.to_str()).map(str::to_string);
-        for f in filhos {
-            let Some(nome) = f.file_name().and_then(|s| s.to_str()).map(str::to_string) else { continue };
+        let Ok(entries) = std::fs::read_dir(&dir) else { return };
+        let mut children: Vec<std::path::PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        children.sort();
+        let own = file.file_name().and_then(|s| s.to_str()).map(str::to_string);
+        for f in children {
+            let Some(name) = f.file_name().and_then(|s| s.to_str()).map(str::to_string) else { continue };
             let completion = if f.is_dir() {
-                (!nome.starts_with('.')).then(|| format!("{prefixo_uri}{nome}/"))
-            } else if nome.ends_with(".dart") {
-                Some(format!("{prefixo_uri}{nome}"))
+                (!name.starts_with('.')).then(|| format!("{prefix_uri}{name}/"))
+            } else if name.ends_with(".dart") {
+                Some(format!("{prefix_uri}{name}"))
             } else {
                 None
             };
             if let Some(c) = completion
-                && Some(&c) != proprio.as_ref()
+                && Some(&c) != own.as_ref()
             {
                 self.item_uri(&c);
             }
@@ -749,199 +749,199 @@ impl<'a, 'c> Isp<'a, 'c> {
     // -- Closures, argumentos nomeados e campos de record ------------------------------
 
     /// `_addClosureSuggestion` sem os nomes dos posicionais (gerados `p0`…).
-    pub(super) fn sugerir_closure(&mut self, tipo: TypeId, virgula: bool) {
-        self.sugerir_closure_com_nomes(tipo, &[], virgula);
+    pub(super) fn suggest_closure(&mut self, ty: TypeId, comma: bool) {
+        self.suggest_closure_with_names(ty, &[], comma);
     }
 
     /// `_addClosureSuggestion`: a de bloco e a de seta, ambas com
-    /// `matcherScore` 0 (`Relevance.closure`, 900). `nomes` são os dos
+    /// `matcherScore` 0 (`Relevance.closure`, 900). `names` são os dos
     /// posicionais do tipo de função escrito (o tipo do DartForge não os
     /// guarda).
-    pub(super) fn sugerir_closure_com_nomes(&mut self, tipo: TypeId, nomes: &[String], virgula: bool) {
-        let Type::Function { positional, optional, named, .. } = self.consulta.tabela.get(tipo).clone() else { return };
-        let incluir_tipos = regra_ligada(self.caminho.as_deref(), "always_specify_types");
-        let recuo = self.recuo_da_linha();
-        let mut parametros: Vec<(String, TypeId, u8, bool)> = Vec::new();
+    pub(super) fn suggest_closure_with_names(&mut self, ty: TypeId, names: &[String], comma: bool) {
+        let Type::Function { positional, optional, named, .. } = self.query.table.get(ty).clone() else { return };
+        let include_types = enabled_rule(self.path.as_deref(), "always_specify_types");
+        let indent = self.line_indent();
+        let mut parameters: Vec<(String, TypeId, u8, bool)> = Vec::new();
         for (i, &t) in positional.iter().enumerate() {
-            parametros.push((nomes.get(i).cloned().unwrap_or_default(), t, 0, false));
+            parameters.push((names.get(i).cloned().unwrap_or_default(), t, 0, false));
         }
         for (i, &t) in optional.iter().enumerate() {
-            parametros.push((nomes.get(positional.len() + i).cloned().unwrap_or_default(), t, 1, false));
+            parameters.push((names.get(positional.len() + i).cloned().unwrap_or_default(), t, 1, false));
         }
         // `FunctionType.parameters`: os nomeados em ordem lexical.
-        let mut nomeados: Vec<(String, TypeId, bool)> = named.iter().map(|(n, t, r)| (self.consulta.nome(*n).to_string(), *t, *r)).collect();
-        nomeados.sort_by(|a, b| a.0.cmp(&b.0));
-        for (n, t, r) in nomeados {
-            parametros.push((n, t, 2, r));
+        let mut named2: Vec<(String, TypeId, bool)> = named.iter().map(|(n, t, r)| (self.query.name(*n).to_string(), *t, *r)).collect();
+        named2.sort_by(|a, b| a.0.cmp(&b.0));
+        for (n, t, r) in named2 {
+            parameters.push((n, t, 2, r));
         }
-        let montar = |isp: &Self, tipos: bool, palavras: bool| -> String {
-            let existentes: HashSet<String> = parametros.iter().map(|p| p.0.clone()).collect();
+        let build = |isp: &Self, types: bool, words: bool| -> String {
+            let existing: HashSet<String> = parameters.iter().map(|p| p.0.clone()).collect();
             let mut b = String::from("(");
-            let (mut nomeado, mut opcional) = (false, false);
-            for (i, (nome, t, k, req)) in parametros.iter().enumerate() {
+            let (mut named_, mut optional_) = (false, false);
+            for (i, (name, t, k, req)) in parameters.iter().enumerate() {
                 if i != 0 {
                     b.push_str(", ");
                 }
-                if *k == 2 && !nomeado {
-                    nomeado = true;
+                if *k == 2 && !named_ {
+                    named_ = true;
                     b.push('{');
-                } else if *k == 1 && !opcional {
-                    opcional = true;
+                } else if *k == 1 && !optional_ {
+                    optional_ = true;
                     b.push('[');
                 }
-                if tipos {
-                    b.push_str(&isp.consulta.formatar(*t));
+                if types {
+                    b.push_str(&isp.query.format(*t));
                     b.push(' ');
                 }
-                let mut n = nome.clone();
+                let mut n = name.clone();
                 if n.is_empty() {
                     n = format!("p{i}");
-                    let mut indice = 1;
-                    while existentes.contains(&n) {
-                        n = format!("p{i}_{indice}");
-                        indice += 1;
+                    let mut index = 1;
+                    while existing.contains(&n) {
+                        n = format!("p{i}_{index}");
+                        index += 1;
                     }
                 }
-                if palavras && *req {
+                if words && *req {
                     b.push_str("required ");
                 }
                 b.push_str(&n);
             }
-            if nomeado {
+            if named_ {
                 b.push('}');
-            } else if opcional {
+            } else if optional_ {
                 b.push(']');
             }
             b.push(')');
             b
         };
-        let completo = montar(self, incluir_tipos, true);
-        let curto = montar(self, false, false);
-        for bloco in [true, false] {
-            let mut texto = completo.clone();
-            let exib;
-            let selecao;
-            if bloco {
-                exib = format!("{curto} {{}}");
-                texto.push_str(" {\n");
-                texto.push_str(&recuo);
-                texto.push_str("  ");
-                selecao = texto.encode_utf16().count();
-                texto.push('\n');
-                texto.push_str(&recuo);
-                texto.push('}');
+        let complete = build(self, include_types, true);
+        let short = build(self, false, false);
+        for block in [true, false] {
+            let mut text = complete.clone();
+            let display;
+            let selection;
+            if block {
+                display = format!("{short} {{}}");
+                text.push_str(" {\n");
+                text.push_str(&indent);
+                text.push_str("  ");
+                selection = text.encode_utf16().count();
+                text.push('\n');
+                text.push_str(&indent);
+                text.push('}');
             } else {
-                exib = format!("{curto} =>");
-                texto.push_str(" => ");
-                selecao = texto.encode_utf16().count();
+                display = format!("{short} =>");
+                text.push_str(" => ");
+                selection = text.encode_utf16().count();
             }
-            if virgula {
-                texto.push(',');
+            if comma {
+                text.push(',');
             }
-            let antes = self.coletor.itens.len();
-            let item = self.coletor.empurrar(grupo::NOMEADO, especie::METODO, exib.clone(), texto, None);
-            item.exibicao = Some(exib);
-            item.selecao = Some((selecao, 0));
-            item.rel.fixa = Some(900);
-            self.marcar(antes, 0.0, false);
+            let before = self.collector.items.len();
+            let item = self.collector.push(group::NAMED, kind::METHOD, display.clone(), text, None);
+            item.display = Some(display);
+            item.selection = Some((selection, 0));
+            item.rel.fixed = Some(900);
+            self.mark(before, 0.0, false);
         }
     }
 
     /// `NamedArgumentSuggestion` (`Relevance.requiredNamedArgument` 950 /
-    /// `namedArgument` 900): `nome: ` (+ `[]` num parâmetro lista de widget,
-    /// + `,`); `substituir == Some(0)` é o `replacementLength: 0`.
-    pub(super) fn sugerir_argumento_nomeado(&mut self, p: &ParametroInvocado, dois_pontos: bool, virgula: bool, substituir: Option<usize>) {
-        let Some(s) = self.pontuar(&p.nome) else { return };
-        let mut completion = p.nome.clone();
-        if dois_pontos {
+    /// `namedArgument` 900): `name: ` (+ `[]` num parâmetro lista de widget,
+    /// + `,`); `replace == Some(0)` é o `replacementLength: 0`.
+    pub(super) fn suggest_named_argument(&mut self, p: &InvokedParameter, colon: bool, comma: bool, replace: Option<usize>) {
+        let Some(s) = self.match_score(&p.name) else { return };
+        let mut completion = p.name.clone();
+        if colon {
             completion.push_str(": ");
         }
-        let mut selecao = completion.encode_utf16().count();
-        if p.widget && dois_pontos && self.e_lista(p.tipo) {
+        let mut selection = completion.encode_utf16().count();
+        if p.widget && colon && self.is_list(p.ty) {
             let n = completion.encode_utf16().count();
             completion.push_str("[]");
-            selecao = n + 1;
+            selection = n + 1;
         }
-        if virgula {
+        if comma {
             completion.push(',');
         }
-        let detalhe = self.consulta.formatar(p.tipo);
-        let antes = self.coletor.itens.len();
-        let fim = completion.encode_utf16().count();
-        let item = self.coletor.empurrar(grupo::NOMEADO, especie::VARIAVEL, completion.clone(), completion.clone(), Some(detalhe));
-        item.exibicao = Some(completion);
-        if selecao != fim {
-            item.selecao = Some((selecao, 0));
+        let detail = self.query.format(p.ty);
+        let before = self.collector.items.len();
+        let end = completion.encode_utf16().count();
+        let item = self.collector.push(group::NAMED, kind::VARIABLE, completion.clone(), completion.clone(), Some(detail));
+        item.display = Some(completion);
+        if selection != end {
+            item.selection = Some((selection, 0));
         }
-        item.rel.fixa = Some(if p.obrigatorio || p.anotado_required { 950 } else { 900 });
-        item.substituir_vazio = substituir == Some(0);
-        self.marcar(antes, s, false);
+        item.rel.fixed = Some(if p.required || p.annotated_required { 950 } else { 900 });
+        item.replace_empty = replace == Some(0);
+        self.mark(before, s, false);
     }
 
     /// `type.isDartCoreList`.
-    pub(super) fn e_lista(&self, t: TypeId) -> bool {
-        matches!(self.consulta.tabela.get(t), Type::Interface { class, .. } if Some(*class) == self.consulta.core.list_class)
+    pub(super) fn is_list(&self, t: TypeId) -> bool {
+        matches!(self.query.table.get(t), Type::Interface { class, .. } if Some(*class) == self.query.core.list_class)
     }
 
     /// `_suggestRecordLiteralNamedFields`: `container` é o nó visitado,
-    /// `literal` o `RecordLiteral` (ou nenhum), `novo` se é campo novo
-    /// (`nome: `, com a vírgula quando o token deslocado não é `,` nem `)`).
-    pub(super) fn sugerir_campos_nomeados_de_record(&mut self, container: usize, literal: Option<usize>, novo: bool) {
-        let alvo = literal.unwrap_or(container);
-        let contexto = self.pai(alvo).and_then(|p| self.tipo_de_contexto_em(p, self.ini(alvo)));
-        let Some(t) = contexto else { return };
-        let Type::Record { named, .. } = self.consulta.tabela.get(t).clone() else { return };
+    /// `literal` o `RecordLiteral` (ou nenhum), `new` se é campo novo
+    /// (`name: `, com a vírgula quando o token deslocado não é `,` nem `)`).
+    pub(super) fn suggest_record_named_fields(&mut self, container: usize, literal: Option<usize>, new: bool) {
+        let target = literal.unwrap_or(container);
+        let context = self.parent(target).and_then(|p| self.context_type_in(p, self.start(target)));
+        let Some(t) = context else { return };
+        let Type::Record { named, .. } = self.query.table.get(t).clone() else { return };
         // `_computeDisplacedToken`: o primeiro token do nó em `offset` ou
         // depois.
-        let deslocado = self.tok_depois(self.offset).filter(|&i| self.span_tok(i).start < self.fim(container).max(self.offset + 1));
-        let Some(d) = deslocado else { return };
-        let incluidos: HashSet<String> = match literal {
+        let shifted = self.tok_after(self.offset).filter(|&i| self.span_tok(i).start < self.end(container).max(self.offset + 1));
+        let Some(d) = shifted else { return };
+        let included: HashSet<String> = match literal {
             Some(l) => self
-                .filhos_de(l, &["NamedExpression"])
+                .children_of(l, &["NamedExpression"])
                 .iter()
-                .filter_map(|&e| self.filho(e, "Label"))
-                .map(|r| self.fonte[self.ini(r)..self.fim(r)].trim_end_matches(':').trim().to_string())
+                .filter_map(|&e| self.child(e, "Label"))
+                .map(|r| self.source[self.start(r)..self.end(r)].trim_end_matches(':').trim().to_string())
                 .collect(),
             None => HashSet::new(),
         };
-        let virgula = !self.e_op(d, Op::Comma) && !self.e_op(d, Op::RParen);
-        for (n, tipo) in named.iter() {
-            let nome = self.consulta.nome(*n).to_string();
-            if incluidos.contains(&nome) {
+        let comma = !self.is_op(d, Op::Comma) && !self.is_op(d, Op::RParen);
+        for (n, ty) in named.iter() {
+            let name = self.query.name(*n).to_string();
+            if included.contains(&name) {
                 continue;
             }
-            let Some(s) = self.pontuar(&nome) else { continue };
-            let mut completion = nome.clone();
-            if novo {
+            let Some(s) = self.match_score(&name) else { continue };
+            let mut completion = name.clone();
+            if new {
                 completion.push_str(": ");
             }
-            let selecao = completion.encode_utf16().count();
-            if novo && virgula {
+            let selection = completion.encode_utf16().count();
+            if new && comma {
                 completion.push(',');
             }
-            let detalhe = self.consulta.formatar(*tipo);
-            let antes = self.coletor.itens.len();
-            let fim = completion.encode_utf16().count();
-            let item = self.coletor.empurrar(grupo::NOMEADO, especie::VARIAVEL, completion.clone(), completion.clone(), Some(detalhe));
-            item.exibicao = Some(completion);
-            if selecao != fim {
-                item.selecao = Some((selecao, 0));
+            let detail = self.query.format(*ty);
+            let before = self.collector.items.len();
+            let end = completion.encode_utf16().count();
+            let item = self.collector.push(group::NAMED, kind::VARIABLE, completion.clone(), completion.clone(), Some(detail));
+            item.display = Some(completion);
+            if selection != end {
+                item.selection = Some((selection, 0));
             }
-            item.rel.fixa = Some(950);
-            self.marcar(antes, s, false);
+            item.rel.fixed = Some(950);
+            self.mark(before, s, false);
         }
     }
 }
 
 /// Um parâmetro declarado, para o `writeParameters` da sobrescrita.
 #[derive(Debug, Clone)]
-pub(super) struct ParametroEscrito {
-    pub nome: Option<String>,
-    pub nomeado: bool,
-    pub opcional: bool,
-    pub requerido_nomeado: bool,
-    pub covariante: bool,
-    pub padrao: Option<String>,
+pub(super) struct WrittenParameter {
+    pub name: Option<String>,
+    pub named: bool,
+    pub optional: bool,
+    pub required_named: bool,
+    pub covariant: bool,
+    pub pattern: Option<String>,
     /// A posição entre os posicionais (para o tipo substituído).
-    pub posicao: usize,
+    pub position: usize,
 }

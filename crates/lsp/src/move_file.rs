@@ -25,45 +25,45 @@ use std::path::{Component, Path, PathBuf};
 /// Uma referência a atualizar: o literal da URI, o arquivo em que está, o
 /// arquivo a que aponta e o lexema com as aspas.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-struct Referencia {
+struct Reference {
     span: (usize, usize),
-    origem: PathBuf,
-    alvo: PathBuf,
-    lexema: String,
+    origin: PathBuf,
+    target: PathBuf,
+    lexeme: String,
 }
 
 /// O caminho normalizado (`.` e `..` resolvidos), sem tocar no disco.
-fn normalizar(p: &Path) -> PathBuf {
-    let mut saida = PathBuf::new();
+fn normalize(p: &Path) -> PathBuf {
+    let mut output = PathBuf::new();
     for c in p.components() {
         match c {
             Component::CurDir => {}
             Component::ParentDir => {
-                saida.pop();
+                output.pop();
             }
-            outro => saida.push(outro.as_os_str()),
+            other => output.push(other.as_os_str()),
         }
     }
-    saida
+    output
 }
 
 /// A chave de comparação de caminhos (a do carregamento).
-fn chave(p: &Path) -> PathBuf {
-    dartforge_elements::gerado::chave(&normalizar(p))
+fn key(p: &Path) -> PathBuf {
+    dartforge_elements::gerado::chave(&normalize(p))
 }
 
 /// `_isRelativeUri`: nem URI absoluta (com esquema) nem caminho absoluto.
-fn uri_relativa(uri: &str) -> bool {
-    let esquema = uri.find(':').is_some_and(|i| i > 1 && uri[..i].chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')));
-    !esquema && !Path::new(uri).is_absolute() && !uri.starts_with('/') && !uri.starts_with('\\')
+fn relative_uri(uri: &str) -> bool {
+    let scheme = uri.find(':').is_some_and(|i| i > 1 && uri[..i].chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')));
+    !scheme && !Path::new(uri).is_absolute() && !uri.starts_with('/') && !uri.starts_with('\\')
 }
 
 /// A URI de cada diretiva com literal simples (sem interpolação nem
 /// adjacência): o literal, o valor e se é `part of`.
-fn uris_das_diretivas(unit: &ast::CompilationUnit) -> Vec<(&ast::StringLit, String, bool)> {
+fn directive_uris(unit: &ast::CompilationUnit) -> Vec<(&ast::StringLit, String, bool)> {
     let mut v = Vec::new();
     for d in &unit.directives {
-        let (lit, parte_de) = match &d.kind {
+        let (lit, part_of) = match &d.kind {
             ast::DirectiveKind::Import { uri, .. } | ast::DirectiveKind::Export { uri, .. } | ast::DirectiveKind::Part { uri } => (Some(uri), false),
             ast::DirectiveKind::PartOf { uri, .. } => (uri.as_ref(), true),
             _ => (None, false),
@@ -72,193 +72,193 @@ fn uris_das_diretivas(unit: &ast::CompilationUnit) -> Vec<(&ast::StringLit, Stri
         if lit.parts.len() != 1 {
             continue;
         }
-        let Some(valor) = lit.constant_value() else { continue };
-        v.push((lit, String::from_utf8_lossy(valor.as_bytes()).into_owned(), parte_de));
+        let Some(value) = lit.constant_value() else { continue };
+        v.push((lit, String::from_utf8_lossy(value.as_bytes()).into_owned(), part_of));
     }
     v
 }
 
-/// O caminho de uma URI de diretiva escrita em `origem`: relativa, ou
+/// O caminho de uma URI de diretiva escrita em `origin`: relativa, ou
 /// `package:` pelos pacotes da raiz.
-fn caminho_da_uri(uri: &str, origem: &Path, pacotes: &[(String, PathBuf)]) -> Option<PathBuf> {
-    if let Some(resto) = uri.strip_prefix("package:") {
-        let (nome, rel) = resto.split_once('/')?;
-        let (_, lib) = pacotes.iter().find(|(n, _)| n == nome)?;
-        return Some(normalizar(&rel.split('/').fold(lib.clone(), |p, x| p.join(x))));
+fn uri_path(uri: &str, origin: &Path, packages: &[(String, PathBuf)]) -> Option<PathBuf> {
+    if let Some(rest) = uri.strip_prefix("package:") {
+        let (name, rel) = rest.split_once('/')?;
+        let (_, lib) = packages.iter().find(|(n, _)| n == name)?;
+        return Some(normalize(&rel.split('/').fold(lib.clone(), |p, x| p.join(x))));
     }
-    if !uri_relativa(uri) {
+    if !relative_uri(uri) {
         return None;
     }
-    let pasta = origem.parent()?;
-    Some(normalizar(&uri.split('/').fold(pasta.to_path_buf(), |p, x| p.join(x))))
+    let folder = origin.parent()?;
+    Some(normalize(&uri.split('/').fold(folder.to_path_buf(), |p, x| p.join(x))))
 }
 
 /// `pathToUri`: `package:` quando o arquivo está no `lib/` de um pacote.
-fn uri_de_pacote(alvo: &Path, pacotes: &[(String, PathBuf)]) -> Option<String> {
-    let alvo = normalizar(alvo);
-    for (nome, lib) in pacotes {
-        if let Ok(rel) = alvo.strip_prefix(normalizar(lib)) {
-            let partes: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
-            return Some(format!("package:{nome}/{}", partes.join("/")));
+fn package_uri(target: &Path, packages: &[(String, PathBuf)]) -> Option<String> {
+    let target = normalize(target);
+    for (name, lib) in packages {
+        if let Ok(rel) = target.strip_prefix(normalize(lib)) {
+            let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+            return Some(format!("package:{name}/{}", parts.join("/")));
         }
     }
     None
 }
 
-/// O caminho relativo de `pasta` até `alvo`, com `/` (o `pathContext.relative`
+/// O caminho relativo de `folder` até `target`, com `/` (o `pathContext.relative`
 /// e o `posix.joinAll` do Dart).
-fn relativo(alvo: &Path, pasta: &Path) -> String {
-    let (alvo_normal, pasta_normal) = (normalizar(alvo), normalizar(pasta));
-    let a: Vec<Component> = alvo_normal.components().collect();
-    let b: Vec<Component> = pasta_normal.components().collect();
+fn relative(target: &Path, folder: &Path) -> String {
+    let (normal_target, normal_folder) = (normalize(target), normalize(folder));
+    let a: Vec<Component> = normal_target.components().collect();
+    let b: Vec<Component> = normal_folder.components().collect();
     // O `pathContext` do Windows compara sem caixa.
-    let igual = |x: &Component, y: &Component| {
+    let equal = |x: &Component, y: &Component| {
         if cfg!(windows) {
             x.as_os_str().to_string_lossy().to_lowercase() == y.as_os_str().to_string_lossy().to_lowercase()
         } else {
             x == y
         }
     };
-    let comum = a.iter().zip(b.iter()).take_while(|(x, y)| igual(x, y)).count();
-    let mut partes: Vec<String> = vec!["..".to_string(); b.len() - comum];
-    partes.extend(a[comum..].iter().map(|c| c.as_os_str().to_string_lossy().into_owned()));
-    partes.join("/")
+    let common = a.iter().zip(b.iter()).take_while(|(x, y)| equal(x, y)).count();
+    let mut parts: Vec<String> = vec!["..".to_string(); b.len() - common];
+    parts.extend(a[common..].iter().map(|c| c.as_os_str().to_string_lossy().into_owned()));
+    parts.join("/")
 }
 
 /// As aspas do lexema (`analyzeQuote`): o começo (com o `r`) e o fim.
-fn aspas(lexema: &str) -> (usize, usize) {
-    let cru = usize::from(lexema.starts_with('r'));
-    let resto = &lexema[cru..];
-    let n = if resto.starts_with("'''") || resto.starts_with("\"\"\"") { 3 } else { 1 };
-    (cru + n, n)
+fn quotes(lexeme: &str) -> (usize, usize) {
+    let raw = usize::from(lexeme.starts_with('r'));
+    let rest = &lexeme[raw..];
+    let n = if rest.starts_with("'''") || rest.starts_with("\"\"\"") { 3 } else { 1 };
+    (raw + n, n)
 }
 
 /// `_resolveMapping`: uma pasta vira os arquivos de dentro, recursivamente.
-fn resolver(antigo: &Path, novo: &Path, saida: &mut Vec<(PathBuf, PathBuf)>) {
-    if antigo.is_dir() {
-        let Ok(r) = std::fs::read_dir(antigo) else { return };
-        let mut filhos: Vec<PathBuf> = r.flatten().map(|e| e.path()).collect();
-        filhos.sort();
-        for f in filhos {
-            let Some(nome) = f.file_name() else { continue };
-            resolver(&f, &novo.join(nome), saida);
+fn resolve(old: &Path, new: &Path, output: &mut Vec<(PathBuf, PathBuf)>) {
+    if old.is_dir() {
+        let Ok(r) = std::fs::read_dir(old) else { return };
+        let mut children: Vec<PathBuf> = r.flatten().map(|e| e.path()).collect();
+        children.sort();
+        for f in children {
+            let Some(name) = f.file_name() else { continue };
+            resolve(&f, &new.join(name), output);
         }
     } else {
-        saida.push((antigo.to_path_buf(), novo.to_path_buf()));
+        output.push((old.to_path_buf(), new.to_path_buf()));
     }
 }
 
-/// As edições do `willRenameFiles` para `mapa` (antigo → novo), nas raízes
-/// de análise `raizes`. `None`: condição fatal (o Dart responde `null`).
-pub(crate) fn edicoes(raizes: &[PathBuf], documentos: &DocumentStore, mapa: &[(PathBuf, PathBuf)]) -> Option<Vec<crate::Edicao>> {
+/// As edições do `willRenameFiles` para `map` (antigo → novo), nas raízes
+/// de análise `roots`. `None`: condição fatal (o Dart responde `null`).
+pub(crate) fn edits(roots: &[PathBuf], documents: &DocumentStore, map: &[(PathBuf, PathBuf)]) -> Option<Vec<crate::Edit>> {
     // `checkFinalConditions`.
-    let mut raiz_comum: Option<PathBuf> = None;
-    for (antigo, _) in mapa {
-        if raizes.iter().any(|r| chave(r) == chave(antigo)) {
+    let mut common_root: Option<PathBuf> = None;
+    for (old, _) in map {
+        if roots.iter().any(|r| key(r) == key(old)) {
             return None;
         }
-        let contem: Vec<&PathBuf> = raizes.iter().filter(|r| chave(antigo).starts_with(chave(r))).collect();
-        if contem.len() != 1 || !antigo.exists() {
+        let contains: Vec<&PathBuf> = roots.iter().filter(|r| key(old).starts_with(key(r))).collect();
+        if contains.len() != 1 || !old.exists() {
             return None;
         }
-        match &raiz_comum {
-            Some(r) if chave(r) != chave(contem[0]) => return None,
-            _ => raiz_comum = Some(contem[0].clone()),
+        match &common_root {
+            Some(r) if key(r) != key(contains[0]) => return None,
+            _ => common_root = Some(contains[0].clone()),
         }
     }
-    let raiz = raiz_comum?;
-    let pacotes = crate::project::pacotes_com_nome(&raiz);
-    let mut resolvido: Vec<(PathBuf, PathBuf)> = Vec::new();
-    for (antigo, novo) in mapa {
-        resolver(antigo, novo, &mut resolvido);
+    let root = common_root?;
+    let packages = crate::project::packages_with_name(&root);
+    let mut resolved: Vec<(PathBuf, PathBuf)> = Vec::new();
+    for (old, new) in map {
+        resolve(old, new, &mut resolved);
     }
-    let novo_de = |p: &Path| resolvido.iter().find(|(a, _)| chave(a) == chave(p)).map(|(_, n)| n.clone());
+    let new_of = |p: &Path| resolved.iter().find(|(a, _)| key(a) == key(p)).map(|(_, n)| n.clone());
     // Os textos: o aberto vale mais que o disco.
-    let texto_de = |p: &Path| -> Option<String> {
+    let text_of = |p: &Path| -> Option<String> {
         if let Ok(u) = url::Url::from_file_path(p)
-            && let Some(t) = documentos.get(u.as_str())
+            && let Some(t) = documents.get(u.as_str())
         {
             return Some(t.to_string());
         }
         std::fs::read_to_string(p).ok()
     };
     // Os arquivos da raiz de análise e os abertos sob ela.
-    let mut arquivos = crate::project::arquivos_do_projeto(&raiz);
-    for u in documentos.uris() {
+    let mut files = crate::project::project_files(&root);
+    for u in documents.uris() {
         if let Some(p) = url::Url::parse(u).ok().and_then(|x| x.to_file_path().ok())
-            && chave(&p).starts_with(chave(&raiz))
+            && key(&p).starts_with(key(&root))
             && p.extension().is_some_and(|e| e == "dart")
-            && !arquivos.iter().any(|a| chave(a) == chave(&p))
+            && !files.iter().any(|a| key(a) == key(&p))
         {
-            arquivos.push(p);
+            files.push(p);
         }
     }
-    let movidos: Vec<PathBuf> = resolvido.iter().filter(|(a, _)| a.extension().is_some_and(|e| e == "dart")).map(|(a, _)| chave(a)).collect();
-    let mut referencias: std::collections::BTreeSet<Referencia> = std::collections::BTreeSet::new();
-    for arquivo in &arquivos {
-        let Some(texto) = texto_de(arquivo) else { continue };
-        let mut nomes = dartforge_intern::Interner::new();
-        let p = dartforge_frontend::parser::parse_com(&texto, &mut nomes, dartforge_frontend::LibraryFeatures::default());
-        let movido = movidos.contains(&chave(arquivo));
-        let pasta_muda = movido
-            && novo_de(arquivo).is_some_and(|n| n.parent().map(chave) != arquivo.parent().map(chave));
-        for (lit, uri, parte_de) in uris_das_diretivas(&p.unit) {
-            let Some(alvo) = caminho_da_uri(&uri, arquivo, &pacotes) else { continue };
-            let lexema = texto.get(lit.span.start..lit.span.end).unwrap_or_default().to_string();
+    let moved: Vec<PathBuf> = resolved.iter().filter(|(a, _)| a.extension().is_some_and(|e| e == "dart")).map(|(a, _)| key(a)).collect();
+    let mut references: std::collections::BTreeSet<Reference> = std::collections::BTreeSet::new();
+    for file in &files {
+        let Some(text) = text_of(file) else { continue };
+        let mut names = dartforge_intern::Interner::new();
+        let p = dartforge_frontend::parser::parse_com(&text, &mut names, dartforge_frontend::LibraryFeatures::default());
+        let moved_ = moved.contains(&key(file));
+        let folder_changes = moved_
+            && new_of(file).is_some_and(|n| n.parent().map(key) != file.parent().map(key));
+        for (lit, uri, part_of) in directive_uris(&p.unit) {
+            let Some(target) = uri_path(&uri, file, &packages) else { continue };
+            let lexeme = text.get(lit.span.start..lit.span.end).unwrap_or_default().to_string();
             // O `part of` que chega só é achado relativo (a busca de
             // referências da unidade não o inclui; o passo das partes da
             // biblioteca só lê os relativos).
-            let entrada = movidos.contains(&chave(&alvo)) && (!parte_de || uri_relativa(&uri));
+            let entry = moved.contains(&key(&target)) && (!part_of || relative_uri(&uri));
             // Que sai de um arquivo cuja pasta muda: só as relativas.
-            let saindo = pasta_muda && uri_relativa(&uri);
-            if entrada || saindo {
-                referencias.insert(Referencia { span: (lit.span.start, lit.span.end), origem: arquivo.clone(), alvo, lexema });
+            let exiting = folder_changes && relative_uri(&uri);
+            if entry || exiting {
+                references.insert(Reference { span: (lit.span.start, lit.span.end), origin: file.clone(), target, lexeme });
             }
         }
     }
-    let mut saida = Vec::new();
-    for r in referencias {
-        let nova_origem = novo_de(&r.origem).unwrap_or_else(|| r.origem.clone());
-        let novo_alvo = novo_de(&r.alvo).unwrap_or_else(|| r.alvo.clone());
-        let (comeco, fim) = aspas(&r.lexema);
-        if r.lexema.len() < comeco + fim {
+    let mut output = Vec::new();
+    for r in references {
+        let new_origin = new_of(&r.origin).unwrap_or_else(|| r.origin.clone());
+        let new_target = new_of(&r.target).unwrap_or_else(|| r.target.clone());
+        let (start, end) = quotes(&r.lexeme);
+        if r.lexeme.len() < start + end {
             continue;
         }
-        let atual = &r.lexema[comeco..r.lexema.len() - fim];
-        let nova = match atual.starts_with("package:").then(|| uri_de_pacote(&novo_alvo, &pacotes)).flatten() {
+        let current = &r.lexeme[start..r.lexeme.len() - end];
+        let new_ = match current.starts_with("package:").then(|| package_uri(&new_target, &packages)).flatten() {
             Some(u) => u,
-            None => relativo(&novo_alvo, nova_origem.parent().unwrap_or(Path::new(""))),
+            None => relative(&new_target, new_origin.parent().unwrap_or(Path::new(""))),
         };
-        if nova == atual {
+        if new_ == current {
             continue;
         }
-        let Ok(uri) = url::Url::from_file_path(&r.origem) else { continue };
-        saida.push(crate::Edicao {
+        let Ok(uri) = url::Url::from_file_path(&r.origin) else { continue };
+        output.push(crate::Edit {
             uri: uri.to_string(),
             span: Span { start: r.span.0, end: r.span.1 },
-            texto: format!("{}{nova}{}", &r.lexema[..comeco], &r.lexema[r.lexema.len() - fim..]),
+            text: format!("{}{new_}{}", &r.lexeme[..start], &r.lexeme[r.lexeme.len() - end..]),
         });
     }
-    Some(saida)
+    Some(output)
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]
-    fn caminhos_e_aspas() {
-        assert!(uri_relativa("a/b.dart"));
-        assert!(uri_relativa("../b.dart"));
-        assert!(!uri_relativa("package:x/y.dart"));
-        assert!(!uri_relativa("dart:core"));
-        assert_eq!(relativo(Path::new("/p/lib/src/b.dart"), Path::new("/p/lib")), "src/b.dart");
-        assert_eq!(relativo(Path::new("/p/lib/b.dart"), Path::new("/p/lib/src")), "../b.dart");
-        assert_eq!(aspas("'a.dart'"), (1, 1));
-        assert_eq!(aspas("r\"a.dart\""), (2, 1));
-        assert_eq!(aspas("'''a.dart'''"), (3, 3));
-        let pacotes = vec![("x".to_string(), PathBuf::from("/p/lib"))];
-        assert_eq!(uri_de_pacote(Path::new("/p/lib/src/c.dart"), &pacotes).as_deref(), Some("package:x/src/c.dart"));
-        assert_eq!(caminho_da_uri("package:x/a.dart", Path::new("/q/z.dart"), &pacotes), Some(PathBuf::from("/p/lib/a.dart")));
+    fn paths_and_quotes() {
+        assert!(relative_uri("a/b.dart"));
+        assert!(relative_uri("../b.dart"));
+        assert!(!relative_uri("package:x/y.dart"));
+        assert!(!relative_uri("dart:core"));
+        assert_eq!(relative(Path::new("/p/lib/src/b.dart"), Path::new("/p/lib")), "src/b.dart");
+        assert_eq!(relative(Path::new("/p/lib/b.dart"), Path::new("/p/lib/src")), "../b.dart");
+        assert_eq!(quotes("'a.dart'"), (1, 1));
+        assert_eq!(quotes("r\"a.dart\""), (2, 1));
+        assert_eq!(quotes("'''a.dart'''"), (3, 3));
+        let packages = vec![("x".to_string(), PathBuf::from("/p/lib"))];
+        assert_eq!(package_uri(Path::new("/p/lib/src/c.dart"), &packages).as_deref(), Some("package:x/src/c.dart"));
+        assert_eq!(uri_path("package:x/a.dart", Path::new("/q/z.dart"), &packages), Some(PathBuf::from("/p/lib/a.dart")));
     }
 }

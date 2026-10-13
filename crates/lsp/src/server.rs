@@ -1,4 +1,4 @@
-//! Despacho do protocolo: um [`Servidor`] dono de tudo, passado por `&mut`.
+//! Despacho do protocolo: um [`Server`] dono de tudo, passado por `&mut`.
 //!
 //! O desenho copia o do rust-analyzer (`main_loop.rs`, `op_queue.rs`,
 //! `global_state.rs`, `mem_docs.rs`): os documentos em memória são versionados
@@ -8,7 +8,7 @@
 //! cancelamento em pontos seguros.
 //!
 //! A fila vive **dentro** do servidor (não num canal externo), para que o
-//! cancelamento seja determinístico: cada [`Servidor::bombear`] primeiro
+//! cancelamento seja determinístico: cada [`Server::pump`] primeiro
 //! extrai e aplica *todos* os `$/cancelRequest` da fila — estejam eles antes
 //! ou depois da requisição alvo — e só então executa uma requisição. Sem
 //! isso, o cancelamento dependeria de a thread leitora ser mais rápida que o
@@ -20,42 +20,42 @@
 //! log em memória. Por documento, o único estado é o do [`crate::DocumentStore`].
 //!
 //! ```
-//! use dartforge_lsp::Servidor;
+//! use dartforge_lsp::Server;
 //! use serde_json::json;
-//! let mut servidor = Servidor::new();
-//! servidor.receber(json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}));
-//! let saidas = servidor.bombear();
-//! assert_eq!(saidas.len(), 1);
-//! assert!(saidas[0]["result"]["capabilities"].is_object());
+//! let mut server = Server::new();
+//! server.receive(json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}));
+//! let outputs = server.pump();
+//! assert_eq!(outputs.len(), 1);
+//! assert!(outputs[0]["result"]["capabilities"].is_object());
 //! ```
 
-use crate::{Analisador, AnalisadorSintatico, DocumentStore, MudancaConteudo, Posicao};
+use crate::{Analyzer, SyntacticAnalyzer, DocumentStore, ContentChange, Position};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Capacidade anunciada de sincronização: incremental (1 = full, 2 = incremental).
-const SINCRONIZACAO_INCREMENTAL: u32 = 2;
+const SYNC_INCREMENTAL: u32 = 2;
 /// `severity` LSP para todo diagnóstico sintático.
-const SEVERIDADE_ERRO: u32 = 1;
+const SEVERITY_ERROR: u32 = 1;
 
 /// `DiagnosticSeverity` do LSP para a severidade do analyzer (1 erro, 2 aviso, 3 informação).
-fn severidade(s: dartforge_diagnostics::Severidade) -> u32 {
+fn severity(s: dartforge_diagnostics::Severidade) -> u32 {
     match s {
-        dartforge_diagnostics::Severidade::Error => SEVERIDADE_ERRO,
+        dartforge_diagnostics::Severidade::Error => SEVERITY_ERROR,
         dartforge_diagnostics::Severidade::Warning => 2,
         dartforge_diagnostics::Severidade::Info => 3,
     }
 }
 
 /// A mensagem como o servidor do Dart a mostra: o problema e, se houver, a correção.
-fn mensagem(d: &dartforge_diagnostics::Diagnostic) -> String {
+fn message(d: &dartforge_diagnostics::Diagnostic) -> String {
     match d.correcao() {
         Some(c) => format!("{}\n{c}", d.message),
         None => d.message.clone(),
     }
 }
 /// Origem publicada em cada diagnóstico.
-const FONTE: &str = "dartforge";
+const SOURCE: &str = "dartforge";
 
 /// Códigos de erro JSON-RPC/LSP usados nas respostas.
 const REQUEST_CANCELLED: i32 = -32800;
@@ -64,16 +64,16 @@ const INVALID_REQUEST: i32 = -32600;
 const SERVER_NOT_INITIALIZED: i32 = -32002;
 /// Os erros do servidor do Dart usados pelos comandos
 /// (`AS:src/lsp/constants.dart:273-312`).
-const ERRO_NAO_TRATADO: i32 = -32001;
-const COMANDO_DESCONHECIDO: i32 = -32005;
-const ARGUMENTOS_DE_COMANDO_INVALIDOS: i32 = -32006;
-const ARQUIVO_NAO_ANALISADO: i32 = -32007;
-const ARQUIVO_COM_ERROS: i32 = -32008;
-const CLIENTE_NAO_APLICOU: i32 = -32009;
-const RECURSO_DESLIGADO: i32 = -32012;
+const ERROR_NOT_HANDLED: i32 = -32001;
+const UNKNOWN_COMMAND: i32 = -32005;
+const INVALID_COMMAND_ARGUMENTS: i32 = -32006;
+const FILE_NOT_ANALYZED: i32 = -32007;
+const FILE_WITH_ERRORS: i32 = -32008;
+const CLIENT_NOT_APPLIED: i32 = -32009;
+const FEATURE_DISABLED: i32 = -32012;
 /// Os comandos de `workspace/executeCommand`, na ordem do Dart
 /// (`constants.dart:99-111` e `refactoring_processor.dart:20-28`).
-const COMANDOS: &[&str] = &[
+const COMMANDS: &[&str] = &[
     "dart.edit.sortMembers",
     "dart.edit.organizeImports",
     "dart.edit.fixAll",
@@ -90,7 +90,7 @@ const COMANDOS: &[&str] = &[
 ];
 /// Os `RefactoringKind` que o construtor do protocolo aceita
 /// (`protocol_common.dart:3702-3724`).
-const TIPOS_DE_REFATORACAO: &[&str] = &[
+const REFACTORING_TYPES: &[&str] = &[
     "CONVERT_GETTER_TO_METHOD",
     "CONVERT_METHOD_TO_GETTER",
     "EXTRACT_LOCAL_VARIABLE",
@@ -102,676 +102,676 @@ const TIPOS_DE_REFATORACAO: &[&str] = &[
     "RENAME",
 ];
 /// `RefactoringComputeStatusFailure`.
-const FALHA_DE_CALCULO: i32 = -32014;
+const COMPUTATION_FAILURE: i32 = -32014;
 /// `ContentModified`.
-const CONTEUDO_MODIFICADO: i32 = -32801;
+const MODIFIED_CONTENT: i32 = -32801;
 /// As ações de fonte de `codeAction`, na ordem do Dart: título, espécie e
 /// comando.
-const ACOES_DE_FONTE: &[(&str, &str, &str)] = &[
+const SOURCE_ACTIONS: &[(&str, &str, &str)] = &[
     ("Sort Members", "source.sortMembers", "dart.edit.sortMembers"),
     ("Organize Imports", "source.organizeImports", "dart.edit.organizeImports"),
     ("Fix All", "source.fixAll", "dart.edit.fixAll"),
 ];
 /// Renomear recusado (nome inválido, elemento externo, conflito): o mesmo
 /// código do servidor do Dart (`ServerErrorCodes.RenameNotValid`).
-const RENOMEAR_INVALIDO: i32 = -32010;
+const RENAME_INVALID: i32 = -32010;
 
 /// Teto do conjunto de cancelamentos: defesa contra cliente que cancela ids
 /// inexistentes em volume. Acima do teto, o conjunto é esvaziado — o pior
 /// caso é uma requisição cancelável executar mesmo assim, nunca retenção.
-const TETO_CANCELAMENTOS: usize = 4096;
+const MAX_CANCELLATIONS: usize = 4096;
 
-/// Gancho de teste: `dartforge/dormir` com `{"ms": N}` dorme em fatias de
+/// Gancho de teste: `dartforge/sleep` com `{"ms": N}` dorme em fatias de
 /// 10 ms checando cancelamento, para o teste de aceite exercitar as duas
 /// formas de cancelamento (na fila e em execução) sem depender de análise
 /// lenta. Clientes reais nunca enviam este método.
-const METODO_DORMIR: &str = "dartforge/dormir";
+const SLEEP_METHOD: &str = "dartforge/dormir";
 
 /// O texto de um arquivo do disco e a tabela de linhas dele.
-type TextoComLinhas = std::sync::Arc<(String, crate::utf16::TabelaLinhas)>;
+type TextWithLines = std::sync::Arc<(String, crate::utf16::LineTable)>;
 
 /// Estado global do servidor: dono dos documentos, da fila e dos cancelamentos.
 ///
-/// Parametrizado pelo [`Analisador`] para que a semântica entre sem tocar no
+/// Parametrizado pelo [`Analyzer`] para que a semântica entre sem tocar no
 /// transporte. Nada de `Rc<RefCell<…>>`: o despacho recebe `&mut self`.
 #[derive(Debug)]
-pub struct Servidor<A = AnalisadorSintatico> {
-    documentos: DocumentStore,
+pub struct Server<A = SyntacticAnalyzer> {
+    documents: DocumentStore,
     /// Texto e tabela de linhas dos arquivos do disco (não abertos) que a
     /// requisição em curso converteu para posições LSP: uma busca que
     /// devolve milhares de locais no SDK lê cada arquivo uma vez. Esvaziado
     /// a cada requisição (o disco pode mudar entre elas).
-    linhas_do_disco: std::cell::RefCell<HashMap<String, Option<TextoComLinhas>>>,
-    analisador: A,
+    disk_lines: std::cell::RefCell<HashMap<String, Option<TextWithLines>>>,
+    analyzer: A,
     /// Mensagens recebidas ainda não despachadas, em ordem de chegada.
-    fila: VecDeque<Value>,
+    queue: VecDeque<Value>,
     /// Ids cancelados de requisições ainda não respondidas, em forma canônica.
-    cancelados: HashSet<String>,
+    cancelled: HashSet<String>,
     /// `shutdown` já foi respondido; `exit` sai com 0, sem ele sai com 1.
-    desligando: bool,
+    disabling: bool,
     /// O `initialize` já foi respondido: um segundo é recusado (§2.3).
-    inicializado: bool,
+    initialized: bool,
     /// `exit` chegou (ou o fluxo acabou): o laço principal deve terminar.
-    encerrar: bool,
+    shutdown: bool,
     /// Código de saída correspondente.
-    codigo: i32,
+    code: i32,
     /// O cliente aceita a árvore `DocumentSymbol` (LSP 3.10+).
-    simbolos_hierarquicos: bool,
+    hierarchical_symbols: bool,
     hover_markdown: bool,
     /// O cliente aceita `prepareRename` (`rename.prepareSupport`).
-    preparar_renomeacao: bool,
+    prepare_rename: bool,
     /// O cliente aceita `WorkspaceEdit.documentChanges` (edições com a
     /// versão do documento): as edições saem nessa forma.
-    mudancas_versionadas: bool,
+    versioned_changes: bool,
     /// O cliente anunciou `experimental.snippetTextEdit`: as ações de código
     /// com seleção ou grupos ligados saem como `SnippetTextEdit`.
-    edicoes_snippet: bool,
+    edits_snippet: bool,
     /// O cliente aceita a operação de recurso `rename` e pediu
     /// `renameFilesWithClasses: "always"` nas opções de inicialização.
-    renomear_arquivos: bool,
+    rename_files: bool,
     /// O cliente aceita `documentChanges` com a operação `create`: as
     /// correções que criam arquivo (`Create file`) são oferecidas.
-    criar_arquivos: bool,
+    create_files: bool,
     /// O cliente aceita snippets no completar e não pediu
     /// `completeFunctionCalls: false`: chamadas saem com os parênteses e os
     /// parâmetros obrigatórios como marcadores.
-    completar_chamadas: bool,
+    completion_calls: bool,
     /// `suggestFromUnimportedLibraries` (padrão `true`) e o cliente aceita
     /// `workspace/applyEdit`: o completar traz os não importados.
-    completar_nao_importados: bool,
+    completion_not_imported: bool,
     /// O cliente aceita Markdown na documentação dos itens.
-    documentacao_markdown: bool,
+    documentation_markdown: bool,
     /// As capacidades do completar do cliente (§14.8.2).
-    capacidades_de_completar: crate::completion_item::Capacidades,
+    completion_capabilities: crate::completion_item::Capabilities,
     /// Os itens não importados da última resposta, pela chave do `data`
     /// (`ref`): a origem (para a documentação) e o import (o resolve).
-    nao_importados: HashMap<String, (Option<(std::path::PathBuf, usize)>, Option<crate::completion::ImportAutomatico>, Option<String>)>,
+    not_imported: HashMap<String, (Option<(std::path::PathBuf, usize)>, Option<crate::completion::AutoImport>, Option<String>)>,
     /// Raízes do workspace anunciadas no `initialize` (`rootUri`,
     /// `workspaceFolders`), para o `workspace/symbol` varrer o disco.
-    raizes: Vec<std::path::PathBuf>,
+    roots: Vec<std::path::PathBuf>,
     /// `_filesWithClientDiagnostics`: os URIs cujos diagnósticos no
     /// cliente não estão vazios.
-    com_diagnosticos_no_cliente: std::collections::HashSet<String>,
+    with_client_diagnostics: std::collections::HashSet<String>,
     /// O documento do último `prepareTypeHierarchy` com resposta: o projeto
     /// dos supertipos e subtipos de itens fora do workspace.
-    origem_da_hierarquia: Option<String>,
+    hierarchy_origin: Option<String>,
     /// Trabalhador dos diagnósticos tipados (`crate::typed`), iniciado no
     /// primeiro documento aberto quando o analisador tem SDK.
-    tipado: Option<crate::typed::Tipado>,
+    typed: Option<crate::typed::Typed>,
     /// O trabalhador já foi tentado (iniciado ou recusado).
-    tipado_tentado: bool,
+    typed_tried: bool,
     /// Chamado pelo trabalhador quando há resultado (acorda o laço do `main`).
-    despertar: Option<crate::typed::Despertar>,
+    wake: Option<crate::typed::Wake>,
     /// Resultados tipados descartados por versão velha ou documento fechado.
-    tipados_descartados: usize,
+    typed_discarded: usize,
     /// A última publicação tipada de cada documento aberto, com a versão:
     /// as ações de código corrigem o que o editor mostra. Uma entrada por
     /// documento, substituída a cada publicação e removida no `didClose`.
-    tipados_publicados: HashMap<String, (i32, Vec<dartforge_diagnostics::Diagnostic>)>,
+    typed_published: HashMap<String, (i32, Vec<dartforge_diagnostics::Diagnostic>)>,
     /// O cliente puxa os diagnósticos (`textDocument/diagnostic`, LSP 3.17:
     /// anunciou `textDocument.diagnostic`): o servidor anuncia o
     /// `diagnosticProvider` e deixa de empurrar `publishDiagnostics`.
-    diagnosticos_puxados: bool,
+    pulled_diagnostics: bool,
     /// Com os diagnósticos puxados, o cliente aceita
     /// `workspace/diagnostic/refresh`: pedido quando chega um resultado
     /// tipado, para ele puxar de novo.
-    atualizar_puxados: bool,
+    update_pulled: bool,
     /// Número do próximo pedido do servidor ao cliente (o id do `refresh`).
-    proximo_pedido: u64,
+    next_request: u64,
     /// O cliente aceita `workspace/applyEdit` (`workspace.applyEdit`): sem
     /// isso não há ações de fonte (docs/LSP-ESPECIFICACAO.md §13.12.1).
-    aplicar_edicoes: bool,
+    apply_edits: bool,
     /// A opção de inicialização `closingLabels`: o servidor envia
     /// `dart/textDocument/publishClosingLabels` dos documentos abertos.
-    rotulos_de_fechamento: bool,
+    closing_labels: bool,
     /// O cliente aceita progresso de trabalho (`window.workDoneProgress`):
     /// o estado da análise sai por `$/progress` com o token `ANALYZING`;
     /// sem isso, por `$/analyzerStatus` (§2.6).
-    progresso_de_trabalho: bool,
+    work_progress: bool,
     /// A análise tipada está em curso e o cliente já foi avisado.
-    analisando: bool,
-    /// Mensagens ao cliente produzidas fora de `bombear` (o começo da
+    analyzing: bool,
+    /// Mensagens ao cliente produzidas fora de `pump` (o começo da
     /// análise), entregues na próxima passada.
-    saidas_pendentes: Vec<Value>,
+    pending_outputs: Vec<Value>,
     /// A opção de inicialização `outline`: o servidor envia
     /// `dart/textDocument/publishOutline` dos documentos abertos.
-    contorno: bool,
+    outline: bool,
     /// O cliente aceita anotações de mudança
     /// (`workspace.workspaceEdit.changeAnnotationSupport`).
-    anotacoes_de_mudanca: bool,
+    change_annotations: bool,
     /// O cliente aceita `CodeAction` literal
     /// (`textDocument.codeAction.codeActionLiteralSupport`); sem isso as
     /// ações de fonte saem como `Command` puro.
-    acoes_literais: bool,
+    actions_literals: bool,
     /// O `codeActionKind.valueSet` do cliente, quando ele o anuncia.
-    especies_de_acao: Option<Vec<String>>,
+    action_kinds: Option<Vec<String>>,
     /// Os `workspace/applyEdit` enviados e ainda sem resposta do cliente:
     /// pelo id do pedido, o id do `executeCommand` que espera, o rótulo do
     /// comando e o `WorkspaceEdit` enviado.
-    edicoes_pendentes: HashMap<String, (Value, &'static str, Value)>,
+    pending_edits: HashMap<String, (Value, &'static str, Value)>,
     /// O cliente aceita Markdown na documentação da ajuda de assinatura.
-    assinatura_markdown: bool,
+    signature_markdown: bool,
     /// O cliente aceita `activeParameter: null` (`noActiveParameterSupport`).
-    assinatura_sem_ativo: bool,
+    signature_without_active: bool,
     /// O cliente só dobra linhas inteiras (`foldingRange.lineFoldingOnly`).
-    dobras_so_linhas: bool,
+    folds_line_only: bool,
     /// O cliente aceita tokens semânticos de várias linhas.
-    tokens_multilinha: bool,
+    multiline_tokens: bool,
     /// `SymbolKind`s que o cliente anuncia (`documentSymbol.symbolKind`);
     /// sem a lista, só os da primeira versão do protocolo (1 a 18), e
     /// `EnumMember` vira `Enum` como no servidor do Dart.
-    tipos_de_simbolo: Option<Vec<u64>>,
+    symbol_kinds: Option<Vec<u64>>,
     /// `workspace.symbol.symbolKind.valueSet` do cliente.
-    tipos_de_simbolo_do_workspace: Option<Vec<u64>>,
+    workspace_symbol_kinds: Option<Vec<u64>>,
     /// O índice sintático das bibliotecas para o `workspace/symbol`.
-    indice_de_simbolos: crate::workspace_symbols::Indice,
+    symbol_index: crate::workspace_symbols::Index,
     /// O cliente aceita `labelDetails` nos itens do completar: o rótulo é
     /// só o nome, e a assinatura curta e a biblioteca a importar vão nos
     /// detalhes (como o servidor do Dart faz com esse cliente).
-    rotulo_detalhes: bool,
+    label_details: bool,
     /// O cliente responde `workspace/configuration` (§2.5).
-    configuracao_pedivel: bool,
+    requestable_configuration: bool,
     /// As features que o cliente registra dinamicamente (§2.4) e se ele
     /// quer o `workspace/didChangeConfiguration` registrado.
-    dinamicas: Vec<&'static str>,
-    configuracao_dinamica: bool,
+    dynamic: Vec<&'static str>,
+    dynamic_configuration: bool,
     /// O cliente registra dinamicamente o `workspace/didChangeWatchedFiles`.
-    observar_arquivos: bool,
+    observe_files: bool,
     /// O cliente registra as operações de arquivo dinamicamente
     /// (`workspace.fileOperations.dynamicRegistration`).
-    operacoes_de_arquivo_dinamicas: bool,
+    dynamic_file_operations: bool,
     /// As capacidades estáticas completas (antes de tirar as dinâmicas): a
     /// fonte das opções de cada registro.
-    capacidades_estaticas: Value,
+    static_capabilities: Value,
     /// Os registros dinâmicos vigentes e o contador dos ids.
-    registros: crate::registration::Registros,
+    records: crate::registration::Records,
     /// O `workspace/configuration` enviado e ainda sem resposta.
-    pedido_de_configuracao: Option<String>,
+    configuration_request: Option<String>,
     /// As pastas do workspace (`scopeUri` dos itens da configuração).
-    pastas: Vec<String>,
+    folders: Vec<String>,
     /// A configuração vigente do cliente (a global).
-    configuracao: crate::registration::Configuracao,
+    configuration: crate::registration::Configuration,
     /// A configuração de cada pasta do workspace (`forResource`), pelo
     /// caminho da pasta.
-    configuracao_por_pasta: Vec<(std::path::PathBuf, crate::registration::Configuracao)>,
+    configuration_by_folder: Vec<(std::path::PathBuf, crate::registration::Configuration)>,
     /// O cliente aceita renomear arquivo numa edição (para o
     /// `renameFilesWithClasses: always` da configuração).
-    renomeacao_de_arquivo_possivel: bool,
+    possible_file_rename: bool,
     /// Os comandos que o cliente declara (`experimental.commands`, o
     /// `supportedCommands`): `dart.goToLocation` liga as lentes.
-    comandos_do_cliente: Vec<String>,
+    client_commands: Vec<String>,
     /// O cliente declarou `experimental.supportsWindowShowMessageRequest`
     /// (o `userPromptSender` do Dart): o rename pergunta ao usuário.
-    perguntas_ao_usuario: bool,
+    user_questions: bool,
     /// Os `window/showMessageRequest` do rename ainda sem resposta, pelo id
     /// do pedido (§12.1 passos 13 e 17).
-    renomeacoes_pendentes: HashMap<String, RenomeacaoPendente>,
+    pending_renames: HashMap<String, PendingRename>,
 }
 
 /// O `rename` à espera da resposta do usuário.
 #[derive(Debug)]
-struct RenomeacaoPendente {
+struct PendingRename {
     /// O id do `textDocument/rename`.
     id: Value,
     /// O documento da requisição e a versão dele no começo (`null` se
     /// fechado), para o `fileHasBeenModified`.
     uri: String,
-    versao: Option<i32>,
-    edicoes: Vec<crate::Edicao>,
-    arquivo: Option<crate::RenomearArquivo>,
+    version: Option<i32>,
+    edits: Vec<crate::Edit>,
+    file: Option<crate::RenameFile>,
     /// A pergunta feita: `Rename Anyway`/`Cancel` (falso) ou
     /// `Yes`/`No` do arquivo (verdadeiro).
-    pergunta_do_arquivo: bool,
+    file_question: bool,
 }
 
-impl Servidor<AnalisadorSintatico> {
+impl Server<SyntacticAnalyzer> {
     /// Cria o servidor com o analisador sintático e fila vazia.
     pub fn new() -> Self {
-        Self::com_analisador(AnalisadorSintatico::new())
+        Self::with_analyzer(SyntacticAnalyzer::new())
     }
 }
 
-impl Default for Servidor<AnalisadorSintatico> {
+impl Default for Server<SyntacticAnalyzer> {
     /// Cria o servidor com o analisador sintático e fila vazia.
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<A: Analisador> Servidor<A> {
+impl<A: Analyzer> Server<A> {
     /// Cria o servidor com um analisador arbitrário (a costura da semântica).
-    pub fn com_analisador(analisador: A) -> Self {
+    pub fn with_analyzer(analyzer: A) -> Self {
         Self {
-            documentos: DocumentStore::new(),
-            analisador,
-            fila: VecDeque::new(),
-            cancelados: HashSet::new(),
-            linhas_do_disco: Default::default(),
-            desligando: false,
-            inicializado: false,
-            encerrar: false,
-            codigo: 1,
-            simbolos_hierarquicos: false,
+            documents: DocumentStore::new(),
+            analyzer,
+            queue: VecDeque::new(),
+            cancelled: HashSet::new(),
+            disk_lines: Default::default(),
+            disabling: false,
+            initialized: false,
+            shutdown: false,
+            code: 1,
+            hierarchical_symbols: false,
             hover_markdown: false,
-            preparar_renomeacao: false,
-            mudancas_versionadas: false,
-            edicoes_snippet: false,
-            renomear_arquivos: false,
-            criar_arquivos: false,
-            completar_chamadas: false,
-            completar_nao_importados: false,
-            capacidades_de_completar: Default::default(),
-            nao_importados: HashMap::new(),
-            documentacao_markdown: false,
-            raizes: Vec::new(),
-            com_diagnosticos_no_cliente: std::collections::HashSet::new(),
-            origem_da_hierarquia: None,
-            tipado: None,
-            tipado_tentado: false,
-            despertar: None,
-            tipados_descartados: 0,
-            tipados_publicados: HashMap::new(),
-            diagnosticos_puxados: false,
-            atualizar_puxados: false,
-            proximo_pedido: 0,
-            aplicar_edicoes: false,
-            rotulos_de_fechamento: false,
-            progresso_de_trabalho: false,
-            analisando: false,
-            saidas_pendentes: Vec::new(),
-            contorno: false,
-            anotacoes_de_mudanca: false,
-            acoes_literais: false,
-            especies_de_acao: None,
-            edicoes_pendentes: HashMap::new(),
-            assinatura_markdown: false,
-            assinatura_sem_ativo: false,
-            dobras_so_linhas: false,
-            tokens_multilinha: false,
-            rotulo_detalhes: false,
-            tipos_de_simbolo: None,
-            tipos_de_simbolo_do_workspace: None,
-            indice_de_simbolos: Default::default(),
-            configuracao_pedivel: false,
-            dinamicas: Vec::new(),
-            configuracao_dinamica: false,
-            observar_arquivos: false,
-            operacoes_de_arquivo_dinamicas: false,
-            capacidades_estaticas: Value::Null,
-            registros: crate::registration::Registros::default(),
-            pedido_de_configuracao: None,
-            pastas: Vec::new(),
-            configuracao: crate::registration::Configuracao::default(),
-            configuracao_por_pasta: Vec::new(),
-            renomeacao_de_arquivo_possivel: false,
-            perguntas_ao_usuario: false,
-            comandos_do_cliente: Vec::new(),
-            renomeacoes_pendentes: HashMap::new(),
+            prepare_rename: false,
+            versioned_changes: false,
+            edits_snippet: false,
+            rename_files: false,
+            create_files: false,
+            completion_calls: false,
+            completion_not_imported: false,
+            completion_capabilities: Default::default(),
+            not_imported: HashMap::new(),
+            documentation_markdown: false,
+            roots: Vec::new(),
+            with_client_diagnostics: std::collections::HashSet::new(),
+            hierarchy_origin: None,
+            typed: None,
+            typed_tried: false,
+            wake: None,
+            typed_discarded: 0,
+            typed_published: HashMap::new(),
+            pulled_diagnostics: false,
+            update_pulled: false,
+            next_request: 0,
+            apply_edits: false,
+            closing_labels: false,
+            work_progress: false,
+            analyzing: false,
+            pending_outputs: Vec::new(),
+            outline: false,
+            change_annotations: false,
+            actions_literals: false,
+            action_kinds: None,
+            pending_edits: HashMap::new(),
+            signature_markdown: false,
+            signature_without_active: false,
+            folds_line_only: false,
+            multiline_tokens: false,
+            label_details: false,
+            symbol_kinds: None,
+            workspace_symbol_kinds: None,
+            symbol_index: Default::default(),
+            requestable_configuration: false,
+            dynamic: Vec::new(),
+            dynamic_configuration: false,
+            observe_files: false,
+            dynamic_file_operations: false,
+            static_capabilities: Value::Null,
+            records: crate::registration::Records::default(),
+            configuration_request: None,
+            folders: Vec::new(),
+            configuration: crate::registration::Configuration::default(),
+            configuration_by_folder: Vec::new(),
+            possible_file_rename: false,
+            user_questions: false,
+            client_commands: Vec::new(),
+            pending_renames: HashMap::new(),
         }
     }
 
     /// Pede a configuração ao cliente (`workspace/configuration`, §2.5):
     /// uma entrada por pasta do workspace, na ordem, e a global por último.
-    fn pedir_configuracao(&mut self) {
-        self.proximo_pedido += 1;
-        let id = format!("dartforge/configuration/{}", self.proximo_pedido);
-        let mut itens: Vec<Value> = self.pastas.iter().map(|p| json!({"scopeUri": p, "section": "dart"})).collect();
-        itens.push(json!({"section": "dart"}));
-        self.pedido_de_configuracao = Some(id.clone());
-        self.saidas_pendentes.push(json!({"jsonrpc": "2.0", "id": id, "method": "workspace/configuration", "params": {"items": itens}}));
+    fn request_configuration(&mut self) {
+        self.next_request += 1;
+        let id = format!("dartforge/configuration/{}", self.next_request);
+        let mut items: Vec<Value> = self.folders.iter().map(|p| json!({"scopeUri": p, "section": "dart"})).collect();
+        items.push(json!({"section": "dart"}));
+        self.configuration_request = Some(id.clone());
+        self.pending_outputs.push(json!({"jsonrpc": "2.0", "id": id, "method": "workspace/configuration", "params": {"items": items}}));
     }
 
     /// `performDynamicRegistration` (§2.4): a diferença contra os registros
     /// vigentes, primeiro o que sai, depois o que entra; nada sem diferença.
-    fn registrar_dinamicas(&mut self) {
-        let renomear_arquivos = self.operacoes_de_arquivo_dinamicas && self.configuracao.update_imports_on_rename;
-        let novos = crate::registration::registros(
-            &self.capacidades_estaticas,
-            &self.dinamicas,
-            self.configuracao_dinamica,
-            renomear_arquivos,
-            self.observar_arquivos,
+    fn register_dynamic(&mut self) {
+        let rename_files = self.dynamic_file_operations && self.configuration.update_imports_on_rename;
+        let new = crate::registration::records(
+            &self.static_capabilities,
+            &self.dynamic,
+            self.dynamic_configuration,
+            rename_files,
+            self.observe_files,
         );
         // `supportsDynamic => enableFormatter && ...` das três features de
         // formatação: com `enableSdkFormatter: false`, elas saem.
-        let mut novos = novos;
-        if !self.configuracao.enable_sdk_formatter {
-            novos.retain(|(m, _)| !m.ends_with("ormatting"));
+        let mut new = new;
+        if !self.configuration.enable_sdk_formatter {
+            new.retain(|(m, _)| !m.ends_with("ormatting"));
         }
-        let (sair, entrar) = self.registros.diferenca(novos);
-        if !sair.is_empty() {
-            self.proximo_pedido += 1;
-            let id = format!("dartforge/unregisterCapability/{}", self.proximo_pedido);
+        let (exit, enter) = self.records.difference(new);
+        if !exit.is_empty() {
+            self.next_request += 1;
+            let id = format!("dartforge/unregisterCapability/{}", self.next_request);
             // A grafia do protocolo: `unregisterations`.
-            self.saidas_pendentes.push(json!({"jsonrpc": "2.0", "id": id, "method": "client/unregisterCapability", "params": {"unregisterations": sair}}));
+            self.pending_outputs.push(json!({"jsonrpc": "2.0", "id": id, "method": "client/unregisterCapability", "params": {"unregisterations": exit}}));
         }
-        if !entrar.is_empty() {
-            self.proximo_pedido += 1;
-            let id = format!("dartforge/registerCapability/{}", self.proximo_pedido);
-            self.saidas_pendentes.push(json!({"jsonrpc": "2.0", "id": id, "method": "client/registerCapability", "params": {"registrations": entrar}}));
+        if !enter.is_empty() {
+            self.next_request += 1;
+            let id = format!("dartforge/registerCapability/{}", self.next_request);
+            self.pending_outputs.push(json!({"jsonrpc": "2.0", "id": id, "method": "client/registerCapability", "params": {"registrations": enter}}));
         }
     }
 
     /// A resposta ao `workspace/configuration`: só uma lista com uma entrada
     /// por pasta e a global vale (item `null` é `{}`); fora isso, fica a
     /// configuração anterior. Depois, sempre, o registro dinâmico.
-    fn configuracao_recebida(&mut self, mensagem: &Value) {
-        self.pedido_de_configuracao = None;
-        if let Some(lista) = mensagem.get("result").and_then(Value::as_array)
-            && lista.len() == self.pastas.len() + 1
+    fn received_configuration(&mut self, message: &Value) {
+        self.configuration_request = None;
+        if let Some(list) = message.get("result").and_then(Value::as_array)
+            && list.len() == self.folders.len() + 1
         {
-            let global = lista.last().cloned().unwrap_or(Value::Null);
-            let nova = crate::registration::ler_configuracao(&global);
-            if nova.rename_files_with_classes == "always" {
-                self.renomear_arquivos = self.renomeacao_de_arquivo_possivel;
-            } else if nova.rename_files_with_classes == "never" && self.configuracao.rename_files_with_classes != "never" {
-                self.renomear_arquivos = false;
+            let global = list.last().cloned().unwrap_or(Value::Null);
+            let new = crate::registration::read_configuration(&global);
+            if new.rename_files_with_classes == "always" {
+                self.rename_files = self.possible_file_rename;
+            } else if new.rename_files_with_classes == "never" && self.configuration.rename_files_with_classes != "never" {
+                self.rename_files = false;
             }
             // `affectsAnalysisResults` e `affectsAnalysisRoots`: os TODOs ou
             // as pastas excluídas mudaram, a análise refaz.
-            let refazer = nova.show_todos != self.configuracao.show_todos
-                || nova.show_todo_types != self.configuracao.show_todo_types
-                || nova.analysis_excluded_folders != self.configuracao.analysis_excluded_folders;
-            // As das pastas (a lista vem na ordem de `pastas`, a global por
+            let redo = new.show_all != self.configuration.show_all
+                || new.show_all_types != self.configuration.show_all_types
+                || new.analysis_excluded_folders != self.configuration.analysis_excluded_folders;
+            // As das pastas (a lista vem na ordem de `folders`, a global por
             // último).
-            self.configuracao_por_pasta = self
-                .pastas
+            self.configuration_by_folder = self
+                .folders
                 .iter()
-                .zip(lista.iter())
+                .zip(list.iter())
                 .filter_map(|(u, v)| {
-                    let caminho = url::Url::parse(u).ok()?.to_file_path().ok()?;
-                    v.is_object().then(|| (caminho, crate::registration::configuracao_de_recurso(v, &nova)))
+                    let path = url::Url::parse(u).ok()?.to_file_path().ok()?;
+                    v.is_object().then(|| (path, crate::registration::feature_configuration(v, &new)))
                 })
                 .collect();
-            self.configuracao = nova;
-            if refazer {
-                self.reconfigurar_analise();
+            self.configuration = new;
+            if redo {
+                self.reconfigure_analysis();
             }
         }
-        self.registrar_dinamicas();
+        self.register_dynamic();
     }
 
     /// A configuração de `uri` (`forResource`): a da pasta do workspace mais
     /// funda que o contém, senão a global.
-    fn configuracao_de(&self, uri: &str) -> &crate::registration::Configuracao {
-        let Some(caminho) = url::Url::parse(uri).ok().and_then(|u| u.to_file_path().ok()) else { return &self.configuracao };
-        self.configuracao_por_pasta
+    fn configuration_of(&self, uri: &str) -> &crate::registration::Configuration {
+        let Some(path) = url::Url::parse(uri).ok().and_then(|u| u.to_file_path().ok()) else { return &self.configuration };
+        self.configuration_by_folder
             .iter()
-            .filter(|(p, _)| caminho.starts_with(p))
+            .filter(|(p, _)| path.starts_with(p))
             .max_by_key(|(p, _)| p.as_os_str().len())
-            .map_or(&self.configuracao, |(_, c)| c)
+            .map_or(&self.configuration, |(_, c)| c)
     }
 
     /// As pastas excluídas da análise (`analysisExcludedFolders`): os
     /// caminhos absolutos como estão; os relativos, sob cada pasta do
     /// workspace (`_refreshAnalysisRoots`).
-    fn pastas_excluidas(&self) -> Vec<std::path::PathBuf> {
+    fn excluded_folders(&self) -> Vec<std::path::PathBuf> {
         let mut v = Vec::new();
-        for e in &self.configuracao.analysis_excluded_folders {
+        for e in &self.configuration.analysis_excluded_folders {
             let p = std::path::Path::new(e);
             if p.is_absolute() {
                 v.push(p.to_path_buf());
             } else {
-                v.extend(self.raizes.iter().map(|r| r.join(p)));
+                v.extend(self.roots.iter().map(|r| r.join(p)));
             }
         }
         v
     }
 
     /// O documento está numa pasta excluída da análise.
-    fn excluido(&self, uri: &str) -> bool {
-        let excluidas = self.pastas_excluidas();
-        !excluidas.is_empty()
-            && url::Url::parse(uri).ok().and_then(|u| u.to_file_path().ok()).is_some_and(|c| excluidas.iter().any(|e| c.starts_with(e)))
+    fn excluded(&self, uri: &str) -> bool {
+        let excluded = self.excluded_folders();
+        !excluded.is_empty()
+            && url::Url::parse(uri).ok().and_then(|u| u.to_file_path().ok()).is_some_and(|c| excluded.iter().any(|e| c.starts_with(e)))
     }
 
     /// Os TODOs mostrados ou as pastas excluídas mudaram: o trabalhador
     /// tipado recebe a configuração nova e os documentos abertos são
     /// analisados e publicados de novo.
-    fn reconfigurar_analise(&mut self) {
-        let excluidas = self.pastas_excluidas();
-        if let Some(t) = &self.tipado {
-            t.configurar(self.configuracao.show_todos, self.configuracao.show_todo_types.clone(), excluidas);
+    fn reconfigure_analysis(&mut self) {
+        let excluded = self.excluded_folders();
+        if let Some(t) = &self.typed {
+            t.configure(self.configuration.show_all, self.configuration.show_all_types.clone(), excluded);
         }
-        let uris: Vec<String> = self.documentos.uris().map(str::to_string).collect();
+        let uris: Vec<String> = self.documents.uris().map(str::to_string).collect();
         for u in uris {
-            if !self.diagnosticos_puxados {
-                let p = self.publicar(&u);
-                self.saidas_pendentes.push(p);
+            if !self.pulled_diagnostics {
+                let p = self.publish(&u);
+                self.pending_outputs.push(p);
             }
-            self.pedir_tipado(&u);
+            self.request_typed(&u);
         }
     }
 
     /// Registra o gancho chamado (de outra thread) quando a análise tipada
     /// tem resultado: o laço do `main` o usa para acordar e chamar
-    /// [`Servidor::bombear`], que publica o que ainda for da versão vigente.
-    pub fn ao_ter_diagnosticos(&mut self, gancho: impl Fn() + Send + Sync + 'static) {
-        self.despertar = Some(crate::typed::Despertar(std::sync::Arc::new(gancho)));
+    /// [`Server::pump`], que publica o que ainda for da versão vigente.
+    pub fn on_diagnostics(&mut self, hook: impl Fn() + Send + Sync + 'static) {
+        self.wake = Some(crate::typed::Wake(std::sync::Arc::new(hook)));
     }
 
-    /// Espera a análise tipada ficar ociosa (até `limite`) e devolve as
+    /// Espera a análise tipada ficar ociosa (até `limit`) e devolve as
     /// publicações que ela produziu, já filtradas pela versão vigente. Para
-    /// testes e medições; o editor recebe as mesmas pelo [`Servidor::bombear`].
-    pub fn aguardar_diagnosticos(&mut self, limite: std::time::Duration) -> Vec<Value> {
-        if let Some(t) = &self.tipado {
-            t.esperar_ocioso(limite);
+    /// testes e medições; o editor recebe as mesmas pelo [`Server::pump`].
+    pub fn await_diagnostics(&mut self, limit: std::time::Duration) -> Vec<Value> {
+        if let Some(t) = &self.typed {
+            t.wait_idle(limit);
         }
-        self.drenar_tipados()
+        self.drain_typed()
     }
 
     /// Espera a análise tipada ficar ociosa sem publicar o resultado (que
-    /// fica para o próximo [`Servidor::bombear`]). Gancho de teste.
+    /// fica para o próximo [`Server::pump`]). Gancho de teste.
     #[doc(hidden)]
-    pub fn esperar_analise_ociosa(&self, limite: std::time::Duration) -> bool {
-        self.tipado.as_ref().is_none_or(|t| t.esperar_ocioso(limite))
+    pub fn wait_idle_analysis(&self, limit: std::time::Duration) -> bool {
+        self.typed.as_ref().is_none_or(|t| t.wait_idle(limit))
     }
 
     /// Suspende (ou retoma) o início de análises tipadas. Gancho de teste
     /// para exercitar a coalescência de edições rápidas.
     #[doc(hidden)]
-    pub fn pausar_analise_tipada(&mut self, pausar: bool) {
-        self.garantir_tipado();
-        if let Some(t) = &self.tipado {
-            t.pausar(pausar);
+    pub fn pause_typed_analysis(&mut self, pause: bool) {
+        self.ensure_typed();
+        if let Some(t) = &self.typed {
+            t.pause(pause);
         }
     }
 
     /// Resultados tipados descartados até agora (versão velha ou documento
     /// fechado antes de publicar).
-    pub fn tipados_descartados(&self) -> usize {
-        self.tipados_descartados
+    pub fn typed_discarded(&self) -> usize {
+        self.typed_discarded
     }
 
     /// Inicia o trabalhador tipado uma vez, se o analisador tem SDK.
-    fn garantir_tipado(&mut self) {
-        if self.tipado_tentado {
+    fn ensure_typed(&mut self) {
+        if self.typed_tried {
             return;
         }
-        self.tipado_tentado = true;
-        if let Some(sdk) = crate::typed::sdk_do_analisador(&self.analisador) {
-            self.tipado = crate::typed::Tipado::iniciar(sdk, self.despertar.clone());
+        self.typed_tried = true;
+        if let Some(sdk) = crate::typed::analyzer_sdk(&self.analyzer) {
+            self.typed = crate::typed::Typed::start(sdk, self.wake.clone());
         }
         // A configuração vigente da análise (os TODOs, as pastas excluídas).
-        let excluidas = self.pastas_excluidas();
-        if let Some(t) = &self.tipado
-            && (self.configuracao.show_todos || !self.configuracao.show_todo_types.is_empty() || !excluidas.is_empty())
+        let excluded = self.excluded_folders();
+        if let Some(t) = &self.typed
+            && (self.configuration.show_all || !self.configuration.show_all_types.is_empty() || !excluded.is_empty())
         {
-            t.configurar(self.configuracao.show_todos, self.configuracao.show_todo_types.clone(), excluidas);
+            t.configure(self.configuration.show_all, self.configuration.show_all_types.clone(), excluded);
         }
     }
 
     /// As pastas do workspace para o trabalhador tipado: todo `.dart` delas
     /// é analisado e publicado (§3.2, I7).
-    fn analisar_pastas(&mut self) {
-        self.garantir_tipado();
-        let Some(t) = &self.tipado else { return };
-        t.pastas(self.raizes.clone());
-        if !self.raizes.is_empty() {
-            self.marcar_analisando();
+    fn analyze_folders(&mut self) {
+        self.ensure_typed();
+        let Some(t) = &self.typed else { return };
+        t.folders(self.roots.clone());
+        if !self.roots.is_empty() {
+            self.mark_analyzing();
         }
     }
 
     /// Pede a análise tipada do texto vigente de `uri`.
-    fn pedir_tipado(&mut self, uri: &str) {
-        self.garantir_tipado();
-        let (Some(t), Some(versao), Some(texto)) = (&self.tipado, self.documentos.version(uri), self.documentos.get(uri)) else {
+    fn request_typed(&mut self, uri: &str) {
+        self.ensure_typed();
+        let (Some(t), Some(version), Some(text)) = (&self.typed, self.documents.version(uri), self.documents.get(uri)) else {
             return;
         };
-        t.documento(uri, versao, texto);
-        self.marcar_analisando();
+        t.document(uri, version, text);
+        self.mark_analyzing();
     }
 
     /// O estado da análise (§2.6): ociosa → trabalhando.
-    fn marcar_analisando(&mut self) {
-        if !self.analisando {
-            self.analisando = true;
-            if self.progresso_de_trabalho {
-                self.proximo_pedido += 1;
-                self.saidas_pendentes.push(json!({
+    fn mark_analyzing(&mut self) {
+        if !self.analyzing {
+            self.analyzing = true;
+            if self.work_progress {
+                self.next_request += 1;
+                self.pending_outputs.push(json!({
                     "jsonrpc": "2.0",
-                    "id": format!("dartforge/progress/{}", self.proximo_pedido),
+                    "id": format!("dartforge/progress/{}", self.next_request),
                     "method": "window/workDoneProgress/create",
                     "params": {"token": "ANALYZING"},
                 }));
-                self.saidas_pendentes.push(json!({
+                self.pending_outputs.push(json!({
                     "jsonrpc": "2.0",
                     "method": "$/progress",
                     "params": {"token": "ANALYZING", "value": {"kind": "begin", "title": "Analyzing\u{2026}"}},
                 }));
             } else {
-                self.saidas_pendentes.push(json!({"jsonrpc": "2.0", "method": "$/analyzerStatus", "params": {"isAnalyzing": true}}));
+                self.pending_outputs.push(json!({"jsonrpc": "2.0", "method": "$/analyzerStatus", "params": {"isAnalyzing": true}}));
             }
         }
     }
 
     /// Publica os resultados tipados prontos que ainda são da versão vigente;
     /// os demais são descartados.
-    fn drenar_tipados(&mut self) -> Vec<Value> {
-        let Some(resultados) = self.tipado.as_ref().map(|t| t.receber()) else { return Vec::new() };
-        let mut saidas = Vec::new();
-        let mut novos = false;
-        let mut recebeu = false;
-        for r in resultados {
-            recebeu = true;
+    fn drain_typed(&mut self) -> Vec<Value> {
+        let Some(results) = self.typed.as_ref().map(|t| t.receive()) else { return Vec::new() };
+        let mut outputs = Vec::new();
+        let mut new = false;
+        let mut received = false;
+        for r in results {
+            received = true;
             // Um arquivo das raízes que não está aberto (I7): publica com o
             // texto analisado (do disco); se abriu nesse meio tempo, vale a
             // análise do documento.
-            let Some(versao) = r.versao else {
-                if self.documentos.version(&r.uri).is_some() {
-                    self.tipados_descartados += 1;
+            let Some(version) = r.version else {
+                if self.documents.version(&r.uri).is_some() {
+                    self.typed_discarded += 1;
                     continue;
                 }
-                if !self.diagnosticos_puxados
-                    && let Some(texto) = &r.texto
+                if !self.pulled_diagnostics
+                    && let Some(text) = &r.text
                 {
                     let p = if r.uri.ends_with(".yaml") {
-                        self.publicacao_do_yaml(&r.uri, texto, &r.yaml)
+                        self.yaml_publication(&r.uri, text, &r.yaml)
                     } else {
-                        self.publicacao_do_texto(&r.uri, texto, &r.diagnosticos)
+                        self.text_publication(&r.uri, text, &r.diagnostics)
                     };
                     if let Some(p) = p {
-                        saidas.push(p);
+                        outputs.push(p);
                     }
                 }
                 continue;
             };
-            if self.documentos.version(&r.uri) != Some(versao) {
-                self.tipados_descartados += 1;
+            if self.documents.version(&r.uri) != Some(version) {
+                self.typed_discarded += 1;
                 continue;
             }
-            if !self.diagnosticos_puxados {
-                let p = self.publicacao(&r.uri, &r.diagnosticos);
-                if let Some(p) = self.filtrar_vazio_repetido(&r.uri, p) {
-                    saidas.push(p);
+            if !self.pulled_diagnostics {
+                let p = self.publication(&r.uri, &r.diagnostics);
+                if let Some(p) = self.filter_repeated_empty(&r.uri, p) {
+                    outputs.push(p);
                 }
             }
             // A unidade acabou de ser resolvida para a versão vigente: é o
             // ponto em que o servidor do Dart manda os rótulos de fechamento
             // de um arquivo aberto (§3.4).
-            if self.rotulos_de_fechamento {
-                let rotulos = self.analisador.rotulos_de_fechamento(&self.documentos, &r.uri);
-                let lista: Vec<Value> = rotulos
+            if self.closing_labels {
+                let labels = self.analyzer.closing_labels(&self.documents, &r.uri);
+                let list: Vec<Value> = labels
                     .iter()
-                    .filter_map(|(span, texto)| Some(json!({"range": self.faixa(&r.uri, *span)?, "label": texto})))
+                    .filter_map(|(span, text)| Some(json!({"range": self.range(&r.uri, *span)?, "label": text})))
                     .collect();
-                saidas.push(json!({
+                outputs.push(json!({
                     "jsonrpc": "2.0",
                     "method": "dart/textDocument/publishClosingLabels",
-                    "params": {"uri": r.uri, "labels": lista},
+                    "params": {"uri": r.uri, "labels": list},
                 }));
             }
             // O contorno no formato do Dart, no mesmo ponto (§3.4).
-            if self.contorno
-                && let Some(texto) = self.documentos.get(&r.uri)
+            if self.outline
+                && let Some(text) = self.documents.get(&r.uri)
             {
-                saidas.push(json!({
+                outputs.push(json!({
                     "jsonrpc": "2.0",
                     "method": "dart/textDocument/publishOutline",
-                    "params": {"uri": r.uri, "outline": crate::outline::do_documento(texto)},
+                    "params": {"uri": r.uri, "outline": crate::outline::of_document(text)},
                 }));
             }
-            self.tipados_publicados.insert(r.uri, (versao, r.diagnosticos));
-            novos = true;
+            self.typed_published.insert(r.uri, (version, r.diagnostics));
+            new = true;
         }
         // Puxados: um pedido de `refresh` por lote, e o cliente puxa de novo
         // os documentos visíveis (o `resultId` muda com o resultado tipado).
-        if novos && self.diagnosticos_puxados && self.atualizar_puxados {
-            self.proximo_pedido += 1;
-            saidas.push(json!({
+        if new && self.pulled_diagnostics && self.update_pulled {
+            self.next_request += 1;
+            outputs.push(json!({
                 "jsonrpc": "2.0",
-                "id": format!("dartforge/refresh/{}", self.proximo_pedido),
+                "id": format!("dartforge/refresh/{}", self.next_request),
                 "method": "workspace/diagnostic/refresh",
             }));
         }
         // O estado da análise (§2.6): trabalhando → ociosa. O resultado
         // chega um instante antes de o trabalhador se declarar ocioso; a
         // espera curta cobre essa janela.
-        let ocioso = self.tipado.as_ref().is_some_and(|t| t.ocioso() || (recebeu && t.esperar_ocioso(std::time::Duration::from_millis(20))));
-        if self.analisando && ocioso {
-            self.analisando = false;
+        let idle = self.typed.as_ref().is_some_and(|t| t.idle() || (received && t.wait_idle(std::time::Duration::from_millis(20))));
+        if self.analyzing && idle {
+            self.analyzing = false;
             // Na frente das publicações desta passada: quem lê a última
             // mensagem continua achando a publicação.
-            let fim = if self.progresso_de_trabalho {
+            let end = if self.work_progress {
                 json!({"jsonrpc": "2.0", "method": "$/progress", "params": {"token": "ANALYZING", "value": {"kind": "end"}}})
             } else {
                 json!({"jsonrpc": "2.0", "method": "$/analyzerStatus", "params": {"isAnalyzing": false}})
             };
-            saidas.insert(0, fim);
+            outputs.insert(0, end);
         }
-        saidas
+        outputs
     }
 
     /// Enfileira uma mensagem decodificada do transporte, sem despachar.
     ///
-    /// Enfileirar nunca responde: as saídas saem de [`Servidor::bombear`].
-    pub fn receber(&mut self, mensagem: Value) {
-        self.fila.push_back(mensagem);
+    /// Enfileirar nunca responde: as saídas saem de [`Server::pump`].
+    pub fn receive(&mut self, message: Value) {
+        self.queue.push_back(message);
     }
 
     /// Há mensagens esperando despacho.
-    pub fn tem_pendente(&self) -> bool {
-        !self.fila.is_empty()
+    pub fn has_pending(&self) -> bool {
+        !self.queue.is_empty()
     }
 
     /// O laço principal deve terminar após escrever as saídas devolvidas.
-    pub fn deve_encerrar(&self) -> bool {
-        self.encerrar
+    pub fn must_shutdown(&self) -> bool {
+        self.shutdown
     }
 
     /// Código de saída: 0 após `shutdown`, 1 sem.
-    pub fn codigo_saida(&self) -> i32 {
-        self.codigo
+    pub fn exit_code(&self) -> i32 {
+        self.code
     }
 
     /// O analisador (medição e testes: estatísticas da sessão semântica).
-    pub fn analisador(&self) -> &A {
-        &self.analisador
+    pub fn analyzer(&self) -> &A {
+        &self.analyzer
     }
 
     /// Documentos abertos retidos (uso em testes e medição).
-    pub fn documentos_abertos(&self) -> usize {
-        self.documentos.len()
+    pub fn open_documents(&self) -> usize {
+        self.documents.len()
     }
 
     /// Despacha o próximo passo e devolve as mensagens de saída, em ordem.
@@ -783,52 +783,52 @@ impl<A: Analisador> Servidor<A> {
     /// requisições nem notificações válidas são ignoradas em silêncio: entre
     /// elas as respostas do cliente ao único pedido do servidor
     /// (`workspace/diagnostic/refresh`), que não levam dado.
-    pub fn bombear(&mut self) -> Vec<Value> {
-        self.aplicar_cancelamentos();
-        let mut saidas = Vec::new();
-        while let Some(proxima) = self.fila.front() {
-            if eh_requisicao(proxima) {
+    pub fn pump(&mut self) -> Vec<Value> {
+        self.apply_cancellations();
+        let mut outputs = Vec::new();
+        while let Some(next) = self.queue.front() {
+            if is_request(next) {
                 break;
             }
-            let mensagem = self.fila.pop_front().expect("fila não vazia");
+            let message = self.queue.pop_front().expect("fila não vazia");
             // Um pânico numa notificação: o `showMessage` e o `logMessage` do
             // servidor do Dart (`lsp_analysis_server.dart`, `sendErrorResponse`
             // e `logException`), e a sessão semântica cai.
-            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.tratar_notificacao(&mensagem))) {
-                Ok(Some(saida)) => saidas.push(saida),
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.handle_notification(&message))) {
+                Ok(Some(output)) => outputs.push(output),
                 Ok(None) => {}
-                Err(panico) => {
-                    self.analisador.documento_alterado("");
-                    let metodo = mensagem.get("method").and_then(Value::as_str).unwrap_or("?").to_string();
-                    let texto = format!("An error occurred while handling {metodo} notification");
-                    registrar(format!("pânico ao tratar {metodo}"));
-                    saidas.push(notificacao_de_mensagem("window/showMessage", 1, &texto));
-                    saidas.push(notificacao_de_mensagem("window/logMessage", 1, &format!("{texto}: {}", texto_do_panico(&*panico))));
+                Err(panic) => {
+                    self.analyzer.changed_document("");
+                    let method = message.get("method").and_then(Value::as_str).unwrap_or("?").to_string();
+                    let text = format!("An error occurred while handling {method} notification");
+                    register(format!("pânico ao tratar {method}"));
+                    outputs.push(message_notification("window/showMessage", 1, &text));
+                    outputs.push(message_notification("window/logMessage", 1, &format!("{text}: {}", panic_text(&*panic))));
                 }
             }
-            if self.encerrar {
-                return saidas;
+            if self.shutdown {
+                return outputs;
             }
         }
-        if let Some(requisicao) = self.fila.pop_front() {
-            debug_assert!(eh_requisicao(&requisicao));
+        if let Some(request) = self.queue.pop_front() {
+            debug_assert!(is_request(&request));
             // Um pânico numa consulta não derruba o servidor (o do Dart
             // nunca cai por um pedido): a resposta é um erro interno e a
             // sessão semântica, que pode ter ficado pela metade, cai.
-            let resposta = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.tratar_requisicao(&requisicao)));
-            match resposta {
-                Ok(r) => saidas.push(r),
-                Err(panico) => {
+            let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.handle_request(&request)));
+            match response {
+                Ok(r) => outputs.push(r),
+                Err(panic) => {
                     // O `UnhandledError` (-32001) do servidor do Dart, com a
                     // mensagem dele, e o `logException` (`window/logMessage`
                     // do tipo erro, com a causa).
-                    self.analisador.documento_alterado("");
-                    let id = requisicao.get("id").cloned().unwrap_or(Value::Null);
-                    let metodo = requisicao.get("method").and_then(Value::as_str).unwrap_or("?").to_string();
-                    registrar(format!("pânico ao tratar {metodo}"));
-                    let texto = format!("An error occurred while handling {metodo} request");
-                    saidas.push(erro(&id, ERRO_NAO_TRATADO, texto.clone()));
-                    saidas.push(notificacao_de_mensagem("window/logMessage", 1, &format!("{texto}: {}", texto_do_panico(&*panico))));
+                    self.analyzer.changed_document("");
+                    let id = request.get("id").cloned().unwrap_or(Value::Null);
+                    let method = request.get("method").and_then(Value::as_str).unwrap_or("?").to_string();
+                    register(format!("pânico ao tratar {method}"));
+                    let text = format!("An error occurred while handling {method} request");
+                    outputs.push(error(&id, ERROR_NOT_HANDLED, text.clone()));
+                    outputs.push(message_notification("window/logMessage", 1, &format!("{text}: {}", panic_text(&*panic))));
                 }
             }
         }
@@ -836,13 +836,13 @@ impl<A: Analisador> Servidor<A> {
         // recebida tornou velho é descartado aqui, antes de chegar ao editor.
         // (Uma requisição não muda documentos; a resposta sai primeiro.)
         // O começo da análise vai na frente das saídas da passada.
-        if !self.saidas_pendentes.is_empty() {
-            let mut com_pendentes = std::mem::take(&mut self.saidas_pendentes);
-            com_pendentes.append(&mut saidas);
-            saidas = com_pendentes;
+        if !self.pending_outputs.is_empty() {
+            let mut with_pending = std::mem::take(&mut self.pending_outputs);
+            with_pending.append(&mut outputs);
+            outputs = with_pending;
         }
-        saidas.extend(self.drenar_tipados());
-        saidas
+        outputs.extend(self.drain_typed());
+        outputs
     }
 
     /// Extrai e aplica todo `$/cancelRequest` da fila, seja qual for a posição.
@@ -850,126 +850,126 @@ impl<A: Analisador> Servidor<A> {
     /// Só guarda o id quando há requisição com esse id ainda na fila; fora
     /// isso o cancelamento é descartado, para que ids desconhecidos não
     /// façam o conjunto crescer com o número de mensagens.
-    fn aplicar_cancelamentos(&mut self) {
-        let mut varredura = 0;
-        while varredura < self.fila.len() {
-            let eh_cancel = self.fila[varredura]
+    fn apply_cancellations(&mut self) {
+        let mut scan = 0;
+        while scan < self.queue.len() {
+            let is_cancel = self.queue[scan]
                 .get("method")
                 .is_some_and(|m| m.as_str() == Some("$/cancelRequest"));
-            if !eh_cancel {
-                varredura += 1;
+            if !is_cancel {
+                scan += 1;
                 continue;
             }
-            let cancelada = self.fila.remove(varredura).expect("índice varrido");
-            let alvo = cancelada.get("params").and_then(|p| p.get("id")).cloned();
-            if let Some(id) = alvo {
-                let chave = chave_id(&id);
-                let ha_requisicao = self.fila.iter().any(|m| {
-                    eh_requisicao(m) && m.get("id").is_some_and(|outro| chave_id(outro) == chave)
+            let cancelled = self.queue.remove(scan).expect("índice varrido");
+            let target = cancelled.get("params").and_then(|p| p.get("id")).cloned();
+            if let Some(id) = target {
+                let key = key_id(&id);
+                let has_request = self.queue.iter().any(|m| {
+                    is_request(m) && m.get("id").is_some_and(|other| key_id(other) == key)
                 });
-                if ha_requisicao {
-                    if self.cancelados.len() >= TETO_CANCELAMENTOS {
-                        self.cancelados.clear();
+                if has_request {
+                    if self.cancelled.len() >= MAX_CANCELLATIONS {
+                        self.cancelled.clear();
                     }
-                    self.cancelados.insert(chave);
+                    self.cancelled.insert(key);
                 }
             }
         }
     }
 
     /// Trata uma notificação; devolve a publicação de diagnósticos quando há.
-    fn tratar_notificacao(&mut self, mensagem: &Value) -> Option<Value> {
-        if mensagem.get("method").is_none() {
-            return self.resposta_do_cliente(mensagem);
+    fn handle_notification(&mut self, message: &Value) -> Option<Value> {
+        if message.get("method").is_none() {
+            return self.client_response(message);
         }
-        let metodo = mensagem.get("method")?.as_str()?;
-        match metodo {
+        let method = message.get("method")?.as_str()?;
+        match method {
             // Com a capacidade, a configuração e depois o registro
             // dinâmico; sem ela, só o registro (§2.2).
             "initialized" => {
-                if self.configuracao_pedivel {
-                    self.pedir_configuracao();
+                if self.requestable_configuration {
+                    self.request_configuration();
                 } else {
-                    self.registrar_dinamicas();
+                    self.register_dynamic();
                 }
                 // Os arquivos das raízes são analisados e publicados desde o
                 // começo (o driver do Dart os adiciona ao criar os
                 // contextos, §3.2).
-                self.analisar_pastas();
+                self.analyze_folders();
                 None
             }
             "$/cancelRequest" => None,
             // O `settings` recebido é ignorado: a configuração é pedida de
             // novo (`handler_workspace_configuration.dart:22-31`).
             "workspace/didChangeConfiguration" => {
-                if self.configuracao_pedivel {
-                    self.pedir_configuracao();
+                if self.requestable_configuration {
+                    self.request_configuration();
                 }
                 None
             }
             "exit" => {
-                self.encerrar = true;
-                self.codigo = if self.desligando { 0 } else { 1 };
+                self.shutdown = true;
+                self.code = if self.disabling { 0 } else { 1 };
                 None
             }
             "textDocument/didOpen" => {
-                let params = mensagem.get("params")?;
+                let params = message.get("params")?;
                 let doc = params.get("textDocument")?;
                 let uri = doc.get("uri")?.as_str()?;
-                let versao = doc.get("version")?.as_i64()? as i32;
-                let texto = doc.get("text")?.as_str()?;
-                if self.documentos.get(uri).is_some() {
-                    self.analisador.documento_fechado(uri);
+                let version = doc.get("version")?.as_i64()? as i32;
+                let text = doc.get("text")?.as_str()?;
+                if self.documents.get(uri).is_some() {
+                    self.analyzer.closed_document(uri);
                 }
-                self.documentos
-                    .open(uri.to_string(), versao, texto.to_string());
-                self.analisador.documento_aberto(&self.documentos, uri);
-                self.pedir_tipado(uri);
-                if self.diagnosticos_puxados {
+                self.documents
+                    .open(uri.to_string(), version, text.to_string());
+                self.analyzer.open_document(&self.documents, uri);
+                self.request_typed(uri);
+                if self.pulled_diagnostics {
                     return None;
                 }
-                let p = self.publicar(uri);
-                self.filtrar_vazio_repetido(uri, p)
+                let p = self.publish(uri);
+                self.filter_repeated_empty(uri, p)
             }
             "textDocument/didChange" => {
-                let params = mensagem.get("params")?;
+                let params = message.get("params")?;
                 let doc = params.get("textDocument")?;
                 let uri = doc.get("uri")?.as_str()?;
-                let versao = doc.get("version")?.as_i64()? as i32;
-                let mudancas = ler_mudancas(params.get("contentChanges")?);
-                if !self.documentos.apply(uri, versao, &mudancas) {
+                let version = doc.get("version")?.as_i64()? as i32;
+                let changes = read_changes(params.get("contentChanges")?);
+                if !self.documents.apply(uri, version, &changes) {
                     return None;
                 }
-                self.analisador.documento_editado(&self.documentos, uri);
-                self.pedir_tipado(uri);
-                if self.diagnosticos_puxados {
+                self.analyzer.edited_document(&self.documents, uri);
+                self.request_typed(uri);
+                if self.pulled_diagnostics {
                     return None;
                 }
-                let p = self.publicar(uri);
-                self.filtrar_vazio_repetido(uri, p)
+                let p = self.publish(uri);
+                self.filter_repeated_empty(uri, p)
             }
             "textDocument/didClose" => {
-                let params = mensagem.get("params")?;
+                let params = message.get("params")?;
                 let uri = params.get("textDocument")?.get("uri")?.as_str()?;
-                if self.documentos.close(uri) {
-                    self.tipados_publicados.remove(uri);
-                    self.analisador.documento_fechado_em(&self.documentos, uri);
-                    if let Some(t) = &self.tipado {
-                        t.fechado(uri);
+                if self.documents.close(uri) {
+                    self.typed_published.remove(uri);
+                    self.analyzer.document_closed_at(&self.documents, uri);
+                    if let Some(t) = &self.typed {
+                        t.closed(uri);
                     }
                 }
-                if self.diagnosticos_puxados {
+                if self.pulled_diagnostics {
                     return None;
                 }
                 // Dentro das pastas do workspace o `didClose` não limpa: o
                 // arquivo volta a ser analisado pelo disco e é republicado
                 // (§3.2). Fora delas, a raiz do arquivo some e os resultados
                 // dele são limpos (`flushResults`).
-                let dentro = url::Url::parse(uri).ok().and_then(|u| u.to_file_path().ok()).is_some_and(|c| self.raizes.iter().any(|r| c.starts_with(r)));
-                if dentro && self.tipado.is_some() {
+                let inside = url::Url::parse(uri).ok().and_then(|u| u.to_file_path().ok()).is_some_and(|c| self.roots.iter().any(|r| c.starts_with(r)));
+                if inside && self.typed.is_some() {
                     return None;
                 }
-                self.filtrar_vazio_repetido(uri, publicacao_vazia(uri))
+                self.filter_repeated_empty(uri, empty_publication(uri))
             }
             // Notificações comuns dos editores que este servidor não usa:
             // aceitas em silêncio (o do Dart trata as duas primeiras e não
@@ -977,44 +977,44 @@ impl<A: Analisador> Servidor<A> {
             // As pastas do workspace mudaram: as raízes de análise e as do
             // pedido de configuração acompanham (o `changeNotifications`).
             "workspace/didChangeWorkspaceFolders" => {
-                let de_uri = |v: &Value| v.as_str().and_then(|u| url::Url::parse(u).ok()).and_then(|u| u.to_file_path().ok());
-                let lista = |k: &str| mensagem.pointer(&format!("/params/event/{k}")).and_then(Value::as_array).cloned().unwrap_or_default();
-                for f in lista("removed") {
+                let of_uri = |v: &Value| v.as_str().and_then(|u| url::Url::parse(u).ok()).and_then(|u| u.to_file_path().ok());
+                let list = |k: &str| message.pointer(&format!("/params/event/{k}")).and_then(Value::as_array).cloned().unwrap_or_default();
+                for f in list("removed") {
                     if let Some(u) = f["uri"].as_str() {
-                        self.pastas.retain(|p| p != u);
+                        self.folders.retain(|p| p != u);
                     }
-                    if let Some(p) = de_uri(&f["uri"]) {
-                        self.raizes.retain(|r| *r != p);
+                    if let Some(p) = of_uri(&f["uri"]) {
+                        self.roots.retain(|r| *r != p);
                     }
                 }
-                for f in lista("added") {
+                for f in list("added") {
                     if let Some(u) = f["uri"].as_str()
-                        && !self.pastas.iter().any(|p| p == u)
+                        && !self.folders.iter().any(|p| p == u)
                     {
-                        self.pastas.push(u.to_string());
+                        self.folders.push(u.to_string());
                     }
-                    if let Some(p) = de_uri(&f["uri"])
+                    if let Some(p) = of_uri(&f["uri"])
                         && p.is_dir()
-                        && !self.raizes.contains(&p)
+                        && !self.roots.contains(&p)
                     {
-                        self.raizes.push(p);
+                        self.roots.push(p);
                     }
                 }
                 // O que a sessão retém pode depender das raízes.
-                self.analisador.documento_alterado("");
+                self.analyzer.changed_document("");
                 // As pastas novas entram na análise do trabalhador (I7).
-                if self.tipado_tentado {
-                    self.analisar_pastas();
+                if self.typed_tried {
+                    self.analyze_folders();
                 }
                 None
             }
             "workspace/didChangeWatchedFiles" => {
                 // O observador de arquivos (§3.3): o que mudou no disco.
-                if let Some(t) = &self.tipado
-                    && let Some(mudancas) = mensagem.pointer("/params/changes").and_then(Value::as_array)
+                if let Some(t) = &self.typed
+                    && let Some(changes) = message.pointer("/params/changes").and_then(Value::as_array)
                 {
-                    for m in mudancas {
-                        let Some(caminho) = m
+                    for m in changes {
+                        let Some(path) = m
                             .get("uri")
                             .and_then(Value::as_str)
                             .and_then(|u| url::Url::parse(u).ok())
@@ -1023,24 +1023,24 @@ impl<A: Analisador> Servidor<A> {
                         else {
                             continue;
                         };
-                        t.arquivo_no_disco(&caminho);
+                        t.file_on_disk(&path);
                     }
                 }
                 None
             }
             _ => {
-                registrar(format!("notificação desconhecida ignorada: {metodo}"));
+                register(format!("notificação desconhecida ignorada: {method}"));
                 // §2.3: `$/…` é ignorada; qualquer outra vira o erro
                 // `Unknown method`, que para uma notificação é um
                 // `window/showMessage` de erro. Depois do `shutdown`, é
                 // descartada.
-                if metodo.starts_with("$/") || self.desligando {
+                if method.starts_with("$/") || self.disabling {
                     None
                 } else {
                     Some(json!({
                         "jsonrpc": "2.0",
                         "method": "window/showMessage",
-                        "params": {"type": 1, "message": format!("Unknown method {metodo}")},
+                        "params": {"type": 1, "message": format!("Unknown method {method}")},
                     }))
                 }
             }
@@ -1048,171 +1048,171 @@ impl<A: Analisador> Servidor<A> {
     }
 
     /// Executa uma requisição e devolve exatamente uma resposta.
-    fn tratar_requisicao(&mut self, mensagem: &Value) -> Value {
-        self.linhas_do_disco.get_mut().clear();
-        let id = mensagem.get("id").cloned().unwrap_or(Value::Null);
-        let chave = chave_id(&id);
-        if self.cancelados.remove(&chave) {
-            return erro(&id, REQUEST_CANCELLED, "requisição cancelada");
+    fn handle_request(&mut self, message: &Value) -> Value {
+        self.disk_lines.get_mut().clear();
+        let id = message.get("id").cloned().unwrap_or(Value::Null);
+        let key = key_id(&id);
+        if self.cancelled.remove(&key) {
+            return error(&id, REQUEST_CANCELLED, "requisição cancelada");
         }
-        let metodo = mensagem.get("method").and_then(Value::as_str).unwrap_or("");
+        let method = message.get("method").and_then(Value::as_str).unwrap_or("");
         // Os estados do servidor do Dart (§2.3) que não dependem da
         // notificação `initialized`: depois do `shutdown` só o `exit` vale, e
         // o `initialize` só vale uma vez.
-        if self.desligando {
-            return erro(&id, INVALID_REQUEST, format!("Unable to handle {metodo} after shutdown request"));
+        if self.disabling {
+            return error(&id, INVALID_REQUEST, format!("Unable to handle {method} after shutdown request"));
         }
-        if metodo == "initialize" && self.inicializado {
-            return erro(&id, SERVER_NOT_INITIALIZED, "Server already initialized");
+        if method == "initialize" && self.initialized {
+            return error(&id, SERVER_NOT_INITIALIZED, "Server already initialized");
         }
-        match metodo {
+        match method {
             "initialize" => {
-                self.inicializado = true;
-                self.simbolos_hierarquicos = mensagem
+                self.initialized = true;
+                self.hierarchical_symbols = message
                     .pointer("/params/capabilities/textDocument/documentSymbol/hierarchicalDocumentSymbolSupport")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                self.hover_markdown = mensagem
+                self.hover_markdown = message
                     .pointer("/params/capabilities/textDocument/hover/contentFormat")
                     .and_then(Value::as_array)
-                    .is_some_and(|formatos| formatos.iter().any(|f| f.as_str() == Some("markdown")));
-                self.preparar_renomeacao = mensagem
+                    .is_some_and(|formats| formats.iter().any(|f| f.as_str() == Some("markdown")));
+                self.prepare_rename = message
                     .pointer("/params/capabilities/textDocument/rename/prepareSupport")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                self.mudancas_versionadas = mensagem
+                self.versioned_changes = message
                     .pointer("/params/capabilities/workspace/workspaceEdit/documentChanges")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 // `experimental.snippetTextEdit == true`
                 // (`client_capabilities.dart:368-371`).
-                self.edicoes_snippet =
-                    mensagem.pointer("/params/capabilities/experimental/snippetTextEdit").and_then(Value::as_bool).unwrap_or(false);
-                self.aplicar_edicoes =
-                    mensagem.pointer("/params/capabilities/workspace/applyEdit").and_then(Value::as_bool).unwrap_or(false);
-                self.rotulos_de_fechamento =
-                    mensagem.pointer("/params/initializationOptions/closingLabels").and_then(Value::as_bool).unwrap_or(false);
-                self.contorno = mensagem.pointer("/params/initializationOptions/outline").and_then(Value::as_bool).unwrap_or(false);
-                self.progresso_de_trabalho =
-                    mensagem.pointer("/params/capabilities/window/workDoneProgress").and_then(Value::as_bool).unwrap_or(false);
-                self.anotacoes_de_mudanca = mensagem
+                self.edits_snippet =
+                    message.pointer("/params/capabilities/experimental/snippetTextEdit").and_then(Value::as_bool).unwrap_or(false);
+                self.apply_edits =
+                    message.pointer("/params/capabilities/workspace/applyEdit").and_then(Value::as_bool).unwrap_or(false);
+                self.closing_labels =
+                    message.pointer("/params/initializationOptions/closingLabels").and_then(Value::as_bool).unwrap_or(false);
+                self.outline = message.pointer("/params/initializationOptions/outline").and_then(Value::as_bool).unwrap_or(false);
+                self.work_progress =
+                    message.pointer("/params/capabilities/window/workDoneProgress").and_then(Value::as_bool).unwrap_or(false);
+                self.change_annotations = message
                     .pointer("/params/capabilities/workspace/workspaceEdit/changeAnnotationSupport")
                     .is_some_and(|x| !x.is_null());
-                let literais = mensagem.pointer("/params/capabilities/textDocument/codeAction/codeActionLiteralSupport");
-                self.acoes_literais = literais.is_some_and(|l| !l.is_null());
-                self.especies_de_acao = literais
+                let literals = message.pointer("/params/capabilities/textDocument/codeAction/codeActionLiteralSupport");
+                self.actions_literals = literals.is_some_and(|l| !l.is_null());
+                self.action_kinds = literals
                     .and_then(|l| l.pointer("/codeActionKind/valueSet"))
                     .and_then(Value::as_array)
                     .map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect());
-                let aceita_operacao = |op: &str| {
-                    mensagem
+                let accepts_operation = |op: &str| {
+                    message
                         .pointer("/params/capabilities/workspace/workspaceEdit/resourceOperations")
                         .and_then(Value::as_array)
                         .is_some_and(|l| l.iter().any(|o| o.as_str() == Some(op)))
                 };
-                let aceita_renomear_arquivo = aceita_operacao("rename");
-                self.renomeacao_de_arquivo_possivel = self.mudancas_versionadas && aceita_renomear_arquivo;
-                self.perguntas_ao_usuario = mensagem
+                let accepts_rename_file = accepts_operation("rename");
+                self.possible_file_rename = self.versioned_changes && accepts_rename_file;
+                self.user_questions = message
                     .pointer("/params/capabilities/experimental/supportsWindowShowMessageRequest")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                self.comandos_do_cliente = mensagem
+                self.client_commands = message
                     .pointer("/params/capabilities/experimental/commands")
                     .and_then(Value::as_array)
                     .map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect())
                     .unwrap_or_default();
-                self.configuracao_pedivel =
-                    mensagem.pointer("/params/capabilities/workspace/configuration").and_then(Value::as_bool).unwrap_or(false);
-                let (dinamicas, configuracao_dinamica) =
-                    crate::registration::dinamicas(mensagem.pointer("/params/capabilities").unwrap_or(&Value::Null));
-                self.dinamicas = dinamicas;
-                self.configuracao_dinamica = configuracao_dinamica;
-                self.observar_arquivos = mensagem
+                self.requestable_configuration =
+                    message.pointer("/params/capabilities/workspace/configuration").and_then(Value::as_bool).unwrap_or(false);
+                let (dynamic, dynamic_configuration) =
+                    crate::registration::dynamic(message.pointer("/params/capabilities").unwrap_or(&Value::Null));
+                self.dynamic = dynamic;
+                self.dynamic_configuration = dynamic_configuration;
+                self.observe_files = message
                     .pointer("/params/capabilities/workspace/didChangeWatchedFiles/dynamicRegistration")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                self.operacoes_de_arquivo_dinamicas = mensagem
+                self.dynamic_file_operations = message
                     .pointer("/params/capabilities/workspace/fileOperations/dynamicRegistration")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 // As pastas do workspace (ou a raiz), para o `scopeUri`.
-                self.pastas = match mensagem.pointer("/params/workspaceFolders").and_then(Value::as_array) {
+                self.folders = match message.pointer("/params/workspaceFolders").and_then(Value::as_array) {
                     Some(l) => l.iter().filter_map(|p| p.get("uri").and_then(Value::as_str)).map(str::to_string).collect(),
-                    None => mensagem.pointer("/params/rootUri").and_then(Value::as_str).map(|u| vec![u.to_string()]).unwrap_or_default(),
+                    None => message.pointer("/params/rootUri").and_then(Value::as_str).map(|u| vec![u.to_string()]).unwrap_or_default(),
                 };
-                self.criar_arquivos = self.mudancas_versionadas
-                    && aceita_operacao("create");
-                self.renomear_arquivos = self.mudancas_versionadas
-                    && aceita_renomear_arquivo
-                    && mensagem.pointer("/params/initializationOptions/renameFilesWithClasses").and_then(Value::as_str) == Some("always");
-                self.raizes = raizes_do_initialize(mensagem.get("params"));
-                self.completar_chamadas = mensagem
+                self.create_files = self.versioned_changes
+                    && accepts_operation("create");
+                self.rename_files = self.versioned_changes
+                    && accepts_rename_file
+                    && message.pointer("/params/initializationOptions/renameFilesWithClasses").and_then(Value::as_str) == Some("always");
+                self.roots = initialize_roots(message.get("params"));
+                self.completion_calls = message
                     .pointer("/params/capabilities/textDocument/completion/completionItem/snippetSupport")
                     .and_then(Value::as_bool)
                     .unwrap_or(false)
-                    && mensagem.pointer("/params/initializationOptions/completeFunctionCalls").and_then(Value::as_bool) != Some(false);
-                self.completar_nao_importados = mensagem.pointer("/params/initializationOptions/suggestFromUnimportedLibraries").and_then(Value::as_bool) != Some(false)
-                    && mensagem.pointer("/params/capabilities/workspace/applyEdit").and_then(Value::as_bool).unwrap_or(false);
-                self.capacidades_de_completar = crate::completion_item::Capacidades::do_initialize(mensagem.pointer("/params/capabilities").unwrap_or(&Value::Null));
-                self.documentacao_markdown = mensagem
+                    && message.pointer("/params/initializationOptions/completeFunctionCalls").and_then(Value::as_bool) != Some(false);
+                self.completion_not_imported = message.pointer("/params/initializationOptions/suggestFromUnimportedLibraries").and_then(Value::as_bool) != Some(false)
+                    && message.pointer("/params/capabilities/workspace/applyEdit").and_then(Value::as_bool).unwrap_or(false);
+                self.completion_capabilities = crate::completion_item::Capabilities::of_initialize(message.pointer("/params/capabilities").unwrap_or(&Value::Null));
+                self.documentation_markdown = message
                     .pointer("/params/capabilities/textDocument/completion/completionItem/documentationFormat")
                     .and_then(Value::as_array)
                     .is_some_and(|f| f.iter().any(|x| x.as_str() == Some("markdown")));
-                self.diagnosticos_puxados = mensagem.pointer("/params/capabilities/textDocument/diagnostic").is_some_and(Value::is_object);
-                self.atualizar_puxados = mensagem
+                self.pulled_diagnostics = message.pointer("/params/capabilities/textDocument/diagnostic").is_some_and(Value::is_object);
+                self.update_pulled = message
                     .pointer("/params/capabilities/workspace/diagnostics/refreshSupport")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                self.assinatura_markdown = mensagem
+                self.signature_markdown = message
                     .pointer("/params/capabilities/textDocument/signatureHelp/signatureInformation/documentationFormat")
                     .and_then(Value::as_array)
                     .is_some_and(|f| f.iter().any(|x| x.as_str() == Some("markdown")));
-                self.assinatura_sem_ativo = mensagem
+                self.signature_without_active = message
                     .pointer("/params/capabilities/textDocument/signatureHelp/signatureInformation/noActiveParameterSupport")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                self.tipos_de_simbolo = mensagem
+                self.symbol_kinds = message
                     .pointer("/params/capabilities/textDocument/documentSymbol/symbolKind/valueSet")
                     .and_then(Value::as_array)
                     .map(|l| l.iter().filter_map(Value::as_u64).collect());
-                self.tipos_de_simbolo_do_workspace = mensagem
+                self.workspace_symbol_kinds = message
                     .pointer("/params/capabilities/workspace/symbol/symbolKind/valueSet")
                     .and_then(Value::as_array)
                     .map(|l| l.iter().filter_map(Value::as_u64).collect());
-                self.rotulo_detalhes = mensagem
+                self.label_details = message
                     .pointer("/params/capabilities/textDocument/completion/completionItem/labelDetailsSupport")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                self.tokens_multilinha = mensagem
+                self.multiline_tokens = message
                     .pointer("/params/capabilities/textDocument/semanticTokens/multilineTokenSupport")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                self.dobras_so_linhas = mensagem
+                self.folds_line_only = message
                     .pointer("/params/capabilities/textDocument/foldingRange/lineFoldingOnly")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                let renomear = if self.preparar_renomeacao { json!({"prepareProvider": true}) } else { json!(true) };
+                let rename_ = if self.prepare_rename { json!({"prepareProvider": true}) } else { json!(true) };
                 // `handler_code_actions.dart:252-280`: a lista de espécies só
                 // para o cliente com literais; senão, `true`.
-                let acoes_de_codigo = if self.acoes_literais {
+                let code_actions = if self.actions_literals {
                     json!({"codeActionKinds": ["source", "source.organizeImports", "source.fixAll", "source.sortMembers", "quickfix", "refactor"]})
                 } else {
                     json!(true)
                 };
-                let mut resultado = json!({
+                let mut result = json!({
                     "capabilities": {
-                        "textDocumentSync": SINCRONIZACAO_INCREMENTAL,
+                        "textDocumentSync": SYNC_INCREMENTAL,
                         "positionEncoding": "utf-16",
                         "documentSymbolProvider": true,
                         "workspaceSymbolProvider": true,
                         "definitionProvider": true,
                         "referencesProvider": true,
                         "hoverProvider": true,
-                        "renameProvider": renomear,
-                        "codeActionProvider": acoes_de_codigo,
+                        "renameProvider": rename_,
+                        "codeActionProvider": code_actions,
                         // Só os comandos que este servidor executa (o do
                         // Dart anuncia treze, §13.12.4).
-                        "executeCommandProvider": {"commands": COMANDOS, "workDoneProgress": true},
+                        "executeCommandProvider": {"commands": COMMANDS, "workDoneProgress": true},
                         // Os caracteres do servidor do Dart
                         // (`dartSignatureHelpTriggerCharacters`).
                         "signatureHelpProvider": {"triggerCharacters": ["("], "retriggerCharacters": [","]},
@@ -1229,7 +1229,7 @@ impl<A: Analisador> Servidor<A> {
                         // `DocumentColorOptions()` (§8.2).
                         "colorProvider": {},
                         "semanticTokensProvider": {
-                            "legend": {"tokenTypes": crate::semantic_tokens::TIPOS, "tokenModifiers": crate::semantic_tokens::MODIFICADORES},
+                            "legend": {"tokenTypes": crate::semantic_tokens::TYPES, "tokenModifiers": crate::semantic_tokens::MODIFIERS},
                             "full": true,
                             "range": true,
                         },
@@ -1248,97 +1248,97 @@ impl<A: Analisador> Servidor<A> {
                 // `updateImportsOnRename`, `server_capabilities_computer.dart:197-205`).
                 // A formatação (`FormattingRegistrations` e afins): estática
                 // quando `enableSdkFormatter` (o padrão).
-                if self.configuracao.enable_sdk_formatter {
-                    resultado["capabilities"]["documentFormattingProvider"] = json!(true);
-                    resultado["capabilities"]["documentOnTypeFormattingProvider"] = json!({
-                        "firstTriggerCharacter": crate::formatting::CARACTERES_AO_DIGITAR[0],
-                        "moreTriggerCharacter": &crate::formatting::CARACTERES_AO_DIGITAR[1..],
+                if self.configuration.enable_sdk_formatter {
+                    result["capabilities"]["documentFormattingProvider"] = json!(true);
+                    result["capabilities"]["documentOnTypeFormattingProvider"] = json!({
+                        "firstTriggerCharacter": crate::formatting::TRIGGER_CHARACTERS[0],
+                        "moreTriggerCharacter": &crate::formatting::TRIGGER_CHARACTERS[1..],
                     });
-                    resultado["capabilities"]["documentRangeFormattingProvider"] = json!(true);
+                    result["capabilities"]["documentRangeFormattingProvider"] = json!(true);
                 }
-                resultado["capabilities"]["workspace"] = json!({"workspaceFolders": {"supported": true, "changeNotifications": true}});
-                if !self.operacoes_de_arquivo_dinamicas && self.configuracao.update_imports_on_rename {
-                    resultado["capabilities"]["workspace"]["fileOperations"] = json!({"willRename": crate::registration::opcoes_das_operacoes_de_arquivo()});
+                result["capabilities"]["workspace"] = json!({"workspaceFolders": {"supported": true, "changeNotifications": true}});
+                if !self.dynamic_file_operations && self.configuration.update_imports_on_rename {
+                    result["capabilities"]["workspace"]["fileOperations"] = json!({"willRename": crate::registration::file_operation_options()});
                 }
-                if self.diagnosticos_puxados {
+                if self.pulled_diagnostics {
                     // Um documento depende de outros (imports): editar um
                     // muda os diagnósticos de quem o importa. Sem diagnóstico
                     // do workspace inteiro (só dos documentos pedidos).
-                    resultado["capabilities"]["diagnosticProvider"] = json!({
-                        "identifier": FONTE,
+                    result["capabilities"]["diagnosticProvider"] = json!({
+                        "identifier": SOURCE,
                         "interFileDependencies": true,
                         "workspaceDiagnostics": false,
                     });
                 }
                 // §2.4: as features dinâmicas saem do estático e são
                 // registradas depois do `initialized`.
-                self.capacidades_estaticas = resultado["capabilities"].clone();
-                crate::registration::tirar_dinamicas(&mut resultado["capabilities"], &self.dinamicas);
-                resposta(&id, resultado)
+                self.static_capabilities = result["capabilities"].clone();
+                crate::registration::remove_dynamic(&mut result["capabilities"], &self.dynamic);
+                response(&id, result)
             }
             "textDocument/diagnostic" => {
-                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
-                let anterior = mensagem.pointer("/params/previousResultId").and_then(Value::as_str);
-                resposta(&id, uri.map_or_else(|| json!({"kind": "full", "items": []}), |u| self.relatorio_puxado(&u, anterior)))
+                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
+                let previous = message.pointer("/params/previousResultId").and_then(Value::as_str);
+                response(&id, uri.map_or_else(|| json!({"kind": "full", "items": []}), |u| self.pulled_report(&u, previous)))
             }
             "shutdown" => {
-                self.desligando = true;
-                resposta(&id, Value::Null)
+                self.disabling = true;
+                response(&id, Value::Null)
             }
             "textDocument/documentSymbol" => {
-                let uri = mensagem.get("params")
+                let uri = message.get("params")
                     .and_then(|p| p.get("textDocument"))
                     .and_then(|d| d.get("uri"))
                     .and_then(Value::as_str);
-                let mut simbolos = uri
-                    .and_then(|u| self.documentos.get(u).map(|t| (u, t.to_string())))
-                    .map_or_else(Vec::new, |(u, t)| self.analisador.simbolos(u, &t));
-                for s in &mut simbolos {
-                    ajustar_especies(s, self.tipos_de_simbolo.as_deref());
+                let mut symbols = uri
+                    .and_then(|u| self.documents.get(u).map(|t| (u, t.to_string())))
+                    .map_or_else(Vec::new, |(u, t)| self.analyzer.symbols(u, &t));
+                for s in &mut symbols {
+                    adjust_kinds(s, self.symbol_kinds.as_deref());
                 }
-                let resultado = if self.simbolos_hierarquicos {
-                    simbolos
+                let result = if self.hierarchical_symbols {
+                    symbols
                 } else {
-                    let mut planos = Vec::new();
-                    for simbolo in &simbolos {
-                        achatar_simbolos(simbolo, uri.unwrap_or(""), None, &mut planos);
+                    let mut plans = Vec::new();
+                    for symbol in &symbols {
+                        flatten_symbols(symbol, uri.unwrap_or(""), None, &mut plans);
                     }
-                    planos
+                    plans
                 };
-                resposta(&id, json!(resultado))
+                response(&id, json!(result))
             }
             "workspace/symbol" => {
-                let consulta = mensagem.get("params")
+                let query = message.get("params")
                     .and_then(|p| p.get("query"))
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
-                resposta(&id, json!(self.simbolos_do_workspace(&consulta)))
+                response(&id, json!(self.workspace_symbols(&query)))
             }
             "textDocument/definition" => {
-                let params = mensagem.get("params");
+                let params = message.get("params");
                 let uri = params
                     .and_then(|p| p.get("textDocument"))
                     .and_then(|d| d.get("uri"))
                     .and_then(Value::as_str);
-                let posicao = params.and_then(|p| p.get("position")).and_then(ler_posicao);
-                let resultado = uri.zip(posicao).and_then(|(u, p)| {
-                    let texto = self.documentos.get(u)?.to_string();
-                    let offset = self.documentos.linhas(u)?
-                        .offset_de_posicao(&texto, p.linha, p.coluna);
-                    let (destino, selecao) = self.analisador.definicao_no_workspace(u, &texto, offset, &self.documentos)?;
-                    let range = if let Some(s) = selecao {
-                        let (l0, c0, l1, c1) = if let Some(fonte) = self.documentos.get(&destino) {
-                            let tabela = self.documentos.linhas(&destino)?;
-                            let (l0, c0) = tabela.posicao_de_offset(fonte, s.start);
-                            let (l1, c1) = tabela.posicao_de_offset(fonte, s.end);
+                let position = params.and_then(|p| p.get("position")).and_then(read_position);
+                let result = uri.zip(position).and_then(|(u, p)| {
+                    let text = self.documents.get(u)?.to_string();
+                    let offset = self.documents.lines(u)?
+                        .position_offset(&text, p.line, p.column);
+                    let (target_, selection) = self.analyzer.definition_in_workspace(u, &text, offset, &self.documents)?;
+                    let range = if let Some(s) = selection {
+                        let (l0, c0, l1, c1) = if let Some(source) = self.documents.get(&target_) {
+                            let table = self.documents.lines(&target_)?;
+                            let (l0, c0) = table.offset_position(source, s.start);
+                            let (l1, c1) = table.offset_position(source, s.end);
                             (l0, c0, l1, c1)
                         } else {
-                            let caminho = url::Url::parse(&destino).ok()?.to_file_path().ok()?;
-                            let fonte = std::fs::read_to_string(caminho).ok()?;
-                            let tabela = crate::utf16::TabelaLinhas::construir(&fonte);
-                            let (l0, c0) = tabela.posicao_de_offset(&fonte, s.start);
-                            let (l1, c1) = tabela.posicao_de_offset(&fonte, s.end);
+                            let path = url::Url::parse(&target_).ok()?.to_file_path().ok()?;
+                            let source = std::fs::read_to_string(path).ok()?;
+                            let table = crate::utf16::LineTable::build(&source);
+                            let (l0, c0) = table.offset_position(&source, s.start);
+                            let (l1, c1) = table.offset_position(&source, s.end);
                             (l0, c0, l1, c1)
                         };
                         json!({"start": {"line": l0, "character": c0}, "end": {"line": l1, "character": c1}})
@@ -1346,322 +1346,322 @@ impl<A: Analisador> Servidor<A> {
                         json!({"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}})
                     };
                     Some(json!({
-                        "uri": destino,
+                        "uri": target_,
                         "range": range,
                     }))
                 });
-                resposta(&id, resultado.unwrap_or(Value::Null))
+                response(&id, result.unwrap_or(Value::Null))
             }
             "textDocument/references" => {
-                let params = mensagem.get("params");
+                let params = message.get("params");
                 let uri = params
                     .and_then(|p| p.get("textDocument"))
                     .and_then(|d| d.get("uri"))
                     .and_then(Value::as_str);
-                let posicao = params.and_then(|p| p.get("position")).and_then(ler_posicao);
-                let incluir_declaracao = params
+                let position = params.and_then(|p| p.get("position")).and_then(read_position);
+                let include_declaration = params
                     .and_then(|p| p.get("context"))
                     .and_then(|c| c.get("includeDeclaration"))
                     .and_then(Value::as_bool)
                     .unwrap_or(true);
-                let resultado = uri.zip(posicao).and_then(|(u, p)| {
-                    let texto = self.documentos.get(u)?.to_string();
-                    let tabela = self.documentos.linhas(u)?;
-                    let offset = tabela.offset_de_posicao(&texto, p.linha, p.coluna);
-                    let achados = self.analisador.referencias_em(&self.documentos, u, offset)?;
+                let result = uri.zip(position).and_then(|(u, p)| {
+                    let text = self.documents.get(u)?.to_string();
+                    let table = self.documents.lines(u)?;
+                    let offset = table.position_offset(&text, p.line, p.column);
+                    let found = self.analyzer.references_in(&self.documents, u, offset)?;
                     // A ordem do `SearchEngine` do servidor do Dart (sondado no
                     // 3.6.2): os outros arquivos pelo caminho, depois o que
                     // declara; em cada um, pela posição. A declaração vai no
                     // fim (`_getDeclarations`, §11.5).
-                    let dono = achados.declaracao.as_ref().map(|(alvo, _)| alvo.clone());
-                    let mut usos = achados.usos.clone();
-                    usos.sort_by(|(a, sa), (b, sb)| {
-                        (Some(a) == dono.as_ref(), a, sa.start).cmp(&(Some(b) == dono.as_ref(), b, sb.start))
+                    let owner = found.declaration.as_ref().map(|(target, _)| target.clone());
+                    let mut uses = found.uses.clone();
+                    uses.sort_by(|(a, sa), (b, sb)| {
+                        (Some(a) == owner.as_ref(), a, sa.start).cmp(&(Some(b) == owner.as_ref(), b, sb.start))
                     });
-                    let declaracao = achados.declaracao.filter(|_| incluir_declaracao);
-                    let locais: Vec<Value> = usos
+                    let declaration = found.declaration.filter(|_| include_declaration);
+                    let locals: Vec<Value> = uses
                         .iter()
-                        .chain(declaracao.iter())
-                        .filter_map(|(alvo, s)| {
-                            Some(json!({"uri": alvo, "range": self.faixa(alvo, *s)?}))
+                        .chain(declaration.iter())
+                        .filter_map(|(target, s)| {
+                            Some(json!({"uri": target, "range": self.range(target, *s)?}))
                         })
                         .collect();
-                    Some(json!(locais))
+                    Some(json!(locals))
                 });
-                resposta(&id, resultado.unwrap_or(Value::Null))
+                response(&id, result.unwrap_or(Value::Null))
             }
             "textDocument/hover" => {
-                let params = mensagem.get("params");
+                let params = message.get("params");
                 let uri = params
                     .and_then(|p| p.get("textDocument"))
                     .and_then(|d| d.get("uri"))
                     .and_then(Value::as_str);
-                let posicao = params.and_then(|p| p.get("position")).and_then(ler_posicao);
-                let resultado = uri.zip(posicao).and_then(|(u, p)| {
-                    let texto = self.documentos.get(u)?.to_string();
-                    let tabela = self.documentos.linhas(u)?;
-                    let offset = tabela.offset_de_posicao(&texto, p.linha, p.coluna);
-                    let hover = self.analisador.hover_no_workspace(u, &texto, offset, &self.documentos)?;
-                    let (l0, c0) = tabela.posicao_de_offset(&texto, hover.intervalo.start);
-                    let (l1, c1) = tabela.posicao_de_offset(&texto, hover.intervalo.end);
+                let position = params.and_then(|p| p.get("position")).and_then(read_position);
+                let result = uri.zip(position).and_then(|(u, p)| {
+                    let text = self.documents.get(u)?.to_string();
+                    let table = self.documents.lines(u)?;
+                    let offset = table.position_offset(&text, p.line, p.column);
+                    let hover = self.analyzer.hover_in_workspace(u, &text, offset, &self.documents)?;
+                    let (l0, c0) = table.offset_position(&text, hover.range.start);
+                    let (l1, c1) = table.offset_position(&text, hover.range.end);
                     // O formato do servidor do Dart: a descrição em bloco de
                     // código, o tipo e, separada por `---`, a documentação.
-                    let conteudo = if self.hover_markdown {
+                    let content = if self.hover_markdown {
                         // Como o `toHover` do Dart: descrição, tipo, biblioteca
                         // e, depois de `---`, a documentação.
-                        let mut valor = format!("```dart\n{}\n```\n", hover.descricao);
-                        if let Some(t) = &hover.tipo {
-                            valor.push_str(&format!("Type: `{t}`\n\n"));
+                        let mut value = format!("```dart\n{}\n```\n", hover.description);
+                        if let Some(t) = &hover.ty {
+                            value.push_str(&format!("Type: `{t}`\n\n"));
                         }
-                        if let Some(b) = &hover.biblioteca {
-                            valor.push_str(&format!("*{b}*\n\n"));
+                        if let Some(b) = &hover.library {
+                            value.push_str(&format!("*{b}*\n\n"));
                         }
-                        if let Some(d) = &hover.documentacao {
-                            valor.push_str(&format!("---\n{d}\n"));
+                        if let Some(d) = &hover.documentation {
+                            value.push_str(&format!("---\n{d}\n"));
                         }
-                        json!({"kind": "markdown", "value": valor.trim_end()})
+                        json!({"kind": "markdown", "value": value.trim_end()})
                     } else {
-                        let mut valor = hover.descricao.clone();
-                        if let Some(t) = &hover.tipo {
-                            valor.push_str(&format!("\nType: {t}"));
+                        let mut value = hover.description.clone();
+                        if let Some(t) = &hover.ty {
+                            value.push_str(&format!("\nType: {t}"));
                         }
-                        if let Some(d) = &hover.documentacao {
-                            valor.push_str(&format!("\n\n{d}"));
+                        if let Some(d) = &hover.documentation {
+                            value.push_str(&format!("\n\n{d}"));
                         }
-                        json!(valor)
+                        json!(value)
                     };
                     Some(json!({
-                        "contents": conteudo,
+                        "contents": content,
                         "range": {
                             "start": {"line": l0, "character": c0},
                             "end": {"line": l1, "character": c1},
                         },
                     }))
                 });
-                resposta(&id, resultado.unwrap_or(Value::Null))
+                response(&id, result.unwrap_or(Value::Null))
             }
             "textDocument/completion" => {
                 // `maxCompletionItems` e `enableSnippets` são da pasta do
                 // documento (`forResource`).
-                let uri_do_pedido = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
-                let maximo = self.configuracao_de(&uri_do_pedido).max_completion_items.map_or(crate::completion::MAXIMO_PADRAO, |m| m as usize);
-                self.analisador.definir_maximo_de_completar(maximo);
-                self.analisador.definir_nao_importados_no_completar(self.completar_nao_importados);
-                let resultado = self.posicao_da_requisicao(mensagem).and_then(|(u, offset)| {
-                    let completar = self.analisador.completar(&self.documentos, &u, offset)?;
-                    let texto = self.documentos.get(&u)?.to_string();
-                    let tabela = self.documentos.linhas(&u)?;
+                let request_uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
+                let max = self.configuration_of(&request_uri).max_completion_items.map_or(crate::completion::MAX_PATTERN, |m| m as usize);
+                self.analyzer.set_completion_max(max);
+                self.analyzer.set_not_imported_in_completion(self.completion_not_imported);
+                let result = self.request_position(message).and_then(|(u, offset)| {
+                    let completion = self.analyzer.completion(&self.documents, &u, offset)?;
+                    let text = self.documents.get(&u)?.to_string();
+                    let table = self.documents.lines(&u)?;
                     // `computeReplacementRange`: a palavra inteira; `insert`
                     // até o cursor.
-                    let fim_da_palavra = completar.fim_da_substituicao.unwrap_or_else(|| {
-                        texto[completar.fim.min(texto.len())..]
+                    let word_end = completion.replacement_end.unwrap_or_else(|| {
+                        text[completion.end.min(text.len())..]
                             .char_indices()
                             .find(|(_, c)| !(c.is_ascii_alphanumeric() || *c == '_' || *c == '$'))
-                            .map_or(texto.len(), |(i, _)| completar.fim + i)
+                            .map_or(text.len(), |(i, _)| completion.end + i)
                     });
-                    let substituir = intervalo_lsp(&texto, tabela, completar.inicio, fim_da_palavra);
-                    let inserir = intervalo_lsp(&texto, tabela, completar.inicio, completar.fim);
-                    let iguais = fim_da_palavra == completar.fim;
-                    let cap = &self.capacidades_de_completar;
+                    let replace = lsp_range(&text, table, completion.start, word_end);
+                    let insert = lsp_range(&text, table, completion.start, completion.end);
+                    let equal = word_end == completion.end;
+                    let cap = &self.completion_capabilities;
                     // `itemDefaults` (`HC:250-291`).
-                    let mut padroes = serde_json::Map::new();
-                    if cap.padrao_modo && cap.modos_de_insercao.contains(&1) {
-                        padroes.insert("insertTextMode".into(), json!(1));
+                    let mut patterns = serde_json::Map::new();
+                    if cap.default_mode && cap.insertion_modes.contains(&1) {
+                        patterns.insert("insertTextMode".into(), json!(1));
                     }
-                    if cap.padrao_intervalo {
-                        padroes.insert(
+                    if cap.default_range {
+                        patterns.insert(
                             "editRange".into(),
-                            if !cap.inserir_substituir || iguais { substituir.clone() } else { json!({"insert": inserir, "replace": substituir}) },
+                            if !cap.insert_replace || equal { replace.clone() } else { json!({"insert": insert, "replace": replace}) },
                         );
                     }
                     // `_hasExistingArgList`: já há parênteses depois do nome.
-                    let com_parenteses = texto[fim_da_palavra..].trim_start_matches([' ', '\t']).starts_with('(');
-                    let arquivo = url::Url::parse(&u).ok().and_then(|x| x.to_file_path().ok()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
-                    let pedido = crate::completion_item::Pedido {
-                        substituir: substituir.clone(),
-                        inserir: inserir.clone(),
-                        iguais,
-                        padrao: cap.padrao_intervalo,
-                        chamadas: self.configuracao.complete_function_calls && !com_parenteses,
-                        arquivo: &arquivo,
-                        preferencia_de_doc: &self.configuracao.documentacao,
+                    let with_parens = text[word_end..].trim_start_matches([' ', '\t']).starts_with('(');
+                    let file = url::Url::parse(&u).ok().and_then(|x| x.to_file_path().ok()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+                    let request = crate::completion_item::Request {
+                        replace: replace.clone(),
+                        insert: insert.clone(),
+                        equal,
+                        pattern: cap.default_range,
+                        calls: self.configuration.complete_function_calls && !with_parens,
+                        file: &file,
+                        doc_preference: &self.configuration.documentation,
                     };
                     // A documentação de cada item (do arquivo da declaração).
-                    let mut textos: HashMap<std::path::PathBuf, Option<String>> = HashMap::new();
-                    self.nao_importados.clear();
-                    let mut itens: Vec<Value> = Vec::new();
-                    for item in &completar.itens {
-                        let doc = match (&item.origem, &item.importar) {
-                            (Some((caminho, inicio)), None) => {
-                                let fonte = textos.entry(caminho.clone()).or_insert_with(|| {
-                                    url::Url::from_file_path(caminho)
+                    let mut texts: HashMap<std::path::PathBuf, Option<String>> = HashMap::new();
+                    self.not_imported.clear();
+                    let mut items: Vec<Value> = Vec::new();
+                    for item in &completion.items {
+                        let doc = match (&item.origin, &item.import) {
+                            (Some((path, start)), None) => {
+                                let source = texts.entry(path.clone()).or_insert_with(|| {
+                                    url::Url::from_file_path(path)
                                         .ok()
-                                        .and_then(|x| self.documentos.get(x.as_str()).map(str::to_string))
-                                        .or_else(|| std::fs::read_to_string(caminho).ok())
+                                        .and_then(|x| self.documents.get(x.as_str()).map(str::to_string))
+                                        .or_else(|| std::fs::read_to_string(path).ok())
                                 });
-                                fonte.as_deref().filter(|f| *inicio <= f.len() && f.is_char_boundary(*inicio)).and_then(|f| crate::dartdoc::documentacao(f, *inicio))
+                                source.as_deref().filter(|f| *start <= f.len() && f.is_char_boundary(*start)).and_then(|f| crate::dartdoc::documentation(f, *start))
                             }
                             _ => None,
                         };
-                        let v = crate::completion_item::item(cap, &pedido, item, doc);
+                        let v = crate::completion_item::item(cap, &request, item, doc);
                         if let Some(r) = v.pointer("/data/ref").and_then(Value::as_str) {
-                            self.nao_importados.insert(r.to_string(), (item.origem.clone(), item.importar.clone(), item.detalhe.clone()));
+                            self.not_imported.insert(r.to_string(), (item.origin.clone(), item.import.clone(), item.detail.clone()));
                         }
-                        itens.push(v);
+                        items.push(v);
                     }
-                    let mut incompleta = completar.incompleta;
+                    let mut incomplete = completion.incomplete;
                     // Os snippets (sem ranqueamento, no fim).
-                    if cap.snippet && self.configuracao_de(&u).enable_snippets {
-                        let prefixo = &texto[completar.inicio..completar.fim];
-                        if let Some(contexto) = crate::completion_item::contexto_de_snippet(&texto, offset) {
-                            let recuo: String = {
-                                let ini = texto[..offset].rfind('\n').map_or(0, |i| i + 1);
-                                texto[ini..].chars().take_while(|c| *c == ' ' || *c == '\t').collect()
+                    if cap.snippet && self.configuration_of(&u).enable_snippets {
+                        let prefix = &text[completion.start..completion.end];
+                        if let Some(context) = crate::completion_item::snippet_context(&text, offset) {
+                            let indent: String = {
+                                let start_ = text[..offset].rfind('\n').map_or(0, |i| i + 1);
+                                text[start_..].chars().take_while(|c| *c == ' ' || *c == '\t').collect()
                             };
-                            let eol = if texto.contains("\r\n") { "\r\n" } else { "\n" };
-                            let em_testes = std::path::Path::new(&arquivo).components().any(|c| c.as_os_str() == "test");
-                            let finais = std::path::Path::new(&arquivo).parent().is_some_and(|_| {
-                                let caminho = std::path::Path::new(&arquivo);
-                                let raiz = crate::project::raiz_do_projeto(caminho);
-                                let opcoes = dartforge_parity::filtros::Opcoes::de_subpasta(caminho, &raiz).unwrap_or_else(|| raiz.join("analysis_options.yaml"));
-                                dartforge_parity::filtros::Opcoes::ler_arquivo(&opcoes).regras.get("prefer_final_locals").copied().unwrap_or(false)
+                            let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+                            let in_tests = std::path::Path::new(&file).components().any(|c| c.as_os_str() == "test");
+                            let finals = std::path::Path::new(&file).parent().is_some_and(|_| {
+                                let path = std::path::Path::new(&file);
+                                let root = crate::project::project_root(path);
+                                let options = dartforge_parity::filtros::Opcoes::de_subpasta(path, &root).unwrap_or_else(|| root.join("analysis_options.yaml"));
+                                dartforge_parity::filtros::Opcoes::ler_arquivo(&options).regras.get("prefer_final_locals").copied().unwrap_or(false)
                             });
-                            let mut casador = crate::fuzzy_matcher::Casador::novo(prefixo, crate::fuzzy_matcher::Estilo::Texto);
-                            for (pre, rotulo, doc, corpo) in crate::completion_item::snippets(contexto, &recuo, eol, em_testes, finais) {
-                                if casador.score(pre) <= 0.0 {
+                            let mut matcher = crate::fuzzy_matcher::Matcher::new(prefix, crate::fuzzy_matcher::Style::Text);
+                            for (pre, label, doc, body) in crate::completion_item::snippets(context, &indent, eol, in_tests, finals) {
+                                if matcher.score(pre) <= 0.0 {
                                     continue;
                                 }
-                                let v = crate::completion_item::item_de_snippet(cap, &pedido, pre, rotulo, doc, &corpo);
-                                let filtro = v.get("filterText").or_else(|| v.get("label")).and_then(Value::as_str).unwrap_or("").to_string();
-                                if casador.score(&filtro) <= 0.0 {
+                                let v = crate::completion_item::snippet_item(cap, &request, pre, label, doc, &body);
+                                let filter = v.get("filterText").or_else(|| v.get("label")).and_then(Value::as_str).unwrap_or("").to_string();
+                                if matcher.score(&filter) <= 0.0 {
                                     continue;
                                 }
-                                itens.push(v);
+                                items.push(v);
                             }
                         } else {
-                            incompleta |= false;
+                            incomplete |= false;
                         }
                     }
-                    let mut lista = json!({"isIncomplete": incompleta, "items": itens});
-                    if !padroes.is_empty() {
-                        lista["itemDefaults"] = Value::Object(padroes);
+                    let mut list = json!({"isIncomplete": incomplete, "items": items});
+                    if !patterns.is_empty() {
+                        list["itemDefaults"] = Value::Object(patterns);
                     }
-                    Some(lista)
+                    Some(list)
                 });
-                resposta(&id, resultado.unwrap_or(Value::Null))
+                response(&id, result.unwrap_or(Value::Null))
             }
             "completionItem/resolve" => {
-                let mut item = mensagem.get("params").cloned().unwrap_or(Value::Null);
+                let mut item = message.get("params").cloned().unwrap_or(Value::Null);
                 // `resolveDartCompletion`: só o item com `data` (não
                 // importado): o import, a documentação e o `detail`.
-                let chave = item.pointer("/data/ref").and_then(Value::as_str).map(str::to_string);
-                if let Some(chave) = chave
-                    && let Some((origem, importar, detalhe)) = self.nao_importados.get(&chave).cloned()
+                let key = item.pointer("/data/ref").and_then(Value::as_str).map(str::to_string);
+                if let Some(key) = key
+                    && let Some((origin, import, detail)) = self.not_imported.get(&key).cloned()
                 {
-                    let arquivo = item.pointer("/data/file").and_then(Value::as_str).unwrap_or("").to_string();
-                    let uri_doc = url::Url::from_file_path(&arquivo).map(|x| x.to_string()).unwrap_or_default();
-                    if let Some(imp) = &importar
-                        && let (Some(texto), Some(tabela)) = (self.documentos.get(&uri_doc), self.documentos.linhas(&uri_doc))
+                    let file = item.pointer("/data/file").and_then(Value::as_str).unwrap_or("").to_string();
+                    let uri_doc = url::Url::from_file_path(&file).map(|x| x.to_string()).unwrap_or_default();
+                    if let Some(imp) = &import
+                        && let (Some(text), Some(table)) = (self.documents.get(&uri_doc), self.documents.lines(&uri_doc))
                     {
-                        item["additionalTextEdits"] = json!([{"range": intervalo_lsp(texto, tabela, imp.span.start, imp.span.end), "newText": imp.texto}]);
-                        let exibida = crate::completion_item::uri_de_exibicao(&imp.uri, &arquivo);
-                        let d = format!("Auto import from '{exibida}'\n\n{}", detalhe.unwrap_or_default());
+                        item["additionalTextEdits"] = json!([{"range": lsp_range(text, table, imp.span.start, imp.span.end), "newText": imp.text}]);
+                        let displayed = crate::completion_item::display_uri(&imp.uri, &file);
+                        let d = format!("Auto import from '{displayed}'\n\n{}", detail.unwrap_or_default());
                         item["detail"] = json!(d.trim());
                     }
-                    if let Some((caminho, inicio)) = origem {
-                        let fonte = url::Url::from_file_path(&caminho)
+                    if let Some((path, start)) = origin {
+                        let source = url::Url::from_file_path(&path)
                             .ok()
-                            .and_then(|x| self.documentos.get(x.as_str()).map(str::to_string))
-                            .or_else(|| std::fs::read_to_string(&caminho).ok());
-                        if let Some(doc) = fonte.as_deref().filter(|f| inicio <= f.len() && f.is_char_boundary(inicio)).and_then(|f| crate::dartdoc::documentacao(f, inicio)) {
-                            item["documentation"] = if self.documentacao_markdown { json!({"kind": "markdown", "value": doc}) } else { json!(doc) };
+                            .and_then(|x| self.documents.get(x.as_str()).map(str::to_string))
+                            .or_else(|| std::fs::read_to_string(&path).ok());
+                        if let Some(doc) = source.as_deref().filter(|f| start <= f.len() && f.is_char_boundary(start)).and_then(|f| crate::dartdoc::documentation(f, start)) {
+                            item["documentation"] = if self.documentation_markdown { json!({"kind": "markdown", "value": doc}) } else { json!(doc) };
                         }
                     }
                 }
-                resposta(&id, item)
+                response(&id, item)
             }
             "textDocument/codeAction" => {
-                let params = mensagem.get("params");
+                let params = message.get("params");
                 let uri = params.and_then(|p| p.pointer("/textDocument/uri")).and_then(Value::as_str).map(str::to_string);
-                let intervalo = params.and_then(|p| p.get("range")).and_then(ler_intervalo);
-                let (Some(u), Some((de, ate))) = (uri, intervalo) else {
-                    return resposta(&id, Value::Null);
+                let range2 = params.and_then(|p| p.get("range")).and_then(read_range);
+                let (Some(u), Some((de, until))) = (uri, range2) else {
+                    return response(&id, Value::Null);
                 };
-                let (Some(texto), Some(tabela)) = (self.documentos.get(&u), self.documentos.linhas(&u)) else {
-                    return resposta(&id, Value::Null);
+                let (Some(text), Some(table)) = (self.documents.get(&u), self.documents.lines(&u)) else {
+                    return response(&id, Value::Null);
                 };
-                let inicio = tabela.offset_de_posicao(texto, de.linha, de.coluna);
-                let fim = tabela.offset_de_posicao(texto, ate.linha, ate.coluna);
-                let (inicio, fim) = (inicio.min(fim), inicio.max(fim));
-                let apenas: Option<Vec<String>> = params
+                let start = table.position_offset(text, de.line, de.column);
+                let end = table.position_offset(text, until.line, until.column);
+                let (start, end) = (start.min(end), start.max(end));
+                let only: Option<Vec<String>> = params
                     .and_then(|p| p.pointer("/context/only"))
                     .and_then(Value::as_array)
                     .map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect());
                 // Só os tipados publicados para a versão vigente.
-                let vazio = Vec::new();
-                let publicados = match self.tipados_publicados.get(&u) {
-                    Some((v, d)) if Some(*v) == self.documentos.version(&u) => d,
-                    _ => &vazio,
+                let empty = Vec::new();
+                let published = match self.typed_published.get(&u) {
+                    Some((v, d)) if Some(*v) == self.documents.version(&u) => d,
+                    _ => &empty,
                 };
-                let acoes = self.analisador.acoes(&self.documentos, &u, inicio, fim, publicados);
-                let mut saida = Vec::new();
+                let actions = self.analyzer.actions(&self.documents, &u, start, end, published);
+                let mut output = Vec::new();
                 // As ações de fonte (§13.12.1): antes de todas as outras, na
                 // forma de comando, sempre oferecidas (o cálculo fica para o
                 // `executeCommand`), e só a quem aceita `workspace/applyEdit`.
-                let fontes_pedidas = apenas.as_ref().is_none_or(|l| l.iter().any(|w| w == "source" || w.starts_with("source.")));
-                let caminho = url::Url::parse(&u).ok().filter(|x| x.scheme() == "file").and_then(|x| x.to_file_path().ok());
-                if let (true, true, true, Some(caminho)) = (fontes_pedidas, self.aplicar_edicoes, u.ends_with(".dart"), caminho) {
-                    let mut argumento = json!({"path": caminho.to_string_lossy()});
+                let requested_sources = only.as_ref().is_none_or(|l| l.iter().any(|w| w == "source" || w.starts_with("source.")));
+                let path = url::Url::parse(&u).ok().filter(|x| x.scheme() == "file").and_then(|x| x.to_file_path().ok());
+                if let (true, true, true, Some(path)) = (requested_sources, self.apply_edits, u.ends_with(".dart"), path) {
+                    let mut argument = json!({"path": path.to_string_lossy()});
                     if params.and_then(|p| p.pointer("/context/triggerKind")).and_then(Value::as_u64) == Some(2) {
-                        argumento["autoTriggered"] = json!(true);
+                        argument["autoTriggered"] = json!(true);
                     }
-                    for (titulo, especie, comando) in ACOES_DE_FONTE {
-                        let casa = |w: &String| *especie == w.as_str() || especie.starts_with(&format!("{w}."));
-                        let incluida = match (&apenas, &self.especies_de_acao) {
-                            (Some(l), _) => l.iter().any(casa),
-                            (None, Some(l)) if self.acoes_literais => l.iter().any(casa),
+                    for (title, kind, command) in SOURCE_ACTIONS {
+                        let matches_ = |w: &String| *kind == w.as_str() || kind.starts_with(&format!("{w}."));
+                        let included = match (&only, &self.action_kinds) {
+                            (Some(l), _) => l.iter().any(matches_),
+                            (None, Some(l)) if self.actions_literals => l.iter().any(matches_),
                             _ => true,
                         };
-                        if !incluida {
+                        if !included {
                             continue;
                         }
-                        let c = json!({"title": titulo, "command": comando, "arguments": [argumento.clone()]});
-                        saida.push(if self.acoes_literais { json!({"title": titulo, "kind": especie, "command": c}) } else { c });
+                        let c = json!({"title": title, "command": command, "arguments": [argument.clone()]});
+                        output.push(if self.actions_literals { json!({"title": title, "kind": kind, "command": c}) } else { c });
                     }
                 }
-                let (mut correcoes, mut assistencias, mut refatoracoes): (Vec<Value>, Vec<Value>, Vec<Value>) =
+                let (mut fixes, mut assists, mut refactorings): (Vec<Value>, Vec<Value>, Vec<Value>) =
                     (Vec::new(), Vec::new(), Vec::new());
-                for acao in acoes {
+                for action in actions {
                     // As de fonte do analisador (a edição pronta do
                     // `Organize Imports`) dão lugar aos comandos acima.
-                    if acao.especie.starts_with("source") {
+                    if action.kind.starts_with("source") {
                         continue;
                     }
-                    let permitida = apenas.as_ref().is_none_or(|l| {
-                        l.iter().any(|k| acao.especie == *k || acao.especie.starts_with(&format!("{k}.")))
+                    let allowed = only.as_ref().is_none_or(|l| {
+                        l.iter().any(|k| action.kind == *k || action.kind.starts_with(&format!("{k}.")))
                     });
-                    if !permitida {
+                    if !allowed {
                         continue;
                     }
-                    let edicao = match &acao.criar_arquivo {
+                    let edit = match &action.create_file {
                         // Só a quem aceita criar arquivo: a capacidade é a
                         // edição inteira ou nada.
-                        Some(_) if !self.criar_arquivos => continue,
-                        Some((novo, conteudo)) => {
-                            let mut e = self.edicao_de_workspace(&acao.edicoes, Some(json!({"kind": "create", "uri": novo})));
-                            if !conteudo.is_empty()
+                        Some(_) if !self.create_files => continue,
+                        Some((new, content)) => {
+                            let mut e = self.workspace_edit(&action.edits, Some(json!({"kind": "create", "uri": new})));
+                            if !content.is_empty()
                                 && let Some(l) = e["documentChanges"].as_array_mut()
                             {
                                 l.push(json!({
-                                    "textDocument": {"uri": novo, "version": null},
-                                    "edits": [{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "newText": conteudo}],
+                                    "textDocument": {"uri": new, "version": null},
+                                    "edits": [{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "newText": content}],
                                 }));
                             }
                             e
                         }
-                        None => match self.edicao_snippet(&u, &acao) {
+                        None => match self.edit_snippet(&u, &action) {
                             Some(e) => e,
-                            None => self.edicao_de_workspace(&acao.edicoes, None),
+                            None => self.workspace_edit(&action.edits, None),
                         },
                     };
                     // A forma do servidor do Dart (§13.7.1 item 8 e §13.8.1):
@@ -1672,185 +1672,185 @@ impl<A: Analisador> Servidor<A> {
                     // assistências e ficam como estavam.
                     // A assistência `Inline invocation of '…'` (`dart.assist.inline`)
                     // tem a mesma espécie e é assistência.
-                    let refatoracao = matches!(acao.especie.as_str(), "refactor.inline" | "refactor.extract")
-                        && !acao.titulo.starts_with("Inline invocation of");
-                    let mut valor = json!({"title": acao.titulo, "kind": acao.especie, "edit": edicao});
-                    if let (Some(d), Some(texto), Some(tabela)) =
-                        (&acao.diagnostico, self.documentos.get(&u), self.documentos.linhas(&u))
+                    let refactoring = matches!(action.kind.as_str(), "refactor.inline" | "refactor.extract")
+                        && !action.title.starts_with("Inline invocation of");
+                    let mut value = json!({"title": action.title, "kind": action.kind, "edit": edit});
+                    if let (Some(d), Some(text), Some(table)) =
+                        (&action.diagnostic, self.documents.get(&u), self.documents.lines(&u))
                     {
-                        valor["diagnostics"] = json!([converter_diagnostico(texto, tabela, d)]);
-                    } else if !refatoracao {
-                        valor["diagnostics"] = json!([]);
+                        value["diagnostics"] = json!([convert_diagnostic(text, table, d)]);
+                    } else if !refactoring {
+                        value["diagnostics"] = json!([]);
                     }
-                    if !refatoracao && let Some(acao_id) = id_da_acao(&acao.especie) {
-                        valor["command"] = json!({"title": "Log Action", "command": "dart.logAction", "arguments": [{"action": acao_id}]});
+                    if !refactoring && let Some(action_id) = action_id(&action.kind) {
+                        value["command"] = json!({"title": "Log Action", "command": "dart.logAction", "arguments": [{"action": action_id}]});
                     }
-                    if refatoracao {
-                        refatoracoes.push(valor);
-                    } else if acao.especie.starts_with("quickfix") {
-                        correcoes.push(valor);
+                    if refactoring {
+                        refactorings.push(value);
+                    } else if action.kind.starts_with("quickfix") {
+                        fixes.push(value);
                     } else {
-                        assistencias.push(valor);
+                        assists.push(value);
                     }
                 }
                 // As ações de fonte, as correções, as assistências e as
                 // refatorações, nesta ordem; correções e assistências passam
                 // cada grupo pelo `_CodeActionSorter`.
-                let coluna_do_pedido = i64::from(de.coluna);
+                let request_column = i64::from(de.column);
                 // `getFixActions`/`getAssistActions`: só como `CodeAction`
                 // literal; sem `codeActionLiteralSupport`, nenhuma.
-                if !self.acoes_literais {
-                    correcoes.clear();
-                    assistencias.clear();
+                if !self.actions_literals {
+                    fixes.clear();
+                    assists.clear();
                 }
-                saida.extend(ordenar_acoes(correcoes, coluna_do_pedido));
-                saida.extend(ordenar_acoes(assistencias, coluna_do_pedido));
-                saida.extend(refatoracoes);
-                saida.extend(self.refatoracoes_por_comando(&u, inicio, fim, apenas.as_deref()));
-                resposta(&id, json!(saida))
+                output.extend(sort_actions(fixes, request_column));
+                output.extend(sort_actions(assists, request_column));
+                output.extend(refactorings);
+                output.extend(self.refactorings_by_command(&u, start, end, only.as_deref()));
+                response(&id, json!(output))
             }
-            "workspace/executeCommand" => self.executar_comando(&id, mensagem),
+            "workspace/executeCommand" => self.run_command(&id, message),
             "textDocument/prepareRename" => {
-                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
-                    return resposta(&id, Value::Null);
+                let Some((u, offset)) = self.request_position(message) else {
+                    return response(&id, Value::Null);
                 };
-                match self.analisador.preparar_renomeacao(&self.documentos, &u, offset) {
-                    Ok(Some((span, texto))) => {
-                        let range = self.faixa(&u, span);
-                        resposta(&id, range.map_or(Value::Null, |r| json!({"range": r, "placeholder": texto})))
+                match self.analyzer.prepare_rename(&self.documents, &u, offset) {
+                    Ok(Some((span, text))) => {
+                        let range = self.range(&u, span);
+                        response(&id, range.map_or(Value::Null, |r| json!({"range": r, "placeholder": text})))
                     }
-                    Ok(None) => resposta(&id, Value::Null),
-                    Err(motivo) => erro(&id, RENOMEAR_INVALIDO, motivo),
+                    Ok(None) => response(&id, Value::Null),
+                    Err(reason) => error(&id, RENAME_INVALID, reason),
                 }
             }
             "textDocument/rename" => {
-                let novo = mensagem.pointer("/params/newName").and_then(Value::as_str).unwrap_or("").to_string();
-                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
-                    return resposta(&id, Value::Null);
+                let new = message.pointer("/params/newName").and_then(Value::as_str).unwrap_or("").to_string();
+                let Some((u, offset)) = self.request_position(message) else {
+                    return response(&id, Value::Null);
                 };
                 // A versão no começo da requisição (`extractDocumentVersion`).
-                let versao = self.documentos.version(&u);
-                match self.analisador.renomear(&self.documentos, &u, offset, &novo) {
-                    Ok(renomeacao) if renomeacao.nulo => resposta(&id, Value::Null),
-                    Ok(renomeacao) => {
-                        let pendente = RenomeacaoPendente {
+                let version = self.documents.version(&u);
+                match self.analyzer.rename(&self.documents, &u, offset, &new) {
+                    Ok(rename) if rename.null => response(&id, Value::Null),
+                    Ok(rename) => {
+                        let pending = PendingRename {
                             id: id.clone(),
                             uri: u,
-                            versao,
-                            edicoes: renomeacao.edicoes,
-                            arquivo: renomeacao.arquivo,
-                            pergunta_do_arquivo: false,
+                            version,
+                            edits: rename.edits,
+                            file: rename.file,
+                            file_question: false,
                         };
-                        match renomeacao.aviso {
+                        match rename.warning {
                             // ERROR/WARNING do `checkFinalConditions`: sem
                             // `userPromptSender`, `-32010`; com, a pergunta.
-                            Some(aviso) if !self.perguntas_ao_usuario => erro(&id, RENOMEAR_INVALIDO, aviso),
-                            Some(aviso) => self.perguntar_no_rename(
-                                pendente,
-                                json!({"type": 2, "message": aviso, "actions": [{"title": "Rename Anyway"}, {"title": "Cancel"}]}),
+                            Some(warning) if !self.user_questions => error(&id, RENAME_INVALID, warning),
+                            Some(warning) => self.ask_on_rename(
+                                pending,
+                                json!({"type": 2, "message": warning, "actions": [{"title": "Rename Anyway"}, {"title": "Cancel"}]}),
                             ),
-                            None => self.concluir_renomeacao(pendente),
+                            None => self.finish_rename(pending),
                         }
                     }
-                    Err(motivo) => erro(&id, RENOMEAR_INVALIDO, motivo),
+                    Err(reason) => error(&id, RENAME_INVALID, reason),
                 }
             }
             "textDocument/signatureHelp" => {
-                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
-                    return resposta(&id, Value::Null);
+                let Some((u, offset)) = self.request_position(message) else {
+                    return response(&id, Value::Null);
                 };
                 // Disparo automático (`(` digitado, ajuda fechada): só se o
                 // `(` abre a lista, como o servidor do Dart.
-                let automatica = mensagem.pointer("/params/context/triggerKind").and_then(Value::as_u64) == Some(2)
-                    && mensagem.pointer("/params/context/isRetrigger").and_then(Value::as_bool) == Some(false);
-                let Some(a) = self.analisador.assinatura(&self.documentos, &u, offset, automatica) else {
-                    return resposta(&id, Value::Null);
+                let auto = message.pointer("/params/context/triggerKind").and_then(Value::as_u64) == Some(2)
+                    && message.pointer("/params/context/isRetrigger").and_then(Value::as_bool) == Some(false);
+                let Some(a) = self.analyzer.signature(&self.documents, &u, offset, auto) else {
+                    return response(&id, Value::Null);
                 };
-                let mut assinatura = json!({
-                    "label": a.rotulo,
-                    "parameters": a.parametros.iter().map(|p| json!({"label": p})).collect::<Vec<_>>(),
+                let mut signature = json!({
+                    "label": a.label,
+                    "parameters": a.parameters.iter().map(|p| json!({"label": p})).collect::<Vec<_>>(),
                 });
-                if let Some(d) = &a.documentacao {
-                    assinatura["documentation"] =
-                        if self.assinatura_markdown { json!({"kind": "markdown", "value": d}) } else { json!(d) };
+                if let Some(d) = &a.documentation {
+                    signature["documentation"] =
+                        if self.signature_markdown { json!({"kind": "markdown", "value": d}) } else { json!(d) };
                 }
                 // Sem parâmetro ativo e sem `null` no cliente: um índice fora
                 // da lista (o VS Code não destaca nenhum).
-                let ativo = match a.ativo {
+                let active = match a.active {
                     Some(i) => json!(i),
-                    None if self.assinatura_sem_ativo => Value::Null,
-                    None => json!(a.parametros.len()),
+                    None if self.signature_without_active => Value::Null,
+                    None => json!(a.parameters.len()),
                 };
-                resposta(&id, json!({"signatures": [assinatura], "activeSignature": 0, "activeParameter": ativo}))
+                response(&id, json!({"signatures": [signature], "activeSignature": 0, "activeParameter": active}))
             }
             "textDocument/documentHighlight" => {
-                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
-                    return resposta(&id, Value::Null);
+                let Some((u, offset)) = self.request_position(message) else {
+                    return response(&id, Value::Null);
                 };
-                let destaques = self.analisador.destaques(&self.documentos, &u, offset).unwrap_or_default();
-                let itens: Vec<Value> = destaques.into_iter().filter_map(|s| Some(json!({"range": self.faixa(&u, s)?}))).collect();
+                let document_highlights = self.analyzer.document_highlights(&self.documents, &u, offset).unwrap_or_default();
+                let items: Vec<Value> = document_highlights.into_iter().filter_map(|s| Some(json!({"range": self.range(&u, s)?}))).collect();
                 // O Dart responde `[]`, nunca `null` (§11.6).
-                resposta(&id, json!(itens))
+                response(&id, json!(items))
             }
             "textDocument/implementation" => {
-                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
-                    return resposta(&id, json!([]));
+                let Some((u, offset)) = self.request_position(message) else {
+                    return response(&id, json!([]));
                 };
-                let locais: Vec<Value> = self
-                    .analisador
-                    .implementacoes(&self.documentos, &u, offset)
+                let locals: Vec<Value> = self
+                    .analyzer
+                    .implementations(&self.documents, &u, offset)
                     .into_iter()
-                    .filter_map(|(alvo, s)| Some(json!({"uri": alvo, "range": self.faixa(&alvo, s)?})))
+                    .filter_map(|(target, s)| Some(json!({"uri": target, "range": self.range(&target, s)?})))
                     .collect();
-                resposta(&id, json!(locais))
+                response(&id, json!(locals))
             }
             // `workspace/willRenameFiles` (`MoveFileRefactoringImpl.multi`,
             // `crate::move_file`): as URIs das diretivas que chegam aos
             // arquivos movidos e as relativas que saem deles; `null` numa
             // condição fatal.
             "workspace/willRenameFiles" => {
-                let mut mapa = Vec::new();
-                for f in mensagem.pointer("/params/files").and_then(Value::as_array).cloned().unwrap_or_default() {
-                    let caminho = |k: &str| f.get(k).and_then(Value::as_str).and_then(|u| url::Url::parse(u).ok()).and_then(|u| u.to_file_path().ok());
-                    let (Some(antigo), Some(novo)) = (caminho("oldUri"), caminho("newUri")) else {
-                        return erro(&id, -32602, "URI de arquivo inválida no willRenameFiles");
+                let mut map = Vec::new();
+                for f in message.pointer("/params/files").and_then(Value::as_array).cloned().unwrap_or_default() {
+                    let path = |k: &str| f.get(k).and_then(Value::as_str).and_then(|u| url::Url::parse(u).ok()).and_then(|u| u.to_file_path().ok());
+                    let (Some(old), Some(new)) = (path("oldUri"), path("newUri")) else {
+                        return error(&id, -32602, "URI de arquivo inválida no willRenameFiles");
                     };
-                    mapa.push((antigo, novo));
+                    map.push((old, new));
                 }
-                let mut raizes = self.raizes.clone();
-                for u in self.documentos.uris() {
+                let mut roots = self.roots.clone();
+                for u in self.documents.uris() {
                     if let Some(p) = url::Url::parse(u).ok().and_then(|x| x.to_file_path().ok()) {
-                        let r = crate::project::raiz_do_projeto(&p);
-                        if r.join("pubspec.yaml").is_file() && !raizes.contains(&r) {
-                            raizes.push(r);
+                        let r = crate::project::project_root(&p);
+                        if r.join("pubspec.yaml").is_file() && !roots.contains(&r) {
+                            roots.push(r);
                         }
                     }
                 }
-                match crate::move_file::edicoes(&raizes, &self.documentos, &mapa) {
-                    Some(edicoes) => resposta(&id, self.edicao_de_workspace(&edicoes, None)),
-                    None => resposta(&id, Value::Null),
+                match crate::move_file::edits(&roots, &self.documents, &map) {
+                    Some(edits) => response(&id, self.workspace_edit(&edits, None)),
+                    None => response(&id, Value::Null),
                 }
             }
             // `dart/textDocument/super` (o "ir para o super" do Dart-Code).
             "dart/textDocument/super" => {
-                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
-                    return resposta(&id, Value::Null);
+                let Some((u, offset)) = self.request_position(message) else {
+                    return response(&id, Value::Null);
                 };
                 let local = self
-                    .analisador
-                    .superior(&self.documentos, &u, offset)
-                    .and_then(|(alvo, s)| Some(json!({"uri": alvo, "range": self.faixa(&alvo, s)?})));
-                resposta(&id, local.unwrap_or(Value::Null))
+                    .analyzer
+                    .upper(&self.documents, &u, offset)
+                    .and_then(|(target, s)| Some(json!({"uri": target, "range": self.range(&target, s)?})));
+                response(&id, local.unwrap_or(Value::Null))
             }
             "textDocument/typeDefinition" => {
-                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
-                    return resposta(&id, json!([]));
+                let Some((u, offset)) = self.request_position(message) else {
+                    return response(&id, json!([]));
                 };
                 let local = self
-                    .analisador
-                    .definicao_de_tipo(&self.documentos, &u, offset)
-                    .and_then(|(alvo, s)| Some(json!({"uri": alvo, "range": self.faixa(&alvo, s)?})));
-                resposta(&id, local.unwrap_or_else(|| json!([])))
+                    .analyzer
+                    .type_definition(&self.documents, &u, offset)
+                    .and_then(|(target, s)| Some(json!({"uri": target, "range": self.range(&target, s)?})));
+                response(&id, local.unwrap_or_else(|| json!([])))
             }
             // `handler_document_link.dart:26-53` (docs/LSP-ESPECIFICACAO.md
             // §8.4): no 3.6.2 o visitante só liga os comentários "See code
@@ -1862,328 +1862,328 @@ impl<A: Analisador> Servidor<A> {
                 // `FormatOnTypeHandler`: só arquivos Dart, nada com
                 // `enableSdkFormatter: false`, o `lineLength` do recurso; o
                 // `onTypeFormatting` formata o documento inteiro.
-                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
+                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
                 if !uri.ends_with(".dart") {
-                    return resposta(&id, Value::Null);
+                    return response(&id, Value::Null);
                 }
-                let configuracao = self.configuracao_de(&uri);
-                if !configuracao.enable_sdk_formatter {
-                    return resposta(&id, Value::Null);
+                let configuration = self.configuration_of(&uri);
+                if !configuration.enable_sdk_formatter {
+                    return response(&id, Value::Null);
                 }
-                let largura = configuracao.line_length;
-                let Some(texto) = self.texto_do_arquivo(&uri).map(|t| t.into_owned()) else {
-                    return resposta(&id, Value::Null);
+                let width = configuration.line_length;
+                let Some(text) = self.file_text(&uri).map(|t| t.into_owned()) else {
+                    return response(&id, Value::Null);
                 };
-                let faixa = if metodo == "textDocument/rangeFormatting" {
+                let range_ = if method == "textDocument/rangeFormatting" {
                     // `toOffset`: linha além do fim é erro; a coluna soma ao
                     // início da linha sem limite (pode passar da quebra).
-                    let mut pontos = [0usize; 2];
+                    let mut points = [0usize; 2];
                     for (i, p) in ["start", "end"].into_iter().enumerate() {
-                        let l = mensagem.pointer(&format!("/params/range/{p}/line")).and_then(Value::as_u64).unwrap_or(0);
-                        let c = mensagem.pointer(&format!("/params/range/{p}/character")).and_then(Value::as_u64).unwrap_or(0);
-                        match crate::formatting::offset_sem_limite(&texto, l, c) {
-                            Some(o) => pontos[i] = o,
-                            None => return erro_com_dado(&id, -32004, "Invalid line number", json!(l.to_string())),
+                        let l = message.pointer(&format!("/params/range/{p}/line")).and_then(Value::as_u64).unwrap_or(0);
+                        let c = message.pointer(&format!("/params/range/{p}/character")).and_then(Value::as_u64).unwrap_or(0);
+                        match crate::formatting::offset_without_limit(&text, l, c) {
+                            Some(o) => points[i] = o,
+                            None => return error_with_data(&id, -32004, "Invalid line number", json!(l.to_string())),
                         }
                     }
-                    Some((pontos[0], pontos[1]))
+                    Some((points[0], points[1]))
                 } else {
                     None
                 };
-                resposta(&id, crate::formatting::edicoes(&texto, largura, faixa))
+                response(&id, crate::formatting::edits(&text, width, range_))
             }
             "textDocument/documentLink" => {
                 // Os blocos `{@tool}` que citam o código de exemplo
                 // (`crate::links`, o visitor do 3.6.2).
-                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
-                let caminho = url::Url::parse(&uri).ok().and_then(|u| u.to_file_path().ok());
-                let (Some(texto), Some(caminho)) = (self.documentos.get(&uri).map(str::to_string), caminho) else {
-                    return resposta(&id, json!([]));
+                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
+                let path = url::Url::parse(&uri).ok().and_then(|u| u.to_file_path().ok());
+                let (Some(text), Some(path)) = (self.documents.get(&uri).map(str::to_string), path) else {
+                    return response(&id, json!([]));
                 };
-                if caminho.extension().is_none_or(|e| e != "dart") {
-                    return resposta(&id, json!([]));
+                if path.extension().is_none_or(|e| e != "dart") {
+                    return response(&id, json!([]));
                 }
-                let links: Vec<Value> = crate::links::links(&texto, &caminho)
+                let links: Vec<Value> = crate::links::links(&text, &path)
                     .into_iter()
-                    .filter_map(|(s, alvo)| {
-                        let destino = url::Url::from_file_path(&alvo).ok()?;
-                        Some(json!({"range": self.faixa(&uri, s)?, "target": destino.as_str()}))
+                    .filter_map(|(s, target)| {
+                        let target_ = url::Url::from_file_path(&target).ok()?;
+                        Some(json!({"range": self.range(&uri, s)?, "target": target_.as_str()}))
                     })
                     .collect();
-                resposta(&id, json!(links))
+                response(&id, json!(links))
             }
             // `handler_code_lens.dart:32-61` (§8.3): só há lentes de
             // augmentations, e só para o cliente que declara o comando
             // `dart.goToLocation`; sem augmentations, lista vazia.
             "textDocument/codeLens" => {
-                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
-                let (aumentacoes, aumentados) = (self.configuracao.code_lens_augmentation, self.configuracao.code_lens_augmented);
-                if !uri.ends_with(".dart") || !(aumentacoes || aumentados) || !self.comandos_do_cliente.iter().any(|c| c == "dart.goToLocation") {
-                    return resposta(&id, json!([]));
+                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
+                let (augmentations, augmented) = (self.configuration.code_lens_augmentation, self.configuration.code_lens_augmented);
+                if !uri.ends_with(".dart") || !(augmentations || augmented) || !self.client_commands.iter().any(|c| c == "dart.goToLocation") {
+                    return response(&id, json!([]));
                 }
-                let lentes: Vec<Value> = self
-                    .analisador
-                    .lentes_de_augmentation(&self.documentos, &uri, aumentados, aumentacoes)
+                let lenses: Vec<Value> = self
+                    .analyzer
+                    .augmentation_lenses(&self.documents, &uri, augmented, augmentations)
                     .into_iter()
-                    .filter_map(|(s, titulo, alvo, s_alvo)| {
-                        let local = json!({"uri": alvo, "range": self.faixa(&alvo, s_alvo)?});
-                        Some(json!({"range": self.faixa(&uri, s)?, "command": {"title": titulo, "command": "dart.goToLocation", "arguments": [local]}}))
+                    .filter_map(|(s, title, target, s_target)| {
+                        let local = json!({"uri": target, "range": self.range(&target, s_target)?});
+                        Some(json!({"range": self.range(&uri, s)?, "command": {"title": title, "command": "dart.goToLocation", "arguments": [local]}}))
                     })
                     .collect();
-                resposta(&id, json!(lentes))
+                response(&id, json!(lenses))
             }
             // `textDocument/documentColor` (o `ColorComputer`, §8.2): as
             // cores de 0 a 1.
             "textDocument/documentColor" => {
-                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
+                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
                 if !uri.ends_with(".dart") {
-                    return resposta(&id, json!([]));
+                    return response(&id, json!([]));
                 }
-                let cores: Vec<Value> = self
-                    .analisador
-                    .cores(&self.documentos, &uri)
+                let colors: Vec<Value> = self
+                    .analyzer
+                    .colors(&self.documents, &uri)
                     .into_iter()
                     .filter_map(|(s, [a, r, g, b])| {
                         let f = |x: u8| f64::from(x) / 255.0;
-                        Some(json!({"range": self.faixa(&uri, s)?, "color": {"alpha": f(a), "red": f(r), "green": f(g), "blue": f(b)}}))
+                        Some(json!({"range": self.range(&uri, s)?, "color": {"alpha": f(a), "red": f(r), "green": f(g), "blue": f(b)}}))
                     })
                     .collect();
-                resposta(&id, json!(cores))
+                response(&id, json!(colors))
             }
             // `textDocument/colorPresentation`: as quatro formas, com `const`
             // quando a expressão é constante fora de contexto constante; nada
             // fora das raízes de análise ou sem o `Color` do Flutter.
             "textDocument/colorPresentation" => {
-                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
-                let cor = mensagem.pointer("/params/color").cloned().unwrap_or(Value::Null);
-                let alcance = mensagem.pointer("/params/range").cloned().unwrap_or(Value::Null);
-                let n = |k: &str| cor.get(k).and_then(Value::as_f64).unwrap_or(0.0);
-                let dentro = url::Url::parse(&uri).ok().and_then(|u| u.to_file_path().ok()).is_some_and(|c| self.raizes.iter().any(|r| c.starts_with(r)));
-                if !uri.ends_with(".dart") || !dentro || self.excluido(&uri) {
-                    return resposta(&id, json!([]));
+                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
+                let color = message.pointer("/params/color").cloned().unwrap_or(Value::Null);
+                let reach = message.pointer("/params/range").cloned().unwrap_or(Value::Null);
+                let n = |k: &str| color.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+                let inside = url::Url::parse(&uri).ok().and_then(|u| u.to_file_path().ok()).is_some_and(|c| self.roots.iter().any(|r| c.starts_with(r)));
+                if !uri.ends_with(".dart") || !inside || self.excluded(&uri) {
+                    return response(&id, json!([]));
                 }
-                let inicio = alcance
+                let start = reach
                     .pointer("/start")
                     .and_then(|p| Some((p.get("line")?.as_u64()? as u32, p.get("character")?.as_u64()? as u32)))
-                    .and_then(|(l, c)| Some(self.documentos.linhas(&uri)?.offset_de_posicao(self.documentos.get(&uri)?, l, c)));
-                let Some(inicio) = inicio else { return resposta(&id, json!([])) };
-                let Some(com_const) = self.analisador.apresentacao_de_cor(&self.documentos, &uri, inicio) else {
-                    return resposta(&id, json!([]));
+                    .and_then(|(l, c)| Some(self.documents.lines(&uri)?.position_offset(self.documents.get(&uri)?, l, c)));
+                let Some(start) = start else { return response(&id, json!([])) };
+                let Some(with_const) = self.analyzer.color_presentation(&self.documents, &uri, start) else {
+                    return response(&id, json!([]));
                 };
-                let lista: Vec<Value> = crate::colors::apresentacoes(n("alpha"), n("red"), n("green"), n("blue"), com_const)
+                let list: Vec<Value> = crate::colors::presentations(n("alpha"), n("red"), n("green"), n("blue"), with_const)
                     .into_iter()
-                    .map(|(rotulo, texto)| json!({"label": rotulo, "textEdit": {"range": alcance, "newText": texto}}))
+                    .map(|(label, text)| json!({"label": label, "textEdit": {"range": reach, "newText": text}}))
                     .collect();
-                resposta(&id, json!(lista))
+                response(&id, json!(list))
             }
             // `dart/textDocument/augmented` e `augmentation` (§8.6).
             "dart/textDocument/augmented" | "dart/textDocument/augmentation" => {
-                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
-                    return resposta(&id, Value::Null);
+                let Some((u, offset)) = self.request_position(message) else {
+                    return response(&id, Value::Null);
                 };
-                let proximo = metodo == "dart/textDocument/augmentation";
+                let next = method == "dart/textDocument/augmentation";
                 let local = self
-                    .analisador
-                    .vizinho_de_augmentation(&self.documentos, &u, offset, proximo)
-                    .and_then(|(alvo, s)| Some(json!({"uri": alvo, "range": self.faixa(&alvo, s)?})));
-                resposta(&id, local.unwrap_or(Value::Null))
+                    .analyzer
+                    .augmentation_neighbor(&self.documents, &u, offset, next)
+                    .and_then(|(target, s)| Some(json!({"uri": target, "range": self.range(&target, s)?})));
+                response(&id, local.unwrap_or(Value::Null))
             }
             "textDocument/foldingRange" => {
-                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
-                let Some((u, texto)) = uri.and_then(|u| Some((u.clone(), self.documentos.get(&u)?.to_string()))) else {
-                    return resposta(&id, Value::Null);
+                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
+                let Some((u, text)) = uri.and_then(|u| Some((u.clone(), self.documents.get(&u)?.to_string()))) else {
+                    return response(&id, Value::Null);
                 };
-                let so_linhas = self.dobras_so_linhas;
-                let dobras: Vec<Value> = self
-                    .analisador
-                    .dobras(&u, &texto, so_linhas)
+                let lines_only = self.folds_line_only;
+                let folds: Vec<Value> = self
+                    .analyzer
+                    .folds(&u, &text, lines_only)
                     .into_iter()
                     .map(|d| {
-                        let mut v = json!({"startLine": d.linha_inicio, "endLine": d.linha_fim});
-                        if !so_linhas {
-                            v["startCharacter"] = json!(d.coluna_inicio);
-                            v["endCharacter"] = json!(d.coluna_fim);
+                        let mut v = json!({"startLine": d.line_begin, "endLine": d.line_end});
+                        if !lines_only {
+                            v["startCharacter"] = json!(d.column_start);
+                            v["endCharacter"] = json!(d.column_end);
                         }
-                        if let Some(k) = d.especie {
+                        if let Some(k) = d.kind {
                             v["kind"] = json!(k);
                         }
                         v
                     })
                     .collect();
-                resposta(&id, json!(dobras))
+                response(&id, json!(folds))
             }
             "textDocument/selectionRange" => {
-                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
-                let Some((u, texto)) = uri.and_then(|u| Some((u.clone(), self.documentos.get(&u)?.to_string()))) else {
-                    return resposta(&id, Value::Null);
+                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
+                let Some((u, text)) = uri.and_then(|u| Some((u.clone(), self.documents.get(&u)?.to_string()))) else {
+                    return response(&id, Value::Null);
                 };
-                let posicoes: Vec<Posicao> = mensagem
+                let positions: Vec<Position> = message
                     .pointer("/params/positions")
                     .and_then(Value::as_array)
-                    .map(|l| l.iter().filter_map(ler_posicao).collect())
+                    .map(|l| l.iter().filter_map(read_position).collect())
                     .unwrap_or_default();
-                let mut saida = Vec::new();
-                for p in posicoes {
-                    let Some(offset) = self.documentos.linhas(&u).map(|t| t.offset_de_posicao(&texto, p.linha, p.coluna)) else {
+                let mut output = Vec::new();
+                for p in positions {
+                    let Some(offset) = self.documents.lines(&u).map(|t| t.position_offset(&text, p.line, p.column)) else {
                         break;
                     };
-                    let spans = self.analisador.selecoes(&u, &texto, offset);
-                    let Some(tabela) = self.documentos.linhas(&u) else { break };
+                    let spans = self.analyzer.selections(&u, &text, offset);
+                    let Some(table) = self.documents.lines(&u) else { break };
                     // Do mais externo ao mais interno, cada um pai do seguinte.
-                    let mut atual: Option<Value> = None;
+                    let mut current: Option<Value> = None;
                     for s in spans.iter().rev() {
-                        let mut v = json!({"range": intervalo_lsp(&texto, tabela, s.start, s.end)});
-                        if let Some(pai) = atual.take() {
-                            v["parent"] = pai;
+                        let mut v = json!({"range": lsp_range(&text, table, s.start, s.end)});
+                        if let Some(parent) = current.take() {
+                            v["parent"] = parent;
                         }
-                        atual = Some(v);
+                        current = Some(v);
                     }
-                    saida.push(atual.unwrap_or_else(|| json!({"range": intervalo_lsp(&texto, tabela, offset, offset)})));
+                    output.push(current.unwrap_or_else(|| json!({"range": lsp_range(&text, table, offset, offset)})));
                 }
-                resposta(&id, json!(saida))
+                response(&id, json!(output))
             }
             "textDocument/semanticTokens/full" | "textDocument/semanticTokens/range" => {
-                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
-                let Some(u) = uri.filter(|u| self.documentos.get(u).is_some()) else {
-                    return resposta(&id, Value::Null);
+                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
+                let Some(u) = uri.filter(|u| self.documents.get(u).is_some()) else {
+                    return response(&id, Value::Null);
                 };
-                let faixa = mensagem.pointer("/params/range").and_then(ler_intervalo).and_then(|(de, ate)| {
-                    let texto = self.documentos.get(&u)?;
-                    let tabela = self.documentos.linhas(&u)?;
-                    Some((tabela.offset_de_posicao(texto, de.linha, de.coluna), tabela.offset_de_posicao(texto, ate.linha, ate.coluna)))
+                let range_ = message.pointer("/params/range").and_then(read_range).and_then(|(de, until)| {
+                    let text = self.documents.get(&u)?;
+                    let table = self.documents.lines(&u)?;
+                    Some((table.position_offset(text, de.line, de.column), table.position_offset(text, until.line, until.column)))
                 });
-                let multilinha = self.tokens_multilinha;
-                match self.analisador.tokens_semanticos(&self.documentos, &u, multilinha, faixa) {
-                    Some(dados) => resposta(&id, json!({"data": dados})),
-                    None => resposta(&id, Value::Null),
+                let multiline = self.multiline_tokens;
+                match self.analyzer.semantic_tokens(&self.documents, &u, multiline, range_) {
+                    Some(data) => response(&id, json!({"data": data})),
+                    None => response(&id, Value::Null),
                 }
             }
             "textDocument/inlayHint" => {
-                let uri = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
-                let Some(u) = uri.filter(|u| self.documentos.get(u).is_some()) else {
-                    return resposta(&id, json!([]));
+                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
+                let Some(u) = uri.filter(|u| self.documents.get(u).is_some()) else {
+                    return response(&id, json!([]));
                 };
-                let dicas = self.analisador.dicas(&self.documentos, &u);
-                let (Some(texto), Some(tabela)) = (self.documentos.get(&u), self.documentos.linhas(&u)) else {
-                    return resposta(&id, json!([]));
+                let hints = self.analyzer.hints(&self.documents, &u);
+                let (Some(text), Some(table)) = (self.documents.get(&u), self.documents.lines(&u)) else {
+                    return response(&id, json!([]));
                 };
-                let itens: Vec<Value> = dicas
+                let items: Vec<Value> = hints
                     .into_iter()
                     .map(|d| {
-                        let (l, c) = tabela.posicao_de_offset(texto, d.offset);
+                        let (l, c) = table.offset_position(text, d.offset);
                         let mut v = json!({
                             "position": {"line": l, "character": c},
-                            "label": [{"value": d.rotulo}],
-                            "kind": d.especie,
+                            "label": [{"value": d.label}],
+                            "kind": d.kind,
                         });
-                        if d.espaco_depois {
+                        if d.space_after {
                             v["paddingRight"] = json!(true);
                         }
                         v
                     })
                     .collect();
-                resposta(&id, json!(itens))
+                response(&id, json!(items))
             }
             "textDocument/prepareCallHierarchy" => {
-                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
-                    return resposta(&id, Value::Null);
+                let Some((u, offset)) = self.request_position(message) else {
+                    return response(&id, Value::Null);
                 };
-                let item = self.analisador.preparar_chamadas(&self.documentos, &u, offset);
-                let valor = item.and_then(|i| self.item_de_chamada(&i));
-                resposta(&id, valor.map_or(Value::Null, |v| json!([v])))
+                let item = self.analyzer.prepare_calls(&self.documents, &u, offset);
+                let value = item.and_then(|i| self.call_item(&i));
+                response(&id, value.map_or(Value::Null, |v| json!([v])))
             }
             "callHierarchy/incomingCalls" | "callHierarchy/outgoingCalls" => {
                 // `toServerItem`: o arquivo, o nome em `selectionRange` e o
                 // nome exibido do item do cliente.
-                let item = mensagem.pointer("/params/item");
+                let item = message.pointer("/params/item");
                 let uri = item.and_then(|i| i.get("uri")).and_then(Value::as_str).map(str::to_string);
-                let nome = item.and_then(|i| i.get("name")).and_then(Value::as_str).unwrap_or("").to_string();
-                let construtor = item.and_then(|i| i.get("kind")).and_then(Value::as_u64) == Some(9);
-                let inicio = item.and_then(|i| i.pointer("/selectionRange/start")).cloned();
-                let Some(uri) = uri else { return resposta(&id, json!([])) };
+                let name = item.and_then(|i| i.get("name")).and_then(Value::as_str).unwrap_or("").to_string();
+                let constructor = item.and_then(|i| i.get("kind")).and_then(Value::as_u64) == Some(9);
+                let start = item.and_then(|i| i.pointer("/selectionRange/start")).cloned();
+                let Some(uri) = uri else { return response(&id, json!([])) };
                 if !uri.ends_with(".dart") {
-                    return resposta(&id, json!([]));
+                    return response(&id, json!([]));
                 }
-                let offset = inicio.and_then(|p| {
-                    let linha = p.get("line")?.as_u64()? as u32;
-                    let coluna = p.get("character")?.as_u64()? as u32;
-                    self.offset_no_arquivo(&uri, linha, coluna)
+                let offset = start.and_then(|p| {
+                    let line = p.get("line")?.as_u64()? as u32;
+                    let column = p.get("character")?.as_u64()? as u32;
+                    self.offset_in_file(&uri, line, column)
                 });
                 let Some(offset) = offset else {
-                    return erro(&id, CONTEUDO_MODIFICADO, "Content was modified since Call Hierarchy node was produced");
+                    return error(&id, MODIFIED_CONTENT, "Content was modified since Call Hierarchy node was produced");
                 };
-                let recebidas = metodo == "callHierarchy/incomingCalls";
-                let chamadas = self.analisador.chamadas(&self.documentos, &uri, offset, &nome, construtor, recebidas);
-                let mut saida = Vec::new();
-                for (item, spans) in chamadas {
+                let received = method == "callHierarchy/incomingCalls";
+                let calls = self.analyzer.calls(&self.documents, &uri, offset, &name, constructor, received);
+                let mut output = Vec::new();
+                for (item, spans) in calls {
                     // Recebidas: intervalos no arquivo de quem chama; feitas:
                     // no arquivo do item pedido.
-                    let arquivo = if recebidas { item.uri.clone() } else { uri.clone() };
-                    let faixas: Vec<Value> = spans.iter().filter_map(|s| self.faixa(&arquivo, *s)).collect();
-                    let Some(v) = self.item_de_chamada(&item) else { continue };
-                    saida.push(if recebidas { json!({"from": v, "fromRanges": faixas}) } else { json!({"to": v, "fromRanges": faixas}) });
+                    let file = if received { item.uri.clone() } else { uri.clone() };
+                    let ranges: Vec<Value> = spans.iter().filter_map(|s| self.range(&file, *s)).collect();
+                    let Some(v) = self.call_item(&item) else { continue };
+                    output.push(if received { json!({"from": v, "fromRanges": ranges}) } else { json!({"to": v, "fromRanges": ranges}) });
                 }
-                resposta(&id, json!(saida))
+                response(&id, json!(output))
             }
             "textDocument/prepareTypeHierarchy" => {
                 // `isDartDocument`: outro arquivo responde lista vazia.
-                let pedido = mensagem.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or("");
-                if !pedido.ends_with(".dart") {
-                    return resposta(&id, json!([]));
+                let request = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or("");
+                if !request.ends_with(".dart") {
+                    return response(&id, json!([]));
                 }
-                let Some((u, offset)) = self.posicao_da_requisicao(mensagem) else {
-                    return resposta(&id, Value::Null);
+                let Some((u, offset)) = self.request_position(message) else {
+                    return response(&id, Value::Null);
                 };
-                let item = self.analisador.preparar_hierarquia(&self.documentos, &u, offset);
+                let item = self.analyzer.prepare_hierarchy(&self.documents, &u, offset);
                 if item.is_some() {
-                    self.origem_da_hierarquia = Some(u.clone());
+                    self.hierarchy_origin = Some(u.clone());
                 }
                 // `toLspItem(target, unit.lineInfo)`: as posições do arquivo
                 // da classe convertidas com as linhas do documento atual.
-                let valor = item.and_then(|i| self.item_de_hierarquia(&i, Some(&u)));
-                resposta(&id, valor.map_or(Value::Null, |v| json!([v])))
+                let value = item.and_then(|i| self.hierarchy_item(&i, Some(&u)));
+                response(&id, value.map_or(Value::Null, |v| json!([v])))
             }
             "typeHierarchy/supertypes" | "typeHierarchy/subtypes" => {
-                let item = mensagem.pointer("/params/item");
+                let item = message.pointer("/params/item");
                 let uri = item.and_then(|i| i.get("uri")).and_then(Value::as_str).unwrap_or("").to_string();
-                let dados = item.and_then(|i| i.get("data")).filter(|d| !d.is_null());
-                let Some(referencia) = dados.and_then(|d| d.get("ref")).and_then(Value::as_str).map(str::to_string) else {
-                    return erro(&id, -32602, "TypeHierarchyItem is missing the data field");
+                let data = item.and_then(|i| i.get("data")).filter(|d| !d.is_null());
+                let Some(reference) = data.and_then(|d| d.get("ref")).and_then(Value::as_str).map(str::to_string) else {
+                    return error(&id, -32602, "TypeHierarchyItem is missing the data field");
                 };
-                let ancora: Option<(String, Vec<usize>)> = dados.and_then(|d| d.get("anchor")).filter(|a| !a.is_null()).and_then(|a| {
+                let anchor: Option<(String, Vec<usize>)> = data.and_then(|d| d.get("anchor")).filter(|a| !a.is_null()).and_then(|a| {
                     let r = a.get("ref")?.as_str()?.to_string();
-                    let caminho = a.get("path")?.as_array()?.iter().filter_map(Value::as_u64).map(|x| x as usize).collect();
-                    Some((r, caminho))
+                    let path = a.get("path")?.as_array()?.iter().filter_map(Value::as_u64).map(|x| x as usize).collect();
+                    Some((r, path))
                 });
-                let projeto = self.documento_da_hierarquia(&uri);
-                let supertipos = metodo == "typeHierarchy/supertypes";
-                let itens = self.analisador.hierarquia(&self.documentos, &projeto, &referencia, ancora.as_ref().map(|(r, c)| (r.as_str(), c.as_slice())), supertipos);
-                match itens {
-                    None => resposta(&id, Value::Null),
+                let project = self.hierarchy_document(&uri);
+                let supertypes = method == "typeHierarchy/supertypes";
+                let items = self.analyzer.hierarchy(&self.documents, &project, &reference, anchor.as_ref().map(|(r, c)| (r.as_str(), c.as_slice())), supertypes);
+                match items {
+                    None => response(&id, Value::Null),
                     // `_convertItems`: cada item com as linhas do próprio
                     // arquivo; o que não se lê fica de fora.
-                    Some(lista) => resposta(&id, json!(lista.iter().filter_map(|i| self.item_de_hierarquia(i, None)).collect::<Vec<_>>())),
+                    Some(list) => response(&id, json!(list.iter().filter_map(|i| self.hierarchy_item(i, None)).collect::<Vec<_>>())),
                 }
             }
-            METODO_DORMIR => {
-                let ms = mensagem
+            SLEEP_METHOD => {
+                let ms = message
                     .get("params")
                     .and_then(|p| p.get("ms"))
                     .and_then(Value::as_u64)
                     .unwrap_or(0);
-                if dormir_cancelavel(ms, &self.cancelados, &chave) {
-                    self.cancelados.remove(&chave);
-                    erro(&id, REQUEST_CANCELLED, "requisição cancelada")
+                if sleep_cancellable(ms, &self.cancelled, &key) {
+                    self.cancelled.remove(&key);
+                    error(&id, REQUEST_CANCELLED, "requisição cancelada")
                 } else {
-                    resposta(&id, Value::Null)
+                    response(&id, Value::Null)
                 }
             }
             _ => {
-                registrar(format!("requisição desconhecida: {metodo}"));
-                erro(
+                register(format!("requisição desconhecida: {method}"));
+                error(
                     &id,
                     METHOD_NOT_FOUND,
-                    format!("Unknown method {metodo}"),
+                    format!("Unknown method {method}"),
                 )
             }
         }
@@ -2192,145 +2192,145 @@ impl<A: Analisador> Servidor<A> {
     /// Um `CallHierarchyItem` (`toLspItem`): a espécie pelo
     /// `toSymbolKindMapping` com o recuo (`File` → `Module`; outra não
     /// anunciada ou desconhecida → `Object`), sem `data`.
-    fn item_de_chamada(&self, item: &crate::ItemDeChamada) -> Option<Value> {
-        let aceitas: Vec<u64> = self.tipos_de_simbolo.clone().unwrap_or_else(|| (1..=18).collect());
-        let especie = match item.especie.simbolo() {
-            Some(k) if aceitas.contains(&u64::from(k)) => u64::from(k),
+    fn call_item(&self, item: &crate::CallItem) -> Option<Value> {
+        let accepted: Vec<u64> = self.symbol_kinds.clone().unwrap_or_else(|| (1..=18).collect());
+        let kind = match item.kind.symbol() {
+            Some(k) if accepted.contains(&u64::from(k)) => u64::from(k),
             Some(1) => 2,
             _ => 19,
         };
         let mut v = json!({
-            "name": item.nome,
-            "kind": especie,
+            "name": item.name,
+            "kind": kind,
             "uri": item.uri,
-            "range": self.faixa(&item.uri, item.intervalo)?,
-            "selectionRange": self.faixa(&item.uri, item.selecao)?,
+            "range": self.range(&item.uri, item.range)?,
+            "selectionRange": self.range(&item.uri, item.selection)?,
         });
-        if let Some(d) = &item.detalhe {
+        if let Some(d) = &item.detail {
             v["detail"] = json!(d);
         }
         Some(v)
     }
 
     /// O offset (bytes) de uma posição LSP de `uri` (aberto ou no disco).
-    fn offset_no_arquivo(&self, uri: &str, linha: u32, coluna: u32) -> Option<usize> {
-        if let (Some(texto), Some(tabela)) = (self.documentos.get(uri), self.documentos.linhas(uri)) {
-            return Some(tabela.offset_de_posicao(texto, linha, coluna));
+    fn offset_in_file(&self, uri: &str, line: u32, column: u32) -> Option<usize> {
+        if let (Some(text), Some(table)) = (self.documents.get(uri), self.documents.lines(uri)) {
+            return Some(table.position_offset(text, line, column));
         }
-        let caminho = url::Url::parse(uri).ok()?.to_file_path().ok()?;
-        let fonte = std::fs::read_to_string(caminho).ok()?;
-        let tabela = crate::utf16::TabelaLinhas::construir(&fonte);
-        Some(tabela.offset_de_posicao(&fonte, linha, coluna))
+        let path = url::Url::parse(uri).ok()?.to_file_path().ok()?;
+        let source = std::fs::read_to_string(path).ok()?;
+        let table = crate::utf16::LineTable::build(&source);
+        Some(table.position_offset(&source, line, column))
     }
 
     /// Um `TypeHierarchyItem` (`toLspItem`): espécie 5 (classe), `data` com
-    /// o `ElementLocation` (`ref`) e a âncora. Com `linhas_de`, os
+    /// o `ElementLocation` (`ref`) e a âncora. Com `lines_of`, os
     /// intervalos são convertidos com as linhas desse documento.
-    fn item_de_hierarquia(&self, item: &crate::ItemDeTipo, linhas_de: Option<&str>) -> Option<Value> {
-        let (intervalo, selecao) = match linhas_de {
-            Some(origem) => (self.faixa_com_linhas_de(&item.uri, origem, item.intervalo)?, self.faixa_com_linhas_de(&item.uri, origem, item.selecao)?),
-            None => (self.faixa(&item.uri, item.intervalo)?, self.faixa(&item.uri, item.selecao)?),
+    fn hierarchy_item(&self, item: &crate::TypeItem, lines_of: Option<&str>) -> Option<Value> {
+        let (range, selection) = match lines_of {
+            Some(origin) => (self.range_with_lines_of(&item.uri, origin, item.range)?, self.range_with_lines_of(&item.uri, origin, item.selection)?),
+            None => (self.range(&item.uri, item.range)?, self.range(&item.uri, item.selection)?),
         };
-        let mut dados = json!({"ref": item.referencia});
-        if let Some((r, caminho)) = &item.ancora {
-            dados["anchor"] = json!({"ref": r, "path": caminho});
+        let mut data = json!({"ref": item.reference});
+        if let Some((r, path)) = &item.anchor {
+            data["anchor"] = json!({"ref": r, "path": path});
         }
         Some(json!({
-            "name": item.nome,
+            "name": item.name,
             "kind": 5,
             "uri": item.uri,
-            "range": intervalo,
-            "selectionRange": selecao,
-            "data": dados,
+            "range": range,
+            "selectionRange": selection,
+            "data": data,
         }))
     }
 
     /// O documento cujo projeto atende `typeHierarchy/supertypes` e
     /// `subtypes` do item em `uri`: o próprio arquivo quando está numa raiz
     /// do workspace; senão (SDK, pacote) o do último `prepareTypeHierarchy`.
-    fn documento_da_hierarquia(&self, uri: &str) -> String {
-        let no_workspace = url::Url::parse(uri)
+    fn hierarchy_document(&self, uri: &str) -> String {
+        let in_workspace = url::Url::parse(uri)
             .ok()
             .and_then(|u| u.to_file_path().ok())
-            .is_some_and(|c| self.raizes.iter().any(|r| c.starts_with(r)));
-        match &self.origem_da_hierarquia {
-            Some(origem) if !no_workspace => origem.clone(),
+            .is_some_and(|c| self.roots.iter().any(|r| c.starts_with(r)));
+        match &self.hierarchy_origin {
+            Some(origin) if !in_workspace => origin.clone(),
             _ => uri.to_string(),
         }
     }
 
     /// O texto de `uri`: o aberto, senão o do disco.
-    fn texto_do_arquivo(&self, uri: &str) -> Option<std::borrow::Cow<'_, str>> {
-        if let Some(texto) = self.documentos.get(uri) {
-            return Some(std::borrow::Cow::Borrowed(texto));
+    fn file_text(&self, uri: &str) -> Option<std::borrow::Cow<'_, str>> {
+        if let Some(text) = self.documents.get(uri) {
+            return Some(std::borrow::Cow::Borrowed(text));
         }
-        let caminho = url::Url::parse(uri).ok()?.to_file_path().ok()?;
-        std::fs::read_to_string(caminho).ok().map(std::borrow::Cow::Owned)
+        let path = url::Url::parse(uri).ok()?.to_file_path().ok()?;
+        std::fs::read_to_string(path).ok().map(std::borrow::Cow::Owned)
     }
 
-    /// Um intervalo de `arquivo` convertido com o `LineInfo` de `origem`
+    /// Um intervalo de `file` convertido com o `LineInfo` de `origin`
     /// (`sourceRangeToRange(unit.lineInfo, …)` do `prepareTypeHierarchy`):
     /// os offsets UTF-16 do arquivo da classe, a linha pelo último início de
-    /// linha de `origem` que não passa deles e a coluna sem limite.
-    fn faixa_com_linhas_de(&self, arquivo: &str, origem: &str, span: dartforge_diagnostics::Span) -> Option<Value> {
-        if arquivo == origem {
-            return self.faixa(arquivo, span);
+    /// linha de `origin` que não passa deles e a coluna sem limite.
+    fn range_with_lines_of(&self, file: &str, origin: &str, span: dartforge_diagnostics::Span) -> Option<Value> {
+        if file == origin {
+            return self.range(file, span);
         }
-        let texto = self.texto_do_arquivo(arquivo)?;
-        let alvo = self.texto_do_arquivo(origem)?;
-        let inicios = inicios_utf16(&alvo);
-        let posicao = |byte: usize| {
-            let mut b = byte.min(texto.len());
-            while !texto.is_char_boundary(b) {
+        let text = self.file_text(file)?;
+        let target = self.file_text(origin)?;
+        let starts = utf16_starts(&target);
+        let position = |byte: usize| {
+            let mut b = byte.min(text.len());
+            while !text.is_char_boundary(b) {
                 b -= 1;
             }
-            let o = texto[..b].encode_utf16().count();
-            let linha = inicios.partition_point(|&s| s <= o).saturating_sub(1);
-            json!({"line": linha, "character": o - inicios[linha]})
+            let o = text[..b].encode_utf16().count();
+            let line = starts.partition_point(|&s| s <= o).saturating_sub(1);
+            json!({"line": line, "character": o - starts[line]})
         };
-        Some(json!({"start": posicao(span.start), "end": posicao(span.end)}))
+        Some(json!({"start": position(span.start), "end": position(span.end)}))
     }
 
     /// `workspace/executeCommand` (docs/LSP-ESPECIFICACAO.md §13.12.2 a
     /// §13.12.6). Devolve a resposta, ou, quando o comando tem edição a
     /// aplicar, o pedido `workspace/applyEdit`: a resposta do
     /// `executeCommand` sai quando o cliente responder
-    /// ([`Servidor::resposta_do_cliente`]).
+    /// ([`Server::client_response`]).
     /// As refatorações de `codeAction` (§13.11.1): depois dos assists, na
     /// ordem do Dart, na forma de comando; só com `workspace/applyEdit` e
     /// com `refactor` pedido. As legadas passam pelo `shouldIncludeKind`; a
     /// do `RefactoringProcessor` (Move) não.
-    fn refatoracoes_por_comando(&mut self, u: &str, inicio: usize, fim: usize, apenas: Option<&[String]>) -> Vec<Value> {
-        let pedidas = apenas.is_none_or(|l| l.iter().any(|w| w == "refactor" || w.starts_with("refactor.")));
-        if !pedidas || !self.aplicar_edicoes || !u.ends_with(".dart") {
+    fn refactorings_by_command(&mut self, u: &str, start: usize, end: usize, only: Option<&[String]>) -> Vec<Value> {
+        let requested = only.is_none_or(|l| l.iter().any(|w| w == "refactor" || w.starts_with("refactor.")));
+        if !requested || !self.apply_edits || !u.ends_with(".dart") {
             return Vec::new();
         }
-        let Some(caminho) = url::Url::parse(u).ok().filter(|x| x.scheme() == "file").and_then(|x| x.to_file_path().ok()) else {
+        let Some(path) = url::Url::parse(u).ok().filter(|x| x.scheme() == "file").and_then(|x| x.to_file_path().ok()) else {
             return Vec::new();
         };
-        let caminho = caminho.to_string_lossy().into_owned();
-        let lista = self.analisador.refatoracoes(&self.documentos, u, inicio, fim - inicio, self.criar_arquivos);
-        let Some(texto) = self.documentos.get(u) else { return Vec::new() };
-        let o16 = texto[..inicio.min(texto.len())].encode_utf16().count();
-        let l16 = texto[inicio.min(texto.len())..fim.min(texto.len())].encode_utf16().count();
-        let versao = self.documentos.version(u);
-        let mut saida = Vec::new();
-        for r in lista {
-            match r.comando {
-                crate::ComandoDeRefatoracao::Mover { caminho_padrao } => {
-                    let padrao = url::Url::from_file_path(&caminho_padrao).map(|x| x.to_string()).unwrap_or_default();
+        let path = path.to_string_lossy().into_owned();
+        let list = self.analyzer.refactorings(&self.documents, u, start, end - start, self.create_files);
+        let Some(text) = self.documents.get(u) else { return Vec::new() };
+        let o16 = text[..start.min(text.len())].encode_utf16().count();
+        let l16 = text[start.min(text.len())..end.min(text.len())].encode_utf16().count();
+        let version = self.documents.version(u);
+        let mut output = Vec::new();
+        for r in list {
+            match r.command {
+                crate::RefactoringCommand::Move { path_pattern } => {
+                    let pattern = url::Url::from_file_path(&path_pattern).map(|x| x.to_string()).unwrap_or_default();
                     let c = json!({
-                        "title": r.titulo,
+                        "title": r.title,
                         "command": "dart.refactor.move_top_level_to_file",
-                        "arguments": [{"filePath": caminho, "selectionOffset": o16, "selectionLength": l16, "arguments": [padrao]}],
+                        "arguments": [{"filePath": path, "selectionOffset": o16, "selectionLength": l16, "arguments": [pattern]}],
                     });
-                    saida.push(json!({
-                        "title": r.titulo,
-                        "kind": r.especie,
+                    output.push(json!({
+                        "title": r.title,
+                        "kind": r.kind,
                         "command": c,
                         "data": {"parameters": [{
                             "actionLabel": "Move",
-                            "defaultValue": padrao,
+                            "defaultValue": pattern,
                             "filters": {"Dart": ["dart"]},
                             "kind": "saveUri",
                             "parameterLabel": "Move to:",
@@ -2338,207 +2338,207 @@ impl<A: Analisador> Servidor<A> {
                         }]},
                     }));
                 }
-                crate::ComandoDeRefatoracao::Legado(kind) => {
-                    let casa = |w: &String| r.especie == w.as_str() || r.especie.starts_with(&format!("{w}."));
-                    let incluida = match (apenas, &self.especies_de_acao) {
-                        (Some(l), _) => l.iter().any(casa),
-                        (None, Some(l)) if self.acoes_literais => l.iter().any(casa),
+                crate::RefactoringCommand::Legacy(kind) => {
+                    let matches = |w: &String| r.kind == w.as_str() || r.kind.starts_with(&format!("{w}."));
+                    let included = match (only, &self.action_kinds) {
+                        (Some(l), _) => l.iter().any(matches),
+                        (None, Some(l)) if self.actions_literals => l.iter().any(matches),
                         _ => true,
                     };
-                    if !incluida {
+                    if !included {
                         continue;
                     }
                     let c = json!({
-                        "title": r.titulo,
+                        "title": r.title,
                         "command": "refactor.perform",
-                        "arguments": [kind, caminho, versao, o16, l16, null],
+                        "arguments": [kind, path, version, o16, l16, null],
                     });
-                    saida.push(if self.acoes_literais { json!({"title": r.titulo, "kind": r.especie, "command": c}) } else { c });
+                    output.push(if self.actions_literals { json!({"title": r.title, "kind": r.kind, "command": c}) } else { c });
                 }
             }
         }
-        saida
+        output
     }
 
     /// O texto vigente do arquivo (o aberto, senão o do disco).
-    fn texto_vigente(&self, uri: &str, caminho: &str) -> Option<String> {
-        self.documentos.get(uri).map(str::to_string).or_else(|| std::fs::read_to_string(caminho).ok())
+    fn current_text(&self, uri: &str, path: &str) -> Option<String> {
+        self.documents.get(uri).map(str::to_string).or_else(|| std::fs::read_to_string(path).ok())
     }
 
     /// `refactor.perform`/`refactor.validate` (§13.11.2).
-    fn executar_refatoracao_legada(&mut self, id: &Value, mensagem: &Value, so_validar: bool) -> Value {
-        let nome = if so_validar { "Validate Refactor" } else { "Perform Refactor" };
-        let invalidos = || {
-            erro(
+    fn run_legacy_refactoring(&mut self, id: &Value, message: &Value, only_validate: bool) -> Value {
+        let name = if only_validate { "Validate Refactor" } else { "Perform Refactor" };
+        let invalid = || {
+            error(
                 id,
-                ARGUMENTOS_DE_COMANDO_INVALIDOS,
+                INVALID_COMMAND_ARGUMENTS,
                 format!(
-                    "{nome} requires 6 parameters: kind: String (RefactoringKind), filePath: String, docVersion: int?, offset: int, length: int, options: Map<String, Object?>"
+                    "{name} requires 6 parameters: kind: String (RefactoringKind), filePath: String, docVersion: int?, offset: int, length: int, options: Map<String, Object?>"
                 ),
             )
         };
         // `parseArgList`: posicional, 6 itens; outra forma vira `{}`.
-        let argumentos = mensagem.pointer("/params/arguments").and_then(Value::as_array).cloned().unwrap_or_default();
-        if argumentos.len() != 6 {
-            return invalidos();
+        let arguments = message.pointer("/params/arguments").and_then(Value::as_array).cloned().unwrap_or_default();
+        if arguments.len() != 6 {
+            return invalid();
         }
-        let (Some(kind), Some(caminho)) = (argumentos[0].as_str(), argumentos[1].as_str()) else { return invalidos() };
-        let versao = match &argumentos[2] {
+        let (Some(kind), Some(path)) = (arguments[0].as_str(), arguments[1].as_str()) else { return invalid() };
+        let version = match &arguments[2] {
             Value::Null => None,
             v => match v.as_i64() {
                 Some(n) => Some(n),
-                None => return invalidos(),
+                None => return invalid(),
             },
         };
-        let (Some(offset), Some(comprimento)) = (argumentos[3].as_i64(), argumentos[4].as_i64()) else { return invalidos() };
-        let opcoes = match &argumentos[5] {
+        let (Some(offset), Some(length)) = (arguments[3].as_i64(), arguments[4].as_i64()) else { return invalid() };
+        let options = match &arguments[5] {
             Value::Null => None,
             Value::Object(m) => Some(m.clone()),
-            _ => return invalidos(),
+            _ => return invalid(),
         };
         // `requireResolvedUnit(path)`.
-        let uri = url::Url::from_file_path(caminho).ok().map(|u| u.to_string());
-        let texto = uri.as_deref().and_then(|u| self.texto_vigente(u, caminho));
-        let (Some(uri), Some(texto)) = (uri, texto) else {
-            return erro(id, ARQUIVO_NAO_ANALISADO, "File is not being analyzed");
+        let uri = url::Url::from_file_path(path).ok().map(|u| u.to_string());
+        let text = uri.as_deref().and_then(|u| self.current_text(u, path));
+        let (Some(uri), Some(text)) = (uri, text) else {
+            return error(id, FILE_NOT_ANALYZED, "File is not being analyzed");
         };
-        if !caminho.ends_with(".dart") {
-            return erro(id, ARQUIVO_NAO_ANALISADO, "File is not being analyzed");
+        if !path.ends_with(".dart") {
+            return error(id, FILE_NOT_ANALYZED, "File is not being analyzed");
         }
-        if !TIPOS_DE_REFATORACAO.contains(&kind) {
-            return erro(id, ERRO_NAO_TRATADO, format!("Exception: Illegal enum value: {kind}"));
+        if !REFACTORING_TYPES.contains(&kind) {
+            return error(id, ERROR_NOT_HANDLED, format!("Exception: Illegal enum value: {kind}"));
         }
         if matches!(kind, "MOVE_FILE" | "RENAME") {
-            return erro(id, ARGUMENTOS_DE_COMANDO_INVALIDOS, format!("Unknown RefactoringKind RefactoringKind.{kind} was supplied to {nome}"));
+            return error(id, INVALID_COMMAND_ARGUMENTS, format!("Unknown RefactoringKind RefactoringKind.{kind} was supplied to {name}"));
         }
-        if offset < 0 || comprimento < 0 {
-            return erro(id, ERRO_NAO_TRATADO, format!("RangeError: offset {offset}, length {comprimento}"));
+        if offset < 0 || length < 0 {
+            return error(id, ERROR_NOT_HANDLED, format!("RangeError: offset {offset}, length {length}"));
         }
-        let ini = byte_de_utf16(&texto, offset as usize);
-        let fim = byte_de_utf16(&texto, (offset + comprimento) as usize);
-        let pedido = crate::PedidoDeRefatoracao { kind: kind.to_string(), offset: ini, comprimento: fim - ini, opcoes, so_validar };
-        let resultado = self.analisador.executar_refatoracao(&self.documentos, &uri, &pedido);
-        self.resposta_de_refatoracao(id, nome, resultado, if so_validar { None } else { Some((uri, versao)) })
+        let start = byte_from_utf16(&text, offset as usize);
+        let end = byte_from_utf16(&text, (offset + length) as usize);
+        let request = crate::RefactoringRequest { kind: kind.to_string(), offset: start, length: end - start, options, only_validate };
+        let result = self.analyzer.run_refactoring(&self.documents, &uri, &request);
+        self.refactoring_response(id, name, result, if only_validate { None } else { Some((uri, version)) })
     }
 
-    /// A resposta de uma refatoração calculada. `versionada`: o arquivo e a
+    /// A resposta de uma refatoração calculada. `versioned`: o arquivo e a
     /// versão pedida, para o `ContentModified` do `refactor.perform`.
-    fn resposta_de_refatoracao(
+    fn refactoring_response(
         &mut self,
         id: &Value,
-        rotulo: &'static str,
-        resultado: crate::ResultadoDeRefatoracao,
-        versionada: Option<(String, Option<i64>)>,
+        label: &'static str,
+        result: crate::RefactoringResult,
+        versioned: Option<(String, Option<i64>)>,
     ) -> Value {
-        use crate::ResultadoDeRefatoracao as R;
-        let validar = rotulo == "Validate Refactor";
-        match resultado {
-            R::NaoAnalisado => erro(id, ARQUIVO_NAO_ANALISADO, "File is not being analyzed"),
-            R::ArgumentosInvalidos(m) => erro(id, ARGUMENTOS_DE_COMANDO_INVALIDOS, m),
-            R::ErroInterno(m) => erro(id, ERRO_NAO_TRATADO, m),
-            R::Falha(motivo) => erro(id, FALHA_DE_CALCULO, motivo.unwrap_or_else(|| "Cannot compute the change. No details.".to_string())),
-            R::Erro(m) if validar => resposta(id, json!({"valid": false, "message": m})),
-            R::Erro(m) => {
+        use crate::RefactoringResult as R;
+        let validate = label == "Validate Refactor";
+        match result {
+            R::NotAnalyzed => error(id, FILE_NOT_ANALYZED, "File is not being analyzed"),
+            R::InvalidArguments(m) => error(id, INVALID_COMMAND_ARGUMENTS, m),
+            R::InternalError(m) => error(id, ERROR_NOT_HANDLED, m),
+            R::Failure(reason) => error(id, COMPUTATION_FAILURE, reason.unwrap_or_else(|| "Cannot compute the change. No details.".to_string())),
+            R::Error(m) if validate => response(id, json!({"valid": false, "message": m})),
+            R::Error(m) => {
                 // `showErrorMessageToUser` e sucesso `null`.
-                self.saidas_pendentes.push(json!({
+                self.pending_outputs.push(json!({
                     "jsonrpc": "2.0",
                     "method": "window/showMessage",
                     "params": {"type": 1, "message": m},
                 }));
-                resposta(id, Value::Null)
+                response(id, Value::Null)
             }
-            R::Valido => resposta(id, if validar { json!({"valid": true}) } else { Value::Null }),
-            R::Mudanca { .. } if validar => resposta(id, json!({"valid": true})),
-            R::Mudanca { edicoes, criar } => {
-                if edicoes.is_empty() && criar.is_none() {
-                    return resposta(id, Value::Null);
+            R::Valid => response(id, if validate { json!({"valid": true}) } else { Value::Null }),
+            R::Change { .. } if validate => response(id, json!({"valid": true})),
+            R::Change { edits, create } => {
+                if edits.is_empty() && create.is_none() {
+                    return response(id, Value::Null);
                 }
-                if let Some((uri, Some(v))) = &versionada
-                    && Some(*v) != self.documentos.version(uri).map(i64::from)
+                if let Some((uri, Some(v))) = &versioned
+                    && Some(*v) != self.documents.version(uri).map(i64::from)
                 {
-                    return erro(id, CONTEUDO_MODIFICADO, "Document was modified before operation completed");
+                    return error(id, MODIFIED_CONTENT, "Document was modified before operation completed");
                 }
-                let edicao = match criar {
-                    Some((novo, conteudo)) => {
-                        let mut e = self.edicao_de_workspace(&edicoes, Some(json!({"kind": "create", "uri": novo})));
-                        if !conteudo.is_empty()
+                let edit = match create {
+                    Some((new, content)) => {
+                        let mut e = self.workspace_edit(&edits, Some(json!({"kind": "create", "uri": new})));
+                        if !content.is_empty()
                             && let Some(l) = e["documentChanges"].as_array_mut()
                         {
                             l.push(json!({
-                                "textDocument": {"uri": novo, "version": null},
-                                "edits": [{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "newText": conteudo}],
+                                "textDocument": {"uri": new, "version": null},
+                                "edits": [{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "newText": content}],
                             }));
                         }
                         e
                     }
-                    None => self.edicao_de_workspace(&edicoes, None),
+                    None => self.workspace_edit(&edits, None),
                 };
-                self.pedir_aplicacao(id, rotulo, edicao)
+                self.request_application(id, label, edit)
             }
         }
     }
 
     /// Os comandos do `RefactoringProcessor` (§13.11.2, "Comandos do
     /// framework novo").
-    fn executar_refatoracao_nova(&mut self, id: &Value, mensagem: &Value, comando: &'static str) -> Value {
-        let invalidos = || {
-            erro(
+    fn run_new_refactoring(&mut self, id: &Value, message: &Value, command: &'static str) -> Value {
+        let invalid = || {
+            error(
                 id,
-                ARGUMENTOS_DE_COMANDO_INVALIDOS,
+                INVALID_COMMAND_ARGUMENTS,
                 "Refactoring operations require 4 parameters: filePath: String, offset: int, length: int, arguments: List",
             )
         };
-        let argumentos = mensagem.pointer("/params/arguments").and_then(Value::as_array).cloned().unwrap_or_default();
-        let parametros = match argumentos.as_slice() {
+        let arguments = message.pointer("/params/arguments").and_then(Value::as_array).cloned().unwrap_or_default();
+        let parameters = match arguments.as_slice() {
             [] => json!({}),
-            [unico] if unico.is_object() => unico.clone(),
-            _ => return erro(id, ARGUMENTOS_DE_COMANDO_INVALIDOS, format!("{comando} requires a single Map argument")),
+            [single] if single.is_object() => single.clone(),
+            _ => return error(id, INVALID_COMMAND_ARGUMENTS, format!("{command} requires a single Map argument")),
         };
-        let (Some(caminho), Some(offset), Some(comprimento), Some(lista)) = (
-            parametros.get("filePath").and_then(Value::as_str),
-            parametros.get("selectionOffset").and_then(Value::as_i64),
-            parametros.get("selectionLength").and_then(Value::as_i64),
-            parametros.get("arguments").and_then(Value::as_array),
+        let (Some(path), Some(offset), Some(length), Some(list)) = (
+            parameters.get("filePath").and_then(Value::as_str),
+            parameters.get("selectionOffset").and_then(Value::as_i64),
+            parameters.get("selectionLength").and_then(Value::as_i64),
+            parameters.get("arguments").and_then(Value::as_array),
         ) else {
-            return invalidos();
+            return invalid();
         };
-        let uri = url::Url::from_file_path(caminho).ok().map(|u| u.to_string());
-        let texto = uri.as_deref().and_then(|u| self.texto_vigente(u, caminho));
-        let (Some(uri), Some(texto)) = (uri, texto) else {
-            return erro(id, ARQUIVO_NAO_ANALISADO, "File is not being analyzed");
+        let uri = url::Url::from_file_path(path).ok().map(|u| u.to_string());
+        let text = uri.as_deref().and_then(|u| self.current_text(u, path));
+        let (Some(uri), Some(text)) = (uri, text) else {
+            return error(id, FILE_NOT_ANALYZED, "File is not being analyzed");
         };
-        if !caminho.ends_with(".dart") {
-            return erro(id, ARQUIVO_NAO_ANALISADO, "File is not being analyzed");
+        if !path.ends_with(".dart") {
+            return error(id, FILE_NOT_ANALYZED, "File is not being analyzed");
         }
-        if offset < 0 || comprimento < 0 {
-            return erro(id, ERRO_NAO_TRATADO, format!("RangeError: offset {offset}, length {comprimento}"));
+        if offset < 0 || length < 0 {
+            return error(id, ERROR_NOT_HANDLED, format!("RangeError: offset {offset}, length {length}"));
         }
-        let ini = byte_de_utf16(&texto, offset as usize);
-        let fim = byte_de_utf16(&texto, (offset + comprimento) as usize);
-        let resultado = if comando == "dart.refactor.move_top_level_to_file" {
+        let start = byte_from_utf16(&text, offset as usize);
+        let end = byte_from_utf16(&text, (offset + length) as usize);
+        let result = if command == "dart.refactor.move_top_level_to_file" {
             // `arguments[0] as String`: outro tipo lança.
-            match lista.first().and_then(Value::as_str) {
-                Some(destino) => self.analisador.mover_para_arquivo(&self.documentos, &uri, ini, fim - ini, destino),
-                None => crate::ResultadoDeRefatoracao::ErroInterno("type 'Null' is not a subtype of type 'String' in type cast".to_string()),
+            match list.first().and_then(Value::as_str) {
+                Some(target) => self.analyzer.move_to_file(&self.documents, &uri, start, end - start, target),
+                None => crate::RefactoringResult::InternalError("type 'Null' is not a subtype of type 'String' in type cast".to_string()),
             }
         } else {
             // As experimentais (`analyzeAvailability`): sem a mudança.
-            crate::ResultadoDeRefatoracao::Falha(None)
+            crate::RefactoringResult::Failure(None)
         };
-        self.resposta_de_refatoracao(id, comando, resultado, None)
+        self.refactoring_response(id, command, result, None)
     }
 
-    fn executar_comando(&mut self, id: &Value, mensagem: &Value) -> Value {
-        let comando = mensagem.pointer("/params/command").and_then(Value::as_str).unwrap_or("").to_string();
-        match comando.as_str() {
-            "refactor.perform" => return self.executar_refatoracao_legada(id, mensagem, false),
-            "refactor.validate" => return self.executar_refatoracao_legada(id, mensagem, true),
+    fn run_command(&mut self, id: &Value, message: &Value) -> Value {
+        let command = message.pointer("/params/command").and_then(Value::as_str).unwrap_or("").to_string();
+        match command.as_str() {
+            "refactor.perform" => return self.run_legacy_refactoring(id, message, false),
+            "refactor.validate" => return self.run_legacy_refactoring(id, message, true),
             _ => {}
         }
-        if let Some(&c) = COMANDOS.iter().find(|c| c.starts_with("dart.refactor.") && **c == comando) {
-            return self.executar_refatoracao_nova(id, mensagem, c);
+        if let Some(&c) = COMMANDS.iter().find(|c| c.starts_with("dart.refactor.") && **c == command) {
+            return self.run_new_refactoring(id, message, c);
         }
-        let rotulo: &'static str = match comando.as_str() {
+        let label: &'static str = match command.as_str() {
             "dart.edit.sortMembers" => "Sort Members",
             "dart.edit.organizeImports" => "Organize Imports",
             "dart.edit.fixAll" => "Fix All",
@@ -2546,80 +2546,80 @@ impl<A: Analisador> Servidor<A> {
             "dart.edit.fixAllInWorkspace" => "Apply All Fixes in Workspace",
             "dart.edit.sendWorkspaceEdit" => "Send Workspace Edit",
             "dart.logAction" => "Log Action",
-            _ => return erro(id, COMANDO_DESCONHECIDO, format!("{comando} is not a valid command identifier")),
+            _ => return error(id, UNKNOWN_COMMAND, format!("{command} is not a valid command identifier")),
         };
-        let argumentos = mensagem.pointer("/params/arguments").and_then(Value::as_array).cloned().unwrap_or_default();
-        let parametros = match argumentos.as_slice() {
+        let arguments = message.pointer("/params/arguments").and_then(Value::as_array).cloned().unwrap_or_default();
+        let parameters = match arguments.as_slice() {
             [] => json!({}),
-            [unico] if unico.is_object() => unico.clone(),
-            _ => return erro(id, ARGUMENTOS_DE_COMANDO_INVALIDOS, format!("{comando} requires a single Map argument")),
+            [single] if single.is_object() => single.clone(),
+            _ => return error(id, INVALID_COMMAND_ARGUMENTS, format!("{command} requires a single Map argument")),
         };
-        match comando.as_str() {
+        match command.as_str() {
             // Só telemetria no servidor do Dart; sem `action`, a conversão
             // dele lança (`log_action.dart:23`).
-            "dart.logAction" => match parametros.get("action").and_then(Value::as_str) {
-                Some(_) => resposta(id, Value::Null),
-                None => erro(id, ERRO_NAO_TRATADO, "dart.logAction sem o campo action"),
+            "dart.logAction" => match parameters.get("action").and_then(Value::as_str) {
+                Some(_) => response(id, Value::Null),
+                None => error(id, ERROR_NOT_HANDLED, "dart.logAction sem o campo action"),
             },
             "dart.edit.fixAllInWorkspace" | "dart.edit.fixAllInWorkspace.preview" => {
-                self.corrigir_workspace(id, rotulo, comando.ends_with(".preview"))
+                self.fix_workspace(id, label, command.ends_with(".preview"))
             }
-            "dart.edit.sendWorkspaceEdit" => match parametros.get("edit").filter(|e| e.is_object()).cloned() {
-                Some(edicao) => self.pedir_aplicacao(id, rotulo, edicao),
-                None => erro(
+            "dart.edit.sendWorkspaceEdit" => match parameters.get("edit").filter(|e| e.is_object()).cloned() {
+                Some(edit) => self.request_application(id, label, edit),
+                None => error(
                     id,
-                    ARGUMENTOS_DE_COMANDO_INVALIDOS,
+                    INVALID_COMMAND_ARGUMENTS,
                     "Send Workspace Edit requires a Map argument containing \"edit\" (WorkspaceEdit)",
                 ),
             },
             _ => {
-                let Some(caminho) = parametros.get("path").and_then(Value::as_str).map(str::to_string) else {
-                    return erro(id, ARGUMENTOS_DE_COMANDO_INVALIDOS, format!("{rotulo} requires a Map argument containing a \"path\""));
+                let Some(path) = parameters.get("path").and_then(Value::as_str).map(str::to_string) else {
+                    return error(id, INVALID_COMMAND_ARGUMENTS, format!("{label} requires a Map argument containing a \"path\""));
                 };
-                let automatico = parametros.get("autoTriggered").and_then(Value::as_bool).unwrap_or(false);
-                let uri = url::Url::from_file_path(&caminho).ok().map(|u| u.to_string());
-                let texto = uri
+                let auto = parameters.get("autoTriggered").and_then(Value::as_bool).unwrap_or(false);
+                let uri = url::Url::from_file_path(&path).ok().map(|u| u.to_string());
+                let text = uri
                     .as_deref()
-                    .and_then(|u| self.documentos.get(u).map(str::to_string))
-                    .or_else(|| std::fs::read_to_string(&caminho).ok());
-                let (Some(uri), Some(texto)) = (uri, texto) else {
-                    return if automatico && comando != "dart.edit.fixAll" {
-                        resposta(id, Value::Null)
+                    .and_then(|u| self.documents.get(u).map(str::to_string))
+                    .or_else(|| std::fs::read_to_string(&path).ok());
+                let (Some(uri), Some(text)) = (uri, text) else {
+                    return if auto && command != "dart.edit.fixAll" {
+                        response(id, Value::Null)
                     } else {
-                        erro(id, ARQUIVO_NAO_ANALISADO, format!("{rotulo} is only available for analyzed files"))
+                        error(id, FILE_NOT_ANALYZED, format!("{label} is only available for analyzed files"))
                     };
                 };
-                if comando == "dart.edit.fixAll" {
-                    return self.corrigir_tudo(id, rotulo, &uri, &texto, automatico);
+                if command == "dart.edit.fixAll" {
+                    return self.fix_all(id, label, &uri, &text, auto);
                 }
-                let mut nomes = dartforge_intern::Interner::new();
-                let analisado = dartforge_frontend::parser::parse(&texto, &mut nomes);
+                let mut names = dartforge_intern::Interner::new();
+                let analyzed = dartforge_frontend::parser::parse(&text, &mut names);
                 // `hasScanParseErrors`: algum erro do scanner ou do parser.
-                let com_erros = analisado.diagnostics.iter().any(|d| {
+                let with_errors = analyzed.diagnostics.iter().any(|d| {
                     d.code.is_none_or(|c| {
-                        let unico = c.info().unico;
-                        unico.starts_with("ParserErrorCode.") || unico.starts_with("ScannerErrorCode.")
+                        let single = c.info().unico;
+                        single.starts_with("ParserErrorCode.") || single.starts_with("ScannerErrorCode.")
                     })
                 });
-                if com_erros {
-                    return if automatico {
-                        resposta(id, Value::Null)
+                if with_errors {
+                    return if auto {
+                        response(id, Value::Null)
                     } else {
-                        erro_com_dado(
+                        error_with_data(
                             id,
-                            ARQUIVO_COM_ERROS,
-                            format!("Unable to {rotulo} because the file contains parse errors"),
-                            json!(caminho),
+                            FILE_WITH_ERRORS,
+                            format!("Unable to {label} because the file contains parse errors"),
+                            json!(path),
                         )
                     };
                 }
-                let edicoes: Vec<crate::Edicao> = if comando == "dart.edit.sortMembers" {
-                    crate::sort_members::ordenar_membros(&texto, &analisado.unit, &analisado.ast, &nomes)
-                        .map(|(offset, comprimento, novo)| {
-                            vec![crate::Edicao {
+                let edits: Vec<crate::Edit> = if command == "dart.edit.sortMembers" {
+                    crate::sort_members::sort_members(&text, &analyzed.unit, &analyzed.ast, &names)
+                        .map(|(offset, length, new)| {
+                            vec![crate::Edit {
                                 uri: uri.clone(),
-                                span: dartforge_diagnostics::Span { start: offset, end: offset + comprimento },
-                                texto: novo,
+                                span: dartforge_diagnostics::Span { start: offset, end: offset + length },
+                                text: new,
                             }]
                         })
                         .unwrap_or_default()
@@ -2627,23 +2627,23 @@ impl<A: Analisador> Servidor<A> {
                     // Os erros semânticos são os da última publicação tipada,
                     // se ela é da versão vigente; sem ela, nenhum import sai
                     // por erro (só as duplicatas textuais).
-                    let tipados: &[dartforge_diagnostics::Diagnostic] = self
-                        .tipados_publicados
+                    let typed: &[dartforge_diagnostics::Diagnostic] = self
+                        .typed_published
                         .get(&uri)
-                        .filter(|(versao, _)| Some(*versao) == self.documentos.version(&uri))
+                        .filter(|(version, _)| Some(*version) == self.documents.version(&uri))
                         .map(|(_, d)| d.as_slice())
                         .unwrap_or_default();
-                    let nome_de =
+                    let name_of =
                         |d: &dartforge_diagnostics::Diagnostic| d.code.map_or("", |c| c.info().unico.rsplit('.').next().unwrap_or(""));
-                    let removiveis: Vec<usize> = tipados
+                    let removable: Vec<usize> = typed
                         .iter()
-                        .filter(|d| matches!(nome_de(d), "DUPLICATE_IMPORT" | "UNUSED_IMPORT" | "UNNECESSARY_IMPORT"))
+                        .filter(|d| matches!(name_of(d), "DUPLICATE_IMPORT" | "UNUSED_IMPORT" | "UNNECESSARY_IMPORT"))
                         .map(|d| d.span.start)
                         .collect();
                     // Os nove códigos com `isUnresolvedIdentifier`.
-                    let nao_resolvido = tipados.iter().any(|d| {
+                    let not_resolved = typed.iter().any(|d| {
                         matches!(
-                            nome_de(d),
+                            name_of(d),
                             "CONST_WITH_NON_TYPE"
                                 | "EXTENDS_NON_CLASS"
                                 | "NEW_WITH_NON_TYPE"
@@ -2655,23 +2655,23 @@ impl<A: Analisador> Servidor<A> {
                                 | "UNDEFINED_IDENTIFIER"
                         )
                     });
-                    crate::organize_imports::organizar(&texto, &analisado.unit, &removiveis, nao_resolvido, true)
-                        .and_then(|novo| crate::organize_imports::edicao(&texto, &novo))
-                        .map(|(offset, comprimento, novo)| {
-                            vec![crate::Edicao {
+                    crate::organize_imports::organize(&text, &analyzed.unit, &removable, not_resolved, true)
+                        .and_then(|new| crate::organize_imports::edit(&text, &new))
+                        .map(|(offset, length, new)| {
+                            vec![crate::Edit {
                                 uri: uri.clone(),
-                                span: dartforge_diagnostics::Span { start: offset, end: offset + comprimento },
-                                texto: novo,
+                                span: dartforge_diagnostics::Span { start: offset, end: offset + length },
+                                text: new,
                             }]
                         })
                         .unwrap_or_default()
                 };
                 // Nada a mudar: `null`, sem falar com o cliente.
-                if edicoes.is_empty() {
-                    return resposta(id, Value::Null);
+                if edits.is_empty() {
+                    return response(id, Value::Null);
                 }
-                let edicao = self.edicao_de_workspace(&edicoes, None);
-                self.pedir_aplicacao(id, rotulo, edicao)
+                let edit = self.workspace_edit(&edits, None);
+                self.request_application(id, label, edit)
             }
         }
     }
@@ -2683,91 +2683,91 @@ impl<A: Analisador> Servidor<A> {
     /// publicados para a versão vigente; as seguintes rodam sobre o texto já
     /// corrigido (uma cópia dos documentos abertos) e só veem os
     /// diagnósticos imediatos do analisador. Sem recusa por erro de sintaxe.
-    fn corrigir_tudo(&mut self, id: &Value, rotulo: &'static str, uri: &str, texto: &str, automatico: bool) -> Value {
-        use crate::fix_all::{Construtor, Ed};
-        if !uri.ends_with(".dart") || crate::fix_all::gerado(uri) {
-            return resposta(id, Value::Null);
+    fn fix_all(&mut self, id: &Value, label: &'static str, uri: &str, text: &str, auto: bool) -> Value {
+        use crate::fix_all::{Constructor, Ed};
+        if !uri.ends_with(".dart") || crate::fix_all::generated(uri) {
+            return response(id, Value::Null);
         }
-        let versao = self.documentos.version(uri);
-        let publicados: Vec<dartforge_diagnostics::Diagnostic> = self
-            .tipados_publicados
+        let version = self.documents.version(uri);
+        let published: Vec<dartforge_diagnostics::Diagnostic> = self
+            .typed_published
             .get(uri)
-            .filter(|(v, _)| Some(*v) == versao)
+            .filter(|(v, _)| Some(*v) == version)
             .map(|(_, d)| d.clone())
             .unwrap_or_default();
-        let mut passadas: Vec<Vec<Ed>> = Vec::new();
-        let mut atual = texto.to_string();
-        let mut sobreposto: Option<DocumentStore> = None;
-        for passada in 0..4 {
-            let documentos = sobreposto.as_ref().unwrap_or(&self.documentos);
-            let vistos: &[dartforge_diagnostics::Diagnostic] = if passada == 0 { &publicados } else { &[] };
-            let acoes = self.analisador.acoes(documentos, uri, 0, atual.len(), vistos);
+        let mut passed: Vec<Vec<Ed>> = Vec::new();
+        let mut current = text.to_string();
+        let mut overlapping: Option<DocumentStore> = None;
+        for passed_ in 0..4 {
+            let documents = overlapping.as_ref().unwrap_or(&self.documents);
+            let seen: &[dartforge_diagnostics::Diagnostic] = if passed_ == 0 { &published } else { &[] };
+            let actions = self.analyzer.actions(documents, uri, 0, current.len(), seen);
             // Fase A: por diagnóstico, em ordem de offset.
-            let mut candidatas: Vec<&crate::AcaoDeCodigo> = acoes
+            let mut candidates: Vec<&crate::CodeAction> = actions
                 .iter()
                 .filter(|a| {
-                    a.diagnostico.is_some()
-                        && a.criar_arquivo.is_none()
-                        && crate::fix_all::em_lote(&a.especie, automatico)
-                        && a.edicoes.iter().all(|e| e.uri == uri && e.span.start <= e.span.end && e.span.end <= atual.len())
+                    a.diagnostic.is_some()
+                        && a.create_file.is_none()
+                        && crate::fix_all::in_batch(&a.kind, auto)
+                        && a.edits.iter().all(|e| e.uri == uri && e.span.start <= e.span.end && e.span.end <= current.len())
                 })
                 .collect();
-            candidatas.sort_by_key(|a| a.diagnostico.as_ref().map_or(0, |d| d.span.start));
-            let mut construtor = Construtor::default();
-            for a in candidatas {
-                construtor.aplicar_produtor(a.edicoes.iter().map(|e| (e.span.start, e.span.end - e.span.start, e.texto.clone())));
+            candidates.sort_by_key(|a| a.diagnostic.as_ref().map_or(0, |d| d.span.start));
+            let mut constructor = Constructor::default();
+            for a in candidates {
+                constructor.apply_producer(a.edits.iter().map(|e| (e.span.start, e.span.end - e.span.start, e.text.clone())));
             }
             // Fase B: a limpeza de imports, só no pedido manual e numa
             // passada sem edição da fase A. Os erros de import são os
             // tipados, que só valem para o texto original.
-            if construtor.edicoes.is_empty() && !automatico && passada == 0 {
-                let mut nomes = dartforge_intern::Interner::new();
-                let analisado = dartforge_frontend::parser::parse(&atual, &mut nomes);
-                for remocao in crate::fix_all::remover_imports(&atual, &analisado.unit, &publicados) {
-                    construtor.aplicar_produtor([remocao]);
+            if constructor.edits.is_empty() && !auto && passed_ == 0 {
+                let mut names = dartforge_intern::Interner::new();
+                let analyzed = dartforge_frontend::parser::parse(&current, &mut names);
+                for removal in crate::fix_all::remove_imports(&current, &analyzed.unit, &published) {
+                    constructor.apply_producer([removal]);
                 }
             }
-            if construtor.edicoes.is_empty() {
+            if constructor.edits.is_empty() {
                 break;
             }
-            atual = construtor.aplicar(&atual);
-            passadas.push(construtor.edicoes);
+            current = constructor.apply(&current);
+            passed.push(constructor.edits);
             // O texto corrigido como documento aberto, para a passada
             // seguinte; os outros documentos abertos seguem como estão.
-            let mut copia = DocumentStore::new();
-            for outro in self.documentos.uris() {
-                if outro != uri
-                    && let (Some(v), Some(t)) = (self.documentos.version(outro), self.documentos.get(outro))
+            let mut copy = DocumentStore::new();
+            for other in self.documents.uris() {
+                if other != uri
+                    && let (Some(v), Some(t)) = (self.documents.version(other), self.documents.get(other))
                 {
-                    copia.open(outro.to_string(), v, t.to_string());
+                    copy.open(other.to_string(), v, t.to_string());
                 }
             }
-            copia.open(uri.to_string(), versao.unwrap_or(0), atual.clone());
-            sobreposto = Some(copia);
+            copy.open(uri.to_string(), version.unwrap_or(0), current.clone());
+            overlapping = Some(copy);
             // O que o analisador retém era do texto anterior.
-            self.analisador.documento_alterado(uri);
+            self.analyzer.changed_document(uri);
         }
-        if sobreposto.is_some() {
+        if overlapping.is_some() {
             // O analisador volta a ver os documentos de verdade.
-            self.analisador.documento_alterado(uri);
+            self.analyzer.changed_document(uri);
         }
-        let edicoes: Vec<Ed> = match passadas.len() {
-            0 => return resposta(id, Value::Null),
-            1 => passadas.pop().unwrap_or_default(),
-            _ => crate::fix_all::fundir(passadas.concat()),
+        let edits: Vec<Ed> = match passed.len() {
+            0 => return response(id, Value::Null),
+            1 => passed.pop().unwrap_or_default(),
+            _ => crate::fix_all::merge(passed.concat()),
         };
         // Em LSP, ordem crescente de offset; todas relativas ao original.
-        let edicoes: Vec<crate::Edicao> = edicoes
+        let edits: Vec<crate::Edit> = edits
             .into_iter()
             .rev()
-            .map(|(offset, comprimento, novo)| crate::Edicao {
+            .map(|(offset, length, new)| crate::Edit {
                 uri: uri.to_string(),
-                span: dartforge_diagnostics::Span { start: offset, end: offset + comprimento },
-                texto: novo,
+                span: dartforge_diagnostics::Span { start: offset, end: offset + length },
+                text: new,
             })
             .collect();
-        let edicao = self.edicao_de_workspace(&edicoes, None);
-        self.pedir_aplicacao(id, rotulo, edicao)
+        let edit = self.workspace_edit(&edits, None);
+        self.request_application(id, label, edit)
     }
 
     /// `Fix All in Workspace` e a prévia (docs/LSP-ESPECIFICACAO.md
@@ -2777,274 +2777,274 @@ impl<A: Analisador> Servidor<A> {
     /// da mensagem da correção. Um documento aberto usa os diagnósticos
     /// tipados publicados para a versão vigente; um arquivo só do disco, os
     /// imediatos do analisador.
-    fn corrigir_workspace(&mut self, id: &Value, rotulo: &'static str, confirmar: bool) -> Value {
-        use crate::fix_all::{Construtor, Ed};
-        if !self.aplicar_edicoes {
-            return erro(id, RECURSO_DESLIGADO, format!("\"{rotulo}\" is only available for clients that support workspace/applyEdit"));
+    fn fix_workspace(&mut self, id: &Value, label: &'static str, confirm: bool) -> Value {
+        use crate::fix_all::{Constructor, Ed};
+        if !self.apply_edits {
+            return error(id, FEATURE_DISABLED, format!("\"{label}\" is only available for clients that support workspace/applyEdit"));
         }
-        if !self.anotacoes_de_mudanca {
-            return erro(id, RECURSO_DESLIGADO, format!("\"{rotulo}\" is only available for clients that support change annotations"));
+        if !self.change_annotations {
+            return error(id, FEATURE_DISABLED, format!("\"{label}\" is only available for clients that support change annotations"));
         }
         // Os alvos: os abertos e, do disco, os que não estão abertos.
-        let mut alvos: Vec<(String, bool)> = self.documentos.uris().map(|u| (u.to_string(), true)).collect();
-        alvos.sort();
-        let abertos: HashSet<std::path::PathBuf> =
-            alvos.iter().filter_map(|(u, _)| url::Url::parse(u).ok().and_then(|x| x.to_file_path().ok())).collect();
-        let mut vistos: HashSet<std::path::PathBuf> = HashSet::new();
-        for raiz in &self.raizes {
-            for arquivo in dartforge_parity::corpus::arquivos_dart(raiz) {
-                if abertos.contains(&arquivo) || !vistos.insert(arquivo.clone()) {
+        let mut targets: Vec<(String, bool)> = self.documents.uris().map(|u| (u.to_string(), true)).collect();
+        targets.sort();
+        let open: HashSet<std::path::PathBuf> =
+            targets.iter().filter_map(|(u, _)| url::Url::parse(u).ok().and_then(|x| x.to_file_path().ok())).collect();
+        let mut seen: HashSet<std::path::PathBuf> = HashSet::new();
+        for root in &self.roots {
+            for file in dartforge_parity::corpus::arquivos_dart(root) {
+                if open.contains(&file) || !seen.insert(file.clone()) {
                     continue;
                 }
-                if let Ok(u) = url::Url::from_file_path(&arquivo) {
-                    alvos.push((u.to_string(), false));
+                if let Ok(u) = url::Url::from_file_path(&file) {
+                    targets.push((u.to_string(), false));
                 }
             }
         }
         // Uma cópia dos abertos, em que cada arquivo do disco entra só
         // enquanto é examinado.
-        let mut copia = DocumentStore::new();
-        for u in self.documentos.uris() {
-            if let (Some(v), Some(t)) = (self.documentos.version(u), self.documentos.get(u)) {
-                copia.open(u.to_string(), v, t.to_string());
+        let mut copy = DocumentStore::new();
+        for u in self.documents.uris() {
+            if let (Some(v), Some(t)) = (self.documents.version(u), self.documents.get(u)) {
+                copy.open(u.to_string(), v, t.to_string());
             }
         }
-        let mut mudancas: Vec<(String, Vec<(Ed, &'static str)>)> = Vec::new();
-        let mut mexeu_na_copia = false;
-        for (u, aberto) in &alvos {
-            if !u.ends_with(".dart") || crate::fix_all::gerado(u) {
+        let mut changes: Vec<(String, Vec<(Ed, &'static str)>)> = Vec::new();
+        let mut touched_copy = false;
+        for (u, open) in &targets {
+            if !u.ends_with(".dart") || crate::fix_all::generated(u) {
                 continue;
             }
-            let (texto, tipados): (String, Vec<dartforge_diagnostics::Diagnostic>) = if *aberto {
-                let Some(t) = self.documentos.get(u) else { continue };
-                let versao = self.documentos.version(u);
-                let d = self.tipados_publicados.get(u).filter(|(v, _)| Some(*v) == versao).map(|(_, d)| d.clone()).unwrap_or_default();
+            let (text, typed): (String, Vec<dartforge_diagnostics::Diagnostic>) = if *open {
+                let Some(t) = self.documents.get(u) else { continue };
+                let version = self.documents.version(u);
+                let d = self.typed_published.get(u).filter(|(v, _)| Some(*v) == version).map(|(_, d)| d.clone()).unwrap_or_default();
                 (t.to_string(), d)
             } else {
                 let Some(t) = url::Url::parse(u).ok().and_then(|x| x.to_file_path().ok()).and_then(|p| std::fs::read_to_string(p).ok()) else {
                     continue;
                 };
-                copia.open(u.clone(), 0, t.clone());
-                self.analisador.documento_alterado(u);
-                mexeu_na_copia = true;
+                copy.open(u.clone(), 0, t.clone());
+                self.analyzer.changed_document(u);
+                touched_copy = true;
                 (t, Vec::new())
             };
-            let acoes = self.analisador.acoes(&copia, u, 0, texto.len(), &tipados);
-            let mut candidatas: Vec<&crate::AcaoDeCodigo> = acoes
+            let actions = self.analyzer.actions(&copy, u, 0, text.len(), &typed);
+            let mut candidates: Vec<&crate::CodeAction> = actions
                 .iter()
                 .filter(|a| {
-                    a.diagnostico.is_some()
-                        && a.criar_arquivo.is_none()
-                        && crate::fix_all::em_lote(&a.especie, false)
-                        && a.edicoes.iter().all(|e| e.uri == *u && e.span.start <= e.span.end && e.span.end <= texto.len())
+                    a.diagnostic.is_some()
+                        && a.create_file.is_none()
+                        && crate::fix_all::in_batch(&a.kind, false)
+                        && a.edits.iter().all(|e| e.uri == *u && e.span.start <= e.span.end && e.span.end <= text.len())
                 })
                 .collect();
-            candidatas.sort_by_key(|a| a.diagnostico.as_ref().map_or(0, |d| d.span.start));
-            let mut construtor = Construtor::default();
-            let mut descritas: Vec<(Ed, &'static str)> = Vec::new();
-            for a in candidatas {
-                let edicoes: Vec<Ed> = a.edicoes.iter().map(|e| (e.span.start, e.span.end - e.span.start, e.texto.clone())).collect();
-                if construtor.aplicar_produtor(edicoes.clone()) {
-                    let descricao = crate::fix_all::descricao(&a.especie);
-                    descritas.extend(edicoes.into_iter().map(|e| (e, descricao)));
+            candidates.sort_by_key(|a| a.diagnostic.as_ref().map_or(0, |d| d.span.start));
+            let mut constructor = Constructor::default();
+            let mut described: Vec<(Ed, &'static str)> = Vec::new();
+            for a in candidates {
+                let edits_: Vec<Ed> = a.edits.iter().map(|e| (e.span.start, e.span.end - e.span.start, e.text.clone())).collect();
+                if constructor.apply_producer(edits_.clone()) {
+                    let description = crate::fix_all::description(&a.kind);
+                    described.extend(edits_.into_iter().map(|e| (e, description)));
                 }
             }
-            if construtor.edicoes.is_empty() {
-                let mut nomes = dartforge_intern::Interner::new();
-                let analisado = dartforge_frontend::parser::parse(&texto, &mut nomes);
-                for remocao in crate::fix_all::remover_imports(&texto, &analisado.unit, &tipados) {
-                    if construtor.aplicar_produtor([remocao.clone()]) {
-                        descritas.push((remocao, "Remove unused import"));
+            if constructor.edits.is_empty() {
+                let mut names = dartforge_intern::Interner::new();
+                let analyzed = dartforge_frontend::parser::parse(&text, &mut names);
+                for removal in crate::fix_all::remove_imports(&text, &analyzed.unit, &typed) {
+                    if constructor.apply_producer([removal.clone()]) {
+                        described.push((removal, "Remove unused import"));
                     }
                 }
             }
-            if !*aberto {
-                let _ = copia.close(u);
+            if !*open {
+                let _ = copy.close(u);
             }
-            if !construtor.edicoes.is_empty() {
-                let com_descricao = construtor
-                    .edicoes
+            if !constructor.edits.is_empty() {
+                let with_description = constructor
+                    .edits
                     .into_iter()
                     .map(|e| {
-                        let d = descritas.iter().find(|(x, _)| *x == e).map_or("", |(_, d)| *d);
+                        let d = described.iter().find(|(x, _)| *x == e).map_or("", |(_, d)| *d);
                         (e, d)
                     })
                     .collect();
-                mudancas.push((u.clone(), com_descricao));
+                changes.push((u.clone(), with_description));
             }
         }
-        if mexeu_na_copia {
+        if touched_copy {
             // O analisador volta a ver os documentos de verdade.
-            self.analisador.documento_alterado("");
+            self.analyzer.changed_document("");
         }
-        if mudancas.is_empty() {
-            return resposta(id, Value::Null);
+        if changes.is_empty() {
+            return response(id, Value::Null);
         }
-        let mut anotacoes = serde_json::Map::new();
-        let mut por_arquivo: Vec<(String, Vec<Value>)> = Vec::new();
-        for (u, edicoes) in &mudancas {
-            let mut lista = Vec::new();
+        let mut annotations = serde_json::Map::new();
+        let mut by_file: Vec<(String, Vec<Value>)> = Vec::new();
+        for (u, edits_) in &changes {
+            let mut list = Vec::new();
             // Em LSP, ordem crescente de offset.
-            for ((offset, comprimento, novo), descricao) in edicoes.iter().rev() {
-                let Some(range) = self.faixa(u, dartforge_diagnostics::Span { start: *offset, end: offset + comprimento }) else { continue };
+            for ((offset, length, new), description) in edits_.iter().rev() {
+                let Some(range) = self.range(u, dartforge_diagnostics::Span { start: *offset, end: offset + length }) else { continue };
                 // Sem descrição, o último segmento da URI.
-                let rotulo_da_edicao: &str = if descricao.is_empty() { u.rsplit('/').next().unwrap_or(u.as_str()) } else { *descricao };
-                anotacoes
-                    .entry(rotulo_da_edicao.to_string())
-                    .or_insert_with(|| json!({"label": rotulo_da_edicao, "needsConfirmation": confirmar}));
-                lista.push(json!({"range": range, "newText": novo, "annotationId": rotulo_da_edicao}));
+                let edit_label: &str = if description.is_empty() { u.rsplit('/').next().unwrap_or(u.as_str()) } else { *description };
+                annotations
+                    .entry(edit_label.to_string())
+                    .or_insert_with(|| json!({"label": edit_label, "needsConfirmation": confirm}));
+                list.push(json!({"range": range, "newText": new, "annotationId": edit_label}));
             }
-            por_arquivo.push((u.clone(), lista));
+            by_file.push((u.clone(), list));
         }
-        let mut edicao = if self.mudancas_versionadas {
-            let documentos: Vec<Value> = por_arquivo
+        let mut edit = if self.versioned_changes {
+            let documents: Vec<Value> = by_file
                 .into_iter()
                 .map(|(u, edits)| {
-                    let versao = self.documentos.version(&u).map_or(Value::Null, |v| json!(v));
-                    json!({"textDocument": {"uri": u, "version": versao}, "edits": edits})
+                    let version = self.documents.version(&u).map_or(Value::Null, |v| json!(v));
+                    json!({"textDocument": {"uri": u, "version": version}, "edits": edits})
                 })
                 .collect();
-            json!({"documentChanges": documentos})
+            json!({"documentChanges": documents})
         } else {
-            let mut mapa = serde_json::Map::new();
-            for (u, edits) in por_arquivo {
-                mapa.insert(u, json!(edits));
+            let mut map = serde_json::Map::new();
+            for (u, edits) in by_file {
+                map.insert(u, json!(edits));
             }
-            json!({"changes": mapa})
+            json!({"changes": map})
         };
-        edicao["changeAnnotations"] = Value::Object(anotacoes);
-        self.pedir_aplicacao(id, rotulo, edicao)
+        edit["changeAnnotations"] = Value::Object(annotations);
+        self.request_application(id, label, edit)
     }
 
     /// Um `window/showMessageRequest` do rename; o `rename` fica pendente
     /// até a resposta.
-    fn perguntar_no_rename(&mut self, pendente: RenomeacaoPendente, params: Value) -> Value {
-        self.proximo_pedido += 1;
-        let pedido = json!(format!("dartforge/prompt/{}", self.proximo_pedido));
-        self.renomeacoes_pendentes.insert(chave_id(&pedido), pendente);
-        json!({"jsonrpc": "2.0", "id": pedido, "method": "window/showMessageRequest", "params": params})
+    fn ask_on_rename(&mut self, pending: PendingRename, params: Value) -> Value {
+        self.next_request += 1;
+        let request = json!(format!("dartforge/prompt/{}", self.next_request));
+        self.pending_renames.insert(key_id(&request), pending);
+        json!({"jsonrpc": "2.0", "id": request, "method": "window/showMessageRequest", "params": params})
     }
 
     /// `handler_rename.dart:205-269` depois das condições: a versão do
     /// documento (`-32801`), o arquivo da classe (`renameFilesWithClasses`:
     /// `always` renomeia, `prompt` pergunta `Yes`/`No`) e o `WorkspaceEdit`
     /// com o `RenameFile` no fim.
-    fn concluir_renomeacao(&mut self, mut pendente: RenomeacaoPendente) -> Value {
-        if !pendente.pergunta_do_arquivo
-            && pendente.versao.is_some()
-            && self.documentos.version(&pendente.uri) != pendente.versao
+    fn finish_rename(&mut self, mut pending: PendingRename) -> Value {
+        if !pending.file_question
+            && pending.version.is_some()
+            && self.documents.version(&pending.uri) != pending.version
         {
-            return erro(&pendente.id, CONTEUDO_MODIFICADO, "Document was modified before operation completed");
+            return error(&pending.id, MODIFIED_CONTENT, "Document was modified before operation completed");
         }
-        let mut recurso = None;
-        if let Some(arquivo) = pendente.arquivo.take()
-            && self.renomeacao_de_arquivo_possivel
+        let mut feature = None;
+        if let Some(file) = pending.file.take()
+            && self.possible_file_rename
         {
             // `renameFilesWithClasses` da pasta do arquivo (`forResource`).
-            let modo = self.configuracao_de(&arquivo.de).rename_files_with_classes.clone();
-            let renomeia = if pendente.pergunta_do_arquivo || modo == "always" || (self.renomear_arquivos && modo != "never" && modo != "prompt") {
+            let mode = self.configuration_of(&file.de).rename_files_with_classes.clone();
+            let renames = if pending.file_question || mode == "always" || (self.rename_files && mode != "never" && mode != "prompt") {
                 true
-            } else if modo == "prompt" && self.perguntas_ao_usuario {
+            } else if mode == "prompt" && self.user_questions {
                 let base = |u: &str| u.rsplit('/').next().unwrap_or(u).to_string();
-                let mensagem = format!("Rename '{}' to '{}'?", base(&arquivo.de), base(&arquivo.para));
-                pendente.pergunta_do_arquivo = true;
-                pendente.arquivo = Some(arquivo);
-                return self.perguntar_no_rename(
-                    pendente,
-                    json!({"type": 3, "message": mensagem, "actions": [{"title": "Yes"}, {"title": "No"}]}),
+                let message = format!("Rename '{}' to '{}'?", base(&file.de), base(&file.para));
+                pending.file_question = true;
+                pending.file = Some(file);
+                return self.ask_on_rename(
+                    pending,
+                    json!({"type": 3, "message": message, "actions": [{"title": "Yes"}, {"title": "No"}]}),
                 );
             } else {
                 false
             };
             // Só a operação de arquivo: o servidor do Dart não reescreve as
             // diretivas no `rename` (o cliente pede `willRenameFiles`).
-            if renomeia {
-                recurso = Some(json!({"kind": "rename", "oldUri": arquivo.de, "newUri": arquivo.para}));
+            if renames {
+                feature = Some(json!({"kind": "rename", "oldUri": file.de, "newUri": file.para}));
             }
         }
         // A ordem do `SourceChange`: o arquivo da declaração (a primeira
         // edição) e os outros na ordem da busca (pelo caminho).
-        if let Some(primeira) = pendente.edicoes.first().map(|e| e.uri.clone()) {
-            pendente.edicoes.sort_by(|a, b| (a.uri != primeira, &a.uri).cmp(&(b.uri != primeira, &b.uri)));
+        if let Some(first) = pending.edits.first().map(|e| e.uri.clone()) {
+            pending.edits.sort_by(|a, b| (a.uri != first, &a.uri).cmp(&(b.uri != first, &b.uri)));
         }
-        resposta(&pendente.id, self.edicao_de_workspace(&pendente.edicoes, recurso))
+        response(&pending.id, self.workspace_edit(&pending.edits, feature))
     }
 
     /// A resposta do usuário a uma pergunta do rename: `Rename Anyway`
     /// segue (qualquer outra, inclusive `null` ou erro, dá `{}`); `Yes`
     /// renomeia o arquivo (outra resposta, só as edições).
-    fn resposta_do_rename(&mut self, mut pendente: RenomeacaoPendente, mensagem: &Value) -> Value {
-        let escolha = mensagem.pointer("/result/title").and_then(Value::as_str);
-        if pendente.pergunta_do_arquivo {
-            if escolha != Some("Yes") {
-                pendente.arquivo = None;
+    fn rename_response(&mut self, mut pending: PendingRename, message: &Value) -> Value {
+        let choice = message.pointer("/result/title").and_then(Value::as_str);
+        if pending.file_question {
+            if choice != Some("Yes") {
+                pending.file = None;
             }
-            return self.concluir_renomeacao(pendente);
+            return self.finish_rename(pending);
         }
-        if escolha != Some("Rename Anyway") {
-            return resposta(&pendente.id, json!({}));
+        if choice != Some("Rename Anyway") {
+            return response(&pending.id, json!({}));
         }
-        self.concluir_renomeacao(pendente)
+        self.finish_rename(pending)
     }
 
     /// O pedido `workspace/applyEdit` de um comando (§13.12.3); o
     /// `executeCommand` de id `id` fica pendente até a resposta do cliente.
-    fn pedir_aplicacao(&mut self, id: &Value, rotulo: &'static str, edicao: Value) -> Value {
-        self.proximo_pedido += 1;
-        let pedido = json!(format!("dartforge/applyEdit/{}", self.proximo_pedido));
-        self.edicoes_pendentes.insert(chave_id(&pedido), (id.clone(), rotulo, edicao.clone()));
+    fn request_application(&mut self, id: &Value, label: &'static str, edit: Value) -> Value {
+        self.next_request += 1;
+        let request = json!(format!("dartforge/applyEdit/{}", self.next_request));
+        self.pending_edits.insert(key_id(&request), (id.clone(), label, edit.clone()));
         json!({
             "jsonrpc": "2.0",
-            "id": pedido,
+            "id": request,
             "method": "workspace/applyEdit",
-            "params": {"label": rotulo, "edit": edicao},
+            "params": {"label": label, "edit": edit},
         })
     }
 
     /// Uma resposta do cliente a um pedido do servidor. A de um
     /// `workspace/applyEdit` pendente vira a resposta do `executeCommand`
     /// que o enviou (tabela da §13.12.3); as outras não levam dado.
-    fn resposta_do_cliente(&mut self, mensagem: &Value) -> Option<Value> {
-        let chave = chave_id(mensagem.get("id")?);
-        if self.pedido_de_configuracao.as_ref().is_some_and(|p| chave_id(&json!(p)) == chave) {
-            self.configuracao_recebida(mensagem);
+    fn client_response(&mut self, message: &Value) -> Option<Value> {
+        let key = key_id(message.get("id")?);
+        if self.configuration_request.as_ref().is_some_and(|p| key_id(&json!(p)) == key) {
+            self.received_configuration(message);
             return None;
         }
-        if let Some(pendente) = self.renomeacoes_pendentes.remove(&chave) {
-            return Some(self.resposta_do_rename(pendente, mensagem));
+        if let Some(pending) = self.pending_renames.remove(&key) {
+            return Some(self.rename_response(pending, message));
         }
         // O cliente recusou o registro dinâmico (`_applyRegistrations`): o
         // erro vai ao log do cliente.
-        if mensagem.get("id").and_then(Value::as_str).is_some_and(|i| i.starts_with("dartforge/registerCapability/"))
-            && let Some(e) = mensagem.get("error").filter(|e| !e.is_null())
+        if message.get("id").and_then(Value::as_str).is_some_and(|i| i.starts_with("dartforge/registerCapability/"))
+            && let Some(e) = message.get("error").filter(|e| !e.is_null())
         {
-            let codigo = e.get("code").map(|c| c.to_string()).unwrap_or_default();
-            let texto = e.get("message").and_then(Value::as_str).unwrap_or_default();
-            return Some(notificacao_de_mensagem("window/logMessage", 1, &format!("Failed to register capabilities with client: ({codigo}) {texto}")));
+            let code = e.get("code").map(|c| c.to_string()).unwrap_or_default();
+            let text = e.get("message").and_then(Value::as_str).unwrap_or_default();
+            return Some(message_notification("window/logMessage", 1, &format!("Failed to register capabilities with client: ({code}) {text}")));
         }
-        let (id, rotulo, edicao) = self.edicoes_pendentes.remove(&chave)?;
-        if let Some(e) = mensagem.get("error").filter(|e| !e.is_null()) {
-            return Some(erro_com_dado(
+        let (id, label, edit) = self.pending_edits.remove(&key)?;
+        if let Some(e) = message.get("error").filter(|e| !e.is_null()) {
+            return Some(error_with_data(
                 &id,
-                CLIENTE_NAO_APLICOU,
-                format!("Client failed to apply workspace edit for {rotulo}"),
+                CLIENT_NOT_APPLIED,
+                format!("Client failed to apply workspace edit for {label}"),
                 json!(e.to_string()),
             ));
         }
-        let Some(resultado) = mensagem.get("result").filter(|r| r.is_object()) else {
-            return Some(erro(&id, ERRO_NAO_TRATADO, "resposta do workspace/applyEdit sem resultado"));
+        let Some(result) = message.get("result").filter(|r| r.is_object()) else {
+            return Some(error(&id, ERROR_NOT_HANDLED, "resposta do workspace/applyEdit sem resultado"));
         };
-        if resultado.get("applied").and_then(Value::as_bool) == Some(true) {
-            return Some(resposta(&id, Value::Null));
+        if result.get("applied").and_then(Value::as_bool) == Some(true) {
+            return Some(response(&id, Value::Null));
         }
-        Some(match resultado.get("failureReason").and_then(Value::as_str) {
+        Some(match result.get("failureReason").and_then(Value::as_str) {
             // Sem motivo: o usuário recusou uma prévia; não é erro.
-            None => resposta(&id, Value::Null),
-            Some(motivo) => erro_com_dado(
+            None => response(&id, Value::Null),
+            Some(reason) => error_with_data(
                 &id,
-                CLIENTE_NAO_APLICOU,
-                format!("Client failed to apply workspace edit for {rotulo} (reason: {motivo})"),
-                edicao,
+                CLIENT_NOT_APPLIED,
+                format!("Client failed to apply workspace edit for {label} (reason: {reason})"),
+                edit,
             ),
         })
     }
@@ -3059,51 +3059,51 @@ impl<A: Analisador> Servidor<A> {
     /// `experimental.snippetTextEdit` e `documentChanges`, a mudança é **uma**
     /// edição no arquivo do pedido (que já existe) e há seleção ou grupo
     /// ligado. Senão `None`: a edição simples, sem seleção nem grupos.
-    fn edicao_snippet(&self, uri: &str, acao: &crate::AcaoDeCodigo) -> Option<Value> {
-        if !self.edicoes_snippet || !self.mudancas_versionadas || acao.criar_arquivo.is_some() || acao.ligado.vazio() {
+    fn edit_snippet(&self, uri: &str, action: &crate::CodeAction) -> Option<Value> {
+        if !self.edits_snippet || !self.versioned_changes || action.create_file.is_some() || action.linked.empty() {
             return None;
         }
-        let [e] = acao.edicoes.as_slice() else { return None };
+        let [e] = action.edits.as_slice() else { return None };
         if e.uri != uri {
             return None;
         }
-        let range = self.faixa(&e.uri, e.span)?;
+        let range = self.range(&e.uri, e.span)?;
         // Uma só edição: o texto dela começa no mesmo offset no documento
         // final (`toSnippetTextEdits`, `offsetDelta` = 0).
-        let novo = crate::snippets::texto_de_snippet(&e.texto, e.span.start, &acao.ligado);
-        let versao = self.documentos.version(&e.uri).map_or(Value::Null, |v| json!(v));
+        let new = crate::snippets::snippet_text(&e.text, e.span.start, &action.linked);
+        let version = self.documents.version(&e.uri).map_or(Value::Null, |v| json!(v));
         Some(json!({"documentChanges": [{
-            "textDocument": {"uri": e.uri, "version": versao},
-            "edits": [{"insertTextFormat": 2, "range": range, "newText": novo}],
+            "textDocument": {"uri": e.uri, "version": version},
+            "edits": [{"insertTextFormat": 2, "range": range, "newText": new}],
         }]}))
     }
 
-    fn edicao_de_workspace(&self, edicoes: &[crate::Edicao], recurso: Option<Value>) -> Value {
-        let mut por_uri: Vec<(String, Vec<Value>)> = Vec::new();
-        for e in edicoes {
-            let Some(range) = self.faixa(&e.uri, e.span) else { continue };
-            let item = json!({"range": range, "newText": e.texto});
-            match por_uri.iter_mut().find(|(u, _)| *u == e.uri) {
+    fn workspace_edit(&self, edits_: &[crate::Edit], feature: Option<Value>) -> Value {
+        let mut by_uri: Vec<(String, Vec<Value>)> = Vec::new();
+        for e in edits_ {
+            let Some(range) = self.range(&e.uri, e.span) else { continue };
+            let item = json!({"range": range, "newText": e.text});
+            match by_uri.iter_mut().find(|(u, _)| *u == e.uri) {
                 Some((_, l)) => l.push(item),
-                None => por_uri.push((e.uri.clone(), vec![item])),
+                None => by_uri.push((e.uri.clone(), vec![item])),
             }
         }
-        if self.mudancas_versionadas || recurso.is_some() {
-            let mut mudancas: Vec<Value> = por_uri
+        if self.versioned_changes || feature.is_some() {
+            let mut changes: Vec<Value> = by_uri
                 .into_iter()
                 .map(|(uri, edits)| {
-                    let versao = self.documentos.version(&uri).map_or(Value::Null, |v| json!(v));
-                    json!({"textDocument": {"uri": uri, "version": versao}, "edits": edits})
+                    let version = self.documents.version(&uri).map_or(Value::Null, |v| json!(v));
+                    json!({"textDocument": {"uri": uri, "version": version}, "edits": edits})
                 })
                 .collect();
-            mudancas.extend(recurso);
-            return json!({"documentChanges": mudancas});
+            changes.extend(feature);
+            return json!({"documentChanges": changes});
         }
-        let mut mudancas = serde_json::Map::new();
-        for (uri, edits) in por_uri {
-            mudancas.insert(uri, json!(edits));
+        let mut changes = serde_json::Map::new();
+        for (uri, edits) in by_uri {
+            changes.insert(uri, json!(edits));
         }
-        json!({"changes": mudancas})
+        json!({"changes": changes})
     }
 
     /// `workspace/symbol`: os símbolos dos documentos abertos e dos arquivos
@@ -3112,151 +3112,151 @@ impl<A: Analisador> Servidor<A> {
     /// mais que o disco; cada árvore é descartada antes da próxima. Casa por
     /// aproximação (`crate::fuzzy_matcher`): os que contêm a consulta primeiro,
     /// depois as subsequências; entre iguais, a ordem de (URI, posição).
-    fn simbolos_do_workspace(&mut self, consulta: &str) -> Vec<Value> {
+    fn workspace_symbols(&mut self, query: &str) -> Vec<Value> {
         // `handler_workspace_symbols.dart:28-123` (docs/LSP-ESPECIFICACAO.md
         // §5): consulta vazia não devolve nada.
-        if consulta.is_empty() {
+        if query.is_empty() {
             return Vec::new();
         }
-        let mut raizes = self.raizes.clone();
+        let mut roots = self.roots.clone();
         // O caminho de cada documento aberto (o da URI `file:`; senão o
         // caminho da URI, só para indexar o texto aberto).
-        let caminho_aberto = |u: &str| -> Option<std::path::PathBuf> {
+        let open_path = |u: &str| -> Option<std::path::PathBuf> {
             let x = url::Url::parse(u).ok()?;
             Some(x.to_file_path().unwrap_or_else(|_| std::path::PathBuf::from(x.path())))
         };
-        let mut textos_abertos: HashMap<std::path::PathBuf, (String, String)> = HashMap::new();
-        let mut soltos: Vec<std::path::PathBuf> = Vec::new();
-        for aberto in self.documentos.uris() {
-            let Some(arquivo) = caminho_aberto(aberto) else { continue };
-            let raiz = crate::project::raiz_do_projeto(&arquivo);
-            if raiz.join("pubspec.yaml").is_file() && !raizes.contains(&raiz) {
-                raizes.push(raiz);
+        let mut open_texts: HashMap<std::path::PathBuf, (String, String)> = HashMap::new();
+        let mut loose: Vec<std::path::PathBuf> = Vec::new();
+        for open in self.documents.uris() {
+            let Some(file) = open_path(open) else { continue };
+            let root = crate::project::project_root(&file);
+            if root.join("pubspec.yaml").is_file() && !roots.contains(&root) {
+                roots.push(root);
             }
-            if let Some(texto) = self.documentos.get(aberto) {
-                textos_abertos.insert(dartforge_elements::gerado::chave(&arquivo), (aberto.to_string(), texto.to_string()));
+            if let Some(text) = self.documents.get(open) {
+                open_texts.insert(dartforge_elements::gerado::chave(&file), (open.to_string(), text.to_string()));
             }
-            if arquivo.extension().is_some_and(|x| x == "dart") {
-                soltos.push(arquivo);
+            if file.extension().is_some_and(|x| x == "dart") {
+                loose.push(file);
             }
         }
         // `addedFiles`: os arquivos das raízes analisadas; os conhecidos:
         // o SDK e os `lib/` dos pacotes de cada raiz.
-        let mut adicionados: Vec<std::path::PathBuf> = raizes.iter().flat_map(|r| crate::project::arquivos_do_projeto(r)).collect();
+        let mut added: Vec<std::path::PathBuf> = roots.iter().flat_map(|r| crate::project::project_files(r)).collect();
         // Um documento aberto fora das raízes também é analisado (o
         // servidor cria um contexto para ele).
-        soltos.retain(|c| !raizes.iter().any(|r| c.starts_with(r)));
-        soltos.sort();
-        adicionados.extend(soltos);
-        let pacotes: Vec<std::path::PathBuf> = raizes.iter().flat_map(|r| crate::workspace_symbols::pastas_dos_pacotes(r)).collect();
+        loose.retain(|c| !roots.iter().any(|r| c.starts_with(r)));
+        loose.sort();
+        added.extend(loose);
+        let packages: Vec<std::path::PathBuf> = roots.iter().flat_map(|r| crate::workspace_symbols::package_folders(r)).collect();
         let sdk = dartforge_elements::sdk::SdkLayout::discover();
-        let especies = self.tipos_de_simbolo_do_workspace.clone();
-        self.indice_de_simbolos.buscar(consulta, &adicionados, sdk.as_deref(), &pacotes, &textos_abertos, especies.as_deref())
+        let kinds = self.workspace_symbol_kinds.clone();
+        self.symbol_index.search(query, &added, sdk.as_deref(), &packages, &open_texts, kinds.as_deref())
     }
 
     /// URI e offset (bytes) de `params.textDocument` + `params.position`,
     /// quando o documento está aberto.
-    fn posicao_da_requisicao(&self, mensagem: &Value) -> Option<(String, usize)> {
-        let params = mensagem.get("params")?;
+    fn request_position(&self, message: &Value) -> Option<(String, usize)> {
+        let params = message.get("params")?;
         let uri = params.get("textDocument")?.get("uri")?.as_str()?;
-        let posicao = ler_posicao(params.get("position")?)?;
-        let texto = self.documentos.get(uri)?;
-        let offset = self.documentos.linhas(uri)?.offset_de_posicao(texto, posicao.linha, posicao.coluna);
+        let position = read_position(params.get("position")?)?;
+        let text = self.documents.get(uri)?;
+        let offset = self.documents.lines(uri)?.position_offset(text, position.line, position.column);
         Some((uri.to_string(), offset))
     }
 
     /// Intervalo LSP de `span` (bytes) em `uri`: pelo texto aberto, senão
     /// pelo arquivo no disco (renomear toca arquivos fechados do projeto).
-    fn faixa(&self, uri: &str, span: dartforge_diagnostics::Span) -> Option<Value> {
-        if let (Some(texto), Some(tabela)) = (self.documentos.get(uri), self.documentos.linhas(uri)) {
-            return Some(intervalo_lsp(texto, tabela, span.start, span.end));
+    fn range(&self, uri: &str, span: dartforge_diagnostics::Span) -> Option<Value> {
+        if let (Some(text), Some(table)) = (self.documents.get(uri), self.documents.lines(uri)) {
+            return Some(lsp_range(text, table, span.start, span.end));
         }
-        let lido = self
-            .linhas_do_disco
+        let read = self
+            .disk_lines
             .borrow_mut()
             .entry(uri.to_string())
             .or_insert_with(|| {
-                let caminho = url::Url::parse(uri).ok()?.to_file_path().ok()?;
-                let fonte = std::fs::read_to_string(caminho).ok()?;
-                let tabela = crate::utf16::TabelaLinhas::construir(&fonte);
-                Some(std::sync::Arc::new((fonte, tabela)))
+                let path = url::Url::parse(uri).ok()?.to_file_path().ok()?;
+                let source = std::fs::read_to_string(path).ok()?;
+                let table = crate::utf16::LineTable::build(&source);
+                Some(std::sync::Arc::new((source, table)))
             })
             .clone()?;
-        Some(intervalo_lsp(&lido.0, &lido.1, span.start, span.end))
+        Some(lsp_range(&read.0, &read.1, span.start, span.end))
     }
 
     /// Diagnostica o documento e monta `textDocument/publishDiagnostics`.
-    fn publicar(&mut self, uri: &str) -> Value {
-        let Some(texto) = self.documentos.get(uri).map(str::to_string) else {
-            return publicacao_vazia(uri);
+    fn publish(&mut self, uri: &str) -> Value {
+        let Some(text) = self.documents.get(uri).map(str::to_string) else {
+            return empty_publication(uri);
         };
         // Fora das raízes de análise (`analysisExcludedFolders`): nada.
-        if self.excluido(uri) {
-            return publicacao_vazia(uri);
+        if self.excluded(uri) {
+            return empty_publication(uri);
         }
-        let diagnosticos = self.analisador.diagnosticar(uri, &texto);
-        self.publicacao(uri, &diagnosticos)
+        let diagnostics = self.analyzer.diagnose(uri, &text);
+        self.publication(uri, &diagnostics)
     }
 
     /// `_filesWithClientDiagnostics` (`lsp_analysis_server.dart:709-729`):
     /// uma lista vazia para um arquivo que o cliente já tem vazio não é
     /// enviada; as outras atualizam o registro.
-    fn filtrar_vazio_repetido(&mut self, uri: &str, publicacao: Value) -> Option<Value> {
-        let vazia = publicacao.pointer("/params/diagnostics").and_then(Value::as_array).is_none_or(|l| l.is_empty());
-        if vazia {
-            if !self.com_diagnosticos_no_cliente.remove(uri) {
+    fn filter_repeated_empty(&mut self, uri: &str, publication: Value) -> Option<Value> {
+        let empty = publication.pointer("/params/diagnostics").and_then(Value::as_array).is_none_or(|l| l.is_empty());
+        if empty {
+            if !self.with_client_diagnostics.remove(uri) {
                 return None;
             }
         } else {
-            self.com_diagnosticos_no_cliente.insert(uri.to_string());
+            self.with_client_diagnostics.insert(uri.to_string());
         }
-        Some(publicacao)
+        Some(publication)
     }
 
     /// `publishDiagnostics` de um arquivo não aberto, com o texto analisado.
     /// A publicação dos diagnósticos de um YAML (no JSON do analyzer: linha e
     /// coluna a partir de 1, deslocamento UTF-16): as faixas pelo texto lido.
-    fn publicacao_do_yaml(&mut self, uri: &str, texto: &str, diagnosticos: &[dartforge_parity::json::DiagJson]) -> Option<Value> {
-        let itens: Vec<Value> = diagnosticos
+    fn yaml_publication(&mut self, uri: &str, text: &str, diagnostics: &[dartforge_parity::json::DiagJson]) -> Option<Value> {
+        let items: Vec<Value> = diagnostics
             .iter()
             .map(|d| {
-                let ponto = |p: &dartforge_parity::json::Ponto| json!({"line": p.line.saturating_sub(1), "character": p.column.saturating_sub(1)});
-                let severidade = match d.severity.as_str() {
-                    "ERROR" => SEVERIDADE_ERRO,
+                let dot = |p: &dartforge_parity::json::Ponto| json!({"line": p.line.saturating_sub(1), "character": p.column.saturating_sub(1)});
+                let severity = match d.severity.as_str() {
+                    "ERROR" => SEVERITY_ERROR,
                     "WARNING" => 2,
                     _ => 3,
                 };
-                let mensagem = match &d.correction_message {
+                let message = match &d.correction_message {
                     Some(c) => format!("{}\n{c}", d.problem_message),
                     None => d.problem_message.clone(),
                 };
                 json!({
-                    "range": {"start": ponto(&d.location.range.start), "end": ponto(&d.location.range.end)},
-                    "severity": severidade,
-                    "source": FONTE,
-                    "message": mensagem,
+                    "range": {"start": dot(&d.location.range.start), "end": dot(&d.location.range.end)},
+                    "severity": severity,
+                    "source": SOURCE,
+                    "message": message,
                     "code": d.code,
                 })
             })
             .collect();
-        let _ = texto;
+        let _ = text;
         let p = json!({
             "jsonrpc": "2.0",
             "method": "textDocument/publishDiagnostics",
-            "params": {"uri": uri, "diagnostics": itens},
+            "params": {"uri": uri, "diagnostics": items},
         });
-        self.filtrar_vazio_repetido(uri, p)
+        self.filter_repeated_empty(uri, p)
     }
 
-    fn publicacao_do_texto(&mut self, uri: &str, texto: &str, diagnosticos: &[dartforge_diagnostics::Diagnostic]) -> Option<Value> {
-        let tabela = crate::utf16::TabelaLinhas::construir(texto);
-        let itens: Vec<Value> = diagnosticos.iter().map(|d| converter_diagnostico(texto, &tabela, d)).collect();
+    fn text_publication(&mut self, uri: &str, text: &str, diagnostics: &[dartforge_diagnostics::Diagnostic]) -> Option<Value> {
+        let table = crate::utf16::LineTable::build(text);
+        let items: Vec<Value> = diagnostics.iter().map(|d| convert_diagnostic(text, &table, d)).collect();
         let p = json!({
             "jsonrpc": "2.0",
             "method": "textDocument/publishDiagnostics",
-            "params": {"uri": uri, "diagnostics": itens},
+            "params": {"uri": uri, "diagnostics": items},
         });
-        self.filtrar_vazio_repetido(uri, p)
+        self.filter_repeated_empty(uri, p)
     }
 
     /// O relatório de `textDocument/diagnostic` de `uri`: o resultado tipado
@@ -3265,94 +3265,94 @@ impl<A: Analisador> Servidor<A> {
     /// resultado é o tipado; igual ao `previousResultId`, a resposta é
     /// `unchanged` sem recalcular. Documento que não está aberto não tem
     /// diagnóstico (como o `didClose` do modo empurrado).
-    fn relatorio_puxado(&mut self, uri: &str, anterior: Option<&str>) -> Value {
-        let Some(versao) = self.documentos.version(uri) else {
+    fn pulled_report(&mut self, uri: &str, previous: Option<&str>) -> Value {
+        let Some(version) = self.documents.version(uri) else {
             return json!({"kind": "full", "items": []});
         };
-        if self.excluido(uri) {
+        if self.excluded(uri) {
             return json!({"kind": "full", "items": []});
         }
-        let tipado = self.tipados_publicados.get(uri).is_some_and(|(v, _)| *v == versao);
-        let id_do_resultado = format!("{versao}{}", if tipado { ".t" } else { "" });
-        if anterior == Some(id_do_resultado.as_str()) {
-            return json!({"kind": "unchanged", "resultId": id_do_resultado});
+        let typed = self.typed_published.get(uri).is_some_and(|(v, _)| *v == version);
+        let result_id = format!("{version}{}", if typed { ".t" } else { "" });
+        if previous == Some(result_id.as_str()) {
+            return json!({"kind": "unchanged", "resultId": result_id});
         }
-        let diagnosticos = if tipado {
-            self.tipados_publicados[uri].1.clone()
+        let diagnostics = if typed {
+            self.typed_published[uri].1.clone()
         } else {
-            let texto = self.documentos.get(uri).map(str::to_string).unwrap_or_default();
-            self.analisador.diagnosticar(uri, &texto)
+            let text = self.documents.get(uri).map(str::to_string).unwrap_or_default();
+            self.analyzer.diagnose(uri, &text)
         };
-        let (Some(texto), Some(tabela)) = (self.documentos.get(uri), self.documentos.linhas(uri)) else {
+        let (Some(text), Some(table)) = (self.documents.get(uri), self.documents.lines(uri)) else {
             return json!({"kind": "full", "items": []});
         };
-        let itens: Vec<Value> = diagnosticos.iter().map(|d| converter_diagnostico(texto, tabela, d)).collect();
-        json!({"kind": "full", "resultId": id_do_resultado, "items": itens})
+        let items: Vec<Value> = diagnostics.iter().map(|d| convert_diagnostic(text, table, d)).collect();
+        json!({"kind": "full", "resultId": result_id, "items": items})
     }
 
-    /// `publishDiagnostics` de `diagnosticos` (spans do texto vigente de `uri`).
-    fn publicacao(&self, uri: &str, diagnosticos: &[dartforge_diagnostics::Diagnostic]) -> Value {
-        let (Some(texto), Some(tabela)) = (self.documentos.get(uri), self.documentos.linhas(uri)) else {
-            return publicacao_vazia(uri);
+    /// `publishDiagnostics` de `diagnostics` (spans do texto vigente de `uri`).
+    fn publication(&self, uri: &str, diagnostics: &[dartforge_diagnostics::Diagnostic]) -> Value {
+        let (Some(text), Some(table)) = (self.documents.get(uri), self.documents.lines(uri)) else {
+            return empty_publication(uri);
         };
-        let versao = self.documentos.version(uri).unwrap_or(0);
-        let itens: Vec<Value> = diagnosticos
+        let version = self.documents.version(uri).unwrap_or(0);
+        let items: Vec<Value> = diagnostics
             .iter()
-            .map(|d| converter_diagnostico(texto, tabela, d))
+            .map(|d| convert_diagnostic(text, table, d))
             .collect();
         json!({
             "jsonrpc": "2.0",
             "method": "textDocument/publishDiagnostics",
-            "params": {"uri": uri, "version": versao, "diagnostics": itens},
+            "params": {"uri": uri, "version": version, "diagnostics": items},
         })
     }
 }
 
 /// Raízes do workspace no `initialize`: `workspaceFolders`, senão
 /// `rootUri`, senão `rootPath`; só diretórios existentes.
-/// Os inícios de linha (`LineInfo.lineStarts`) de `texto` em unidades
+/// Os inícios de linha (`LineInfo.lineStarts`) de `text` em unidades
 /// UTF-16: depois de `\n`, de `\r\n` e de `\r` isolado.
-fn inicios_utf16(texto: &str) -> Vec<usize> {
-    let mut inicios = vec![0];
+fn utf16_starts(text: &str) -> Vec<usize> {
+    let mut starts = vec![0];
     let mut o = 0usize;
-    let mut anterior_cr = false;
-    for ch in texto.chars() {
-        let largura = ch.len_utf16();
-        if anterior_cr && ch != '\n' {
-            inicios.push(o);
+    let mut previous_cr = false;
+    for ch in text.chars() {
+        let width = ch.len_utf16();
+        if previous_cr && ch != '\n' {
+            starts.push(o);
         }
-        o += largura;
-        anterior_cr = ch == '\r';
+        o += width;
+        previous_cr = ch == '\r';
         if ch == '\n' {
-            inicios.push(o);
+            starts.push(o);
         }
     }
-    if anterior_cr {
-        inicios.push(o);
+    if previous_cr {
+        starts.push(o);
     }
-    inicios
+    starts
 }
 
-fn raizes_do_initialize(params: Option<&Value>) -> Vec<std::path::PathBuf> {
+fn initialize_roots(params: Option<&Value>) -> Vec<std::path::PathBuf> {
     let Some(params) = params else { return Vec::new() };
-    let de_uri = |v: &Value| {
+    let of_uri = |v: &Value| {
         v.as_str()
             .and_then(|u| url::Url::parse(u).ok())
             .and_then(|u| u.to_file_path().ok())
     };
-    let mut raizes: Vec<std::path::PathBuf> = params
+    let mut roots: Vec<std::path::PathBuf> = params
         .get("workspaceFolders")
         .and_then(Value::as_array)
-        .map(|l| l.iter().filter_map(|f| de_uri(&f["uri"])).collect())
+        .map(|l| l.iter().filter_map(|f| of_uri(&f["uri"])).collect())
         .unwrap_or_default();
-    if raizes.is_empty() {
-        raizes.extend(params.get("rootUri").and_then(de_uri));
+    if roots.is_empty() {
+        roots.extend(params.get("rootUri").and_then(of_uri));
     }
-    if raizes.is_empty() {
-        raizes.extend(params.get("rootPath").and_then(Value::as_str).map(std::path::PathBuf::from));
+    if roots.is_empty() {
+        roots.extend(params.get("rootPath").and_then(Value::as_str).map(std::path::PathBuf::from));
     }
-    raizes.retain(|r| r.is_dir());
-    raizes
+    roots.retain(|r| r.is_dir());
+    roots
 }
 
 /// Dorme até `ms` em fatias de 10 ms; verdadeiro quando cancelado no meio.
@@ -3360,11 +3360,11 @@ fn raizes_do_initialize(params: Option<&Value>) -> Vec<std::path::PathBuf> {
 /// O ponto seguro de cancelamento em execução: entre fatias, sem estado
 /// parcial, porque dormir não produz nada. A análise real checará a mesma
 /// condição entre documentos, nunca no meio de uma frase do parser.
-fn dormir_cancelavel(ms: u64, cancelados: &HashSet<String>, chave: &str) -> bool {
-    let fatias = ms / 10 + u64::from(!ms.is_multiple_of(10));
-    for _ in 0..fatias {
+fn sleep_cancellable(ms: u64, cancelled: &HashSet<String>, key: &str) -> bool {
+    let slices = ms / 10 + u64::from(!ms.is_multiple_of(10));
+    for _ in 0..slices {
         std::thread::sleep(std::time::Duration::from_millis(10.min(ms)));
-        if cancelados.contains(chave) {
+        if cancelled.contains(key) {
             return true;
         }
     }
@@ -3372,37 +3372,37 @@ fn dormir_cancelavel(ms: u64, cancelados: &HashSet<String>, chave: &str) -> bool
 }
 
 /// Verdadeiro quando a mensagem é requisição (tem `id` e `method` textual).
-fn eh_requisicao(mensagem: &Value) -> bool {
-    mensagem.get("id").is_some() && mensagem.get("method").is_some_and(|m| m.is_string())
+fn is_request(message: &Value) -> bool {
+    message.get("id").is_some() && message.get("method").is_some_and(|m| m.is_string())
 }
 
 /// Chave canônica do id (número e texto com o mesmo dígito são ids distintos
 /// no JSON-RPC; a serialização canônica preserva a distinção).
-fn chave_id(id: &Value) -> String {
+fn key_id(id: &Value) -> String {
     id.to_string()
 }
 
 /// Resposta de sucesso JSON-RPC.
-fn resposta(id: &Value, resultado: Value) -> Value {
-    json!({"jsonrpc": "2.0", "id": id, "result": resultado})
+fn response(id: &Value, result: Value) -> Value {
+    json!({"jsonrpc": "2.0", "id": id, "result": result})
 }
 
 /// Resposta de erro JSON-RPC.
-fn erro(id: &Value, codigo: i32, mensagem: impl Into<String>) -> Value {
-    json!({"jsonrpc": "2.0", "id": id, "error": {"code": codigo, "message": mensagem.into()}})
+fn error(id: &Value, code: i32, message: impl Into<String>) -> Value {
+    json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message.into()}})
 }
 
-/// `window/showMessage` ou `window/logMessage` do `tipo` (1 = erro).
-fn notificacao_de_mensagem(metodo: &str, tipo: i32, texto: &str) -> Value {
-    json!({"jsonrpc": "2.0", "method": metodo, "params": {"type": tipo, "message": texto}})
+/// `window/showMessage` ou `window/logMessage` do `ty` (1 = erro).
+fn message_notification(method: &str, ty: i32, text: &str) -> Value {
+    json!({"jsonrpc": "2.0", "method": method, "params": {"type": ty, "message": text}})
 }
 
 /// A mensagem de um pânico (o `&str` ou a `String` do `panic!`).
-fn texto_do_panico(panico: &(dyn std::any::Any + Send)) -> String {
-    panico
+fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
+    panic
         .downcast_ref::<&str>()
         .map(|s| (*s).to_string())
-        .or_else(|| panico.downcast_ref::<String>().cloned())
+        .or_else(|| panic.downcast_ref::<String>().cloned())
         .unwrap_or_else(|| "pânico sem mensagem".to_string())
 }
 
@@ -3410,27 +3410,27 @@ fn texto_do_panico(panico: &(dyn std::any::Any + Send)) -> String {
 /// (docs/LSP-ESPECIFICACAO.md §13.7.2 e §13.3): só as espécies que este
 /// servidor emite têm valor próprio; as demais ficam no padrão do grupo (50
 /// para correções, 40 para as `*.multi`, 30 para assistências).
-fn prioridade_da_acao(especie: &str) -> i32 {
+fn action_priority(kind: &str) -> i32 {
     // A tabela gerada das espécies do Dart (§13.7.2 e `DartAssistKind`).
-    if let Some(id) = id_da_acao(especie)
-        && let Some((p, _)) = crate::actions::especie_do_dart(&id)
+    if let Some(id) = action_id(kind)
+        && let Some((p, _)) = crate::actions::dart_kind(&id)
     {
         return i32::from(p);
     }
-    match especie {
-        outra if outra.starts_with("quickfix") && outra.ends_with(".multi") => 40,
-        outra if outra.starts_with("quickfix") => 50,
+    match kind {
+        other if other.starts_with("quickfix") && other.ends_with(".multi") => 40,
+        other if other.starts_with("quickfix") => 50,
         _ => 30,
     }
 }
 
 /// O id original da mudança (`dart.fix.…`, `dart.assist.…`) de uma espécie
 /// LSP: o inverso de `toCodeActionKind`.
-fn id_da_acao(especie: &str) -> Option<String> {
-    if let Some(resto) = especie.strip_prefix("quickfix.") {
-        return Some(format!("dart.fix.{resto}"));
+fn action_id(kind: &str) -> Option<String> {
+    if let Some(rest) = kind.strip_prefix("quickfix.") {
+        return Some(format!("dart.fix.{rest}"));
     }
-    especie.strip_prefix("refactor.").map(|resto| format!("dart.assist.{resto}"))
+    kind.strip_prefix("refactor.").map(|rest| format!("dart.assist.{rest}"))
 }
 
 /// `_CodeActionSorter.sort` (`handler_code_actions.dart:284-406`;
@@ -3440,56 +3440,56 @@ fn id_da_acao(especie: &str) -> Option<String> {
 /// outras de mesma edição fundidos (as de edição diferente saem); depois,
 /// prioridade decrescente e ordem de chegada.
 /// O offset em bytes do offset UTF-16 `u` (o fim do texto se passar dele).
-fn byte_de_utf16(texto: &str, u: usize) -> usize {
-    let mut contados = 0usize;
-    for (i, c) in texto.char_indices() {
-        if contados >= u {
+fn byte_from_utf16(text: &str, u: usize) -> usize {
+    let mut counted = 0usize;
+    for (i, c) in text.char_indices() {
+        if counted >= u {
             return i;
         }
-        contados += c.len_utf16();
+        counted += c.len_utf16();
     }
-    texto.len()
+    text.len()
 }
 
-fn ordenar_acoes(acoes: Vec<Value>, coluna_do_pedido: i64) -> Vec<Value> {
-    let mut grupos: Vec<(String, Vec<Value>)> = Vec::new();
-    for a in acoes {
-        let titulo = a["title"].as_str().unwrap_or("").to_string();
-        match grupos.iter_mut().find(|(t, _)| *t == titulo) {
+fn sort_actions(actions: Vec<Value>, request_column: i64) -> Vec<Value> {
+    let mut groups: Vec<(String, Vec<Value>)> = Vec::new();
+    for a in actions {
+        let title = a["title"].as_str().unwrap_or("").to_string();
+        match groups.iter_mut().find(|(t, _)| *t == title) {
             Some((_, g)) => g.push(a),
-            None => grupos.push((titulo, vec![a])),
+            None => groups.push((title, vec![a])),
         }
     }
-    let distancia = |a: &Value| a.pointer("/diagnostics/0/range/start/character").and_then(Value::as_i64).map_or(0, |c| (c - coluna_do_pedido).abs());
-    let mut unicas: Vec<Value> = Vec::new();
-    for (_, mut grupo) in grupos {
-        if grupo.len() > 1 {
-            grupo.sort_by_key(distancia);
-            let mut primeira = grupo.remove(0);
-            let mut diagnosticos: Vec<Value> = primeira["diagnostics"].as_array().cloned().unwrap_or_default();
-            for outra in grupo {
-                if outra["edit"] == primeira["edit"] {
-                    diagnosticos.extend(outra["diagnostics"].as_array().cloned().unwrap_or_default());
+    let distance = |a: &Value| a.pointer("/diagnostics/0/range/start/character").and_then(Value::as_i64).map_or(0, |c| (c - request_column).abs());
+    let mut unique: Vec<Value> = Vec::new();
+    for (_, mut group) in groups {
+        if group.len() > 1 {
+            group.sort_by_key(distance);
+            let mut first = group.remove(0);
+            let mut diagnostics: Vec<Value> = first["diagnostics"].as_array().cloned().unwrap_or_default();
+            for other in group {
+                if other["edit"] == first["edit"] {
+                    diagnostics.extend(other["diagnostics"].as_array().cloned().unwrap_or_default());
                 }
             }
-            primeira["diagnostics"] = Value::Array(diagnosticos);
-            unicas.push(primeira);
+            first["diagnostics"] = Value::Array(diagnostics);
+            unique.push(first);
         } else {
-            unicas.extend(grupo);
+            unique.extend(group);
         }
     }
     // Estável: em empate vale a ordem de chegada.
-    unicas.sort_by_key(|a| -prioridade_da_acao(a["kind"].as_str().unwrap_or("")));
-    unicas
+    unique.sort_by_key(|a| -action_priority(a["kind"].as_str().unwrap_or("")));
+    unique
 }
 
 /// Resposta de erro JSON-RPC com o campo `data`.
-fn erro_com_dado(id: &Value, codigo: i32, mensagem: impl Into<String>, dado: Value) -> Value {
-    json!({"jsonrpc": "2.0", "id": id, "error": {"code": codigo, "message": mensagem.into(), "data": dado}})
+fn error_with_data(id: &Value, code: i32, message: impl Into<String>, given: Value) -> Value {
+    json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message.into(), "data": given}})
 }
 
 /// Publicação vazia: documento fechado ou desconhecido não tem diagnósticos.
-fn publicacao_vazia(uri: &str) -> Value {
+fn empty_publication(uri: &str) -> Value {
     json!({
         "jsonrpc": "2.0",
         "method": "textDocument/publishDiagnostics",
@@ -3499,20 +3499,20 @@ fn publicacao_vazia(uri: &str) -> Value {
 
 /// O LSP exige `SymbolInformation[]` para clientes que não anunciaram suporte
 /// a `DocumentSymbol[]` hierárquico. A localização plana é a seleção do nome.
-fn achatar_simbolos(simbolo: &Value, uri: &str, pai: Option<&str>, saida: &mut Vec<Value>) {
-    let nome = simbolo.get("name").and_then(Value::as_str).unwrap_or("");
-    let mut plano = json!({
-        "name": nome,
-        "kind": simbolo["kind"],
-        "location": {"uri": uri, "range": simbolo["selectionRange"]},
+fn flatten_symbols(symbol: &Value, uri: &str, parent: Option<&str>, output: &mut Vec<Value>) {
+    let name = symbol.get("name").and_then(Value::as_str).unwrap_or("");
+    let mut plan = json!({
+        "name": name,
+        "kind": symbol["kind"],
+        "location": {"uri": uri, "range": symbol["selectionRange"]},
     });
-    if let Some(pai) = pai {
-        plano["containerName"] = json!(pai);
+    if let Some(parent) = parent {
+        plan["containerName"] = json!(parent);
     }
-    saida.push(plano);
-    if let Some(filhos) = simbolo.get("children").and_then(Value::as_array) {
-        for filho in filhos {
-            achatar_simbolos(filho, uri, Some(nome), saida);
+    output.push(plan);
+    if let Some(children) = symbol.get("children").and_then(Value::as_array) {
+        for child in children {
+            flatten_symbols(child, uri, Some(name), output);
         }
     }
 }
@@ -3521,71 +3521,71 @@ fn achatar_simbolos(simbolo: &Value, uri: &str, pai: Option<&str>, saida: &mut V
 ///
 /// Intervalo ausente ou malformado vira substituição integral (nunca `panic`
 /// por mensagem malformada do cliente: o pior caso é reanalisar tudo).
-fn ler_mudancas(valor: &Value) -> Vec<MudancaConteudo> {
-    let Some(lista) = valor.as_array() else {
+fn read_changes(value: &Value) -> Vec<ContentChange> {
+    let Some(list) = value.as_array() else {
         return Vec::new();
     };
-    lista
+    list
         .iter()
         .map(|m| {
-            let intervalo = m.get("range").and_then(ler_intervalo);
-            let texto = m
+            let range = m.get("range").and_then(read_range);
+            let text = m
                 .get("text")
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
-            MudancaConteudo { intervalo, texto }
+            ContentChange { range, text }
         })
         .collect()
 }
 
 /// Lê `{start: {line, character}, end: {...}}` em posições internas.
-fn ler_intervalo(valor: &Value) -> Option<(Posicao, Posicao)> {
-    let inicio = ler_posicao(valor.get("start")?)?;
-    let fim = ler_posicao(valor.get("end")?)?;
-    Some((inicio, fim))
+fn read_range(value: &Value) -> Option<(Position, Position)> {
+    let start = read_position(value.get("start")?)?;
+    let end = read_position(value.get("end")?)?;
+    Some((start, end))
 }
 
 /// Lê `{line, character}`; número ausente ou negativo vira 0 (satura).
-fn ler_posicao(valor: &Value) -> Option<Posicao> {
-    let linha = valor.get("line")?.as_u64()? as u32;
-    let coluna = valor.get("character")?.as_u64()? as u32;
-    Some(Posicao { linha, coluna })
+fn read_position(value: &Value) -> Option<Position> {
+    let line = value.get("line")?.as_u64()? as u32;
+    let column = value.get("character")?.as_u64()? as u32;
+    Some(Position { line, column })
 }
 
-/// Intervalo LSP (UTF-16) de `inicio..fim` em bytes, saturado no texto.
-fn intervalo_lsp(texto: &str, tabela: &crate::utf16::TabelaLinhas, inicio: usize, fim: usize) -> Value {
-    let inicio = inicio.min(texto.len());
-    let fim = fim.clamp(inicio, texto.len());
-    let (l0, c0) = tabela.posicao_de_offset(texto, inicio);
-    let (l1, c1) = tabela.posicao_de_offset(texto, fim);
+/// Intervalo LSP (UTF-16) de `start..end` em bytes, saturado no texto.
+fn lsp_range(text: &str, table: &crate::utf16::LineTable, start: usize, end: usize) -> Value {
+    let start = start.min(text.len());
+    let end = end.clamp(start, text.len());
+    let (l0, c0) = table.offset_position(text, start);
+    let (l1, c1) = table.offset_position(text, end);
     json!({"start": {"line": l0, "character": c0}, "end": {"line": l1, "character": c1}})
 }
 
 /// Converte um diagnóstico (span em bytes UTF-8) em diagnóstico LSP.
 ///
 /// Offsets saturados para o texto; fim antes do início colapsa no início.
-fn converter_diagnostico(
-    texto: &str,
-    tabela: &crate::utf16::TabelaLinhas,
-    diagnostico: &dartforge_diagnostics::Diagnostic,
+fn convert_diagnostic(
+    text: &str,
+    table: &crate::utf16::LineTable,
+    diagnostic: &dartforge_diagnostics::Diagnostic,
 ) -> Value {
-    let inicio = diagnostico.span.start.min(texto.len());
-    let mut fim = diagnostico.span.end.min(texto.len());
-    if fim < inicio {
-        fim = inicio;
+    let start = diagnostic.span.start.min(text.len());
+    let mut end = diagnostic.span.end.min(text.len());
+    if end < start {
+        end = start;
     }
-    let (l0, c0) = tabela.posicao_de_offset(texto, inicio);
-    let (l1, c1) = tabela.posicao_de_offset(texto, fim);
+    let (l0, c0) = table.offset_position(text, start);
+    let (l1, c1) = table.offset_position(text, end);
     json!({
         "range": {
             "start": {"line": l0, "character": c0},
             "end": {"line": l1, "character": c1},
         },
-        "severity": severidade(diagnostico.severity),
-        "source": FONTE,
-        "message": mensagem(diagnostico),
-        "code": diagnostico.code.map(|c| c.info().nome),
+        "severity": severity(diagnostic.severity),
+        "source": SOURCE,
+        "message": message(diagnostic),
+        "code": diagnostic.code.map(|c| c.info().nome),
     })
 }
 
@@ -3593,33 +3593,33 @@ fn converter_diagnostico(
 ///
 /// Um `println!` esquecido corrompe a sessão; esta função existe para que o
 /// caminho certo seja o mais curto.
-fn registrar(mensagem: String) {
-    eprintln!("[dartforge-lsp] {mensagem}");
+fn register(message: String) {
+    eprintln!("[dartforge-lsp] {message}");
 }
 
 /// Mapa de teste não usado fora de depuração: registra método de cada mensagem
 /// quando `DARTFORGE_LSP_DEBUG` ou `RUST_LOG` indicam verbosidade.
-pub(crate) fn nivel_detalhado() -> bool {
+pub(crate) fn detail_level() -> bool {
     std::env::var("DARTFORGE_LSP_DEBUG").is_ok()
         || std::env::var("RUST_LOG")
             .is_ok_and(|v| v.eq_ignore_ascii_case("debug") || v.eq_ignore_ascii_case("trace"))
 }
 
-impl<A: Analisador> Servidor<A> {
+impl<A: Analyzer> Server<A> {
     /// Registra a mensagem recebida em `stderr` quando o nível é detalhado.
-    pub fn registrar_recebida(&self, mensagem: &Value) {
-        if nivel_detalhado() {
-            let metodo = mensagem
+    pub fn register_received(&self, message: &Value) {
+        if detail_level() {
+            let method = message
                 .get("method")
                 .and_then(Value::as_str)
                 .unwrap_or("<resposta>");
-            registrar(format!("recebida: {metodo}"));
+            register(format!("recebida: {method}"));
         }
     }
 }
 
 /// Documenta os métodos aceitos, para `docs/LSP.md` e para o teste de aceite.
-pub fn metodos_suportados() -> HashMap<&'static str, &'static str> {
+pub fn supported_methods() -> HashMap<&'static str, &'static str> {
     HashMap::from([
         (
             "initialize",
@@ -3675,7 +3675,7 @@ pub fn metodos_suportados() -> HashMap<&'static str, &'static str> {
             "requisição: inserir ';' e importar biblioteca de nome indefinido",
         ),
         (
-            METODO_DORMIR,
+            SLEEP_METHOD,
             "requisição: gancho de teste do cancelamento em execução",
         ),
     ])
@@ -3684,21 +3684,21 @@ pub fn metodos_suportados() -> HashMap<&'static str, &'static str> {
 /// Troca, na árvore de símbolos, as espécies que o cliente não anunciou
 /// pela alternativa do servidor do Dart (`elementKindToSymbolKind`):
 /// `EnumMember` (22) → `Enum` (10), `TypeParameter` (26) → `Variable` (13).
-fn ajustar_especies(simbolo: &mut Value, suportadas: Option<&[u64]>) {
-    let aceita = |k: u64| suportadas.map_or(k <= 18, |l| l.contains(&k));
-    if let Some(k) = simbolo["kind"].as_u64()
-        && !aceita(k)
+fn adjust_kinds(symbol: &mut Value, supported: Option<&[u64]>) {
+    let accepts = |k: u64| supported.map_or(k <= 18, |l| l.contains(&k));
+    if let Some(k) = symbol["kind"].as_u64()
+        && !accepts(k)
     {
-        let alternativa = match k {
+        let alternative = match k {
             22 => 10,
             26 => 13,
             _ => k,
         };
-        simbolo["kind"] = json!(alternativa);
+        symbol["kind"] = json!(alternative);
     }
-    if let Some(filhos) = simbolo.get_mut("children").and_then(Value::as_array_mut) {
-        for f in filhos {
-            ajustar_especies(f, suportadas);
+    if let Some(children) = symbol.get_mut("children").and_then(Value::as_array_mut) {
+        for f in children {
+            adjust_kinds(f, supported);
         }
     }
 }

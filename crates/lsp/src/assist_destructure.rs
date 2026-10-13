@@ -9,69 +9,69 @@
 //! |---|---|
 //! | `Destructure variable assignment` | `refactor.destructureLocalVariableAssignment` |
 
-use crate::actions::AcaoDeCodigo;
+use crate::actions::CodeAction;
 use crate::arvore_analyzer::Marca;
-use crate::refactorings::Contexto;
-use crate::refactorings_exec::nomes_para_texto;
-use crate::Edicao;
+use crate::refactorings::Context;
+use crate::refactorings_exec::names_to_text;
+use crate::Edit;
 use dartforge_diagnostics::Span;
 use dartforge_types::{Resolved, Type};
 use std::collections::HashSet;
 
-impl Contexto<'_> {
+impl Context<'_> {
     /// O nome de um parâmetro formal (o último token dele, por dentro do
     /// `DefaultFormalParameter`).
-    fn nome_do_parametro(&self, p: usize) -> Option<Span> {
-        let p = if self.especie(p) == "DefaultFormalParameter" { *self.filhos(p).first()? } else { p };
-        let depois = self.filhos(p).iter().rev().find(|&&k| self.especie(k) == "FormalParameterList").map_or(self.arvore.nos[p].fim, |&l| self.arvore.nos[l].inicio);
-        self.token_anterior(depois)
+    fn parameter_name(&self, p: usize) -> Option<Span> {
+        let p = if self.kind(p) == "DefaultFormalParameter" { *self.children(p).first()? } else { p };
+        let after = self.children(p).iter().rev().find(|&&k| self.kind(k) == "FormalParameterList").map_or(self.tree.nos[p].fim, |&l| self.tree.nos[l].inicio);
+        self.previous_token(after)
     }
 
-    /// `ScopedNameFinder(posicao)` aplicado a `n`: os nomes de locais e
+    /// `ScopedNameFinder(position)` aplicado a `n`: os nomes de locais e
     /// parâmetros visíveis em `n`, declarados antes da posição.
-    pub(crate) fn nomes_em_escopo(&self, n: usize, posicao: usize) -> HashSet<String> {
-        let mut nomes = HashSet::new();
-        let mut adicionar = |s: Option<Span>, nomes: &mut HashSet<String>| {
+    pub(crate) fn names_in_scope(&self, n: usize, position: usize) -> HashSet<String> {
+        let mut names = HashSet::new();
+        let mut add = |s: Option<Span>, names: &mut HashSet<String>| {
             if let Some(s) = s
-                && s.end < posicao
+                && s.end < position
             {
-                nomes.insert(self.fonte[s.start..s.end].to_string());
+                names.insert(self.source[s.start..s.end].to_string());
             }
         };
-        let nome_da_variavel = |v: usize| self.token_seguinte(self.arvore.nos[v].inicio);
-        let mut em_funcao_local = false;
-        let mut filho = n;
-        let mut atual = Some(n);
-        while let Some(k) = atual {
-            let parametros_fora_do_filho = |nomes: &mut HashSet<String>, adicionar: &mut dyn FnMut(Option<Span>, &mut HashSet<String>)| {
-                if let Some(&lista) = self.filhos(k).iter().find(|&&f| self.especie(f) == "FormalParameterList")
-                    && lista != filho
+        let variable_name = |v: usize| self.next_token(self.tree.nos[v].inicio);
+        let mut in_local_function = false;
+        let mut child = n;
+        let mut current = Some(n);
+        while let Some(k) = current {
+            let parameters_outside_child = |names: &mut HashSet<String>, add: &mut dyn FnMut(Option<Span>, &mut HashSet<String>)| {
+                if let Some(&list) = self.children(k).iter().find(|&&f| self.kind(f) == "FormalParameterList")
+                    && list != child
                 {
-                    for &p in self.filhos(lista) {
-                        adicionar(self.nome_do_parametro(p), nomes);
+                    for &p in self.children(list) {
+                        add(self.parameter_name(p), names);
                     }
                 }
             };
-            match self.especie(k) {
+            match self.kind(k) {
                 "Block" | "SwitchCase" | "SwitchPatternCase" | "SwitchDefault" => {
                     // `_checkStatements`: os comandos antes do filho imediato.
-                    for &c in self.filhos(k) {
-                        if c == filho {
+                    for &c in self.children(k) {
+                        if c == child {
                             break;
                         }
-                        match self.especie(c) {
+                        match self.kind(c) {
                             "VariableDeclarationStatement" => {
-                                if let Some(&l) = self.filhos(c).first() {
-                                    for &v in self.filhos(l).iter().filter(|&&v| self.especie(v) == "VariableDeclaration") {
-                                        adicionar(nome_da_variavel(v), &mut nomes);
+                                if let Some(&l) = self.children(c).first() {
+                                    for &v in self.children(l).iter().filter(|&&v| self.kind(v) == "VariableDeclaration") {
+                                        add(variable_name(v), &mut names);
                                     }
                                 }
                             }
-                            "FunctionDeclarationStatement" if !em_funcao_local => {
-                                if let Some(&f) = self.filhos(c).first()
-                                    && let Marca::Funcao(fid) = self.arvore.nos[f].marca
+                            "FunctionDeclarationStatement" if !in_local_function => {
+                                if let Some(&f) = self.children(c).first()
+                                    && let Marca::Funcao(fid) = self.tree.nos[f].marca
                                 {
-                                    adicionar(self.ast.function(fid).name.map(|x| x.span), &mut nomes);
+                                    add(self.ast.function(fid).name.map(|x| x.span), &mut names);
                                 }
                             }
                             _ => {}
@@ -79,187 +79,187 @@ impl Contexto<'_> {
                     }
                 }
                 "CatchClause" => {
-                    for &p in self.filhos(k).iter().filter(|&&p| self.especie(p) == "CatchClauseParameter") {
-                        adicionar(Some(self.arvore.span(p)), &mut nomes);
+                    for &p in self.children(k).iter().filter(|&&p| self.kind(p) == "CatchClauseParameter") {
+                        add(Some(self.tree.span(p)), &mut names);
                     }
                 }
                 "ConstructorDeclaration" => {
-                    parametros_fora_do_filho(&mut nomes, &mut adicionar);
+                    parameters_outside_child(&mut names, &mut add);
                     break;
                 }
                 "FieldDeclaration" | "TopLevelVariableDeclaration" | "FunctionTypeAlias" | "GenericTypeAlias" | "ClassTypeAlias" => break,
                 "ForEachPartsWithDeclaration" => {
-                    if let Some(&d) = self.filhos(k).iter().find(|&&f| self.especie(f) == "DeclaredIdentifier") {
-                        adicionar(self.token_anterior(self.arvore.nos[d].fim), &mut nomes);
+                    if let Some(&d) = self.children(k).iter().find(|&&f| self.kind(f) == "DeclaredIdentifier") {
+                        add(self.previous_token(self.tree.nos[d].fim), &mut names);
                     }
                 }
                 "ForPartsWithDeclarations" => {
-                    if let Some(&l) = self.filhos(k).iter().find(|&&f| self.especie(f) == "VariableDeclarationList") {
-                        for &v in self.filhos(l).iter().filter(|&&v| self.especie(v) == "VariableDeclaration") {
-                            adicionar(nome_da_variavel(v), &mut nomes);
+                    if let Some(&l) = self.children(k).iter().find(|&&f| self.kind(f) == "VariableDeclarationList") {
+                        for &v in self.children(l).iter().filter(|&&v| self.kind(v) == "VariableDeclaration") {
+                            add(variable_name(v), &mut names);
                         }
                     }
                 }
                 "FunctionDeclaration" => {
-                    if self.pai(k).is_none_or(|p| self.especie(p) != "FunctionDeclarationStatement") {
+                    if self.parent(k).is_none_or(|p| self.kind(p) != "FunctionDeclarationStatement") {
                         break;
                     }
                 }
-                "FunctionDeclarationStatement" => em_funcao_local = true,
-                "FunctionExpression" => parametros_fora_do_filho(&mut nomes, &mut adicionar),
+                "FunctionDeclarationStatement" => in_local_function = true,
+                "FunctionExpression" => parameters_outside_child(&mut names, &mut add),
                 "MethodDeclaration" => {
-                    parametros_fora_do_filho(&mut nomes, &mut adicionar);
+                    parameters_outside_child(&mut names, &mut add);
                     break;
                 }
                 _ => {}
             }
-            filho = k;
-            atual = self.pai(k);
+            child = k;
+            current = self.parent(k);
         }
-        nomes
+        names
     }
 
-    /// As leituras do local declarado em `nome` dentro de `corpo`, na ordem
-    /// do texto: `(propriedade, nó do acesso)` para `v.p`, e `None` para uma
+    /// As leituras do local declarado em `name` dentro de `body`, na ordem
+    /// do texto: `(property, nó do access)` para `v.p`, e `None` para uma
     /// leitura do objeto inteiro.
-    fn leituras_do_local(&self, corpo: usize, nome: usize) -> Vec<Option<(String, usize)>> {
+    fn local_reads(&self, body: usize, name: usize) -> Vec<Option<(String, usize)>> {
         let mut v = Vec::new();
-        let mut pilha = vec![corpo];
-        while let Some(k) = pilha.pop() {
-            if self.especie(k) == "SimpleIdentifier"
-                && let Marca::Expr(x) = self.arvore.nos[k].marca
-                && matches!(self.corpos.get_resolved(x), Some(Resolved::Local(_)))
-                && self.corpos.declaracao_local(x) == Some(nome)
+        let mut stack = vec![body];
+        while let Some(k) = stack.pop() {
+            if self.kind(k) == "SimpleIdentifier"
+                && let Marca::Expr(x) = self.tree.nos[k].marca
+                && matches!(self.bodies.get_resolved(x), Some(Resolved::Local(_)))
+                && self.bodies.declaracao_local(x) == Some(name)
             {
-                let pai = self.pai(k);
-                match pai.map(|p| self.especie(p)) {
-                    Some("PrefixedIdentifier" | "PropertyAccess") if self.filhos(pai.unwrap_or(k)).first() == Some(&k) => {
-                        let p = pai.unwrap_or(k);
-                        let propriedade = self.filhos(p).last().map(|&q| self.texto_do_no(q).to_string()).unwrap_or_default();
-                        v.push(Some((propriedade, p)));
+                let parent = self.parent(k);
+                match parent.map(|p| self.kind(p)) {
+                    Some("PrefixedIdentifier" | "PropertyAccess") if self.children(parent.unwrap_or(k)).first() == Some(&k) => {
+                        let p = parent.unwrap_or(k);
+                        let property = self.children(p).last().map(|&q| self.node_text(q).to_string()).unwrap_or_default();
+                        v.push(Some((property, p)));
                     }
                     _ => v.push(None),
                 }
             }
-            pilha.extend(self.filhos(k).iter().rev().copied());
+            stack.extend(self.children(k).iter().rev().copied());
         }
         v
     }
 
     /// `DestructureLocalVariableAssignment`.
-    pub(crate) fn desestruturar_local(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
-        let no = self.arvore.localizar(inicio, fim)?;
-        if self.especie(no) != "VariableDeclaration" {
+    pub(crate) fn destructure_local(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+        let no = self.tree.localizar(start, end)?;
+        if self.kind(no) != "VariableDeclaration" {
             return None;
         }
-        let nome = self.token_seguinte(self.arvore.nos[no].inicio)?;
+        let name = self.next_token(self.tree.nos[no].inicio)?;
         // `declaredElement2`: só um local.
-        let tipo = *self.corpos.tipos_de_locais.get(&nome.start)?;
-        let tabela = &self.p.consulta.tabela;
-        let acao = |edicoes: Vec<(Span, String)>| AcaoDeCodigo {
-            titulo: "Destructure variable assignment".into(),
-            especie: "refactor.destructureLocalVariableAssignment".into(),
-            edicoes: edicoes.into_iter().rev().map(|(span, texto)| Edicao { uri: uri.to_string(), span, texto }).collect(),
-            diagnostico: None,
-            criar_arquivo: None, ligado: Default::default(),
+        let ty = *self.bodies.tipos_de_locais.get(&name.start)?;
+        let table = &self.p.query.table;
+        let action = |edits: Vec<(Span, String)>| CodeAction {
+            title: "Destructure variable assignment".into(),
+            kind: "refactor.destructureLocalVariableAssignment".into(),
+            edits: edits.into_iter().rev().map(|(span, text)| Edit { uri: uri.to_string(), span, text }).collect(),
+            diagnostic: None,
+            create_file: None, linked: Default::default(),
         };
-        match tabela.get(tipo) {
+        match table.get(ty) {
             Type::Record { positional, named, .. } => {
-                let mut excluidos = self.nomes_em_escopo(no, self.arvore.nos[no].inicio);
-                let mut variaveis: Vec<String> = Vec::new();
+                let mut excluded = self.names_in_scope(no, self.tree.nos[no].inicio);
+                let mut variables: Vec<String> = Vec::new();
                 for i in 1..=positional.len() {
-                    let mut nome_v = format!("${i}");
-                    if excluidos.contains(&nome_v) {
+                    let mut name_v = format!("${i}");
+                    if excluded.contains(&name_v) {
                         // `getIndexedVariableName`.
-                        if let Some(n) = (b'a'..b'z').map(|c| format!("${i}{}", c as char)).find(|n| !excluidos.contains(n)) {
-                            nome_v = n;
+                        if let Some(n) = (b'a'..b'z').map(|c| format!("${i}{}", c as char)).find(|n| !excluded.contains(n)) {
+                            name_v = n;
                         }
                     }
-                    excluidos.insert(nome_v.clone());
-                    variaveis.push(nome_v);
+                    excluded.insert(name_v.clone());
+                    variables.push(name_v);
                 }
                 // Cada variável é um grupo ligado `VAR_i` com as sugestões do
                 // `RecordField.write`: (prefixo escrito, texto do grupo,
                 // sugestões).
-                let mut grupos: Vec<(String, String, Vec<String>)> =
-                    variaveis.into_iter().map(|v| (String::new(), v.clone(), vec![v, "_".to_string()])).collect();
-                let mut nomeados: Vec<String> = named.iter().map(|(s, _)| self.p.nome(*s).to_string()).collect();
-                nomeados.sort();
-                for campo in nomeados {
-                    if !excluidos.contains(&campo) {
-                        grupos.push((String::new(), format!(":{campo}"), vec![format!(":{campo}"), format!("{campo}: _")]));
+                let mut groups: Vec<(String, String, Vec<String>)> =
+                    variables.into_iter().map(|v| (String::new(), v.clone(), vec![v, "_".to_string()])).collect();
+                let mut named_: Vec<String> = named.iter().map(|(s, _)| self.p.name(*s).to_string()).collect();
+                named_.sort();
+                for field in named_ {
+                    if !excluded.contains(&field) {
+                        groups.push((String::new(), format!(":{field}"), vec![format!(":{field}"), format!("{field}: _")]));
                     } else {
-                        let sugestao = nomes_para_texto(&campo, &excluidos).into_iter().next()?;
-                        grupos.push((format!("{campo}: "), sugestao.clone(), vec![sugestao, "_".to_string()]));
+                        let suggestion = names_to_text(&field, &excluded).into_iter().next()?;
+                        groups.push((format!("{field}: "), suggestion.clone(), vec![suggestion, "_".to_string()]));
                     }
                 }
-                let mut texto = String::from("(");
-                let mut posicoes = Vec::new();
-                for (i, (prefixo, v, _)) in grupos.iter().enumerate() {
+                let mut text = String::from("(");
+                let mut positions = Vec::new();
+                for (i, (prefix, v, _)) in groups.iter().enumerate() {
                     if i > 0 {
-                        texto.push_str(", ");
+                        text.push_str(", ");
                     }
-                    texto.push_str(prefixo);
-                    posicoes.push((texto.len(), v.len()));
-                    texto.push_str(v);
+                    text.push_str(prefix);
+                    positions.push((text.len(), v.len()));
+                    text.push_str(v);
                 }
-                texto.push(')');
-                let mut a = acao(vec![(nome, texto)]);
-                for ((k, n), (_, _, sugestoes)) in posicoes.into_iter().zip(grupos) {
-                    a = a.com_grupo(0, &[k], n, sugestoes);
+                text.push(')');
+                let mut a = action(vec![(name, text)]);
+                for ((k, n), (_, _, suggestions)) in positions.into_iter().zip(groups) {
+                    a = a.with_group(0, &[k], n, suggestions);
                 }
                 Some(a)
             }
             Type::Interface { class, .. } => {
-                let corpo = self.com_pais(no).find(|&k| matches!(self.especie(k), "BlockFunctionBody" | "ExpressionFunctionBody"))?;
-                let leituras = self.leituras_do_local(corpo, nome.start);
-                if leituras.iter().any(Option::is_none) {
+                let body = self.with_parents(no).find(|&k| matches!(self.kind(k), "BlockFunctionBody" | "ExpressionFunctionBody"))?;
+                let reads = self.local_reads(body, name.start);
+                if reads.iter().any(Option::is_none) {
                     return None;
                 }
-                let em_escopo = self.nomes_em_escopo(no, self.arvore.nos[no].inicio);
+                let in_scope = self.names_in_scope(no, self.tree.nos[no].inicio);
                 // As propriedades, na ordem da primeira leitura.
-                let mut propriedades: Vec<(String, Vec<usize>)> = Vec::new();
-                for (p, acesso) in leituras.into_iter().flatten() {
-                    match propriedades.iter_mut().find(|(q, _)| *q == p) {
-                        Some((_, l)) => l.push(acesso),
-                        None => propriedades.push((p, vec![acesso])),
+                let mut properties: Vec<(String, Vec<usize>)> = Vec::new();
+                for (p, access) in reads.into_iter().flatten() {
+                    match properties.iter_mut().find(|(q, _)| *q == p) {
+                        Some((_, l)) => l.push(access),
+                        None => properties.push((p, vec![access])),
                     }
                 }
-                let mut campos: Vec<(String, String, Vec<usize>)> = Vec::new();
-                for (p, acessos) in propriedades {
-                    let mut excluidos = self.conflitos_de_local(self.arvore.nos[no].inicio);
-                    excluidos.extend(em_escopo.iter().cloned());
-                    for &a in &acessos {
+                let mut fields: Vec<(String, String, Vec<usize>)> = Vec::new();
+                for (p, accesses) in properties {
+                    let mut excluded = self.local_conflicts(self.tree.nos[no].inicio);
+                    excluded.extend(in_scope.iter().cloned());
+                    for &a in &accesses {
                         // `inSetterContext`.
-                        if self.expr_do_no(a).is_some_and(|x| self.escritas.contains(&x)) {
+                        if self.node_expr(a).is_some_and(|x| self.writes.contains(&x)) {
                             return None;
                         }
-                        excluidos.extend(self.conflitos_de_local(self.arvore.nos[a].inicio));
+                        excluded.extend(self.local_conflicts(self.tree.nos[a].inicio));
                     }
-                    let variavel = nomes_para_texto(&p, &excluidos).into_iter().next()?;
-                    campos.push((variavel, p, acessos));
+                    let variable = names_to_text(&p, &excluded).into_iter().next()?;
+                    fields.push((variable, p, accesses));
                 }
-                let prog = self.p.programa();
-                let padrao = campos
+                let prog = self.p.program();
+                let pattern = fields
                     .iter()
                     .map(|(v, p, _)| if v == p { format!(":{v}") } else { format!("{p}: {v}") })
                     .collect::<Vec<_>>()
                     .join(", ");
-                let classe = self.p.nome(prog.class(*class).name);
-                let mut edicoes = vec![(nome, format!("{classe}({padrao})"))];
-                for (v, _, acessos) in &campos {
-                    for &a in acessos {
-                        edicoes.push((self.arvore.span(a), v.clone()));
+                let class_ = self.p.name(prog.class(*class).name);
+                let mut edits = vec![(name, format!("{class_}({pattern})"))];
+                for (v, _, accesses) in &fields {
+                    for &a in accesses {
+                        edits.push((self.tree.span(a), v.clone()));
                     }
                 }
-                edicoes.sort_by_key(|(s, _)| s.start);
+                edits.sort_by_key(|(s, _)| s.start);
                 // Sem propriedades lidas, `selectHere` entre os parênteses;
                 // com elas, as leituras trocadas são outras edições (os
                 // grupos delas não chegam a um snippet).
-                let selecao = campos.is_empty().then_some(classe.len() + 1);
-                let a = acao(edicoes);
-                Some(match selecao {
-                    Some(k) => a.com_selecao(0, k, 0),
+                let selection = fields.is_empty().then_some(class_.len() + 1);
+                let a = action(edits);
+                Some(match selection {
+                    Some(k) => a.with_selection(0, k, 0),
                     None => a,
                 })
             }

@@ -15,151 +15,151 @@
 //! | `Surround with 'try-finally'` | `refactor.surround.tryFinally` |
 //! | `Surround with 'while'` | `refactor.surround.while` |
 
-use crate::actions::AcaoDeCodigo;
+use crate::actions::CodeAction;
 use crate::arvore_analyzer::Marca;
-use crate::refactorings::Contexto;
-use crate::refactorings_exec::{Texto, UM_RECUO};
-use crate::Edicao;
+use crate::refactorings::Context;
+use crate::refactorings_exec::{Text, ONE_INDENT};
+use crate::Edit;
 
-impl Contexto<'_> {
+impl Context<'_> {
     /// `ClassElement.isState`: a classe estende, direta ou indiretamente, o
     /// `State` do Flutter (`package:flutter/src/widgets/framework.dart`).
-    fn classe_e_state(&self, n: usize) -> bool {
-        let Some(declaracao) = self.com_pais(n).find(|&k| self.especie(k) == "ClassDeclaration") else { return false };
-        let Marca::Decl(d) = self.arvore.nos[declaracao].marca else { return false };
-        let Some(classe) = self.classe_da_declaracao(self.unidade, d) else { return false };
-        let prog = self.p.programa();
-        let mut atual = prog.class(classe).supertype_class;
-        let mut vistos = std::collections::HashSet::new();
-        while let Some(c) = atual {
-            if !vistos.insert(c) {
+    fn class_and_state(&self, n: usize) -> bool {
+        let Some(declaration) = self.with_parents(n).find(|&k| self.kind(k) == "ClassDeclaration") else { return false };
+        let Marca::Decl(d) = self.tree.nos[declaration].marca else { return false };
+        let Some(class) = self.declaration_class(self.unit, d) else { return false };
+        let prog = self.p.program();
+        let mut current = prog.class(class).supertype_class;
+        let mut seen = std::collections::HashSet::new();
+        while let Some(c) = current {
+            if !seen.insert(c) {
                 break;
             }
             let ce = prog.class(c);
-            if self.p.nome(ce.name) == "State" && prog.library(ce.library).uri == "package:flutter/src/widgets/framework.dart" {
+            if self.p.name(ce.name) == "State" && prog.library(ce.library).uri == "package:flutter/src/widgets/framework.dart" {
                 return true;
             }
-            atual = ce.supertype_class;
+            current = ce.supertype_class;
         }
         false
     }
 
-    /// As assistências de `SurroundWith` para a seleção `[inicio, fim)`.
-    pub(crate) fn envolver_comandos(&self, uri: &str, inicio: usize, fim: usize) -> Vec<AcaoDeCodigo> {
-        let mut saida = Vec::new();
+    /// As assistências de `SurroundWith` para a seleção `[start, end)`.
+    pub(crate) fn wrap_commands(&self, uri: &str, start: usize, end: usize) -> Vec<CodeAction> {
+        let mut output = Vec::new();
         // O nó coberto não pode ser a unidade (declarações de topo).
-        let Some(no) = self.arvore.localizar(inicio, fim) else { return saida };
-        if self.especie(no) == "CompilationUnit" {
-            return saida;
+        let Some(no) = self.tree.localizar(start, end) else { return output };
+        if self.kind(no) == "CompilationUnit" {
+            return output;
         }
         // `StatementAnalyzer`: os nós selecionados, todos comandos de bloco.
-        let analise = self.analisar(inicio, fim);
-        let selecionados = &analise.selecionados;
-        if selecionados.is_empty()
-            || !selecionados.iter().all(|&s| self.e_comando(s) && self.pai(s).is_some_and(|p| self.especie(p) == "Block"))
+        let analysis = self.analyze(start, end);
+        let selected = &analysis.selected;
+        if selected.is_empty()
+            || !selected.iter().all(|&s| self.is_command(s) && self.parent(s).is_some_and(|p| self.kind(p) == "Block"))
         {
-            return saida;
+            return output;
         }
-        let (primeiro, ultimo) = (selecionados[0], *selecionados.last().unwrap_or(&selecionados[0]));
-        let tx = Texto::novo(self.fonte);
+        let (first, last) = (selected[0], *selected.last().unwrap_or(&selected[0]));
+        let tx = Text::new(self.source);
         let eol = tx.eol();
-        let faixa = tx.faixa_de_linhas(self.arvore.nos[primeiro].inicio, self.arvore.nos[ultimo].fim);
-        let velho = self.prefixo_do_no(primeiro);
-        let novo = format!("{velho}{UM_RECUO}");
-        let recuado = tx.trocar_recuo(&self.fonte[faixa.start..faixa.end], &velho, &novo, true, true);
+        let range = tx.line_range(self.tree.nos[first].inicio, self.tree.nos[last].fim);
+        let old = self.node_prefix(first);
+        let new = format!("{old}{ONE_INDENT}");
+        let indented = tx.swap_indent(&self.source[range.start..range.end], &old, &new, true, true);
         // `_SurroundWithBlock`: três edições, como o Dart — `{` inserido
         // antes, o código recuado no lugar e `}` inserido depois.
-        saida.push(AcaoDeCodigo {
-            titulo: "Surround with block".into(),
-            especie: "refactor.surround.block".into(),
-            edicoes: vec![
-                Edicao { uri: uri.to_string(), span: dartforge_diagnostics::Span { start: faixa.start, end: faixa.start }, texto: format!("{velho}{{{eol}") },
-                Edicao { uri: uri.to_string(), span: faixa, texto: recuado.clone() },
-                Edicao { uri: uri.to_string(), span: dartforge_diagnostics::Span { start: faixa.end, end: faixa.end }, texto: format!("{velho}}}{eol}") },
+        output.push(CodeAction {
+            title: "Surround with block".into(),
+            kind: "refactor.surround.block".into(),
+            edits: vec![
+                Edit { uri: uri.to_string(), span: dartforge_diagnostics::Span { start: range.start, end: range.start }, text: format!("{old}{{{eol}") },
+                Edit { uri: uri.to_string(), span: range, text: indented.clone() },
+                Edit { uri: uri.to_string(), span: dartforge_diagnostics::Span { start: range.end, end: range.end }, text: format!("{old}}}{eol}") },
             ],
-            diagnostico: None,
-            criar_arquivo: None,
-            ligado: Default::default(),
+            diagnostic: None,
+            create_file: None,
+            linked: Default::default(),
         });
-        let mut acao = |titulo: &str, especie: &str, e: &crate::snippets::Escrita| {
-            let a = AcaoDeCodigo {
-                titulo: titulo.into(),
-                especie: especie.into(),
-                edicoes: vec![Edicao { uri: uri.to_string(), span: faixa, texto: e.texto.clone() }],
-                diagnostico: None,
-                criar_arquivo: None,
-                ligado: Default::default(),
+        let mut action = |title: &str, kind: &str, e: &crate::snippets::Write| {
+            let a = CodeAction {
+                title: title.into(),
+                kind: kind.into(),
+                edits: vec![Edit { uri: uri.to_string(), span: range, text: e.text.clone() }],
+                diagnostic: None,
+                create_file: None,
+                linked: Default::default(),
             };
-            saida.push(a.com_escrita(0, e));
+            output.push(a.with_write(0, e));
         };
         // Os demais escrevem a substituição inteira com os grupos ligados e o
         // `selectHere` de `surround_with.dart:135-424`.
-        let mut e = crate::snippets::Escrita::default();
-        e.escrever(&format!("{velho}do {{{eol}{recuado}{velho}}} while ("))
-            .ligado("CONDITION", "condition", &[])
-            .escrever(");")
-            .aqui()
-            .escrever(eol);
-        acao("Surround with 'do-while'", "refactor.surround.doWhile", &e);
-        let mut e = crate::snippets::Escrita::default();
-        e.escrever(&format!("{velho}for (var "))
-            .ligado("VAR", "v", &[])
-            .escrever(" = ")
-            .ligado("INIT", "init", &[])
-            .escrever("; ")
-            .ligado("CONDITION", "condition", &[])
-            .escrever("; ")
-            .ligado("INCREMENT", "increment", &[])
-            .escrever(&format!(") {{{eol}{recuado}{velho}}}"))
-            .aqui()
-            .escrever(eol);
-        acao("Surround with 'for'", "refactor.surround.forEach", &e);
-        let mut e = crate::snippets::Escrita::default();
-        e.escrever(&format!("{velho}for (var "))
-            .ligado("NAME", "item", &[])
-            .escrever(" in ")
-            .ligado("ITERABLE", "iterable", &[])
-            .escrever(&format!(") {{{eol}{recuado}{velho}}}"))
-            .aqui()
-            .escrever(eol);
-        acao("Surround with 'for-in'", "refactor.surround.forIn", &e);
-        let mut e = crate::snippets::Escrita::default();
-        e.escrever(&format!("{velho}if ("))
-            .ligado("CONDITION", "condition", &[])
-            .escrever(&format!(") {{{eol}{recuado}{velho}}}"))
-            .aqui()
-            .escrever(eol);
-        acao("Surround with 'if'", "refactor.surround.if", &e);
-        if self.pai(no).is_some_and(|p| self.classe_e_state(p)) {
-            let mut e = crate::snippets::Escrita::default();
-            e.escrever(&format!("{velho}setState(() {{{eol}{recuado}{velho}"))
-                .aqui()
-                .escrever(&format!("}});{eol}"));
-            acao("Surround with 'setState'", "refactor.surround.setState", &e);
+        let mut e = crate::snippets::Write::default();
+        e.write(&format!("{old}do {{{eol}{indented}{old}}} while ("))
+            .linked("CONDITION", "condition", &[])
+            .write(");")
+            .here()
+            .write(eol);
+        action("Surround with 'do-while'", "refactor.surround.doWhile", &e);
+        let mut e = crate::snippets::Write::default();
+        e.write(&format!("{old}for (var "))
+            .linked("VAR", "v", &[])
+            .write(" = ")
+            .linked("INIT", "init", &[])
+            .write("; ")
+            .linked("CONDITION", "condition", &[])
+            .write("; ")
+            .linked("INCREMENT", "increment", &[])
+            .write(&format!(") {{{eol}{indented}{old}}}"))
+            .here()
+            .write(eol);
+        action("Surround with 'for'", "refactor.surround.forEach", &e);
+        let mut e = crate::snippets::Write::default();
+        e.write(&format!("{old}for (var "))
+            .linked("NAME", "item", &[])
+            .write(" in ")
+            .linked("ITERABLE", "iterable", &[])
+            .write(&format!(") {{{eol}{indented}{old}}}"))
+            .here()
+            .write(eol);
+        action("Surround with 'for-in'", "refactor.surround.forIn", &e);
+        let mut e = crate::snippets::Write::default();
+        e.write(&format!("{old}if ("))
+            .linked("CONDITION", "condition", &[])
+            .write(&format!(") {{{eol}{indented}{old}}}"))
+            .here()
+            .write(eol);
+        action("Surround with 'if'", "refactor.surround.if", &e);
+        if self.parent(no).is_some_and(|p| self.class_and_state(p)) {
+            let mut e = crate::snippets::Write::default();
+            e.write(&format!("{old}setState(() {{{eol}{indented}{old}"))
+                .here()
+                .write(&format!("}});{eol}"));
+            action("Surround with 'setState'", "refactor.surround.setState", &e);
         }
-        let mut e = crate::snippets::Escrita::default();
-        e.escrever(&format!("{velho}try {{{eol}{recuado}{velho}}} on "))
-            .ligado("EXCEPTION_TYPE", "Exception", &[])
-            .escrever(" catch (")
-            .ligado("EXCEPTION_VAR", "e", &[])
-            .escrever(&format!(") {{{eol}{novo}"))
-            .ligado("CATCH", "// TODO", &[])
-            .aqui()
-            .escrever(&format!("{eol}{velho}}}{eol}"));
-        acao("Surround with 'try-catch'", "refactor.surround.tryCatch", &e);
-        let mut e = crate::snippets::Escrita::default();
-        e.escrever(&format!("{velho}try {{{eol}{recuado}{velho}}} finally {{{eol}{novo}"))
-            .ligado("FINALLY", "// TODO", &[])
-            .aqui()
-            .escrever(&format!("{eol}{velho}}}{eol}"));
-        acao("Surround with 'try-finally'", "refactor.surround.tryFinally", &e);
-        let mut e = crate::snippets::Escrita::default();
-        e.escrever(&format!("{velho}while ("))
-            .ligado("CONDITION", "condition", &[])
-            .escrever(&format!(") {{{eol}{recuado}{velho}}}"))
-            .aqui()
-            .escrever(eol);
-        acao("Surround with 'while'", "refactor.surround.while", &e);
-        saida
+        let mut e = crate::snippets::Write::default();
+        e.write(&format!("{old}try {{{eol}{indented}{old}}} on "))
+            .linked("EXCEPTION_TYPE", "Exception", &[])
+            .write(" catch (")
+            .linked("EXCEPTION_VAR", "e", &[])
+            .write(&format!(") {{{eol}{new}"))
+            .linked("CATCH", "// TODO", &[])
+            .here()
+            .write(&format!("{eol}{old}}}{eol}"));
+        action("Surround with 'try-catch'", "refactor.surround.tryCatch", &e);
+        let mut e = crate::snippets::Write::default();
+        e.write(&format!("{old}try {{{eol}{indented}{old}}} finally {{{eol}{new}"))
+            .linked("FINALLY", "// TODO", &[])
+            .here()
+            .write(&format!("{eol}{old}}}{eol}"));
+        action("Surround with 'try-finally'", "refactor.surround.tryFinally", &e);
+        let mut e = crate::snippets::Write::default();
+        e.write(&format!("{old}while ("))
+            .linked("CONDITION", "condition", &[])
+            .write(&format!(") {{{eol}{indented}{old}}}"))
+            .here()
+            .write(eol);
+        action("Surround with 'while'", "refactor.surround.while", &e);
+        output
     }
 }

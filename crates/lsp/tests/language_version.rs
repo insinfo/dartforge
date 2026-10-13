@@ -2,7 +2,7 @@
 //! (`docs/VERSOES-LINGUAGEM.md` §2): marcador, senão o pacote, senão a
 //! corrente. Um projeto 3.6 não pode ver erro em `final` de parâmetro, que
 //! só é proibido na 3.13.
-use dartforge_lsp::{Analisador, AnalisadorSintatico, Servidor};
+use dartforge_lsp::{Analyzer, SyntacticAnalyzer, Server};
 use serde_json::json;
 
 fn uri(p: &std::path::Path) -> String {
@@ -10,89 +10,89 @@ fn uri(p: &std::path::Path) -> String {
 }
 
 #[test]
-fn versao_do_pacote_com_uri_percent_encodada() {
-    let raiz = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+fn package_version_with_percent_encoded_uri() {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join(format!("../../target/tmp-agent/lsp-versao-{}-acentuação", std::process::id()));
-    let _ = std::fs::remove_dir_all(&raiz);
-    std::fs::create_dir_all(raiz.join(".dart_tool")).unwrap();
-    std::fs::create_dir_all(raiz.join("lib")).unwrap();
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join(".dart_tool")).unwrap();
+    std::fs::create_dir_all(root.join("lib")).unwrap();
     std::fs::write(
-        raiz.join(".dart_tool/package_config.json"),
+        root.join(".dart_tool/package_config.json"),
         r#"{"configVersion":2,"packages":[{"name":"app","rootUri":"../","packageUri":"lib/","languageVersion":"3.6"}]}"#,
     ).unwrap();
-    let arquivo = raiz.join("lib/ação.dart");
-    let fonte = "void f(final int x) {}";
-    std::fs::write(&arquivo, fonte).unwrap();
-    let mut a = AnalisadorSintatico::new();
-    assert!(a.diagnosticar(&uri(&arquivo), fonte).is_empty());
-    let _ = std::fs::remove_dir_all(&raiz);
+    let file = root.join("lib/ação.dart");
+    let source = "void f(final int x) {}";
+    std::fs::write(&file, source).unwrap();
+    let mut a = SyntacticAnalyzer::new();
+    assert!(a.diagnose(&uri(&file), source).is_empty());
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
-fn versao_do_pacote_e_do_marcador() {
-    let raiz = std::env::temp_dir().join(format!("dartforge-lsp-versao-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&raiz);
-    std::fs::create_dir_all(raiz.join(".dart_tool")).unwrap();
-    std::fs::create_dir_all(raiz.join("lib")).unwrap();
+fn package_and_marker_version() {
+    let root = std::env::temp_dir().join(format!("dartforge-lsp-versao-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join(".dart_tool")).unwrap();
+    std::fs::create_dir_all(root.join("lib")).unwrap();
     std::fs::write(
-        raiz.join(".dart_tool/package_config.json"),
+        root.join(".dart_tool/package_config.json"),
         r#"{ "configVersion": 2, "packages": [
             { "name": "app", "rootUri": "../", "packageUri": "lib/", "languageVersion": "3.6" }
         ] }"#,
     )
     .unwrap();
-    let arquivo = raiz.join("lib/a.dart");
-    let fonte = "void f(final int x) {}";
-    std::fs::write(&arquivo, fonte).unwrap();
-    let mut a = AnalisadorSintatico::new();
+    let file = root.join("lib/a.dart");
+    let source = "void f(final int x) {}";
+    std::fs::write(&file, source).unwrap();
+    let mut a = SyntacticAnalyzer::new();
     assert!(
-        a.diagnosticar(&uri(&arquivo), fonte).is_empty(),
+        a.diagnose(&uri(&file), source).is_empty(),
         "o pacote está na 3.6"
     );
-    let com_marcador = format!("// @dart=3.13\n{fonte}");
+    let with_marker = format!("// @dart=3.13\n{source}");
     assert_eq!(
-        a.diagnosticar(&uri(&arquivo), &com_marcador).len(),
+        a.diagnose(&uri(&file), &with_marker).len(),
         1,
         "o marcador vale mais"
     );
     // Fora de pacote: a versão corrente (3.13).
-    assert_eq!(a.diagnosticar("file:///nao/existe/b.dart", fonte).len(), 1);
-    let _ = std::fs::remove_dir_all(&raiz);
+    assert_eq!(a.diagnose("file:///nao/existe/b.dart", source).len(), 1);
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
-fn fechar_e_reabrir_rele_configuracao_de_pacotes() {
-    let raiz = std::env::temp_dir().join(format!("dartforge-lsp-reabrir-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&raiz);
-    std::fs::create_dir_all(raiz.join(".dart_tool")).unwrap();
-    std::fs::create_dir_all(raiz.join("lib")).unwrap();
-    let config = raiz.join(".dart_tool/package_config.json");
-    let gravar = |versao: &str| {
+fn close_and_reopen_rereads_package_config() {
+    let root = std::env::temp_dir().join(format!("dartforge-lsp-reabrir-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join(".dart_tool")).unwrap();
+    std::fs::create_dir_all(root.join("lib")).unwrap();
+    let config = root.join(".dart_tool/package_config.json");
+    let write = |version: &str| {
         std::fs::write(&config, format!(
-            "{{\"configVersion\":2,\"packages\":[{{\"name\":\"app\",\"rootUri\":\"../\",\"packageUri\":\"lib/\",\"languageVersion\":\"{versao}\"}}]}}"
+            "{{\"configVersion\":2,\"packages\":[{{\"name\":\"app\",\"rootUri\":\"../\",\"packageUri\":\"lib/\",\"languageVersion\":\"{version}\"}}]}}"
         )).unwrap();
     };
-    gravar("3.6");
-    let arquivo = raiz.join("lib/a.dart");
-    let fonte = "void f(final int x) {}";
-    std::fs::write(&arquivo, fonte).unwrap();
-    let uri = uri(&arquivo);
-    let mut servidor = Servidor::new();
-    let abrir = |servidor: &mut Servidor, versao: i32| {
-        servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
-            "textDocument":{"uri":uri.clone(),"version":versao,"languageId":"dart","text":fonte}
+    write("3.6");
+    let file = root.join("lib/a.dart");
+    let source = "void f(final int x) {}";
+    std::fs::write(&file, source).unwrap();
+    let uri = uri(&file);
+    let mut server = Server::new();
+    let open = |server: &mut Server, version: i32| {
+        server.receive(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+            "textDocument":{"uri":uri.clone(),"version":version,"languageId":"dart","text":source}
         }}));
-        servidor.bombear()
+        server.pump()
     };
     // Sem erros, nada é publicado (como no servidor do Dart).
-    assert!(abrir(&mut servidor, 1).iter().all(|m| m["method"] != "textDocument/publishDiagnostics"));
-    servidor.receber(json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{
+    assert!(open(&mut server, 1).iter().all(|m| m["method"] != "textDocument/publishDiagnostics"));
+    server.receive(json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{
         "textDocument":{"uri":uri.clone()}
     }}));
-    servidor.bombear();
-    gravar("3.13");
-    let saidas = abrir(&mut servidor, 2);
-    let publicacao = saidas.iter().find(|m| m["method"] == "textDocument/publishDiagnostics").expect("publicação");
-    assert_eq!(publicacao["params"]["diagnostics"].as_array().unwrap().len(), 1);
-    let _ = std::fs::remove_dir_all(&raiz);
+    server.pump();
+    write("3.13");
+    let outputs = open(&mut server, 2);
+    let publication = outputs.iter().find(|m| m["method"] == "textDocument/publishDiagnostics").expect("publicação");
+    assert_eq!(publication["params"]["diagnostics"].as_array().unwrap().len(), 1);
+    let _ = std::fs::remove_dir_all(&root);
 }

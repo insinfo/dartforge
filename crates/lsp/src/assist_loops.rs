@@ -5,11 +5,11 @@
 //! |---|---|---|
 //! | `Convert to for-index loop` | `refactor.convert.forEachToForIndex` | `ConvertIntoForIndex` |
 
-use crate::actions::AcaoDeCodigo;
+use crate::actions::CodeAction;
 use crate::arvore_analyzer::Marca;
-use crate::refactorings::Contexto;
-use crate::refactorings_exec::{Texto, UM_RECUO};
-use crate::Edicao;
+use crate::refactorings::Context;
+use crate::refactorings_exec::{Text, ONE_INDENT};
+use crate::Edit;
 use dartforge_diagnostics::Span;
 use dartforge_types::{Resolved, Type};
 
@@ -17,8 +17,8 @@ use dartforge_types::{Resolved, Type};
 /// nome separados por um espaço), a partir do texto: os brancos viram um
 /// espaço, e os de dentro dos argumentos de tipo somem como no
 /// `ToSourceVisitor` (`<`, `>` e `, `).
-pub(crate) fn como_fonte(texto: &str) -> String {
-    let mut s = texto.split_whitespace().collect::<Vec<_>>().join(" ");
+pub(crate) fn as_source(text: &str) -> String {
+    let mut s = text.split_whitespace().collect::<Vec<_>>().join(" ");
     for (de, para) in [("< ", "<"), (" <", "<"), (" >", ">"), (" ,", ","), (" ?", "?")] {
         while s.contains(de) {
             s = s.replace(de, para);
@@ -27,70 +27,70 @@ pub(crate) fn como_fonte(texto: &str) -> String {
     s
 }
 
-impl Contexto<'_> {
+impl Context<'_> {
     /// `ConvertIntoForIndex` (convert_into_for_index.dart): `for (final x in
-    /// lista) { … }` sobre uma variável local ou parâmetro de tipo `List`
-    /// vira `for (int i = 0; i < lista.length; i++)` com `final x =
+    /// lista) { … }` sobre uma variável local or pairâmetro de ty `List`
+    /// vira `for (int i = 0; i < list.length; i++)` com `final x =
     /// lista[i];` no começo do bloco.
-    pub(crate) fn converter_em_for_com_indice(&self, uri: &str, inicio: usize, fim: usize) -> Option<AcaoDeCodigo> {
-        let no = self.arvore.localizar(inicio, fim)?;
-        let laco = self.com_pais(no).find(|&k| self.especie(k) == "ForStatement")?;
-        let partes = self.filhos(laco).iter().copied().find(|&k| self.especie(k).starts_with("ForEachParts"))?;
-        let corpo = *self.filhos(laco).last()?;
+    pub(crate) fn convert_to_for_index(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+        let no = self.tree.localizar(start, end)?;
+        let loop_ = self.with_parents(no).find(|&k| self.kind(k) == "ForStatement")?;
+        let parts = self.children(loop_).iter().copied().find(|&k| self.kind(k).starts_with("ForEachParts"))?;
+        let body = *self.children(loop_).last()?;
         // `selectionOffset < forStatement.offset || rightParenthesis.end < selectionOffset`.
-        let fecha = self.token_anterior(self.arvore.nos[corpo].inicio)?;
-        if inicio < self.arvore.nos[laco].inicio || fecha.end < inicio {
+        let closes = self.previous_token(self.tree.nos[body].inicio)?;
+        if start < self.tree.nos[loop_].inicio || closes.end < start {
             return None;
         }
-        if self.especie(partes) != "ForEachPartsWithDeclaration" {
+        if self.kind(parts) != "ForEachPartsWithDeclaration" {
             return None;
         }
-        let filhos = self.filhos(partes);
-        let variavel = *filhos.iter().find(|&&k| self.especie(k) == "DeclaredIdentifier")?;
-        let iteravel = *filhos.last()?;
-        if self.especie(iteravel) != "SimpleIdentifier" {
+        let children = self.children(parts);
+        let variable = *children.iter().find(|&&k| self.kind(k) == "DeclaredIdentifier")?;
+        let iterable = *children.last()?;
+        if self.kind(iterable) != "SimpleIdentifier" {
             return None;
         }
         // `iterable.element is VariableElement2`: local ou parâmetro (o
         // campo e a variável de topo resolvem para o getter).
-        let Marca::Expr(x) = self.arvore.nos[iteravel].marca else { return None };
-        if !matches!(self.corpos.get_resolved(x), Some(Resolved::Local(_) | Resolved::Parameter { .. })) {
+        let Marca::Expr(x) = self.tree.nos[iterable].marca else { return None };
+        if !matches!(self.bodies.get_resolved(x), Some(Resolved::Local(_) | Resolved::Parameter { .. })) {
             return None;
         }
-        let lista = self.p.consulta.core.list_class?;
-        let tipo = *self.corpos.static_types.get(x.0 as usize)?;
-        if !matches!(self.p.consulta.tabela.get(tipo), Type::Interface { class, .. } if *class == lista) {
+        let list = self.p.query.core.list_class?;
+        let ty = *self.bodies.static_types.get(x.0 as usize)?;
+        if !matches!(self.p.query.table.get(ty), Type::Interface { class, .. } if *class == list) {
             return None;
         }
-        if self.especie(corpo) != "Block" {
+        if self.kind(body) != "Block" {
             return None;
         }
-        let conflitos = self.conflitos_de_local(self.arvore.nos[laco].inicio);
-        let indice = ["i", "j", "k"].into_iter().find(|n| !conflitos.contains(*n))?;
-        let nome_da_lista = self.texto_do_no(iteravel).to_string();
-        let tx = Texto::novo(self.fonte);
-        let prefixo = self.prefixo_do_no(laco);
+        let conflicts = self.local_conflicts(self.tree.nos[loop_].inicio);
+        let index = ["i", "j", "k"].into_iter().find(|n| !conflicts.contains(*n))?;
+        let list_name = self.node_text(iterable).to_string();
+        let tx = Text::new(self.source);
+        let prefix = self.node_prefix(loop_);
         // `getLineContentEnd(body.leftBracket.end)`.
-        let primeira_linha = tx.fim_do_conteudo(self.arvore.nos[corpo].inicio + 1);
-        let variavel_fonte = como_fonte(self.texto_do_no(variavel));
+        let first_line = tx.content_end(self.tree.nos[body].inicio + 1);
+        let variable_source = as_source(self.node_text(variable));
         let eol = tx.eol();
-        Some(AcaoDeCodigo {
-            titulo: "Convert to for-index loop".into(),
-            especie: "refactor.convert.forEachToForIndex".into(),
-            edicoes: vec![
-                Edicao {
+        Some(CodeAction {
+            title: "Convert to for-index loop".into(),
+            kind: "refactor.convert.forEachToForIndex".into(),
+            edits: vec![
+                Edit {
                     uri: uri.to_string(),
-                    span: Span { start: self.arvore.nos[laco].inicio, end: fecha.end },
-                    texto: format!("for (int {indice} = 0; {indice} < {nome_da_lista}.length; {indice}++)"),
+                    span: Span { start: self.tree.nos[loop_].inicio, end: closes.end },
+                    text: format!("for (int {index} = 0; {index} < {list_name}.length; {index}++)"),
                 },
-                Edicao {
+                Edit {
                     uri: uri.to_string(),
-                    span: Span { start: primeira_linha, end: primeira_linha },
-                    texto: format!("{prefixo}{UM_RECUO}{variavel_fonte} = {nome_da_lista}[{indice}];{eol}"),
+                    span: Span { start: first_line, end: first_line },
+                    text: format!("{prefix}{ONE_INDENT}{variable_source} = {list_name}[{index}];{eol}"),
                 },
             ],
-            diagnostico: None,
-            criar_arquivo: None, ligado: Default::default(),
+            diagnostic: None,
+            create_file: None, linked: Default::default(),
         })
     }
 }

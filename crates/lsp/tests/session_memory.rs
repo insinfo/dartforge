@@ -4,45 +4,45 @@
 //! binário rodam em paralelo no mesmo processo.
 
 #[global_allocator]
-static ALOCADOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
+static ALLOCATOR: dartforge_instrument::CountingAllocator = dartforge_instrument::CountingAllocator;
 
 mod common;
 
-use common::Projeto;
+use common::Project;
 use serde_json::json;
 use std::time::Duration;
 
 #[test]
-fn memoria_volta_a_base_depois_de_cada_edicao() {
-    let mut p = Projeto::novo("sessao-memoria");
-    let texto = |n: usize| format!("int f() => {n};\nint g() => f();\n");
-    p.abrir("lib/a.dart", &texto(0));
+fn memory_returns_to_baseline_after_each_edit() {
+    let mut p = Project::new("sessao-memoria");
+    let text = |n: usize| format!("int f() => {n};\nint g() => f();\n");
+    p.open("lib/a.dart", &text(0));
     // Base: a primeira consulta (índices e caches de tamanho fixo já
     // montados) e a primeira edição (descarta a entrada).
-    p.na_posicao("textDocument/hover", "lib/a.dart", 1, 11, json!({}));
-    p.mudar("lib/a.dart", 2, &texto(1));
-    p.servidor.aguardar_diagnosticos(Duration::from_secs(120));
+    p.in_position("textDocument/hover", "lib/a.dart", 1, 11, json!({}));
+    p.change("lib/a.dart", 2, &text(1));
+    p.server.await_diagnostics(Duration::from_secs(120));
     let base = dartforge_instrument::live_bytes();
-    let mut retido = 0;
-    for versao in 3..23 {
+    let mut retained = 0;
+    for version in 3..23 {
         assert_eq!(
-            p.na_posicao("textDocument/hover", "lib/a.dart", 1, 11, json!({}))["result"]["contents"],
+            p.in_position("textDocument/hover", "lib/a.dart", 1, 11, json!({}))["result"]["contents"],
             "int f()\nType: int Function()"
         );
-        retido = retido.max(dartforge_instrument::live_bytes().saturating_sub(base));
-        p.mudar("lib/a.dart", versao, &texto(versao as usize));
-        p.servidor.aguardar_diagnosticos(Duration::from_secs(120));
+        retained = retained.max(dartforge_instrument::live_bytes().saturating_sub(base));
+        p.change("lib/a.dart", version, &text(version as usize));
+        p.server.await_diagnostics(Duration::from_secs(120));
     }
-    let depois = dartforge_instrument::live_bytes().saturating_sub(base);
+    let after = dartforge_instrument::live_bytes().saturating_sub(base);
     println!(
-        "sessão: retido enquanto válido até {retido} bytes; depois de 20 edições, {depois} bytes acima da base"
+        "sessão: retido enquanto válido até {retained} bytes; depois de 20 edições, {after} bytes acima da base"
     );
     assert!(
-        retido > 0,
+        retained > 0,
         "a sessão devia reter o programa entre consultas"
     );
     assert!(
-        depois < 64 * 1024,
-        "{depois} bytes presos depois das edições"
+        after < 64 * 1024,
+        "{after} bytes presos depois das edições"
     );
 }

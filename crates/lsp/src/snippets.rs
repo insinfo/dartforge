@@ -10,249 +10,249 @@
 //! UTF-16); o recorte é o mesmo porque todo marcador cai em fronteira de
 //! caractere.
 
-use crate::actions::{GrupoLigado, Ligado};
+use crate::actions::{LinkedGroup, Linked};
 
 /// O texto de uma edição escrito com as marcas do `EditBuilder` do Dart:
 /// `addSimpleLinkedEdit` (grupos por nome, na ordem de criação) e
 /// `selectHere`/`selectAll`. As posições são relativas ao texto.
 #[derive(Debug, Default)]
-pub(crate) struct Escrita {
-    pub texto: String,
+pub(crate) struct Write {
+    pub text: String,
     /// (nome, posições, comprimento, sugestões) por grupo.
-    pub grupos: Vec<(String, Vec<usize>, usize, Vec<String>)>,
-    pub selecao: Option<(usize, usize)>,
+    pub groups: Vec<(String, Vec<usize>, usize, Vec<String>)>,
+    pub selection: Option<(usize, usize)>,
 }
 
-impl Escrita {
+impl Write {
     /// `write`.
-    pub fn escrever(&mut self, t: &str) -> &mut Self {
-        self.texto.push_str(t);
+    pub fn write(&mut self, t: &str) -> &mut Self {
+        self.text.push_str(t);
         self
     }
 
-    /// `addSimpleLinkedEdit(nome, t, suggestions)`: o grupo ganha a posição
+    /// `addSimpleLinkedEdit(name, t, suggestions)`: o grupo ganha a posição
     /// (texto vazio não cria posição, como no Dart).
-    pub fn ligado(&mut self, nome: &str, t: &str, sugestoes: &[String]) -> &mut Self {
-        let k = self.texto.len();
-        self.texto.push_str(t);
+    pub fn linked(&mut self, name: &str, t: &str, suggestions: &[String]) -> &mut Self {
+        let k = self.text.len();
+        self.text.push_str(t);
         if !t.is_empty() {
-            match self.grupos.iter_mut().find(|g| g.0 == nome) {
+            match self.groups.iter_mut().find(|g| g.0 == name) {
                 Some(g) => {
                     g.1.push(k);
                     g.2 = t.len();
-                    g.3.extend(sugestoes.iter().cloned());
+                    g.3.extend(suggestions.iter().cloned());
                 }
-                None => self.grupos.push((nome.to_string(), vec![k], t.len(), sugestoes.to_vec())),
+                None => self.groups.push((name.to_string(), vec![k], t.len(), suggestions.to_vec())),
             }
         }
         self
     }
 
     /// `selectHere`.
-    pub fn aqui(&mut self) -> &mut Self {
-        self.selecao = Some((self.texto.len(), 0));
+    pub fn here(&mut self) -> &mut Self {
+        self.selection = Some((self.text.len(), 0));
         self
     }
 }
 
 /// Um marcador (`SnippetPlaceholder`): posição relativa ao texto da edição,
 /// comprimento, sugestões (só nos grupos), o grupo e se é o tab stop final.
-struct Marcador<'a> {
+struct Marker<'a> {
     offset: usize,
-    comprimento: usize,
-    sugestoes: Option<&'a [String]>,
-    grupo: Option<usize>,
+    length: usize,
+    suggestions: Option<&'a [String]>,
+    group: Option<usize>,
     final_: bool,
 }
 
 /// O `newText` do `SnippetTextEdit` de uma edição que substitui um trecho por
-/// `texto`, que começa em `inicio` no documento final; `ligado` traz a
+/// `text`, que começa em `start` no documento final; `linked` traz a
 /// seleção e os grupos em offsets do documento final (como o `SourceChange`
 /// do Dart). Marcadores fora do texto são descartados.
-pub(crate) fn texto_de_snippet(texto: &str, inicio: usize, ligado: &Ligado) -> String {
-    let relativo = |p: usize| p.checked_sub(inicio);
-    let mut marcadores: Vec<Marcador<'_>> = Vec::new();
+pub(crate) fn snippet_text(text: &str, start: usize, linked: &Linked) -> String {
+    let relative = |p: usize| p.checked_sub(start);
+    let mut markers: Vec<Marker<'_>> = Vec::new();
     // A seleção é sempre o número 0 (`isFinal`).
-    if let Some((s, n)) = ligado.selecao {
+    if let Some((s, n)) = linked.selection {
         // Uma seleção antes da edição fica negativa no Dart e sai no filtro.
-        if let Some(offset) = relativo(s) {
-            marcadores.push(Marcador { offset, comprimento: n, sugestoes: None, grupo: None, final_: true });
+        if let Some(offset) = relative(s) {
+            markers.push(Marker { offset, length: n, suggestions: None, group: None, final_: true });
         }
     }
     // Sem seleção, com um só grupo e no máximo uma sugestão, as posições do
     // grupo usam o número 0 (`convertEditGroup`, `isFinal`).
-    let um_so = ligado.selecao.is_none() && ligado.grupos.len() == 1;
-    for (indice, g) in ligado.grupos.iter().enumerate() {
-        let GrupoLigado { posicoes, comprimento, sugestoes } = g;
-        for &p in posicoes {
-            let Some(offset) = relativo(p) else { continue };
-            marcadores.push(Marcador {
+    let just_one = linked.selection.is_none() && linked.groups.len() == 1;
+    for (index, g) in linked.groups.iter().enumerate() {
+        let LinkedGroup { positions, length, suggestions } = g;
+        for &p in positions {
+            let Some(offset) = relative(p) else { continue };
+            markers.push(Marker {
                 offset,
-                comprimento: *comprimento,
-                sugestoes: Some(sugestoes),
-                grupo: Some(indice),
-                final_: um_so && sugestoes.len() <= 1,
+                length: *length,
+                suggestions: Some(suggestions),
+                group: Some(index),
+                final_: just_one && suggestions.len() <= 1,
             });
         }
     }
-    marcadores.retain(|m| m.offset + m.comprimento <= texto.len() && texto.is_char_boundary(m.offset) && texto.is_char_boundary(m.offset + m.comprimento));
+    markers.retain(|m| m.offset + m.length <= text.len() && text.is_char_boundary(m.offset) && text.is_char_boundary(m.offset + m.length));
     // Só os grupos precisam de ordenação (`isPreSorted`); a ordenação é
     // estável, como a do Dart nas listas curtas.
-    if !ligado.grupos.is_empty() {
-        marcadores.sort_by_key(|m| m.offset);
+    if !linked.groups.is_empty() {
+        markers.sort_by_key(|m| m.offset);
     }
-    let mut saida = Construtor::default();
-    let mut numero_do_grupo: Vec<(usize, usize)> = Vec::new();
+    let mut output = Constructor::default();
+    let mut group_number: Vec<(usize, usize)> = Vec::new();
     let mut offset = 0usize;
-    for m in &marcadores {
+    for m in &markers {
         // Marcadores sobrepostos: o Dart recortaria de trás para a frente
         // (erro de intervalo); aqui o anterior prevalece.
         if m.offset < offset {
             continue;
         }
-        saida.texto(&texto[offset..m.offset]);
-        let numero = if m.final_ {
+        output.text(&text[offset..m.offset]);
+        let number = if m.final_ {
             Some(0)
         } else {
-            m.grupo.and_then(|g| numero_do_grupo.iter().find(|(x, _)| *x == g).map(|(_, n)| *n))
+            m.group.and_then(|g| group_number.iter().find(|(x, _)| *x == g).map(|(_, n)| *n))
         };
-        let trecho = &texto[m.offset..m.offset + m.comprimento];
-        let usado = match m.sugestoes {
-            None => saida.marcador(trecho, numero),
-            Some(sugestoes) => {
+        let snippet = &text[m.offset..m.offset + m.length];
+        let used = match m.suggestions {
+            None => output.marker(snippet, number),
+            Some(suggestions) => {
                 // O conjunto (ordem de inserção, sem repetição): o texto
                 // atual, se não vazio, e as sugestões.
-                let mut escolhas: Vec<&str> = Vec::new();
-                for s in std::iter::once(trecho).filter(|t| !t.is_empty()).chain(sugestoes.iter().map(String::as_str)) {
-                    if !escolhas.contains(&s) {
-                        escolhas.push(s);
+                let mut choices: Vec<&str> = Vec::new();
+                for s in std::iter::once(snippet).filter(|t| !t.is_empty()).chain(suggestions.iter().map(String::as_str)) {
+                    if !choices.contains(&s) {
+                        choices.push(s);
                     }
                 }
-                saida.escolha(&escolhas, numero)
+                output.choice(&choices, number)
             }
         };
-        offset = m.offset + m.comprimento;
-        if let Some(g) = m.grupo
-            && !numero_do_grupo.iter().any(|(x, _)| *x == g)
+        offset = m.offset + m.length;
+        if let Some(g) = m.group
+            && !group_number.iter().any(|(x, _)| *x == g)
         {
-            numero_do_grupo.push((g, usado));
+            group_number.push((g, used));
         }
     }
-    saida.texto(&texto[offset..]);
-    saida.valor
+    output.text(&text[offset..]);
+    output.value
 }
 
 /// O `SnippetBuilder`: a numeração dos tab stops e os escapes.
-struct Construtor {
-    valor: String,
-    proximo: usize,
+struct Constructor {
+    value: String,
+    next: usize,
 }
 
-impl Default for Construtor {
+impl Default for Constructor {
     fn default() -> Self {
-        Construtor { valor: String::new(), proximo: 1 }
+        Constructor { value: String::new(), next: 1 }
     }
 }
 
-impl Construtor {
+impl Constructor {
     /// `_usePlaceholderNumber`: o número dado ou o próximo livre.
-    fn usar(&mut self, numero: Option<usize>) -> usize {
-        let n = numero.unwrap_or(self.proximo);
-        self.proximo = self.proximo.max(n + 1);
+    fn use_(&mut self, number: Option<usize>) -> usize {
+        let n = number.unwrap_or(self.next);
+        self.next = self.next.max(n + 1);
         n
     }
 
     /// `appendText`: fora dos marcadores escapam `$` e `\`.
-    fn texto(&mut self, t: &str) {
-        escapar(&mut self.valor, t, &['$', '\\']);
+    fn text(&mut self, t: &str) {
+        escape(&mut self.value, t, &['$', '\\']);
     }
 
-    /// `appendPlaceholder`: `${n:texto}` (escapando `$`, `}` e `\`), ou só
+    /// `appendPlaceholder`: `${n:text}` (escapando `$`, `}` e `\`), ou só
     /// o tab stop `$n` com texto vazio.
-    fn marcador(&mut self, t: &str, numero: Option<usize>) -> usize {
-        let n = self.usar(numero);
+    fn marker(&mut self, t: &str, number: Option<usize>) -> usize {
+        let n = self.use_(number);
         if t.is_empty() {
-            self.valor.push_str(&format!("${n}"));
+            self.value.push_str(&format!("${n}"));
         } else {
-            self.valor.push_str(&format!("${{{n}:"));
-            escapar(&mut self.valor, t, &['$', '}', '\\']);
-            self.valor.push('}');
+            self.value.push_str(&format!("${{{n}:"));
+            escape(&mut self.value, t, &['$', '}', '\\']);
+            self.value.push('}');
         }
         n
     }
 
     /// `appendChoice`: com 0 ou 1 escolha, um marcador; senão
     /// `${n|a,b|}` (escapando `\`, `|` e `,`), nunca com o número 0.
-    fn escolha(&mut self, escolhas: &[&str], numero: Option<usize>) -> usize {
-        if escolhas.len() <= 1 {
-            return self.marcador(escolhas.first().copied().unwrap_or(""), numero);
+    fn choice(&mut self, choices: &[&str], number: Option<usize>) -> usize {
+        if choices.len() <= 1 {
+            return self.marker(choices.first().copied().unwrap_or(""), number);
         }
-        let n = self.usar(numero.filter(|&n| n != 0));
-        self.valor.push_str(&format!("${{{n}|"));
-        for (i, e) in escolhas.iter().enumerate() {
+        let n = self.use_(number.filter(|&n| n != 0));
+        self.value.push_str(&format!("${{{n}|"));
+        for (i, e) in choices.iter().enumerate() {
             if i > 0 {
-                self.valor.push(',');
+                self.value.push(',');
             }
-            escapar(&mut self.valor, e, &['\\', '|', ',']);
+            escape(&mut self.value, e, &['\\', '|', ',']);
         }
-        self.valor.push_str("|}");
+        self.value.push_str("|}");
         n
     }
 }
 
-fn escapar(saida: &mut String, t: &str, especiais: &[char]) {
+fn escape(output: &mut String, t: &str, special: &[char]) {
     for c in t.chars() {
-        if especiais.contains(&c) {
-            saida.push('\\');
+        if special.contains(&c) {
+            output.push('\\');
         }
-        saida.push(c);
+        output.push(c);
     }
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    fn grupo(posicoes: &[usize], comprimento: usize, sugestoes: &[&str]) -> GrupoLigado {
-        GrupoLigado { posicoes: posicoes.to_vec(), comprimento, sugestoes: sugestoes.iter().map(|s| s.to_string()).collect() }
+    fn group(positions: &[usize], length: usize, suggestions: &[&str]) -> LinkedGroup {
+        LinkedGroup { positions: positions.to_vec(), length, suggestions: suggestions.iter().map(|s| s.to_string()).collect() }
     }
 
     #[test]
-    fn selecao_vira_tab_stop_final() {
-        let l = Ligado { selecao: Some((15, 0)), grupos: vec![] };
-        assert_eq!(texto_de_snippet(" {\n  return 1;\n}", 10, &l), " {\n  $0return 1;\n}");
-        let l = Ligado { selecao: Some((12, 4)), grupos: vec![] };
-        assert_eq!(texto_de_snippet("$a ${x} \\b", 9, &l), "\\$a ${0:\\${x\\}} \\\\b");
+    fn selection_becomes_final_tab_stop() {
+        let l = Linked { selection: Some((15, 0)), groups: vec![] };
+        assert_eq!(snippet_text(" {\n  return 1;\n}", 10, &l), " {\n  $0return 1;\n}");
+        let l = Linked { selection: Some((12, 4)), groups: vec![] };
+        assert_eq!(snippet_text("$a ${x} \\b", 9, &l), "\\$a ${0:\\${x\\}} \\\\b");
     }
 
     #[test]
-    fn grupo_unico_sem_selecao_usa_o_zero() {
-        let l = Ligado { selecao: None, grupos: vec![grupo(&[4, 19], 3, &[])] };
-        assert_eq!(texto_de_snippet("var abc = 1; print(abc);", 0, &l), "var ${0:abc} = 1; print(${0:abc});");
+    fn single_group_without_selection_uses_zero() {
+        let l = Linked { selection: None, groups: vec![group(&[4, 19], 3, &[])] };
+        assert_eq!(snippet_text("var abc = 1; print(abc);", 0, &l), "var ${0:abc} = 1; print(${0:abc});");
     }
 
     #[test]
-    fn grupos_com_sugestoes_viram_escolhas() {
+    fn groups_with_suggestions_become_choices() {
         // Numerados pela ordem no texto, não pela de criação; a seleção no
         // fim do texto ainda vale.
-        let l = Ligado { selecao: Some((12, 0)), grupos: vec![grupo(&[4], 1, &["a", "b"]), grupo(&[0], 3, &[])] };
-        assert_eq!(texto_de_snippet("var x = f();", 0, &l), "${1:var} ${2|x,a,b|} = f();$0");
+        let l = Linked { selection: Some((12, 0)), groups: vec![group(&[4], 1, &["a", "b"]), group(&[0], 3, &[])] };
+        assert_eq!(snippet_text("var x = f();", 0, &l), "${1:var} ${2|x,a,b|} = f();$0");
         // Uma só sugestão igual ao texto: degrada para marcador.
-        let l = Ligado { selecao: None, grupos: vec![grupo(&[4], 1, &["x"]), grupo(&[8], 1, &[])] };
-        assert_eq!(texto_de_snippet("var x = y;", 0, &l), "var ${1:x} = ${2:y};");
+        let l = Linked { selection: None, groups: vec![group(&[4], 1, &["x"]), group(&[8], 1, &[])] };
+        assert_eq!(snippet_text("var x = y;", 0, &l), "var ${1:x} = ${2:y};");
     }
 
     #[test]
-    fn escolha_unica_com_varias_sugestoes_nao_e_zero() {
-        let l = Ligado { selecao: None, grupos: vec![grupo(&[0], 3, &["a", "b"])] };
-        assert_eq!(texto_de_snippet("int,x", 0, &l), "${1|int,a,b|},x");
-        let l = Ligado { selecao: None, grupos: vec![grupo(&[0], 0, &["a,b", "c|d"])] };
-        assert_eq!(texto_de_snippet("", 0, &l), "${1|a\\,b,c\\|d|}");
+    fn single_choice_with_several_suggestions_is_not_zero() {
+        let l = Linked { selection: None, groups: vec![group(&[0], 3, &["a", "b"])] };
+        assert_eq!(snippet_text("int,x", 0, &l), "${1|int,a,b|},x");
+        let l = Linked { selection: None, groups: vec![group(&[0], 0, &["a,b", "c|d"])] };
+        assert_eq!(snippet_text("", 0, &l), "${1|a\\,b,c\\|d|}");
     }
 
     #[test]
-    fn fora_do_texto_sai() {
-        let l = Ligado { selecao: Some((2, 0)), grupos: vec![grupo(&[100], 3, &[])] };
-        assert_eq!(texto_de_snippet("abc", 5, &l), "abc");
+    fn outside_text_exits() {
+        let l = Linked { selection: Some((2, 0)), groups: vec![group(&[100], 3, &[])] };
+        assert_eq!(snippet_text("abc", 5, &l), "abc");
     }
 }

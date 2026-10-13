@@ -9,7 +9,7 @@
 //! * tipo de retorno antes do nome de método declarado sem tipo de retorno
 //!   (o setter inclusive, com `void`), e antes do nome (ou do `get`) de
 //!   função sem ele (setter de topo não);
-//! * nome do parâmetro (espécie 2, `nome:`) antes de cada argumento
+//! * nome do parâmetro (espécie 2, `name:`) antes de cada argumento
 //!   posicional de toda lista de argumentos que resolve para uma função com
 //!   parâmetros declarados: chamadas, criações, anotações e os `super(…)` e
 //!   `this(…)` de construtores;
@@ -26,10 +26,10 @@
 //! não os do patch (o analyzer não aplica patches).
 //!
 //! O analyzer devolve as dicas do arquivo inteiro, sem olhar o intervalo
-//! pedido; aqui também. Tipos vêm da inferência comum (`tipo_local`,
+//! pedido; aqui também. Tipos vêm da inferência comum (`local_type`,
 //! `get_type`, outline), nunca de uma inferência própria.
 
-use crate::project::Projeto;
+use crate::project::Project;
 use dartforge_elements::model::{FunctionElementId, FunctionKind, FunctionRef, UnitId, VariableRef};
 use dartforge_frontend::ast::{self, DeclKind, ExprKind, MemberKind, ParameterKind, StmtKind};
 use dartforge_types::{MemberRef, Resolved, Type, TypeId};
@@ -38,45 +38,45 @@ use std::collections::HashMap;
 /// Uma dica: offset (bytes) onde aparece, texto, espécie LSP (1 tipo, 2
 /// parâmetro) e se leva espaço à direita.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Dica {
+pub struct Hint {
     pub offset: usize,
-    pub rotulo: String,
-    pub especie: u8,
-    pub espaco_depois: bool,
+    pub label: String,
+    pub kind: u8,
+    pub space_after: bool,
 }
 
-impl Projeto {
-    /// As dicas de `unidade`.
-    pub(crate) fn dicas(&self, unidade: UnitId) -> Vec<Dica> {
-        let p = self.programa();
-        let u = p.unit(unidade);
+impl Project {
+    /// As dicas de `unit`.
+    pub(crate) fn hints(&self, unit_: UnitId) -> Vec<Hint> {
+        let p = self.program();
+        let u = p.unit(unit_);
         let ast = &u.ast;
-        let corpos = &self.consulta.corpos.units[unidade.0 as usize];
-        let mut saida = Vec::new();
-        let tipo = |offset: usize, t: TypeId, saida: &mut Vec<Dica>| {
-            saida.push(Dica { offset, rotulo: self.consulta.formatar(t), especie: 1, espaco_depois: true });
+        let bodies = &self.query.bodies.units[unit_.0 as usize];
+        let mut output = Vec::new();
+        let ty_ = |offset: usize, t: TypeId, output: &mut Vec<Hint>| {
+            output.push(Hint { offset, label: self.query.format(t), kind: 1, space_after: true });
         };
         // Variáveis de topo e campos: pelo elemento.
-        let mut variaveis: HashMap<(bool, u32, usize), dartforge_elements::model::VariableId> = HashMap::new();
+        let mut variables: HashMap<(bool, u32, usize), dartforge_elements::model::VariableId> = HashMap::new();
         for (i, v) in p.variables.iter().enumerate() {
             let id = dartforge_elements::model::VariableId(i as u32);
             match v.node {
-                VariableRef::TopLevel { unit, decl, index } if unit == unidade => {
-                    variaveis.insert((true, decl.0, index), id);
+                VariableRef::TopLevel { unit, decl, index } if unit == unit_ => {
+                    variables.insert((true, decl.0, index), id);
                 }
-                VariableRef::Field { unit, member, index } if unit == unidade => {
-                    variaveis.insert((false, member.0, index), id);
+                VariableRef::Field { unit, member, index } if unit == unit_ => {
+                    variables.insert((false, member.0, index), id);
                 }
                 _ => {}
             }
         }
         // Função da árvore -> elemento (retornos sem tipo escrito).
-        let funcoes: HashMap<u32, FunctionElementId> = p
+        let functions: HashMap<u32, FunctionElementId> = p
             .functions
             .iter()
             .enumerate()
             .filter_map(|(i, x)| match x.node {
-                FunctionRef::Function { unit, function } if unit == unidade => Some((function.0, FunctionElementId(i as u32))),
+                FunctionRef::Function { unit, function } if unit == unit_ => Some((function.0, FunctionElementId(i as u32))),
                 _ => None,
             })
             .collect();
@@ -84,12 +84,12 @@ impl Projeto {
             match &d.kind {
                 DeclKind::Variables(vl) if vl.ty.is_none() => {
                     for (k, var) in vl.variables.iter().enumerate() {
-                        if let Some(t) = variaveis.get(&(true, i as u32, k)).and_then(|v| self.consulta.tipo_da_variavel(*v)) {
-                            tipo(var.name.span.start, t, &mut saida);
+                        if let Some(t) = variables.get(&(true, i as u32, k)).and_then(|v| self.query.variable_type(*v)) {
+                            ty_(var.name.span.start, t, &mut output);
                         }
                     }
                 }
-                DeclKind::Function(f) => self.retorno(unidade, *f, funcoes.get(&f.0).copied(), false, &mut saida),
+                DeclKind::Function(f) => self.return_(unit_, *f, functions.get(&f.0).copied(), false, &mut output),
                 _ => {}
             }
         }
@@ -97,14 +97,14 @@ impl Projeto {
             match &m.kind {
                 MemberKind::Field(vl) if vl.ty.is_none() => {
                     for (k, var) in vl.variables.iter().enumerate() {
-                        if let Some(t) = variaveis.get(&(false, i as u32, k)).and_then(|v| self.consulta.tipo_da_variavel(*v)) {
-                            tipo(var.name.span.start, t, &mut saida);
+                        if let Some(t) = variables.get(&(false, i as u32, k)).and_then(|v| self.query.variable_type(*v)) {
+                            ty_(var.name.span.start, t, &mut output);
                         }
                     }
                 }
-                MemberKind::Method(f) => self.retorno(unidade, *f, funcoes.get(&f.0).copied(), true, &mut saida),
+                MemberKind::Method(f) => self.return_(unit_, *f, functions.get(&f.0).copied(), true, &mut output),
                 MemberKind::Constructor(k) => {
-                    let elemento = self.construtor_do_no(unidade, ast::MemberId(i as u32));
+                    let element = self.node_constructor(unit_, ast::MemberId(i as u32));
                     // Parâmetros sem tipo (`SimpleFormalParameter` sem tipo
                     // escrito); o redirecionador não tem corpo, o tipo vem
                     // do outline.
@@ -114,33 +114,33 @@ impl Projeto {
                             && !prm.super_
                             && prm.function_parameters.is_none()
                             && let Some(n) = prm.name
-                            && let Some(t) = corpos.tipo_local(n.span.start).or_else(|| {
-                                elemento.and_then(|f| self.consulta.outline.functions.get(f.0 as usize)).and_then(|d| d.parameters.get(j)).map(|d| d.ty)
+                            && let Some(t) = bodies.tipo_local(n.span.start).or_else(|| {
+                                element.and_then(|f| self.query.outline.functions.get(f.0 as usize)).and_then(|d| d.parameters.get(j)).map(|d| d.ty)
                             })
                         {
-                            tipo(n.span.start, t, &mut saida);
+                            ty_(n.span.start, t, &mut output);
                         }
                     }
                     // `super(…)` e `this(…)`: os nomes dos parâmetros do
                     // construtor chamado.
-                    for ini in k.initializers.iter() {
-                        let (chamado, argumentos) = match ini {
-                            ast::Initializer::Super { arguments, .. } => (elemento.and_then(|f| self.construtor_super(f)), arguments),
+                    for start in k.initializers.iter() {
+                        let (callee, arguments_) = match start {
+                            ast::Initializer::Super { arguments, .. } => (element.and_then(|f| self.super_constructor(f)), arguments),
                             ast::Initializer::Redirect { constructor, arguments, .. } => {
-                                let chamado = elemento.and_then(|f| p.function(f).class).and_then(|c| {
-                                    let nome = match constructor {
+                                let callee = element.and_then(|f| p.function(f).class).and_then(|c| {
+                                    let name_ = match constructor {
                                         Some(n) => Some(n.sym),
-                                        None => self.consulta.nomes.lookup(""),
+                                        None => self.query.names.lookup(""),
                                     }?;
-                                    p.class(c).constructors.get(&nome).copied()
+                                    p.class(c).constructors.get(&name_).copied()
                                 });
-                                (chamado, arguments)
+                                (callee, arguments)
                             }
                             _ => continue,
                         };
-                        if let Some(f) = chamado {
-                            let nomes = self.nomes_posicionais(f);
-                            self.nomes_de_argumentos(ast, &u.source, argumentos, &nomes, &mut saida);
+                        if let Some(f) = callee {
+                            let names = self.positional_names(f);
+                            self.argument_names(ast, &u.source, arguments_, &names, &mut output);
                         }
                     }
                 }
@@ -148,47 +148,47 @@ impl Projeto {
             }
         }
         // Os argumentos das anotações (`visitArgumentList`).
-        let mut anotacoes: Vec<&ast::Annotation> = Vec::new();
+        let mut annotations: Vec<&ast::Annotation> = Vec::new();
         for d in ast.decls.iter() {
-            anotacoes.extend(d.metadata.iter());
+            annotations.extend(d.metadata.iter());
             if let DeclKind::Enum(e) = &d.kind {
                 for k in e.constants.iter() {
-                    anotacoes.extend(k.metadata.iter());
+                    annotations.extend(k.metadata.iter());
                 }
             }
         }
         for m in ast.members.iter() {
-            anotacoes.extend(m.metadata.iter());
+            annotations.extend(m.metadata.iter());
         }
         for d in u.unit.directives.iter() {
-            anotacoes.extend(d.metadata.iter());
+            annotations.extend(d.metadata.iter());
         }
         for f in ast.functions.iter() {
             for prm in f.parameters.iter().flatten() {
-                anotacoes.extend(prm.metadata.iter());
+                annotations.extend(prm.metadata.iter());
             }
         }
         for m in ast.members.iter() {
             if let MemberKind::Constructor(k) = &m.kind {
                 for prm in k.parameters.iter() {
-                    anotacoes.extend(prm.metadata.iter());
+                    annotations.extend(prm.metadata.iter());
                 }
             }
         }
-        for a in anotacoes {
-            if let Some(argumentos) = &a.arguments
-                && let Some(f) = self.construtor_da_anotacao(unidade, a)
+        for a in annotations {
+            if let Some(arguments_) = &a.arguments
+                && let Some(f) = self.annotation_constructor(unit_, a)
             {
-                let nomes = self.nomes_posicionais(f);
-                self.nomes_de_argumentos(ast, &u.source, argumentos, &nomes, &mut saida);
+                let names = self.positional_names(f);
+                self.argument_names(ast, &u.source, arguments_, &names, &mut output);
             }
         }
         for s in &ast.stmts {
             match &s.kind {
                 StmtKind::Variables(vl) if vl.ty.is_none() => {
                     for var in vl.variables.iter() {
-                        if let Some(t) = corpos.tipo_local(var.name.span.start) {
-                            tipo(var.name.span.start, t, &mut saida);
+                        if let Some(t) = bodies.tipo_local(var.name.span.start) {
+                            ty_(var.name.span.start, t, &mut output);
                         }
                     }
                 }
@@ -196,14 +196,14 @@ impl Projeto {
                 // `VariableDeclarationList` (`visitVariableDeclaration`).
                 StmtKind::For { init: Some(ast::ForInit::Variables(vl)), .. } if vl.ty.is_none() => {
                     for var in vl.variables.iter() {
-                        if let Some(t) = corpos.tipo_local(var.name.span.start) {
-                            tipo(var.name.span.start, t, &mut saida);
+                        if let Some(t) = bodies.tipo_local(var.name.span.start) {
+                            ty_(var.name.span.start, t, &mut output);
                         }
                     }
                 }
                 StmtKind::ForIn { target: ast::ForInTarget::Declared { ty: None, name, .. }, .. } => {
-                    if let Some(t) = corpos.tipo_local(name.span.start) {
-                        tipo(name.span.start, t, &mut saida);
+                    if let Some(t) = bodies.tipo_local(name.span.start) {
+                        ty_(name.span.start, t, &mut output);
                     }
                 }
                 StmtKind::Function(f) => {
@@ -211,10 +211,10 @@ impl Projeto {
                     if func.return_type.is_none()
                         && func.kind != ast::FunctionKind::Setter
                         && let Some(n) = func.name
-                        && let Some(t) = corpos.tipo_local(n.span.start)
-                        && let Type::Function { ret, .. } = self.consulta.tabela.get(t)
+                        && let Some(t) = bodies.tipo_local(n.span.start)
+                        && let Type::Function { ret, .. } = self.query.table.get(t)
                     {
-                        tipo(n.span.start, *ret, &mut saida);
+                        ty_(n.span.start, *ret, &mut output);
                     }
                 }
                 _ => {}
@@ -222,9 +222,9 @@ impl Projeto {
         }
         for pt in &ast.patterns {
             if let ast::PatternKind::Variable { ty: None, name, .. } = &pt.kind
-                && let Some(t) = corpos.tipo_local(name.span.start)
+                && let Some(t) = bodies.tipo_local(name.span.start)
             {
-                tipo(name.span.start, t, &mut saida);
+                ty_(name.span.start, t, &mut output);
             }
         }
         // Parâmetros sem tipo (de funções, métodos e closures).
@@ -235,22 +235,22 @@ impl Projeto {
                     && !prm.super_
                     && prm.function_parameters.is_none()
                     && let Some(n) = prm.name
-                    && let Some(t) = corpos.tipo_local(n.span.start)
+                    && let Some(t) = bodies.tipo_local(n.span.start)
                 {
-                    tipo(n.span.start, t, &mut saida);
+                    ty_(n.span.start, t, &mut output);
                 }
             }
         }
         // Os tipos nomeados das criações (`new C()`) têm a dica pela criação.
-        let mut de_criacao: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        let mut of_creation: std::collections::HashSet<u32> = std::collections::HashSet::new();
         for e in ast.exprs.iter() {
             match &e.kind {
                 ExprKind::InstanceCreation { ty, .. } => {
-                    de_criacao.insert(ty.0);
+                    of_creation.insert(ty.0);
                 }
                 // `[for (var i = 0; …) i]`: o cabeçalho do `for` de coleção.
                 ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => {
-                    fn varrer(els: &[ast::CollectionElement], corpos: &dartforge_types::UnitBodyTypes, f: &mut dyn FnMut(usize, TypeId)) {
+                    fn scan(els: &[ast::CollectionElement], bodies: &dartforge_types::UnitBodyTypes, f: &mut dyn FnMut(usize, TypeId)) {
                         for el in els {
                             match el {
                                 ast::CollectionElement::For { init, body, .. } => {
@@ -258,36 +258,36 @@ impl Projeto {
                                         && vl.ty.is_none()
                                     {
                                         for var in vl.variables.iter() {
-                                            if let Some(t) = corpos.tipo_local(var.name.span.start) {
+                                            if let Some(t) = bodies.tipo_local(var.name.span.start) {
                                                 f(var.name.span.start, t);
                                             }
                                         }
                                     }
-                                    varrer(std::slice::from_ref(body), corpos, f);
+                                    scan(std::slice::from_ref(body), bodies, f);
                                 }
                                 ast::CollectionElement::ForIn { target, body, .. } => {
                                     // `[for (var x in l) …]`: o `DeclaredIdentifier` sem tipo.
                                     if let ast::ForInTarget::Declared { ty: None, name, .. } = target
-                                        && let Some(t) = corpos.tipo_local(name.span.start)
+                                        && let Some(t) = bodies.tipo_local(name.span.start)
                                     {
                                         f(name.span.start, t);
                                     }
-                                    varrer(std::slice::from_ref(body), corpos, f)
+                                    scan(std::slice::from_ref(body), bodies, f)
                                 }
                                 ast::CollectionElement::If { then, else_, .. } => {
-                                    varrer(std::slice::from_ref(then), corpos, f);
+                                    scan(std::slice::from_ref(then), bodies, f);
                                     if let Some(x) = else_ {
-                                        varrer(std::slice::from_ref(x), corpos, f);
+                                        scan(std::slice::from_ref(x), bodies, f);
                                     }
                                 }
                                 _ => {}
                             }
                         }
                     }
-                    let mut achados: Vec<(usize, TypeId)> = Vec::new();
-                    varrer(elements, corpos, &mut |o, t| achados.push((o, t)));
-                    for (o, t) in achados {
-                        tipo(o, t, &mut saida);
+                    let mut found: Vec<(usize, TypeId)> = Vec::new();
+                    scan(elements, bodies, &mut |o, t| found.push((o, t)));
+                    for (o, t) in found {
+                        ty_(o, t, &mut output);
                     }
                 }
                 _ => {}
@@ -295,41 +295,41 @@ impl Projeto {
         }
         // O tipo de um padrão objeto é o requerido, com os argumentos
         // inferidos (`MapEntry(key: k)` dá `MapEntry<K, V>`).
-        let mut de_padrao: HashMap<u32, TypeId> = HashMap::new();
+        let mut of_pattern: HashMap<u32, TypeId> = HashMap::new();
         for (i, pt) in ast.patterns.iter().enumerate() {
             if let ast::PatternKind::Object { ty, .. } = &pt.kind
-                && let Some(&t) = corpos.tipos_de_padroes.get(&ast::PatternId(i as u32))
+                && let Some(&t) = bodies.tipos_de_padroes.get(&ast::PatternId(i as u32))
             {
-                de_padrao.insert(ty.0, t);
+                of_pattern.insert(ty.0, t);
             }
         }
         // Um argumento de tipo aninhado (`Command` em `List<Command>`) não
         // tem registro próprio: o tipo vem do argumento do pai.
-        let mut pai_de: HashMap<u32, (u32, usize)> = HashMap::new();
+        let mut parent_of: HashMap<u32, (u32, usize)> = HashMap::new();
         for (i, ty) in ast.types.iter().enumerate() {
             if let ast::TypeKind::Named { args, .. } = &ty.kind {
                 for (k, a) in args.iter().enumerate() {
-                    pai_de.insert(a.0, (i as u32, k));
+                    parent_of.insert(a.0, (i as u32, k));
                 }
             }
         }
-        let direto = |i: u32| -> Option<TypeId> {
+        let direct = |i: u32| -> Option<TypeId> {
             let id = ast::TypeId(i);
-            de_padrao.get(&i).or_else(|| corpos.tipos_de_anotacoes.get(&id)).or_else(|| self.consulta.outline.tipos_escritos.get(&(unidade, id))).copied()
+            of_pattern.get(&i).or_else(|| bodies.tipos_de_anotacoes.get(&id)).or_else(|| self.query.outline.tipos_escritos.get(&(unit_, id))).copied()
         };
-        let resolver = |i: u32| -> Option<TypeId> {
-            let mut caminho: Vec<usize> = Vec::new();
-            let mut atual = i;
-            let mut base = direto(atual);
+        let resolve = |i: u32| -> Option<TypeId> {
+            let mut path: Vec<usize> = Vec::new();
+            let mut current = i;
+            let mut base = direct(current);
             while base.is_none() {
-                let &(pai, k) = pai_de.get(&atual)?;
-                caminho.push(k);
-                atual = pai;
-                base = direto(atual);
+                let &(parent, k) = parent_of.get(&current)?;
+                path.push(k);
+                current = parent;
+                base = direct(current);
             }
             let mut t = base?;
-            for &k in caminho.iter().rev() {
-                t = match self.consulta.tabela.get(t) {
+            for &k in path.iter().rev() {
+                t = match self.query.table.get(t) {
                     Type::Interface { args, .. } | Type::ExtensionType { args, .. } => *args.get(k)?,
                     _ => return None,
                 };
@@ -339,11 +339,11 @@ impl Projeto {
         // `visitNamedType`: tipo escrito sem argumentos cujo tipo os tem.
         for (i, ty) in ast.types.iter().enumerate() {
             let ast::TypeKind::Named { args, .. } = &ty.kind else { continue };
-            if !args.is_empty() || de_criacao.contains(&(i as u32)) {
+            if !args.is_empty() || of_creation.contains(&(i as u32)) {
                 continue;
             }
-            let resolvido = resolver(i as u32);
-            self.argumentos_de_tipo(resolvido, ty.span.end, &mut saida);
+            let resolved = resolve(i as u32);
+            self.type_arguments(resolved, ty.span.end, &mut output);
         }
         for (i, e) in ast.exprs.iter().enumerate() {
             let id = ast::ExprId(i as u32);
@@ -353,17 +353,17 @@ impl Projeto {
                     // escolhidos, antes do `(`, sem argumentos escritos (a
                     // criação implícita não é invocação).
                     if arguments.type_args.is_empty()
-                        && !matches!(corpos.get_resolved(id), Some(Resolved::Constructor(_)))
-                        && let Some(escolhidos) = corpos.instanciacao(arguments.span.start)
-                        && !escolhidos.is_empty()
+                        && !matches!(bodies.get_resolved(id), Some(Resolved::Constructor(_)))
+                        && let Some(chosen) = bodies.instanciacao(arguments.span.start)
+                        && !chosen.is_empty()
                     {
-                        let abre = u.source[arguments.span.start..].find('(').map_or(arguments.span.start, |k| arguments.span.start + k);
-                        let textos: Vec<String> = escolhidos.iter().map(|a| self.texto_de_tipo(*a)).collect();
-                        saida.push(Dica { offset: abre, rotulo: format!("<{}>", textos.join(", ")), especie: 1, espaco_depois: false });
+                        let opens = u.source[arguments.span.start..].find('(').map_or(arguments.span.start, |k| arguments.span.start + k);
+                        let texts: Vec<String> = chosen.iter().map(|a| self.type_text(*a)).collect();
+                        output.push(Hint { offset: opens, label: format!("<{}>", texts.join(", ")), kind: 1, space_after: false });
                     }
-                    let f = match corpos.get_resolved(id) {
+                    let f = match bodies.get_resolved(id) {
                         Some(Resolved::Constructor(f)) => Some(*f),
-                        _ => match corpos.get_resolved(*target) {
+                        _ => match bodies.get_resolved(*target) {
                             Some(Resolved::Member { member: MemberRef::Function(f), .. })
                             | Some(Resolved::ExtensionMember { member: f, .. })
                             | Some(Resolved::Element(dartforge_elements::model::Element::Function(f)))
@@ -371,17 +371,17 @@ impl Projeto {
                             _ => None,
                         },
                     };
-                    let nomes = match f {
-                        Some(f) => self.nomes_posicionais(f),
-                        None => corpos.declaracao_local(*target).map_or_else(Vec::new, |d| nomes_de_funcao_local(ast, &u.source, d)),
+                    let names = match f {
+                        Some(f) => self.positional_names(f),
+                        None => bodies.declaracao_local(*target).map_or_else(Vec::new, |d| local_function_names(ast, &u.source, d)),
                     };
-                    self.nomes_de_argumentos(ast, &u.source, arguments, &nomes, &mut saida);
+                    self.argument_names(ast, &u.source, arguments, &names, &mut output);
                     // `Caixa('a')` sem `new`: os argumentos de tipo inferidos
                     // depois do nome da classe.
-                    if let Some(Resolved::Constructor(_)) = corpos.get_resolved(id)
+                    if let Some(Resolved::Constructor(_)) = bodies.get_resolved(id)
                         && arguments.type_args.is_empty()
                     {
-                        let classe = match &ast.expr(*target).kind {
+                        let class = match &ast.expr(*target).kind {
                             ExprKind::Identifier(n) => Some(n.span.end),
                             ExprKind::Property { target: t, .. } => match &ast.expr(*t).kind {
                                 ExprKind::Identifier(n) => Some(n.span.end),
@@ -390,85 +390,85 @@ impl Projeto {
                             },
                             _ => None,
                         };
-                        if let Some(fim) = classe {
-                            self.argumentos_de_tipo(corpos.get_type(id), fim, &mut saida);
+                        if let Some(end) = class {
+                            self.type_arguments(bodies.get_type(id), end, &mut output);
                         }
                     }
                 }
                 ExprKind::InstanceCreation { ty, arguments, .. } => {
-                    if let Some(Resolved::Constructor(f)) = corpos.get_resolved(id) {
-                        let nomes = self.nomes_posicionais(*f);
-                        self.nomes_de_argumentos(ast, &u.source, arguments, &nomes, &mut saida);
+                    if let Some(Resolved::Constructor(f)) = bodies.get_resolved(id) {
+                        let names = self.positional_names(*f);
+                        self.argument_names(ast, &u.source, arguments, &names, &mut output);
                     }
                     if let ast::TypeKind::Named { args, name } = &ast.ty(*ty).kind
                         && args.is_empty()
                         && let Some(n) = name.last()
                     {
-                        self.argumentos_de_tipo(corpos.get_type(id), n.span.end, &mut saida);
+                        self.type_arguments(bodies.get_type(id), n.span.end, &mut output);
                     }
                 }
                 ExprKind::List { type_args, .. } | ExprKind::SetOrMap { type_args, .. } if type_args.is_empty() => {
-                    let abre = if matches!(e.kind, ExprKind::List { .. }) { '[' } else { '{' };
-                    if let Some(k) = u.source[e.span.start..e.span.end].find(abre) {
-                        self.argumentos_de_tipo(corpos.get_type(id), e.span.start + k, &mut saida);
+                    let opens = if matches!(e.kind, ExprKind::List { .. }) { '[' } else { '{' };
+                    if let Some(k) = u.source[e.span.start..e.span.end].find(opens) {
+                        self.type_arguments(bodies.get_type(id), e.span.start + k, &mut output);
                     }
                 }
                 _ => {}
             }
         }
-        saida.sort_by_key(|d| d.offset);
-        saida
+        output.sort_by_key(|d| d.offset);
+        output
     }
 
     /// Tipo de retorno de uma função ou método sem tipo escrito: o método
     /// (`visitMethodDeclaration`) sempre antes do nome, o setter inclusive;
     /// a função (`visitFunctionDeclaration`) antes do `get`, e o setter não.
-    fn retorno(&self, unidade: UnitId, f: ast::FunctionId, elemento: Option<FunctionElementId>, metodo: bool, saida: &mut Vec<Dica>) {
-        let p = self.programa();
-        let Some(fe) = elemento else { return };
-        let func = p.unit(unidade).ast.function(f);
-        if func.return_type.is_some() || (!metodo && (func.kind == ast::FunctionKind::Setter || p.function(fe).kind == FunctionKind::Setter)) {
+    fn return_(&self, unit: UnitId, f: ast::FunctionId, element: Option<FunctionElementId>, method: bool, output: &mut Vec<Hint>) {
+        let p = self.program();
+        let Some(fe) = element else { return };
+        let func = p.unit(unit).ast.function(f);
+        if func.return_type.is_some() || (!method && (func.kind == ast::FunctionKind::Setter || p.function(fe).kind == FunctionKind::Setter)) {
             return;
         }
         let Some(n) = func.name else { return };
         // Getter de topo: antes do `get`.
-        let fonte = &p.unit(unidade).source;
-        let offset = if !metodo && func.kind == ast::FunctionKind::Getter {
-            fonte[..n.span.start].trim_end().strip_suffix("get").map_or(n.span.start, str::len)
+        let source = &p.unit(unit).source;
+        let offset = if !method && func.kind == ast::FunctionKind::Getter {
+            source[..n.span.start].trim_end().strip_suffix("get").map_or(n.span.start, str::len)
         } else {
             n.span.start
         };
-        let t = self.consulta.outline.functions[fe.0 as usize].return_type;
-        saida.push(Dica { offset, rotulo: self.consulta.formatar(t), especie: 1, espaco_depois: true });
+        let t = self.query.outline.functions[fe.0 as usize].return_type;
+        output.push(Hint { offset, label: self.query.format(t), kind: 1, space_after: true });
     }
 
     /// O construtor que a anotação `@C(…)`, `@C.n(…)`, `@p.C(…)` ou
     /// `@p.C.n(…)` invoca.
-    fn construtor_da_anotacao(&self, unidade: UnitId, a: &ast::Annotation) -> Option<FunctionElementId> {
-        let p = self.programa();
-        let lib = p.unit(unidade).library;
-        let classe_de = |b: Option<dartforge_elements::model::Binding>| match b.and_then(|b| b.getter) {
+    fn annotation_constructor(&self, unit: UnitId, a: &ast::Annotation) -> Option<FunctionElementId> {
+        let p = self.program();
+        let lib = p.unit(unit).library;
+        let class_of = |b: Option<dartforge_elements::model::Binding>| match b.and_then(|b| b.getter) {
             Some(dartforge_elements::model::Element::Class(c)) => Some(c),
             _ => None,
         };
-        let (classe, nome) = match a.name.as_slice() {
-            [c] => (classe_de(p.lookup_na_unidade(unidade, c.sym))?, None),
-            [x, y] if crate::project::eh_prefixo(p, lib, x.sym) => (classe_de(p.lookup_prefixed_na_unidade(unidade, x.sym, y.sym))?, None),
-            [x, y] => (classe_de(p.lookup_na_unidade(unidade, x.sym))?, Some(y.sym)),
-            [x, y, z] => (classe_de(p.lookup_prefixed_na_unidade(unidade, x.sym, y.sym))?, Some(z.sym)),
+        let (class, name) = match a.name.as_slice() {
+            [c] => (class_of(p.lookup_na_unidade(unit, c.sym))?, None),
+            [x, y] if crate::project::is_prefix(p, lib, x.sym) => (class_of(p.lookup_prefixed_na_unidade(unit, x.sym, y.sym))?, None),
+            [x, y] => (class_of(p.lookup_na_unidade(unit, x.sym))?, Some(y.sym)),
+            [x, y, z] => (class_of(p.lookup_prefixed_na_unidade(unit, x.sym, y.sym))?, Some(z.sym)),
             _ => return None,
         };
-        let nome = match nome {
+        let name = match name {
             Some(n) => n,
-            None => self.consulta.nomes.lookup("")?,
+            None => self.query.names.lookup("")?,
         };
-        p.class(classe).constructors.get(&nome).copied()
+        p.class(class).constructors.get(&name).copied()
     }
 
     /// Nomes dos parâmetros posicionais de `f`, na ordem (os da declaração
     /// pública de um membro de patch do SDK).
-    fn nomes_posicionais(&self, f: FunctionElementId) -> Vec<String> {
-        let p = self.programa();
+    fn positional_names(&self, f: FunctionElementId) -> Vec<String> {
+        let p = self.program();
         let f = p.function(f).declaracao_publica.unwrap_or(f);
         let (unit, ps): (UnitId, &[ast::Parameter]) = match p.function(f).node {
             FunctionRef::Function { unit, function } => (unit, p.unit(unit).ast.function(function).parameters.as_deref().unwrap_or(&[])),
@@ -478,50 +478,50 @@ impl Projeto {
             },
             FunctionRef::None => return Vec::new(),
         };
-        let fonte = &p.unit(unit).source;
+        let source = &p.unit(unit).source;
         ps.iter()
             .filter(|x| x.kind != ParameterKind::Named)
-            .map(|x| x.name.map_or(String::new(), |n| fonte[n.span.start..n.span.end].to_string()))
+            .map(|x| x.name.map_or(String::new(), |n| source[n.span.start..n.span.end].to_string()))
             .collect()
     }
 
-    /// `nome:` antes de cada argumento posicional.
-    fn nomes_de_argumentos(&self, ast: &ast::Ast, _fonte: &str, argumentos: &ast::Arguments, nomes: &[String], saida: &mut Vec<Dica>) {
+    /// `name:` antes de cada argumento posicional.
+    fn argument_names(&self, ast: &ast::Ast, _source: &str, arguments: &ast::Arguments, names: &[String], output: &mut Vec<Hint>) {
         let mut k = 0;
-        for a in argumentos.args.iter() {
+        for a in arguments.args.iter() {
             if a.name.is_some() {
                 continue;
             }
-            if let Some(n) = nomes.get(k).filter(|n| !n.is_empty()) {
-                saida.push(Dica { offset: ast.expr(a.value).span.start, rotulo: format!("{n}:"), especie: 2, espaco_depois: true });
+            if let Some(n) = names.get(k).filter(|n| !n.is_empty()) {
+                output.push(Hint { offset: ast.expr(a.value).span.start, label: format!("{n}:"), kind: 2, space_after: true });
             }
             k += 1;
         }
     }
 
     /// `<A, B>` dos argumentos de um tipo de interface, em `offset`.
-    fn argumentos_de_tipo(&self, tipo: Option<TypeId>, offset: usize, saida: &mut Vec<Dica>) {
-        let Some(t) = tipo else { return };
-        let args = match self.consulta.tabela.get(t) {
+    fn type_arguments(&self, ty: Option<TypeId>, offset: usize, output: &mut Vec<Hint>) {
+        let Some(t) = ty else { return };
+        let args = match self.query.table.get(t) {
             Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.clone(),
             _ => return,
         };
         if args.is_empty() {
             return;
         }
-        let textos: Vec<String> = args.iter().map(|a| self.texto_de_tipo(*a)).collect();
-        saida.push(Dica { offset, rotulo: format!("<{}>", textos.join(", ")), especie: 1, espaco_depois: false });
+        let texts: Vec<String> = args.iter().map(|a| self.type_text(*a)).collect();
+        output.push(Hint { offset, label: format!("<{}>", texts.join(", ")), kind: 1, space_after: false });
     }
 
     /// `_appendTypePart`: o nome do elemento (não o do alias), os argumentos
     /// e o `?`; o resto pelo `getDisplayString`.
-    fn texto_de_tipo(&self, t: TypeId) -> String {
-        self.consulta.tabela.format_sem_alias(t, &self.consulta.nomes, &self.consulta.programa)
+    fn type_text(&self, t: TypeId) -> String {
+        self.query.table.format_sem_alias(t, &self.query.names, &self.query.program)
     }
 }
 
 /// Nomes dos parâmetros posicionais da função local declarada em `decl`.
-fn nomes_de_funcao_local(ast: &ast::Ast, fonte: &str, decl: usize) -> Vec<String> {
+fn local_function_names(ast: &ast::Ast, source: &str, decl: usize) -> Vec<String> {
     let Some(f) = ast.functions.iter().find(|f| f.name.is_some_and(|n| n.span.start == decl)) else {
         return Vec::new();
     };
@@ -529,6 +529,6 @@ fn nomes_de_funcao_local(ast: &ast::Ast, fonte: &str, decl: usize) -> Vec<String
         .iter()
         .flatten()
         .filter(|x| x.kind != ParameterKind::Named)
-        .map(|x| x.name.map_or(String::new(), |n| fonte[n.span.start..n.span.end].to_string()))
+        .map(|x| x.name.map_or(String::new(), |n| source[n.span.start..n.span.end].to_string()))
         .collect()
 }

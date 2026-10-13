@@ -5,8 +5,8 @@
 //! `DartFileEditBuilderImpl` (`analyzer_plugin`, `change_builder_dart.dart`).
 //! Escrito sem compilar nem executar (2026-10-05).
 
-use crate::refactorings::{Contexto, ResultadoDeRefatoracao};
-use crate::refactorings_exec::{Mudanca, Texto, regra_ligada};
+use crate::refactorings::{Context, RefactoringResult};
+use crate::refactorings_exec::{Change, Text, enabled_rule};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{Element, FunctionKind, LibraryId, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, ExprId, ExprKind};
@@ -14,17 +14,17 @@ use dartforge_frontend::token::Kind;
 use dartforge_types::{MemberRef, Resolved};
 use std::path::{Path, PathBuf};
 
-type R = ResultadoDeRefatoracao;
+type R = RefactoringResult;
 
 /// As linhas de um texto (`LineInfo`): `\r\n`, `\r` e `\n` terminam linha.
-struct Linhas {
-    inicios: Vec<usize>,
+struct Lines {
+    starts: Vec<usize>,
 }
 
-impl Linhas {
-    fn de(t: &str) -> Linhas {
+impl Lines {
+    fn de(t: &str) -> Lines {
         let b = t.as_bytes();
-        let mut inicios = vec![0];
+        let mut starts = vec![0];
         let mut i = 0;
         while i < b.len() {
             match b[i] {
@@ -32,72 +32,72 @@ impl Linhas {
                     if i + 1 < b.len() && b[i + 1] == b'\n' {
                         i += 1;
                     }
-                    inicios.push(i + 1);
+                    starts.push(i + 1);
                 }
-                b'\n' => inicios.push(i + 1),
+                b'\n' => starts.push(i + 1),
                 _ => {}
             }
             i += 1;
         }
-        Linhas { inicios }
+        Lines { starts }
     }
 
     /// `getLocation(offset).lineNumber` (a partir de 1).
-    fn numero(&self, offset: usize) -> usize {
-        self.inicios.partition_point(|&s| s <= offset)
+    fn number(&self, offset: usize) -> usize {
+        self.starts.partition_point(|&s| s <= offset)
     }
 
-    /// `getOffsetOfLine(indice)` (a partir de 0).
-    fn inicio(&self, indice: usize) -> usize {
-        self.inicios.get(indice).copied().unwrap_or_else(|| *self.inicios.last().unwrap())
+    /// `getOffsetOfLine(index)` (a partir de 0).
+    fn start(&self, index: usize) -> usize {
+        self.starts.get(index).copied().unwrap_or_else(|| *self.starts.last().unwrap())
     }
 }
 
 /// Uma diretiva do arquivo (lida do texto).
 #[derive(Debug, Clone)]
-struct Diretiva {
-    especie: &'static str,
+struct Directive {
+    kind: &'static str,
     /// O texto da URI (sem as aspas).
     uri: String,
-    prefixo: String,
+    prefix: String,
     /// Com o comentário de documentação e as anotações.
-    inicio: usize,
-    inicio_sem_meta: usize,
-    fim: usize,
-    mostrados: Vec<(Span, Vec<String>)>,
-    ocultos: Vec<(Span, Vec<String>)>,
+    start: usize,
+    start_without_meta: usize,
+    end: usize,
+    shown: Vec<(Span, Vec<String>)>,
+    hidden: Vec<(Span, Vec<String>)>,
 }
 
 /// Uma unidade preparada para os imports (`DartFileEditBuilderImpl`).
-struct Construtor {
+struct Constructor {
     uri: String,
-    caminho: Option<PathBuf>,
+    path: Option<PathBuf>,
     /// O texto (vazio num arquivo novo).
-    fonte: String,
+    source: String,
     /// A unidade, quando existe no programa (as opções de lint).
-    unidade: Option<UnitId>,
-    diretivas: Vec<Diretiva>,
+    unit: Option<UnitId>,
+    directives: Vec<Directive>,
     /// O início da primeira declaração.
-    primeira_declaracao: Option<usize>,
+    first_declaration: Option<usize>,
     /// `librariesToImport`, na ordem de inserção.
-    importar: Vec<ImportPendente>,
-    cabecalho: Option<String>,
+    import: Vec<PendingImport>,
+    header: Option<String>,
 }
 
 /// `_LibraryImport`.
 #[derive(Debug, Clone)]
-struct ImportPendente {
-    chave: String,
-    texto: String,
-    prefixos: Vec<String>,
-    mostrados: Vec<Vec<String>>,
-    ocultos: Vec<Vec<String>>,
+struct PendingImport {
+    key: String,
+    text: String,
+    prefixes: Vec<String>,
+    shown: Vec<Vec<String>>,
+    hidden: Vec<Vec<String>>,
 }
 
-impl ImportPendente {
-    fn todos_mostrados(&self) -> Vec<String> {
+impl PendingImport {
+    fn all_shown(&self) -> Vec<String> {
         let mut v: Vec<String> = Vec::new();
-        for l in &self.mostrados {
+        for l in &self.shown {
             for n in l {
                 if !v.contains(n) {
                     v.push(n.clone());
@@ -107,9 +107,9 @@ impl ImportPendente {
         v
     }
 
-    fn todos_ocultos(&self) -> Vec<String> {
+    fn all_hidden(&self) -> Vec<String> {
         let mut v: Vec<String> = Vec::new();
-        for l in &self.ocultos {
+        for l in &self.hidden {
             for n in l {
                 if !v.contains(n) {
                     v.push(n.clone());
@@ -120,21 +120,21 @@ impl ImportPendente {
     }
 
     /// `ensureShown`.
-    fn garantir_mostrado(&mut self, nome: &str, usar_show: bool) {
-        if self.mostrados.is_empty() && usar_show {
-            self.mostrados.push(vec![nome.to_string()]);
-        } else if let Some(l) = self.mostrados.last_mut() {
-            l.push(nome.to_string());
+    fn ensure_shown(&mut self, name: &str, use_show: bool) {
+        if self.shown.is_empty() && use_show {
+            self.shown.push(vec![name.to_string()]);
+        } else if let Some(l) = self.shown.last_mut() {
+            l.push(name.to_string());
         }
-        for l in self.ocultos.iter_mut() {
-            l.retain(|n| n != nome);
+        for l in self.hidden.iter_mut() {
+            l.retain(|n| n != name);
         }
-        self.ocultos.retain(|l| !l.is_empty());
+        self.hidden.retain(|l| !l.is_empty());
     }
 }
 
 /// `DirectiveSortPriority` de um import.
-fn prioridade(uri: &str) -> u8 {
+fn priority(uri: &str) -> u8 {
     if uri.starts_with("dart:") {
         0
     } else if uri.starts_with("package:") {
@@ -147,7 +147,7 @@ fn prioridade(uri: &str) -> u8 {
 }
 
 /// `compareDirectiveUri`.
-fn comparar_uris(a: &str, b: &str) -> std::cmp::Ordering {
+fn compare_uris(a: &str, b: &str) -> std::cmp::Ordering {
     if (!a.starts_with("package:") || !b.starts_with("package:")) && !a.starts_with('/') && !b.starts_with('/') {
         return a.cmp(b);
     }
@@ -157,112 +157,112 @@ fn comparar_uris(a: &str, b: &str) -> std::cmp::Ordering {
 
 /// O `pathToUri` do conversor da sessão: `package:` para um arquivo sob o
 /// `lib/` de um pacote, senão `file:`.
-fn uri_do_caminho(caminho: &Path) -> String {
-    let configuracao = dartforge_elements::config::PackageConfig::discover(caminho).and_then(|p| dartforge_elements::config::PackageConfig::load(&p).ok());
-    let canonico = match (caminho.parent().and_then(|p| p.canonicalize().ok()), caminho.file_name()) {
-        (Some(pasta), Some(nome)) => dartforge_elements::config::sem_verbatim(pasta.join(nome)),
-        _ => caminho.to_path_buf(),
+fn path_uri(path: &Path) -> String {
+    let configuration = dartforge_elements::config::PackageConfig::discover(path).and_then(|p| dartforge_elements::config::PackageConfig::load(&p).ok());
+    let canonical = match (path.parent().and_then(|p| p.canonicalize().ok()), path.file_name()) {
+        (Some(folder), Some(name)) => dartforge_elements::config::sem_verbatim(folder.join(name)),
+        _ => path.to_path_buf(),
     };
-    if let Some(c) = &configuracao {
-        for (nome, pasta) in &c.package_dirs {
-            if let Ok(rel) = canonico.strip_prefix(pasta) {
-                return format!("package:{nome}/{}", rel.to_string_lossy().replace('\\', "/"));
+    if let Some(c) = &configuration {
+        for (name, folder) in &c.package_dirs {
+            if let Ok(rel) = canonical.strip_prefix(folder) {
+                return format!("package:{name}/{}", rel.to_string_lossy().replace('\\', "/"));
             }
         }
     }
-    url::Url::from_file_path(caminho).map(|u| u.to_string()).unwrap_or_default()
+    url::Url::from_file_path(path).map(|u| u.to_string()).unwrap_or_default()
 }
 
-impl Construtor {
-    fn novo(uri: String, caminho: Option<PathBuf>, fonte: String, unidade: Option<UnitId>, cabecalho: Option<String>) -> Construtor {
-        let mut nomes = dartforge_intern::Interner::new();
-        let analisado = dartforge_frontend::parser::parse(&fonte, &mut nomes);
-        let mut diretivas = Vec::new();
-        for d in analisado.unit.directives.iter() {
-            let inicio = inicio_com_meta(&fonte, d.span.start, &d.metadata);
-            let mut x = Diretiva {
-                especie: "",
+impl Constructor {
+    fn new(uri: String, path: Option<PathBuf>, source: String, unit: Option<UnitId>, header: Option<String>) -> Constructor {
+        let mut names = dartforge_intern::Interner::new();
+        let analyzed = dartforge_frontend::parser::parse(&source, &mut names);
+        let mut directives = Vec::new();
+        for d in analyzed.unit.directives.iter() {
+            let start = start_with_meta(&source, d.span.start, &d.metadata);
+            let mut x = Directive {
+                kind: "",
                 uri: String::new(),
-                prefixo: String::new(),
-                inicio,
-                inicio_sem_meta: d.span.start,
-                fim: d.span.end,
-                mostrados: Vec::new(),
-                ocultos: Vec::new(),
+                prefix: String::new(),
+                start,
+                start_without_meta: d.span.start,
+                end: d.span.end,
+                shown: Vec::new(),
+                hidden: Vec::new(),
             };
             match &d.kind {
-                ast::DirectiveKind::Library { .. } => x.especie = "library",
+                ast::DirectiveKind::Library { .. } => x.kind = "library",
                 ast::DirectiveKind::Import { uri, prefix, combinators, .. } => {
-                    x.especie = "import";
-                    x.uri = fonte[uri.span.start..uri.span.end].trim_matches(|c| c == '\'' || c == '"').to_string();
-                    x.prefixo = prefix.map(|p| fonte[p.span.start..p.span.end].to_string()).unwrap_or_default();
+                    x.kind = "import";
+                    x.uri = source[uri.span.start..uri.span.end].trim_matches(|c| c == '\'' || c == '"').to_string();
+                    x.prefix = prefix.map(|p| source[p.span.start..p.span.end].to_string()).unwrap_or_default();
                     for c in combinators.iter() {
                         match c {
                             ast::Combinator::Show(ns) => {
-                                x.mostrados.push((combinador_span(&fonte, ns, "show"), ns.iter().map(|n| fonte[n.span.start..n.span.end].to_string()).collect()))
+                                x.shown.push((combinator_span(&source, ns, "show"), ns.iter().map(|n| source[n.span.start..n.span.end].to_string()).collect()))
                             }
                             ast::Combinator::Hide(ns) => {
-                                x.ocultos.push((combinador_span(&fonte, ns, "hide"), ns.iter().map(|n| fonte[n.span.start..n.span.end].to_string()).collect()))
+                                x.hidden.push((combinator_span(&source, ns, "hide"), ns.iter().map(|n| source[n.span.start..n.span.end].to_string()).collect()))
                             }
                         }
                     }
                 }
-                ast::DirectiveKind::Export { .. } => x.especie = "export",
-                ast::DirectiveKind::Part { .. } => x.especie = "part",
-                _ => x.especie = "outra",
+                ast::DirectiveKind::Export { .. } => x.kind = "export",
+                ast::DirectiveKind::Part { .. } => x.kind = "part",
+                _ => x.kind = "outra",
             }
-            diretivas.push(x);
+            directives.push(x);
         }
-        let primeira_declaracao = analisado.unit.declarations.first().map(|&d| {
-            let decl = analisado.ast.decl(d);
-            inicio_com_meta(&fonte, decl.span.start, &decl.metadata)
+        let first_declaration = analyzed.unit.declarations.first().map(|&d| {
+            let decl = analyzed.ast.decl(d);
+            start_with_meta(&source, decl.span.start, &decl.metadata)
         });
-        Construtor { uri, caminho, fonte, unidade, diretivas, primeira_declaracao, importar: Vec::new(), cabecalho }
+        Constructor { uri, path, source, unit, directives, first_declaration, import: Vec::new(), header }
     }
 
     /// A URI canônica de uma URI escrita num import deste arquivo.
-    fn uri_canonica(&self, escrita: &str) -> String {
-        if escrita.contains(':') {
-            return escrita.to_string();
+    fn canonical_uri(&self, write: &str) -> String {
+        if write.contains(':') {
+            return write.to_string();
         }
-        match self.caminho.as_deref().and_then(|c| c.parent()) {
-            Some(pasta) => uri_do_caminho(&pasta.join(escrita)),
-            None => escrita.to_string(),
+        match self.path.as_deref().and_then(|c| c.parent()) {
+            Some(folder) => path_uri(&folder.join(write)),
+            None => write.to_string(),
         }
     }
 
     /// `_getLibraryUriText`.
-    fn texto_da_uri(&self, cx: &Contexto<'_>, uri: &str) -> String {
-        self.texto_da_uri_forcado(cx, uri, false, false)
+    fn uri_text(&self, cx: &Context<'_>, uri: &str) -> String {
+        self.forced_uri_text(cx, uri, false, false)
     }
 
     /// `_getLibraryUriText(uri, forceAbsolute, forceRelative)`.
-    fn texto_da_uri_forcado(&self, cx: &Contexto<'_>, uri: &str, absoluto: bool, relativo_forcado: bool) -> String {
-        let pasta = self.caminho.as_deref().and_then(|c| c.parent()).map(Path::to_path_buf);
+    fn forced_uri_text(&self, cx: &Context<'_>, uri: &str, absolute: bool, relative_forced: bool) -> String {
+        let folder = self.path.as_deref().and_then(|c| c.parent()).map(Path::to_path_buf);
         if let Ok(u) = url::Url::parse(uri)
             && u.scheme() == "file"
-            && let (Ok(alvo), Some(pasta)) = (u.to_file_path(), &pasta)
+            && let (Ok(target), Some(folder)) = (u.to_file_path(), &folder)
         {
-            return crate::refactorings_method::caminho_relativo(&alvo, pasta);
+            return crate::refactorings_method::relative_path(&target, folder);
         }
-        let preferir = self.unidade.is_some_and(|u| regra_ligada(cx.p, u, "prefer_relative_imports"));
-        if relativo_forcado || (preferir && !absoluto) {
-            let proprio = uri_do_caminho(self.caminho.as_deref().unwrap_or(Path::new("")));
-            let pacote = |s: &str| s.strip_prefix("package:").and_then(|r| r.split('/').next()).map(str::to_string);
-            if let (Some(a), Some(b)) = (pacote(uri), pacote(&proprio))
+        let prefer = self.unit.is_some_and(|u| enabled_rule(cx.p, u, "prefer_relative_imports"));
+        if relative_forced || (prefer && !absolute) {
+            let own = path_uri(self.path.as_deref().unwrap_or(Path::new("")));
+            let package = |s: &str| s.strip_prefix("package:").and_then(|r| r.split('/').next()).map(str::to_string);
+            if let (Some(a), Some(b)) = (package(uri), package(&own))
                 && a == b
-                && let Some(pasta) = &pasta
+                && let Some(folder) = &folder
             {
                 // `uriToPath`: pelo `package_config`.
-                let configuracao = self
-                    .caminho
+                let configuration = self
+                    .path
                     .as_deref()
                     .and_then(dartforge_elements::config::PackageConfig::discover)
                     .and_then(|p| dartforge_elements::config::PackageConfig::load(&p).ok());
-                if let Some(c) = configuracao
-                    && let Ok(alvo) = c.resolve_package_uri(uri)
+                if let Some(c) = configuration
+                    && let Ok(target) = c.resolve_package_uri(uri)
                 {
-                    return crate::refactorings_method::caminho_relativo(&alvo, pasta);
+                    return crate::refactorings_method::relative_path(&target, folder);
                 }
             }
         }
@@ -270,113 +270,113 @@ impl Construtor {
     }
 
     /// `_importLibrary(uri, prefix, shownName, useShow)`.
-    fn importar_biblioteca(&mut self, cx: &Contexto<'_>, uri: &str, prefixo: Option<&str>, mostrar: Option<&str>, usar_show: bool) {
-        self.importar_forcado(cx, uri, prefixo, mostrar, usar_show, false, false);
+    fn import_library(&mut self, cx: &Context<'_>, uri: &str, prefix: Option<&str>, show: Option<&str>, use_show: bool) {
+        self.forced_import(cx, uri, prefix, show, use_show, false, false);
     }
 
     /// `_importLibrary` com `forceAbsolute`/`forceRelative`: o `uriText`.
-    fn importar_forcado(&mut self, cx: &Contexto<'_>, uri: &str, prefixo: Option<&str>, mostrar: Option<&str>, usar_show: bool, absoluto: bool, relativo: bool) -> String {
-        if let Some(i) = self.importar.iter_mut().find(|i| i.chave == uri) {
-            if let Some(p) = prefixo
-                && !i.prefixos.iter().any(|x| x == p)
+    fn forced_import(&mut self, cx: &Context<'_>, uri: &str, prefix: Option<&str>, show: Option<&str>, use_show: bool, absolute: bool, relative: bool) -> String {
+        if let Some(i) = self.import.iter_mut().find(|i| i.key == uri) {
+            if let Some(p) = prefix
+                && !i.prefixes.iter().any(|x| x == p)
             {
-                i.prefixos.push(p.to_string());
+                i.prefixes.push(p.to_string());
             }
-            if let Some(n) = mostrar {
-                i.garantir_mostrado(n, usar_show);
+            if let Some(n) = show {
+                i.ensure_shown(n, use_show);
             }
-            return i.texto.clone();
+            return i.text.clone();
         }
-        let texto = self.texto_da_uri_forcado(cx, uri, absoluto, relativo);
+        let text = self.forced_uri_text(cx, uri, absolute, relative);
         // Os `show`/`hide` dos imports existentes com a mesma URI e prefixo.
-        let (mut mostrados, mut ocultos): (Vec<Vec<String>>, Vec<Vec<String>>) = (Vec::new(), Vec::new());
-        for d in self.diretivas.iter().filter(|d| d.especie == "import") {
-            if d.prefixo != prefixo.unwrap_or("") {
+        let (mut shown, mut hidden): (Vec<Vec<String>>, Vec<Vec<String>>) = (Vec::new(), Vec::new());
+        for d in self.directives.iter().filter(|d| d.kind == "import") {
+            if d.prefix != prefix.unwrap_or("") {
                 continue;
             }
-            if self.texto_da_uri_forcado(cx, &self.uri_canonica(&d.uri), absoluto, relativo) != texto {
+            if self.forced_uri_text(cx, &self.canonical_uri(&d.uri), absolute, relative) != text {
                 continue;
             }
-            mostrados.extend(d.mostrados.iter().map(|(_, n)| n.clone()));
-            ocultos.extend(d.ocultos.iter().map(|(_, n)| n.clone()));
+            shown.extend(d.shown.iter().map(|(_, n)| n.clone()));
+            hidden.extend(d.hidden.iter().map(|(_, n)| n.clone()));
         }
-        let mut i = ImportPendente {
-            chave: uri.to_string(),
-            texto,
-            prefixos: vec![prefixo.unwrap_or("").to_string()],
-            mostrados,
-            ocultos,
+        let mut i = PendingImport {
+            key: uri.to_string(),
+            text,
+            prefixes: vec![prefix.unwrap_or("").to_string()],
+            shown,
+            hidden,
         };
-        if let Some(n) = mostrar {
-            i.garantir_mostrado(n, usar_show);
+        if let Some(n) = show {
+            i.ensure_shown(n, use_show);
         }
-        let texto = i.texto.clone();
-        self.importar.push(i);
-        texto
+        let text = i.text.clone();
+        self.import.push(i);
+        text
     }
 
     /// `finalize`: os imports (`_addLibraryImports`) e o cabeçalho.
-    fn finalizar(&self, cx: &Contexto<'_>, m: &mut Mudanca, eol: &str) {
-        if !self.importar.is_empty() {
-            self.adicionar_imports(cx, m, eol);
+    fn finish(&self, cx: &Context<'_>, m: &mut Change, eol: &str) {
+        if !self.import.is_empty() {
+            self.add_imports(cx, m, eol);
         }
-        if let Some(c) = &self.cabecalho {
+        if let Some(c) = &self.header {
             // `addInsertion(0, insertBeforeExisting: true)`.
-            inserir_antes(m, &self.uri, 0, format!("{c}{eol}"));
+            insert_before(m, &self.uri, 0, format!("{c}{eol}"));
         }
     }
 
     /// `_addLibraryImports`.
-    fn adicionar_imports(&self, cx: &Contexto<'_>, m: &mut Mudanca, eol: &str) {
-        let fonte = self.fonte.as_str();
-        let biblioteca: Option<usize> = self.diretivas.iter().find(|d| d.especie == "library").map(|d| d.fim);
-        let imports: Vec<&Diretiva> = self.diretivas.iter().filter(|d| d.especie == "import").collect();
-        let primeiro_export: Option<usize> = self.diretivas.iter().find(|d| d.especie == "export").map(|d| d.inicio);
-        let primeira_parte: Option<usize> = self.diretivas.iter().find(|d| d.especie == "part").map(|d| d.inicio);
-        let primeira_diretiva: Option<usize> = self.diretivas.first().map(|d| d.inicio);
-        let primeira_declaracao = self.primeira_declaracao;
-        let fim_da_unidade = fonte.len();
-        let mut lista = self.importar.clone();
-        lista.sort_by(|a, b| {
-            let (pa, pb) = (prioridade(&a.texto), prioridade(&b.texto));
-            if pa == pb { comparar_uris(&a.texto, &b.texto) } else { pa.cmp(&pb) }
+    fn add_imports(&self, cx: &Context<'_>, m: &mut Change, eol: &str) {
+        let source = self.source.as_str();
+        let library: Option<usize> = self.directives.iter().find(|d| d.kind == "library").map(|d| d.end);
+        let imports: Vec<&Directive> = self.directives.iter().filter(|d| d.kind == "import").collect();
+        let first_export: Option<usize> = self.directives.iter().find(|d| d.kind == "export").map(|d| d.start);
+        let first_part: Option<usize> = self.directives.iter().find(|d| d.kind == "part").map(|d| d.start);
+        let first_directive: Option<usize> = self.directives.first().map(|d| d.start);
+        let first_declaration = self.first_declaration;
+        let unit_end = source.len();
+        let mut list = self.import.clone();
+        list.sort_by(|a, b| {
+            let (pa, pb) = (priority(&a.text), priority(&b.text));
+            if pa == pb { compare_uris(&a.text, &b.text) } else { pa.cmp(&pb) }
         });
-        let ordenar = self.unidade.is_some_and(|u| regra_ligada(cx.p, u, "combinators_ordering"));
+        let sort = self.unit.is_some_and(|u| enabled_rule(cx.p, u, "combinators_ordering"));
         // As aspas preferidas, pelos imports.
-        let aspas = match self.unidade {
-            Some(u) if regra_ligada(cx.p, u, "prefer_single_quotes") => '\'',
-            Some(u) if regra_ligada(cx.p, u, "prefer_double_quotes") => '"',
+        let quotes = match self.unit {
+            Some(u) if enabled_rule(cx.p, u, "prefer_single_quotes") => '\'',
+            Some(u) if enabled_rule(cx.p, u, "prefer_double_quotes") => '"',
             _ => {
-                let duplas = imports.iter().filter(|d| fonte[d.inicio_sem_meta..d.fim].contains("\"")).count();
-                let simples = imports.len() - duplas;
-                if duplas > simples { '"' } else { '\'' }
+                let double = imports.iter().filter(|d| source[d.start_without_meta..d.end].contains("\"")).count();
+                let simple = imports.len() - double;
+                if double > simple { '"' } else { '\'' }
             }
         };
-        let escrever = |i: &ImportPendente| -> String {
+        let write = |i: &PendingImport| -> String {
             let mut s = String::new();
-            let mut prefixos = i.prefixos.clone();
-            prefixos.sort();
-            for (k, p) in prefixos.iter().enumerate() {
+            let mut prefixes = i.prefixes.clone();
+            prefixes.sort();
+            for (k, p) in prefixes.iter().enumerate() {
                 if k > 0 {
                     s.push_str(eol);
                 }
-                s.push_str(&format!("import {aspas}{}{aspas}", i.texto));
+                s.push_str(&format!("import {quotes}{}{quotes}", i.text));
                 if !p.is_empty() {
                     s.push_str(" as ");
                     s.push_str(p);
                 }
-                let mostrados = i.todos_mostrados();
-                if !mostrados.is_empty() {
-                    let mut v = mostrados.clone();
-                    if ordenar {
+                let shown = i.all_shown();
+                if !shown.is_empty() {
+                    let mut v = shown.clone();
+                    if sort {
                         v.sort();
                     }
                     s.push_str(&format!(" show {}", v.join(", ")));
                 }
-                let ocultos = i.todos_ocultos();
-                if !ocultos.is_empty() {
-                    let mut v = ocultos.clone();
-                    if ordenar {
+                let hidden = i.all_hidden();
+                if !hidden.is_empty() {
+                    let mut v = hidden.clone();
+                    if sort {
                         v.sort();
                     }
                     s.push_str(&format!(" hide {}", v.join(", ")));
@@ -386,293 +386,293 @@ impl Construtor {
             s
         };
         if !imports.is_empty() {
-            for i in &lista {
-                let dart = i.texto.starts_with("dart:");
-                let pacote = i.texto.starts_with("package:");
-                let mut inserido = false;
-                let mut ultimo: Option<usize> = None;
-                let mut ultimo_dart: Option<usize> = None;
-                let mut ultimo_pacote: Option<usize> = None;
-                let (mut ultimo_e_dart, mut ultimo_e_pacote) = (false, false);
+            for i in &list {
+                let dart = i.text.starts_with("dart:");
+                let package = i.text.starts_with("package:");
+                let mut inserted = false;
+                let mut last: Option<usize> = None;
+                let mut last_dart: Option<usize> = None;
+                let mut last_package: Option<usize> = None;
+                let (mut last_is_dart, mut last_is_package) = (false, false);
                 for (k, e) in imports.iter().enumerate() {
-                    let e_dart = e.uri.starts_with("dart:");
-                    let e_pacote = e.uri.starts_with("package:");
-                    let e_relativo = !e.uri.contains(':');
-                    let substitui = i.texto == e.uri && i.prefixos.first().map(String::as_str).unwrap_or("") == e.prefixo;
-                    let antes = i.texto.as_str() < e.uri.as_str();
+                    let is_dart = e.uri.starts_with("dart:");
+                    let is_package = e.uri.starts_with("package:");
+                    let is_relative = !e.uri.contains(':');
+                    let replaces = i.text == e.uri && i.prefixes.first().map(String::as_str).unwrap_or("") == e.prefix;
+                    let before = i.text.as_str() < e.uri.as_str();
                     // `insert(prev, replace, next, trailingNewLine)`.
-                    let inserir = |anterior: Option<usize>, proximo: usize, linha_depois: bool, m: &mut Mudanca| {
-                        if let Some(a) = anterior {
+                    let insert = |previous: Option<usize>, next: usize, line_after: bool, m: &mut Change| {
+                        if let Some(a) = previous {
                             let d = &imports[a];
-                            let mut offset = d.fim;
+                            let mut offset = d.end;
                             // Comentários na mesma linha depois do anterior.
-                            let linhas = Linhas::de(fonte);
-                            let linha = linhas.numero(offset);
-                            for c in dartforge_frontend::comentarios::Comentarios::de(fonte).todos() {
-                                if c.start >= d.fim && linhas.numero(c.start) == linha && fonte[d.fim..c.start].trim().is_empty() {
+                            let lines = Lines::de(source);
+                            let line = lines.number(offset);
+                            for c in dartforge_frontend::comentarios::Comentarios::de(source).todos() {
+                                if c.start >= d.end && lines.number(c.start) == line && source[d.end..c.start].trim().is_empty() {
                                     offset = c.end;
                                 }
                             }
-                            m.adicionar(&self.uri, Span { start: offset, end: offset }, format!("{eol}{}", escrever(i)));
+                            m.add(&self.uri, Span { start: offset, end: offset }, format!("{eol}{}", write(i)));
                         } else {
-                            let d = &imports[proximo];
-                            let offset = if Some(d.inicio) == primeira_diretiva { d.inicio_sem_meta } else { d.inicio };
-                            let mut t = format!("{}{eol}", escrever(i));
-                            if linha_depois {
+                            let d = &imports[next];
+                            let offset = if Some(d.start) == first_directive { d.start_without_meta } else { d.start };
+                            let mut t = format!("{}{eol}", write(i));
+                            if line_after {
                                 t.push_str(eol);
                             }
-                            m.adicionar(&self.uri, Span { start: offset, end: offset }, t);
+                            m.add(&self.uri, Span { start: offset, end: offset }, t);
                         }
                     };
-                    if substitui {
-                        self.atualizar_combinadores(m, i, &e.mostrados, &e.ocultos, ordenar);
-                        inserido = true;
+                    if replaces {
+                        self.update_combinators(m, i, &e.shown, &e.hidden, sort);
+                        inserted = true;
                         break;
                     } else if dart {
-                        if !e_dart || antes {
-                            inserir(ultimo_dart, k, !e_dart, m);
-                            inserido = true;
+                        if !is_dart || before {
+                            insert(last_dart, k, !is_dart, m);
+                            inserted = true;
                             break;
                         }
-                    } else if pacote {
-                        if e_relativo || antes {
-                            inserir(ultimo_pacote, k, e_relativo, m);
-                            inserido = true;
+                    } else if package {
+                        if is_relative || before {
+                            insert(last_package, k, is_relative, m);
+                            inserted = true;
                             break;
                         }
-                    } else if !e_dart && !e_pacote && antes {
-                        inserir(None, k, false, m);
-                        inserido = true;
+                    } else if !is_dart && !is_package && before {
+                        insert(None, k, false, m);
+                        inserted = true;
                         break;
                     }
-                    ultimo = Some(k);
-                    if e_dart {
-                        ultimo_dart = Some(k);
-                    } else if e_pacote {
-                        ultimo_pacote = Some(k);
+                    last = Some(k);
+                    if is_dart {
+                        last_dart = Some(k);
+                    } else if is_package {
+                        last_package = Some(k);
                     }
-                    ultimo_e_dart = e_dart;
-                    ultimo_e_pacote = e_pacote;
+                    last_is_dart = is_dart;
+                    last_is_package = is_package;
                 }
-                if !inserido && let Some(u) = ultimo {
+                if !inserted && let Some(u) = last {
                     let mut t = String::new();
-                    if pacote {
-                        if ultimo_e_dart {
+                    if package {
+                        if last_is_dart {
                             t.push_str(eol);
                         }
-                    } else if !dart && (ultimo_e_dart || ultimo_e_pacote) {
+                    } else if !dart && (last_is_dart || last_is_package) {
                         t.push_str(eol);
                     }
                     t.push_str(eol);
-                    t.push_str(&escrever(i));
-                    let fim = imports[u].fim;
-                    m.adicionar(&self.uri, Span { start: fim, end: fim }, t);
+                    t.push_str(&write(i));
+                    let end = imports[u].end;
+                    m.add(&self.uri, Span { start: end, end: end }, t);
                 }
             }
             return;
         }
-        if let Some(fim) = biblioteca {
+        if let Some(end) = library {
             let mut t = format!("{eol}{eol}");
-            for (k, i) in lista.iter().enumerate() {
-                t.push_str(&escrever(i));
-                if k != lista.len() - 1 {
+            for (k, i) in list.iter().enumerate() {
+                t.push_str(&write(i));
+                if k != list.len() - 1 {
                     t.push_str(eol);
                 }
             }
-            m.adicionar(&self.uri, Span { start: fim, end: fim }, t);
+            m.add(&self.uri, Span { start: end, end: end }, t);
             return;
         }
-        if let Some(o) = primeiro_export.or(primeira_parte) {
+        if let Some(o) = first_export.or(first_part) {
             let mut t = String::new();
-            for i in &lista {
-                t.push_str(&escrever(i));
+            for i in &list {
+                t.push_str(&write(i));
                 t.push_str(eol);
             }
             t.push_str(eol);
-            m.adicionar(&self.uri, Span { start: o, end: o }, t);
+            m.add(&self.uri, Span { start: o, end: o }, t);
             return;
         }
         // Antes da primeira declaração, ou junto das outras edições.
-        let edicoes_do_arquivo: Vec<usize> = m.arquivos.iter().find(|(u, _)| *u == self.uri).map(|(_, l)| l.iter().map(|e| e.span.start).collect()).unwrap_or_default();
-        let (offset, linha_depois) = if let Some(o) = primeira_declaracao {
+        let file_edits: Vec<usize> = m.files.iter().find(|(u, _)| *u == self.uri).map(|(_, l)| l.iter().map(|e| e.span.start).collect()).unwrap_or_default();
+        let (offset, line_after) = if let Some(o) = first_declaration {
             (o, true)
-        } else if let Some(&o) = edicoes_do_arquivo.iter().min() {
+        } else if let Some(&o) = file_edits.iter().min() {
             (o, true)
         } else {
-            (fim_da_unidade, false)
+            (unit_end, false)
         };
         let mut t = String::new();
-        for (k, i) in lista.iter().enumerate() {
-            t.push_str(&escrever(i));
+        for (k, i) in list.iter().enumerate() {
+            t.push_str(&write(i));
             t.push_str(eol);
-            if k == lista.len() - 1 && linha_depois {
+            if k == list.len() - 1 && line_after {
                 t.push_str(eol);
             }
         }
-        inserir_antes(m, &self.uri, offset, t);
+        insert_before(m, &self.uri, offset, t);
     }
 
     /// `updateHideCombinators` e `updateShowCombinators` de um import que já
     /// existe.
-    fn atualizar_combinadores(&self, m: &mut Mudanca, i: &ImportPendente, mostrados: &[(Span, Vec<String>)], ocultos: &[(Span, Vec<String>)], ordenar: bool) {
-        let fonte = self.fonte.as_str();
-        let todos_ocultos = i.todos_ocultos();
-        let todos_mostrados = i.todos_mostrados();
-        for (s, nomes) in ocultos {
-            let novos: Vec<String> = nomes.iter().filter(|n| todos_ocultos.contains(n) && !todos_mostrados.contains(n)).cloned().collect();
-            if novos.is_empty() {
+    fn update_combinators(&self, m: &mut Change, i: &PendingImport, shown: &[(Span, Vec<String>)], hidden: &[(Span, Vec<String>)], sort: bool) {
+        let source = self.source.as_str();
+        let all_hidden = i.all_hidden();
+        let all_shown = i.all_shown();
+        for (s, names) in hidden {
+            let new: Vec<String> = names.iter().filter(|n| all_hidden.contains(n) && !all_shown.contains(n)).cloned().collect();
+            if new.is_empty() {
                 // Do fim do token anterior ao fim do `hide`.
-                let anterior = fonte[..s.start].trim_end().len();
-                m.adicionar(&self.uri, Span { start: anterior, end: s.end }, "");
-            } else if novos.len() != nomes.len() {
-                let mut v = novos.clone();
-                if ordenar {
+                let previous = source[..s.start].trim_end().len();
+                m.add(&self.uri, Span { start: previous, end: s.end }, "");
+            } else if new.len() != names.len() {
+                let mut v = new.clone();
+                if sort {
                     v.sort();
                 }
-                m.adicionar(&self.uri, *s, format!("hide {}", v.join(", ")));
+                m.add(&self.uri, *s, format!("hide {}", v.join(", ")));
             }
         }
-        if i.mostrados.is_empty() || mostrados.is_empty() {
+        if i.shown.is_empty() || shown.is_empty() {
             return;
         }
-        let existentes: Vec<String> = mostrados.iter().flat_map(|(_, n)| n.iter().cloned()).collect();
-        let novos: Vec<String> = todos_mostrados.iter().filter(|n| !existentes.contains(n)).cloned().collect();
-        if novos.is_empty() {
+        let existing: Vec<String> = shown.iter().flat_map(|(_, n)| n.iter().cloned()).collect();
+        let new: Vec<String> = all_shown.iter().filter(|n| !existing.contains(n)).cloned().collect();
+        if new.is_empty() {
             return;
         }
-        let ordenados = existentes.windows(2).all(|w| w[0] <= w[1]);
-        let (ultimo_span, ultimos) = mostrados.last().unwrap();
-        if ordenar || ordenados {
-            let mut v: Vec<String> = ultimos.clone();
-            for n in &novos {
+        let sorted = existing.windows(2).all(|w| w[0] <= w[1]);
+        let (last_span, last) = shown.last().unwrap();
+        if sort || sorted {
+            let mut v: Vec<String> = last.clone();
+            for n in &new {
                 if !v.contains(n) {
                     v.push(n.clone());
                 }
             }
             v.sort();
-            m.adicionar(&self.uri, *ultimo_span, format!("show {}", v.join(", ")));
+            m.add(&self.uri, *last_span, format!("show {}", v.join(", ")));
         } else {
-            let mut v = novos.clone();
+            let mut v = new.clone();
             v.sort();
-            m.adicionar(&self.uri, Span { start: ultimo_span.end, end: ultimo_span.end }, format!(", {}", v.join(", ")));
+            m.add(&self.uri, Span { start: last_span.end, end: last_span.end }, format!(", {}", v.join(", ")));
         }
     }
 }
 
 /// `addInsertion(offset, insertBeforeExisting: true)`: a inserção fica antes
 /// das outras do mesmo offset no texto.
-fn inserir_antes(m: &mut Mudanca, uri: &str, offset: usize, texto: String) {
+fn insert_before(m: &mut Change, uri: &str, offset: usize, text: String) {
     // Na ordem do `SourceFileEdit` (decrescente), a inserção entra depois de
     // todas as de offset maior ou igual: no texto, antes delas.
-    let lista = match m.arquivos.iter().position(|(u, _)| u == uri) {
-        Some(i) => &mut m.arquivos[i].1,
+    let list = match m.files.iter().position(|(u, _)| u == uri) {
+        Some(i) => &mut m.files[i].1,
         None => {
-            m.arquivos.push((uri.to_string(), Vec::new()));
-            &mut m.arquivos.last_mut().unwrap().1
+            m.files.push((uri.to_string(), Vec::new()));
+            &mut m.files.last_mut().unwrap().1
         }
     };
     let mut i = 0;
-    while i < lista.len() && lista[i].span.start >= offset {
+    while i < list.len() && list[i].span.start >= offset {
         i += 1;
     }
-    lista.insert(i, crate::Edicao { uri: uri.to_string(), span: Span { start: offset, end: offset }, texto });
+    list.insert(i, crate::Edit { uri: uri.to_string(), span: Span { start: offset, end: offset }, text });
 }
 
 /// O início de uma diretiva ou declaração com o comentário de documentação
 /// e as anotações.
-fn inicio_com_meta(fonte: &str, inicio: usize, meta: &[ast::Annotation]) -> usize {
-    let mut ini = meta.iter().map(|a| a.span.start).min().unwrap_or(inicio).min(inicio);
-    if let Some(d) = dartforge_frontend::comentarios::Comentarios::de(fonte).dart_doc(fonte, ini) {
-        ini = ini.min(d.start);
+fn start_with_meta(source: &str, start_: usize, meta: &[ast::Annotation]) -> usize {
+    let mut start = meta.iter().map(|a| a.span.start).min().unwrap_or(start_).min(start_);
+    if let Some(d) = dartforge_frontend::comentarios::Comentarios::de(source).dart_doc(source, start) {
+        start = start.min(d.start);
     }
-    ini
+    start
 }
 
 /// O intervalo de um combinador `show`/`hide` (da palavra ao último nome).
-fn combinador_span(fonte: &str, nomes: &[ast::Name], palavra: &str) -> Span {
-    let primeiro = nomes.first().map_or(0, |n| n.span.start);
-    let ultimo = nomes.last().map_or(primeiro, |n| n.span.end);
-    let antes = fonte[..primeiro].trim_end();
-    let inicio = if antes.ends_with(palavra) { antes.len() - palavra.len() } else { primeiro };
-    Span { start: inicio, end: ultimo }
+fn combinator_span(source: &str, names: &[ast::Name], word: &str) -> Span {
+    let first = names.first().map_or(0, |n| n.span.start);
+    let last = names.last().map_or(first, |n| n.span.end);
+    let before = source[..first].trim_end();
+    let start = if before.ends_with(word) { before.len() - word.len() } else { first };
+    Span { start: start, end: last }
 }
 
 /// `fileHeader`: o primeiro comentário antes do primeiro token (depois do
 /// `#!`): um `/* */` não doc, ou as linhas `//` consecutivas.
-fn cabecalho_do_arquivo(fonte: &str) -> Option<(usize, usize)> {
-    let tokens = dartforge_frontend::lexer::lex(fonte).ok()?;
-    let mut primeiro = tokens.first()?;
-    if primeiro.kind == Kind::ScriptTag {
-        primeiro = tokens.get(1)?;
+fn file_header(source: &str) -> Option<(usize, usize)> {
+    let tokens = dartforge_frontend::lexer::lex(source).ok()?;
+    let mut first = tokens.first()?;
+    if first.kind == Kind::ScriptTag {
+        first = tokens.get(1)?;
     }
-    let inicio_da_busca = if tokens[0].kind == Kind::ScriptTag { tokens[0].span.end } else { 0 };
-    let comentarios: Vec<Span> = dartforge_frontend::comentarios::Comentarios::de(fonte)
+    let search_start = if tokens[0].kind == Kind::ScriptTag { tokens[0].span.end } else { 0 };
+    let comments: Vec<Span> = dartforge_frontend::comentarios::Comentarios::de(source)
         .todos()
         .iter()
         .copied()
-        .filter(|c| c.start >= inicio_da_busca && c.end <= primeiro.span.start)
+        .filter(|c| c.start >= search_start && c.end <= first.span.start)
         .collect();
-    let c0 = *comentarios.first()?;
-    let lexema = &fonte[c0.start..c0.end];
-    if lexema.starts_with("/**") || lexema.starts_with("///") {
+    let c0 = *comments.first()?;
+    let lexeme = &source[c0.start..c0.end];
+    if lexeme.starts_with("/**") || lexeme.starts_with("///") {
         return None;
     }
-    if lexema.starts_with("/*") {
+    if lexeme.starts_with("/*") {
         return Some((c0.start, c0.end));
     }
-    if !lexema.starts_with("//") {
+    if !lexeme.starts_with("//") {
         return None;
     }
-    let linhas = Linhas::de(fonte);
-    let mut fim = c0.end;
-    let mut linha_anterior = linhas.numero(c0.start);
-    for c in comentarios.iter().skip(1) {
-        let l = &fonte[c.start..c.end];
+    let lines = Lines::de(source);
+    let mut end = c0.end;
+    let mut previous_line = lines.number(c0.start);
+    for c in comments.iter().skip(1) {
+        let l = &source[c.start..c.end];
         if !l.starts_with("//") || l.starts_with("///") {
             break;
         }
-        let linha = linhas.numero(c.start);
-        if linha != linha_anterior + 1 {
+        let line = lines.number(c.start);
+        if line != previous_line + 1 {
             break;
         }
-        fim = c.end;
-        linha_anterior = linha;
+        end = c.end;
+        previous_line = line;
     }
-    Some((c0.start, fim))
+    Some((c0.start, end))
 }
 
 /// O `ImportAnalyzer`.
 #[derive(Default)]
-struct AnalisadorDeImports {
-    movendo: Vec<Element>,
-    ficando: Vec<Element>,
+struct ImportsAnalyzer {
+    moving: Vec<Element>,
+    staying: Vec<Element>,
     /// Elemento → os índices (em `imports` da biblioteca) usados.
-    refs_movendo: Vec<(Element, Vec<usize>)>,
-    refs_ficando: Vec<(Element, Vec<usize>)>,
+    refs_moving: Vec<(Element, Vec<usize>)>,
+    refs_staying: Vec<(Element, Vec<usize>)>,
 }
 
-impl AnalisadorDeImports {
-    fn registrar(lista: &mut Vec<(Element, Vec<usize>)>, el: Element, import: Option<usize>) {
-        let i = match lista.iter().position(|(e, _)| *e == el) {
+impl ImportsAnalyzer {
+    fn register(list: &mut Vec<(Element, Vec<usize>)>, el: Element, import: Option<usize>) {
+        let i = match list.iter().position(|(e, _)| *e == el) {
             Some(i) => i,
             None => {
-                lista.push((el, Vec::new()));
-                lista.len() - 1
+                list.push((el, Vec::new()));
+                list.len() - 1
             }
         };
         if let Some(k) = import
-            && !lista[i].1.contains(&k)
+            && !list[i].1.contains(&k)
         {
-            lista[i].1.push(k);
+            list[i].1.push(k);
         }
     }
 
-    fn tem_movendo_para_ficando(&self) -> bool {
-        self.ficando.iter().any(|d| self.refs_movendo.iter().any(|(e, _)| e == d))
+    fn has_moving_to_staying(&self) -> bool {
+        self.staying.iter().any(|d| self.refs_moving.iter().any(|(e, _)| e == d))
     }
 
-    fn tem_ficando_para_movendo(&self) -> bool {
-        self.movendo.iter().any(|d| self.refs_ficando.iter().any(|(e, _)| e == d))
+    fn has_staying_to_moving(&self) -> bool {
+        self.moving.iter().any(|d| self.refs_staying.iter().any(|(e, _)| e == d))
     }
 }
 
@@ -680,218 +680,218 @@ impl AnalisadorDeImports {
 /// Os imports que um `DartFileEditBuilder` dos fixes agendou
 /// (`_writeLibraryReference` → `_importLibrary(uri)`), inseridos pelo
 /// `_addLibraryImports` na unidade definidora da biblioteca de `cx`.
-pub(crate) fn imports_do_builder(cx: &Contexto<'_>, m: &mut Mudanca, bibliotecas: &std::collections::BTreeSet<dartforge_elements::model::LibraryId>) {
-    imports_de_uris(cx, m, &bibliotecas.iter().map(|&b| cx.p.programa().library(b).uri.clone()).collect::<Vec<_>>());
+pub(crate) fn builder_imports(cx: &Context<'_>, m: &mut Change, libraries: &std::collections::BTreeSet<dartforge_elements::model::LibraryId>) {
+    uris_imports(cx, m, &libraries.iter().map(|&b| cx.p.program().library(b).uri.clone()).collect::<Vec<_>>());
 }
 
 /// `importLibraryWithAbsoluteUri`/`importLibraryWithRelativeUri` de uma URI
 /// na biblioteca de `cx`: o `uriText` e as edições (em ordem crescente).
-pub(crate) fn importar_uma(cx: &Contexto<'_>, uri: &str, relativo: bool) -> Option<(String, Vec<crate::Edicao>)> {
-    let prog = cx.p.programa();
-    let lib = prog.unit(cx.unidade).library;
-    let &definidora = prog.library(lib).units.first()?;
-    let uri_def = cx.p.uri_da_unidade(definidora)?;
-    let u = prog.unit(definidora);
-    let mut b = Construtor::novo(uri_def, u.path.clone(), u.source.clone(), Some(definidora), None);
-    let texto = b.importar_forcado(cx, uri, None, None, false, !relativo, relativo);
-    let mut m = Mudanca::default();
-    let eol = Texto::novo(&u.source).eol();
-    b.finalizar(cx, &mut m, eol);
-    if m.conflito.is_some() {
+pub(crate) fn import_one(cx: &Context<'_>, uri: &str, relative: bool) -> Option<(String, Vec<crate::Edit>)> {
+    let prog = cx.p.program();
+    let lib = prog.unit(cx.unit).library;
+    let &defining = prog.library(lib).units.first()?;
+    let uri_def = cx.p.unit_uri(defining)?;
+    let u = prog.unit(defining);
+    let mut b = Constructor::new(uri_def, u.path.clone(), u.source.clone(), Some(defining), None);
+    let text = b.forced_import(cx, uri, None, None, false, !relative, relative);
+    let mut m = Change::default();
+    let eol = Text::new(&u.source).eol();
+    b.finish(cx, &mut m, eol);
+    if m.conflict.is_some() {
         return None;
     }
-    Some((texto, m.arquivos.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect()))
+    Some((text, m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect()))
 }
 
 /// `importLibrary(uri)` de cada URI e o `finalize` do builder da unidade
 /// definidora da biblioteca de `cx`.
-pub(crate) fn imports_de_uris(cx: &Contexto<'_>, m: &mut Mudanca, uris: &[String]) {
+pub(crate) fn uris_imports(cx: &Context<'_>, m: &mut Change, uris: &[String]) {
     if uris.is_empty() {
         return;
     }
-    let prog = cx.p.programa();
-    let lib = prog.unit(cx.unidade).library;
-    let Some(&definidora) = prog.library(lib).units.first() else { return };
-    let Some(uri_def) = cx.p.uri_da_unidade(definidora) else { return };
-    let u = prog.unit(definidora);
-    let mut b = Construtor::novo(uri_def, u.path.clone(), u.source.clone(), Some(definidora), None);
+    let prog = cx.p.program();
+    let lib = prog.unit(cx.unit).library;
+    let Some(&defining) = prog.library(lib).units.first() else { return };
+    let Some(uri_def) = cx.p.unit_uri(defining) else { return };
+    let u = prog.unit(defining);
+    let mut b = Constructor::new(uri_def, u.path.clone(), u.source.clone(), Some(defining), None);
     for x in uris {
-        b.importar_biblioteca(cx, x, None, None, false);
+        b.import_library(cx, x, None, None, false);
     }
-    let eol = Texto::novo(&u.source).eol();
-    b.finalizar(cx, m, eol);
+    let eol = Text::new(&u.source).eol();
+    b.finish(cx, m, eol);
 }
 
-pub(crate) fn executar(cx: &Contexto<'_>, uri: &str, offset: usize, comprimento: usize, destino: &str) -> ResultadoDeRefatoracao {
+pub(crate) fn run(cx: &Context<'_>, uri: &str, offset: usize, length: usize, target_: &str) -> RefactoringResult {
     let p = cx.p;
-    let prog = p.programa();
-    let Some(membros) = cx.membros_a_mover(offset, comprimento) else { return R::Falha(None) };
-    let Ok(url_destino) = url::Url::parse(destino) else {
-        return R::ErroInterno(format!("FormatException: Invalid URI: {destino}"));
+    let prog = p.program();
+    let Some(members) = cx.members_a_move(offset, length) else { return R::Failure(None) };
+    let Ok(target_url) = url::Url::parse(target_) else {
+        return R::InternalError(format!("FormatException: Invalid URI: {target_}"));
     };
-    let Ok(caminho_destino) = url_destino.to_file_path() else {
-        return R::ErroInterno(format!("Unsupported operation: Cannot extract a file path from a {} URI", url_destino.scheme()));
+    let Ok(target_path) = target_url.to_file_path() else {
+        return R::InternalError(format!("Unsupported operation: Cannot extract a file path from a {} URI", target_url.scheme()));
     };
-    let uri_destino = url::Url::from_file_path(&caminho_destino).map(|u| u.to_string()).unwrap_or_else(|_| destino.to_string());
-    let import_destino = uri_do_caminho(&caminho_destino);
-    let tx = Texto::novo(cx.fonte);
+    let target_uri = url::Url::from_file_path(&target_path).map(|u| u.to_string()).unwrap_or_else(|_| target_.to_string());
+    let target_import = path_uri(&target_path);
+    let tx = Text::new(cx.source);
     let eol = tx.eol();
-    let linhas = Linhas::de(cx.fonte);
+    let lines = Lines::de(cx.source);
     // O destino existe (no disco ou aberto)?
-    let unidade_destino = p.unidade_do_uri(&uri_destino);
-    let texto_destino: Option<String> = match unidade_destino {
+    let target_unit = p.uri_unit(&target_uri);
+    let target_text: Option<String> = match target_unit {
         Some(u) => Some(prog.unit(u).source.clone()),
-        None => std::fs::read_to_string(&caminho_destino).ok(),
+        None => std::fs::read_to_string(&target_path).ok(),
     };
-    let existe = texto_destino.is_some();
-    let mut cabecalho: Option<String> = None;
-    let mut posicao = 0usize;
-    let mut linha_antes = false;
-    if !existe {
-        if let Some((a, b)) = cabecalho_do_arquivo(cx.fonte) {
-            cabecalho = Some(cx.fonte[a..b].to_string());
+    let exists = target_text.is_some();
+    let mut header: Option<String> = None;
+    let mut position = 0usize;
+    let mut line_before = false;
+    if !exists {
+        if let Some((a, b)) = file_header(cx.source) {
+            header = Some(cx.source[a..b].to_string());
         }
     } else {
-        posicao = texto_destino.as_ref().map_or(0, |t| t.len());
-        linha_antes = true;
+        position = target_text.as_ref().map_or(0, |t| t.len());
+        line_before = true;
     }
     // A faixa do grupo.
-    let nos: Vec<usize> = membros
+    let nos: Vec<usize> = members
         .iter()
-        .filter_map(|(d, _)| cx.arvore.nos.iter().position(|k| k.marca == crate::arvore_analyzer::Marca::Decl(*d) || funcao_de_topo(cx, k.marca, *d)))
+        .filter_map(|(d, _)| cx.tree.nos.iter().position(|k| k.marca == crate::arvore_analyzer::Marca::Decl(*d) || top_function(cx, k.marca, *d)))
         .collect();
-    let faixa = |com_linha_anterior: bool| -> (usize, usize) {
-        let primeiro = nos.first().copied().unwrap_or(0);
-        let ultimo = nos.last().copied().unwrap_or(0);
-        let mut inicio = cx.arvore.nos[primeiro].inicio;
-        if com_linha_anterior {
-            let linha_inicial = linhas.numero(inicio);
+    let range = |with_previous_line: bool| -> (usize, usize) {
+        let first = nos.first().copied().unwrap_or(0);
+        let last = nos.last().copied().unwrap_or(0);
+        let mut start = cx.tree.nos[first].inicio;
+        if with_previous_line {
+            let initial_line = lines.number(start);
             // `beginToken.previous`: nulo quando o membro começa num
             // comentário.
-            let comeca_em_comentario = cx.comentarios.iter().any(|c| c.start == inicio);
-            if !comeca_em_comentario {
-                let anterior = cx.tokens.iter().rev().find(|t| t.span.end <= inicio && t.kind != Kind::Eof);
-                if let Some(t) = anterior {
-                    let linha_anterior = linhas.numero(t.span.start);
-                    if linha_anterior + 1 < linha_inicial {
-                        inicio = linhas.inicio(linha_anterior);
+            let starts_in_comment = cx.comments.iter().any(|c| c.start == start);
+            if !starts_in_comment {
+                let previous = cx.tokens.iter().rev().find(|t| t.span.end <= start && t.kind != Kind::Eof);
+                if let Some(t) = previous {
+                    let previous_line = lines.number(t.span.start);
+                    if previous_line + 1 < initial_line {
+                        start = lines.start(previous_line);
                     }
                 }
             }
         }
-        let mut fim = cx.arvore.nos[ultimo].fim;
-        let linha_final = linhas.numero(fim);
-        match cx.tokens.iter().find(|t| t.span.start >= fim && t.kind != Kind::Eof) {
-            None => fim = cx.fonte.len(),
+        let mut end = cx.tree.nos[last].fim;
+        let final_line = lines.number(end);
+        match cx.tokens.iter().find(|t| t.span.start >= end && t.kind != Kind::Eof) {
+            None => end = cx.source.len(),
             Some(t) => {
-                let proxima = linhas.numero(t.span.start);
-                if linha_final + 1 < proxima {
-                    fim = linhas.inicio(linha_final);
+                let next = lines.number(t.span.start);
+                if final_line + 1 < next {
+                    end = lines.start(final_line);
                 }
             }
         }
-        (inicio, fim)
+        (start, end)
     };
-    let faixa_sem = faixa(false);
-    let faixa_com = faixa(true);
+    let range_without = range(false);
+    let range_with = range(true);
     // O `ImportAnalyzer`.
-    let analisador = analisar_imports(cx, faixa_sem);
-    let lib = prog.unit(cx.unidade).library;
-    let imports_da_lib: Vec<&dartforge_elements::model::Import> = {
-        let definidora = prog.library(lib).units.first().copied();
-        prog.library(lib).imports.iter().filter(|i| Some(i.unit) == definidora).collect()
+    let analyzer = analyze_imports(cx, range_without);
+    let lib = prog.unit(cx.unit).library;
+    let lib_imports: Vec<&dartforge_elements::model::Import> = {
+        let defining = prog.library(lib).units.first().copied();
+        prog.library(lib).imports.iter().filter(|i| Some(i.unit) == defining).collect()
     };
-    let mut m = Mudanca::default();
+    let mut m = Change::default();
     // O destino.
-    let mut destino_b = Construtor::novo(
-        uri_destino.clone(),
-        Some(caminho_destino.clone()),
-        texto_destino.clone().unwrap_or_default(),
-        unidade_destino,
-        cabecalho.map(|c| format!("{c}{eol}")),
+    let mut target_b = Constructor::new(
+        target_uri.clone(),
+        Some(target_path.clone()),
+        target_text.clone().unwrap_or_default(),
+        target_unit,
+        header.map(|c| format!("{c}{eol}")),
     );
     {
         let mut t = String::new();
-        if linha_antes {
+        if line_before {
             t.push_str(eol);
         }
-        t.push_str(&cx.fonte[faixa_sem.0..faixa_sem.1]);
-        m.adicionar(&uri_destino, Span { start: posicao, end: posicao }, t);
+        t.push_str(&cx.source[range_without.0..range_without.1]);
+        m.add(&target_uri, Span { start: position, end: position }, t);
     }
-    if analisador.tem_movendo_para_ficando()
-        && let Some(u) = p.uri_da_unidade(cx.unidade)
+    if analyzer.has_moving_to_staying()
+        && let Some(u) = p.unit_uri(cx.unit)
     {
-        let alvo = uri_da_biblioteca_da_unidade(cx, &u);
-        destino_b.importar_biblioteca(cx, &alvo, None, None, false);
+        let target = unit_library_uri(cx, &u);
+        target_b.import_library(cx, &target, None, None, false);
     }
-    for (el, imps) in &analisador.refs_movendo {
+    for (el, imps) in &analyzer.refs_moving {
         for &k in imps {
-            let Some(imp) = imports_da_lib.get(k) else { continue };
-            let alvo = prog.library(imp.library);
-            if alvo.uri == "dart:core" {
+            let Some(imp) = lib_imports.get(k) else { continue };
+            let target = prog.library(imp.library);
+            if target.uri == "dart:core" {
                 continue;
             }
-            let tem_show = imp.combinators.iter().any(|c| matches!(c, ast::Combinator::Show(_)));
-            let prefixo = imp.prefix.map(|x| p.nome(x).to_string());
-            let nome = nome_do_elemento(cx, *el);
-            destino_b.importar_biblioteca(cx, &alvo.uri.clone(), prefixo.as_deref(), nome.as_deref(), tem_show);
+            let has_show = imp.combinators.iter().any(|c| matches!(c, ast::Combinator::Show(_)));
+            let prefix = imp.prefix.map(|x| p.name(x).to_string());
+            let name = element_name(cx, *el);
+            target_b.import_library(cx, &target.uri.clone(), prefix.as_deref(), name.as_deref(), has_show);
         }
     }
-    destino_b.finalizar(cx, &mut m, eol);
+    target_b.finish(cx, &mut m, eol);
     // A origem.
-    let mut origem_b = Construtor::novo(uri.to_string(), prog.unit(cx.unidade).path.clone(), cx.fonte.to_string(), Some(cx.unidade), None);
-    if analisador.tem_ficando_para_movendo() {
-        origem_b.importar_biblioteca(cx, &import_destino, None, None, false);
+    let mut origin_b = Constructor::new(uri.to_string(), prog.unit(cx.unit).path.clone(), cx.source.to_string(), Some(cx.unit), None);
+    if analyzer.has_staying_to_moving() {
+        origin_b.import_library(cx, &target_import, None, None, false);
     }
-    m.adicionar(uri, Span { start: faixa_com.0, end: faixa_com.1 }, "");
-    origem_b.finalizar(cx, &mut m, eol);
+    m.add(uri, Span { start: range_with.0, end: range_with.1 }, "");
+    origin_b.finish(cx, &mut m, eol);
     // As outras bibliotecas que referem os movidos.
-    let mut por_biblioteca: Vec<(LibraryId, Vec<String>)> = Vec::new();
-    for el in &analisador.movendo {
-        for (b, prefixos) in prefixos_usados(cx, *el) {
+    let mut by_library: Vec<(LibraryId, Vec<String>)> = Vec::new();
+    for el in &analyzer.moving {
+        for (b, prefixes) in used_prefixes(cx, *el) {
             if b == lib {
                 continue;
             }
-            let i = match por_biblioteca.iter().position(|(x, _)| *x == b) {
+            let i = match by_library.iter().position(|(x, _)| *x == b) {
                 Some(i) => i,
                 None => {
-                    por_biblioteca.push((b, Vec::new()));
-                    por_biblioteca.len() - 1
+                    by_library.push((b, Vec::new()));
+                    by_library.len() - 1
                 }
             };
-            for pf in prefixos {
-                if !por_biblioteca[i].1.contains(&pf) {
-                    por_biblioteca[i].1.push(pf);
+            for pf in prefixes {
+                if !by_library[i].1.contains(&pf) {
+                    by_library[i].1.push(pf);
                 }
             }
         }
     }
-    for (b, prefixos) in por_biblioteca {
+    for (b, prefixes) in by_library {
         let Some(&u) = prog.library(b).units.first() else { continue };
-        let Some(uri_b) = p.uri_da_unidade(u) else { continue };
-        let mut cb = Construtor::novo(uri_b, prog.unit(u).path.clone(), prog.unit(u).source.clone(), Some(u), None);
-        for pf in &prefixos {
-            cb.importar_biblioteca(cx, &import_destino, Some(pf), None, false);
+        let Some(uri_b) = p.unit_uri(u) else { continue };
+        let mut cb = Constructor::new(uri_b, prog.unit(u).path.clone(), prog.unit(u).source.clone(), Some(u), None);
+        for pf in &prefixes {
+            cb.import_library(cx, &target_import, Some(pf), None, false);
         }
-        cb.finalizar(cx, &mut m, eol);
+        cb.finish(cx, &mut m, eol);
     }
     // O arquivo novo: a criação, com o conteúdo das edições dele.
-    if !existe {
-        let edicoes = m.arquivos.iter().position(|(u, _)| *u == uri_destino).map(|i| m.arquivos.remove(i).1).unwrap_or_default();
-        let mut conteudo = String::new();
+    if !exists {
+        let edits = m.files.iter().position(|(u, _)| *u == target_uri).map(|i| m.files.remove(i).1).unwrap_or_default();
+        let mut content = String::new();
         // As edições estão em ordem decrescente (no mesmo offset, a nova
         // antes): aplicadas em sequência sobre o texto vazio.
-        for e in edicoes.iter() {
-            conteudo.insert_str(e.span.start.min(conteudo.len()), &e.texto);
+        for e in edits.iter() {
+            content.insert_str(e.span.start.min(content.len()), &e.text);
         }
-        m.criar = Some((uri_destino, conteudo));
+        m.create = Some((target_uri, content));
     }
-    m.resultado()
+    m.result()
 }
 
 /// A marca de uma `FunctionDeclaration` de topo é a da função.
-fn funcao_de_topo(cx: &Contexto<'_>, marca: crate::arvore_analyzer::Marca, d: ast::DeclId) -> bool {
-    match (marca, &cx.ast.decl(d).kind) {
+fn top_function(cx: &Context<'_>, mark: crate::arvore_analyzer::Marca, d: ast::DeclId) -> bool {
+    match (mark, &cx.ast.decl(d).kind) {
         (crate::arvore_analyzer::Marca::Funcao(f), DeclKind::Function(g)) => f == *g,
         _ => false,
     }
@@ -899,28 +899,28 @@ fn funcao_de_topo(cx: &Contexto<'_>, marca: crate::arvore_analyzer::Marca, d: as
 
 /// A URI da biblioteca dona da unidade (`unitResult.uri`: a da própria
 /// unidade, também numa parte).
-fn uri_da_biblioteca_da_unidade(cx: &Contexto<'_>, uri_da_unidade: &str) -> String {
-    let prog = cx.p.programa();
-    let lib = prog.unit(cx.unidade).library;
-    if prog.library(lib).units.first() == Some(&cx.unidade) {
+fn unit_library_uri(cx: &Context<'_>, unit_uri: &str) -> String {
+    let prog = cx.p.program();
+    let lib = prog.unit(cx.unit).library;
+    if prog.library(lib).units.first() == Some(&cx.unit) {
         return prog.library(lib).uri.clone();
     }
-    match url::Url::parse(uri_da_unidade).ok().and_then(|u| u.to_file_path().ok()) {
-        Some(c) => uri_do_caminho(&c),
-        None => uri_da_unidade.to_string(),
+    match url::Url::parse(unit_uri).ok().and_then(|u| u.to_file_path().ok()) {
+        Some(c) => path_uri(&c),
+        None => unit_uri.to_string(),
     }
 }
 
 /// O nome de um elemento de topo.
-fn nome_do_elemento(cx: &Contexto<'_>, el: Element) -> Option<String> {
+fn element_name(cx: &Context<'_>, el: Element) -> Option<String> {
     let p = cx.p;
-    let prog = p.programa();
+    let prog = p.program();
     Some(match el {
-        Element::Class(c) => p.nome(prog.class(c).name).to_string(),
-        Element::Typedef(t) => p.nome(prog.typedef(t).name).to_string(),
-        Element::Extension(x) => p.nome(prog.extension(x).name?).to_string(),
-        Element::Function(f) => p.nome(prog.function(f).name).trim_end_matches('=').to_string(),
-        Element::Variable(v) => p.nome(prog.variable(v).name).to_string(),
+        Element::Class(c) => p.name(prog.class(c).name).to_string(),
+        Element::Typedef(t) => p.name(prog.typedef(t).name).to_string(),
+        Element::Extension(x) => p.name(prog.extension(x).name?).to_string(),
+        Element::Function(f) => p.name(prog.function(f).name).trim_end_matches('=').to_string(),
+        Element::Variable(v) => p.name(prog.variable(v).name).to_string(),
         Element::Prefix(..) => return None,
     })
 }
@@ -928,8 +928,8 @@ fn nome_do_elemento(cx: &Contexto<'_>, el: Element) -> Option<String> {
 /// O elemento interessante (`isInterestingReference`) de uma resolução: de
 /// topo, sem prefixo; o acessor sintético vira a variável; o membro de
 /// instância de extensão vira a extensão.
-fn elemento_interessante(cx: &Contexto<'_>, r: &Resolved) -> Option<Element> {
-    let prog = cx.p.programa();
+fn interesting_element(cx: &Context<'_>, r: &Resolved) -> Option<Element> {
+    let prog = cx.p.program();
     match r {
         Resolved::Element(Element::Prefix(..)) => None,
         Resolved::Element(Element::Function(f)) => {
@@ -948,85 +948,85 @@ fn elemento_interessante(cx: &Contexto<'_>, r: &Resolved) -> Option<Element> {
 }
 
 /// `_getImportForElement`: o import (pelo prefixo usado) que dá o elemento.
-fn import_do_elemento(cx: &Contexto<'_>, unidade: UnitId, el: Element, prefixo: Option<dartforge_intern::SymbolId>) -> Option<usize> {
+fn element_import(cx: &Context<'_>, unit: UnitId, el: Element, prefix: Option<dartforge_intern::SymbolId>) -> Option<usize> {
     let p = cx.p;
-    let prog = p.programa();
-    let lib = prog.unit(unidade).library;
-    let definidora = prog.library(lib).units.first().copied();
-    let imports: Vec<&dartforge_elements::model::Import> = prog.library(lib).imports.iter().filter(|i| Some(i.unit) == definidora).collect();
-    let nome = nome_do_elemento(cx, el)?;
-    let fornece = |imp: &dartforge_elements::model::Import| -> bool {
-        let alvo = prog.library(imp.library);
-        let Some(b) = alvo.exported.iter().find(|(s, _)| p.nome(**s) == nome).map(|(_, b)| *b) else { return false };
+    let prog = p.program();
+    let lib = prog.unit(unit).library;
+    let defining = prog.library(lib).units.first().copied();
+    let imports: Vec<&dartforge_elements::model::Import> = prog.library(lib).imports.iter().filter(|i| Some(i.unit) == defining).collect();
+    let name = element_name(cx, el)?;
+    let provides = |imp: &dartforge_elements::model::Import| -> bool {
+        let target = prog.library(imp.library);
+        let Some(b) = target.exported.iter().find(|(s, _)| p.name(**s) == name).map(|(_, b)| *b) else { return false };
         if b.getter != Some(el) && b.setter != Some(el) {
             return false;
         }
         imp.combinators.iter().all(|c| match c {
-            ast::Combinator::Show(ns) => ns.iter().any(|n| p.nome(n.sym) == nome),
-            ast::Combinator::Hide(ns) => !ns.iter().any(|n| p.nome(n.sym) == nome),
+            ast::Combinator::Show(ns) => ns.iter().any(|n| p.name(n.sym) == name),
+            ast::Combinator::Hide(ns) => !ns.iter().any(|n| p.name(n.sym) == name),
         })
     };
-    let achado = imports.iter().position(|i| i.prefix == prefixo && fornece(i));
-    if achado.is_none() && prefixo.is_none() && matches!(el, Element::Extension(_)) {
-        return imports.iter().position(|i| fornece(i));
+    let found = imports.iter().position(|i| i.prefix == prefix && provides(i));
+    if found.is_none() && prefix.is_none() && matches!(el, Element::Extension(_)) {
+        return imports.iter().position(|i| provides(i));
     }
-    achado
+    found
 }
 
 /// O `ImportAnalyzer` da biblioteca da unidade, com a faixa movida.
-fn analisar_imports(cx: &Contexto<'_>, faixa: (usize, usize)) -> AnalisadorDeImports {
+fn analyze_imports(cx: &Context<'_>, range: (usize, usize)) -> ImportsAnalyzer {
     let p = cx.p;
-    let prog = p.programa();
-    let lib = prog.unit(cx.unidade).library;
-    let mut a = AnalisadorDeImports::default();
-    let movido = |u: UnitId, o: usize| u == cx.unidade && faixa.0 <= o && o <= faixa.1;
+    let prog = p.program();
+    let lib = prog.unit(cx.unit).library;
+    let mut a = ImportsAnalyzer::default();
+    let moved = |u: UnitId, o: usize| u == cx.unit && range.0 <= o && o <= range.1;
     for &u in prog.library(lib).units.iter() {
-        let unidade = prog.unit(u);
-        let ast = &unidade.ast;
-        let corpos = &p.consulta.corpos.units[u.0 as usize];
+        let unit = prog.unit(u);
+        let ast = &unit.ast;
+        let bodies = &p.query.bodies.units[u.0 as usize];
         // As declarações (pelo offset do nome).
-        for &d in unidade.unit.declarations.iter() {
+        for &d in unit.unit.declarations.iter() {
             let decl = ast.decl(d);
-            let mut registrar = |el: Element, nome: usize| {
-                if movido(u, nome) {
-                    a.movendo.push(el);
+            let mut register = |el: Element, name_: usize| {
+                if moved(u, name_) {
+                    a.moving.push(el);
                 } else {
-                    a.ficando.push(el);
+                    a.staying.push(el);
                 }
             };
             match &decl.kind {
                 DeclKind::Class(c) => {
-                    if let Some(id) = cx.classe_da_declaracao(u, d) {
-                        registrar(Element::Class(id), c.name.span.start);
+                    if let Some(id) = cx.declaration_class(u, d) {
+                        register(Element::Class(id), c.name.span.start);
                     }
                 }
                 DeclKind::Mixin(m) => {
-                    if let Some(id) = cx.classe_da_declaracao(u, d) {
-                        registrar(Element::Class(id), m.name.span.start);
+                    if let Some(id) = cx.declaration_class(u, d) {
+                        register(Element::Class(id), m.name.span.start);
                     }
                 }
                 DeclKind::Enum(e) => {
-                    if let Some(id) = cx.classe_da_declaracao(u, d) {
-                        registrar(Element::Class(id), e.name.span.start);
+                    if let Some(id) = cx.declaration_class(u, d) {
+                        register(Element::Class(id), e.name.span.start);
                     }
                 }
                 DeclKind::Typedef(t) => {
                     if let Some(i) = prog.typedefs.iter().position(|x| x.decl.unit == u && x.decl.decl == d) {
-                        registrar(Element::Typedef(dartforge_elements::model::TypedefId(i as u32)), t.name.span.start);
+                        register(Element::Typedef(dartforge_elements::model::TypedefId(i as u32)), t.name.span.start);
                     }
                 }
                 DeclKind::Extension(x) => {
                     if let Some(i) = prog.extensions.iter().position(|e| e.decl.unit == u && e.decl.decl == d) {
                         let id = dartforge_elements::model::ExtensionId(i as u32);
-                        let nome = x.name.map_or(decl.span.start, |n| n.span.start);
-                        registrar(Element::Extension(id), nome);
+                        let name_ = x.name.map_or(decl.span.start, |n| n.span.start);
+                        register(Element::Extension(id), name_);
                     }
                 }
                 DeclKind::Function(f) => {
-                    if let Some(fe) = p.funcao_do_no(u, *f)
+                    if let Some(fe) = p.node_function(u, *f)
                         && let Some(n) = ast.function(*f).name
                     {
-                        registrar(Element::Function(fe), n.span.start);
+                        register(Element::Function(fe), n.span.start);
                     }
                 }
                 DeclKind::Variables(l) => {
@@ -1035,7 +1035,7 @@ fn analisar_imports(cx: &Contexto<'_>, faixa: (usize, usize)) -> AnalisadorDeImp
                             x.node == dartforge_elements::model::VariableRef::TopLevel { unit: u, decl: d, index: k }
                         });
                         if let Some(i) = id {
-                            registrar(Element::Variable(dartforge_elements::model::VariableId(i as u32)), v.name.span.start);
+                            register(Element::Variable(dartforge_elements::model::VariableId(i as u32)), v.name.span.start);
                         }
                     }
                 }
@@ -1045,62 +1045,62 @@ fn analisar_imports(cx: &Contexto<'_>, faixa: (usize, usize)) -> AnalisadorDeImp
         // As referências nas expressões.
         for (i, e) in ast.exprs.iter().enumerate() {
             let x = ExprId(i as u32);
-            let Some(r) = corpos.get_resolved(x) else { continue };
+            let Some(r) = bodies.get_resolved(x) else { continue };
             if matches!(r, Resolved::Member { member: MemberRef::Function(_) | MemberRef::Variable(_), .. }) {
                 continue;
             }
-            let Some(el) = elemento_interessante(cx, r) else { continue };
-            let (offset, prefixo) = match &e.kind {
+            let Some(el) = interesting_element(cx, r) else { continue };
+            let (offset, prefix) = match &e.kind {
                 ExprKind::Identifier(n) => (n.span.start, None),
                 ExprKind::Property { target, name, .. } => {
                     let pfx = match &ast.expr(*target).kind {
-                        ExprKind::Identifier(pn) if matches!(corpos.get_resolved(*target), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))) => Some(pn.sym),
+                        ExprKind::Identifier(pn) if matches!(bodies.get_resolved(*target), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))) => Some(pn.sym),
                         _ => None,
                     };
                     (name.span.start, pfx)
                 }
                 _ => (e.span.start, None),
             };
-            let imp = import_do_elemento(cx, u, el, prefixo);
-            if movido(u, offset) {
-                AnalisadorDeImports::registrar(&mut a.refs_movendo, el, imp);
+            let imp = element_import(cx, u, el, prefix);
+            if moved(u, offset) {
+                ImportsAnalyzer::register(&mut a.refs_moving, el, imp);
             } else {
-                AnalisadorDeImports::registrar(&mut a.refs_ficando, el, imp);
+                ImportsAnalyzer::register(&mut a.refs_staying, el, imp);
             }
         }
         // As referências nos tipos escritos.
         for t in ast.types.iter() {
             let ast::TypeKind::Named { name, .. } = &t.kind else { continue };
-            let (el, prefixo) = match &name[..] {
-                [n] => (prog.lookup(unidade.library, n.sym).and_then(|b| b.getter), None),
-                [pf, n] => (prog.lookup_prefixed(unidade.library, pf.sym, n.sym).and_then(|b| b.getter), Some(pf.sym)),
+            let (el, prefix) = match &name[..] {
+                [n] => (prog.lookup(unit.library, n.sym).and_then(|b| b.getter), None),
+                [pf, n] => (prog.lookup_prefixed(unit.library, pf.sym, n.sym).and_then(|b| b.getter), Some(pf.sym)),
                 _ => (None, None),
             };
             let Some(el) = el else { continue };
             if matches!(el, Element::Prefix(..) | Element::Function(_) | Element::Variable(_)) {
                 continue;
             }
-            let imp = import_do_elemento(cx, u, el, prefixo);
-            if movido(u, t.span.start) {
-                AnalisadorDeImports::registrar(&mut a.refs_movendo, el, imp);
+            let imp = element_import(cx, u, el, prefix);
+            if moved(u, t.span.start) {
+                ImportsAnalyzer::register(&mut a.refs_moving, el, imp);
             } else {
-                AnalisadorDeImports::registrar(&mut a.refs_ficando, el, imp);
+                ImportsAnalyzer::register(&mut a.refs_staying, el, imp);
             }
         }
     }
     // Sem as referências que ficam no mesmo arquivo.
-    let movendo = a.movendo.clone();
-    let ficando = a.ficando.clone();
-    a.refs_movendo.retain(|(e, _)| !movendo.contains(e));
-    a.refs_ficando.retain(|(e, _)| !ficando.contains(e));
+    let moving = a.moving.clone();
+    let staying = a.staying.clone();
+    a.refs_moving.retain(|(e, _)| !moving.contains(e));
+    a.refs_staying.retain(|(e, _)| !staying.contains(e));
     a
 }
 
 /// As bibliotecas (fora a de origem) que referem `el`, com os prefixos
 /// usados (`searchPrefixesUsedInLibrary`; `''` sem prefixo).
-fn prefixos_usados(cx: &Contexto<'_>, el: Element) -> Vec<(LibraryId, Vec<String>)> {
+fn used_prefixes(cx: &Context<'_>, el: Element) -> Vec<(LibraryId, Vec<String>)> {
     let p = cx.p;
-    let prog = p.programa();
+    let prog = p.program();
     let mut v: Vec<(LibraryId, Vec<String>)> = Vec::new();
     let mut por = |b: LibraryId, pf: String| {
         let i = match v.iter().position(|(x, _)| *x == b) {
@@ -1114,25 +1114,25 @@ fn prefixos_usados(cx: &Contexto<'_>, el: Element) -> Vec<(LibraryId, Vec<String
             v[i].1.push(pf);
         }
     };
-    let mut bibliotecas: Vec<LibraryId> = p.bibliotecas.iter().copied().collect();
-    bibliotecas.sort_by_key(|b| b.0);
-    for b in bibliotecas {
+    let mut libraries: Vec<LibraryId> = p.libraries.iter().copied().collect();
+    libraries.sort_by_key(|b| b.0);
+    for b in libraries {
         for &u in prog.library(b).units.iter() {
-            let unidade = prog.unit(u);
-            let ast = &unidade.ast;
-            let corpos = &p.consulta.corpos.units[u.0 as usize];
+            let unit = prog.unit(u);
+            let ast = &unit.ast;
+            let bodies = &p.query.bodies.units[u.0 as usize];
             for (i, e) in ast.exprs.iter().enumerate() {
                 let x = ExprId(i as u32);
-                let Some(r) = corpos.get_resolved(x) else { continue };
-                if elemento_interessante(cx, r) != Some(el) {
+                let Some(r) = bodies.get_resolved(x) else { continue };
+                if interesting_element(cx, r) != Some(el) {
                     continue;
                 }
                 let pf = match &e.kind {
                     ExprKind::Property { target, .. } => match &ast.expr(*target).kind {
                         ExprKind::Identifier(pn)
-                            if matches!(corpos.get_resolved(*target), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))) =>
+                            if matches!(bodies.get_resolved(*target), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))) =>
                         {
-                            p.nome(pn.sym).to_string()
+                            p.name(pn.sym).to_string()
                         }
                         _ => String::new(),
                     },
@@ -1142,12 +1142,12 @@ fn prefixos_usados(cx: &Contexto<'_>, el: Element) -> Vec<(LibraryId, Vec<String
             }
             for t in ast.types.iter() {
                 let ast::TypeKind::Named { name, .. } = &t.kind else { continue };
-                let (achado, pf) = match &name[..] {
-                    [n] => (prog.lookup(unidade.library, n.sym).and_then(|x| x.getter), String::new()),
-                    [pn, n] => (prog.lookup_prefixed(unidade.library, pn.sym, n.sym).and_then(|x| x.getter), p.nome(pn.sym).to_string()),
+                let (found, pf) = match &name[..] {
+                    [n] => (prog.lookup(unit.library, n.sym).and_then(|x| x.getter), String::new()),
+                    [pn, n] => (prog.lookup_prefixed(unit.library, pn.sym, n.sym).and_then(|x| x.getter), p.name(pn.sym).to_string()),
                     _ => (None, String::new()),
                 };
-                if achado == Some(el) {
+                if found == Some(el) {
                     por(b, pf);
                 }
             }
