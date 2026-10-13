@@ -90,6 +90,23 @@ fn strip_unused(e: &mut EmittedWithSdk) {
     }
 }
 
+/// Without `dart:html` and its family, the world holds the runtime's DOM
+/// `polyfill` (`dartforge_world::DOM_LIBRARIES`): its call in the
+/// initializer of `dart.global` leaves the text too, so the verifier does
+/// not bring it back.
+fn strip_polyfill(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::World, e: &mut EmittedWithSdk) {
+    let input = dartforge_world::WorldInput { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
+    let dead = (0..a.program.functions.len()).map(|i| dartforge_elements::model::FunctionElementId(i as u32)).any(|f| dartforge_world::is_dom_polyfill(input, f) && !world.is_live_function(f));
+    if !dead {
+        return;
+    }
+    for t in [&mut e.sdk, &mut e.bootstrap] {
+        if let Some(k) = t.find("dart.polyfill(globalState);") {
+            t.replace_range(k..k + "dart.polyfill(globalState);".len(), "");
+        }
+    }
+}
+
 /// Member names that the text passes to dynamic dispatch or to a *tearoff*
 /// (`dsend`/`dgsend`/`dload`/`dput`/`bind` and the `Repl` variants): the
 /// literal strings and the private symbols (`var x = dart.privateName(L,
@@ -239,6 +256,7 @@ fn fixed_point(
         // `strip_unused` removes: read before.
         let libs = libraries(a, &e.emitted.modules);
         strip_unused(&mut e);
+        strip_polyfill(a, &world, &mut e);
         report.emit_time += t.elapsed();
         let t = Instant::now();
         let mut texts = e.emitted.modules.clone();

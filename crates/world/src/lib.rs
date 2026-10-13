@@ -626,6 +626,7 @@ pub fn check_consistency(e: WorldInput<'_>, r: &Roots, world: &World) -> Vec<Inc
     m.classes = world.classes.clone();
     m.fn_live = world.functions.clone();
     m.foreign_open |= world.functions.iter().enumerate().any(|(i, v)| *v && opens_foreign(e.program, FunctionElementId(i as u32)));
+    m.dom_open |= world.functions.iter().enumerate().any(|(i, v)| *v && DOM_LIBRARIES.contains(&e.program.library(e.program.function(FunctionElementId(i as u32)).library).uri.as_str()));
     m.var_live = world.variables.clone();
     m.tearoff = world.tearoffs.clone();
     m.sel = world.selectors.clone();
@@ -783,6 +784,12 @@ pub(crate) struct Engine<'a> {
     /// member (`DARTFORGE_JSPROD_OPERATOR_SELECTORS=0` goes back to "an
     /// operator is live in every instantiated class").
     operator_selectors: bool,
+    /// Whether some function of a [`DOM_LIBRARIES`] library is live; until
+    /// then the runtime's DOM `polyfill` is held ([`Engine::held_polyfill`]).
+    dom_open: bool,
+    /// `dart:_runtime`'s `polyfill`, used (by `global_`) while
+    /// [`Engine::dom_open`] is false.
+    held_polyfill: Option<FunctionElementId>,
 }
 
 /// Libraries whose code creates or receives objects of the native classes
@@ -809,6 +816,20 @@ pub const FOREIGN_LIBRARIES: &[&str] = &[
     "dart:js_interop_unsafe",
     "dart:_js_annotations",
 ];
+
+/// The libraries of `dart:html` and its family: the DOM classes that the
+/// runtime's `polyfill` prepares (`NodeList.prototype.get`, the
+/// `AudioContext`/`FontFaceSet`… constructors the native classes register
+/// against) only exist for them. Without a live function of one of these,
+/// the `polyfill` call is left out of `global` (`emit_js_production`
+/// removes it from the text).
+pub const DOM_LIBRARIES: &[&str] = &["dart:html", "dart:html_common", "dart:svg", "dart:web_audio", "dart:web_gl", "dart:indexed_db", "dart:web_sql"];
+
+/// Whether `f` is the top-level `polyfill` of `dart:_runtime`.
+pub fn is_dom_polyfill(e: WorldInput<'_>, f: FunctionElementId) -> bool {
+    let func = e.program.function(f);
+    func.class.is_none() && e.program.library(func.library).uri == "dart:_runtime" && e.interner.resolve(func.name) == "polyfill"
+}
 
 /// Whether the native class `c` is a JS built-in (its library is
 /// `dart:_interceptors`, `dart:_js_helper` or `dart:core`): those become
@@ -881,6 +902,8 @@ impl<'a> Engine<'a> {
             template_sel: HashSet::new(),
             dartx_classes: HashSet::new(),
             operator_selectors: std::env::var("DARTFORGE_JSPROD_OPERATOR_SELECTORS").map_or(true, |v| v != "0"),
+            dom_open: std::env::var("DARTFORGE_JSPROD_DOM_POLYFILL").is_ok_and(|v| v == "0"),
+            held_polyfill: None,
         }
     }
 
@@ -915,11 +938,24 @@ impl<'a> Engine<'a> {
         if !self.is_user_lib(func.library) {
             return;
         }
+        if !self.dom_open && self.include_sdk && is_dom_polyfill(self.e, f) {
+            self.held_polyfill = Some(f);
+            return;
+        }
         self.fn_live[i] = true;
         self.cause_fn[i] = Some(self.cause);
         self.queue.push_back(Item::Function(f));
         if !self.foreign_open && opens_foreign(self.e.program, f) {
             self.open_foreign(f);
+        }
+        if !self.dom_open && DOM_LIBRARIES.contains(&self.e.program.library(func.library).uri.as_str()) {
+            self.dom_open = true;
+            if let Some(h) = self.held_polyfill.take() {
+                let saved = self.cause;
+                self.cause = Cause::Function(f);
+                self.mark_fn_live(h);
+                self.cause = saved;
+            }
         }
     }
 
