@@ -692,3 +692,61 @@ o experimento) nas mensagens de `could_not_infer`; o `T₀` dos tipos de
 função genéricos aninhados; `case nome:` com constante estática da classe
 (a verificação daquele `switch` fica de fora); a substituição dos limites
 dos parâmetros de tipo de método pelo receptor (só mensagem).
+
+## 9. Rodada de 2026-10-13 (macOS)
+
+| medida | antes | depois |
+| --- | ---: | ---: |
+| Placar (posição exata) | 22.965/23.012 | **22.975/23.012** |
+| FP / posição errada / mensagem errada / FN | 0 / 0 / 10 / 47 | **0 / 0 / 9 / 37** |
+| Pub-cache (209 pacotes): FP / mensagem errada / FN | 35 / 2 / 40 | **0 / 0 / 29** |
+| Projetos reais (10): FP; mutações (567): FP | 0; 7 | **0; 4** (só lints não publicados) |
+| Códigos em `verificados.txt` | 477 | **485** |
+
+Consertos (cada um com caso conferido no `dart analyze` 3.6.2 em
+`crates/parity/tests/analyzer_rules.rs`):
+
+* Parser: palavra reservada como nome de variável local (`var enum;`,
+  `LocalVariableDeclarationIdentifierContext`); `this` sem `.` nem `(` no
+  inicializador (`this?.m()` vira `this.<sintético>?.m()`, como o rewriter do
+  `parseInitializer`); `$` sozinho na string interpola o identificador sintético
+  do scanner (`const A("$")` dá `invalid_constant`).
+* Inferência: identificador sintético não é nome indefinido (não suprime mais os
+  avisos de import); `this` explícito no inicializador tem o tipo da classe;
+  `T?` promovido por `is S` vira `T & S`; a invocação de função entra na cadeia
+  de `?.` (`r?.w(1)()`); a mensagem do `assert` é inferida no ramo falso da
+  condição; `if (… case …)` dentro de um `case` não toma o lugar do escrutínio
+  do `switch`; `identical(x, null)` promove como `x == null`; o coletor de
+  restrições segue depois das regras de `?` que falham (`List<int>? <# List<T>`
+  dá `T :> int`, como no analyzer); `C?` não faz tear-off implícito de `call`;
+  `for-in` com elemento chamável confere o tipo do tear-off; UP de tipo de
+  extensão que implementa `Object` com classe é `Object`.
+* Verificadores: fábrica `const` redirecionada instancia o alvo escrito
+  (`Stream<int>.empty()` = `_EmptyStream<int>`); setter sobrescreve o setter
+  implícito de campo `late final` sem inicializador; `=` simples não usa o getter
+  companheiro do setter (obsolescência); `@internal` e `@literal` resolvidos
+  como os de `package:meta` / contexto constante; criação `@literal` em contexto
+  constante já é `const`; comentário terminado em `.` antes de membro não é nome
+  de construtor recuperado; atribuição composta não usa operador de extensão
+  genérica (`unused_element`); `[new A]` em comentário `/** */`; `[m]` em
+  comentário de tipo usa o import da extensão que dá `m` ao tipo
+  (`unused_import`).
+* Caixa do caminho no macOS: `Engine::analyze_with` canoniza raiz, arquivos,
+  textos e `package_config` (o carregamento já canonizava), e devolve o
+  resultado pelas chaves dadas. Antes, uma raiz com outra caixa (ou por link)
+  perdia relatórios e errava o "mesmo pacote" (FP de
+  `invalid_use_of_internal_member`, `deprecated_member_use` no lugar de
+  `_from_same_package`).
+* Desempenho: `is_shadowed` deixou de ser quadrático por chamada e o
+  `meta::check` só resolve anotações com os nomes do `package:meta`; o
+  `element.dart` do analyzer (12 mil linhas) caiu de ~60 s para ~1,5 s e a
+  varredura do pub-cache inteira de ~50 min para 6 min (antes estourava o tempo
+  por lote e virava FN).
+
+Restam (37 FN, 9 mensagens): variância declarada (experimento `variance`: 3 FN
+e 4 mensagens); `Never?`/`Null` e alias na exibição (`Null?`, `Never
+Function(Never)`, `Comparable<Object?>`); recursos 3.13 (construtores
+primários, augmentations) em ~15 casos; `default` em tipo de função (o valor não
+é inferido); código morto em mensagem de `assert` do inicializador; `late`
+definitivamente não atribuída em laço; `ambiguous_extension_member_access` de
+`[]` com getter/setter.
