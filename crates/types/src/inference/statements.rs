@@ -1374,7 +1374,23 @@ fn for_in_invalid_type(
     let Some(el) = inf.as_instance_of(base, Some(cls)).map(|a| a[0]) else { return true };
     let tearoff = matches!(inf.table.get(var), Type::Function { .. } | Type::FutureOr { .. })
         && matches!(inf.table.get(el), Type::Interface { .. } | Type::ExtensionType { .. } | Type::TypeParameter { .. } | Type::Intersection { .. });
-    if !tearoff && !inf.assignable(el, var) {
+    // `_checkForInIterable` (6.11 `error_verifier.dart:3182-3233`): an element
+    // that is not assignable may still pass by the implicit tear-off of its
+    // `call`, whose type must then be assignable (a generic `call` is
+    // instantiated by inference there; it is left alone here).
+    let call_tearoff_fails = tearoff && !inf.assignable(el, var) && {
+        let call = inf.sym.call;
+        match (inf.table.get(el).clone(), call) {
+            (Type::Interface { nullable: false, .. }, Some(call)) => match inf.interface_member(el, call, false).filter(|m| m.method) {
+                Some(m) => !matches!(inf.table.get(m.ty), Type::Function { type_params, .. } if !type_params.is_empty()) && !inf.assignable(m.ty, var),
+                None => true,
+            },
+            // `getImplicitCallMethod` needs a non-nullable interface type.
+            (Type::Interface { nullable: true, .. }, _) => true,
+            _ => false,
+        }
+    };
+    if (!tearoff && !inf.assignable(el, var)) || call_tearoff_fails {
         inf.warning_with_args(ce::FOR_IN_OF_INVALID_ELEMENT_TYPE, sp, &[crate::display::Arg::Type_(base), crate::display::Arg::from(the_name), crate::display::Arg::Type_(var)]);
         return false;
     }

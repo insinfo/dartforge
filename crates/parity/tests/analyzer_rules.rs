@@ -421,6 +421,18 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
         "class C {\n  void call(int a) {}\n}\nvoid f(C? c, Iterable<C?> cs) {\n  void Function(int) g = c;\n  print(g);\n  for (void Function(int) h in cs) { h; }\n  for (var h in cs) { void Function(int) k = h; print(k); }\n}\n",
         &[("invalid_assignment", 5, 26, 1), ("for_in_of_invalid_element_type", 7, 32, 2), ("invalid_assignment", 8, 46, 1)],
     ),
+    // The `for-in` element passes by the tear-off of its `call` only when the
+    // tear-off's type is assignable (2026-10-13).
+    (
+        "for_in_call_implicito.dart",
+        "class C {\n  void call(int a) {}\n}\nvoid foo(Iterable<C> iterable) {\n  void Function(String) f;\n  for (f in iterable) {\n    f;\n  }\n  void Function(int) g;\n  for (g in iterable) {\n    g;\n  }\n  for (void Function(String) h in iterable) {\n    h;\n  }\n}\nclass D {}\nclass G { T call<T>(T x) => x; }\nvoid bar(Iterable<D> ds, Iterable<G> gs, Iterable<C?> cs) {\n  for (void Function(int) f in ds) { f; }\n  for (int Function(int) f in gs) { f; }\n  for (void Function(int) f in cs) { f; }\n}\n",
+        &[
+            ("for_in_of_invalid_element_type", 6, 13, 8),
+            ("for_in_of_invalid_element_type", 13, 35, 8),
+            ("for_in_of_invalid_element_type", 20, 32, 2),
+            ("for_in_of_invalid_element_type", 22, 32, 2),
+        ],
+    ),
     // A reserved word as a local variable's name (2026-10-13).
     (
         "palavra_reservada_local.dart",
