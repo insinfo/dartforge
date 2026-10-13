@@ -1,35 +1,33 @@
-// Runtime nativo: os isolados (`Isolate.spawn`, `Isolate.exit`, a porta de
-// controle) — o que a VM faz em `runtime/vm/isolate.cc` e
-// `runtime/lib/isolate.cc`.
+// Native runtime: isolates (`Isolate.spawn`, `Isolate.exit`, the control port) —
+// what the VM does in `runtime/vm/isolate.cc` and `runtime/lib/isolate.cc`.
 //
-// Um isolado é uma thread com o próprio heap, a própria área de globais e o
-// próprio laço de eventos: todo o estado do runtime é por thread. O código
-// gerado entrega na entrada a preparação de um isolado
-// (`df.preparar_isolado`: os registros das bibliotecas, a RTI e o
-// embedder) e a função que chama uma closure; `Isolate.spawn` copia a
-// entrada e a mensagem para grafos (`portas.rs`), cria a thread, e nela
-// prepara o isolado, manda a mensagem de pronto (`[porta de controle,
-// [pausa, término]]`) e roda a entrada como a primeira mensagem
-// (`_startIsolate`). Constantes canônicas e tear-offs de topo atravessam
-// pela identidade (o destino recebe as dele), como no grupo de isolados da
-// VM.
+// An isolate is a thread with its own heap, its own globals area and its own
+// event loop: all runtime state is per thread. Generated code hands over at
+// entry the preparation of an isolate (`df.preparar_isolado`: the library
+// registrations, the RTI and the embedder) and the function that calls a
+// closure; `Isolate.spawn` copies the entry and the message into graphs
+// (`ports.rs`), creates the thread, and on it prepares the isolate, sends the
+// ready message (`[control port, [pause, termination]]`) and runs the entry as
+// the first message (`_startIsolate`). Canonical constants and top-level
+// tear-offs cross by identity (the destination receives its own), as in the VM's
+// isolate group.
 //
-// A porta de controle recebe as mensagens OOB da VM (`pause`, `resume`,
-// `ping`, `kill`, ouvintes de saída e de erro, erros fatais), que o laço de
-// eventos atende entre um evento e outro, antes dos comuns. Ao terminar, o
-// isolado avisa os ouvintes de saída e fecha as portas. Um erro não tratado
-// vai aos ouvintes de erro (`[error, trace]`); sem ouvinte e com erros
-// fatais, é impresso como na VM (`Unhandled exception:`) e o isolado
-// termina — o processo, não: ele termina com o isolado principal.
+// The control port receives the VM's OOB messages (`pause`, `resume`, `ping`,
+// `kill`, exit and error listeners, fatal errors), which the event loop serves
+// between one event and the next, before the ordinary ones. When it ends, the
+// isolate notifies the exit listeners and closes its ports. An unhandled error
+// goes to the error listeners (`[error, trace]`); without a listener and with
+// fatal errors, it is printed as in the VM (`Unhandled exception:`) and the
+// isolate ends — the process does not: it ends with the main isolate.
 //
-// `Isolate.exit` e o `kill` desenrolam o isolado (o `UnwindError` da VM):
-// a exceção pendente não é capturável (`excecoes.rs`). O controle é atendido
-// entre eventos e também no ponto seguro de cada volta de laço
-// ([`dartforge_ponto_seguro`], o papel da verificação de pilha da VM): um
-// `kill` imediato ou um `ping` alcançam um isolado preso num laço sem
-// eventos; o `kill` com `beforeNextEvent` espera o evento atual terminar.
+// `Isolate.exit` and `kill` unwind the isolate (the VM's `UnwindError`): the
+// pending exception cannot be caught (`exceptions.rs`). Control is served between
+// events and also at the safepoint of each loop iteration
+// ([`dartforge_ponto_seguro`], the role of the VM's stack check): an immediate
+// `kill` or a `ping` reach an isolate stuck in a loop without events; a `kill`
+// with `beforeNextEvent` waits for the current event to finish.
 
-/// `Isolate.immediate` (a prioridade de `kill` e `ping`).
+/// `Isolate.immediate` (the priority of `kill` and `ping`).
 const IMMEDIATE_PRIORITY: i64 = 0;
 
 /// `IsolateMessageHandler` (`isolate_patch.dart`, `_PAUSE`…).
@@ -43,38 +41,38 @@ const OOB_LISTEN_ERROR: i64 = 7;
 const OOB_UNLISTEN_ERROR: i64 = 8;
 const OOB_ERRORS_FATAL: i64 = 9;
 
-/// A pilha de cada thread de isolado (reserva; o sistema só usa o que
-/// tocar).
+/// The stack of each isolate thread (a reservation; the system only uses what is
+/// touched).
 const ISOLATE_STACK: usize = 64 * 1024 * 1024;
 
-/// O que o código gerado entrega na entrada: a preparação de um isolado e
-/// a chamada de closure (0 = ainda não registrado).
+/// What generated code hands over at entry: the preparation of an isolate and the
+/// closure call (0 = not registered yet).
 static PREPARE_ISOLATE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static CHAMAR_CLOSURE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// `dartforge_registrar_isolados(prepare, call)`: a entrada do programa
-/// entrega a preparação de isolado e a chamada de closure.
+/// `dartforge_registrar_isolados(prepare, call)`: the program entry hands over the
+/// isolate preparation and the closure call.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_registrar_isolados(prepare: extern "C" fn(), call: Option<extern "C" fn(i64) -> i64>) {
     PREPARE_ISOLATE.store(prepare as usize, std::sync::atomic::Ordering::Release);
     CHAMAR_CLOSURE.store(call.map_or(0, |c| c as usize), std::sync::atomic::Ordering::Release);
 }
 
-/// O estado de controle de um isolado.
+/// The control state of an isolate.
 struct IsolateState {
     control: i64,
     pause: i64,
     termination: i64,
     errors_fatal: bool,
-    /// As capacidades de retomada das pausas pedidas (pausado se houver).
+    /// The resume capabilities of the requested pauses (paused if there are any).
     pauses: Vec<i64>,
-    /// (porta, resposta) de cada ouvinte de saída.
+    /// (port, response) of each exit listener.
     exit_listeners: Vec<(i64, Graph)>,
     error_listeners: Vec<i64>,
-    /// Um `kill` foi aceito: o isolado termina no próximo retorno ao laço.
+    /// A `kill` was accepted: the isolate ends on its next return to the loop.
     shut_down: bool,
-    /// O `kill` aceito é imediato (`Isolate.immediate`): o ponto seguro de
-    /// um laço desenrola o isolado sem esperar o laço de eventos (J01).
+    /// The accepted `kill` is immediate (`Isolate.immediate`): a loop's safepoint
+    /// unwinds the isolate without waiting for the event loop (J01).
     shut_down_now: bool,
 }
 
@@ -82,15 +80,14 @@ thread_local! {
     static ISOLATE: RefCell<Option<IsolateState>> = const { RefCell::new(None) };
 }
 
-/// Porta de controle → nome de depuração (`Isolate.debugName`), de todos os
-/// isolados vivos.
+/// Control port → debug name (`Isolate.debugName`), of all live isolates.
 fn isolate_names() -> std::sync::MutexGuard<'static, crate::hash::HashMap<i64, String>> {
     static N: std::sync::OnceLock<std::sync::Mutex<crate::hash::HashMap<i64, String>>> = std::sync::OnceLock::new();
     N.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// O estado deste isolado, criado na primeira vez (o principal nasce
-/// assim: erros fatais, sem pausa, sem ouvintes).
+/// The state of this isolate, created the first time (the main one is born this
+/// way: fatal errors, no pause, no listeners).
 fn with_state<R>(f: impl FnOnce(&mut IsolateState) -> R) -> R {
     ISOLATE.with(|i| {
         let mut i = i.borrow_mut();
@@ -113,12 +110,12 @@ fn with_state<R>(f: impl FnOnce(&mut IsolateState) -> R) -> R {
     })
 }
 
-/// Se o isolado está pausado (o laço só atende a porta de controle).
+/// Whether the isolate is paused (the loop only serves the control port).
 fn paused_isolate() -> bool {
     ISOLATE.with(|i| i.borrow().as_ref().is_some_and(|e| !e.pauses.is_empty()))
 }
 
-/// O inteiro de um valor Dart (escalar sem caixa, ou `Ref` de `int`).
+/// The integer of a Dart value (an unboxed scalar, or a `Ref` to an `int`).
 fn int_from(v: crate::heap::Value) -> Option<i64> {
     match v {
         crate::heap::Value::Int(i) => Some(i),
@@ -127,8 +124,8 @@ fn int_from(v: crate::heap::Value) -> Option<i64> {
     }
 }
 
-/// O `_id` de uma `_SendPort` ou `_Capability` (o primeiro campo: bruto, ou
-/// um `Ref` de `int`).
+/// The `_id` of a `_SendPort` or `_Capability` (the first field: raw, or a `Ref`
+/// to an `int`).
 fn object_id(h: i64) -> Option<i64> {
     if !crate::layout::is_object(h) {
         return None;
@@ -137,13 +134,13 @@ fn object_id(h: i64) -> Option<i64> {
     if is_ref_kind { int_from(crate::heap::Value::Ref(bits)) } else { Some(bits) }
 }
 
-/// Chama a função `name` da sobreposição de `dart:isolate`.
+/// Calls function `name` of the `dart:isolate` overlay.
 fn ajudante_de_isolado(name: &str) -> usize {
-    ajudante(name).unwrap_or_else(|| panic!("bug do compilador: dart:isolate sem `{name}` registrado"))
+    ajudante(name).unwrap_or_else(|| panic!("compiler bug: dart:isolate without a registered `{name}`"))
 }
 
-/// Copia `value` para outro isolado; `None` se não é enviável (com a
-/// descrição em `DartForge_porta_recusa`).
+/// Copies `value` to another isolate; `None` if it is not sendable (with the
+/// description in `DartForge_porta_recusa`).
 fn copy_to_other_isolate(value: i64) -> Option<Graph> {
     match copy_to_graph(value, false) {
         Ok(g) => Some(g),
@@ -155,10 +152,10 @@ fn copy_to_other_isolate(value: i64) -> Option<Graph> {
 }
 
 // ---------------------------------------------------------------------------
-// A porta de controle.
+// The control port.
 
-/// Atende as mensagens de controle pendentes. Devolve `false` se o isolado
-/// deve terminar (`kill`).
+/// Serves the pending control messages. Returns `false` if the isolate must end
+/// (`kill`).
 fn serve_control() -> bool {
     while let Some(g) = next_control() {
         with_control_message(&g, handle_control_message);
@@ -166,8 +163,8 @@ fn serve_control() -> bool {
     !ISOLATE.with(|i| i.borrow().as_ref().is_some_and(|e| e.shut_down))
 }
 
-/// Mantém o owner da mensagem materializada até o tratamento terminar.
-/// A publicação no slot ocorre antes de qualquer alocação ou chamada Dart.
+/// Keeps the owner of the materialized message until handling ends. Publication in
+/// the slot happens before any allocation or Dart call.
 fn with_control_message<R>(graph: &Graph, handle_it: impl FnOnce(i64) -> R) -> R {
     let msg = materialize(graph);
     let frame = HEAP.with(|h| {
@@ -189,8 +186,8 @@ mod tests_control_owner {
     fn entry_with_exception_releases_argument_and_keeps_pending_owner() {
         let previous = HEAP.with(|h| h.replace(Heap::new(true)));
         HEAP.with(|h| h.borrow_mut().enable_arc());
-        let input = Portable::Str("erro da entrada".into()).to_graph();
-        let message = Portable::Str("argumento descartado".into()).to_graph();
+        let input = Portable::Str("input error".into()).to_graph();
+        let message = Portable::Str("discarded argument".into()).to_graph();
         let (input, message) = with_isolate_entry(&input, &message, |input, message, _| {
             dartforge_exception_throw(input, 3);
             (input, message)
@@ -215,13 +212,13 @@ mod tests_control_owner {
     fn isolate_entry_preserves_values_and_releases_owners_on_return() {
         let previous = HEAP.with(|h| h.replace(Heap::new(true)));
         HEAP.with(|h| h.borrow_mut().enable_arc());
-        let input = Portable::Str("entrada".into()).to_graph();
+        let input = Portable::Str("input".into()).to_graph();
         let message = Portable::Str("argumento".into()).to_graph();
         let (input, message, ready_flag) = with_isolate_entry(&input, &message, |input, message, frame| {
             let ready_flag = HEAP.with(|h| {
                 let mut h = h.borrow_mut();
                 h.collect();
-                assert_eq!(h.text(input).unwrap().para_string(), "entrada");
+                assert_eq!(h.text(input).unwrap().para_string(), "input");
                 assert_eq!(h.text(message).unwrap().para_string(), "argumento");
                 let ready_flag = h.allocate_str("pronto");
                 h.set_root(frame, 2, ready_flag);
@@ -247,7 +244,7 @@ mod tests_control_owner {
         let error = HEAP.with(|h| {
             let mut h = h.borrow_mut();
             h.enable_arc();
-            h.allocate_str("erro protegido")
+            h.allocate_str("protected error")
         });
         dartforge_exception_throw(error, 3);
         let trace = with_unhandled_error(|captured_value, trace, frame| {
@@ -256,9 +253,9 @@ mod tests_control_owner {
             HEAP.with(|h| {
                 let mut h = h.borrow_mut();
                 h.collect();
-                assert_eq!(h.text(error).unwrap().para_string(), "erro protegido");
+                assert_eq!(h.text(error).unwrap().para_string(), "protected error");
                 assert!(h.is_live_object(trace));
-                // O diagnóstico pode repetir o erro: é outra ocorrência owner.
+                // The diagnostic may repeat the error: it is another owner occurrence.
                 h.set_root(frame, 2, error);
                 h.collect();
                 assert!(h.is_live_object(error));
@@ -281,7 +278,7 @@ mod tests_control_owner {
             let mut h = h.borrow_mut();
             h.enable_arc();
             let frame = h.push_owning_frame(1);
-            let text = h.allocate_str("controle portátil");
+            let text = h.allocate_str("portable control");
             h.set_root(frame, 0, text);
             (frame, text)
         });
@@ -300,7 +297,7 @@ mod tests_control_owner {
             HEAP.with(|h| {
                 let mut h = h.borrow_mut();
                 h.collect();
-                assert_eq!(h.text(msg).unwrap().para_string(), "controle portátil");
+                assert_eq!(h.text(msg).unwrap().para_string(), "portable control");
             });
             msg
         });
@@ -314,11 +311,11 @@ mod tests_control_owner {
     }
 }
 
-/// `IsolateMessageHandler::HandleLibMessage`: `[0, tipo, …]`.
+/// `IsolateMessageHandler::HandleLibMessage`: `[0, type, …]`.
 fn handle_control_message(msg: i64) {
     use crate::heap::Value;
-    // A mensagem é uma lista do núcleo (`lists.rs`): os elementos sem caixa,
-    // na forma do armazenamento.
+    // The message is a core list (`lists.rs`): the elements unboxed, in the
+    // storage's form.
     let items: Vec<Value> = HEAP.with(|h| {
         let h = h.borrow();
         if !crate::layout::is_object(msg) || !h.e_lista(msg) {
@@ -332,7 +329,7 @@ fn handle_control_message(msg: i64) {
         _ => 0,
     };
     let id = |i: usize| object_id(object(i));
-    // O elemento numa posição `Ref` (encaixota o escalar de uma lista compacta).
+    // The element in a `Ref` position (boxes the scalar of a compact list).
     let value = |i: usize| items.get(i).map_or(0, |v| HEAP.with(|h| h.borrow_mut().to_ref(*v)));
     match tipo {
         OOB_PAUSE | OOB_RESUME => {
@@ -350,8 +347,8 @@ fn handle_control_message(msg: i64) {
         }
         OOB_PING => {
             let Some(port) = id(2) else { return };
-            // As duas prioridades respondem aqui: o controle é atendido
-            // entre eventos, antes do próximo.
+            // Both priorities answer here: control is served between events,
+            // before the next one.
             let response = value(4);
             if let Ok(g) = copy_to_graph(response, false) {
                 post(port, g);
@@ -409,17 +406,18 @@ fn handle_control_message(msg: i64) {
 }
 
 // ---------------------------------------------------------------------------
-// Erros não tratados e o fim do isolado.
+// Unhandled errors and the end of the isolate.
 
-/// `ProcessUnhandledException`: a exceção pendente vai aos ouvintes de
-/// erro (`[error, trace]`); sem ouvinte e com erros fatais, é impressa.
-/// Devolve se o isolado deve terminar.
+/// `ProcessUnhandledException`: the pending exception goes to the error listeners
+/// (`[error, trace]`); without a listener and with fatal errors, it is printed.
+/// Returns whether the isolate must end.
 fn relatar_erro_nao_tratado() -> bool {
     with_unhandled_error(report_error_guarded)
 }
 
-/// Copia os owners antes de limpar a pendência e mantém o diagnóstico no slot 2.
-/// O tratamento pode alocar ou retornar cedo; todos os slots saem ao retornar.
+/// Copies the owners before clearing the pending exception and keeps the
+/// diagnostic in slot 2. Handling may allocate or return early; all slots leave on
+/// return.
 fn with_unhandled_error<R>(handle_it: impl FnOnce(i64, i64, i64) -> R) -> R {
     let error = dartforge_exception_peek_ref();
     let trace = dartforge_stack_trace_get();
@@ -436,15 +434,15 @@ fn with_unhandled_error<R>(handle_it: impl FnOnce(i64, i64, i64) -> R) -> R {
     result
 }
 
-/// Descreve e distribui o erro já protegido pelo quadro do tratamento.
+/// Describes and distributes the error already protected by the handling frame.
 fn report_error_guarded(error: i64, trace: i64, frame: i64) -> bool {
     let (fatal, listeners) = with_state(|e| (e.errors_fatal, e.error_listeners.clone()));
-    // SAFETY: registrada pela sobreposição de `dart:isolate` com a
-    // assinatura (`Object?`, `Object?`) → `List<String>`.
+    // SAFETY: registered by the `dart:isolate` overlay with the signature
+    // (`Object?`, `Object?`) → `List<String>`.
     let describe = { let dart_target: usize = ajudante_de_isolado("_dartforgeDescreverErro"); move |a0: i64, a1: i64| -> i64 { dart_r2(dart_target, a0, a1) } };
     let description = describe(error, trace);
     if dartforge_exception_pending() != 0 {
-        // O `toString()` do erro falhou: a descrição do runtime.
+        // The error's `toString()` failed: the runtime's description.
         dartforge_exception_clear();
         if listeners.is_empty() && fatal {
             eprintln!("Unhandled exception:\n{}", HEAP.with(|h| describe_handle(&h.borrow(), error)));
@@ -481,8 +479,8 @@ fn report_error_guarded(error: i64, trace: i64, frame: i64) -> bool {
     fatal
 }
 
-/// O fim de um isolado: os ouvintes de saída recebem a resposta deles e as
-/// portas fecham.
+/// The end of an isolate: the exit listeners receive their response and the ports
+/// close.
 fn shut_down_isolate() {
     let (control, listeners) = with_state(|e| (e.control, std::mem::take(&mut e.exit_listeners)));
     for (port, response) in listeners {
@@ -494,8 +492,8 @@ fn shut_down_isolate() {
     close_isolate_ports();
 }
 
-/// O laço de eventos de um isolado com o tratamento dos erros não
-/// tratados: um erro não fatal não o termina.
+/// The event loop of an isolate with the handling of unhandled errors: a non-fatal
+/// error does not end it.
 fn run_isolate_loop(call: extern "C" fn(i64) -> i64) {
     loop {
         dartforge_laco_de_eventos(call);
@@ -511,12 +509,12 @@ fn run_isolate_loop(call: extern "C" fn(i64) -> i64) {
     }
 }
 
-/// O ponto seguro de uma volta de laço (J01), que o código gerado chama
-/// quando a porta de controle tem mensagem (`Context::interrupt`): atende
-/// o controle (ping, pausa, ouvintes, `kill`) e, com um `kill` imediato,
-/// desenrola o isolado — a exceção pendente não capturável sobe até o laço de
-/// eventos, e os `finally` do caminho rodam. A publicação de uma recarga do
-/// JIT não é atendida aqui: ela precisa da pilha sem quadros Dart.
+/// The safepoint of a loop iteration (J01), which generated code calls when the
+/// control port has a message (`Context::interrupt`): serves control (ping, pause,
+/// listeners, `kill`) and, with an immediate `kill`, unwinds the isolate — the
+/// uncatchable pending exception goes up to the event loop, and the `finally`
+/// blocks on the way run. The publication of a JIT reload is not served here: it
+/// needs a stack without Dart frames.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_ponto_seguro() {
     if unwinding_now() {
@@ -528,8 +526,8 @@ pub extern "C" fn dartforge_ponto_seguro() {
     }
 }
 
-/// O pedido de interrupção sem o contexto no código gerado (o caminho lento
-/// de [`dartforge_ponto_seguro`]; o emissor lê o byte direto).
+/// The interrupt request without the context in generated code (the slow path of
+/// [`dartforge_ponto_seguro`]; the emitter reads the byte directly).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_interrupcao_pendente() -> u8 {
     crate::heap::CONTEXTO.with(|c| c.interrupt.load(std::sync::atomic::Ordering::Acquire))
@@ -538,7 +536,7 @@ pub extern "C" fn dartforge_interrupcao_pendente() -> u8 {
 // ---------------------------------------------------------------------------
 // `Isolate.spawn`.
 
-/// O que a thread nova recebe do isolado que a criou.
+/// What the new thread receives from the isolate that created it.
 struct IsolateRequest {
     ready_flag: i64,
     input: Graph,
@@ -550,8 +548,8 @@ struct IsolateRequest {
     name: String,
 }
 
-/// Materializa entrada e argumento mantendo owners até o retorno da chamada.
-/// O terceiro slot pertence à mensagem de pronto produzida pelo tratamento.
+/// Materializes the entry and the argument keeping owners until the call returns.
+/// The third slot belongs to the ready message produced by the handling.
 fn with_isolate_entry<R>(input: &Graph, message: &Graph, handle_it: impl FnOnce(i64, i64, i64) -> R) -> R {
     let frame = HEAP.with(|h| h.borrow_mut().push_owning_frame(3));
     let input = materialize(input);
@@ -563,12 +561,12 @@ fn with_isolate_entry<R>(input: &Graph, message: &Graph, handle_it: impl FnOnce(
     result
 }
 
-/// A vida de um isolado criado por `Isolate.spawn`, na thread dele.
+/// The life of an isolate created by `Isolate.spawn`, on its thread.
 fn rodar_isolado(p: IsolateRequest) {
     let prepare = PREPARE_ISOLATE.load(std::sync::atomic::Ordering::Acquire);
     let call = CHAMAR_CLOSURE.load(std::sync::atomic::Ordering::Acquire);
-    // SAFETY: registrados por `dartforge_registrar_isolados` com essas
-    // assinaturas, antes de qualquer `Isolate.spawn`.
+    // SAFETY: registered by `dartforge_registrar_isolados` with these signatures,
+    // before any `Isolate.spawn`.
     let prepare = { let dart_target: usize = prepare; move || { dart_v0(dart_target) } };
     let call: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(call) };
     prepare();
@@ -589,17 +587,16 @@ fn rodar_isolado(p: IsolateRequest) {
         shut_down_isolate();
         return;
     }
-    // A entrada e o laço do isolado num escopo nativo (imagens ARC
-    // preparadas): os owners das portas Dart chamadas pelo runtime.
+    // The isolate's entry and loop in a native scope (prepared ARC images): the
+    // owners of the Dart ports called by the runtime.
     in_native_scope_if_arc(|| run_entry_and_loop(&p, call, control, pause, termination));
     shut_down_isolate();
 }
 
 fn run_entry_and_loop(p: &IsolateRequest, call: extern "C" fn(i64) -> i64, control: i64, pause: i64, termination: i64) {
     with_isolate_entry(&p.input, &p.message, |input, message, frame| {
-        // SAFETY: registradas pela sobreposição de `dart:isolate` com as
-        // assinaturas (`int`, `int`, `int`) → `List` e (`Function`,
-        // `Object?`) → `void`.
+        // SAFETY: registered by the `dart:isolate` overlay with the signatures
+        // (`int`, `int`, `int`) → `List` and (`Function`, `Object?`) → `void`.
         let ready_flag = { let dart_target: usize = ajudante_de_isolado("_dartforgeMensagemDePronto"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
         let iniciar = { let dart_target: usize = ajudante_de_isolado("_dartforgeIniciarIsolado"); move |a0: i64, a1: i64| { dart_v2(dart_target, a0, a1) } };
         let m = ready_flag(control, pause, termination);
@@ -636,7 +633,7 @@ pub extern "C" fn dartforge_nativo_Isolate_spawnFunction(
         return;
     };
     if PREPARE_ISOLATE.load(std::sync::atomic::Ordering::Acquire) == 0 || CHAMAR_CLOSURE.load(std::sync::atomic::Ordering::Acquire) == 0 {
-        throw_internal_error("Isolate.spawn sem a entrada do programa registrada");
+        throw_internal_error("Isolate.spawn without the program entry registered");
         return;
     }
     let Some(g_input) = copy_to_other_isolate(input) else { return };
@@ -654,21 +651,21 @@ pub extern "C" fn dartforge_nativo_Isolate_spawnFunction(
         name: name.clone(),
     };
     let created = std::thread::Builder::new().name(name).stack_size(ISOLATE_STACK).spawn(move || {
-        // As listas livres do alocador valem enquanto o isolado roda
-        // (`alocador.rs`); o fim da thread as devolve ao sistema.
+        // The allocator's free lists are valid while the isolate runs
+        // (`allocator.rs`); the end of the thread returns them to the system.
         enable_allocation_cache();
         rodar_isolado(request);
         flush_allocation_cache();
     });
     if let Err(e) = created {
-        // A VM responde na porta de pronto com o texto do erro.
+        // The VM answers on the ready port with the error text.
         post(ready_flag, Portable::Str(format!("Unable to create the isolate thread: {e}")).to_graph());
     }
 }
 
-/// `Isolate_spawnUri`: nem o executável nativo nem o JIT carregam outro
-/// programa (o runtime AOT da VM só aceita um snapshot AOT, e com um `.dart`
-/// também falha); a porta de pronto recebe o erro.
+/// `Isolate_spawnUri`: neither the native executable nor the JIT loads another
+/// program (the VM's AOT runtime only accepts an AOT snapshot, and with a `.dart`
+/// it fails too); the ready port receives the error.
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
 pub extern "C" fn dartforge_nativo_Isolate_spawnUri(
@@ -687,8 +684,8 @@ pub extern "C" fn dartforge_nativo_Isolate_spawnUri(
 ) {
     let Some(ready_flag) = object_id(ready_flag) else { return };
     let uri = HEAP.with(|h| h.borrow().text(uri).map(|t| t.para_string()).unwrap_or_default());
-    // O JIT (o hospedeiro definiu o script) roda um programa por processo:
-    // as tabelas de classes e o RTI são do processo. Ver docs/JIT.md.
+    // The JIT (the host set the script) runs one program per process: the class
+    // tables and the RTI belong to the process. See docs/JIT.md.
     let jit = program_script().lock().unwrap_or_else(|e| e.into_inner()).is_some();
     let text = if jit {
         format!("Isolate.spawnUri({uri}) is not supported by the DartForge JIT: a process runs a single program")
@@ -698,18 +695,18 @@ pub extern "C" fn dartforge_nativo_Isolate_spawnUri(
     post(ready_flag, Portable::Str(text).to_graph());
 }
 
-/// `Isolate_getPortAndCapabilitiesOfCurrentIsolate`: `[porta de controle,
-/// pausa, término]`.
+/// `Isolate_getPortAndCapabilitiesOfCurrentIsolate`: `[control port, pause,
+/// termination]`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Isolate_getPortAndCapabilitiesOfCurrentIsolate() -> i64 {
     let (c, p, t) = with_state(|e| (e.control, e.pause, e.termination));
-    // SAFETY: registrada pela sobreposição de `dart:isolate` com a
-    // assinatura (`int`, `int`, `int`) → `List`.
+    // SAFETY: registered by the `dart:isolate` overlay with the signature (`int`,
+    // `int`, `int`) → `List`.
     let f = { let dart_target: usize = ajudante_de_isolado("_dartforgePortaECapacidades"); move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
     f(c, p, t)
 }
 
-/// `Isolate_getDebugName(controlPort)`: o nome do isolado vivo, ou `null`.
+/// `Isolate_getDebugName(controlPort)`: the name of the live isolate, or `null`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Isolate_getDebugName(port: i64) -> i64 {
     let Some(id) = object_id(port) else { return 0 };
@@ -717,8 +714,8 @@ pub extern "C" fn dartforge_nativo_Isolate_getDebugName(port: i64) -> i64 {
     name.map_or(0, |n| HEAP.with(|h| h.borrow_mut().allocate_str(&n)))
 }
 
-/// `Isolate_getCurrentRootUriStr`: o URI `file:` do script (o `.dart` que
-/// o JIT roda, como no `dart run`; no AOT, o executável, como na VM).
+/// `Isolate_getCurrentRootUriStr`: the `file:` URI of the script (the `.dart` the
+/// JIT runs, as in `dart run`; in AOT, the executable, as in the VM).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Isolate_getCurrentRootUriStr() -> i64 {
     let defined = program_script().lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -730,8 +727,8 @@ pub extern "C" fn dartforge_nativo_Isolate_getCurrentRootUriStr() -> i64 {
     HEAP.with(|h| h.borrow_mut().allocate_str(&file_uri(&absolute_path)))
 }
 
-/// O URI `file:` de um caminho absoluto (`Uri.file`), com os bytes fora dos
-/// não reservados codificados.
+/// The `file:` URI of an absolute path (`Uri.file`), with the bytes outside the
+/// unreserved set percent-encoded.
 fn file_uri(file_path: &std::path::Path) -> String {
     let text = file_path.to_string_lossy().replace('\\', "/");
     let mut uri = String::from(if text.starts_with('/') { "file://" } else { "file:///" });
@@ -745,8 +742,8 @@ fn file_uri(file_path: &std::path::Path) -> String {
     uri
 }
 
-/// `Isolate_sendOOB(port, msg)`: a mensagem vai à fila de controle do
-/// isolado dono da porta.
+/// `Isolate_sendOOB(port, msg)`: the message goes to the control queue of the
+/// isolate that owns the port.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Isolate_sendOOB(port: i64, message: i64) {
     let Some(id) = object_id(port) else {
@@ -757,8 +754,8 @@ pub extern "C" fn dartforge_nativo_Isolate_sendOOB(port: i64, message: i64) {
     post_control(id, g);
 }
 
-/// `Isolate_exit_(finalMessagePort, message)`: manda a mensagem final e
-/// desenrola o isolado (o `UnwindError` da VM).
+/// `Isolate_exit_(finalMessagePort, message)`: sends the final message and unwinds
+/// the isolate (the VM's `UnwindError`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Isolate_exit_(port: i64, message: i64) -> i64 {
     if port != 0 {

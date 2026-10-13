@@ -1,18 +1,17 @@
-// Runtime nativo: os processos do `dart:io` no Windows (`process_win.cc`
-// da VM).
+// Native runtime: the `dart:io` processes on Windows (the VM's `process_win.cc`).
 //
-// O filho nasce de `CreateProcessW` com a linha de comando que o Dart já
-// escapou (`_windowsArgumentEscape`), o ambiente em UTF-16 e, fora do modo
-// `inheritStdio`, só os três handles de E/S herdados
-// (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`: nenhum outro handle do processo
-// vaza para o filho). A E/S padrão do filho são pipes nomeados: o lado do
-// pai é sobreposto e vira um [`Handle`] na porta de conclusão; o do
-// filho é síncrono, como um programa espera. O código de saída chega pelo
-// pool de threads do sistema (`RegisterWaitForSingleObject`), que o escreve
-// (`[código, negative]`, dois `int32`) no pipe de saída do processo.
+// The child is born from `CreateProcessW` with the command line that Dart already
+// escaped (`_windowsArgumentEscape`), the environment in UTF-16 and, outside
+// `inheritStdio` mode, only the three inherited I/O handles
+// (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`: no other handle of the process leaks into
+// the child). The child's standard I/O are named pipes: the parent's side is
+// overlapped and becomes a [`Handle`] on the completion port; the child's is
+// synchronous, as a program expects. The exit code arrives through the system
+// thread pool (`RegisterWaitForSingleObject`), which writes it (`[code,
+// negative]`, two `int32`s) into the process's exit pipe.
 //
-// Os sinais são os eventos de console (`SetConsoleCtrlHandler`): SIGINT é
-// o Ctrl+C e SIGHUP o fechamento da janela.
+// Signals are the console events (`SetConsoleCtrlHandler`): SIGINT is Ctrl+C and
+// SIGHUP is the window being closed.
 
 #[cfg(windows)]
 mod windows_processes {
@@ -30,7 +29,7 @@ mod windows_processes {
     const FILE_READ_ATTRIBUTES: u32 = 0x80;
     const FILE_WRITE_ATTRIBUTES: u32 = 0x100;
     const OPEN_EXISTING: u32 = 3;
-    /// O buffer de cada sentido dos pipes (o do `libuv`).
+    /// The buffer of each direction of the pipes (`libuv`'s).
     const PIPE_SIZE: u32 = 64 * 1024;
     const STARTF_USESTDHANDLES: u32 = 0x100;
     const EXTENDED_STARTUPINFO_PRESENT: u32 = 0x0008_0000;
@@ -127,7 +126,7 @@ mod windows_processes {
     }
 
     fn system_error() -> OsError {
-        // SAFETY: lê o erro da thread.
+        // SAFETY: reads the thread's error.
         OsError::from_code(unsafe { GetLastError() } as i32)
     }
 
@@ -135,8 +134,8 @@ mod windows_processes {
         String::from_utf8_lossy(b).encode_utf16().collect()
     }
 
-    /// Os handles de um início, fechados se ele falha (ou se não forem
-    /// entregues a ninguém).
+    /// The handles of a start, closed if it fails (or if they are not handed to
+    /// anyone).
     #[derive(Default)]
     struct Stored(Vec<Bruto>);
 
@@ -145,7 +144,7 @@ mod windows_processes {
             self.0.extend(hs.iter().copied().filter(|&h| h != INVALID));
         }
 
-        /// O handle passa a quem chama.
+        /// The handle passes to the caller.
         fn deliver(&mut self, h: Bruto) -> Bruto {
             self.0.retain(|&x| x != h);
             h
@@ -154,7 +153,7 @@ mod windows_processes {
         fn do_close(&mut self, h: Bruto) {
             if h != INVALID {
                 self.deliver(h);
-                // SAFETY: handle deste início, fechado uma vez.
+                // SAFETY: a handle of this start, closed once.
                 unsafe { CloseHandle(h) };
             }
         }
@@ -163,32 +162,32 @@ mod windows_processes {
     impl Drop for Stored {
         fn drop(&mut self) {
             for &h in &self.0 {
-                // SAFETY: handles deste início que ninguém recebeu.
+                // SAFETY: handles of this start that nobody received.
                 unsafe { CloseHandle(h) };
             }
         }
     }
 
-    /// Quem usa cada lado de um pipe.
+    /// Who uses each side of a pipe.
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum PipeUse {
-        /// A entrada do filho: o pai escreve (sobreposto), o filho lê.
+        /// The child's input: the parent writes (overlapped), the child reads.
         ChildInput,
-        /// Uma saída do filho: o filho escreve, o pai lê (sobreposto).
+        /// A child's output: the child writes, the parent reads (overlapped).
         ChildOutput,
-        /// O pipe do código de saída: o pai lê (sobreposto); a escrita é
-        /// síncrona e não vai ao filho.
+        /// The exit code pipe: the parent reads (overlapped); the write side is
+        /// synchronous and does not go to the child.
         ExitCode,
-        /// O pipe de um sinal: os dois lados sobrepostos, nenhum herdado.
+        /// A signal's pipe: both sides overlapped, neither inherited.
         Signal,
     }
 
-    /// Um nome de pipe único no sistema (`\\.\pipe\dart-<pid>-<n>`); o
-    /// `FILE_FLAG_FIRST_PIPE_INSTANCE` garante que ninguém o tomou antes.
+    /// A pipe name unique in the system (`\\.\pipe\dart-<pid>-<n>`);
+    /// `FILE_FLAG_FIRST_PIPE_INSTANCE` guarantees nobody took it before.
     fn pipe_name() -> Vec<u16> {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        // SAFETY: consulta sem efeitos.
+        // SAFETY: a query without effects.
         let pid = unsafe { GetCurrentProcessId() };
         format!(r"\\.\pipe\dart-{pid}-{n}").encode_utf16().chain(std::iter::once(0)).collect()
     }
@@ -199,7 +198,7 @@ mod windows_processes {
         let inheritable = AtributosDeSeguranca { size: std::mem::size_of::<AtributosDeSeguranca>() as u32, descriptor: std::ptr::null_mut(), inherit: 1 };
         let parent_writes = usage == PipeUse::ChildInput;
         let opening = if parent_writes { PIPE_ACCESS_OUTBOUND } else { PIPE_ACCESS_INBOUND } | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE;
-        // SAFETY: cria o servidor do pipe com o nome único.
+        // SAFETY: creates the pipe server with the unique name.
         let server = unsafe { CreateNamedPipeW(name.as_ptr(), opening, PIPE_REJECT_REMOTE_CLIENTS, 1, PIPE_SIZE, PIPE_SIZE, 0, std::ptr::null()) };
         if server == INVALID {
             return Err(system_error());
@@ -210,44 +209,44 @@ mod windows_processes {
             PipeUse::ExitCode => (GENERIC_WRITE, std::ptr::null(), 0),
             PipeUse::Signal => (GENERIC_WRITE, std::ptr::null(), FILE_FLAG_OVERLAPPED),
         };
-        // SAFETY: abre o cliente do pipe recém-criado.
+        // SAFETY: opens the client of the freshly created pipe.
         let client = unsafe { CreateFileW(name.as_ptr(), access, 0, seg, OPEN_EXISTING, flag_bits, 0) };
         if client == INVALID {
             let e = system_error();
-            // SAFETY: o servidor não foi entregue a ninguém.
+            // SAFETY: the server was not handed to anyone.
             unsafe { CloseHandle(server) };
             return Err(e);
         }
         Ok(if parent_writes { [client, server] } else { [server, client] })
     }
 
-    /// `OpenNul`: o `NUL` herdável (a E/S dos processos destacados).
+    /// `OpenNul`: the inheritable `NUL` (the I/O of detached processes).
     fn open_nul() -> IoResult<Bruto> {
         let inheritable = AtributosDeSeguranca { size: std::mem::size_of::<AtributosDeSeguranca>() as u32, descriptor: std::ptr::null_mut(), inherit: 1 };
         let name: Vec<u16> = "NUL".encode_utf16().chain(std::iter::once(0)).collect();
-        // SAFETY: abre o dispositivo nulo.
+        // SAFETY: opens the null device.
         let h = unsafe { CreateFileW(name.as_ptr(), GENERIC_READ | GENERIC_WRITE, 0, &inheritable, OPEN_EXISTING, 0, 0) };
         if h == INVALID { Err(system_error()) } else { Ok(h) }
     }
 
-    /// A lista de atributos com os handles herdados, apagada no fim.
+    /// The attribute list with the inherited handles, deleted at the end.
     struct AttributeList(Vec<u64>);
 
     impl AttributeList {
         fn with_handles(handles: &[Bruto; 3]) -> IoResult<AttributeList> {
             let mut size = 0usize;
-            // SAFETY: consulta o tamanho (falha com
-            // ERROR_INSUFFICIENT_BUFFER, esperado).
+            // SAFETY: queries the size (fails with ERROR_INSUFFICIENT_BUFFER, as
+            // expected).
             unsafe { InitializeProcThreadAttributeList(std::ptr::null_mut(), 1, 0, &mut size) };
             let mut l = AttributeList(vec![0; size.div_ceil(8).max(1)]);
-            // SAFETY: o buffer tem `size` bytes, alinhado a 8.
+            // SAFETY: the buffer has `size` bytes, aligned to 8.
             if unsafe { InitializeProcThreadAttributeList(l.ptr(), 1, 0, &mut size) } == 0 {
                 let e = system_error();
                 std::mem::forget(l);
                 return Err(e);
             }
-            // SAFETY: `handles` vive até o fim do `CreateProcessW` (é de
-            // quem chama, que mantém a lista por menos tempo).
+            // SAFETY: `handles` lives until the end of `CreateProcessW` (it is the
+            // caller's, who keeps the list for a shorter time).
             if unsafe {
                 UpdateProcThreadAttribute(l.ptr(), 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, handles.as_ptr().cast(), std::mem::size_of_val(handles), std::ptr::null_mut(), std::ptr::null_mut())
             } == 0
@@ -264,7 +263,7 @@ mod windows_processes {
 
     impl Drop for AttributeList {
         fn drop(&mut self) {
-            // SAFETY: a lista foi iniciada.
+            // SAFETY: the list was initialized.
             unsafe { DeleteProcThreadAttributeList(self.ptr()) };
         }
     }
@@ -277,15 +276,15 @@ mod windows_processes {
         env: Option<&[Vec<u8>]>,
         mode: i64,
     ) -> Result<StartedProcess, OsError> {
-        // A linha de comando: o caminho e os argumentos, já escapados pelo
-        // Dart, separados por espaço.
+        // The command line: the path and the arguments, already escaped by Dart,
+        // separated by spaces.
         let mut line = wide(file_path);
         for a in arguments {
             line.push(u16::from(b' '));
             line.extend(wide(a));
         }
         line.push(0);
-        // O bloco de ambiente: `NOME=valor\0…\0` (vazio: dois NULs).
+        // The environment block: `NAME=value\0…\0` (empty: two NULs).
         let block = env.map(|v| {
             let mut b = Vec::new();
             for x in v {
@@ -331,7 +330,7 @@ mod windows_processes {
             g.store(&error);
         }
 
-        // SAFETY: `StartupInfoEx` é POD; zero é o valor inicial do C.
+        // SAFETY: `StartupInfoEx` is POD; zero is C's initial value.
         let mut start: StartupInfoEx = unsafe { std::mem::zeroed() };
         start.base.cb = std::mem::size_of::<StartupInfoEx>() as u32;
         let inherited = [input[0], output[1], error[1]];
@@ -350,11 +349,10 @@ mod windows_processes {
         } else if mode != MODE_INHERIT_STDIO {
             flag_bits |= CREATE_NO_WINDOW;
         }
-        // SAFETY: `ProcessInfo` é POD.
+        // SAFETY: `ProcessInfo` is POD.
         let mut info: ProcessInfo = unsafe { std::mem::zeroed() };
-        // SAFETY: a linha é gravável e terminada em NUL; o ambiente, o
-        // diretório, a lista de atributos e os handles vivem durante a
-        // chamada.
+        // SAFETY: the line is writable and NUL-terminated; the environment, the
+        // directory, the attribute list and the handles live during the call.
         let ok = unsafe {
             CreateProcessW(
                 std::ptr::null(),
@@ -373,18 +371,18 @@ mod windows_processes {
             return Err(system_error());
         }
         drop(list);
-        // Os lados do filho (ou o `NUL`) ficam só com ele.
+        // The child's sides (or `NUL`) stay only with it.
         if mode != MODE_INHERIT_STDIO {
             for h in inherited {
                 g.do_close(h);
             }
         }
-        // SAFETY: a thread principal do filho não é usada.
+        // SAFETY: the child's main thread is not used.
         unsafe { CloseHandle(info.thread) };
         if attached_mode(mode) {
             register_process(info.pid, info.process, g.deliver(end[1]));
         } else {
-            // SAFETY: o processo destacado não é acompanhado.
+            // SAFETY: a detached process is not tracked.
             unsafe { CloseHandle(info.process) };
         }
         let mut r = StartedProcess { pid: i64::from(info.pid), input: -1, output: -1, error: -1, end: -1 };
@@ -403,12 +401,12 @@ mod windows_processes {
     }
 
     // -----------------------------------------------------------------------
-    // Os processos acompanhados (`ProcessInfoList`).
+    // The tracked processes (`ProcessInfoList`).
 
     struct LiveProcess {
         process: Bruto,
         wait_entry: Bruto,
-        /// O lado de escrita do pipe do código de saída.
+        /// The write side of the exit code pipe.
         pipe: Bruto,
     }
 
@@ -417,31 +415,31 @@ mod windows_processes {
         P.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// `ProcessInfoList::AddProcess`: o pool do sistema chama
-    /// [`process_exited`] quando o filho sai. A trava cobre o registro,
-    /// para o retorno achar o processo mesmo se ele já saiu.
+    /// `ProcessInfoList::AddProcess`: the system pool calls [`process_exited`]
+    /// when the child exits. The lock covers the registration, so that the
+    /// callback finds the process even if it has already exited.
     fn register_process(pid: u32, process: Bruto, pipe: Bruto) {
         let mut live_set = live_processes();
         let mut wait_entry = 0;
-        // SAFETY: espera o handle do processo, uma vez, no pool do sistema.
+        // SAFETY: waits for the process handle, once, on the system pool.
         if unsafe { RegisterWaitForSingleObject(&mut wait_entry, process, process_exited, pid as usize as *mut c_void, INFINITE, WT_EXECUTEONLYONCE) } == 0 {
-            panic!("dart:io: falha ao registrar a espera do processo ({})", unsafe { GetLastError() });
+            panic!("dart:io: failed to register the wait for the process ({})", unsafe { GetLastError() });
         }
         live_set.insert(pid, LiveProcess { process, wait_entry, pipe });
     }
 
-    /// `ExitCodeCallback`: escreve `[código, negative]` no pipe de saída.
+    /// `ExitCodeCallback`: writes `[code, negative]` into the exit pipe.
     unsafe extern "system" fn process_exited(contexto: *mut c_void, expired: u8) {
         if expired != 0 {
             return;
         }
         let pid = contexto as usize as u32;
         let Some(p) = live_processes().remove(&pid) else { return };
-        // SAFETY: a espera é deste processo; dentro do retorno ela só pode
-        // ser desfeita sem bloquear.
+        // SAFETY: the wait belongs to this process; inside the callback it can
+        // only be undone without blocking.
         unsafe { UnregisterWait(p.wait_entry) };
         let mut code = 0u32;
-        // SAFETY: o processo terminou; o handle é deste registro.
+        // SAFETY: the process has ended; the handle belongs to this registration.
         unsafe { GetExitCodeProcess(p.process, &mut code) };
         let c = code as i32;
         let (value, negative) = if c < 0 { (c.wrapping_abs(), 1i32) } else { (c, 0) };
@@ -449,8 +447,8 @@ mod windows_processes {
         msg[..4].copy_from_slice(&value.to_ne_bytes());
         msg[4..].copy_from_slice(&negative.to_ne_bytes());
         let mut written = 0u32;
-        // SAFETY: escrita síncrona no pipe do código de saída (falha só se
-        // o Dart já fechou o outro lado, e aí ninguém espera o código).
+        // SAFETY: a synchronous write to the exit code pipe (it only fails if
+        // Dart already closed the other side, and then nobody waits for the code).
         unsafe {
             WriteFile(p.pipe, msg.as_ptr(), 8, &mut written, std::ptr::null_mut());
             CloseHandle(p.pipe);
@@ -458,23 +456,23 @@ mod windows_processes {
         }
     }
 
-    /// `Process::Kill`: `TerminateProcess` com o código -1 (o sinal não se
-    /// aplica).
+    /// `Process::Kill`: `TerminateProcess` with code -1 (the signal does not
+    /// apply).
     pub(super) fn kill_process(pid: i64, _sinal: i64) -> bool {
         let Ok(pid) = u32::try_from(pid) else { return false };
         {
             let live_set = live_processes();
             if let Some(p) = live_set.get(&pid) {
-                // SAFETY: o handle do processo acompanhado.
+                // SAFETY: the handle of the tracked process.
                 return unsafe { TerminateProcess(p.process, u32::MAX) } != 0;
             }
         }
-        // SAFETY: abre um processo qualquer só para terminá-lo.
+        // SAFETY: opens any process only to terminate it.
         let h = unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid) };
         if h == 0 {
             return false;
         }
-        // SAFETY: o handle aberto acima, fechado uma vez.
+        // SAFETY: the handle opened above, closed once.
         unsafe {
             let ok = TerminateProcess(h, u32::MAX) != 0;
             CloseHandle(h);
@@ -483,10 +481,10 @@ mod windows_processes {
     }
 
     // -----------------------------------------------------------------------
-    // `Process::Wait` (o `runSync`).
+    // `Process::Wait` (`runSync`).
 
-    /// Uma leitura sobreposta com evento (sem passar pela porta de
-    /// conclusão: o bit 0 do evento a desvia) até o fim do pipe.
+    /// An overlapped read with an event (bypassing the completion port: bit 0 of
+    /// the event diverts it) until the end of the pipe.
     struct WaitRead {
         handle: Bruto,
         event: Bruto,
@@ -497,28 +495,28 @@ mod windows_processes {
     }
 
     impl WaitRead {
-        /// O leitor passa a ser dono de `handle` (fechado também se a
-        /// criação falha).
+        /// The reader becomes the owner of `handle` (closed also if creation
+        /// fails).
         fn new_area(handle: Bruto) -> IoResult<WaitRead> {
-            // SAFETY: um evento automático, sinalizado para a primeira
-            // leitura começar.
+            // SAFETY: an auto-reset event, signaled so that the first read
+            // starts.
             let event = unsafe { CreateEventW(std::ptr::null(), 0, 1, std::ptr::null()) };
             if event == 0 {
                 let e = system_error();
-                // SAFETY: o handle é deste leitor.
+                // SAFETY: the handle belongs to this reader.
                 unsafe { CloseHandle(handle) };
                 return Err(e);
             }
             Ok(WaitRead { handle, event, overlapped: Box::default(), buffer: vec![0; 16 * 1024], data: Vec::new(), pending: false })
         }
 
-        /// Recolhe o que concluiu e emite leituras até uma ficar pendente;
-        /// `Ok(false)` no fim do pipe.
+        /// Collects what completed and issues reads until one stays pending;
+        /// `Ok(false)` at the end of the pipe.
         fn advance(&mut self) -> IoResult<bool> {
             loop {
                 if self.pending {
                     let mut n = 0u32;
-                    // SAFETY: a leitura emitida com este `OVERLAPPED`.
+                    // SAFETY: the read issued with this `OVERLAPPED`.
                     if unsafe { GetOverlappedResult(self.handle, &mut *self.overlapped, &mut n, 0) } == 0 {
                         return match unsafe { GetLastError() } {
                             ERROR_IO_INCOMPLETE => Ok(true),
@@ -530,9 +528,9 @@ mod windows_processes {
                     self.data.extend_from_slice(&self.buffer[..n as usize]);
                 }
                 *self.overlapped = OverlappedOp::with_event(self.event | 1);
-                // SAFETY: o buffer e o `OVERLAPPED` vivem até a conclusão
-                // (a leitura é recolhida ou o handle fechado antes de
-                // soltá-los).
+                // SAFETY: the buffer and the `OVERLAPPED` live until completion
+                // (the read is collected or the handle closed before they are
+                // released).
                 let ok = unsafe { ReadFile(self.handle, self.buffer.as_mut_ptr(), self.buffer.len() as u32, std::ptr::null_mut(), &mut *self.overlapped) } != 0;
                 self.pending = true;
                 if !ok {
@@ -554,8 +552,8 @@ mod windows_processes {
 
     impl Drop for WaitRead {
         fn drop(&mut self) {
-            // SAFETY: fechar o handle aborta a leitura pendente; o evento é
-            // deste leitor.
+            // SAFETY: closing the handle aborts the pending read; the event
+            // belongs to this reader.
             unsafe {
                 CloseHandle(self.handle);
                 CloseHandle(self.event);
@@ -563,18 +561,17 @@ mod windows_processes {
         }
     }
 
-    /// Toma o handle de um manipulador de pipe: o manipulador não o fecha
-    /// mais.
+    /// Takes the handle out of a pipe handle object: it no longer closes it.
     fn take_handle(fd: i64) -> IoResult<Bruto> {
         let m = handle_of(fd).ok_or_else(invalid_handle)?;
         m.estado().take_handle();
         Ok(m.raw)
     }
 
-    /// `Process::Wait`: fecha a entrada, lê a saída e o erro até o fim e o
-    /// código do pipe de saída; `(código, saída, error)`.
+    /// `Process::Wait`: closes the input, reads the output and the error to the
+    /// end and the code from the exit pipe; `(code, output, error)`.
     pub(super) fn wait_process(input: i64, output: i64, error: i64, end: i64) -> IoResult<(i64, Vec<u8>, Vec<u8>)> {
-        // SAFETY: fecha o handle da entrada do filho.
+        // SAFETY: closes the handle of the child's input.
         unsafe { CloseHandle(take_handle(input)?) };
         let mut readers = Vec::with_capacity(3);
         for fd in [output, error, end] {
@@ -583,7 +580,7 @@ mod windows_processes {
         let mut live_set: Vec<usize> = vec![0, 1, 2];
         while !live_set.is_empty() {
             let events: Vec<Bruto> = live_set.iter().map(|&i| readers[i].event).collect();
-            // SAFETY: os eventos dos leitores vivos.
+            // SAFETY: the events of the live readers.
             let r = unsafe { WaitForMultipleObjects(events.len() as u32, events.as_ptr(), 0, INFINITE) };
             let k = r.wrapping_sub(WAIT_OBJECT_0) as usize;
             if k >= live_set.len() {
@@ -600,19 +597,19 @@ mod windows_processes {
         let value = i64::from(i32::from_ne_bytes(code[..4].try_into().expect("4 bytes")));
         let negative = i32::from_ne_bytes(code[4..].try_into().expect("4 bytes"));
         let mut l = readers.into_iter();
-        let out = std::mem::take(&mut l.next().expect("saída").data);
-        let err = std::mem::take(&mut l.next().expect("erro").data);
+        let out = std::mem::take(&mut l.next().expect("output").data);
+        let err = std::mem::take(&mut l.next().expect("error").data);
         Ok((if negative != 0 { -value } else { value }, out, err))
     }
 
     // -----------------------------------------------------------------------
-    // Sinais (eventos de console).
+    // Signals (console events).
 
     struct SignalSubscription {
         event: u32,
-        /// O lado que o tratador escreve.
+        /// The side the handler writes.
         write_side: Arc<Handle>,
-        /// O descritor do lado que o Dart lê.
+        /// The descriptor of the side Dart reads.
         read_side: i64,
     }
 
@@ -621,7 +618,7 @@ mod windows_processes {
         I.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// `GetWinSignal`: SIGHUP é o fechamento do console; SIGINT, o Ctrl+C.
+    /// `GetWinSignal`: SIGHUP is the console being closed; SIGINT, Ctrl+C.
     fn console_event(sig_num: i64) -> Option<u32> {
         match sig_num {
             1 => Some(CTRL_CLOSE_EVENT),
@@ -630,7 +627,7 @@ mod windows_processes {
         }
     }
 
-    /// `SignalHandler`: um byte no pipe de cada inscrição do evento.
+    /// `SignalHandler`: one byte into the pipe of each subscription of the event.
     unsafe extern "system" fn handle_console(event: u32) -> i32 {
         let l = subscriptions();
         let mut handled = false;
@@ -641,7 +638,7 @@ mod windows_processes {
         i32::from(handled)
     }
 
-    /// `Process::SetSignalHandler`: o descritor do pipe que o Dart lê.
+    /// `Process::SetSignalHandler`: the descriptor of the pipe that Dart reads.
     pub(super) fn subscribe_signal(sig_num: i64) -> IoResult<i64> {
         let Some(event) = console_event(sig_num) else {
             return Err(OsError::from_code(ERROR_NOT_SUPPORTED));
@@ -650,8 +647,7 @@ mod windows_processes {
         let write_side = Handle::new(HandleKind::File, write_side);
         let read_side = Handle::new(HandleKind::File, read_side);
         let mut l = subscriptions();
-        // SAFETY: instala o tratador de console (uma vez para todas as
-        // inscrições).
+        // SAFETY: installs the console handler (once for all subscriptions).
         if l.is_empty() && unsafe { SetConsoleCtrlHandler(Some(handle_console), 1) } == 0 {
             return Err(system_error());
         }
@@ -665,7 +661,7 @@ mod windows_processes {
         let before = l.len();
         l.retain(|i| !filter_obj(i));
         if before > 0 && l.is_empty() {
-            // SAFETY: remove o tratador instalado por `subscribe_signal`.
+            // SAFETY: removes the handler installed by `subscribe_signal`.
             unsafe { SetConsoleCtrlHandler(Some(handle_console), 0) };
         }
     }
@@ -677,7 +673,7 @@ mod windows_processes {
         }
     }
 
-    /// `Process::ClearSignalHandlerByFd`: o soquete do sinal fechou.
+    /// `Process::ClearSignalHandlerByFd`: the signal's socket was closed.
     pub(super) fn clear_signal_by_descriptor(fd: i64) {
         remove_subscriptions(|i| i.read_side == fd);
     }

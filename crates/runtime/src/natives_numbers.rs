@@ -1,38 +1,38 @@
-// Runtime nativo: natives de `int`, `double` e `dart:math` do SDK da fonte
-// (P5b; espaço unificado, P2: os `DartForge_double_*`, `Double_parse`,
-// `DartForge_int_hashCode` e `DartForge_math_*` vieram de `nativos_listas.rs`).
+// Native runtime: `int`, `double` and `dart:math` natives of the SDK from source
+// (P5b; unified space, P2: `DartForge_double_*`, `Double_parse`,
+// `DartForge_int_hashCode` and `DartForge_math_*` came from `natives_lists.rs`).
 //
-// Cada função é o native de mesmo nome da VM (`runtime/lib/integers.cc`,
-// `double.cc`), com o símbolo `dartforge_nativo_<Nome>` e a assinatura na
-// representação da HIR (R1): o receptor de `_IntegerImplementation`/`_Smi`/
-// `_Mint` é o `i64`, o de `_Double` o `f64`; `bool` volta como `u8`. A tabela
-// que o lowering consulta é `crates/emit_native/src/nativos.rs`.
+// Each function is the VM native of the same name (`runtime/lib/integers.cc`,
+// `double.cc`), with the symbol `dartforge_nativo_<Name>` and the signature in the
+// HIR representation (R1): the receiver of `_IntegerImplementation`/`_Smi`/`_Mint`
+// is the `i64`, that of `_Double` the `f64`; `bool` comes back as `u8`. The table
+// that lowering consults is `crates/emit_native/src/nativos.rs`.
 //
-// Os `*FromInteger` são chamados com os operandos TROCADOS, como na VM:
-// `int operator -(num other) => other._subFromInteger(this)` — o receptor do
-// native é o operando da DIREITA e o argumento o da esquerda. A divisão por
-// zero é conferida em Dart antes da chamada (`integers.dart`), como na VM.
+// The `*FromInteger` natives are called with SWAPPED operands, as in the VM:
+// `int operator -(num other) => other._subFromInteger(this)` — the native's
+// receiver is the RIGHT operand and the argument is the left one. Division by
+// zero is checked in Dart before the call (`integers.dart`), as in the VM.
 
-/// `Integer_addFromInteger`: `other_one + this` com estouro modular.
+/// `Integer_addFromInteger`: `other + this` with wrapping overflow.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Integer_addFromInteger(this: i64, other_one: i64) -> i64 {
     other_one.wrapping_add(this)
 }
 
-/// `Integer_subFromInteger`: `other_one - this`.
+/// `Integer_subFromInteger`: `other - this`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Integer_subFromInteger(this: i64, other_one: i64) -> i64 {
     other_one.wrapping_sub(this)
 }
 
-/// `Integer_mulFromInteger`: `other_one * this`.
+/// `Integer_mulFromInteger`: `other * this`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Integer_mulFromInteger(this: i64, other_one: i64) -> i64 {
     other_one.wrapping_mul(this)
 }
 
-/// `Integer_truncDivFromInteger`: `outro ~/ this`. `MIN ~/ -1` é `MIN`
-/// (`Integer::ArithmeticOp`, kTRUNCDIV). `this == 0` não chega aqui.
+/// `Integer_truncDivFromInteger`: `other ~/ this`. `MIN ~/ -1` is `MIN`
+/// (`Integer::ArithmeticOp`, kTRUNCDIV). `this == 0` does not get here.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Integer_truncDivFromInteger(this: i64, other_one: i64) -> i64 {
     if this == 0 {
@@ -42,8 +42,8 @@ pub extern "C" fn dartforge_nativo_Integer_truncDivFromInteger(this: i64, other_
     other_one.wrapping_div(this)
 }
 
-/// `Integer_moduloFromInteger`: `other_one % this`, sempre não negativo
-/// (`Integer::ArithmeticOp`, kMOD: resto negativo soma `|this|`).
+/// `Integer_moduloFromInteger`: `other % this`, always non-negative
+/// (`Integer::ArithmeticOp`, kMOD: a negative remainder adds `|this|`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Integer_moduloFromInteger(this: i64, other_one: i64) -> i64 {
     if this == 0 {
@@ -58,11 +58,11 @@ pub extern "C" fn dartforge_nativo_Integer_moduloFromInteger(this: i64, other_on
     }
 }
 
-/// A divisão por zero não chega ao native: `integers.dart` lança
-/// `IntegerDivisionByZeroException` antes (como na VM, onde o native só tem
-/// um `ASSERT`). Chegar aqui é bug do compilador (N4), não exceção Dart.
+/// Division by zero does not reach the native: `integers.dart` throws
+/// `IntegerDivisionByZeroException` first (as in the VM, where the native only has
+/// an `ASSERT`). Getting here is a compiler bug (N4), not a Dart exception.
 fn throw_division_by_zero() {
-    panic!("bug do compilador: divisão inteira por zero chegou ao native (o Dart confere antes)");
+    panic!("compiler bug: integer division by zero reached the native (Dart checks it first)");
 }
 
 /// `Integer_bitAndFromInteger`.
@@ -83,9 +83,9 @@ pub extern "C" fn dartforge_nativo_Integer_bitXorFromInteger(this: i64, other_on
     other_one ^ this
 }
 
-/// Deslocamento com a regra da VM (`ShiftOperationHelper` e
-/// `Integer::ShiftOp`): quantidade negativa lança `ArgumentError`;
-/// quantidade ≥ 64 dá 0 (`<<`, `>>>`) ou o sinal (`>>`).
+/// Shift with the VM's rule (`ShiftOperationHelper` and `Integer::ShiftOp`): a
+/// negative amount throws `ArgumentError`; an amount ≥ 64 gives 0 (`<<`, `>>>`) or
+/// the sign (`>>`).
 fn shift(value: i64, amount: i64, tipo: u8) -> i64 {
     if amount < 0 {
         let err = dartforge_argument_error_value(amount, 0, 0, 0);
@@ -100,37 +100,37 @@ fn shift(value: i64, amount: i64, tipo: u8) -> i64 {
     }
 }
 
-/// `Integer_shlFromInteger`: `outro << this`.
+/// `Integer_shlFromInteger`: `other << this`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Integer_shlFromInteger(this: i64, other_one: i64) -> i64 {
     shift(other_one, this, 0)
 }
 
-/// `Integer_shrFromInteger`: `other_one >> this`.
+/// `Integer_shrFromInteger`: `other >> this`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Integer_shrFromInteger(this: i64, other_one: i64) -> i64 {
     shift(other_one, this, 1)
 }
 
-/// `Integer_ushrFromInteger`: `other_one >>> this`.
+/// `Integer_ushrFromInteger`: `other >>> this`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Integer_ushrFromInteger(this: i64, other_one: i64) -> i64 {
     shift(other_one, this, 2)
 }
 
-/// `Integer_greaterThanFromInteger`: `other_one > this`.
+/// `Integer_greaterThanFromInteger`: `other > this`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Integer_greaterThanFromInteger(this: i64, other_one: i64) -> u8 {
     u8::from(other_one > this)
 }
 
-/// `Integer_equalToInteger`: `this == outro`.
+/// `Integer_equalToInteger`: `this == other`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Integer_equalToInteger(this: i64, other_one: i64) -> u8 {
     u8::from(this == other_one)
 }
 
-/// `Smi_bitNegate` e `Mint_bitNegate`: `~this`.
+/// `Smi_bitNegate` and `Mint_bitNegate`: `~this`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Smi_bitNegate(this: i64) -> i64 {
     !this
@@ -141,8 +141,8 @@ pub extern "C" fn dartforge_nativo_Mint_bitNegate(this: i64) -> i64 {
     !this
 }
 
-/// `Smi_bitLength` e `Mint_bitLength` (`Utils::BitLength`): os bits
-/// significativos, contando o de `~v` para negativos.
+/// `Smi_bitLength` and `Mint_bitLength` (`Utils::BitLength`): the significant bits,
+/// counting those of `~v` for negatives.
 fn bit_length(v: i64) -> i64 {
     let v = if v < 0 { !v } else { v };
     64 - i64::from(v.leading_zeros())
@@ -158,8 +158,8 @@ pub extern "C" fn dartforge_nativo_Mint_bitLength(this: i64) -> i64 {
     bit_length(this)
 }
 
-/// `Double_add` e família: aritmética IEEE com o receptor à esquerda
-/// (`_Double.+` chama `_add(other.toDouble())`).
+/// `Double_add` and family: IEEE arithmetic with the receiver on the left
+/// (`_Double.+` calls `_add(other.toDouble())`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Double_add(this: f64, other_one: f64) -> f64 {
     this + other_one
@@ -186,32 +186,32 @@ pub extern "C" fn dartforge_nativo_Double_doubleFromInteger(value: i64) -> f64 {
     value as f64
 }
 
-/// `Double_equal`: `==` IEEE (NaN diferente de tudo).
+/// `Double_equal`: IEEE `==` (NaN differs from everything).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Double_equal(this: f64, other_one: f64) -> u8 {
     u8::from(this == other_one)
 }
 
-/// `Double_equalToInteger`: `this == outro.toDouble()`.
+/// `Double_equalToInteger`: `this == other.toDouble()`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Double_equalToInteger(this: f64, other_one: i64) -> u8 {
     u8::from(this == other_one as f64)
 }
 
-/// `Double_greaterThan`: `this > other_one`.
+/// `Double_greaterThan`: `this > other`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Double_greaterThan(this: f64, other_one: f64) -> u8 {
     u8::from(this > other_one)
 }
 
-/// `Double_greaterThanFromInteger`: `other_one > this` (operandos trocados,
-/// como os `*FromInteger` de `int`).
+/// `Double_greaterThanFromInteger`: `other > this` (swapped operands, like `int`'s
+/// `*FromInteger`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Double_greaterThanFromInteger(this: f64, other_one: i64) -> u8 {
     u8::from((other_one as f64) > this)
 }
 
-/// `Double_flipSignBit`: `-this` (inclusive para 0.0 e NaN).
+/// `Double_flipSignBit`: `-this` (including for 0.0 and NaN).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Double_flipSignBit(this: f64) -> f64 {
     f64::from_bits(this.to_bits() ^ (1 << 63))
@@ -227,30 +227,30 @@ pub extern "C" fn dartforge_nativo_Double_getIsInfinite(this: f64) -> u8 {
     u8::from(this.is_infinite())
 }
 
-/// `Double_getIsNegative`: bit de sinal, exceto NaN (`-0.0` é negativo).
+/// `Double_getIsNegative`: the sign bit, except NaN (`-0.0` is negative).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Double_getIsNegative(this: f64) -> u8 {
     u8::from(!this.is_nan() && this.is_sign_negative())
 }
 
-/// `double.toString` como a VM (`DoubleToCString`,
-/// `runtime/vm/double_conversion.cc`): o `ToShortest` do double-conversion
-/// com `decimal_in_shortest_low = -6`, `high = 21`, `EMIT_POSITIVE_EXPONENT_SIGN`,
-/// `EMIT_TRAILING_DECIMAL_POINT` e `EMIT_TRAILING_ZERO_AFTER_POINT`.
-/// Os dígitos mais curtos que voltam ao mesmo `double` vêm da formatação
-/// `{:e}` do Rust (o mesmo critério do `ToShortest`).
+/// `double.toString` like the VM (`DoubleToCString`,
+/// `runtime/vm/double_conversion.cc`): double-conversion's `ToShortest` with
+/// `decimal_in_shortest_low = -6`, `high = 21`, `EMIT_POSITIVE_EXPONENT_SIGN`,
+/// `EMIT_TRAILING_DECIMAL_POINT` and `EMIT_TRAILING_ZERO_AFTER_POINT`. The shortest
+/// digits that round-trip to the same `double` come from Rust's `{:e}` formatting
+/// (the same criterion as `ToShortest`).
 pub fn vm_double_string(d: f64) -> String {
     let mut buf = [0u8; VM_DOUBLE_SIZE];
     let n = write_vm_double(d, &mut buf);
-    // Só ASCII.
+    // ASCII only.
     String::from_utf8_lossy(&buf[..n]).into_owned()
 }
 
-/// O maior texto de [`vm_double_string`]: `-` + 17 dígitos + `.` +
-/// `e-308` (ou `0.000000` + 17 dígitos) cabe com folga.
+/// The longest text of [`vm_double_string`]: `-` + 17 digits + `.` + `e-308` (or
+/// `0.000000` + 17 digits) fits with room to spare.
 const VM_DOUBLE_SIZE: usize = 48;
 
-/// Buffer da pilha para o `{:e}` (sem a `String` do `format!`).
+/// Stack buffer for `{:e}` (without the `String` of `format!`).
 struct StackBuffer<'a> {
     buf: &'a mut [u8],
     n: usize,
@@ -268,9 +268,9 @@ impl std::fmt::Write for StackBuffer<'_> {
     }
 }
 
-/// [`vm_double_string`] escrito em `out` (ASCII), sem alocar: o
-/// `Double_toString` do `jsonEncode` de uma lista de `double` alocava
-/// quatro `String` por número. Devolve o comprimento.
+/// [`vm_double_string`] written into `out` (ASCII), without allocating: the
+/// `Double_toString` of `jsonEncode` on a list of `double`s allocated four
+/// `String`s per number. Returns the length.
 fn write_vm_double(d: f64, out: &mut [u8; VM_DOUBLE_SIZE]) -> usize {
     let mut n = 0usize;
     let mut by = |b: &[u8], n: &mut usize| {
@@ -289,7 +289,7 @@ fn write_vm_double(d: f64, out: &mut [u8; VM_DOUBLE_SIZE]) -> usize {
         by(if d.is_sign_negative() { b"-0.0" } else { b"0.0" }, &mut n);
         return n;
     }
-    // Os dígitos mais curtos: `{:e}` do valor absoluto, `d[.ddd]e<exp>`.
+    // The shortest digits: `{:e}` of the absolute value, `d[.ddd]e<exp>`.
     let mut e = [0u8; 40];
     let mut w = StackBuffer { buf: &mut e, n: 0 };
     std::fmt::Write::write_fmt(&mut w, format_args!("{:e}", d.abs())).expect("formato {:e}");
@@ -308,7 +308,7 @@ fn write_vm_double(d: f64, out: &mut [u8; VM_DOUBLE_SIZE]) -> usize {
     }
     let digits = &digits[..nd];
     let nd = nd as i32;
-    let point = exponent + 1; // posição do ponto decimal nos dígitos
+    let point = exponent + 1; // position of the decimal point among the digits
     if d < 0.0 {
         by(b"-", &mut n);
     }
@@ -354,8 +354,8 @@ fn write_vm_double(d: f64, out: &mut [u8; VM_DOUBLE_SIZE]) -> usize {
     n
 }
 
-/// A forma antiga de [`vm_double_string`], para os testes conferirem
-/// a nova contra ela.
+/// The old form of [`vm_double_string`], for the tests to check the new one
+/// against it.
 #[cfg(test)]
 fn vm_double_string_old(d: f64) -> String {
     if d.is_nan() {
@@ -372,7 +372,7 @@ fn vm_double_string_old(d: f64) -> String {
     let exponent: i32 = exponent.parse().expect("expoente");
     let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
     let n = digits.len() as i32;
-    let point = exponent + 1; // posição do ponto decimal nos dígitos
+    let point = exponent + 1; // position of the decimal point among the digits
     let mut out = String::new();
     if d < 0.0 {
         out.push('-');
@@ -416,31 +416,30 @@ pub extern "C" fn dartforge_nativo_Double_toString(this: f64) -> i64 {
     HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::textos::TextoRef::Um(&buf[..n])))
 }
 
-/// `_Double._bitsDe(d)` da sobreposição (`double.dart`): os bits do
-/// `double`, a chave do cache do `toString` (o `identical` de dois `double`
-/// da VM compara os bits).
+/// The overlay's `_Double._bitsDe(d)` (`double.dart`): the bits of the `double`,
+/// the key of the `toString` cache (the VM's `identical` of two `double`s compares
+/// the bits).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_double_bits(d: f64) -> i64 {
     d.to_bits() as i64
 }
 
-/// `_Smi._deInteiro(v)` da sobreposição (`integers.dart`): os dígitos
-/// decimais de `v`, o texto do `_Smi.toString` da VM.
+/// The overlay's `_Smi._deInteiro(v)` (`integers.dart`): the decimal digits of
+/// `v`, the text of the VM's `_Smi.toString`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_int_toString(v: i64) -> i64 {
     dartforge_to_string_i64(v)
 }
 
-/// `has63BitSmis()` (`DartForge_verdadeiro`): o `Smi` daqui tem 63 bits (R10).
+/// `has63BitSmis()` (`DartForge_verdadeiro`): the `Smi` here has 63 bits (R10).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_verdadeiro() -> u8 {
     1
 }
 
-/// `_Smi.hashCode`/`_Mint.hashCode`: o `HashIntegerOp` da VM — o produto de 96
-/// bits de `this` (sem sinal) por `0x2d51`, as três palavras de 32 bits
-/// combinadas por xor, cortado a 30 bits. O lowering o faz em linha
-/// (`lower/boxes.rs`); fica para a chamada.
+/// `_Smi.hashCode`/`_Mint.hashCode`: the VM's `HashIntegerOp` — the 96-bit product
+/// of `this` (unsigned) by `0x2d51`, the three 32-bit words combined by xor, cut to
+/// 30 bits. Lowering does it inline (`lower/boxes.rs`); this remains for the call.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_int_hashCode(this: i64) -> i64 {
     let p = u128::from(this as u64) * 0x2d51;
@@ -448,8 +447,8 @@ pub extern "C" fn dartforge_nativo_DartForge_int_hashCode(this: i64) -> i64 {
     i64::from(x & 0x3fff_ffff)
 }
 
-/// `_Double.toInt()`: truncado, saturado fora da faixa de 64 bits (como a
-/// VM); NaN e infinito lançam `UnsupportedError("Infinity or NaN toInt")`.
+/// `_Double.toInt()`: truncated, saturated outside the 64-bit range (like the VM);
+/// NaN and infinity throw `UnsupportedError("Infinity or NaN toInt")`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_double_toInt(this: f64) -> i64 {
     if !this.is_finite() {
@@ -461,7 +460,7 @@ pub extern "C" fn dartforge_nativo_DartForge_double_toInt(this: f64) -> i64 {
     this as i64
 }
 
-/// `_Double.floorToDouble()` e afins.
+/// `_Double.floorToDouble()` and the like.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_double_floor(this: f64) -> f64 {
     this.floor()
@@ -472,7 +471,7 @@ pub extern "C" fn dartforge_nativo_DartForge_double_ceil(this: f64) -> f64 {
     this.ceil()
 }
 
-/// `roundToDouble`: metade para longe de zero (`round` da VM).
+/// `roundToDouble`: half away from zero (the VM's `round`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_double_round(this: f64) -> f64 {
     this.round()
@@ -483,30 +482,30 @@ pub extern "C" fn dartforge_nativo_DartForge_double_truncate(this: f64) -> f64 {
     this.trunc()
 }
 
-/// `_Double._modulo(other)`: `%` euclidiano de `double` (resultado nunca
-/// negativo), como `DoubleModulo` da VM.
+/// `_Double._modulo(other)`: the Euclidean `%` of `double` (the result is never
+/// negative), like the VM's `DoubleModulo`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_double_modulo(this: f64, other_one: f64) -> f64 {
     let r = this % other_one;
     if r < 0.0 {
         r + other_one.abs()
     } else if r == 0.0 {
-        // A VM normaliza -0.0 para +0.0 no módulo; remainder preserva o sinal.
+        // The VM normalizes -0.0 to +0.0 in modulo; remainder keeps the sign.
         0.0
     } else {
         r
     }
 }
 
-/// `_Double._remainder(other)`: o resto com o sinal do dividendo.
+/// `_Double._remainder(other)`: the remainder with the sign of the dividend.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_double_remainder(this: f64, other_one: f64) -> f64 {
     this % other_one
 }
 
-/// `_Double.hashCode` (o `HashDoubleOp` da VM): o do `int` quando o valor é
-/// inteiro e cabe em 64 bits (`1.0.hashCode == 1.hashCode`, exigido pela
-/// igualdade de `num`); senão os bits dobrados, `(b ^ b >>> 32)` em 62 bits.
+/// `_Double.hashCode` (the VM's `HashDoubleOp`): that of the `int` when the value is
+/// integral and fits in 64 bits (`1.0.hashCode == 1.hashCode`, required by `num`
+/// equality); otherwise the folded bits, `(b ^ b >>> 32)` in 62 bits.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_double_hashCode(this: f64) -> i64 {
     if this.is_finite() && this == this.trunc() && (-9.223_372_036_854_775_808e18..9.223_372_036_854_775_808e18).contains(&this) {
@@ -516,16 +515,16 @@ pub extern "C" fn dartforge_nativo_DartForge_double_hashCode(this: f64) -> i64 {
     ((b ^ (b >> 32)) & 0x3fff_ffff_ffff_ffff) as i64
 }
 
-/// `double._nativeParse(str, start, end)` (`Double_parse`): o número do
-/// texto `[start, end)` ou null — decimal com expoente opcional, `NaN`,
-/// `Infinity`, com sinal (o `CStringToDouble` da VM; `inf`/`nan` em
-/// minúsculas não são aceitos, como na VM). Devolve a caixa (`RETORNO_REF`).
+/// `double._nativeParse(str, start, end)` (`Double_parse`): the number in the text
+/// `[start, end)` or null — decimal with an optional exponent, `NaN`, `Infinity`,
+/// with a sign (the VM's `CStringToDouble`; lowercase `inf`/`nan` are not
+/// accepted, as in the VM). Returns the box (`RETORNO_REF`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Double_parse(text: i64, start: i64, end: i64) -> i64 {
-    // Só a fatia: o `_JsonStringParser` passa o documento inteiro (`chunk`)
-    // a cada número, e copiar o texto todo tornava o `jsonDecode` quadrático.
-    // O número curto em ASCII (o de todo JSON) vai por um buffer da pilha,
-    // sem as duas alocações da fatia e da `String`.
+    // Only the slice: `_JsonStringParser` passes the whole document (`chunk`) for
+    // every number, and copying the whole text made `jsonDecode` quadratic. A
+    // short ASCII number (that of all JSON) goes through a stack buffer, without
+    // the two allocations of the slice and the `String`.
     let mut stack = [0u8; 64];
     let (i, f) = (start.max(0) as usize, end.max(0) as usize);
     let read_so_far = HEAP.with(|heap| {
@@ -544,7 +543,7 @@ pub extern "C" fn dartforge_nativo_Double_parse(text: i64, start: i64, end: i64)
     });
     let long;
     let t: &str = match read_so_far {
-        // Só ASCII foi copiado.
+        // Only ASCII was copied.
         Ok(n) => std::str::from_utf8(&stack[..n]).expect("ASCII"),
         Err(Some(s)) => {
             long = s;
@@ -574,7 +573,7 @@ pub extern "C" fn dartforge_nativo_Double_parse(text: i64, start: i64, end: i64)
     HEAP.with(|heap| heap.borrow_mut().box_double(v))
 }
 
-/// Intrínsecos de `dart:math` (`_sqrt`, `_sin`…): a função da libm do Rust.
+/// `dart:math` intrinsics (`_sqrt`, `_sin`…): the function from Rust's libm.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_math_sqrt(x: f64) -> f64 {
     x.sqrt()
@@ -615,7 +614,7 @@ pub extern "C" fn dartforge_nativo_DartForge_math_exp(x: f64) -> f64 {
 pub extern "C" fn dartforge_nativo_DartForge_math_log(x: f64) -> f64 {
     x.ln()
 }
-/// `_doublePow(base, exponent)`: `pow` da C (a VM chama `pow`).
+/// `_doublePow(base, exponent)`: C's `pow` (the VM calls `pow`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_math_pow(base: f64, exponent: f64) -> f64 {
     base.powf(exponent)
@@ -638,11 +637,11 @@ mod testes_modulo_double {
 
 #[cfg(test)]
 mod tests_native_numbers {
-    //! Os valores esperados são os da VM 3.6.2 (`print`, medidos).
+    //! The expected values are those of the VM 3.6.2 (`print`, measured).
     use super::*;
 
-    /// A escrita sem alocação dá o mesmo texto que a forma antiga, em
-    /// valores de todas as faixas de expoente (os bits de um gerador).
+    /// The allocation-free writing gives the same text as the old form, on values
+    /// from every exponent range (the bits from a generator).
     #[test]
     fn double_to_string_without_allocating_matches_previous() {
         let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
@@ -711,7 +710,7 @@ mod tests_native_numbers {
             assert_eq!(dartforge_nativo_Smi_bitLength(v), bits, "{v}.bitLength");
             assert_eq!(dartforge_nativo_Mint_bitNegate(v), neg, "~{v}");
         }
-        // Operandos trocados: `a op b` é `b._opFromInteger(a)`.
+        // Swapped operands: `a op b` is `b._opFromInteger(a)`.
         let op = |f: extern "C" fn(i64, i64) -> i64, a: i64, b: i64| f(b, a);
         assert_eq!(op(dartforge_nativo_Integer_truncDivFromInteger, i64::MIN, -1), i64::MIN);
         assert_eq!(op(dartforge_nativo_Integer_moduloFromInteger, -7, 3), 2);
@@ -728,10 +727,10 @@ mod tests_native_numbers {
     }
 }
 
-/// A expansão decimal EXATA de `|d|` (finito, não zero): os dígitos (sem
-/// zeros à esquerda) e a posição do ponto (quantos dígitos há antes dele;
-/// ≤ 0 é `0.000ddd`). `|d| = m·2^e`; para `e < 0` é `m·5^k / 10^k`.
-/// Inteiros grandes em base 10^9, só com multiplicação por 2 e por 5.
+/// The EXACT decimal expansion of `|d|` (finite, non-zero): the digits (without
+/// leading zeros) and the position of the point (how many digits come before it;
+/// ≤ 0 is `0.000ddd`). `|d| = m·2^e`; for `e < 0` it is `m·5^k / 10^k`. Large
+/// integers in base 10^9, with only multiplication by 2 and by 5.
 fn exact_decimal(d: f64) -> (Vec<u8>, i32) {
     let bits = d.abs().to_bits();
     let exp_bits = ((bits >> 52) & 0x7FF) as i32;
@@ -770,10 +769,10 @@ fn exact_decimal(d: f64) -> (Vec<u8>, i32) {
     (digits, point)
 }
 
-/// Mantém `n` dígitos arredondando **meio para cima** sobre a expansão
-/// exata (o que o double-conversion faz em `ToFixed`/`ToExponential`/
-/// `ToPrecision`: `0.125.toStringAsFixed(2)` é `0.13`, `2.5` → `3`).
-/// Devolve os dígitos (exatamente `n`, ou `n + 1` com vai-um) e o ponto.
+/// Keeps `n` digits rounding **half up** on the exact expansion (what
+/// double-conversion does in `ToFixed`/`ToExponential`/`ToPrecision`:
+/// `0.125.toStringAsFixed(2)` is `0.13`, `2.5` → `3`). Returns the digits (exactly
+/// `n`, or `n + 1` with a carry) and the point.
 fn round_to(digits: &[u8], point: i32, n: i32) -> (Vec<u8>, i32) {
     if n < 0 {
         return (Vec::new(), point);
@@ -804,9 +803,9 @@ fn digits_string(v: &[u8]) -> String {
     v.iter().map(|d| char::from(b'0' + d)).collect()
 }
 
-/// `toStringAsFixed` (native `Double_toStringAsFixed`, o `ToFixed` da VM):
-/// o Dart já conferiu `0 <= f <= 20`, NaN e `|d| >= 1e21`. O sinal vem do
-/// bit de sinal (`(-0.0).toStringAsFixed(2)` é `-0.00`).
+/// `toStringAsFixed` (the `Double_toStringAsFixed` native, the VM's `ToFixed`):
+/// Dart already checked `0 <= f <= 20`, NaN and `|d| >= 1e21`. The sign comes from
+/// the sign bit (`(-0.0).toStringAsFixed(2)` is `-0.00`).
 pub fn double_with_fixed(d: f64, f: i64) -> String {
     let f = f.clamp(0, 20) as i32;
     let mut s = String::new();
@@ -815,7 +814,7 @@ pub fn double_with_fixed(d: f64, f: i64) -> String {
     }
     let (digits, point) = if d == 0.0 { (vec![0], 1) } else { exact_decimal(d) };
     let (v, point) = round_to(&digits, point, point + f);
-    // `v` tem os dígitos até a casa `f` depois do ponto; completa à esquerda.
+    // `v` has the digits up to place `f` after the point; pad on the left.
     let integers = point.max(0) as usize;
     let mut all_items: Vec<u8> = Vec::new();
     if point < 0 {
@@ -836,12 +835,12 @@ pub fn double_with_fixed(d: f64, f: i64) -> String {
     s
 }
 
-/// `toStringAsExponential(r)` (`ToExponential`): `r + 1` dígitos
-/// significativos, expoente com sinal (`1.250e-1`, `0.000e+0`).
+/// `toStringAsExponential(r)` (`ToExponential`): `r + 1` significant digits, a
+/// signed exponent (`1.250e-1`, `0.000e+0`).
 pub fn double_with_exponent(d: f64, r: i64) -> String {
-    // A VM passa -1 quando o argumento opcional é omitido. Nesse caso ela
-    // pede a menor representação decimal que volta ao mesmo double, e não
-    // zero casas fracionárias.
+    // The VM passes -1 when the optional argument is omitted. In that case it
+    // asks for the shortest decimal representation that round-trips to the same
+    // double, and not zero fractional digits.
     if r == -1 {
         return double_with_short_exponent(d);
     }
@@ -879,8 +878,8 @@ fn double_with_short_exponent(d: f64) -> String {
         return out;
     }
 
-    // `Display` usa a representação decimal curta com round-trip. Aqui só
-    // deslocamos o ponto para a forma exponencial pedida por Dart.
+    // `Display` uses the short round-trip decimal representation. Here we only
+    // move the point to the exponential form Dart asks for.
     let decimal = d.abs().to_string();
     let (mantissa, original_exponent) = match decimal.find(['e', 'E']) {
         Some(i) => (&decimal[..i], decimal[i + 1..].parse::<i32>().unwrap_or(0)),
@@ -888,7 +887,7 @@ fn double_with_short_exponent(d: f64) -> String {
     };
     let dot_pos = mantissa.find('.').unwrap_or(mantissa.len()) as i32;
     let digits: Vec<u8> = mantissa.bytes().filter(u8::is_ascii_digit).collect();
-    let first = digits.iter().position(|&b| b != b'0').expect("double não zero");
+    let first = digits.iter().position(|&b| b != b'0').expect("non-zero double");
     let last_one = digits.iter().rposition(|&b| b != b'0').unwrap();
     let exponent = dot_pos - first as i32 - 1 + original_exponent;
     out.push(digits[first] as char);
@@ -904,9 +903,8 @@ fn double_with_short_exponent(d: f64) -> String {
     out
 }
 
-/// `toStringAsPrecision(p)` (`ToPrecision`, com até 6 zeros à esquerda e
-/// nenhum à direita): notação exponencial quando o expoente é `< -6` ou
-/// `>= p`.
+/// `toStringAsPrecision(p)` (`ToPrecision`, with up to 6 leading zeros and no
+/// trailing ones): exponential notation when the exponent is `< -6` or `>= p`.
 pub fn double_with_precision(d: f64, p: i64) -> String {
     let p = p.clamp(1, 21) as i32;
     if d == 0.0 {
@@ -968,7 +966,7 @@ pub extern "C" fn dartforge_nativo_Double_toStringAsPrecision(this: f64, precisi
 
 #[cfg(test)]
 mod testes_to_string_as {
-    //! Os esperados são os da VM 3.6.2 (medidos): `toStringAsFixed(0)`,
+    //! The expected values are those of the VM 3.6.2 (measured): `toStringAsFixed(0)`,
     //! `(2)`, `(5)`, `toStringAsExponential(3)`, `toStringAsPrecision(4)`.
     use super::*;
 

@@ -1,40 +1,39 @@
-// Runtime nativo: a observação de arquivos do `dart:io`
-// (`FileSystemEntity.watch`, `runtime/bin/file_system_watcher_*.cc` da VM).
+// Native runtime: file watching in `dart:io` (`FileSystemEntity.watch`, the VM's
+// `runtime/bin/file_system_watcher_*.cc`).
 //
-// O contrato é o do `_FileSystemWatcher` de `file_patch.dart`, que não é
-// substituído: `_initWatcher` devolve o descritor do observador, o
-// `_listenOnSocket` o entrega ao manipulador de eventos como soquete interno
-// (`_NativeSocket.watch`) e, a cada leitura pronta, `_readEvents` devolve os
-// eventos como `[máscara, cookie, nome ou null, é destino de mudança, id do
-// caminho]`, com a máscara nodes bits de `FileSystemEvent` (`create` 1,
-// `modify` 2, `delete` 4, `move` 8, `_modifyAttributes` 16, `_deleteSelf` 32,
-// `_isDir` 64).
+// The contract is that of `_FileSystemWatcher` in `file_patch.dart`, which is not
+// replaced: `_initWatcher` returns the watcher's descriptor, `_listenOnSocket`
+// hands it to the event handler as an internal socket (`_NativeSocket.watch`)
+// and, on each ready read, `_readEvents` returns the events as
+// `[mask, cookie, name or null, is move target, path id]`, with the mask in the
+// bits of `FileSystemEvent` (`create` 1, `modify` 2, `delete` 4, `move` 8,
+// `_modifyAttributes` 16, `_deleteSelf` 32, `_isDir` 64).
 //
-// Linux: inotify, como a VM. O descritor pertence ao soquete interno que o
-// `_listenOnSocket` cria logo depois do `_initWatcher`: é o fechamento dele
-// (pelo manipulador de eventos) que libera o descritor, e `_closeWatcher`
-// não o fecha de novo — fechar duas vezes poderia fechar um descritor já
-// reaproveitado por outra abertura.
+// Linux: inotify, like the VM. The descriptor belongs to the internal socket that
+// `_listenOnSocket` creates right after `_initWatcher`: closing that socket (by
+// the event handler) releases the descriptor, and `_closeWatcher` does not close
+// it again — closing twice could close a descriptor already reused by another
+// open.
 //
-// Windows: `ReadDirectoryChangesW` na porta de conclusão, como a VM
-// (`file_system_watcher_win.cc`). Não há descritor do observador (`Init` é
-// 0): cada caminho é um manipulador de diretório (`DirectoryWatchHandle`,
-// em `io_windows_eventos.rs`), e o ponteiro dele é o id do caminho e o do
-// soquete interno. `_unwatchPath` para a leitura e fecha o handle; a
-// referência fica com o soquete, que o Dart fecha logo depois. Os eventos
-// não trazem "é diretório" (o `_Win32FileSystemWatcher` consulta o disco)
-// nem pares de mudança de nome (o cookie é sempre 1, e o Dart os junta).
+// Windows: `ReadDirectoryChangesW` on the completion port, like the VM
+// (`file_system_watcher_win.cc`). There is no watcher descriptor (`Init` is 0):
+// each path is a directory handle (`DirectoryWatchHandle`, in
+// `io_windows_eventos.rs`), and its pointer is the path id and that of the
+// internal socket. `_unwatchPath` stops reading and closes the handle; the
+// reference stays with the socket, which Dart closes right after. The events
+// carry neither "is directory" (`_Win32FileSystemWatcher` checks the disk) nor
+// rename pairs (the cookie is always 1, and Dart pairs them).
 //
-// macOS: FSEvents, como a VM (`file_system_watcher_macos.cc`). O observador
-// (`Init`) é uma thread com um `CFRunLoop`; cada caminho é um
-// `FSEventStream` (eventos por arquivo, latência de 0,1 s) agendado nesse
-// laço e um pipe: a *callback* grava cada evento no pipe como o `FSEvent` da
-// VM (existe, bandeiras, caminho relativo com `PATH_MAX` bytes), e o lado de
-// leitura é o soquete interno do caminho. O FSEvents vem do `CoreServices`,
-// carregado na primeira observação (`dlopen`): nenhum programa que não
-// observa arquivos carrega o framework, e a ligação não o pede.
+// macOS: FSEvents, like the VM (`file_system_watcher_macos.cc`). The watcher
+// (`Init`) is a thread with a `CFRunLoop`; each path is an `FSEventStream`
+// (per-file events, 0.1 s latency) scheduled on that loop and a pipe: the
+// *callback* writes each event into the pipe as the VM's `FSEvent` (exists, flags,
+// relative path with `PATH_MAX` bytes), and the read end is the path's internal
+// socket. FSEvents comes from `CoreServices`, loaded on the first watch
+// (`dlopen`): no program that does not watch files loads the framework, and the
+// link does not ask for it.
 
-/// Os bits de `FileSystemEvent` (e os internos do `_FileSystemWatcher`).
+/// The `FileSystemEvent` bits (and the internal ones of `_FileSystemWatcher`).
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos", windows))]
 #[allow(dead_code)]
 mod fs_event {
@@ -73,8 +72,7 @@ mod inotify {
     }
 }
 
-/// Os filtros do `ReadDirectoryChangesW` e as ações de
-/// `FILE_NOTIFY_INFORMATION`.
+/// The `ReadDirectoryChangesW` filters and the `FILE_NOTIFY_INFORMATION` actions.
 #[cfg(windows)]
 mod notification {
     pub const FILE_NOTIFY_CHANGE_FILE_NAME: u32 = 0x0000_0001;
@@ -85,7 +83,7 @@ mod notification {
     pub const FILE_ACTION_MODIFIED: u32 = 3;
     pub const FILE_ACTION_RENAMED_OLD_NAME: u32 = 4;
     pub const FILE_ACTION_RENAMED_NEW_NAME: u32 = 5;
-    /// `NextEntryOffset`, `Action` e `FileNameLength` antes do nome.
+    /// `NextEntryOffset`, `Action` and `FileNameLength` before the name.
     pub const HEADER: usize = 12;
 }
 
@@ -95,13 +93,13 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_IsSupported() -> u8 {
     u8::from(cfg!(any(target_os = "linux", target_os = "android", target_os = "macos", windows)))
 }
 
-/// `FileSystemWatcher::Init`: o descritor do inotify, não bloqueante; lança
-/// o `OSError`.
+/// `FileSystemWatcher::Init`: the inotify descriptor, non-blocking; throws the
+/// `OSError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_FileSystemWatcher_InitWatcher() -> i64 {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
-        // SAFETY: chamada sem ponteiros.
+        // SAFETY: call without pointers.
         let fd = unsafe { inotify::inotify_init1(inotify::IN_CLOEXEC | inotify::IN_NONBLOCK) };
         if fd < 0 {
             throw_os_error(&last_error());
@@ -109,13 +107,12 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_InitWatcher() -> i64 {
         }
         i64::from(fd)
     }
-    // Windows: `FileSystemWatcher::Init` devolve 0; o observador é cada
-    // caminho.
+    // Windows: `FileSystemWatcher::Init` returns 0; the watcher is each path.
     #[cfg(windows)]
     {
         0
     }
-    // macOS: a thread do `CFRunLoop` (`FSEventsWatcher`).
+    // macOS: the `CFRunLoop` thread (`FSEventsWatcher`).
     #[cfg(target_os = "macos")]
     {
         match fsevents::Watcher::iniciar() {
@@ -133,24 +130,24 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_InitWatcher() -> i64 {
     }
 }
 
-/// `FileSystemWatcher::Close`: no Linux o descritor é do soquete interno
-/// (ver o cabeçalho), e no Windows não há observador; no macOS, para o
-/// `CFRunLoop` e espera a thread dele.
+/// `FileSystemWatcher::Close`: on Linux the descriptor belongs to the internal
+/// socket (see the header), and on Windows there is no watcher; on macOS, stops
+/// the `CFRunLoop` and waits for its thread.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_FileSystemWatcher_CloseWatcher(id: i64) {
     #[cfg(target_os = "macos")]
     if id != 0 {
-        // SAFETY: `id` veio do `Box::into_raw` do `InitWatcher`, e o Dart
-        // fecha cada observador uma vez.
+        // SAFETY: `id` came from `InitWatcher`'s `Box::into_raw`, and Dart closes
+        // each watcher once.
         drop(unsafe { Box::from_raw(id as *mut fsevents::Watcher) });
     }
     #[cfg(not(target_os = "macos"))]
     let _ = id;
 }
 
-/// `FileSystemWatcher::WatchPath`: o `wd` do caminho, com os eventos
-/// pedidos (e sempre `IN_DELETE_SELF | IN_MOVE_SELF`); lança o `OSError`.
-/// O inotify não observa subdiretórios: `recursive` é ignorado, como na VM.
+/// `FileSystemWatcher::WatchPath`: the path's `wd`, with the requested events (and
+/// always `IN_DELETE_SELF | IN_MOVE_SELF`); throws the `OSError`. inotify does not
+/// watch subdirectories: `recursive` is ignored, as in the VM.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_FileSystemWatcher_WatchPath(id: i64, _ns: i64, file_path: i64, events: i64, recursive: u8) -> i64 {
     let recursive = recursive != 0;
@@ -175,7 +172,7 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_WatchPath(id: i64, _ns: i64
             throw_os_error(&OsError::invalid_argument());
             return 0;
         };
-        // SAFETY: `c` é um caminho C válido.
+        // SAFETY: `c` is a valid C path.
         let wd = unsafe { inotify_add_watch(id as i32, c.as_ptr(), mask) };
         if wd < 0 {
             throw_os_error(&last_error());
@@ -202,11 +199,11 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_WatchPath(id: i64, _ns: i64
             }
         }
     }
-    // macOS: todos os eventos (o Dart filtra pela máscara do caminho).
+    // macOS: all events (Dart filters by the path's mask).
     #[cfg(target_os = "macos")]
     {
         let _ = events;
-        // SAFETY: `id` é o observador vivo do `InitWatcher`.
+        // SAFETY: `id` is the live watcher from `InitWatcher`.
         let observer = unsafe { &*(id as *const fsevents::Watcher) };
         match observer.watch_path(&utf8_of_string(file_path), recursive) {
             Ok(no) => no,
@@ -228,7 +225,7 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_WatchPath(id: i64, _ns: i64
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_FileSystemWatcher_UnwatchPath(id: i64, file_path: i64) {
     #[cfg(any(target_os = "linux", target_os = "android"))]
-    // SAFETY: chamada sem ponteiros; um `wd` já removido só dá `EINVAL`.
+    // SAFETY: call without pointers; an already removed `wd` only gives `EINVAL`.
     unsafe {
         inotify::inotify_rm_watch(id as i32, file_path as i32);
     }
@@ -246,9 +243,8 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_UnwatchPath(id: i64, file_p
     let _ = (id, file_path);
 }
 
-/// `FileSystemWatcher::GetSocketId`: no Linux, o próprio descritor; no
-/// Windows, o manipulador do caminho; no macOS, o lado de leitura do pipe do
-/// caminho.
+/// `FileSystemWatcher::GetSocketId`: on Linux, the descriptor itself; on Windows,
+/// the path's handle; on macOS, the read end of the path's pipe.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_FileSystemWatcher_GetSocketId(id: i64, file_path: i64) -> i64 {
     #[cfg(target_os = "macos")]
@@ -260,8 +256,7 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_GetSocketId(id: i64, file_p
     if cfg!(windows) { file_path } else { id }
 }
 
-/// A máscara de `FileSystemEvent` de um evento do inotify
-/// (`InotifyEventToMask`).
+/// The `FileSystemEvent` mask of an inotify event (`InotifyEventToMask`).
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn inotify_mask(m: u32) -> i64 {
     use inotify::*;
@@ -290,14 +285,13 @@ fn inotify_mask(m: u32) -> i64 {
     r
 }
 
-/// O tamanho da leitura do inotify: vários eventos de uma vez (cada um cabe
-/// em `16 + NAME_MAX + 1` bytes, e o sistema nunca parte um evento).
+/// The size of the inotify read: several events at once (each one fits in
+/// `16 + NAME_MAX + 1` bytes, and the system never splits an event).
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const EVENT_READ_SIZE: usize = 4096;
 
-/// `FileSystemWatcher::ReadEvents`: os eventos prontos (lista vazia quando
-/// não há nenhum, o que encerra o laço de leitura do `_listenOnSocket`);
-/// lança o `OSError`.
+/// `FileSystemWatcher::ReadEvents`: the ready events (an empty list when there are
+/// none, which ends the `_listenOnSocket` read loop); throws the `OSError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_FileSystemWatcher_ReadEvents(id: i64, file_path: i64) -> i64 {
     #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -367,8 +361,8 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_ReadEvents(id: i64, file_pa
             let event = with_roots(&events, || {
                 let text = allocate_str(&String::from_utf16_lossy(&name));
                 with_roots(&[text], || {
-                    // O cookie 1 e "é destino" verdadeiro para todos, como
-                    // a VM: o Dart junta os pares de mudança de nome.
+                    // Cookie 1 and "is target" true for all, like the VM: Dart
+                    // pairs the renames.
                     dart_fixed_list(&[dart_int(mask), dart_int(1), text, dart_bool(true), dart_int(file_path)])
                 })
             });
@@ -386,8 +380,8 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_ReadEvents(id: i64, file_pa
         let Some(fd) = fsevents::read_descriptor(file_path) else {
             return dart_fixed_list(&[]);
         };
-        // Só os registros inteiros (`FDUtils::AvailableBytes` / tamanho),
-        // como a VM: um registro maior que `PIPE_BUF` pode chegar em partes.
+        // Only whole records (`FDUtils::AvailableBytes` / size), like the VM: a
+        // record larger than `PIPE_BUF` may arrive in parts.
         let n = (available_bytes(i64::from(fd)).max(0) as usize) / fsevents::RECORD_SIZE;
         let mut events: Vec<i64> = Vec::new();
         let mut rec = vec![0u8; fsevents::RECORD_SIZE];
@@ -410,7 +404,7 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_ReadEvents(id: i64, file_pa
             let event = with_roots(&events, || {
                 let text = allocate_str(&String::from_utf8_lossy(name));
                 with_roots(&[text], || {
-                    // Cookie 1 e "é destino" verdadeiro, como a VM.
+                    // Cookie 1 and "is target" true, like the VM.
                     dart_fixed_list(&[dart_int(mask), dart_int(1), text, dart_bool(true), dart_int(file_path)])
                 })
             });
@@ -425,16 +419,16 @@ pub extern "C" fn dartforge_nativo_FileSystemWatcher_ReadEvents(id: i64, file_pa
     }
 }
 
-/// O FSEvents do macOS (`file_system_watcher_macos.cc` da VM).
+/// macOS FSEvents (the VM's `file_system_watcher_macos.cc`).
 #[cfg(target_os = "macos")]
 mod fsevents {
     use std::ffi::{c_char, c_void};
 
     type Ref = *const c_void;
 
-    /// `PATH_MAX` do macOS.
+    /// macOS `PATH_MAX`.
     const PATH_MAX: usize = 1024;
-    /// O `FSEvent` da VM: `exists`, `flags` e o caminho relativo.
+    /// The VM's `FSEvent`: `exists`, `flags` and the relative path.
     pub const RECORD_SIZE: usize = PATH_MAX + 8;
 
     const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
@@ -500,7 +494,7 @@ mod fsevents {
 
     type Callback = extern "C" fn(Ref, *mut c_void, usize, *mut c_void, *const u32, *const u64);
 
-    /// As funções do FSEvents (`CoreServices`).
+    /// The FSEvents functions (`CoreServices`).
     struct Functions {
         create: unsafe extern "C" fn(Ref, Callback, *mut StreamContext, Ref, u64, f64, u32) -> Ref,
         schedule: unsafe extern "C" fn(Ref, Ref, Ref),
@@ -514,8 +508,8 @@ mod fsevents {
     fn functions() -> Result<&'static Functions, super::OsError> {
         static F: std::sync::OnceLock<Option<Functions>> = std::sync::OnceLock::new();
         F.get_or_init(|| {
-            // SAFETY: caminho C válido; cada símbolo tem a assinatura
-            // documentada do FSEvents.
+            // SAFETY: valid C path; each symbol has FSEvents' documented
+            // signature.
             unsafe {
                 let h = dlopen(c"/System/Library/Frameworks/CoreServices.framework/CoreServices".as_ptr(), 1);
                 if h.is_null() {
@@ -540,7 +534,7 @@ mod fsevents {
         .ok_or_else(super::OsError::invalid_argument)
     }
 
-    /// O `FSEventsWatcher`: a thread do `CFRunLoop` onde os fluxos rodam.
+    /// The `FSEventsWatcher`: the `CFRunLoop` thread where the streams run.
     pub struct Watcher {
         run_loop: usize,
         thread_handle: Option<std::thread::JoinHandle<()>>,
@@ -549,19 +543,19 @@ mod fsevents {
     extern "C" fn nothing(_t: Ref, _i: *mut c_void) {}
 
     extern "C" fn stop_loop(_t: Ref, info: *mut c_void) {
-        // SAFETY: `info` é o `CFRunLoop` do observador, retido por ele.
+        // SAFETY: `info` is the watcher's `CFRunLoop`, retained by it.
         unsafe { CFRunLoopStop(info as Ref) };
     }
 
     impl Watcher {
-        /// Sobe a thread e espera o laço dela existir.
+        /// Starts the thread and waits for its loop to exist.
         pub fn iniciar() -> Result<Box<Watcher>, super::OsError> {
             let (tx, rx) = std::sync::mpsc::channel::<usize>();
             let thread_handle = std::thread::Builder::new()
                 .name("dart:io FileWatcher".into())
                 .spawn(move || {
-                    // SAFETY: o laço desta thread; o temporizador vazio o
-                    // mantém vivo (sem fontes o `CFRunLoopRun` volta logo).
+                    // SAFETY: this thread's loop; the empty timer keeps it alive
+                    // (without sources `CFRunLoopRun` returns right away).
                     unsafe {
                         let run_loop = CFRunLoopGetCurrent();
                         CFRetain(run_loop);
@@ -585,26 +579,26 @@ mod fsevents {
             Ok(Box::new(Watcher { run_loop, thread_handle: Some(thread_handle) }))
         }
 
-        /// `AddPath`: o pipe, o caminho real e o fluxo; devolve o id do
-        /// caminho (o nó).
+        /// `AddPath`: the pipe, the real path and the stream; returns the path id
+        /// (the node).
         pub fn watch_path(&self, file_path: &[u8], recursive: bool) -> Result<i64, super::OsError> {
             use std::os::unix::ffi::OsStrExt;
             let f = functions()?;
             let [read_side, write_side] = super::cloexec_pipe()?;
             super::set_nonblocking(read_side);
-            // O caminho real (`realpath`): o FSEvents entrega os caminhos já
-            // resolvidos (`/private/var/…` para `/var/…`).
+            // The real path (`realpath`): FSEvents delivers already resolved paths
+            // (`/private/var/…` for `/var/…`).
             let raw = std::ffi::OsStr::from_bytes(file_path);
             let real = std::fs::canonicalize(raw).map(|p| p.as_os_str().as_bytes().to_vec()).unwrap_or_else(|_| file_path.to_vec());
             let c = std::ffi::CString::new(real.clone()).map_err(|_| super::OsError::invalid_argument())?;
-            // SAFETY: `c` é um texto C válido.
+            // SAFETY: `c` is a valid C string.
             let text = unsafe { CFStringCreateWithCString(std::ptr::null(), c.as_ptr(), K_CF_STRING_ENCODING_UTF8) };
             let no = Box::into_raw(Box::new(No { base: real.len(), text, read_side, write_side, recursive, stream: std::ptr::null() }));
             DESCRIPTORS.lock().unwrap_or_else(|e| e.into_inner()).insert(no as i64, read_side);
             let mut contexto =
                 StreamContext { version: 0, info: no.cast(), retain: std::ptr::null(), release: Some(free_node), description: std::ptr::null() };
-            // SAFETY: as funções do FSEvents com os tipos documentados; o nó
-            // vive até a `release` do contexto (o fluxo liberado).
+            // SAFETY: the FSEvents functions with the documented types; the node
+            // lives until the context's `release` (the stream freed).
             unsafe {
                 let list = CFArrayCreate(std::ptr::null(), &(*no).text, 1, std::ptr::null());
                 let stream = (f.create)(
@@ -627,13 +621,13 @@ mod fsevents {
     }
 
     impl Drop for Watcher {
-        /// `Stop`: agenda a parada no próprio laço e espera a thread.
+        /// `Stop`: schedules the stop on the loop itself and waits for the thread.
         fn drop(&mut self) {
             let run_loop = self.run_loop as Ref;
             let mut contexto =
                 TimerContext { version: 0, info: run_loop as *mut c_void, retain: std::ptr::null(), release: std::ptr::null(), description: std::ptr::null() };
-            // SAFETY: o laço está retido até aqui; o temporizador copia o
-            // contexto.
+            // SAFETY: the loop is retained until here; the timer copies the
+            // context.
             unsafe {
                 let t = CFRunLoopTimerCreate(std::ptr::null(), 0.0, 0.0, 0, 0, stop_loop, &mut contexto);
                 CFRunLoopAddTimer(run_loop, t, kCFRunLoopCommonModes);
@@ -643,14 +637,14 @@ mod fsevents {
             if let Some(f) = self.thread_handle.take() {
                 let _ = f.join();
             }
-            // SAFETY: a retenção feita pela thread.
+            // SAFETY: the retain done by the thread.
             unsafe { CFRelease(run_loop) };
         }
     }
 
-    /// Um caminho observado (`FSEventsWatcher::Node`).
+    /// A watched path (`FSEventsWatcher::Node`).
     struct No {
-        /// O tamanho do caminho real (o prefixo tirado de cada evento).
+        /// The size of the real path (the prefix removed from each event).
         base: usize,
         text: Ref,
         read_side: i32,
@@ -659,24 +653,24 @@ mod fsevents {
         stream: Ref,
     }
 
-    /// O lado de leitura do pipe de cada caminho vivo, pelo id: o Dart pode
-    /// pedir eventos depois do `UnwatchPath`, e o nó já não existe.
+    /// The read end of each live path's pipe, by id: Dart may ask for events after
+    /// `UnwatchPath`, when the node no longer exists.
     static DESCRIPTORS: std::sync::Mutex<std::collections::BTreeMap<i64, i32>> =
         std::sync::Mutex::new(std::collections::BTreeMap::new());
 
-    /// O descritor de leitura do caminho `id`, se ele ainda é observado.
+    /// The read descriptor of path `id`, if it is still watched.
     pub fn read_descriptor(id: i64) -> Option<i32> {
         DESCRIPTORS.lock().unwrap_or_else(|e| e.into_inner()).get(&id).copied()
     }
 
-    /// `UnwatchPath`: para e libera o fluxo (a `release` do contexto libera o
-    /// nó e fecha o lado de escrita do pipe).
+    /// `UnwatchPath`: stops and frees the stream (the context's `release` frees
+    /// the node and closes the pipe's write end).
     pub fn stop(id: i64) {
         if DESCRIPTORS.lock().unwrap_or_else(|e| e.into_inner()).remove(&id).is_none() {
             return;
         }
         let Ok(f) = functions() else { return };
-        // SAFETY: o nó está vivo até a liberação do fluxo, a última chamada.
+        // SAFETY: the node is alive until the stream is freed, the last call.
         unsafe {
             let stream = (*(id as *const No)).stream;
             (f.stop)(stream);
@@ -686,27 +680,27 @@ mod fsevents {
     }
 
     extern "C" fn free_node(info: *const c_void) {
-        // SAFETY: `info` é o `Box` do `watch_path`, liberado uma vez (quando o
-        // fluxo deixa de existir).
+        // SAFETY: `info` is the `Box` from `watch_path`, freed once (when the
+        // stream stops existing).
         let no = unsafe { Box::from_raw(info as *mut No) };
-        // SAFETY: o lado de escrita é só deste nó; o texto foi criado nele.
+        // SAFETY: the write end belongs only to this node; the string was created in it.
         unsafe {
             close(no.write_side);
             CFRelease(no.text);
         }
     }
 
-    /// A *callback* do fluxo, na thread do observador: cada evento vira um
-    /// registro no pipe (o caminho relativo ao observado; fora do modo
-    /// recursivo, só os do próprio diretório).
+    /// The stream's *callback*, on the watcher thread: each event becomes a record
+    /// in the pipe (the path relative to the watched one; outside recursive mode,
+    /// only those of the directory itself).
     extern "C" fn on_event(_stream: Ref, info: *mut c_void, n: usize, paths: *mut c_void, flag_bits: *const u32, _ids: *const u64) {
         use std::os::unix::ffi::OsStrExt;
-        // SAFETY: `info` é o nó vivo (o fluxo o mantém); `paths` e
-        // `flag_bits` têm `n` itens.
+        // SAFETY: `info` is the live node (the stream keeps it); `paths` and
+        // `flag_bits` have `n` items.
         let no = unsafe { &*(info as *const No) };
         let paths = paths as *const *const c_char;
         for i in 0..n {
-            // SAFETY: ver acima.
+            // SAFETY: see above.
             let (c, flags) = unsafe { (std::ffi::CStr::from_ptr(*paths.add(i)).to_bytes(), *flag_bits.add(i)) };
             let exists = std::fs::symlink_metadata(std::ffi::OsStr::from_bytes(c)).is_ok();
             let mut rest = &c[no.base.min(c.len())..];
@@ -725,8 +719,8 @@ mod fsevents {
         }
     }
 
-    /// A máscara de `FileSystemEvent` e o nome de um registro
-    /// (`FileSystemWatcher::ReadEvents` da VM).
+    /// The `FileSystemEvent` mask and the name of a record (the VM's
+    /// `FileSystemWatcher::ReadEvents`).
     pub fn registry_event(r: &[u8]) -> (i64, &[u8]) {
         use super::fs_event::*;
         let exists = u32::from_ne_bytes(r[..4].try_into().unwrap()) != 0;

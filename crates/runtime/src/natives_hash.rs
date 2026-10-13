@@ -1,70 +1,69 @@
-// Runtime nativo: o caminho rápido do `_Map` e do `_Set` padrão
-// (`native_sdk/collection/compact_hash.dart`) para chaves `int` e `String`.
+// Native runtime: the fast path of the default `_Map` and `_Set`
+// (`native_sdk/collection/compact_hash.dart`) for `int` and `String` keys.
 //
-// A tabela é a do SDK, sem mudança de forma: o `_index` (`Uint32List`, as
-// sondas lineares com o padrão de hash nos bits altos) e o `_data` (`_List`
-// com chave e valor lado a lado no mapa, só a chave no conjunto), com a
-// ordem de inserção e os marcadores de remoção do `compact_hash.dart`. O
-// que muda é quem percorre: na VM, o compilador especializa `_hashCode` e
-// `_equals` do `_OperatorEqualsAndHashCode` para `int` e `String` e embute
-// tudo; aqui cada passo seria uma chamada pelo seletor, com a conferência
-// de covariância do `[]=` da lista. Estas funções fazem a sonda, a
-// comparação e a gravação de uma vez, com as mesmas contas do Dart
-// (`_hashPattern`, `_firstProbe`, `_nextProbe`), então a tabela que deixam
-// é bit a bit a que o código Dart deixaria — e o código Dart continua
-// valendo para ela (remoção, iteração, `_rehash`).
+// The table is the SDK's, without any change of shape: the `_index`
+// (`Uint32List`, linear probes with the hash pattern in the high bits) and the
+// `_data` (`_List` with key and value side by side in the map, only the key in the
+// set), with the insertion order and the deletion markers of `compact_hash.dart`.
+// What changes is who walks it: in the VM, the compiler specializes `_hashCode` and
+// `_equals` of `_OperatorEqualsAndHashCode` for `int` and `String` and inlines
+// everything; here each step would be a call through the selector, with the
+// covariance check of the list's `[]=`. These functions do the probe, the
+// comparison and the write at once, with the same arithmetic as the Dart code
+// (`_hashPattern`, `_firstProbe`, `_nextProbe`), so the table they leave is bit for
+// bit the one the Dart code would leave — and the Dart code keeps working on it
+// (removal, iteration, `_rehash`).
 //
-// Só a chave cujo `==` e `hashCode` o runtime conhece sem chamar Dart
-// passa: `int` (`Smi` ou `_Mint`: o `hashCode` do `HashIntegerOp` da VM) e
-// `String` (o `StringHasher` da VM, guardado no cabeçalho da string; a
-// igualdade por unidades). Como `int` e `String` não têm subclasses,
-// `chave == entrada` é conhecido para toda entrada, com uma exceção:
-// `int == double` compara números (`1 == 1.0`); esse encontro devolve "não
-// sei". "Não sei" (outra chave, tabela que precisa crescer, forma
-// inesperada) não muda nada, e o Dart refaz a operação pelo caminho do SDK.
+// Only a key whose `==` and `hashCode` the runtime knows without calling Dart goes
+// through: `int` (`Smi` or `_Mint`: the `hashCode` of the VM's `HashIntegerOp`) and
+// `String` (the VM's `StringHasher`, stored in the string's header; equality by
+// code units). Since `int` and `String` have no subclasses, `key == entry` is known
+// for every entry, with one exception: `int == double` compares numbers
+// (`1 == 1.0`); that encounter returns "don't know". "Don't know" (another key, a
+// table that needs to grow, an unexpected shape) changes nothing, and Dart redoes
+// the operation through the SDK path.
 //
-// Espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §4.5, item 4): o `_data`
-// é uma `_List` geral (`REFS`: cada entrada um `Ref` — `Smi`, `_Mint`,
-// string…) e o `_index` uma `_Uint32List` interna (cid 28). Uma lista de dados
-// compacta, imutável na gravação ou de outra classe devolve "não sei".
+// Unified space (docs/NATIVO-ESPACO-UNIFICADO.md §4.5, item 4): the `_data` is a
+// general `_List` (`REFS`: each entry a `Ref` — `Smi`, `_Mint`, string…) and the
+// `_index` an internal `_Uint32List` (cid 28). A compact data list, one that is
+// unmodifiable on write or of another class returns "don't know".
 //
-// Sem o `Heap` (docs/NATIVO-PLANO.md §13.2, item 1): os blocos são lidos pelos
-// deslocamentos do contrato de `layout`, como o código gerado os lê
-// (`@df.lista_*`, `@df.texto_*`), sem `HEAP.with`, `borrow` nem as conferências
-// de `live_block`; o cabeçalho de cada objeto diz a classe e a forma antes de
-// qualquer leitura do corpo. A gravação no `_data` aplica a barreira de
-// elemento do código gerado (`@df.barreira_elemento`). Nada aqui aloca, lança
-// ou chama Dart.
+// Without the `Heap` (docs/NATIVO-PLANO.md §13.2, item 1): the blocks are read
+// through the offsets of the `layout` contract, the way generated code reads them
+// (`@df.lista_*`, `@df.texto_*`), without `HEAP.with`, `borrow` or the
+// `live_block` checks; each object's header tells the class and the shape before
+// any read of the body. A write into `_data` applies generated code's element
+// barrier (`@df.barreira_elemento`). Nothing here allocates, throws or calls Dart.
 
 use crate::layout::{Header, DESLOCAMENTO_DO_HANDLE};
 
-/// O cabeçalho do objeto `h` (`is_object(h)`; vale também para os estáticos).
+/// The header of object `h` (`is_object(h)`; also valid for the statics).
 ///
 /// # Safety
-/// `h` é o handle de um objeto vivo que o código gerado passou.
+/// `h` is the handle of a live object that generated code passed.
 #[inline(always)]
 unsafe fn raw_header<'a>(h: i64) -> &'a Header {
-    // SAFETY: o contrato da função (o bloco começa em `h - 2`).
+    // SAFETY: the function's contract (the block starts at `h - 2`).
     unsafe { &*((h - DESLOCAMENTO_DO_HANDLE) as *const Header) }
 }
 
-/// O endereço do deslocamento `d` (de `layout::desl`, relativo ao bloco) de `h`.
+/// The address of offset `d` (from `layout::desl`, relative to the block) of `h`.
 #[inline(always)]
 fn in_block(h: i64, d: usize) -> *mut u8 {
     (h - DESLOCAMENTO_DO_HANDLE + d as i64) as *mut u8
 }
 
-/// A palavra de 8 bytes no deslocamento `d` do bloco de `h`.
+/// The 8-byte word at offset `d` of `h`'s block.
 ///
 /// # Safety
-/// `d` está dentro do bloco de um objeto vivo.
+/// `d` is within the block of a live object.
 #[inline(always)]
 unsafe fn raw_word(h: i64, d: usize) -> i64 {
-    // SAFETY: o contrato da função; os corpos são alinhados a 8.
+    // SAFETY: the function's contract; bodies are aligned to 8.
     unsafe { *(in_block(h, d) as *const i64) }
 }
 
-/// O `_index` visto pelos bytes: as posições `u32`.
+/// The `_index` seen through its bytes: the `u32` positions.
 #[derive(Clone, Copy)]
 struct Index {
     p: *mut u32,
@@ -72,20 +71,20 @@ struct Index {
 }
 
 impl Index {
-    /// O `_index`, se `h` é uma `_Uint32List` interna (cid 28, sem `EXTERNAL`).
+    /// The `_index`, if `h` is an internal `_Uint32List` (cid 28, without `EXTERNAL`).
     #[inline(always)]
     fn de(h: i64) -> Option<Index> {
         use crate::layout::{cid, desl, is_object, flags};
         if !is_object(h) {
             return None;
         }
-        // SAFETY: objeto vivo (o código gerado passou o campo `_index`).
+        // SAFETY: live object (generated code passed the `_index` field).
         let c = unsafe { raw_header(h) };
         if c.class_id != cid::tipada(crate::tipadas::tipo::UINT32) || c.flags & flags::EXTERNAL != 0 {
             return None;
         }
-        // SAFETY: toda lista tipada tem o comprimento em `b+16` e o ponteiro
-        // dos dados em `b+24` (§2.5 da especificação).
+        // SAFETY: every typed list has the length at `b+16` and the data pointer
+        // at `b+24` (§2.5 of the specification).
         let (size, p) = unsafe { (raw_word(h, desl::COMPRIMENTO) as usize, raw_word(h, desl::DADOS) as *mut u32) };
         Some(Index { p, size })
     }
@@ -93,19 +92,19 @@ impl Index {
     #[inline(always)]
     fn do_read(self, i: usize) -> u32 {
         debug_assert!(i < self.size);
-        // SAFETY: `i < tamanho` (a sonda mascara pelo tamanho).
+        // SAFETY: `i < size` (the probe masks by the size).
         unsafe { *self.p.add(i) }
     }
 
     #[inline(always)]
     fn write_value(self, i: usize, pair: u32) {
         debug_assert!(i < self.size);
-        // SAFETY: como em `do_read`; bytes sem referência, sem barreira.
+        // SAFETY: as in `do_read`; bytes without references, no barrier.
         unsafe { *self.p.add(i) = pair };
     }
 }
 
-/// Os elementos de uma `_List`/`_ImmutableList` geral (`REFS`).
+/// The elements of a general `_List`/`_ImmutableList` (`REFS`).
 #[derive(Clone, Copy)]
 struct Data {
     h: i64,
@@ -114,39 +113,39 @@ struct Data {
 }
 
 impl Data {
-    /// As entradas de `h`, se é `_List` geral (`write_value`) ou `_List`/`_ImmutableList`
-    /// geral (leitura).
+    /// The entries of `h`, if it is a general `_List` (writing) or a general
+    /// `_List`/`_ImmutableList` (reading).
     #[inline(always)]
     fn de(h: i64, write_value: bool) -> Option<Data> {
         use crate::layout::{cid, desl, is_object, estado, flags};
         if !is_object(h) {
             return None;
         }
-        // SAFETY: objeto vivo.
+        // SAFETY: live object.
         let c = unsafe { raw_header(h) };
         let serve = if write_value { c.class_id == cid::LIST && c.estado != estado::PERMANENTE } else { cid::is_fixed_list(c.class_id) };
         if !serve || c.flags & (flags::FORMA | flags::ELEMENTO) != flags::REFS {
             return None;
         }
-        // SAFETY: `_List` `REFS`: o comprimento na palavra 0 do corpo, os
-        // elementos a partir da palavra 1.
+        // SAFETY: `REFS` `_List`: the length in word 0 of the body, the elements
+        // from word 1 on.
         let len = unsafe { raw_word(h, desl::COMPRIMENTO) } as usize;
         Some(Data { h, p: in_block(h, desl::ELEMENTOS).cast(), len })
     }
 
-    /// Os dados de uma `_GrowableList` geral (a pilha do listener do JSON):
-    /// o armazenamento cortado no comprimento.
+    /// The data of a general `_GrowableList` (the JSON listener's stack): the
+    /// storage cut at the length.
     #[inline(always)]
     fn from_growable(h: i64) -> Option<Data> {
         use crate::layout::{cid, desl, is_object};
         if !is_object(h) {
             return None;
         }
-        // SAFETY: objeto vivo.
+        // SAFETY: live object.
         if unsafe { raw_header(h) }.class_id != cid::GROWABLE_LIST {
             return None;
         }
-        // SAFETY: `_GrowableList`: comprimento no campo 0, armazenamento no 1.
+        // SAFETY: `_GrowableList`: length in field 0, storage in field 1.
         let (len, a) = unsafe { (raw_word(h, desl::COMPRIMENTO) as usize, raw_word(h, desl::EXPANSIVEL_DADOS)) };
         let mut d = Data::de(a, false)?;
         if len > d.len {
@@ -163,24 +162,24 @@ impl Data {
         unsafe { *self.p.add(i) }
     }
 
-    /// Grava o `Ref` `v` na entrada `i`, com a barreira de elemento do código
-    /// gerado: um velho (ou lembrado) que recebe um filho jovem tem o cartão da
-    /// entrada sujo, se tem cartões, e o velho é lembrado.
+    /// Writes the `Ref` `v` into entry `i`, with generated code's element barrier:
+    /// an old (or remembered) object that receives a young child gets the entry's
+    /// card dirtied, if it has cards, and the old object is remembered.
     #[inline(always)]
     fn write_value(self, i: usize, v: i64) {
         use crate::layout::{estado, flags};
         debug_assert!(i < self.len);
-        // SAFETY: `i < len`; `_List` gravável (conferida em `de`).
+        // SAFETY: `i < len`; a writable `_List` (checked in `de`).
         let old = unsafe { std::mem::replace(&mut *self.p.add(i), v) };
         if arc_enabled() {
             arc_raw_write(self.h, old, v);
         }
-        // SAFETY: objeto vivo.
+        // SAFETY: live object.
         let c = unsafe { raw_header(self.h) };
         let e = c.estado;
         if (e == estado::VELHO || e == estado::REMEMBERED) && young_child(v) {
             if c.flags & flags::CARTOES != 0 {
-                // SAFETY: bloco `REFS` com `CARTOES` de `len` elementos, `i < len`.
+                // SAFETY: a `REFS` block with `CARTOES` of `len` elements, `i < len`.
                 unsafe { crate::space::dirty_card((self.h - DESLOCAMENTO_DO_HANDLE) as *mut Header, self.len, i) };
             }
             if e == estado::VELHO {
@@ -190,51 +189,51 @@ impl Data {
     }
 }
 
-/// O `Ref` gravado pede a barreira (`@df.young_child`)? Só um objeto jovem.
+/// Does the written `Ref` require the barrier (`@df.young_child`)? Only a young object.
 #[inline(always)]
 fn young_child(v: i64) -> bool {
-    // SAFETY: objeto vivo.
+    // SAFETY: live object.
     crate::layout::is_object(v) && unsafe { raw_header(v) }.estado == crate::layout::estado::JOVEM
 }
 
-/// Uma chave que o runtime compara e espalha sozinho.
+/// A key that the runtime compares and hashes by itself.
 #[derive(Clone, Copy)]
 enum HashKey {
     Int(i64),
-    /// O handle da string.
+    /// The string's handle.
     Texto(i64),
 }
 
-/// O que o `==` da chave diz de uma entrada.
+/// What the key's `==` says about an entry.
 enum Comparison {
     Equal,
     Different,
     Unknown,
 }
 
-/// O resultado da sonda.
+/// The result of the probe.
 enum Probe {
-    /// A entrada `d` de `_data` (a da chave).
+    /// Entry `d` of `_data` (the key's).
     Found(usize),
-    /// A posição do `_index` onde a chave entraria e o padrão de hash.
+    /// The `_index` position where the key would go and the hash pattern.
     Missing { point: usize, pattern: u32 },
 }
 
-/// O `int` de um `Smi` ou `_Mint`.
+/// The `int` of a `Smi` or `_Mint`.
 #[inline(always)]
 fn integer(k: i64) -> Option<i64> {
     use crate::layout::{cid, desl, is_object, smi};
     if smi::is_smi(k) {
         return Some(smi::value(k));
     }
-    // SAFETY: objeto vivo; a caixa `_Mint` tem o valor em `b+16`.
+    // SAFETY: live object; the `_Mint` box has the value at `b+16`.
     if is_object(k) && unsafe { raw_header(k) }.class_id == cid::MINT {
         return Some(unsafe { raw_word(k, desl::VALOR) });
     }
     None
 }
 
-/// As unidades de uma string: de um byte (`_OneByteString`) ou de dois.
+/// The code units of a string: one-byte (`_OneByteString`) or two-byte.
 #[derive(Clone, Copy)]
 enum Units {
     Um(*const u8, usize),
@@ -242,19 +241,19 @@ enum Units {
 }
 
 impl Units {
-    /// As unidades de `h`, se é string.
+    /// The units of `h`, if it is a string.
     #[inline(always)]
     fn de(h: i64) -> Option<Units> {
         use crate::layout::{cid, desl, is_object};
         if !is_object(h) {
             return None;
         }
-        // SAFETY: objeto vivo.
+        // SAFETY: live object.
         let c = unsafe { raw_header(h) }.class_id;
         if !cid::is_string(c) {
             return None;
         }
-        // SAFETY: string: o comprimento em `b+16`, as unidades em `b+24`.
+        // SAFETY: string: the length at `b+16`, the units at `b+24`.
         let len = unsafe { raw_word(h, desl::COMPRIMENTO) } as usize;
         let p = in_block(h, desl::UNIDADES);
         Some(if c == cid::ONE_BYTE_STRING { Units::Um(p, len) } else { Units::Dois(p.cast(), len) })
@@ -266,10 +265,10 @@ impl Units {
         }
     }
 
-    /// A unidade `i` (`i < len`).
+    /// Unit `i` (`i < len`).
     #[inline(always)]
     fn at(self, i: usize) -> u16 {
-        // SAFETY: `i < len` (quem chama confere).
+        // SAFETY: `i < len` (the caller checks).
         unsafe {
             match self {
                 Units::Um(p, _) => u16::from(*p.add(i)),
@@ -278,12 +277,12 @@ impl Units {
         }
     }
 
-    /// As mesmas unidades?
+    /// The same units?
     fn equal(self, other: Units) -> bool {
         if self.len() != other.len() {
             return false;
         }
-        // SAFETY: as duas fatias têm `len` unidades do tipo delas.
+        // SAFETY: both slices have `len` units of their type.
         unsafe {
             match (self, other) {
                 (Units::Um(a, n), Units::Um(b, _)) => std::slice::from_raw_parts(a, n) == std::slice::from_raw_parts(b, n),
@@ -294,33 +293,33 @@ impl Units {
     }
 }
 
-/// O `hashCode` da string `h` (o de `Heap::hash_de_texto`): o do cabeçalho, ou
-/// calculado e gravado nele na primeira consulta (menos no estático, que já o
-/// traz e mora em memória só de leitura).
+/// The `hashCode` of string `h` (that of `Heap::hash_de_texto`): the header's, or
+/// computed and written into it on the first query (except for a static string,
+/// which already carries it and lives in read-only memory).
 #[inline(always)]
 fn raw_string_hash(h: i64, u: Units) -> u32 {
     use crate::layout::{desl, estado};
     let p = in_block(h, desl::HASH_DO_TEXTO).cast::<u32>();
-    // SAFETY: `map` do cabeçalho de uma string viva; o heap é desta thread.
+    // SAFETY: `map` of a live string's header; the heap belongs to this thread.
     let current = unsafe { *p };
     if current != 0 {
         return current;
     }
     let x = match u {
-        // SAFETY: as unidades da string.
+        // SAFETY: the string's units.
         Units::Um(q, n) => crate::layout::hash_de_texto(unsafe { std::slice::from_raw_parts(q, n) }.iter().map(|&b| u16::from(b))),
         Units::Dois(q, n) => crate::layout::hash_de_texto(unsafe { std::slice::from_raw_parts(q, n) }.iter().copied()),
     };
-    // SAFETY: como acima; o estado é o byte 0 do bloco.
+    // SAFETY: as above; the state is byte 0 of the block.
     if unsafe { raw_header(h) }.estado != estado::PERMANENTE {
         unsafe { *p = x };
     }
     x
 }
 
-/// A chave e o `hashCode` dela, se o runtime os conhece: `int` (`Smi` ou
-/// `_Mint`, o `hashCode` da VM, o mesmo de `_Smi.hashCode` no código gerado)
-/// ou string (o hash do cabeçalho).
+/// The key and its `hashCode`, if the runtime knows them: `int` (`Smi` or `_Mint`,
+/// the VM's `hashCode`, the same as `_Smi.hashCode` in generated code) or a string
+/// (the header's hash).
 #[inline(always)]
 fn hash_key(k: i64) -> Option<(HashKey, i64)> {
     if let Some(v) = integer(k) {
@@ -330,7 +329,7 @@ fn hash_key(k: i64) -> Option<(HashKey, i64)> {
     Some((HashKey::Texto(k), i64::from(raw_string_hash(k, u))))
 }
 
-/// `chave == entrada` (o `==` de `int` ou de `String`), com a entrada `Ref`.
+/// `key == entry` (the `==` of `int` or of `String`), with the `Ref` entry.
 #[inline(always)]
 fn compare_key(key: HashKey, input: i64) -> Comparison {
     use crate::layout::{cid, is_object, smi};
@@ -342,10 +341,10 @@ fn compare_key(key: HashKey, input: i64) -> Comparison {
             if !is_object(input) {
                 return Comparison::Different;
             }
-            // SAFETY: objeto vivo (uma entrada do `_data`).
+            // SAFETY: live object (an entry of `_data`).
             match unsafe { raw_header(input) }.class_id {
                 cid::MINT => equal_if(integer(input) == Some(v)),
-                // `1 == 1.0`: o `==` de `num`, que o Dart decide.
+                // `1 == 1.0`: `num`'s `==`, which Dart decides.
                 cid::DOUBLE => Comparison::Unknown,
                 _ => Comparison::Different,
             }
@@ -357,8 +356,8 @@ fn compare_key(key: HashKey, input: i64) -> Comparison {
             let (Some(a), Some(b)) = (Units::de(h), Units::de(input)) else {
                 return Comparison::Different;
             };
-            // Os hashes já calculados diferem: unidades diferentes.
-            // SAFETY: `map` de duas strings vivas, só lido.
+            // The already computed hashes differ: different units.
+            // SAFETY: `map` of two live strings, only read.
             let (ha, hb) = unsafe {
                 (
                     *in_block(h, crate::layout::desl::HASH_DO_TEXTO).cast::<u32>(),
@@ -378,9 +377,9 @@ fn equal_if(b: bool) -> Comparison {
     if b { Comparison::Equal } else { Comparison::Different }
 }
 
-/// A sonda do `_findValueOrInsertPoint` (mapa, `step` 2) e do `_add`
-/// (conjunto, `step` 1), com as contas de `_HashBase`. `None`: a
-/// igualdade não é conhecida sem o Dart, ou a tabela tem forma inesperada.
+/// The probe of `_findValueOrInsertPoint` (map, `step` 2) and of `_add` (set,
+/// `step` 1), with `_HashBase`'s arithmetic. `None`: equality is not known without
+/// Dart, or the table has an unexpected shape.
 #[inline(always)]
 fn probe(ix: Index, data: Data, mask: i64, key: HashKey, hash: i64, step: usize) -> Option<Probe> {
     let size = ix.size;
@@ -389,7 +388,7 @@ fn probe(ix: Index, data: Data, mask: i64, key: HashKey, hash: i64, step: usize)
     }
     let half = (size >> 1) as i64;
     let masked = hash & mask;
-    // `_hashPattern`: cabe em 32 bits pela escolha de `_hashMask`.
+    // `_hashPattern`: fits in 32 bits by the choice of `_hashMask`.
     let pattern = if masked == 0 { half } else { masked.wrapping_mul(half) };
     let pattern = u32::try_from(pattern).ok()?;
     let size_mask = size - 1;
@@ -424,10 +423,9 @@ fn probe(ix: Index, data: Data, mask: i64, key: HashKey, hash: i64, step: usize)
     Some(Probe::Missing { point: first_removed.unwrap_or(i), pattern })
 }
 
-/// `mapa[chave] = valor` sobre a tabela já resolvida: o novo `_usedData` (o
-/// mesmo, se a chave já estava), ou -1 quando o Dart tem de fazer a operação
-/// (chave de outro tipo, `int` diante de `double`, tabela cheia: o `_rehash`
-/// é do Dart).
+/// `map[key] = value` on the already resolved table: the new `_usedData` (the same,
+/// if the key was already there), or -1 when Dart has to do the operation (a key of
+/// another type, `int` against `double`, a full table: `_rehash` belongs to Dart).
 #[inline(always)]
 fn map_write(ix: Index, data: Data, mask: i64, used_count: i64, key: i64, value: i64) -> i64 {
     let Some((k, hash)) = hash_key(key) else { return -1 };
@@ -453,13 +451,13 @@ fn map_write(ix: Index, data: Data, mask: i64, used_count: i64, key: i64, value:
     }
 }
 
-/// `_Set.add(key)` sobre a tabela já resolvida: o novo `_usedData` (o mesmo,
-/// se a chave já estava), ou -1.
+/// `_Set.add(key)` on the already resolved table: the new `_usedData` (the same, if
+/// the key was already there), or -1.
 #[inline(always)]
 fn set_add(ix: Index, data: Data, mask: i64, used_count: i64, key: i64) -> i64 {
     let Some((k, hash)) = hash_key(key) else { return -1 };
     match probe(ix, data, mask, k, hash, 1) {
-        // O conjunto guarda a chave que já estava.
+        // The set keeps the key that was already there.
         Some(Probe::Found(_)) => used_count,
         Some(Probe::Missing { point, pattern }) => {
             if used_count < 0 || used_count as usize >= data.len {
@@ -474,10 +472,10 @@ fn set_add(ix: Index, data: Data, mask: i64, used_count: i64, key: i64) -> i64 {
     }
 }
 
-/// `_Map[chave] = valor` para chave `int`/`String`: devolve o novo
-/// `_usedData` (o mesmo, se a chave já estava), ou -1 quando o Dart tem de
-/// fazer a operação (chave de outro tipo, `int` diante de `double`, tabela
-/// cheia: o `_rehash` é do Dart).
+/// `_Map[key] = value` for an `int`/`String` key: returns the new `_usedData` (the
+/// same, if the key was already there), or -1 when Dart has to do the operation (a
+/// key of another type, `int` against `double`, a full table: `_rehash` belongs to
+/// Dart).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_hash_mapa_gravar(ix: i64, data: i64, mask: i64, used_count: i64, key: i64, value: i64) -> i64 {
     match (Index::de(ix), Data::de(data, true)) {
@@ -486,9 +484,9 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_mapa_gravar(ix: i64, data: i64
     }
 }
 
-/// `_Map._getValueOrData(key)` para chave `int`/`String`: o valor, ou
-/// `data` (o `_data`) quando a chave falta — o protocolo do SDK —, ou
-/// `ix` (nunca um valor do mapa) quando o Dart tem de procurar.
+/// `_Map._getValueOrData(key)` for an `int`/`String` key: the value, or `data` (the
+/// `_data`) when the key is missing — the SDK's protocol —, or `ix` (never a map
+/// value) when Dart has to search.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_hash_mapa_buscar(ix: i64, data: i64, mask: i64, key: i64) -> i64 {
     let (Some(ind), Some(el), Some((k, hash))) = (Index::de(ix), Data::de(data, false), hash_key(key)) else {
@@ -501,9 +499,8 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_mapa_buscar(ix: i64, data: i64
     }
 }
 
-/// `_Set.add(key)` para chave `int`/`String`: o novo `_usedData` (o
-/// mesmo, se a chave já estava), ou -1 quando o Dart tem de fazer a
-/// operação.
+/// `_Set.add(key)` for an `int`/`String` key: the new `_usedData` (the same, if the
+/// key was already there), or -1 when Dart has to do the operation.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_hash_conjunto_adicionar(ix: i64, data: i64, mask: i64, used_count: i64, key: i64) -> i64 {
     match (Index::de(ix), Data::de(data, true)) {
@@ -512,9 +509,8 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_conjunto_adicionar(ix: i64, da
     }
 }
 
-/// `_Set._getKeyOrData(key)` para chave `int`/`String`: a chave que está
-/// no conjunto, ou `data` quando falta, ou `ix` quando o Dart tem de
-/// procurar.
+/// `_Set._getKeyOrData(key)` for an `int`/`String` key: the key that is in the set,
+/// or `data` when it is missing, or `ix` when Dart has to search.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_hash_conjunto_buscar(ix: i64, data: i64, mask: i64, key: i64) -> i64 {
     let (Some(ind), Some(el), Some((k, hash))) = (Index::de(ix), Data::de(data, false), hash_key(key)) else {
@@ -527,27 +523,27 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_conjunto_buscar(ix: i64, data:
     }
 }
 
-/// O resultado de um lote: a posição seguinte em `pair_list` (onde o lote parou) nos
-/// 32 bits altos e o novo `_usedData` nos baixos.
+/// The result of a batch: the next position in `pair_list` (where the batch
+/// stopped) in the high 32 bits and the new `_usedData` in the low ones.
 #[inline(always)]
 fn batch(cur_position: usize, used_count: i64) -> i64 {
     ((cur_position as i64) << 32) | (used_count & 0xFFFF_FFFF)
 }
 
-/// As entradas de `pair_list`: uma `_List`/`_ImmutableList` geral (o `_data` velho
-/// do `_rehash`) ou uma `_GrowableList` geral (a pilha do listener do JSON).
+/// The entries of `pair_list`: a general `_List`/`_ImmutableList` (the old `_data`
+/// of `_rehash`) or a general `_GrowableList` (the JSON listener's stack).
 #[inline(always)]
 fn entries(pair_list: i64) -> Option<Data> {
     Data::de(pair_list, false).or_else(|| Data::from_growable(pair_list))
 }
 
-/// O lote do `_Map` (docs/NATIVO-PLANO.md §13.2, itens 2 e 3): `mapa[k] = v`
-/// para cada par `(pair_list[i], pair_list[i + 1])`, `i` de `de` até `until` de 2 em 2,
-/// na ordem, como o `_set` faria. Com `skip_removed`, o par cuja chave é a
-/// própria lista (`_HashBase._isDeleted` do `_data` velho) é pulado. Para no
-/// primeiro par que o runtime não sabe gravar (chave de outro tipo, `int`
-/// diante de `double`, tabela cheia) e devolve [`batch`]: o Dart grava esse par
-/// e chama de novo a partir do seguinte.
+/// The `_Map` batch (docs/NATIVO-PLANO.md §13.2, items 2 and 3): `map[k] = v` for
+/// each pair `(pair_list[i], pair_list[i + 1])`, `i` from `de` to `until` in steps
+/// of 2, in order, as `_set` would do. With `skip_removed`, a pair whose key is the
+/// list itself (`_HashBase._isDeleted` of the old `_data`) is skipped. Stops at the
+/// first pair the runtime cannot write (a key of another type, `int` against
+/// `double`, a full table) and returns [`batch`]: Dart writes that pair and calls
+/// again from the next one.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_hash_mapa_preencher(ix: i64, data: i64, mask: i64, used_count: i64, pair_list: i64, de: i64, until: i64, skip_removed: u8) -> i64 {
     let (Some(ind), Some(d), Some(p)) = (Index::de(ix), Data::de(data, true), entries(pair_list)) else {
@@ -569,9 +565,9 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_mapa_preencher(ix: i64, data: 
     batch(i, u)
 }
 
-/// O lote do `_Set` (o `_init` do `_rehash`): `add(olds_set[i])` para `i` de `de`
-/// até `until`, pulando as removidas (a chave que é a própria lista). Para no
-/// primeiro elemento que o runtime não sabe inserir e devolve [`batch`].
+/// The `_Set` batch (the `_init` of `_rehash`): `add(olds_set[i])` for `i` from `de`
+/// to `until`, skipping the removed ones (the key that is the list itself). Stops at
+/// the first element the runtime cannot insert and returns [`batch`].
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_hash_conjunto_preencher(ix: i64, data: i64, mask: i64, used_count: i64, olds_set: i64, de: i64, until: i64) -> i64 {
     let (Some(ind), Some(d), Some(p)) = (Index::de(ix), Data::de(data, true), entries(olds_set)) else {
@@ -593,10 +589,10 @@ pub extern "C" fn dartforge_nativo_DartForge_hash_conjunto_preencher(ix: i64, da
     batch(i, u)
 }
 
-/// `_dfNovosDados(n)` (`compact_hash.dart`): o `_data` novo de uma tabela, uma
-/// `_List` geral de `n` nulls sem tipo reificado (o `new List.filled(n, null)`
-/// do SDK, sem avaliar o `List<Object?>`: a lista nunca sai da tabela). Pode
-/// coletar.
+/// `_dfNovosDados(n)` (`compact_hash.dart`): the new `_data` of a table, a general
+/// `_List` of `n` nulls without a reified type (the SDK's `new List.filled(n, null)`,
+/// without evaluating `List<Object?>`: the list never leaves the table). May
+/// collect.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_hash_novos_dados(n: i64) -> i64 {
     let n = usize::try_from(n).unwrap_or(0);

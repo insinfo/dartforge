@@ -1,39 +1,39 @@
-// Runtime nativo: a TLS do `dart:io` — `SecureSocket`, `RawSecureSocket`,
-// `SecureServerSocket`, `SecurityContext` e `X509Certificate` —, sobre o
-// rustls (provedor de criptografia `ring`).
+// Native runtime: the `dart:io` TLS — `SecureSocket`, `RawSecureSocket`,
+// `SecureServerSocket`, `SecurityContext` and `X509Certificate` —, on top of
+// rustls (with the `ring` crypto provider).
 //
-// A VM implementa o filtro em C++ sobre o BoringSSL
-// (`runtime/bin/secure_socket_filter.cc`): quatro anéis de bytes que o Dart
-// de `secure_socket.dart` enche e esvazia (texto a ler, texto a escrever,
-// cifrado lido, cifrado a escrever), e o `ProcessAllBuffers`, que move os
-// bytes entre os anéis e a máquina de TLS. Aqui é o mesmo protocolo, com os
-// anéis nas `Uint8List` do heap e a máquina de TLS do rustls. O Dart do
-// `secure_socket.dart` do SDK fica intacto; a sobreposição troca só o patch
-// da VM (`native_sdk/io/secure_socket_patch.dart`) e o pedido
-// `sslProcessFilter` do IOService, atendido na thread do isolado
-// (`native_sdk/io/io_service_patch.dart`): o filtro só faz criptografia em
-// memória, nunca E/S — quem lê e escreve no soquete continua sendo o
-// `RawSocket`, pelo laço de eventos.
+// The VM implements the filter in C++ on top of BoringSSL
+// (`runtime/bin/secure_socket_filter.cc`): four byte rings that the Dart code of
+// `secure_socket.dart` fills and drains (plaintext to read, plaintext to write,
+// encrypted read, encrypted to write), and `ProcessAllBuffers`, which moves the
+// bytes between the rings and the TLS machine. Here it is the same protocol, with
+// the rings in heap `Uint8List`s and rustls's TLS machine. The SDK's
+// `secure_socket.dart` Dart code stays intact; the overlay only replaces the VM
+// patch (`native_sdk/io/secure_socket_patch.dart`) and the IOService's
+// `sslProcessFilter` request, served on the isolate's thread
+// (`native_sdk/io/io_service_patch.dart`): the filter only does in-memory
+// cryptography, never I/O — the `RawSocket` is still what reads and writes the
+// socket, through the event loop.
 //
-// A verificação do certificado do servidor segue o avaliador da VM: um
-// certificado que as raízes do contexto não validam não derruba o handshake
-// na hora; o handshake para (`SSL_ERROR_WANT_CERTIFICATE_VERIFY`, 16), o
-// Dart chama o `onBadCertificate` e responde (`_decidir`). Enquanto a
-// decisão não vem, nada do que o rustls produziu depois do certificado sai
-// para o soquete.
+// Verification of the server certificate follows the VM's evaluator: a
+// certificate that the context's roots do not validate does not abort the
+// handshake right away; the handshake stops (`SSL_ERROR_WANT_CERTIFICATE_VERIFY`,
+// 16), Dart calls `onBadCertificate` and answers (`_decidir`). Until the decision
+// comes, nothing that rustls produced after the certificate goes out to the
+// socket.
 //
-// Os erros seguem o texto da VM: `HandshakeException: Handshake error in
-// client (OS Error: \n\tCERTIFICATE_VERIFY_FAILED: unable to get local issuer
+// Errors follow the VM's text: `HandshakeException: Handshake error in client
+// (OS Error: \n\tCERTIFICATE_VERIFY_FAILED: unable to get local issuer
 // certificate(handshake.cc:392))`.
 
-/// A versão mínima padrão do `SecurityContext` (TLS 1.2, como a VM).
+/// The default minimum version of `SecurityContext` (TLS 1.2, like the VM).
 const TLS_DEFAULT_MIN_VERSION: i64 = 0x0303;
 
-/// `SSL_ERROR_WANT_CERTIFICATE_VERIFY`: o handshake espera a decisão do Dart.
+/// `SSL_ERROR_WANT_CERTIFICATE_VERIFY`: the handshake waits for Dart's decision.
 const TLS_AWAIT_VERIFICATION: i64 = 16;
 
-/// Um `SecurityContext`: as raízes, a cadeia e a chave, o ALPN e a versão
-/// mínima. Fica no campo nativo do objeto como `Arc<Mutex<_>>`.
+/// A `SecurityContext`: the roots, the chain and the key, the ALPN and the minimum
+/// version. It lives in the object's native field as an `Arc<Mutex<_>>`.
 struct TlsContext {
     trusted: Vec<rustls::pki_types::CertificateDer<'static>>,
     builtin_roots: bool,
@@ -43,8 +43,8 @@ struct TlsContext {
     client_alpn: Vec<Vec<u8>>,
     server_alpn: Vec<Vec<u8>>,
     min_version: i64,
-    /// As raízes montadas (as confiáveis e, se pedido, as do sistema); refeitas
-    /// quando o contexto muda.
+    /// The assembled roots (the trusted ones and, if requested, the system ones);
+    /// rebuilt when the context changes.
     roots: Option<std::sync::Arc<rustls::RootCertStore>>,
 }
 
@@ -55,10 +55,9 @@ fn tls_provider() -> std::sync::Arc<rustls::crypto::CryptoProvider> {
     P.get_or_init(|| std::sync::Arc::new(rustls::crypto::ring::default_provider())).clone()
 }
 
-/// As raízes do sistema (`SecurityContext.defaultContext`,
-/// `withTrustedRoots: true`): o repositório de certificados do sistema
-/// (arquivos do Linux, chaveiro do macOS, repositório do Windows); sem
-/// nenhuma, as da Mozilla embutidas.
+/// The system roots (`SecurityContext.defaultContext`, `withTrustedRoots: true`):
+/// the system certificate store (Linux files, macOS keychain, Windows store);
+/// with none, the embedded Mozilla ones.
 fn system_roots() -> &'static [rustls::pki_types::CertificateDer<'static>] {
     static R: std::sync::OnceLock<Vec<rustls::pki_types::CertificateDer<'static>>> = std::sync::OnceLock::new();
     R.get_or_init(|| rustls_native_certs::load_native_certs().certs)
@@ -104,7 +103,7 @@ impl TlsContext {
     }
 }
 
-/// Os protocolos do ALPN na codificação por comprimento
+/// The ALPN protocols in length-prefixed encoding
 /// (`SecurityContext._protocolsToLengthEncoding`).
 fn protocols_of(bytes: &[u8]) -> Vec<Vec<u8>> {
     let mut v = Vec::new();
@@ -123,8 +122,8 @@ fn object_context(obj: i64) -> Option<SharedContext> {
     if p == 0 {
         return None;
     }
-    // SAFETY: o campo guarda um `Arc` de `DartForge_tls_contexto_novo`, vivo
-    // até a coleta do objeto; aqui se toma mais uma referência.
+    // SAFETY: the field holds an `Arc` from `DartForge_tls_contexto_novo`, alive
+    // until the object is collected; here one more reference is taken.
     unsafe {
         let a = p as *const std::sync::Mutex<TlsContext>;
         std::sync::Arc::increment_strong_count(a);
@@ -133,7 +132,7 @@ fn object_context(obj: i64) -> Option<SharedContext> {
 }
 
 fn free_tls_context(p: usize) {
-    // SAFETY: a referência do objeto, solta uma vez pelo finalizador.
+    // SAFETY: the object's reference, released once by the finalizer.
     unsafe { drop(std::sync::Arc::from_raw(p as *const std::sync::Mutex<TlsContext>)) };
 }
 
@@ -158,8 +157,8 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_novo(this: i64) {
     write_native_field(this, p);
 }
 
-/// `usePrivateKeyBytes`: se havia chave (formatos em `tls_formatos.rs`); sem
-/// ela, o Dart lança a `ArgumentError` da VM.
+/// `usePrivateKeyBytes`: whether there was a key (formats in `tls_formats.rs`);
+/// without it, Dart throws the VM's `ArgumentError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_chave(this: i64, bytes: i64, password: i64) -> u8 {
     let b = typed_list_bytes(bytes).unwrap_or_default();
@@ -173,7 +172,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_chave(this: i64, bytes
     }
 }
 
-/// A senha de um native de certificados (PKCS#12).
+/// The password of a certificates native (PKCS#12).
 fn password_of(password: i64) -> String {
     String::from_utf8_lossy(&utf8_of_string(password)).into_owned()
 }
@@ -236,23 +235,23 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_contexto_versao_minima(this: i6
 }
 
 // ---------------------------------------------------------------------------
-// O filtro.
+// The filter.
 
-/// A decisão sobre o certificado do servidor que as raízes não validaram.
+/// The decision about the server certificate that the roots did not validate.
 #[derive(Default)]
 struct PendingVerification {
-    /// O certificado e o motivo (o texto do BoringSSL), enquanto o Dart não
-    /// decide.
+    /// The certificate and the reason (BoringSSL's text), while Dart has not
+    /// decided.
     pending: Option<(rustls::pki_types::CertificateDer<'static>, String)>,
-    /// O Dart aceitou o certificado (`onBadCertificate` devolveu `true`).
+    /// Dart accepted the certificate (`onBadCertificate` returned `true`).
     accepted: bool,
 }
 
 type Verification = std::sync::Arc<std::sync::Mutex<PendingVerification>>;
 
-/// O verificador do cliente: as raízes do contexto pelo webpki; o que elas
-/// não validam fica para o Dart (ver o topo do arquivo). As assinaturas do
-/// handshake são sempre conferidas.
+/// The client verifier: the context's roots through webpki; what they do not
+/// validate is left to Dart (see the top of the file). The handshake signatures
+/// are always checked.
 #[derive(Debug)]
 struct DartVerifier {
     webpki: Option<std::sync::Arc<rustls::client::WebPkiServerVerifier>>,
@@ -266,8 +265,8 @@ impl std::fmt::Debug for PendingVerification {
     }
 }
 
-/// O texto do BoringSSL (`X509_verify_cert_error_string`) de um erro de
-/// certificado do rustls.
+/// BoringSSL's text (`X509_verify_cert_error_string`) for a rustls certificate
+/// error.
 fn certificate_reason(e: &rustls::Error, self_signed: bool) -> String {
     use rustls::CertificateError as C;
     match e {
@@ -331,8 +330,8 @@ impl rustls::client::danger::ServerCertVerifier for DartVerifier {
     }
 }
 
-/// O `keyLog` do `SecureSocket`: cada linha no formato NSS fica guardada
-/// até o Dart levá-la à porta dele (`DartForge_tls_filtro_chaves_pendentes`).
+/// The `SecureSocket`'s `keyLog`: each line in NSS format is kept until Dart takes
+/// it to its port (`DartForge_tls_filtro_chaves_pendentes`).
 #[derive(Debug, Default)]
 struct KeyRegistry(std::sync::Mutex<Vec<String>>);
 
@@ -344,15 +343,15 @@ impl rustls::KeyLog for KeyRegistry {
     }
 }
 
-/// O estado nativo de um `_SecureFilterImpl`.
+/// The native state of a `_SecureFilterImpl`.
 struct TlsFilter {
     connection: Option<rustls::Connection>,
     tls_server: bool,
     verification: Verification,
-    /// O erro do handshake (texto do `OS Error`), relatado pelo próximo
-    /// `handshake()`; ou o erro do último processamento.
+    /// The handshake error (the `OS Error` text), reported by the next
+    /// `handshake()`; or the error of the last processing.
     error: Option<String>,
-    /// O fim do handshake já foi relatado ao Dart.
+    /// The end of the handshake has already been reported to Dart.
     reported: bool,
     keys: Option<std::sync::Arc<KeyRegistry>>,
 }
@@ -362,13 +361,13 @@ fn object_filter<'a>(obj: i64) -> Option<&'a mut TlsFilter> {
     if p == 0 {
         return None;
     }
-    // SAFETY: o campo guarda a `Box` de `DartForge_tls_filtro_novo`, só usada
-    // pela thread do isolado dono, e viva até `destroy` ou a coleta.
+    // SAFETY: the field holds the `Box` from `DartForge_tls_filtro_novo`, used only
+    // by the owning isolate's thread, and alive until `destroy` or collection.
     Some(unsafe { &mut *(p as *mut TlsFilter) })
 }
 
 fn free_tls_filter(p: usize) {
-    // SAFETY: a `Box` do filtro, solta uma vez.
+    // SAFETY: the filter's `Box`, released once.
     unsafe { drop(Box::from_raw(p as *mut TlsFilter)) };
 }
 
@@ -397,7 +396,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_destruir(this: i64) {
     }
 }
 
-/// `registerKeyLogPort`: as chaves da sessão passam a ser registradas.
+/// `registerKeyLogPort`: the session keys start being logged.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_registrar_chaves(this: i64) {
     if let Some(f) = object_filter(this) {
@@ -405,8 +404,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_registrar_chaves(this: i
     }
 }
 
-/// As linhas do `keyLog` desde a última chamada, separadas por `\n`, ou
-/// `null`.
+/// The `keyLog` lines since the last call, separated by `\n`, or `null`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_chaves_pendentes(this: i64) -> i64 {
     let line_list = object_filter(this)
@@ -415,8 +413,8 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_chaves_pendentes(this: i
     if line_list.is_empty() { 0 } else { allocate_str(&line_list.join("\n")) }
 }
 
-/// `SecureSocket_Connect`: monta a conexão do rustls. `null`, ou o texto do
-/// erro (o Dart lança a `TlsException`).
+/// `SecureSocket_Connect`: sets up the rustls connection. `null`, or the error text
+/// (Dart throws the `TlsException`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_conectar(
     this: i64,
@@ -427,10 +425,10 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_conectar(
     require_certificate: u8,
     protocols: i64,
 ) -> i64 {
-    let Some(f) = object_filter(this) else { return allocate_str("SecureSocket destruído") };
+    let Some(f) = object_filter(this) else { return allocate_str("SecureSocket destroyed") };
     let host = String::from_utf8_lossy(&utf8_of_string(host)).into_owned();
     let protocols = protocols_of(&typed_list_bytes(protocols).unwrap_or_default());
-    let Some(contexto) = object_context(contexto) else { return allocate_str("SecurityContext sem estado nativo") };
+    let Some(contexto) = object_context(contexto) else { return allocate_str("SecurityContext without native state") };
     let mut c = contexto.lock().unwrap_or_else(|e| e.into_inner());
     let r = if tls_server != 0 {
         connect_server(f, &mut c, request_certificate != 0, require_certificate != 0, protocols)
@@ -490,8 +488,8 @@ fn connect_server(
     let base = rustls::ServerConfig::builder_with_provider(provider.clone())
         .with_protocol_versions(c.versions())
         .map_err(|e| e.to_string())?;
-    // O certificado do cliente: validado pelas autoridades do contexto (ou
-    // pelas raízes confiáveis), opcional se só foi pedido.
+    // The client certificate: validated by the context's authorities (or by the
+    // trusted roots), optional if it was only requested.
     let mut authorities = rustls::RootCertStore::empty();
     authorities.add_parsable_certificates(c.authorities.iter().cloned());
     if authorities.is_empty() {
@@ -515,9 +513,9 @@ fn connect_server(
     Ok(())
 }
 
-/// O `SSLFilter::Handshake` da VM: 0 em andamento, 1 terminou agora (o Dart
-/// chama o `handshakeCompleteHandler`), 16 o certificado espera a decisão
-/// do Dart, -1 erro (`DartForge_tls_filtro_erro`).
+/// The VM's `SSLFilter::Handshake`: 0 in progress, 1 just finished (Dart calls
+/// `handshakeCompleteHandler`), 16 the certificate waits for Dart's decision, -1
+/// error (`DartForge_tls_filtro_erro`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_handshake(this: i64) -> i64 {
     let Some(f) = object_filter(this) else { return -1 };
@@ -534,13 +532,13 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_handshake(this: i64) -> 
         }
         Some(_) => 0,
         None => {
-            f.error = Some("\n\tSecureSocket sem conexão".to_string());
+            f.error = Some("\n\tSecureSocket without a connection".to_string());
             -1
         }
     }
 }
 
-/// O texto do erro (o `OS Error`), ou `null`.
+/// The error text (the `OS Error`), or `null`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_erro(this: i64) -> i64 {
     match object_filter(this).and_then(|f| f.error.clone()) {
@@ -549,7 +547,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_erro(this: i64) -> i64 {
     }
 }
 
-/// O certificado que espera a decisão, para o `onBadCertificate`.
+/// The certificate waiting for the decision, for `onBadCertificate`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_certificado_pendente(this: i64) -> i64 {
     let Some(f) = object_filter(this) else { return 0 };
@@ -557,7 +555,7 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_certificado_pendente(thi
     v.pending.as_ref().map_or(0, |(c, _)| x509_new(c.clone()))
 }
 
-/// `_markAsTrusted`: a decisão do Dart sobre o certificado pendente.
+/// `_markAsTrusted`: Dart's decision about the pending certificate.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_decidir(this: i64, trusted_one: u8) {
     let Some(f) = object_filter(this) else { return };
@@ -588,15 +586,15 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_certificado_do_par(this:
     }
 }
 
-/// Os anéis: texto lido, texto a escrever, cifrado lido, cifrado a escrever
-/// (`_RawSecureSocket.readPlaintextId`…).
+/// The rings: plaintext read, plaintext to write, encrypted read, encrypted to
+/// write (`_RawSecureSocket.readPlaintextId`…).
 const RING_PLAIN_READ: usize = 0;
 const RING_PLAIN_TO_WRITE: usize = 1;
 const RING_ENCRYPTED_READ: usize = 2;
 const RING_ENCRYPTED_TO_WRITE: usize = 3;
 
-/// Consome os dados do anel `[start, end)` (a leitura do
-/// `ProcessAllBuffers`): `f` recebe um trecho e devolve quanto consumiu.
+/// Consumes the data of ring `[start, end)` (the read of `ProcessAllBuffers`): `f`
+/// receives a chunk and returns how much it consumed.
 fn ring_consume(buf: &[u8], start: &mut usize, end: usize, f: &mut dyn FnMut(&[u8]) -> usize) {
     let size = buf.len();
     let mut chunk = |de: usize, until: usize| {
@@ -621,8 +619,8 @@ fn ring_consume(buf: &[u8], start: &mut usize, end: usize, f: &mut dyn FnMut(&[u
     }
 }
 
-/// Enche o espaço livre do anel depois de `end` (a escrita do
-/// `ProcessAllBuffers`: um byte fica sempre livre, para cheio ≠ vazio).
+/// Fills the ring's free space after `end` (the write of `ProcessAllBuffers`: one
+/// byte always stays free, so that full ≠ empty).
 fn ring_fill(buf: &mut [u8], start: usize, end: &mut usize, f: &mut dyn FnMut(&mut [u8]) -> usize) {
     let size = buf.len();
     let mut chunk = |buf: &mut [u8], de: usize, until: usize| {
@@ -648,10 +646,10 @@ fn ring_fill(buf: &mut [u8], start: usize, end: &mut usize, f: &mut dyn FnMut(&m
     }
 }
 
-/// O `ProcessAllBuffers` da VM sobre os quatro anéis (`b0`…`b3`, as
-/// `Uint8List` dos `_ExternalBuffer`) e as posições (`pos`, uma `Int64List`
-/// com `[início, end]` de cada anel, atualizada no lugar). 0, ou o código do
-/// erro fatal depois do handshake (o texto em `DartForge_tls_filtro_erro`).
+/// The VM's `ProcessAllBuffers` over the four rings (`b0`…`b3`, the `Uint8List`s of
+/// the `_ExternalBuffer`s) and the positions (`pos`, an `Int64List` with
+/// `[start, end]` of each ring, updated in place). 0, or the code of the fatal
+/// error after the handshake (the text in `DartForge_tls_filtro_erro`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_processar(
     this: i64,
@@ -664,14 +662,14 @@ pub extern "C" fn dartforge_nativo_DartForge_tls_filtro_processar(
 ) -> i64 {
     let Some(f) = object_filter(this) else { return 0 };
     let lists = [b0, b1, b2, b3];
-    // O processamento trabalha direto sobre os bytes dos anéis e das
-    // posições (§2.14: o coletor não move, e nada aqui chama o Dart nem aloca
-    // no heap), sem cópia.
-    // SAFETY: as cinco listas são distintas (os `_ExternalBuffer` e a lista
-    // das posições do `_SecureFilterImpl`) e vivas (argumentos enraizados pelo
-    // código gerado) durante toda a chamada.
+    // The processing works directly on the bytes of the rings and of the
+    // positions (§2.14: the collector does not move, and nothing here calls Dart
+    // or allocates on the heap), without copying.
+    // SAFETY: the five lists are distinct (the `_ExternalBuffer`s and the
+    // `_SecureFilterImpl`'s positions list) and alive (arguments rooted by
+    // generated code) during the whole call.
     let mut rings: [&mut [u8]; 4] = std::array::from_fn(|i| unsafe { typed_bytes_mut_of(lists[i]) });
-    // SAFETY: como acima.
+    // SAFETY: as above.
     let bytes_pos = unsafe { typed_bytes_mut_of(pos) };
     if bytes_pos.len() < 64 {
         return 0;
@@ -704,7 +702,7 @@ fn process_rings(f: &mut TlsFilter, in_handshake: bool, rings: &mut [&mut [u8]; 
             return Err((1, "Out-of-bounds internal buffer access in dart:io SecureSocket".to_string()));
         }
     }
-    // Cifrado lido → TLS.
+    // Encrypted read → TLS.
     let (mut start, end) = (p[2 * RING_ENCRYPTED_READ], p[2 * RING_ENCRYPTED_READ + 1]);
     ring_consume(&rings[RING_ENCRYPTED_READ], &mut start, end, &mut |chunk| {
         let mut tls_reader = chunk;
@@ -718,8 +716,8 @@ fn process_rings(f: &mut TlsFilter, in_handshake: bool, rings: &mut [&mut [u8]; 
     {
         let text = format!("\n\t{e}");
         if in_handshake {
-            // Relatado pelo próximo `handshake()`, como o erro do
-            // `SSL_do_handshake`; o alerta ainda sai para o par.
+            // Reported by the next `handshake()`, like the `SSL_do_handshake`
+            // error; the alert still goes out to the peer.
             f.error = Some(text);
         } else {
             return Err((1, text));
@@ -727,7 +725,7 @@ fn process_rings(f: &mut TlsFilter, in_handshake: bool, rings: &mut [&mut [u8]; 
     }
     let blocked = f.verification.lock().unwrap_or_else(|e| e.into_inner()).pending.is_some();
     if !in_handshake && !blocked && f.error.is_none() {
-        // TLS → texto lido.
+        // TLS → plaintext read.
         let (start, mut end) = (p[2 * RING_PLAIN_READ], p[2 * RING_PLAIN_READ + 1]);
         let mut error = None;
         ring_fill(&mut rings[RING_PLAIN_READ], start, &mut end, &mut |chunk| match connection.reader().read(chunk) {
@@ -744,13 +742,13 @@ fn process_rings(f: &mut TlsFilter, in_handshake: bool, rings: &mut [&mut [u8]; 
         {
             return Err((1, format!("\n\t{e}")));
         }
-        // Texto a escrever → TLS.
+        // Plaintext to write → TLS.
         let (mut start, end) = (p[2 * RING_PLAIN_TO_WRITE], p[2 * RING_PLAIN_TO_WRITE + 1]);
         ring_consume(&rings[RING_PLAIN_TO_WRITE], &mut start, end, &mut |chunk| connection.writer().write(chunk).unwrap_or(0));
         p[2 * RING_PLAIN_TO_WRITE] = start;
     }
     if !blocked {
-        // TLS → cifrado a escrever.
+        // TLS → encrypted to write.
         let (start, mut end) = (p[2 * RING_ENCRYPTED_TO_WRITE], p[2 * RING_ENCRYPTED_TO_WRITE + 1]);
         ring_fill(&mut rings[RING_ENCRYPTED_TO_WRITE], start, &mut end, &mut |chunk| {
             let mut tls_writer = chunk;
@@ -761,15 +759,15 @@ fn process_rings(f: &mut TlsFilter, in_handshake: bool, rings: &mut [&mut [u8]; 
     Ok(())
 }
 
-/// Os bytes graváveis da lista tipada `h` (vazio se não é lista tipada
-/// modificável).
+/// The writable bytes of the typed list `h` (empty if it is not a modifiable typed
+/// list).
 ///
 /// # Safety
-/// A lista vive enquanto a fatia é usada, nada aloca no heap nesse tempo, e
-/// não há outra fatia viva dos mesmos bytes.
+/// The list lives while the slice is used, nothing allocates on the heap in that
+/// time, and there is no other live slice of the same bytes.
 unsafe fn typed_bytes_mut_of<'a>(h: i64) -> &'a mut [u8] {
     match HEAP.with(|heap| heap.borrow().tipada(h)) {
-        // SAFETY: pelo contrato desta função.
+        // SAFETY: by this function's contract.
         Some(t) if !t.unmodifiable => unsafe { t.slice_mut() },
         _ => &mut [],
     }
@@ -778,18 +776,18 @@ unsafe fn typed_bytes_mut_of<'a>(h: i64) -> &'a mut [u8] {
 // ---------------------------------------------------------------------------
 // X509Certificate.
 
-/// Um certificado (`_X509CertificateImpl`): o DER, com contagem de
-/// referências (o objeto Dart e quem o entrega).
+/// A certificate (`_X509CertificateImpl`): the DER, with reference counting (the
+/// Dart object and whoever hands it over).
 type X509Certificate = std::sync::Arc<rustls::pki_types::CertificateDer<'static>>;
 
-/// Um ponteiro com uma referência do certificado, para o Dart adotar
+/// A pointer with one reference to the certificate, for Dart to adopt
 /// (`DartForge_tls_x509_adotar`).
 fn x509_new(c: rustls::pki_types::CertificateDer<'static>) -> i64 {
     std::sync::Arc::into_raw(X509Certificate::new(c)) as i64
 }
 
 fn free_x509(p: usize) {
-    // SAFETY: a referência do objeto, solta uma vez.
+    // SAFETY: the object's reference, released once.
     unsafe { drop(std::sync::Arc::from_raw(p as *const rustls::pki_types::CertificateDer<'static>)) };
 }
 
@@ -806,7 +804,7 @@ fn x509_der(this: i64) -> Vec<u8> {
     if p == 0 {
         return Vec::new();
     }
-    // SAFETY: a referência do objeto está viva até a coleta dele.
+    // SAFETY: the object's reference is alive until it is collected.
     unsafe { (*(p as *const rustls::pki_types::CertificateDer<'static>)).to_vec() }
 }
 
@@ -870,7 +868,7 @@ fn base64_standard(b: &[u8]) -> String {
     s
 }
 
-/// Um elemento DER: a etiqueta, o conteúdo e o resto depois dele.
+/// A DER element: the tag, the content and the rest after it.
 fn der_element(b: &[u8]) -> Option<(u8, &[u8], &[u8])> {
     let tag = *b.first()?;
     let first = *b.get(1)?;
@@ -891,7 +889,7 @@ fn der_element(b: &[u8]) -> Option<(u8, &[u8], &[u8])> {
     Some((tag, b.get(header..end)?, &b[end..]))
 }
 
-/// Os campos do `tbsCertificate` que o `X509Certificate` mostra.
+/// The `tbsCertificate` fields that `X509Certificate` shows.
 struct X509Fields<'a> {
     emitter: &'a [u8],
     start: (u8, &'a [u8]),
@@ -903,7 +901,7 @@ fn x509_fields(der: &[u8]) -> Option<X509Fields<'_>> {
     let (_, cert, _) = der_element(der)?;
     let (_, tbs, _) = der_element(cert)?;
     let (mut tag, _, mut rest) = der_element(tbs)?;
-    // `[0] version` é opcional.
+    // `[0] version` is optional.
     if tag == 0xa0 {
         (tag, _, rest) = der_element(rest)?;
     }
@@ -921,8 +919,7 @@ fn x509_self_signed(c: &rustls::pki_types::CertificateDer<'_>) -> bool {
     x509_fields(c).is_some_and(|c| c.emitter == c.subject)
 }
 
-/// O nome no formato de `X509_NAME_oneline` do BoringSSL:
-/// `/C=US/O=Let's Encrypt/CN=R3`.
+/// The name in BoringSSL's `X509_NAME_oneline` format: `/C=US/O=Let's Encrypt/CN=R3`.
 fn x509_name(name: &[u8]) -> String {
     let mut s = String::new();
     let mut rdns = name;
@@ -980,7 +977,7 @@ fn oid_name(oid: &[u8]) -> String {
     if !known.is_empty() {
         return known.to_string();
     }
-    // O OID em pontos.
+    // The OID in dotted form.
     let mut part_list = Vec::new();
     if let Some(&p) = oid.first() {
         part_list.push((p / 40).min(2) as u64);
@@ -997,8 +994,8 @@ fn oid_name(oid: &[u8]) -> String {
     part_list.iter().map(u64::to_string).collect::<Vec<_>>().join(".")
 }
 
-/// Milissegundos desde a época de um `UTCTime` (0x17) ou `GeneralizedTime`
-/// (0x18) em UTC.
+/// Milliseconds since the epoch of a `UTCTime` (0x17) or `GeneralizedTime` (0x18)
+/// in UTC.
 fn x509_instant((tag, t): (u8, &[u8])) -> Option<i64> {
     let s = std::str::from_utf8(t).ok()?;
     let digits = |de: usize, n: usize| -> Option<i64> { s.get(de..de + n)?.parse().ok() };
@@ -1013,7 +1010,7 @@ fn x509_instant((tag, t): (u8, &[u8])) -> Option<i64> {
     let hour = digits(rest + 4, 2)?;
     let minute = digits(rest + 6, 2)?;
     let second = digits(rest + 8, 2).unwrap_or(0);
-    // Dias desde 1970-01-01 (algoritmo de Howard Hinnant).
+    // Days since 1970-01-01 (Howard Hinnant's algorithm).
     let y = if month <= 2 { year - 1 } else { year };
     let era = y.div_euclid(400);
     let yoe = y - era * 400;

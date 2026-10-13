@@ -1,20 +1,20 @@
-// Runtime nativo: as listas tipadas do `typed_data_patch.dart` da VM.
+// Native runtime: the typed lists of the VM's `typed_data_patch.dart`.
 //
-// A representação é a do espaço unificado (`tipadas.rs`,
-// docs/NATIVO-ESPACO-UNIFICADO.md §2.5): a lista interna (`_Uint8List`,
-// `_Float64List`, …; cids 22–35) é um bloco `BRUTO` com o comprimento, o
-// endereço dos bytes e os bytes (ou só o endereço da memória de fora, com
-// `EXTERNAL`); a visão (`_Uint8ArrayView`, `_ByteDataView`, …; cids 36–65) é
-// um objeto de quatro campos com o comprimento e o endereço nos mesmos
-// lugares, a lista interna e o deslocamento. Os bytes estão no endian do
-// hospedeiro. Os membros `vm:recognized` e os natives `TypedData*` da VM que
-// o Dart do patch usa são as funções daqui (tabela em
-// `crates/emit_native/src/nativos.rs`): fábricas, `length`, `offsetInBytes`,
-// `_typedData`, `_getX`/`_setX`, `[]`, `_memMoveN` e `_setClampedRange`. O
-// código gerado lê o comprimento e os dados em linha (`llvm/tipados_ir.rs`),
-// e estas funções ficam como caminho lento (com os erros da VM).
+// The representation is the unified space's (`tipadas.rs`,
+// docs/NATIVO-ESPACO-UNIFICADO.md §2.5): the internal list (`_Uint8List`,
+// `_Float64List`, …; cids 22–35) is a `BRUTO` block with the length, the address
+// of the bytes and the bytes (or only the address of outside memory, with
+// `EXTERNAL`); the view (`_Uint8ArrayView`, `_ByteDataView`, …; cids 36–65) is a
+// four-field object with the length and the address in the same places, the
+// internal list and the offset. The bytes are in host endianness. The
+// `vm:recognized` members and the VM's `TypedData*` natives that the patch's Dart
+// uses are the functions here (table in `crates/emit_native/src/nativos.rs`):
+// factories, `length`, `offsetInBytes`, `_typedData`, `_getX`/`_setX`, `[]`,
+// `_memMoveN` and `_setClampedRange`. Generated code reads the length and the data
+// inline (`llvm/tipados_ir.rs`), and these functions remain as the slow path (with
+// the VM's errors).
 
-/// Os tipos de elemento (o `tipo` das formas do heap; `tipadas::tipo`).
+/// The element types (the `tipo` of the heap's shapes; `tipadas::tipo`).
 const TYPE_INT8: u8 = crate::tipadas::tipo::INT8;
 const TYPE_UINT8: u8 = crate::tipadas::tipo::UINT8;
 const TYPE_UINT8_CLAMPED: u8 = crate::tipadas::tipo::UINT8_CLAMPED;
@@ -31,46 +31,46 @@ const TYPE_INT32X4: u8 = crate::tipadas::tipo::INT32X4;
 const TYPE_FLOAT64X2: u8 = crate::tipadas::tipo::FLOAT64X2;
 const TYPE_BYTE_DATA: u8 = crate::tipadas::tipo::BYTE_DATA;
 
-/// O bit do `tipo` de [`dartforge_view_nova`] que marca a visão não
-/// modificável (`_UnmodifiableXArrayView`).
+/// The bit of [`dartforge_view_nova`]'s `tipo` that marks the view as unmodifiable
+/// (`_UnmodifiableXArrayView`).
 const UNMODIFIABLE_VIEW: i64 = 0x100;
 
-/// Bytes por elemento de um tipo.
+/// Bytes per element of a type.
 fn tamanho_do_elemento(tipo: u8) -> usize {
     crate::tipadas::tamanho_do_elemento(tipo)
 }
 
-/// A vista de `h` (lista interna, externa ou visão), ou `None`.
+/// The view of `h` (internal list, external list or view), or `None`.
 fn resolver(heap: &Heap, h: i64) -> Option<crate::tipadas::TypedRef> {
     heap.tipada(h)
 }
 
-/// A vista de `h` sem segurar o empréstimo do heap (o endereço e o tamanho
-/// valem enquanto a lista vive: o coletor não move).
+/// The view of `h` without holding the heap borrow (the address and the size stay
+/// valid while the list lives: the collector does not move).
 fn typed_view(h: i64) -> Option<crate::tipadas::TypedRef> {
     HEAP.with(|heap| heap.borrow().tipada(h))
 }
 
-/// Lança `RangeError.range(valor, 0, max, "length")` — o que a VM lança
-/// para um comprimento inválido na criação de uma lista tipada.
+/// Throws `RangeError.range(value, 0, max, "length")` — what the VM throws for an
+/// invalid length when creating a typed list.
 fn throw_length(value: i64, max: i64) {
     throw_range_err(value, 0, max, "length");
 }
 
-/// O maior comprimento que a VM aceita na criação (o máximo de um `Smi`);
-/// além do que o heap comporta, o teto do heap encerra com a mensagem de
-/// memória, como a VM com `OutOfMemoryError`.
+/// The largest length the VM accepts at creation (the maximum of a `Smi`); beyond
+/// what the heap holds, the heap ceiling terminates with the memory message, like
+/// the VM with `OutOfMemoryError`.
 fn max_elements(_type: u8) -> i64 {
     (1i64 << 62) - 1
 }
 
-/// Aloca uma lista tipada interna zerada de `n` elementos. `class_id` é o
-/// cid fixo da lista do `tipo` (`layout::cid::tipada`), que o emissor passa
-/// para registrar a tabela de métodos (`_t`).
+/// Allocates a zeroed internal typed list of `n` elements. `class_id` is the fixed
+/// cid of the list of `tipo` (`layout::cid::tipada`), which the emitter passes to
+/// register the method table (`_t`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_typed_novo(class_id: i64, tipo: i64, n: i64) -> i64 {
     let tipo = tipo as u8;
-    debug_assert_eq!(class_id, i64::from(crate::layout::cid::tipada(tipo)), "cid da lista tipada fora do contrato");
+    debug_assert_eq!(class_id, i64::from(crate::layout::cid::tipada(tipo)), "typed list cid outside the contract");
     let max = max_elements(tipo);
     if !(0..=max).contains(&n) {
         throw_length(n, max);
@@ -79,27 +79,26 @@ pub extern "C" fn dartforge_typed_novo(class_id: i64, tipo: i64, n: i64) -> i64 
     HEAP.with(|h| h.borrow_mut().new_typed(tipo, n as usize))
 }
 
-/// [`dartforge_typed_novo`] que registra a tabela de métodos da classe na
-/// primeira alocação (como `dartforge_object_new_t`).
+/// [`dartforge_typed_novo`] that registers the class's method table on the first
+/// allocation (like `dartforge_object_new_t`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_typed_novo_t(class_id: i64, tipo: i64, n: i64, f: extern "C" fn() -> *const i64) -> i64 {
     dartforge_registrar_tabela(class_id, f);
     dartforge_typed_novo(class_id, tipo, n)
 }
 
-/// Aloca uma visão sobre `base` (lista interna; uma visão passada aqui é
-/// resolvida para a lista interna dela). O bit [`UNMODIFIABLE_VIEW`] de `tipo`
-/// marca a visão não modificável; o tipo [`TYPE_BYTE_DATA`] é o
-/// `_ByteDataView`.
+/// Allocates a view over `base` (an internal list; a view passed here is resolved
+/// to its internal list). The [`UNMODIFIABLE_VIEW`] bit of `tipo` marks the view as
+/// unmodifiable; the type [`TYPE_BYTE_DATA`] is `_ByteDataView`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_view_nova(class_id: i64, tipo: i64, base: i64, offset: i64, length: i64) -> i64 {
     let cid = crate::tipadas::view_cid((tipo & 0xFF) as u8, tipo & UNMODIFIABLE_VIEW != 0);
-    debug_assert_eq!(class_id, i64::from(cid), "cid da visão fora do contrato");
-    // `new_view` enraíza a base durante a alocação.
+    debug_assert_eq!(class_id, i64::from(cid), "view cid outside the contract");
+    // `new_view` roots the base during the allocation.
     HEAP.with(|h| h.borrow_mut().new_view(cid, base, offset.max(0) as usize, length.max(0) as usize))
 }
 
-/// [`dartforge_view_nova`] que registra a tabela de métodos da classe.
+/// [`dartforge_view_nova`] that registers the class's method table.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_view_nova_t(
     class_id: i64,
@@ -113,17 +112,17 @@ pub extern "C" fn dartforge_view_nova_t(
     dartforge_view_nova(class_id, tipo, base, offset, length)
 }
 
-/// `TypedDataBase_length`: o comprimento em elementos.
+/// `TypedDataBase_length`: the length in elements.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_TypedDataBase_length(this: i64) -> i64 {
     typed_view(this).map_or(0, |t| t.len as i64)
 }
 
-/// O comprimento em elementos de `h` se ela é uma lista tipada do `tipo`
-/// dado (interna, externa ou visão) e, para `escrita != 0`, modificável;
-/// senão 0. Caminho lento: o código gerado lê o comprimento em linha
-/// (`@df.tipada_len`, `llvm/tipados_ir.rs`); fica para o preenchimento
-/// ([`dartforge_typed_fill_int`]) e até o corte (§3.7).
+/// The length in elements of `h` if it is a typed list of the given `tipo`
+/// (internal, external or view) and, for `escrita != 0`, modifiable; otherwise 0.
+/// Slow path: generated code reads the length inline (`@df.tipada_len`,
+/// `llvm/tipados_ir.rs`); this remains for filling ([`dartforge_typed_fill_int`])
+/// and until the cut (§3.7).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_typed_len(h: i64, tipo: i64, write_side: i64) -> i64 {
     heap_without_borrow(|heap| match resolver(heap, h) {
@@ -132,27 +131,26 @@ pub extern "C" fn dartforge_typed_len(h: i64, tipo: i64, write_side: i64) -> i64
     })
 }
 
-/// O endereço do primeiro elemento de `h` se ela é lista tipada, senão 0
-/// (sem efeito nem erro). Os bytes não se movem enquanto a lista vive (o
-/// coletor não move), nem a memória externa de `asTypedList`.
+/// The address of the first element of `h` if it is a typed list, otherwise 0
+/// (without effect or error). The bytes do not move while the list lives (the
+/// collector does not move), nor does the external memory of `asTypedList`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_typed_ptr(h: i64) -> i64 {
     heap_without_borrow(|heap| resolver(heap, h).map_or(0, |t| t.data as i64))
 }
 
-/// `list.fillRange(start, end, value)` de uma lista tipada de inteiros
-/// (lista interna ou visão modificável do tipo `tipo`, menos a
-/// `Uint8ClampedList`), gravando os bits baixos de `value` como o `[]=` da
-/// VM. Devolve 1 se preencheu; 0 se não é o caso simples (lista vazia ou
-/// não apta, faixa inválida) — o código gerado então chama o `fillRange`
-/// do SDK, que lança o erro da VM. Antes, o `fillRange` do SDK gravava
-/// elemento a elemento pelo despacho (~30 ns cada; o `clear` de um quadro
-/// de 512×512 custava 26 ms).
+/// `list.fillRange(start, end, value)` of a typed list of integers (an internal
+/// list or a modifiable view of type `tipo`, except `Uint8ClampedList`), writing
+/// the low bits of `value` like the VM's `[]=`. Returns 1 if it filled; 0 if it is
+/// not the simple case (an empty or unsuitable list, an invalid range) — generated
+/// code then calls the SDK's `fillRange`, which throws the VM's error. Before, the
+/// SDK's `fillRange` wrote element by element through dispatch (~30 ns each; the
+/// `clear` of a 512×512 frame cost 26 ms).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_typed_fill_int(h: i64, tipo: i64, start: i64, end: i64, value: i64) -> i64 {
     let Some((p, a, b)) = range_to_fill(h, tipo, start, end) else { return 0 };
-    // SAFETY: `p` é o primeiro elemento de uma lista apta de `n ≥ end`
-    // elementos do tipo `tipo`, sem alinhamento suposto.
+    // SAFETY: `p` is the first element of a suitable list of `n ≥ end` elements
+    // of type `tipo`, with no assumed alignment.
     unsafe {
         match tipo as u8 {
             TYPE_INT8 | TYPE_UINT8 => std::ptr::write_bytes(p.add(a), value as u8, b - a),
@@ -165,12 +163,12 @@ pub extern "C" fn dartforge_typed_fill_int(h: i64, tipo: i64, start: i64, end: i
     1
 }
 
-/// [`dartforge_typed_fill_int`] de `Float32List`/`Float64List`: o `double`
-/// arredondado a `float` no `Float32List`, como o `[]=`.
+/// [`dartforge_typed_fill_int`] for `Float32List`/`Float64List`: the `double`
+/// rounded to `float` in `Float32List`, like `[]=`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_typed_fill_double(h: i64, tipo: i64, start: i64, end: i64, value: f64) -> i64 {
     let Some((p, a, b)) = range_to_fill(h, tipo, start, end) else { return 0 };
-    // SAFETY: como em `dartforge_typed_fill_int`.
+    // SAFETY: as in `dartforge_typed_fill_int`.
     unsafe {
         match tipo as u8 {
             TYPE_FLOAT32 => (a..b).for_each(|i| (p as *mut f32).add(i).write_unaligned(value as f32)),
@@ -181,8 +179,8 @@ pub extern "C" fn dartforge_typed_fill_double(h: i64, tipo: i64, start: i64, end
     1
 }
 
-/// O endereço do primeiro elemento e a faixa `start..end` de uma lista apta
-/// à gravação do tipo `tipo`, se a faixa é válida e não vazia.
+/// The address of the first element and the range `start..end` of a list of type
+/// `tipo` suitable for writing, if the range is valid and not empty.
 fn range_to_fill(h: i64, tipo: i64, start: i64, end: i64) -> Option<(*mut u8, usize, usize)> {
     if tipo == i64::from(TYPE_UINT8_CLAMPED) {
         return None;
@@ -195,20 +193,20 @@ fn range_to_fill(h: i64, tipo: i64, start: i64, end: i64) -> Option<(*mut u8, us
     (!p.is_null()).then_some((p, start as usize, end as usize))
 }
 
-/// `TypedDataView_typedData`: a lista interna de uma visão.
+/// `TypedDataView_typedData`: the internal list of a view.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_TypedDataView_typedData(this: i64) -> i64 {
     typed_view(this).map_or(0, |t| t.base.unwrap_or(this))
 }
 
-/// `TypedDataView_offsetInBytes`: o deslocamento de uma visão.
+/// `TypedDataView_offsetInBytes`: the offset of a view.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_TypedDataView_offsetInBytes(this: i64) -> i64 {
     typed_view(this).map_or(0, |t| t.offset as i64)
 }
 
-/// O endereço dos `N` bytes de `this` em `off`, se cabem; senão lança o
-/// `RangeError` da VM (`IndexError` sobre os bytes) e devolve `None`.
+/// The address of the `N` bytes of `this` at `off`, if they fit; otherwise throws
+/// the VM's `RangeError` (`IndexError` over the bytes) and returns `None`.
 fn bytes_address<const N: usize>(this: i64, off: i64) -> Option<*mut u8> {
     let t = typed_view(this);
     let inside = t.and_then(|t| {
@@ -222,20 +220,20 @@ fn bytes_address<const N: usize>(this: i64, off: i64) -> Option<*mut u8> {
     inside
 }
 
-/// Lê `N` bytes da lista `this` em `off`; fora dos limites lança
-/// `RangeError` e devolve `None`.
+/// Reads `N` bytes of list `this` at `off`; out of bounds it throws `RangeError`
+/// and returns `None`.
 fn do_read<const N: usize>(this: i64, off: i64) -> Option<[u8; N]> {
     let p = bytes_address::<N>(this, off)?;
     let mut b = [0u8; N];
-    // SAFETY: `p..p+N` está dentro dos bytes da lista viva (conferido).
+    // SAFETY: `p..p+N` is within the bytes of the live list (checked).
     unsafe { std::ptr::copy_nonoverlapping(p, b.as_mut_ptr(), N) };
     Some(b)
 }
 
-/// Grava `v` na lista `this` em `off`; fora dos limites lança.
+/// Writes `v` into list `this` at `off`; out of bounds it throws.
 fn write_value<const N: usize>(this: i64, off: i64, v: [u8; N]) {
     if let Some(p) = bytes_address::<N>(this, off) {
-        // SAFETY: como em `do_read`.
+        // SAFETY: as in `do_read`.
         unsafe { std::ptr::copy_nonoverlapping(v.as_ptr(), p, N) };
     }
 }
@@ -246,7 +244,7 @@ pub extern "C" fn dartforge_nativo_DartForge_typed_getInt8(this: i64, off: i64) 
     do_read::<1>(this, off).map_or(0, |b| i8::from_ne_bytes(b) as i64)
 }
 
-/// `_setInt8`: o valor truncado para o tipo do elemento.
+/// `_setInt8`: the value truncated to the element type.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_typed_setInt8(this: i64, off: i64, v: i64) {
     write_value::<1>(this, off, (v as i8).to_ne_bytes());
@@ -258,7 +256,7 @@ pub extern "C" fn dartforge_nativo_DartForge_typed_getUint8(this: i64, off: i64)
     do_read::<1>(this, off).map_or(0, |b| u8::from_ne_bytes(b) as i64)
 }
 
-/// `_setUint8`: o valor truncado para o tipo do elemento.
+/// `_setUint8`: the value truncated to the element type.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_typed_setUint8(this: i64, off: i64, v: i64) {
     write_value::<1>(this, off, (v as u8).to_ne_bytes());
@@ -270,7 +268,7 @@ pub extern "C" fn dartforge_nativo_DartForge_typed_getInt16(this: i64, off: i64)
     do_read::<2>(this, off).map_or(0, |b| i16::from_ne_bytes(b) as i64)
 }
 
-/// `_setInt16`: o valor truncado para o tipo do elemento.
+/// `_setInt16`: the value truncated to the element type.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_typed_setInt16(this: i64, off: i64, v: i64) {
     write_value::<2>(this, off, (v as i16).to_ne_bytes());
@@ -282,7 +280,7 @@ pub extern "C" fn dartforge_nativo_DartForge_typed_getUint16(this: i64, off: i64
     do_read::<2>(this, off).map_or(0, |b| u16::from_ne_bytes(b) as i64)
 }
 
-/// `_setUint16`: o valor truncado para o tipo do elemento.
+/// `_setUint16`: the value truncated to the element type.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_typed_setUint16(this: i64, off: i64, v: i64) {
     write_value::<2>(this, off, (v as u16).to_ne_bytes());
@@ -294,7 +292,7 @@ pub extern "C" fn dartforge_nativo_DartForge_typed_getInt32(this: i64, off: i64)
     do_read::<4>(this, off).map_or(0, |b| i32::from_ne_bytes(b) as i64)
 }
 
-/// `_setInt32`: o valor truncado para o tipo do elemento.
+/// `_setInt32`: the value truncated to the element type.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_typed_setInt32(this: i64, off: i64, v: i64) {
     write_value::<4>(this, off, (v as i32).to_ne_bytes());
@@ -306,7 +304,7 @@ pub extern "C" fn dartforge_nativo_DartForge_typed_getUint32(this: i64, off: i64
     do_read::<4>(this, off).map_or(0, |b| u32::from_ne_bytes(b) as i64)
 }
 
-/// `_setUint32`: o valor truncado para o tipo do elemento.
+/// `_setUint32`: the value truncated to the element type.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_typed_setUint32(this: i64, off: i64, v: i64) {
     write_value::<4>(this, off, (v as u32).to_ne_bytes());
@@ -318,7 +316,7 @@ pub extern "C" fn dartforge_nativo_DartForge_typed_getInt64(this: i64, off: i64)
     do_read::<8>(this, off).map_or(0, i64::from_ne_bytes)
 }
 
-/// `_setInt64`: o valor truncado para o tipo do elemento.
+/// `_setInt64`: the value truncated to the element type.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_typed_setInt64(this: i64, off: i64, v: i64) {
     write_value::<8>(this, off, v.to_ne_bytes());
@@ -330,7 +328,7 @@ pub extern "C" fn dartforge_nativo_DartForge_typed_getUint64(this: i64, off: i64
     do_read::<8>(this, off).map_or(0, |b| u64::from_ne_bytes(b) as i64)
 }
 
-/// `_setUint64`: o valor truncado para o tipo do elemento.
+/// `_setUint64`: the value truncated to the element type.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_typed_setUint64(this: i64, off: i64, v: i64) {
     write_value::<8>(this, off, (v as u64).to_ne_bytes());
@@ -342,7 +340,7 @@ pub extern "C" fn dartforge_nativo_TypedData_GetFloat32(this: i64, off: i64) -> 
     do_read::<4>(this, off).map_or(0.0, |b| f64::from(f32::from_ne_bytes(b)))
 }
 
-/// `TypedData_SetFloat32` (`_setFloat32`): o `double` arredondado para `float`.
+/// `TypedData_SetFloat32` (`_setFloat32`): the `double` rounded to `float`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_TypedData_SetFloat32(this: i64, off: i64, v: f64) {
     write_value::<4>(this, off, (v as f32).to_ne_bytes());
@@ -360,9 +358,9 @@ pub extern "C" fn dartforge_nativo_TypedData_SetFloat64(this: i64, off: i64, v: 
     write_value::<8>(this, off, v.to_ne_bytes());
 }
 
-/// O elemento `i` de uma lista ou visão (`[]` da VM), conferido contra o
-/// comprimento: `RangeError.range(i, 0, n - 1, "length")` fora dele. Devolve
-/// a vista e o endereço do elemento.
+/// Element `i` of a list or view (the VM's `[]`), checked against the length:
+/// `RangeError.range(i, 0, n - 1, "length")` outside it. Returns the view and the
+/// element's address.
 fn element(this: i64, i: i64) -> Option<(crate::tipadas::TypedRef, *mut u8)> {
     let t = typed_view(this)?;
     if i < 0 || i as usize >= t.len {
@@ -372,12 +370,12 @@ fn element(this: i64, i: i64) -> Option<(crate::tipadas::TypedRef, *mut u8)> {
     Some((t, t.data.wrapping_add(i as usize * tamanho_do_elemento(t.tipo))))
 }
 
-/// O elemento `i` (bits de inteiro) de uma lista ou visão de inteiros, com
-/// a checagem de índice da VM.
+/// Element `i` (integer bits) of a list or view of integers, with the VM's index
+/// check.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_typed_indexar_int(this: i64, i: i64) -> i64 {
     let Some((t, p)) = element(this, i) else { return 0 };
-    // SAFETY: `p` é o elemento `i < len` da lista viva, sem alinhamento suposto.
+    // SAFETY: `p` is element `i < len` of the live list, with no assumed alignment.
     unsafe {
         match t.tipo {
             TYPE_INT8 => i64::from(p.cast::<i8>().read()),
@@ -392,11 +390,11 @@ pub extern "C" fn dartforge_nativo_DartForge_typed_indexar_int(this: i64, i: i64
     }
 }
 
-/// O elemento `i` de uma lista ou visão de `double`.
+/// Element `i` of a list or view of `double`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_typed_indexar_double(this: i64, i: i64) -> f64 {
     let Some((t, p)) = element(this, i) else { return 0.0 };
-    // SAFETY: como em `dartforge_nativo_DartForge_typed_indexar_int`.
+    // SAFETY: as in `dartforge_nativo_DartForge_typed_indexar_int`.
     unsafe {
         match t.tipo {
             TYPE_FLOAT32 => f64::from(p.cast::<f32>().read_unaligned()),
@@ -405,10 +403,10 @@ pub extern "C" fn dartforge_nativo_DartForge_typed_indexar_double(this: i64, i: 
     }
 }
 
-/// `_memMoveN(start, count, from, skipCount)`: copia `count` elementos de
-/// `N` bytes de `from` (a partir de `skipCount`) para `this` (a partir de
-/// `start`), como `memmove` — as duas podem ser a mesma memória. O Dart do
-/// patch confere as faixas antes; aqui só não se passa dos bytes de cada uma.
+/// `_memMoveN(start, count, from, skipCount)`: copies `count` elements of `N`
+/// bytes from `from` (starting at `skipCount`) to `this` (starting at `start`),
+/// like `memmove` — both may be the same memory. The patch's Dart checks the
+/// ranges first; here we only avoid going past the bytes of each one.
 fn relocate(this: i64, start: i64, count: i64, from: i64, skip: i64, n: usize) {
     let (Some(d), Some(s)) = (typed_view(this), typed_view(from)) else { return };
     let bytes = count.max(0) as usize * n;
@@ -417,8 +415,8 @@ fn relocate(this: i64, start: i64, count: i64, from: i64, skip: i64, n: usize) {
     if de + bytes > s.bytes || to + bytes > d.bytes || bytes == 0 {
         return;
     }
-    // SAFETY: as duas faixas estão dentro das listas vivas; `copy` é o
-    // `memmove` (as faixas podem se sobrepor).
+    // SAFETY: both ranges are within the live lists; `copy` is `memmove` (the
+    // ranges may overlap).
     unsafe { std::ptr::copy(s.data.add(de), d.data.add(to), bytes) };
 }
 
@@ -452,9 +450,9 @@ pub extern "C" fn dartforge_nativo_DartForge_typed_memMove16(this: i64, start: i
     relocate(this, start, count, from, skip, 16);
 }
 
-/// `TypedDataBase_setClampedRange(start, count, from, skipCount)`: copia
-/// para uma lista de bytes com saturação em 0..255 os elementos inteiros de
-/// `from` (lista ou visão de inteiros com sinal).
+/// `TypedDataBase_setClampedRange(start, count, from, skipCount)`: copies the
+/// integer elements of `from` (a list or view of signed integers) into a byte list,
+/// saturating to 0..255.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_TypedDataBase_setClampedRange(this: i64, start: i64, count: i64, from: i64, skip: i64) {
     for k in 0..count.max(0) {
@@ -462,14 +460,14 @@ pub extern "C" fn dartforge_nativo_TypedDataBase_setClampedRange(this: i64, star
         if dartforge_exception_pending() != 0 {
             return;
         }
-        // O destino é uma lista de bytes: o elemento `start + k` é o byte.
+        // The destination is a byte list: element `start + k` is the byte.
         let Some(d) = typed_view(this) else { return };
         let i = start + k;
         if i < 0 || i as usize >= d.bytes {
             throw_index(i, this, d.bytes as i64);
             return;
         }
-        // SAFETY: `i < bytes` da lista viva.
+        // SAFETY: `i < bytes` of the live list.
         unsafe { d.data.add(i as usize).write(v.clamp(0, 255) as u8) };
     }
 }

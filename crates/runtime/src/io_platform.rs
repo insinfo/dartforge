@@ -1,21 +1,20 @@
-// Runtime nativo: o `dart:io` da VM — plataforma, terminal e processo
-// (`runtime/bin/platform*.cc`, `stdio*.cc`, `crypto*.cc` e os natives
-// simples de `process.cc`): `Platform`, `Stdin`/`Stdout`, `exit`,
-// `exitCode`, `sleep`, `pid` e os bytes aleatórios do sistema.
+// Native runtime: the VM's `dart:io` — platform, terminal and process
+// (`runtime/bin/platform*.cc`, `stdio*.cc`, `crypto*.cc` and the simple natives
+// of `process.cc`): `Platform`, `Stdin`/`Stdout`, `exit`, `exitCode`, `sleep`,
+// `pid` and the system's random bytes.
 
 // ---------------------------------------------------------------------------
-// Bytes aleatórios do sistema (`Crypto::GetRandomBytes`).
+// System random bytes (`Crypto::GetRandomBytes`).
 
-/// Preenche `dest` com bytes do gerador seguro do sistema:
-/// `getentropy` no Unix (em blocos de 256, o máximo por chamada) e
-/// `BCryptGenRandom` no Windows.
+/// Fills `dest` with bytes from the system's secure generator: `getentropy` on
+/// Unix (in blocks of 256, the maximum per call) and `BCryptGenRandom` on Windows.
 #[cfg(unix)]
 fn system_random_bytes(dest: &mut [u8]) -> IoResult<()> {
     unsafe extern "C" {
         fn getentropy(buf: *mut std::ffi::c_void, n: usize) -> i32;
     }
     for block in dest.chunks_mut(256) {
-        // SAFETY: `block` é um trecho gravável de até 256 bytes.
+        // SAFETY: `block` is a writable chunk of up to 256 bytes.
         if unsafe { getentropy(block.as_mut_ptr().cast(), block.len()) } != 0 {
             return Err(OsError::de(&std::io::Error::last_os_error()));
         }
@@ -30,7 +29,7 @@ fn system_random_bytes(dest: &mut [u8]) -> IoResult<()> {
     }
     const BCRYPT_USE_SYSTEM_PREFERRED_RNG: u32 = 2;
     for block in dest.chunks_mut(u32::MAX as usize) {
-        // SAFETY: `block` é gravável com o tamanho passado.
+        // SAFETY: `block` is writable with the size passed.
         let status = unsafe { BCryptGenRandom(std::ptr::null_mut(), block.as_mut_ptr(), block.len() as u32, BCRYPT_USE_SYSTEM_PREFERRED_RNG) };
         if status != 0 {
             return Err(OsError::from_code(status));
@@ -39,7 +38,7 @@ fn system_random_bytes(dest: &mut [u8]) -> IoResult<()> {
     Ok(())
 }
 
-/// `Crypto_GetRandomBytes(count)`: `count` (0 a 4096) bytes aleatórios.
+/// `Crypto_GetRandomBytes(count)`: `count` (0 to 4096) random bytes.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Crypto_GetRandomBytes(n: i64) -> i64 {
     if !(0..=4096).contains(&n) {
@@ -59,23 +58,23 @@ pub extern "C" fn dartforge_nativo_Crypto_GetRandomBytes(n: i64) -> i64 {
 }
 
 // ---------------------------------------------------------------------------
-// O preparo do embedder.
+// The embedder setup.
 
-/// O que o embedder da VM faz antes do `main` (`DartUtils::SetupIOLibrary`
-/// e `PrepareCoreLibrary`): com `dart:io` no programa, o script
-/// (`Platform.script`, o `argv[0]` do executável) e o gancho de `Uri.base`
-/// (o diretório corrente). Sem `dart:io`, nada.
+/// What the VM's embedder does before `main` (`DartUtils::SetupIOLibrary` and
+/// `PrepareCoreLibrary`): with `dart:io` in the program, the script
+/// (`Platform.script`, the executable's `argv[0]`) and the `Uri.base` hook (the
+/// current directory). Without `dart:io`, nothing.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_preparar_embedder() {
     let Some(iniciar) = ajudante("_dartforgeIniciarIo") else {
         return;
     };
     prepare_process_signals();
-    // SAFETY: registrada pela biblioteca `dart:io` da sobreposição com a
-    // assinatura (`String`) → `Object`.
+    // SAFETY: registered by the overlay's `dart:io` library with the signature
+    // (`String`) → `Object`.
     let iniciar = { let dart_target: usize = iniciar; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
-    // O script: o que o hospedeiro definiu (o `.dart` que o JIT roda, como o
-    // `dart run`), senão o `argv[0]` do executável (o AOT, como a VM).
+    // The script: what the host set (the `.dart` the JIT runs, like `dart run`),
+    // otherwise the executable's `argv[0]` (the AOT, like the VM).
     let defined = program_script().lock().unwrap_or_else(|e| e.into_inner()).clone();
     let script = defined.unwrap_or_else(|| std::env::args_os().next().map(|a| path_bytes_of(std::path::Path::new(&a))).unwrap_or_default());
     let script = dart_string_from_bytes(&script);
@@ -84,15 +83,15 @@ pub extern "C" fn dartforge_preparar_embedder() {
         return;
     }
     if let Some(define) = ajudante("_dartforgeDefinirUriBase") {
-        // SAFETY: registrada pela biblioteca `dart:core` da sobreposição com
-        // a assinatura (`Uri Function()`) → `void`.
+        // SAFETY: registered by the overlay's `dart:core` library with the
+        // signature (`Uri Function()`) → `void`.
         let define = { let dart_target: usize = define; move |a0: i64| { dart_v1(dart_target, a0) } };
         with_roots(&[hook], || define(hook));
     }
 }
 
-/// O `Platform::Initialize` da VM: escrever num pipe ou soquete fechado dá
-/// o erro `EPIPE` em vez de matar o processo (SIGPIPE ignorado).
+/// The VM's `Platform::Initialize`: writing to a closed pipe or socket gives the
+/// `EPIPE` error instead of killing the process (SIGPIPE ignored).
 fn prepare_process_signals() {
     #[cfg(unix)]
     {
@@ -107,22 +106,22 @@ fn prepare_process_signals() {
 // ---------------------------------------------------------------------------
 // `Platform`.
 
-/// A versão do SDK Dart que o programa compilou (`Platform.version`),
-/// gravada pela entrada do programa.
+/// The version of the Dart SDK the program was compiled with (`Platform.version`),
+/// stored by the program's entry.
 static SDK_VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
-/// Registra a versão do SDK (o arquivo `version` dele).
+/// Registers the SDK version (its `version` file).
 ///
 /// # Safety
-/// `text` aponta para `n` bytes UTF-8 legíveis.
+/// `text` points to `n` readable UTF-8 bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_registrar_versao_do_sdk(text: *const u8, n: i64) {
-    // SAFETY: constante do módulo com `n` bytes.
+    // SAFETY: a module constant with `n` bytes.
     let b = unsafe { std::slice::from_raw_parts(text, n as usize) };
     let _ = SDK_VERSION.set(String::from_utf8_lossy(b).into_owned());
 }
 
-/// O nome do sistema como o Dart o informa (`Platform.operatingSystem`).
+/// The system name as Dart reports it (`Platform.operatingSystem`).
 const SYSTEM_NAME: &str = if cfg!(target_os = "linux") {
     "linux"
 } else if cfg!(target_os = "macos") {
@@ -139,8 +138,7 @@ const SYSTEM_NAME: &str = if cfg!(target_os = "linux") {
     "unknown"
 };
 
-/// A arquitetura como a VM a escreve em `Platform.version` (`x64`,
-/// `arm64`…).
+/// The architecture as the VM writes it in `Platform.version` (`x64`, `arm64`…).
 const ARCHITECTURE_NAME: &str = if cfg!(target_arch = "x86_64") {
     "x64"
 } else if cfg!(target_arch = "aarch64") {
@@ -164,7 +162,7 @@ fn processor_count() -> i64 {
     const SC_NPROCESSORS_ONLN: i32 = 84;
     #[cfg(not(target_os = "linux"))]
     const SC_NPROCESSORS_ONLN: i32 = 58;
-    // SAFETY: consulta sem efeitos.
+    // SAFETY: a query without effects.
     unsafe { sysconf(SC_NPROCESSORS_ONLN) as i64 }
 }
 #[cfg(windows)]
@@ -187,16 +185,15 @@ fn processor_count() -> i64 {
     unsafe extern "system" {
         fn GetSystemInfo(i: *mut SystemInfo);
     }
-    // SAFETY: a estrutura é só dados; a função a preenche.
+    // SAFETY: the structure is plain data; the function fills it.
     let mut i: SystemInfo = unsafe { std::mem::zeroed() };
     unsafe { GetSystemInfo(&mut i) };
     i64::from(i.processors)
 }
 
-/// `Platform::OperatingSystemVersion`: `uname` no Linux ("sysname release
-/// version"), o texto do `NSProcessInfo` no macOS ("Version 14.5 (Build
-/// 23F79)"), e o do registro no Windows ("\"Windows 10 Pro\" 10.0 (Build
-/// 19045)").
+/// `Platform::OperatingSystemVersion`: `uname` on Linux ("sysname release
+/// version"), the `NSProcessInfo` text on macOS ("Version 14.5 (Build 23F79)"),
+/// and the registry's on Windows ("\"Windows 10 Pro\" 10.0 (Build 19045)").
 #[cfg(all(unix, not(target_os = "macos")))]
 fn system_version() -> IoResult<String> {
     #[repr(C)]
@@ -207,7 +204,7 @@ fn system_version() -> IoResult<String> {
         fn uname(u: *mut Utsname) -> i32;
     }
     let mut u = Utsname { fields: [[0; 65]; 6] };
-    // SAFETY: `u` tem o tamanho da `struct utsname` do Linux.
+    // SAFETY: `u` has the size of Linux's `struct utsname`.
     if unsafe { uname(&mut u) } != 0 {
         return Err(OsError::de(&std::io::Error::last_os_error()));
     }
@@ -224,7 +221,7 @@ fn system_version() -> IoResult<String> {
             fn sysctlbyname(name_str: *const std::ffi::c_char, v: *mut std::ffi::c_void, n: *mut usize, new: *mut std::ffi::c_void, nn: usize) -> i32;
         }
         let mut n = 0usize;
-        // SAFETY: primeiro o tamanho, depois o valor num buffer desse tamanho.
+        // SAFETY: first the size, then the value into a buffer of that size.
         if unsafe { sysctlbyname(name_str.as_ptr(), std::ptr::null_mut(), &mut n, std::ptr::null_mut(), 0) } != 0 {
             return Err(OsError::de(&std::io::Error::last_os_error()));
         }
@@ -259,7 +256,7 @@ fn system_version() -> IoResult<String> {
     let text = |name_str: &str| -> IoResult<String> {
         let mut b = [0u16; 256];
         let mut n = std::mem::size_of_val(&b) as u32;
-        // SAFETY: o buffer tem `n` bytes.
+        // SAFETY: the buffer has `n` bytes.
         let r = unsafe { RegGetValueW(HKEY_LOCAL_MACHINE, sub.as_ptr(), wide(name_str).as_ptr(), RRF_RT_REG_SZ, std::ptr::null_mut(), b.as_mut_ptr().cast(), &mut n) };
         if r != 0 {
             return Err(OsError::from_code(r));
@@ -270,7 +267,7 @@ fn system_version() -> IoResult<String> {
     let word = |name_str: &str| -> Option<u32> {
         let mut v = 0u32;
         let mut n = 4u32;
-        // SAFETY: `v` tem 4 bytes.
+        // SAFETY: `v` has 4 bytes.
         let r = unsafe { RegGetValueW(HKEY_LOCAL_MACHINE, sub.as_ptr(), wide(name_str).as_ptr(), RRF_RT_REG_DWORD, std::ptr::null_mut(), (&mut v as *mut u32).cast(), &mut n) };
         (r == 0).then_some(v)
     };
@@ -289,7 +286,7 @@ fn host_name() -> IoResult<String> {
         fn gethostname(name_str: *mut std::ffi::c_char, n: usize) -> i32;
     }
     let mut b = [0u8; 256];
-    // SAFETY: o buffer tem 256 bytes.
+    // SAFETY: the buffer has 256 bytes.
     if unsafe { gethostname(b.as_mut_ptr().cast(), b.len()) } != 0 {
         return Err(OsError::de(&std::io::Error::last_os_error()));
     }
@@ -305,12 +302,12 @@ fn host_name() -> IoResult<String> {
         fn WSAGetLastError() -> i32;
     }
     let mut data = [0u8; 512];
-    // SAFETY: `WSADATA` cabe em 512 bytes; a inicialização é contada.
+    // SAFETY: `WSADATA` fits in 512 bytes; the initialization is counted.
     if unsafe { WSAStartup(0x0202, data.as_mut_ptr()) } != 0 {
         return Err(OsError::from_code(unsafe { WSAGetLastError() }));
     }
     let mut b = [0u16; 256];
-    // SAFETY: o buffer tem 256 unidades.
+    // SAFETY: the buffer has 256 units.
     if unsafe { GetHostNameW(b.as_mut_ptr(), b.len() as i32) } != 0 {
         return Err(OsError::from_code(unsafe { WSAGetLastError() }));
     }
@@ -318,9 +315,8 @@ fn host_name() -> IoResult<String> {
     Ok(String::from_utf16_lossy(&b[..end]))
 }
 
-/// `Platform::LocaleName`: `LANG` (ou `en_US`) no Linux; a língua preferida
-/// (ou a localidade corrente) no macOS; `GetUserDefaultLocaleName` no
-/// Windows.
+/// `Platform::LocaleName`: `LANG` (or `en_US`) on Linux; the preferred language
+/// (or the current locale) on macOS; `GetUserDefaultLocaleName` on Windows.
 #[cfg(all(unix, not(target_os = "macos")))]
 fn locale_name() -> IoResult<String> {
     Ok(std::env::var("LANG").unwrap_or_else(|_| "en_US".to_string()))
@@ -342,7 +338,7 @@ fn locale_name() -> IoResult<String> {
     }
     const UTF8: u32 = 0x0800_0100;
     fn text(s: Ref) -> Option<String> {
-        // SAFETY: `s` é uma CFString viva; o buffer tem o tamanho máximo.
+        // SAFETY: `s` is a live CFString; the buffer has the maximum size.
         unsafe {
             let n = CFStringGetMaximumSizeForEncoding(CFStringGetLength(s), UTF8) + 1;
             let mut b = vec![0u8; n as usize];
@@ -353,7 +349,7 @@ fn locale_name() -> IoResult<String> {
             Some(String::from_utf8_lossy(&b).into_owned())
         }
     }
-    // SAFETY: objetos CoreFoundation criados e soltos aqui.
+    // SAFETY: CoreFoundation objects created and released here.
     unsafe {
         let languages = CFLocaleCopyPreferredLanguages();
         let preferred = if CFArrayGetCount(languages) >= 1 { text(CFArrayGetValueAtIndex(languages, 0)) } else { None };
@@ -374,7 +370,7 @@ fn locale_name() -> IoResult<String> {
         fn GetUserDefaultLocaleName(b: *mut u16, n: i32) -> i32;
     }
     let mut b = [0u16; 85];
-    // SAFETY: o buffer tem `LOCALE_NAME_MAX_LENGTH` unidades.
+    // SAFETY: the buffer has `LOCALE_NAME_MAX_LENGTH` units.
     let n = unsafe { GetUserDefaultLocaleName(b.as_mut_ptr(), b.len() as i32) };
     if n == 0 {
         return Err(OsError::de(&std::io::Error::last_os_error()));
@@ -382,8 +378,8 @@ fn locale_name() -> IoResult<String> {
     Ok(String::from_utf16_lossy(&b[..(n as usize).saturating_sub(1)]))
 }
 
-/// As variáveis de ambiente como `NOME=valor` (as que não são UTF-8 válido
-/// ficam de fora, como na VM; no Windows, também as que começam com `=`).
+/// The environment variables as `NAME=value` (those that are not valid UTF-8 are
+/// left out, as in the VM; on Windows, also those starting with `=`).
 fn environment_variables() -> Vec<String> {
     let mut out = Vec::new();
     for (k, v) in std::env::vars_os() {
@@ -398,8 +394,8 @@ fn environment_variables() -> Vec<String> {
     out
 }
 
-/// Uma `_List` de tamanho fixo com as strings; `tipada`: `List<String>`
-/// (o `Dart_NewListOfTypeFilled` da VM), senão `List<dynamic>`.
+/// A fixed-length `_List` with the strings; `tipada`: `List<String>` (the VM's
+/// `Dart_NewListOfTypeFilled`), otherwise `List<dynamic>`.
 fn dart_string_list(textos: &[String], tipada: bool) -> i64 {
     let list = dart_fixed_list(&vec![0; textos.len()]);
     with_roots(&[list], || {
@@ -442,7 +438,7 @@ pub extern "C" fn dartforge_nativo_Platform_LocalHostname() -> i64 {
     dart_or_error(host_name(), |v| allocate_str(&v))
 }
 
-/// `Platform_ExecutableName`: o `argv[0]` do processo.
+/// `Platform_ExecutableName`: the process's `argv[0]`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Platform_ExecutableName() -> i64 {
     match std::env::args_os().next() {
@@ -451,8 +447,8 @@ pub extern "C" fn dartforge_nativo_Platform_ExecutableName() -> i64 {
     }
 }
 
-/// `Platform_ResolvedExecutableName`: o caminho absoluto e canônico do
-/// executável.
+/// `Platform_ResolvedExecutableName`: the absolute, canonical path of the
+/// executable.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Platform_ResolvedExecutableName() -> i64 {
     match std::env::current_exe().and_then(std::fs::canonicalize) {
@@ -473,76 +469,76 @@ pub extern "C" fn dartforge_nativo_Platform_Environment() -> i64 {
     dart_string_list(&environment_variables(), false)
 }
 
-/// `Platform_ExecutableArguments`: as opções da VM antes do script — um
-/// executável AOT não tem nenhuma.
+/// `Platform_ExecutableArguments`: the VM options before the script — an AOT
+/// executable has none.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Platform_ExecutableArguments() -> i64 {
     dart_string_list(&[], true)
 }
 
-/// Os argumentos do `main`: os da linha de comando depois do executável
-/// (AOT), ou os que o executor do JIT definiu ([`set_main_arguments`]).
+/// The arguments of `main`: those of the command line after the executable (AOT),
+/// or those the JIT runner set ([`set_main_arguments`]).
 fn main_arguments() -> &'static std::sync::Mutex<Option<Vec<String>>> {
     static A: std::sync::Mutex<Option<Vec<String>>> = std::sync::Mutex::new(None);
     &A
 }
 
-/// O `Platform.script` quando o processo não é o próprio programa (o JIT):
-/// os bytes do caminho do `.dart`.
+/// The `Platform.script` when the process is not the program itself (the JIT): the
+/// bytes of the `.dart` path.
 fn program_script() -> &'static std::sync::Mutex<Option<Vec<u8>>> {
     static S: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
     &S
 }
 
-/// Define o `Platform.script` do programa (antes do `main`).
+/// Sets the program's `Platform.script` (before `main`).
 pub fn set_program_script(file_path: Vec<u8>) {
     *program_script().lock().unwrap_or_else(|e| e.into_inner()) = Some(file_path);
 }
 
-/// [`set_program_script`] pela fronteira C (o runtime da biblioteca
-/// do SDK da fonte): o caminho em UTF-8.
+/// [`set_program_script`] across the C boundary (the runtime of the SDK-from-source
+/// library): the path in UTF-8.
 ///
 /// # Safety
-/// `data` aponta `size` bytes legíveis (ou `size` é 0).
+/// `data` points to `size` readable bytes (or `size` is 0).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_definir_script_do_programa(data: *const u8, size: usize) {
     let bytes = if size == 0 {
         Vec::new()
     } else {
-        // SAFETY: garantido pelo chamador.
+        // SAFETY: guaranteed by the caller.
         unsafe { std::slice::from_raw_parts(data, size) }.to_vec()
     };
     set_program_script(bytes);
 }
 
-/// Os argumentos que o `main(List<String> args)` recebe quando o processo
-/// não é o próprio programa (o executor do JIT).
+/// The arguments that `main(List<String> args)` receives when the process is not
+/// the program itself (the JIT runner).
 pub fn set_main_arguments(arguments: Vec<String>) {
     *main_arguments().lock().unwrap_or_else(|e| e.into_inner()) = Some(arguments);
 }
 
-/// [`set_main_arguments`] pela fronteira C, para o executor do JIT
-/// alcançar o runtime da biblioteca do SDK da fonte: os argumentos em UTF-8,
-/// cada um terminado em NUL.
+/// [`set_main_arguments`] across the C boundary, for the JIT runner to reach the
+/// runtime of the SDK-from-source library: the arguments in UTF-8, each one
+/// NUL-terminated.
 ///
 /// # Safety
-/// `data` aponta `size` bytes legíveis (ou `size` é 0).
+/// `data` points to `size` readable bytes (or `size` is 0).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_definir_argumentos_do_main(data: *const u8, size: usize) {
     let bytes = if size == 0 {
         &[][..]
     } else {
-        // SAFETY: garantido pelo chamador.
+        // SAFETY: guaranteed by the caller.
         unsafe { std::slice::from_raw_parts(data, size) }
     };
     let mut arguments: Vec<String> = bytes.split(|&b| b == 0).map(|a| String::from_utf8_lossy(a).into_owned()).collect();
-    // O último NUL deixa um pedaço vazio que não é argumento.
+    // The last NUL leaves an empty piece that is not an argument.
     arguments.pop();
     set_main_arguments(arguments);
 }
 
-/// O `args` do `main`: uma `List<String>` de tamanho fixo, como a do
-/// embedder da VM (`Dart_NewListOfType`).
+/// The `args` of `main`: a fixed-length `List<String>`, like the VM embedder's
+/// (`Dart_NewListOfType`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_argumentos_do_main() -> i64 {
     let arguments = main_arguments()
@@ -553,14 +549,14 @@ pub extern "C" fn dartforge_argumentos_do_main() -> i64 {
     dart_string_list(&arguments, true)
 }
 
-/// `Platform_GetVersion`: a versão do SDK, o canal e o alvo, na forma do
-/// `Dart_VersionString` da VM (sem a data de compilação da VM, que não
-/// existe aqui).
+/// `Platform_GetVersion`: the SDK version, the channel and the target, in the form
+/// of the VM's `Dart_VersionString` (without the VM's build date, which does not
+/// exist here).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Platform_GetVersion() -> i64 {
     let version = SDK_VERSION.get().map_or("unknown", String::as_str);
-    // A versão completa, como a VM a escreve (o compilador a perguntou ao
-    // `dart --version`, com o canal e a data): só o sistema falta.
+    // The full version, as the VM writes it (the compiler asked `dart --version`
+    // for it, with the channel and the date): only the system is missing.
     if version.contains(" (") {
         return allocate_str(&format!("{version} on \"{SYSTEM_NAME}_{ARCHITECTURE_NAME}\""));
     }
@@ -582,9 +578,9 @@ pub extern "C" fn dartforge_nativo_Platform_LocaleName() -> i64 {
 }
 
 // ---------------------------------------------------------------------------
-// O terminal (`Stdin`/`Stdout`).
+// The terminal (`Stdin`/`Stdout`).
 
-/// Os modos de `Stdin`: eco, eco da nova linha e modo de linha.
+/// The `Stdin` modes: echo, newline echo and line mode.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TerminalMode {
     Echo,
@@ -592,8 +588,8 @@ enum TerminalMode {
     Line,
 }
 
-/// A `struct termios` como bytes (o layout muda entre Linux e macOS; só o
-/// `c_lflag` é lido e gravado).
+/// The `struct termios` as bytes (the layout changes between Linux and macOS; only
+/// `c_lflag` is read and written).
 #[cfg(unix)]
 #[repr(C, align(8))]
 struct Termios([u8; 128]);
@@ -642,7 +638,7 @@ unsafe extern "C" {
 #[cfg(unix)]
 fn terminal_attributes(fd: i64) -> IoResult<Termios> {
     let mut t = Termios([0; 128]);
-    // SAFETY: `t` é maior que a `struct termios` de qualquer plataforma.
+    // SAFETY: `t` is larger than the `struct termios` of any platform.
     if unsafe { tcgetattr(fd as i32, &mut t) } != 0 {
         return Err(OsError::de(&std::io::Error::last_os_error()));
     }
@@ -660,18 +656,18 @@ fn change_terminal_mode(fd: i64, m: TerminalMode, enabled_flag: bool) -> IoResul
     let bit = mode_bit(m);
     let f = t.lflag();
     t.write_lflag(if enabled_flag { f | bit } else { f & !bit });
-    // SAFETY: `t` veio de `tcgetattr` (TCSANOW = 0).
+    // SAFETY: `t` came from `tcgetattr` (TCSANOW = 0).
     if unsafe { tcsetattr(fd as i32, 0, &t) } != 0 {
         return Err(OsError::de(&std::io::Error::last_os_error()));
     }
     Ok(())
 }
 
-/// `TermIsKnownToSupportAnsi` e `isatty`, como a VM.
+/// `TermIsKnownToSupportAnsi` and `isatty`, like the VM.
 #[cfg(unix)]
 fn supports_ansi(fd: i64) -> bool {
     let term = std::env::var("TERM").unwrap_or_default();
-    // SAFETY: consulta sem efeitos.
+    // SAFETY: a query without effects.
     (unsafe { isatty(fd as i32) } != 0) && ["xterm", "screen", "rxvt"].iter().any(|t| term.contains(t))
 }
 
@@ -689,7 +685,7 @@ fn terminal_size(fd: i64) -> IoResult<(i64, i64)> {
     #[cfg(not(target_os = "linux"))]
     const TIOCGWINSZ: std::ffi::c_ulong = 0x4008_7468;
     let mut w = Winsize { line_list: 0, columns: 0, x: 0, y: 0 };
-    // SAFETY: `w` é a `struct winsize`.
+    // SAFETY: `w` is the `struct winsize`.
     let r = unsafe { ioctl(fd as i32, TIOCGWINSZ, &mut w as *mut Winsize) };
     if r == 0 && (w.columns != 0 || w.line_list != 0) {
         return Ok((i64::from(w.columns), i64::from(w.line_list)));
@@ -727,7 +723,7 @@ fn default_handle_of(fd: i64) -> *mut std::ffi::c_void {
 #[cfg(windows)]
 fn console_mode(fd: i64) -> IoResult<u32> {
     let mut m = 0u32;
-    // SAFETY: consulta o modo de um handle do processo.
+    // SAFETY: queries the mode of a process handle.
     if unsafe { GetConsoleMode(default_handle_of(fd), &mut m) } == 0 {
         return Err(OsError::de(&std::io::Error::last_os_error()));
     }
@@ -753,14 +749,14 @@ fn change_terminal_mode(_fd: i64, m: TerminalMode, enabled_flag: bool) -> IoResu
     };
     let current = console_mode(0)?;
     let new = if enabled_flag { current | bit } else { current & !bit };
-    // SAFETY: muda o modo de um handle do processo.
+    // SAFETY: changes the mode of a process handle.
     if unsafe { SetConsoleMode(default_handle_of(0), new) } == 0 {
         return Err(OsError::de(&std::io::Error::last_os_error()));
     }
     Ok(())
 }
 
-/// `ENABLE_VIRTUAL_TERMINAL_INPUT` (entrada) / `_PROCESSING` (saída).
+/// `ENABLE_VIRTUAL_TERMINAL_INPUT` (input) / `_PROCESSING` (output).
 #[cfg(windows)]
 fn supports_ansi(fd: i64) -> bool {
     let bit = if fd == 0 { 0x200 } else { 0x4 };
@@ -781,7 +777,7 @@ fn terminal_size(fd: i64) -> IoResult<(i64, i64)> {
     unsafe extern "system" {
         fn GetConsoleScreenBufferInfo(h: *mut std::ffi::c_void, i: *mut Info) -> i32;
     }
-    // SAFETY: a estrutura é só dados; a função a preenche.
+    // SAFETY: the structure is plain data; the function fills it.
     let mut i: Info = unsafe { std::mem::zeroed() };
     if unsafe { GetConsoleScreenBufferInfo(default_handle_of(if fd == 1 { 1 } else { 2 }), &mut i) } == 0 {
         return Err(OsError::de(&std::io::Error::last_os_error()));
@@ -843,7 +839,7 @@ pub extern "C" fn dartforge_nativo_Stdin_AnsiSupported(fd: i64) -> i64 {
     dart_bool(supports_ansi(fd))
 }
 
-/// `Stdout_GetTerminalSize`: `[columns, line_list]` ou o `OSError`.
+/// `Stdout_GetTerminalSize`: `[columns, lines]` or the `OSError`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Stdout_GetTerminalSize(fd: i64) -> i64 {
     dart_or_error(terminal_size(fd), |(c, l)| dart_fixed_list(&[dart_int(c), dart_int(l)]))
@@ -855,19 +851,19 @@ pub extern "C" fn dartforge_nativo_Stdout_AnsiSupported(fd: i64) -> i64 {
 }
 
 // ---------------------------------------------------------------------------
-// O processo corrente (`exit`, `exitCode`, `sleep`, `pid`).
+// The current process (`exit`, `exitCode`, `sleep`, `pid`).
 
-/// O código de saída global (`Process::GlobalExitCode`), que o fim normal
-/// do programa devolve.
+/// The global exit code (`Process::GlobalExitCode`), which the normal end of the
+/// program returns.
 static EXIT_CODE: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
 
-/// O código com que o processo termina quando o programa acaba sem erro.
+/// The code the process ends with when the program finishes without an error.
 fn global_exit_code() -> i32 {
     EXIT_CODE.load(std::sync::atomic::Ordering::Relaxed) as i32
 }
 
-/// `Process_Exit`: termina o processo já (a VM usa `_exit`, sem os
-/// destrutores globais; a saída padrão do `std` é esvaziada antes).
+/// `Process_Exit`: ends the process right away (the VM uses `_exit`, without the
+/// global destructors; `std`'s standard output is flushed first).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Process_Exit(status: i64) {
     use std::io::Write;
@@ -891,7 +887,7 @@ pub extern "C" fn dartforge_nativo_Process_Sleep(ms: i64) {
     std::thread::sleep(std::time::Duration::from_millis(ms.max(0) as u64));
 }
 
-/// `Process_Pid(process)`: o do processo corrente (com `null`).
+/// `Process_Pid(process)`: that of the current process (with `null`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Process_Pid(process: i64) -> i64 {
     if process == 0 {
@@ -901,9 +897,9 @@ pub extern "C" fn dartforge_nativo_Process_Pid(process: i64) -> i64 {
 }
 
 // ---------------------------------------------------------------------------
-// A codificação do sistema (`SystemEncodingToString`/`StringToSystemEncoding`,
-// o `StringUtils::ConsoleStringToUtf8` da VM): UTF-8 no Unix; a página de
-// código do console (`GetConsoleCP`) no Windows.
+// The system encoding (`SystemEncodingToString`/`StringToSystemEncoding`, the
+// VM's `StringUtils::ConsoleStringToUtf8`): UTF-8 on Unix; the console code page
+// (`GetConsoleCP`) on Windows.
 
 #[cfg(unix)]
 fn system_to_utf8(b: &[u8]) -> String {
@@ -926,7 +922,7 @@ fn system_to_utf8(b: &[u8]) -> String {
     if b.is_empty() {
         return String::new();
     }
-    // SAFETY: tamanhos consultados antes; os buffers têm o tamanho pedido.
+    // SAFETY: sizes queried before; the buffers have the requested size.
     unsafe {
         let cp = GetConsoleCP();
         let n = MultiByteToWideChar(cp, 0, b.as_ptr(), b.len() as i32, std::ptr::null_mut(), 0);
@@ -941,7 +937,7 @@ fn utf8_to_system(s: &[u8]) -> Vec<u8> {
     if w.is_empty() {
         return Vec::new();
     }
-    // SAFETY: tamanhos consultados antes; os buffers têm o tamanho pedido.
+    // SAFETY: sizes queried before; the buffers have the requested size.
     unsafe {
         let cp = GetConsoleCP();
         let n = WideCharToMultiByte(cp, 0, w.as_ptr(), w.len() as i32, std::ptr::null_mut(), 0, std::ptr::null(), std::ptr::null_mut());
