@@ -808,7 +808,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             let ExprKind::String(lit) = &a.expr(primeiro.value).kind else { continue };
             let Some(valor) = lit.constant_value() else { continue };
             let unidades: Vec<u16> = valor.code_units().collect();
-            if !super::regexp_vm::valida(&unidades, unicode) {
+            if !super::regexp_vm::is_valid(&unidades, unicode) {
                 relatar(&c::VALID_REGEXPS, a.expr(primeiro.value).span, &[]);
             }
         }
