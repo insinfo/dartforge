@@ -31,9 +31,9 @@ pub enum State {
 }
 
 pub trait Liveness {
-    fn classe(&self, c: ClassId) -> Level;
-    fn funcao(&self, f: FunctionElementId) -> State;
-    fn variavel(&self, v: VariableId) -> State;
+    fn class_level(&self, c: ClassId) -> Level;
+    fn function(&self, f: FunctionElementId) -> State;
+    fn variable(&self, v: VariableId) -> State;
     /// Name invoked somewhere (`noSuchMethod` forwarders).
     fn selector(&self, name: &str) -> bool;
     /// Name written somewhere (`x.name = v`): the `noSuchMethod` forwarders for
@@ -82,13 +82,13 @@ pub trait Liveness {
 pub struct AllLive;
 
 impl Liveness for AllLive {
-    fn classe(&self, _: ClassId) -> Level {
+    fn class_level(&self, _: ClassId) -> Level {
         Level::Instantiated
     }
-    fn funcao(&self, _: FunctionElementId) -> State {
+    fn function(&self, _: FunctionElementId) -> State {
         State::Live
     }
-    fn variavel(&self, _: VariableId) -> State {
+    fn variable(&self, _: VariableId) -> State {
         State::Live
     }
     fn selector(&self, _: &str) -> bool {

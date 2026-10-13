@@ -69,7 +69,7 @@ impl Case<'_> {
         self.m.funcao(f)
     }
     fn level(&self, name: &str) -> ClassLevel {
-        self.m.classe(self.class(name))
+        self.m.class_level(self.class(name))
     }
 }
 
@@ -134,7 +134,7 @@ fn closed_world_cases() {
         perm.seletores.insert(0, "toJson".into());
         let m2 = calcular(e, &perm);
         let same = (0..a.program.functions.len()).all(|i| m.funcao(FunctionElementId(i as u32)) == m2.funcao(FunctionElementId(i as u32)))
-            && (0..a.program.classes.len()).all(|i| m.classe(ClassId(i as u32)) == m2.classe(ClassId(i as u32)));
+            && (0..a.program.classes.len()).all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));
         check(same, "determinism");
         Ok(errors)
     })

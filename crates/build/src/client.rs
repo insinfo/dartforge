@@ -208,7 +208,7 @@ impl<C: Canal> BuildClient<C> {
         }
         let id = self.id();
         self.channel.enviar(&json!({"t":kind,"id":id,"fase":p.phase,"chave":p.key,
-            "fabrica":p.fabrica,"opcoes":map_json(&p.options),"isRoot":p.root,"entrada":p.entrada.text(),
+            "fabrica":p.fabrica,"opcoes":map_json(&p.options),"isRoot":p.root,"entrada":p.input.text(),
             "saidas_permitidas":p.allowed_outputs.iter().map(AssetId::text).collect::<Vec<_>>()
         })).map_err(ExecutorError)?;
         let response = self.receive(id, "build.resultado", service)?;
@@ -563,7 +563,7 @@ mod tests {
             fabrica: "b".into(),
             options: Map::default(),
             root: true,
-            entrada: AssetId::new("p", "lib/a.dart"),
+            input: AssetId::new("p", "lib/a.dart"),
             allowed_outputs: vec![AssetId::new("p", "lib/a.g.dart")],
         };
         let result = client.execute(&request, &mut service).unwrap();
@@ -657,7 +657,7 @@ mod tests {
             fabrica: "cleanup".into(),
             options: Map::default(),
             root: true,
-            entrada: AssetId::new("p", "lib/a.dart"),
+            input: AssetId::new("p", "lib/a.dart"),
             allowed_outputs: Vec::new(),
         };
         let mut service = FakeService {
@@ -722,7 +722,7 @@ mod tests {
             fabrica: "b".into(),
             options: Map::default(),
             root: true,
-            entrada: AssetId::new("p", "lib/a.dart"),
+            input: AssetId::new("p", "lib/a.dart"),
             allowed_outputs: Vec::new(),
         };
         let mut service = FakeService {
@@ -759,7 +759,7 @@ mod tests {
             fabrica: "b".into(),
             options: Map::default(),
             root: true,
-            entrada: AssetId::new("p", "lib/a.dart"),
+            input: AssetId::new("p", "lib/a.dart"),
             allowed_outputs: Vec::new(),
         };
         let mut service = FakeService {
@@ -809,7 +809,7 @@ mod tests {
             fabrica: "b".into(),
             options: Map::default(),
             root: true,
-            entrada: AssetId::new("p", "lib/a.dart"),
+            input: AssetId::new("p", "lib/a.dart"),
             allowed_outputs: vec![AssetId::new("p", "lib/a.g.dart")],
         };
         let mut service = FakeService { writes: Vec::new() };

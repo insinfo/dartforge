@@ -282,7 +282,7 @@ pub fn read(dir: &Path) -> Option<State> {
 }
 
 /// Content of a saved output, checked against its digest.
-pub fn ler_blob(dir: &Path, d: &Digest) -> Option<Arc<[u8]>> {
+pub fn read_blob(dir: &Path, d: &Digest) -> Option<Arc<[u8]>> {
     let b = std::fs::read(dir.join("blobs").join(hex(d))).ok()?;
     (blake3::hash(&b).as_bytes() == d).then(|| Arc::from(b))
 }
@@ -387,10 +387,10 @@ mod tests {
         assert_eq!(read.actions[0].outputs, e.actions[0].outputs);
         assert_eq!(read.actions[0].origin, e.actions[0].origin);
         assert_eq!(read.actions[0].deleted_outputs, e.actions[0].deleted_outputs);
-        assert_eq!(ler_blob(dir.path(), &d).as_deref(), Some(&b"output"[..]));
+        assert_eq!(read_blob(dir.path(), &d).as_deref(), Some(&b"output"[..]));
         // A tampered blob is not accepted.
         std::fs::write(dir.path().join("blobs").join(hex(&d)), b"other").unwrap();
-        assert!(ler_blob(dir.path(), &d).is_none());
+        assert!(read_blob(dir.path(), &d).is_none());
         // A semantic query cannot be persisted.
         assert!(!persistable(&Query::ApiBiblioteca(
             "package:p/a.dart".into()

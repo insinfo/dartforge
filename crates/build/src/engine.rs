@@ -725,8 +725,8 @@ impl Engine {
             .iter()
             .filter(|a| a.live())
             .filter(|a| self.plan.applications[self.phases[a.phase].application].key == key)
-            .filter(|a| a.entrada.path.ends_with(".dart"))
-            .map(|a| natural_path(&self.package_graph, &a.entrada))
+            .filter(|a| a.input.path.ends_with(".dart"))
+            .map(|a| natural_path(&self.package_graph, &a.input))
             .collect();
         out.sort();
         out.dedup();
@@ -806,7 +806,7 @@ impl Engine {
         for (i, r) in std::mem::take(&mut self.records).into_iter().enumerate() {
             if let Some(r) = r {
                 let a = &self.graph.actions[i];
-                old.insert((a.phase, a.entrada.clone()), r);
+                old.insert((a.phase, a.input.clone()), r);
             }
         }
         let Indices {
@@ -821,7 +821,7 @@ impl Engine {
             .iter()
             .map(|a| {
                 if a.live() {
-                    old.remove(&(a.phase, a.entrada.clone()))
+                    old.remove(&(a.phase, a.input.clone()))
                 } else {
                     None
                 }
@@ -929,7 +929,7 @@ impl Engine {
             if !self.requested.insert(a) {
                 continue;
             }
-            if let Some(g) = self.graph.generated.get(&self.graph.actions[a].entrada) {
+            if let Some(g) = self.graph.generated.get(&self.graph.actions[a].input) {
                 stack.push(g.action);
             }
         }
@@ -1553,7 +1553,7 @@ impl Engine {
         h.update(f.identity(&self.plan, &self.package_graph).as_bytes());
         h.update(f.options.canonical_text().as_bytes());
         h.update(&[u8::from(f.root), u8::from(action.pos)]);
-        h.update(action.entrada.text().as_bytes());
+        h.update(action.input.text().as_bytes());
         for s in &action.outputs {
             h.update(b"\n");
             h.update(s.text().as_bytes());
@@ -1725,7 +1725,7 @@ impl Engine {
             for (id, d) in &s.outputs {
                 match d {
                     None => outputs.push((id.clone(), None)),
-                    Some(d) => match crate::persistence::ler_blob(&dir, d) {
+                    Some(d) => match crate::persistence::read_blob(&dir, d) {
                         Some(b) => outputs.push((id.clone(), Some(b))),
                         None => break,
                     },
@@ -1875,8 +1875,8 @@ impl Engine {
         occupied: BTreeSet<AssetId>,
     ) -> Result<ActionRecord, String> {
         let action = self.graph.actions.get(a).ok_or("nonexistent anchor")?;
-        if self.graph.generated.contains_key(&action.entrada) {
-            let n = self.natural_path_of(&action.entrada);
+        if self.graph.generated.contains_key(&action.input) {
+            let n = self.natural_path_of(&action.input);
             if !self.memory.contains_key(&n) {
                 // The negative query wakes the anchor up when the input is
                 // written.
@@ -1911,7 +1911,7 @@ impl Engine {
             fabrica: phase.fabrica.clone(),
             options: phase.options.clone(),
             root: phase.root,
-            entrada: action.entrada.clone(),
+            input: action.input.clone(),
             allowed_outputs: Vec::new(),
         };
         let mut dart = self.dart.lock().map_err(|_| "Dart executor poisoned")?;
@@ -1953,7 +1953,7 @@ impl Engine {
                 })?;
             }
         }
-        if let Some(x) = result.deleted_outputs.iter().find(|x| **x != action.entrada) {
+        if let Some(x) = result.deleted_outputs.iter().find(|x| **x != action.input) {
             return Err(format!(
                 "pós-processador apagou {}, que não é a entrada primária",
                 x.text()
@@ -1968,7 +1968,7 @@ impl Engine {
         // post-processor does not read it (`_postProcessBuildShouldRun`
         // compares the `previousInputsDigest`): `part_cleanup` only deletes
         // it.
-        let n = self.natural_path_of(&action.entrada);
+        let n = self.natural_path_of(&action.input);
         let d = self
             .memory
             .get(&n)
@@ -2019,7 +2019,7 @@ impl Engine {
     /// `if (!input.wasOutput) return`; in 2.16.1, `skipMissingPrimaryInput`).
     /// The negative query wakes it up when the input is written.
     fn unwritten_input(&self, a: usize) -> Option<ActionRecord> {
-        let input = &self.graph.actions[a].entrada;
+        let input = &self.graph.actions[a].input;
         let g = self.graph.generated.get(input)?;
         // Only when whoever produces the input actually ran: without an
         // executor (the action pending, or read from the fallback) it is
@@ -2069,11 +2069,11 @@ impl Engine {
         };
         let mut service = ActionService::new(&self.graph, &self.package_graph, a, &memory);
         let primary = service
-            .read(&action.entrada)
+            .read(&action.input)
             .map(|b| String::from_utf8_lossy(&b).into_owned())
             .unwrap_or_default();
         let fired = crate::triggers::triggered(triggers, &primary, |uri| {
-            let id = resolve_uri(uri, &action.entrada)?;
+            let id = resolve_uri(uri, &action.input)?;
             if !service.can_read(&id) {
                 return None;
             }
@@ -2085,7 +2085,7 @@ impl Engine {
     }
 
     fn input_natural_path(&self, a: usize) -> PathBuf {
-        natural_path(&self.package_graph, &self.graph.actions[a].entrada)
+        natural_path(&self.package_graph, &self.graph.actions[a].input)
     }
 
     fn prepare_dart(&self) -> Option<String> {
@@ -2148,7 +2148,7 @@ impl Engine {
     /// disk or memory, does not count), the failure as the reason.
     fn failure(&self, a: usize, e: String) -> ActionRecord {
         let action = &self.graph.actions[a];
-        let input = natural_path(&self.package_graph, &action.entrada);
+        let input = natural_path(&self.package_graph, &action.input);
         let d = self
             .memory
             .get(&input)
@@ -2190,7 +2190,7 @@ impl Engine {
             fabrica: phase.fabrica.clone(),
             options: phase.options.clone(),
             root: phase.root,
-            entrada: action.entrada.clone(),
+            input: action.input.clone(),
             allowed_outputs: action.outputs.clone(),
         };
         let mut dart = self
@@ -2275,7 +2275,7 @@ impl Engine {
         h.update(f.options.canonical_text().as_bytes());
         h.update(&[u8::from(f.root)]);
         h.update(f.identity(&self.plan, &self.package_graph).as_bytes());
-        h.update(action.entrada.text().as_bytes());
+        h.update(action.input.text().as_bytes());
         for (c, d) in queries {
             h.update(format!("{c:?}").as_bytes());
             h.update(d.as_ref().map(|d| &d[..]).unwrap_or(b"-"));
@@ -2338,8 +2338,8 @@ impl Engine {
                 let action = &self.graph.actions[a];
                 actions.push(NativeAction {
                     fabrica: f.fabrica.clone(),
-                    entrada: action.entrada.clone(),
-                    natural_input: natural_path(&self.package_graph, &action.entrada),
+                    input: action.input.clone(),
+                    natural_input: natural_path(&self.package_graph, &action.input),
                     outputs: action
                         .outputs
                         .iter()
@@ -2429,7 +2429,7 @@ impl Engine {
                 )
             })
             .collect();
-        let input = natural_path(&self.package_graph, &action.entrada);
+        let input = natural_path(&self.package_graph, &action.input);
         // The queries stay in the package round (that is what gets
         // revalidated); copying them into each action cost hundreds of ms per
         // edit.
@@ -2528,12 +2528,12 @@ impl Engine {
         let f = &self.phases[action.phase];
         let generator = self.natives[g].clone();
         let request = NativeRequest {
-            package: action.entrada.package.to_string(),
+            package: action.input.package.to_string(),
             package_root: self.package_graph.nos[f.package].root.clone(),
             actions: vec![NativeAction {
                 fabrica: f.fabrica.clone(),
-                entrada: action.entrada.clone(),
-                natural_input: natural_path(&self.package_graph, &action.entrada),
+                input: action.input.clone(),
+                natural_input: natural_path(&self.package_graph, &action.input),
                 outputs: action
                     .outputs
                     .iter()
@@ -2665,7 +2665,7 @@ impl Engine {
     fn fallback(&self, a: usize, dart_reason: Option<&str>) -> ActionRecord {
         let action = &self.graph.actions[a];
         let f = &self.phases[action.phase];
-        let input = natural_path(&self.package_graph, &action.entrada);
+        let input = natural_path(&self.package_graph, &action.input);
         let memory = |p: &Path| self.memory.get(p).cloned();
         let mut queries = Vec::with_capacity(1 + action.outputs.len());
         let d = memory(&input)
@@ -2759,7 +2759,7 @@ impl Engine {
                     self.natural_path_of(s),
                     content.clone(),
                     "",
-                    natural_path(&self.package_graph, &action.entrada),
+                    natural_path(&self.package_graph, &action.input),
                 ));
             }
         }
@@ -2895,7 +2895,7 @@ impl Engine {
                 "{}#{} {}",
                 self.plan.applications[f.application].key,
                 f.fabrica,
-                a.entrada.text()
+                a.input.text()
             );
             match &self.records[i] {
                 None => lines.push(format!("{head} -")),
@@ -3071,7 +3071,7 @@ impl Engine {
                 if c.is_none() || reference.contains_key(s) {
                     continue;
                 }
-                if optional && !self.failed_in_official(&action.entrada) {
+                if optional && !self.failed_in_official(&action.input) {
                     p.unrequested.push((
                         s.clone(),
                         format!("{n}: optional output the official graph does not request"),

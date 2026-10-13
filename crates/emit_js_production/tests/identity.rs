@@ -51,7 +51,7 @@ fn no_filter_and_all_live_emit_the_same_text() {
         let (ma, mb, mc) = (modules(&a), modules(&b), modules(&c));
         assert_eq!(ma, mb, "{}: `compilar` and `emitir(None)` diverge", p.display());
         assert_eq!(mb, mc, "{}: `emitir(None)` and `emitir(TudoVivo)` diverge", p.display());
-        assert_eq!(a.entrada, c.entrada);
+        assert_eq!(a.entry, c.entry);
         if let Some(r) = &reference {
             let name = p.file_stem().unwrap().to_string_lossy().to_string();
             let dir = r.join(&name);

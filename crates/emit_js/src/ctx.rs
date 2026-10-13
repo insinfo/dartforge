@@ -543,17 +543,17 @@ impl<'a> Ctx<'a> {
 
     /// Reachability level of the class; without a filter, `Instantiated` (everything emitted).
     pub fn class_level(&self, c: ClassId) -> crate::filter::Level {
-        self.filter.map_or(crate::filter::Level::Instantiated, |f| f.classe(c))
+        self.filter.map_or(crate::filter::Level::Instantiated, |f| f.class_level(c))
     }
 
     /// State of the function; without a filter, `Live`.
     pub fn fn_state(&self, f: FunctionElementId) -> crate::filter::State {
-        self.filter.map_or(crate::filter::State::Live, |x| x.funcao(f))
+        self.filter.map_or(crate::filter::State::Live, |x| x.function(f))
     }
 
     /// State of the variable; without a filter, `Live`.
     pub fn var_state(&self, v: VariableId) -> crate::filter::State {
-        self.filter.map_or(crate::filter::State::Live, |x| x.variavel(v))
+        self.filter.map_or(crate::filter::State::Live, |x| x.variable(v))
     }
 
     /// Name invoked somewhere; without a filter, always.

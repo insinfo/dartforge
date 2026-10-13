@@ -71,7 +71,7 @@ impl NativeGenerator for SassNative {
             ));
         };
         for a in &request.actions {
-            let name = a.entrada.path.rsplit('/').next().unwrap_or_default();
+            let name = a.input.path.rsplit('/').next().unwrap_or_default();
             if name.starts_with('_') {
                 // Partial: the official builder generates nothing
                 // (`sass_builder.dart:43`).
@@ -104,8 +104,8 @@ impl NativeGenerator for SassNative {
             };
             let sheet = match compilar_ativo(
                 &text,
-                &a.entrada.package,
-                &a.entrada.path,
+                &a.input.package,
+                &a.input.path,
                 &request.roots,
                 &reader,
                 style,

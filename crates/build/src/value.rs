@@ -23,7 +23,7 @@ pub enum Value {
 pub struct Map(pub Vec<(Value, Value)>);
 
 impl Map {
-    pub fn vazio(&self) -> bool {
+    pub fn empty(&self) -> bool {
         self.0.is_empty()
     }
 

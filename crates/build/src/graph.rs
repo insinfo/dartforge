@@ -80,7 +80,7 @@ pub const SYNTHETIC: &[&str] = &["lib/$lib$", "test/$test$", "web/$web$", "$pack
 #[derive(Debug, Clone)]
 pub struct Action {
     pub phase: usize,
-    pub entrada: AssetId,
+    pub input: AssetId,
     pub outputs: Vec<AssetId>,
     pub pos: bool,
 }
@@ -183,7 +183,7 @@ impl Graph {
     pub fn origin<'a>(&'a self, id: &'a AssetId) -> &'a AssetId {
         let mut current = id;
         while let Some(g) = self.generated.get(current) {
-            current = &self.actions[g.action].entrada;
+            current = &self.actions[g.action].input;
         }
         current
     }
@@ -362,7 +362,7 @@ impl Graph {
                 }
                 g.actions.push(Action {
                     phase: fi,
-                    entrada: id,
+                    input: id,
                     outputs: outputs,
                     pos: false,
                 });
@@ -406,7 +406,7 @@ impl Graph {
             }
             self.actions.push(Action {
                 phase: fi,
-                entrada: id,
+                input: id,
                 outputs: Vec::new(),
                 pos: true,
             });
@@ -432,7 +432,7 @@ impl Graph {
         new.retain(|c| *c != id.path);
         self.generated.remove(id);
         let dependents: Vec<usize> = (0..self.actions.len())
-            .filter(|&a| self.actions[a].entrada == *id && self.actions[a].live())
+            .filter(|&a| self.actions[a].input == *id && self.actions[a].live())
             .collect();
         for a in dependents {
             let outputs = std::mem::take(&mut self.actions[a].outputs);

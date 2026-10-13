@@ -305,7 +305,7 @@ pub(crate) struct WrittenBootstrap {
 /// executor) and the bootstrap for `script`, rewriting only what changed (the
 /// file dates decide whether the compiled artifact is still valid). Shared by
 /// the VM and the native executor.
-pub(crate) fn gravar_bootstrap(
+pub(crate) fn write_bootstrap(
     work_dir: &Path,
     project_package_config: &Path,
     script: &BuilderScript,
@@ -389,7 +389,7 @@ impl VmExecutor {
             principal: main,
             package_config: pc,
             mut hasher,
-        } = gravar_bootstrap(t, &self.cfg.package_config, script)?;
+        } = write_bootstrap(t, &self.cfg.package_config, script)?;
         let h = &mut hasher;
         h.update(self.cfg.dart.to_string_lossy().as_bytes());
         let key = h.finalize().to_hex()[..16].to_string();

@@ -492,7 +492,7 @@ impl NativeGenerator for I18nNative {
         all.sort();
         for a in &request.actions {
             let name = a
-                .entrada
+                .input
                 .path
                 .rsplit('/')
                 .next()
@@ -505,12 +505,12 @@ impl NativeGenerator for I18nNative {
             };
             let text = String::from_utf8_lossy(&source).into_owned();
             let result = (|| -> Result<String, String> {
-                let default = default_file(&a.entrada.path, &all)
+                let default = default_file(&a.input.path, &all)
                     .ok_or("i18n: no default file (the official builder throws)")?;
                 // Each key in the same place as in the default file (the
                 // official builder reports an error, `log.severe`, and the
                 // build fails).
-                if default.as_str() != &*a.entrada.path {
+                if default.as_str() != &*a.input.path {
                     let path = request.package_root.join(default);
                     let bytes = ctx
                         .read(Path::new(&path))

@@ -262,7 +262,7 @@ pub fn emit_with_world(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkInde
         }
         report.fixes.extend(missing.description.iter().cloned());
         roots.funcoes.extend(missing.functions);
-        roots.variaveis.extend(missing.variables);
+        roots.variables.extend(missing.variables);
         roots.type_classes.extend(missing.classes);
         roots.classes_instanciadas.extend(missing.instantiated_classes);
         roots.tearoffs.extend(missing.tearoffs);
@@ -303,7 +303,7 @@ fn explain(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Mundo, 
             let (txt, next) = match x {
                 Cause::Root => ("(root)".to_string(), None),
                 Cause::Function(f) => (fn_name(f), world.function_cause(f)),
-                Cause::Class(k) => (format!("class {} [{:?}]", a.interner.resolve(p.class(k).name), world.classe(k)), world.class_cause(k)),
+                Cause::Class(k) => (format!("class {} [{:?}]", a.interner.resolve(p.class(k).name), world.class_level(k)), world.class_cause(k)),
                 Cause::Variable(v) => (format!("variable {}", a.interner.resolve(p.variable(v).name)), world.variable_cause(v)),
             };
             chain.push(txt);
@@ -333,7 +333,7 @@ pub fn assemble_with_index(emitted: &dartforge_emit_js::Emitted, sdk_text: &str,
         .map(|(p, t)| bundle::split(p, t))
         .collect();
     let (modules, cycles) = bundle::order(modules);
-    let entry = bundle::entry_from_mjs(&emitted.entrada, &modules)
+    let entry = bundle::entry_from_mjs(&emitted.entry, &modules)
         .unwrap_or_else(|| "L$main".to_string());
 
     let sdk_before = sdk_text.len();
@@ -407,7 +407,7 @@ mod tests {
                 ),
                 ("preambulo.js".into(), "if (typeof self === 'undefined') globalThis.self = globalThis;\n".into()),
             ],
-            entrada: "import { main as m } from './main.js';\nm.main();\n".into(),
+            entry: "import { main as m } from './main.js';\nm.main();\n".into(),
         }
     }
 

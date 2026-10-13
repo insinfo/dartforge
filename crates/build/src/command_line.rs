@@ -301,7 +301,7 @@ impl BuildOptions {
             .ok_or("The current package has no name, please add one to the pubspec.yaml.")?;
         let profile = match std::fs::read_to_string(root.join("pubspec.lock")) {
             Ok(t) => {
-                let lock = crate::config::ler_lock(&t, "pubspec.lock")?;
+                let lock = crate::config::read_lock(&t, "pubspec.lock")?;
                 let v = |p: &str| {
                     lock.iter()
                         .find(|(n, _)| n == p)

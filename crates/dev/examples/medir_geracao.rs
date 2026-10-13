@@ -76,14 +76,14 @@ fn main() {
             if !matches!(r.origin, dartforge_build::engine::Origin::Native(_)) || f.fabrica != "templateCompiler" {
                 continue;
             }
-            let dart = root.join(a.entrada.path.as_ref());
+            let dart = root.join(a.input.path.as_ref());
             native.insert(dart.clone());
             let html = dart.with_extension("html");
             let scss = dart.with_extension("scss");
             let html_name = html.file_name().unwrap().to_string_lossy().to_string();
             let uses = std::fs::read_to_string(&dart)
                 .is_ok_and(|t| t.contains("@Component") && t.contains(&html_name) && t.contains("styleUrls"));
-            if comp.is_none() && a.entrada.path.starts_with("lib/") && html.is_file() && scss.is_file() && uses {
+            if comp.is_none() && a.input.path.starts_with("lib/") && html.is_file() && scss.is_file() && uses {
                 comp = Some((dart, html, scss));
             }
         }
@@ -140,9 +140,9 @@ fn main() {
             if let (true, Some(engine)) = (std::env::var("MEDIR_DEPURAR").is_ok(), engine.as_ref()) {
                 let m = engine.lock().unwrap();
                 for (a, action) in m.graph.actions.iter().enumerate() {
-                    if root.join(action.entrada.path.as_ref()) == dart || root.join(action.entrada.path.as_ref()).with_extension("") == dart.with_extension("") {
+                    if root.join(action.input.path.as_ref()) == dart || root.join(action.input.path.as_ref()).with_extension("") == dart.with_extension("") {
                         if let Some(r) = m.record(a) {
-                            println!("    {} {:?} {:?}", action.entrada.path, r.origin, r.motivo);
+                            println!("    {} {:?} {:?}", action.input.path, r.origin, r.motivo);
                         }
                     }
                 }

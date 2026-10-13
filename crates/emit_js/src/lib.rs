@@ -190,7 +190,7 @@ use dartforge_types::table::{CoreTypes, TypeTable};
 /// Emission result: the modules (file name, text) and `main.mjs`.
 pub struct Emitted {
     pub modules: Vec<(String, String)>,
-    pub entrada: String,
+    pub entry: String,
 }
 
 /// The analyzed program (elements, outline, bodies), handed to callers compiling
@@ -297,7 +297,7 @@ pub fn emit_program_with_cache(
 /// resident session (`dartforge dev`): the JS of a library that did not change,
 /// and whose dependencies did not change their API, is still valid.
 ///
-/// `Emitted::modules` carries only the emitted modules; `Emitted::entrada` (the
+/// `Emitted::modules` carries only the emitted modules; `Emitted::entry` (the
 /// `main.mjs`) always comes, because it is cheap and depends only on the entry
 /// point. Also returns how long building the emission context took.
 pub fn emit_modules(
@@ -812,7 +812,7 @@ pub fn write_with_options(
         }
         written += usize::from(write_if_changed(&p, text, compare)?);
     }
-    written += usize::from(write_if_changed(&dir.join("main.mjs"), &emitted.entrada, true)?);
+    written += usize::from(write_if_changed(&dir.join("main.mjs"), &emitted.entry, true)?);
     let dest = dir.join("dart_sdk.js");
     if !dest.exists() {
         std::fs::copy(dart_sdk_js, &dest)

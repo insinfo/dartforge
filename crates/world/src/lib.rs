@@ -174,7 +174,7 @@ pub struct Entrada<'a> {
 pub struct Raizes {
     /// `main` and whatever else is called from outside.
     pub funcoes: Vec<FunctionElementId>,
-    pub variaveis: Vec<VariableId>,
+    pub variables: Vec<VariableId>,
     /// Instantiated by code we do not see.
     pub classes_instanciadas: Vec<ClassId>,
     /// At least type identity (shell and rti rules).
@@ -235,7 +235,7 @@ pub struct Mundo {
     cause_class: Vec<Option<Cause>>,
     cause_var: Vec<Option<Cause>>,
     pub estat: Statistics,
-    /// Computed with the SDK in the fixed point (`Opcoes::include_sdk`).
+    /// Computed with the SDK in the fixed point (`Options::include_sdk`).
     pub include_sdk: bool,
     hier: Arc<Hierarchy>,
     /// Instantiated subtypes of each class (the cone rule, [`reaches`]).
@@ -245,7 +245,7 @@ pub struct Mundo {
 }
 
 impl Mundo {
-    pub fn classe(&self, c: ClassId) -> ClassLevel {
+    pub fn class_level(&self, c: ClassId) -> ClassLevel {
         self.classes.get(c.0 as usize).copied().unwrap_or(ClassLevel::Dead)
     }
     pub fn funcao(&self, f: FunctionElementId) -> bool {
@@ -304,7 +304,7 @@ enum Item {
 
 /// Options of the computation.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Opcoes {
+pub struct Options {
     /// The `dart:` libraries enter the fixed point like the program's (the
     /// production profile with the SDK compiled by our own pipeline,
     /// `docs/JS-PRODUCAO-SDK-PROPRIO.md` §4). Requires the SDK bodies to be
@@ -320,7 +320,7 @@ pub struct Opcoes {
 /// sorted, and the result (the sets) is the least fixed point, which does not
 /// depend on order.
 pub fn calcular(e: Entrada<'_>, r: &Raizes) -> Mundo {
-    compute_with(e, r, Opcoes::default())
+    compute_with(e, r, Options::default())
 }
 
 /// Constant whose value the emitter folds at the use site (DDC's
@@ -380,7 +380,7 @@ fn native_classes(e: &Entrada<'_>) -> HashSet<ClassId> {
 /// `@JsPeerInterface(name: 'A')` — whoever compiles the SDK uses the ones for
 /// the JS built-in tags (`String`, `Number`, `Array`…) as roots: a JS
 /// primitive value becomes an instance of them without any `new`.
-pub fn tags_nativas(e: &Entrada<'_>) -> Vec<(ClassId, Vec<String>)> {
+pub fn native_tags(e: &Entrada<'_>) -> Vec<(ClassId, Vec<String>)> {
     let p = e.program;
     let mut out = Vec::new();
     for (i, c) in p.classes.iter().enumerate() {
@@ -448,8 +448,8 @@ fn int_num(e: &Entrada<'_>) -> Option<(ClassId, ClassId)> {
     Some((class_named("int")?, class_named("num")?))
 }
 
-/// Like [`calcular`], with [`Opcoes`].
-pub fn compute_with(e: Entrada<'_>, r: &Raizes, op: Opcoes) -> Mundo {
+/// Like [`calcular`], with [`Options`].
+pub fn compute_with(e: Entrada<'_>, r: &Raizes, op: Options) -> Mundo {
     let mut c = Computation::new(e, op);
     c.seed(r);
     c.engine.finish()
@@ -465,7 +465,7 @@ pub struct Computation<'a> {
 }
 
 impl<'a> Computation<'a> {
-    pub fn new(e: Entrada<'a>, op: Opcoes) -> Computation<'a> {
+    pub fn new(e: Entrada<'a>, op: Options) -> Computation<'a> {
         let mut m = Engine::new(e);
         if op.include_sdk {
             m.include_sdk = true;
@@ -516,7 +516,7 @@ fn seed(m: &mut Engine<'_>, r: &Raizes) {
     for f in fs {
         m.use_function_directly(f);
     }
-    let mut vs = r.variaveis.clone();
+    let mut vs = r.variables.clone();
     vs.sort();
     for v in vs {
         m.use_variable(v);
@@ -682,7 +682,7 @@ pub(crate) struct Engine<'a> {
     /// creates through the constructor without the static *tearoff*, which
     /// only the reference without a call cites.
     pub(crate) call_target: Option<dartforge_frontend::ast::ExprId>,
-    /// The SDK enters the fixed point like the program (`Opcoes::include_sdk`).
+    /// The SDK enters the fixed point like the program (`Options::include_sdk`).
     include_sdk: bool,
     /// Native classes (`@Native`/`@JsPeerInterface`): live as a type means
     /// instantiated, because the object is born in the browser.

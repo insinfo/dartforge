@@ -19,7 +19,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct NativeAction {
     pub fabrica: String,
-    pub entrada: AssetId,
+    pub input: AssetId,
     pub natural_input: PathBuf,
     /// Expected outputs and the natural path of each one.
     pub outputs: Vec<(AssetId, PathBuf)>,
@@ -138,7 +138,7 @@ pub(crate) fn glob_candidates(
     let Some(a) = graph.actions.get(action) else {
         return Vec::new();
     };
-    let (package, phase) = (a.entrada.package.clone(), a.phase);
+    let (package, phase) = (a.input.package.clone(), a.phase);
     let sources = graph.sources.get(&package).into_iter().flat_map(|cs| {
         cs.iter().map(|c| AssetId {
             package: package.clone(),
@@ -244,7 +244,7 @@ pub struct ActionRequest {
     pub fabrica: String,
     pub options: Map,
     pub root: bool,
-    pub entrada: AssetId,
+    pub input: AssetId,
     pub allowed_outputs: Vec<AssetId>,
 }
 
@@ -424,7 +424,7 @@ impl BuildStepService for ActionService<'_> {
             .graph
             .actions
             .get(self.action)
-            .map(|a| a.entrada.package.clone())
+            .map(|a| a.input.package.clone())
         else {
             return Vec::new();
         };
@@ -641,19 +641,19 @@ mod service_tests {
         graph.actions = vec![
             Action {
                 phase: 0,
-                entrada: source.clone(),
+                input: source.clone(),
                 outputs: vec![first.clone()],
                 pos: false,
             },
             Action {
                 phase: 1,
-                entrada: first.clone(),
+                input: first.clone(),
                 outputs: vec![second.clone(), escape.clone()],
                 pos: false,
             },
             Action {
                 phase: 2,
-                entrada: second.clone(),
+                input: second.clone(),
                 outputs: vec![future.clone()],
                 pos: false,
             },
@@ -740,13 +740,13 @@ mod service_tests {
         graph.actions = vec![
             Action {
                 phase: 0,
-                entrada: input.clone(),
+                input: input.clone(),
                 outputs: vec![predicted.clone()],
                 pos: false,
             },
             Action {
                 phase: 1,
-                entrada: input.clone(),
+                input: input.clone(),
                 outputs: vec![],
                 pos: true,
             },
@@ -845,7 +845,7 @@ mod service_tests {
         let input = AssetId::new("p", "lib/a.dart");
         graph.actions = vec![Action {
             phase: 0,
-            entrada: input.clone(),
+            input: input.clone(),
             outputs: vec![AssetId::new("p", "lib/a.g.dart")],
             pos: false,
         }];

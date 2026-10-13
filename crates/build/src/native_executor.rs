@@ -29,7 +29,7 @@ use crate::executor::{
     Availability, ExecutorError, DartExecutor, RuntimeExtensions, ActionRequest, ExtensionsRequest,
     ActionResult, BuilderScript, BuildStepService,
 };
-use crate::vm::{WrittenBootstrap, depfile_deps, gravar_bootstrap};
+use crate::vm::{WrittenBootstrap, depfile_deps, write_bootstrap};
 use dartforge_dfexec::CanalDeProcesso;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -231,7 +231,7 @@ impl NativeExecutor {
             principal: main,
             package_config: pc,
             mut hasher,
-        } = gravar_bootstrap(t, &project_config, script)?;
+        } = write_bootstrap(t, &project_config, script)?;
         let meta = std::fs::metadata(&self.cfg.compiler)
             .map_err(|e| format!("{}: {e}", self.cfg.compiler.display()))?;
         let date = meta

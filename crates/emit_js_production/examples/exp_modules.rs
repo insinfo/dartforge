@@ -16,7 +16,7 @@ fn main() {
                 std::fs::create_dir_all(d.parent().unwrap()).unwrap();
                 std::fs::write(d, t).unwrap();
             }
-            std::fs::write(output.join("main.mjs"), &e.entrada).unwrap();
+            std::fs::write(output.join("main.mjs"), &e.entry).unwrap();
         })
         .unwrap()
         .join()

@@ -108,9 +108,9 @@ impl DartExecutor for FakeDart {
         s: &mut dyn BuildStepService,
     ) -> Result<ActionResult, ExecutorError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        let _ = s.read(&p.entrada);
+        let _ = s.read(&p.input);
         for id in &p.allowed_outputs {
-            let bytes: Arc<[u8]> = format!("{}:{}\n", p.key, p.entrada.text())
+            let bytes: Arc<[u8]> = format!("{}:{}\n", p.key, p.input.text())
                 .into_bytes()
                 .into();
             s.write(id, bytes)

@@ -1,7 +1,7 @@
 //! The package graph of `build_runner_core` 8.0.0
 //! (`package_graph/package_graph.dart`, `PackageGraph.forPath`) and the SCCs of
 //! `graphs` 2.3.2, which decide the order of packages and targets.
-use crate::config::{Pubspec, DependencyType, LockedPackage, ler_lock};
+use crate::config::{Pubspec, DependencyType, LockedPackage, read_lock};
 use dartforge_elements::config::PackageConfig;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -68,7 +68,7 @@ impl PackageGraph {
             "Unable to generate package graph, no `pubspec.lock` found. This program must be ran from the root directory of your package.".to_string()
         })?;
         let lock: HashMap<String, LockedPackage> =
-            ler_lock(&lock_text, &lock_path.display().to_string())?
+            read_lock(&lock_text, &lock_path.display().to_string())?
                 .into_iter()
                 .collect();
 

@@ -36,7 +36,7 @@ fn roots(a: &dartforge_emit_js::Analysis<'_>, e: &dartforge_world::Entrada<'_>) 
             r.classes_instanciadas.push(c);
         }
     }
-    for (c, tags) in dartforge_world::tags_nativas(e) {
+    for (c, tags) in dartforge_world::native_tags(e) {
         if tags.iter().any(|t| BUILTIN_TAGS.contains(&t.as_str())) {
             r.classes_instanciadas.push(c);
         }
@@ -169,7 +169,7 @@ fn diagnose(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Mundo,
             continue;
         }
         let fid = dartforge_elements::model::FunctionElementId(i as u32);
-        let owner = f.class.map(|c| format!("{} [{:?}] selector={}", a.interner.resolve(p.class(c).name), world.classe(c), world.selector_live_for(p, target, c))).unwrap_or_default();
+        let owner = f.class.map(|c| format!("{} [{:?}] selector={}", a.interner.resolve(p.class(c).name), world.class_level(c), world.selector_live_for(p, target, c))).unwrap_or_default();
         eprintln!("[jsprod] {}::{target} live={} {owner} cause={:?}", p.library(f.library).uri, world.funcao(fid), world.function_cause(fid));
     }
 }
@@ -185,7 +185,7 @@ fn fixed_point(
     report: &mut WorldReport,
 ) -> Result<Option<EmittedWithSdk>, String> {
     let mut roots = roots(a, &input);
-    let opm = dartforge_world::Opcoes { include_sdk: true, without_asserts: !op.asserts };
+    let opm = dartforge_world::Options { include_sdk: true, without_asserts: !op.asserts };
     let constants = dartforge_world::Constants::new(input, !op.asserts);
     let max_rounds: usize = std::env::var("DARTFORGE_JSPROD_RODADAS").ok().and_then(|v| v.parse().ok()).unwrap_or(40).max(1);
     let trace = std::env::var("DARTFORGE_JSPROD_RASTRO").is_ok();
@@ -234,7 +234,7 @@ fn fixed_point(
         }
         report.fixes.extend(missing.description.iter().cloned());
         roots.funcoes.extend(missing.functions);
-        roots.variaveis.extend(missing.variables);
+        roots.variables.extend(missing.variables);
         roots.type_classes.extend(missing.classes);
         roots.classes_instanciadas.extend(missing.instantiated_classes);
         roots.tearoffs.extend(missing.tearoffs);
@@ -395,7 +395,7 @@ pub fn assemble(e: &EmittedWithSdk, op: Options, names: Option<&crate::propertie
         .map(|(p, t)| bundle::split(p, t))
         .collect();
     let (modules, cycles) = bundle::order(modules);
-    let entry = bundle::entry_from_mjs(&e.emitted.entrada, &modules).unwrap_or_else(|| "L$main".to_string());
+    let entry = bundle::entry_from_mjs(&e.emitted.entry, &modules).unwrap_or_else(|| "L$main".to_string());
     // The SDK module in an IIFE, like the program's: the `var`s of its
     // prelude (`dartx` aliases, private names) are locals; what is shared
     // (`dart`, the namespaces, `dartx`) is in the *bootstrap*.

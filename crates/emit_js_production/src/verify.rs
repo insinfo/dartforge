@@ -521,7 +521,7 @@ pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, pr
     }
     let mut new: HashSet<String> = HashSet::new();
     for (i, c) in program.classes.iter().enumerate() {
-        if (program.library(c.library).is_sdk && !world.include_sdk) || world.classe(ClassId(i as u32)) != ClassLevel::Instantiated {
+        if (program.library(c.library).is_sdk && !world.include_sdk) || world.class_level(ClassId(i as u32)) != ClassLevel::Instantiated {
             continue;
         }
         for (&key, &f) in c.instance_members.iter() {

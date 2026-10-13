@@ -23,15 +23,15 @@ pub struct Adapter<'m> {
 }
 
 impl Liveness for Adapter<'_> {
-    fn classe(&self, c: ClassId) -> Level {
-        match self.world.classe(c) {
+    fn class_level(&self, c: ClassId) -> Level {
+        match self.world.class_level(c) {
             ClassLevel::Instantiated => Level::Instantiated,
             ClassLevel::Type => Level::Type,
             ClassLevel::Dead if self.stub => Level::Type,
             ClassLevel::Dead => Level::Dead,
         }
     }
-    fn funcao(&self, f: FunctionElementId) -> State {
+    fn function(&self, f: FunctionElementId) -> State {
         if self.world.funcao(f) {
             State::Live
         } else if self.stub && self.program.function(f).extension.is_none() {
@@ -44,7 +44,7 @@ impl Liveness for Adapter<'_> {
             State::Dead
         }
     }
-    fn variavel(&self, v: VariableId) -> State {
+    fn variable(&self, v: VariableId) -> State {
         if self.world.variavel(v) {
             State::Live
         } else if self.stub && self.program.variable(v).extension.is_none() {

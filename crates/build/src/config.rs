@@ -93,7 +93,7 @@ impl LockedPackage {
     }
 }
 
-pub fn ler_lock(text: &str, origin: &str) -> Result<Vec<(String, LockedPackage)>, String> {
+pub fn read_lock(text: &str, origin: &str) -> Result<Vec<(String, LockedPackage)>, String> {
     let y = load_yaml(text, origin)?;
     let Yaml::Hash(packages) = &y["packages"] else {
         return Err(format!("{origin}: no `packages`"));
