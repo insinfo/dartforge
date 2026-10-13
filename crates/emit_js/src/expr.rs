@@ -2582,6 +2582,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     // Operators
     // -----------------------------------------------------------------------
 
+    /// An expression whose value is discarded (an expression statement, a
+    /// `for` update): `x++` and `x--` are emitted as `++x` and `--x`, without
+    /// the temporary that keeps the old value.
+    pub fn emit_discarded(&mut self, e: ExprId) -> Js {
+        // The type checker (the analysis mode) sees the expression as written.
+        if let (None, ExprKind::Unary { op: op @ (UnaryOp::PostfixInc | UnaryOp::PostfixDec), operand }) = (&self.ctx.type_check, &self.expr(e).kind) {
+            let (op, operand) = (*op, *operand);
+            let prefix = if op == UnaryOp::PostfixInc { UnaryOp::PrefixInc } else { UnaryOp::PrefixDec };
+            return self.emit_unary(prefix, operand, e).0;
+        }
+        self.emit_expr(e, None).0
+    }
+
     fn emit_unary(&mut self, op: UnaryOp, operand: ExprId, e: ExprId) -> (Js, Ty) {
         match op {
             UnaryOp::Not => {

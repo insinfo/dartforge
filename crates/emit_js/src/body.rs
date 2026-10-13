@@ -1211,7 +1211,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                         return;
                     }
                 }
-                let (js, _) = self.emit_expr(*e, None);
+                let js = self.emit_discarded(*e);
                 crate::emit_line!(self.w, "{};", js.code);
             }
             StmtKind::If { condition, case_pattern, guard, then, else_ } => {
@@ -1339,7 +1339,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     Some(c) => self.emit_cond(*c).0,
                     None => String::new(),
                 };
-                let upd: Vec<String> = updates.iter().map(|u| self.emit_expr(*u, None).0.code).collect();
+                let upd: Vec<String> = updates.iter().map(|u| self.emit_discarded(*u).code).collect();
                 self.w.open(&format!("for ({init_js}; {cond_js}; {}) {{", upd.join(", ")));
                 self.push_scope();
                 self.emit_stmt(*body);
