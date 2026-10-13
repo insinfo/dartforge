@@ -815,6 +815,9 @@ pub fn minify_with_properties(js: &str, names: &crate::properties::Names) -> Res
     // Library members as variables (`flatten.rs`); `DARTFORGE_JSPROD_ACHATAR=0`
     // turns it off.
     let source = if std::env::var("DARTFORGE_JSPROD_ACHATAR").map_or(true, |v| v != "0") { crate::flatten::apply(&source)?.0 } else { source };
+    // Trivial functions inlined at their calls (`inline.rs`);
+    // `DARTFORGE_JSPROD_INLINE=0` turns it off.
+    let source = if std::env::var("DARTFORGE_JSPROD_INLINE").map_or(true, |v| v != "0") { crate::inline::apply(&source)? } else { source };
     // Compact forms (`shapes.rs`); `DARTFORGE_JSPROD_FORMAS=0` turns it off.
     let source = if std::env::var("DARTFORGE_JSPROD_FORMAS").map_or(true, |v| v != "0") { crate::shapes::apply(&source)? } else { source };
     let allocator = Allocator::default();

@@ -20,6 +20,7 @@ pub mod bundle;
 pub mod cache;
 pub mod filter;
 pub mod flatten;
+pub mod inline;
 pub mod minify;
 pub mod named_args;
 pub mod own_sdk;
