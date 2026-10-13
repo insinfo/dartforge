@@ -835,7 +835,7 @@ impl Engine {
             .actions
             .iter()
             .zip(&self.records)
-            .filter(|(a, _)| a.pos)
+            .filter(|(a, _)| a.post_process)
             .filter_map(|(_, r)| r.as_ref())
             .flat_map(|r| {
                 r.outputs
@@ -916,7 +916,7 @@ impl Engine {
                 continue;
             }
             let phase = &self.phases[action.phase];
-            let requested = action.pos
+            let requested = action.post_process
                 || !phase.optional
                     && action.outputs.iter().any(|s| {
                         self.options.filters.iter().any(|f| f.matches(s)) && self.visible_in_build(s)
@@ -1216,7 +1216,7 @@ impl Engine {
             // input and the parts), which decide the next time.
             let mut preset: HashMap<usize, ActionRecord> = HashMap::new();
             let mut from_trigger: HashMap<usize, Queries> = HashMap::new();
-            if !self.phases[fi].pos {
+            if !self.phases[fi].post_process {
                 for &a in &to_run {
                     if let Some(r) = self.unwritten_input(a) {
                         preset.insert(a, r);
@@ -1248,7 +1248,7 @@ impl Engine {
                     }
                     v
                 }
-                None if dart_reason.is_none() && self.phases[fi].pos => {
+                None if dart_reason.is_none() && self.phases[fi].post_process => {
                     self.post_process_serial(&run)
                 }
                 None if dart_reason.is_none() => {
@@ -1315,7 +1315,7 @@ impl Engine {
                 // A post-processor's outputs that the new run did not write
                 // disappear (the anchor's `_cleanUpStaleOutputs`).
                 if let Some(old) = &self.records[a]
-                    && self.graph.actions[a].pos
+                    && self.graph.actions[a].post_process
                 {
                     for (s, _) in &old.outputs {
                         if !r.outputs.iter().any(|(x, _)| x == s) {
@@ -1425,7 +1425,7 @@ impl Engine {
             .filter(|&fi| self.phases[fi].extensions.is_some() && self.native_for_phase(fi).is_none())
             .collect();
         let post: Vec<usize> = (0..self.phases.len())
-            .filter(|&fi| self.phases[fi].pos && self.phases[fi].replaced_by.is_none())
+            .filter(|&fi| self.phases[fi].post_process && self.phases[fi].replaced_by.is_none())
             .collect();
         let available = self
             .dart
@@ -1552,7 +1552,7 @@ impl Engine {
         let mut h = blake3::Hasher::new();
         h.update(f.identity(&self.plan, &self.package_graph).as_bytes());
         h.update(f.options.canonical_text().as_bytes());
-        h.update(&[u8::from(f.root), u8::from(action.pos)]);
+        h.update(&[u8::from(f.root), u8::from(action.post_process)]);
         h.update(action.input.text().as_bytes());
         for s in &action.outputs {
             h.update(b"\n");
@@ -1625,7 +1625,7 @@ impl Engine {
                 Origin::Native(n) => crate::persistence::SavedOrigin::Native(n.to_string()),
                 Origin::Dart if dart_code.is_some() => crate::persistence::SavedOrigin::Dart,
                 Origin::Support => crate::persistence::SavedOrigin::Support,
-                Origin::Skipped if self.graph.actions[a].pos => {
+                Origin::Skipped if self.graph.actions[a].post_process => {
                     crate::persistence::SavedOrigin::Skipped
                 }
                 Origin::Dart
@@ -1716,7 +1716,7 @@ impl Engine {
                 {
                     Origin::Support
                 }
-                crate::persistence::SavedOrigin::Skipped if self.graph.actions[a].pos => {
+                crate::persistence::SavedOrigin::Skipped if self.graph.actions[a].post_process => {
                     Origin::Skipped
                 }
                 _ => continue,
@@ -1826,7 +1826,7 @@ impl Engine {
     fn post_process_serial(&self, to_run: &[usize]) -> Vec<ActionRecord> {
         let mut owners: BTreeMap<AssetId, usize> = BTreeMap::new();
         for (a, (action, r)) in self.graph.actions.iter().zip(&self.records).enumerate() {
-            if let (true, Some(r)) = (action.pos, r) {
+            if let (true, Some(r)) = (action.post_process, r) {
                 for (s, _) in &r.outputs {
                     owners.insert(s.clone(), a);
                 }
@@ -2964,7 +2964,7 @@ impl Engine {
                     .actions
                     .iter()
                     .zip(&self.records)
-                    .filter(|(a, _)| a.pos)
+                    .filter(|(a, _)| a.post_process)
                     .filter_map(|(_, r)| r.as_ref())
                     .find_map(|r| {
                         r.outputs
@@ -2986,7 +2986,7 @@ impl Engine {
                 let has_post = self
                     .phases
                     .iter()
-                    .any(|f| f.pos && self.package_graph.nodes[f.package].name == *id.package);
+                    .any(|f| f.post_process && self.package_graph.nodes[f.package].name == *id.package);
                 if has_post {
                     p.pending.push((
                         id.clone(),

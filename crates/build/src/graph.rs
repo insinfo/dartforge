@@ -82,14 +82,14 @@ pub struct Action {
     pub phase: usize,
     pub input: AssetId,
     pub outputs: Vec<AssetId>,
-    pub pos: bool,
+    pub post_process: bool,
 }
 
 impl Action {
     /// The action exists in the current graph (it was not removed by
     /// `_removeRecursive`).
     pub fn live(&self) -> bool {
-        self.pos || !self.outputs.is_empty()
+        self.post_process || !self.outputs.is_empty()
     }
 }
 
@@ -296,7 +296,7 @@ impl Graph {
         // `allInputs`: sources + synthetic nodes, and the accumulated outputs.
         let mut inputs: BTreeMap<Arc<str>, BTreeSet<Arc<str>>> = g.sources.clone();
         for (fi, phase) in phases.iter().enumerate() {
-            if phase.pos {
+            if phase.post_process {
                 g.anchors(fi, phase, graph, &inputs);
                 continue;
             }
@@ -364,7 +364,7 @@ impl Graph {
                     phase: fi,
                     input: id,
                     outputs: outputs,
-                    pos: false,
+                    post_process: false,
                 });
             }
             let e = inputs.entry(package).or_default();
@@ -408,7 +408,7 @@ impl Graph {
                 phase: fi,
                 input: id,
                 outputs: Vec::new(),
-                pos: true,
+                post_process: true,
             });
         }
     }

@@ -33,7 +33,7 @@ impl ApplyFilter {
 #[derive(Debug, Clone)]
 pub struct Application {
     pub key: String,
-    pub pos: bool,
+    pub post_process: bool,
     /// Import as the script writes it (`package:…` or relative to
     /// `.dart_tool/build/entrypoint`).
     pub import: String,
@@ -74,7 +74,7 @@ impl Application {
             .as_ref()
             .map(|g| g.canonical_text())
             .unwrap_or_else(|| "-".into());
-        if self.pos {
+        if self.post_process {
             format!(
                 "applyPostProcess {} {} defaultGenerateFor={gf} defaultOptions={} defaultDevOptions={} defaultReleaseOptions={}",
                 serde_json::Value::String(self.key.clone()),
@@ -338,7 +338,7 @@ impl Plan {
                     ));
                 }
             }
-            for p in &c.pos {
+            for p in &c.post_process_builders {
                 if valid(&p.import, &p.package) {
                     post.push(p.clone());
                 }
@@ -422,7 +422,7 @@ impl Plan {
             let d = &defs[i];
             applications.push(Application {
                 key: d.key.clone(),
-                pos: false,
+                post_process: false,
                 import: script_import(&d.import),
                 factories: d.factories.clone(),
                 filter: match d.auto_apply {
@@ -445,7 +445,7 @@ impl Plan {
         for p in post {
             applications.push(Application {
                 key: p.key.clone(),
-                pos: true,
+                post_process: true,
                 import: script_import(&p.import),
                 factories: vec![p.factory.clone()],
                 filter: ApplyFilter::NoneByDefault,
@@ -532,7 +532,7 @@ pub struct Phase {
     pub root: bool,
     pub optional: bool,
     pub hidden: bool,
-    pub pos: bool,
+    pub post_process: bool,
     /// `None` for post-processors and replaced builders.
     pub extensions: Option<Extensions>,
     /// Post-processor: the `inputExtensions` of the `PostProcessBuilder`
@@ -567,7 +567,7 @@ impl Phase {
             self.target_sources.text(),
             self.optional,
             self.hidden,
-            self.pos,
+            self.post_process,
             self.extensions.as_ref().map(|e| &e.declared),
             self.post_inputs,
             self.only_if_triggered,
@@ -762,10 +762,10 @@ pub fn phases(
                     // `phase.options.config['run_only_if_triggered'] == true`,
                     // on the phase options before any equivalence.
                     let only_if_triggered = triggers_enabled
-                        && !ap.pos
+                        && !ap.post_process
                         && options.get("run_only_if_triggered")
                             == Some(&crate::value::Value::Bool(true));
-                    if ap.pos && !ap.hidden {
+                    if ap.post_process && !ap.hidden {
                         return Err(format!(
                             "{}: post_process_builders with build_to: source (build_config ≥ 1.3.0) is not supported by the DartForge engine yet",
                             ap.key
@@ -776,7 +776,7 @@ pub fn phases(
                         .or_else(|| ap.generate_for_pattern.clone())
                         .unwrap_or_default();
                     let replaced = crate::descriptor::replaced_by(&ap.key);
-                    let equivalent = if ap.pos || replaced.is_some() {
+                    let equivalent = if ap.post_process || replaced.is_some() {
                         None
                     } else {
                         equivalents
@@ -795,7 +795,7 @@ pub fn phases(
                         Some(e) => e.options.clone(),
                         None => options,
                     };
-                    let extensions = if ap.pos || replaced.is_some() {
+                    let extensions = if ap.post_process || replaced.is_some() {
                         None
                     } else {
                         let decl = crate::descriptor::runtime_extensions(
@@ -818,14 +818,14 @@ pub fn phases(
                         root: graph.nodes[node.package].is_root,
                         optional: ap.optional,
                         hidden: ap.hidden,
-                        pos: ap.pos,
+                        post_process: ap.post_process,
                         extensions: extensions,
                         post_inputs: None,
                         replaced_by: replaced,
                         equivalent: equivalent.map(|e| e.key),
                         only_if_triggered,
                     };
-                    if ap.pos {
+                    if ap.post_process {
                         post.push(f);
                     } else {
                         in_build.push(f);

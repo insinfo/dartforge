@@ -463,7 +463,7 @@ impl BuildStepService for ActionService<'_> {
         let Some(action) = self.graph.actions.get(self.action) else {
             return Err(DisallowedOutput(id.clone()));
         };
-        if action.pos {
+        if action.post_process {
             // `PostProcessBuildStep.writeAsBytes` → `addAsset`
             // (`build_impl.dart:643-656`): any asset the graph does not have
             // yet — not a source, not a predicted output, not another
@@ -643,19 +643,19 @@ mod service_tests {
                 phase: 0,
                 input: source.clone(),
                 outputs: vec![first.clone()],
-                pos: false,
+                post_process: false,
             },
             Action {
                 phase: 1,
                 input: first.clone(),
                 outputs: vec![second.clone(), escape.clone()],
-                pos: false,
+                post_process: false,
             },
             Action {
                 phase: 2,
                 input: second.clone(),
                 outputs: vec![future.clone()],
-                pos: false,
+                post_process: false,
             },
         ];
         for (id, action, phase) in [(&first, 0, 0), (&second, 1, 1), (&future, 2, 2)] {
@@ -742,13 +742,13 @@ mod service_tests {
                 phase: 0,
                 input: input.clone(),
                 outputs: vec![predicted.clone()],
-                pos: false,
+                post_process: false,
             },
             Action {
                 phase: 1,
                 input: input.clone(),
                 outputs: vec![],
-                pos: true,
+                post_process: true,
             },
         ];
         graph.generated.insert(
@@ -847,7 +847,7 @@ mod service_tests {
             phase: 0,
             input: input.clone(),
             outputs: vec![AssetId::new("p", "lib/a.g.dart")],
-            pos: false,
+            post_process: false,
         }];
         let memory = |_: &AssetId| None;
         let mut s = ActionService::new(&graph, &packages, 0, &memory);

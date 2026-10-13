@@ -291,7 +291,7 @@ pub struct GlobalBuilderConfig {
 pub struct BuildConfig {
     pub package: String,
     pub builders: Vec<BuilderDefinition>,
-    pub pos: Vec<PostProcessDefinition>,
+    pub post_process_builders: Vec<PostProcessDefinition>,
     pub targets: Vec<Target>,
     pub global: Vec<(String, GlobalBuilderConfig)>,
     pub additional_public: Vec<String>,
@@ -307,7 +307,7 @@ impl BuildConfig {
         BuildConfig {
             package: package.to_string(),
             builders: Vec::new(),
-            pos: Vec::new(),
+            post_process_builders: Vec::new(),
             targets: vec![Target {
                 key: format!("{package}:{package}"),
                 package: package.to_string(),
@@ -915,7 +915,7 @@ impl Ctx<'_> {
         Ok(BuildConfig {
             package: self.package.to_string(),
             builders,
-            pos: post,
+            post_process_builders: post,
             targets: targets,
             global,
             additional_public: self
@@ -1002,7 +1002,7 @@ post_process_builders:
             b.defaults.release_options.canonical_text(),
             r#"{"outputStyle": "compressed", "sourceMaps": false}"#
         );
-        assert_eq!(c.pos[0].key, "sass_builder:sass_source_cleanup");
+        assert_eq!(c.post_process_builders[0].key, "sass_builder:sass_source_cleanup");
         assert_eq!(c.targets[0].key, "sass_builder:sass_builder");
         assert_eq!(c.targets[0].dependencies, vec!["sass:sass"]);
     }
@@ -1022,7 +1022,7 @@ post_process_builders:
         let post = "post_process_builders:\n  x:\n    import: a.dart\n    builder_factory: f\n    build_to: source\n";
         assert!(BuildConfig::from_text_with_profile("p", &[], post, "t", p12).is_err());
         let c = BuildConfig::from_text_with_profile("p", &[], post, "t", p13).unwrap();
-        assert_eq!(c.pos[0].build_to, BuildTo::Source);
+        assert_eq!(c.post_process_builders[0].build_to, BuildTo::Source);
         // A key from another package: accepted up to 1.3.1, an error in 1.3.2.
         let other = "builders:\n  q:x:\n    import: a.dart\n    builder_factories: [f]\n    build_extensions: {.a: [.b]}\n";
         assert!(BuildConfig::from_text_with_profile("p", &[], other, "t", p12).is_ok());

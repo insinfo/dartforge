@@ -380,7 +380,7 @@ pub fn read_build_dart(text: &str) -> Result<Vec<Application>, String> {
         };
         let mut a = Application {
             key: key,
-            pos: is_post,
+            post_process: is_post,
             import,
             factories: factories,
             filter: filter,

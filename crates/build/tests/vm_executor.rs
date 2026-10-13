@@ -410,7 +410,7 @@ fn restored_equal_count(dir: &Path, origin: &Path) -> usize {
 /// The post-processor output `notas.rascunho.resumo` in the anchor's record.
 fn summary(m: &Engine) -> Option<std::sync::Arc<[u8]>> {
     (0..m.graph.actions.len())
-        .filter(|&a| m.graph.actions[a].pos)
+        .filter(|&a| m.graph.actions[a].post_process)
         .filter_map(|a| m.record(a))
         .flat_map(|r| r.outputs.iter())
         .find(|(s, _)| s.path.as_ref() == "lib/entrada/notas.rascunho.resumo")
@@ -447,7 +447,7 @@ fn post_processor_through_the_vm() {
     update(&mut m, &[]);
     assert_eq!(summary(&m).as_deref(), Some(expected.as_slice()));
     let anchors: Vec<usize> = (0..m.graph.actions.len())
-        .filter(|&a| m.graph.actions[a].pos)
+        .filter(|&a| m.graph.actions[a].post_process)
         .collect();
     assert_eq!(anchors.len(), 1, "one anchor: the only .rascunho input");
     assert!(
@@ -529,7 +529,7 @@ fn post_processor_through_the_vm() {
         .update(&context, &[], Demand::Everything)
         .expect("update in release");
     let anchor = (0..r.graph.actions.len())
-        .find(|&a| r.graph.actions[a].pos)
+        .find(|&a| r.graph.actions[a].post_process)
         .unwrap();
     assert_eq!(
         r.record(anchor).unwrap().deleted_outputs,
