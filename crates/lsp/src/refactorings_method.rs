@@ -1,12 +1,12 @@
 //! Extract Method (`legacy/extract_method.dart`, docs/LSP-ESPECIFICACAO.md
-//! §13.11.3): as condições iniciais (`_checkSelection`,
-//! `_initializeParameters`, `_initializeReturnType`, ocorrências, getter,
-//! nomes), as finais (nome, parâmetros, `validateCreateFunction`/
-//! `validateCreateMethod`) e a mudança com `extractAll = false`, com os
-//! imports do `addLibraryImports`. O `ExitDetector` do analyzer
-//! (`AN:src/dart/resolve/exit_detector.dart`) está portado aqui sobre a
-//! árvore no formato do analyzer.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! §13.11.3): the initial conditions (`_checkSelection`,
+//! `_initializeParameters`, `_initializeReturnType`, occurrences, getter,
+//! names), the final ones (name, parameters, `validateCreateFunction`/
+//! `validateCreateMethod`) and the change with `extractAll = false`, with
+//! the imports from `addLibraryImports`. The analyzer's `ExitDetector`
+//! (`AN:src/dart/resolve/exit_detector.dart`) is ported here over the
+//! analyzer-shaped tree.
+//! Written without compiling or running (2026-10-05).
 
 use crate::arvore_analyzer::Marca;
 use crate::refactorings::{Context, Elem, RefactoringRequest, RefactoringResult, MethodSelection};
@@ -20,30 +20,30 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 type R = RefactoringResult;
 
-/// Um parâmetro do método novo (`RefactoringMethodParameter`).
+/// A parameter of the new method (`RefactoringMethodParameter`).
 #[derive(Debug, Clone)]
 struct Parameter {
     name: String,
     ty: String,
-    /// Os parâmetros de um parâmetro de tipo função (`(int a)`).
+    /// The parameters of a function-typed parameter (`(int a)`).
     parameters: Option<String>,
 }
 
-/// Uma ocorrência da seleção (`_Occurrence`).
+/// An occurrence of the selection (`_Occurrence`).
 #[derive(Debug, Clone)]
 struct Occurrence {
     range: (usize, usize),
     is_selection: bool,
-    /// Nome na seleção → nome nesta ocorrência.
+    /// Name in the selection → name in this occurrence.
     names: HashMap<String, String>,
 }
 
-/// O padrão de um trecho (`_SourcePattern`).
+/// The pattern of a snippet (`_SourcePattern`).
 #[derive(Debug, Clone, Default)]
 struct Pattern {
     types: Vec<Option<TypeId>>,
     normalized: String,
-    /// Nome original → `__refVar<i>`.
+    /// Original name → `__refVar<i>`.
     names: Vec<(String, String)>,
 }
 
@@ -59,10 +59,10 @@ impl Pattern {
     }
 }
 
-/// O estado do `ExtractMethodRefactoringImpl`.
+/// The state of `ExtractMethodRefactoringImpl`.
 struct Extract<'c, 'p> {
     cx: &'c Context<'p>,
-    /// Uma cópia da tabela de tipos (o LUB e o `Future<T>` criam tipos).
+    /// A copy of the type table (the LUB and `Future<T>` create types).
     table: TypeTable,
     sel: MethodSelection,
     /// `_selectionRange`.
@@ -70,7 +70,7 @@ struct Extract<'c, 'p> {
     /// `_parentMember`.
     member: Option<usize>,
     parameters: Vec<Parameter>,
-    /// Pelo id (o nome) do parâmetro.
+    /// By the parameter's id (its name).
     references: HashMap<String, Vec<(usize, usize)>>,
     local_names: HashMap<String, Vec<(usize, usize)>>,
     not_qualified: HashSet<String>,
@@ -85,13 +85,13 @@ struct Extract<'c, 'p> {
     names: Vec<String>,
     import: BTreeSet<LibraryId>,
     name: String,
-    /// Uma exceção do Dart (vira `UnhandledError`).
+    /// A Dart exception (becomes `UnhandledError`).
     exception: Option<String>,
     /// `_getExpectedClosureReturnTypeCode`.
     closure_return: String,
 }
 
-/// `refactor.perform`/`refactor.validate` do `EXTRACT_METHOD`.
+/// `refactor.perform`/`refactor.validate` of `EXTRACT_METHOD`.
 pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> RefactoringResult {
     let preferred = match options_name(request) {
         Ok(n) => n,
@@ -130,8 +130,8 @@ pub(crate) fn run(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> 
     finish(request, initial, || em.final_conditions(), || em.change(uri))
 }
 
-/// `getEnclosingClassOrUnitMember`: o nó logo abaixo da primeira classe,
-/// enum, extensão, tipo de extensão, mixin ou unidade, subindo de `n`.
+/// `getEnclosingClassOrUnitMember`: the node right below the first class,
+/// enum, extension, extension type, mixin or unit, walking up from `n`.
 pub(crate) fn enclosing_member(cx: &Context<'_>, n: usize) -> Option<usize> {
     let mut member = n;
     for k in cx.with_parents(n) {
@@ -157,7 +157,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         self.range.0 <= i && f <= self.range.1
     }
 
-    /// Os nós em pré-ordem a partir de `root` (a ordem dos visitantes).
+    /// The nodes in pre-order from `root` (the visitors' order).
     fn pre_order(&self, root: usize) -> Vec<usize> {
         let mut v = Vec::new();
         let mut stack = vec![root];
@@ -168,7 +168,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         v
     }
 
-    /// O offset do nome declarado do elemento local de um identificador.
+    /// The offset of the declared name of an identifier's local element.
     fn local_declaration(&self, n: usize, e: Elem) -> Option<usize> {
         match e {
             Elem::LocalFunction(fid) => self.cx.ast.function(fid).name.map(|x| x.span.start),
@@ -180,7 +180,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         }
     }
 
-    /// O identificador está em contexto de escrita (`inSetterContext`).
+    /// The identifier is in a write context (`inSetterContext`).
     fn in_write(&self, n: usize) -> bool {
         match self.cx.tree.nos[n].marca {
             Marca::Expr(x) => self.cx.writes.contains(&x),
@@ -203,7 +203,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         self.initialize_return_type();
         self.initialize_occurrences();
         self.create_getter = self.can_create_getter() && self.sel.expression.is_some_and(|e| self.getter_expression(e));
-        // Os nomes: os locais declarados no membro ficam de fora.
+        // The names: the locals declared in the member are left out.
         let excluded: HashSet<String> = match self.member {
             Some(m) => self
                 .pre_order(m)
@@ -295,8 +295,8 @@ impl<'c, 'p> Extract<'c, 'p> {
     fn visit_identifier(&mut self, n: usize, assigned: &mut Vec<(usize, String)>) {
         let cx = self.cx;
         let name = cx.node_text(n).to_string();
-        // O rótulo de um argumento nomeado: o elemento é o parâmetro (local
-        // para `isLocalElement`), e o visitante sai.
+        // The label of a named argument: the element is the parameter (local for
+        // `isLocalElement`), and the visitor returns.
         if let Some(p) = cx.parent(n)
             && cx.kind(p) == "Label"
             && cx.parent(p).is_some_and(|g| cx.kind(g) == "NamedExpression")
@@ -355,8 +355,8 @@ impl<'c, 'p> Extract<'c, 'p> {
         }
     }
 
-    /// `_isUsedAfterSelection`: um identificador do membro com o mesmo
-    /// elemento depois da seleção.
+    /// `_isUsedAfterSelection`: an identifier of the member with the same
+    /// element after the selection.
     fn used_after(&self, d: usize) -> bool {
         let Some(m) = self.member else { return false };
         let (mi, mf) = self.no(m);
@@ -369,14 +369,13 @@ impl<'c, 'p> Extract<'c, 'p> {
         })
     }
 
-    /// `VisibleRangesComputer`: o bloco que contém a declaração.
+    /// `VisibleRangesComputer`: the block that contains the declaration.
     fn visible_range(&self, n: usize) -> Option<(usize, usize)> {
         let b = self.cx.with_parents(n).find(|&k| matches!(self.cx.kind(k), "Block" | "SwitchCase" | "SwitchPatternCase" | "SwitchDefault"))?;
         Some(self.no(b))
     }
 
-    /// `_mayEndWithReturnStatement`: algum `return` fora de corpos de bloco
-    /// aninhados.
+    /// `_mayEndWithReturnStatement`: some `return` outside nested block bodies.
     fn can_end_with_return(&self, c: usize) -> bool {
         let mut stack = vec![c];
         while let Some(k) = stack.pop() {
@@ -389,8 +388,8 @@ impl<'c, 'p> Extract<'c, 'p> {
         false
     }
 
-    /// `_ReturnTypeComputer`: o LUB dos tipos dos `return e;` (sem os de
-    /// fundo), fora de corpos de bloco aninhados.
+    /// `_ReturnTypeComputer`: the LUB of the types of the `return e;`s
+    /// (excluding bottom ones), outside nested block bodies.
     fn returns_type(&mut self, commands: &[usize]) -> Option<TypeId> {
         let mut ty: Option<TypeId> = None;
         for &c in commands {
@@ -424,7 +423,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         ty
     }
 
-    /// `DartType.isBottom`: `Never` ou parâmetro de tipo limitado por ele.
+    /// `DartType.isBottom`: `Never` or a type parameter bounded by it.
     fn is_bottom(&self, t: TypeId) -> bool {
         match self.table.get(t) {
             Type::Never => true,
@@ -536,7 +535,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         }
     }
 
-    // -- Ocorrências -------------------------------------------------------------
+    // -- Occurrences -------------------------------------------------------------
 
     /// `_getSourcePattern(range)`.
     fn pattern(&self, (start, end): (usize, usize)) -> Pattern {
@@ -557,8 +556,7 @@ impl<'c, 'p> Extract<'c, 'p> {
                 swaps.push((ni - start, nf - start, pattern));
             }
         };
-        // `_GetSourcePatternVisitor` (o `NamedExpression` só visita a
-        // expressão).
+        // `_GetSourcePatternVisitor` (a `NamedExpression` only visits the expression).
         let mut stack = vec![0usize];
         while let Some(k) = stack.pop() {
             let (ki, kf) = self.no(k);
@@ -606,7 +604,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         p
     }
 
-    /// O tipo declarado de um elemento local (`VariableElement.type` ou
+    /// The declared type of a local element (`VariableElement.type` or
     /// `FunctionElement.type`).
     fn element_type(&self, e: Elem, d: usize) -> Option<TypeId> {
         match e {
@@ -615,7 +613,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         }
     }
 
-    /// `_initializeOccurrences` com o `_InitializeOccurrencesVisitor`.
+    /// `_initializeOccurrences` with the `_InitializeOccurrencesVisitor`.
     fn initialize_occurrences(&mut self) {
         self.occurrences.clear();
         let Some(m) = self.member else { return };
@@ -651,7 +649,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         for f in cx.children(n).to_vec() {
             self.visit_occurrences(f, pattern, force);
         }
-        // O `finally` do visitante zera (não restaura) a marca.
+        // The visitor's `finally` clears (does not restore) the mark.
         if matches!(
             kind,
             "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer" | "FieldDeclaration" | "MethodDeclaration"
@@ -662,10 +660,10 @@ impl<'c, 'p> Extract<'c, 'p> {
         }
     }
 
-    /// O membro é `static`.
+    /// The member is `static`.
     fn static_declaration(&self, n: usize) -> bool {
         let t = self.cx.node_text(n);
-        // Depois do comentário e das anotações: o primeiro token é `static`?
+        // After the comment and the annotations: is the first token `static`?
         let (start, _) = self.no(n);
         let real_start = self
             .cx
@@ -679,7 +677,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         rest.starts_with("static") && !rest[6..].starts_with(|c: char| c.is_alphanumeric() || c == '_' || c == '$')
     }
 
-    /// `_visitStatements`: janelas de `n` comandos.
+    /// `_visitStatements`: windows of `n` statements.
     fn windows(&mut self, commands: &[usize], pattern: &Pattern, force: bool) {
         let n = self.sel.commands.len();
         let mut i = 0;
@@ -716,11 +714,11 @@ impl<'c, 'p> Extract<'c, 'p> {
         true
     }
 
-    // -- Tipos -------------------------------------------------------------------
+    // -- Types -------------------------------------------------------------------
 
-    /// Os nomes dos parâmetros de um tipo de função de um local (os do
-    /// `FunctionType` do analyzer): os da função local, os da closure que o
-    /// inicializa, ou os do tipo escrito.
+    /// The parameter names of a local's function type (those of the analyzer's
+    /// `FunctionType`): those of the local function, of the closure that
+    /// initializes it, or of the written type.
     fn local_parameter_names(&self, e: Elem, d: usize) -> Vec<String> {
         let ast = self.cx.ast;
         let source = self.cx.source;
@@ -728,7 +726,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         if let Elem::LocalFunction(fid) = e {
             return ast.function(fid).parameters.as_deref().map(names_of).unwrap_or_default();
         }
-        // A declaração: um parâmetro com tipo escrito, ou uma variável.
+        // The declaration: a parameter with a written type, or a variable.
         if let Some((p, _)) = crate::project::parameter_in(ast, d) {
             if let Some(t) = p.ty
                 && let ast::TypeKind::Function { parameters, .. } = &ast.ty(t).kind
@@ -760,8 +758,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         Vec::new()
     }
 
-    /// `LibraryElement.getTypeSource(type, librariesToImport,
-    /// parametersBuffer)`.
+    /// `LibraryElement.getTypeSource(type, librariesToImport, parametersBuffer)`.
     fn type_source(&mut self, t: TypeId, buffer: Option<(&mut String, Vec<String>)>) -> Option<String> {
         if let Some(Exibicao::Alias { typedef, args }) = self.table.exibicao(t).cloned() {
             let null = self.table.get(t).is_declared_nullable();
@@ -853,7 +850,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         }
     }
 
-    /// A classe `FutureOr` de `dart:async`.
+    /// The `FutureOr` class of `dart:async`.
     fn future_or_class(&self) -> Option<ClassId> {
         let p = self.cx.p;
         let prog = p.program();
@@ -907,8 +904,8 @@ impl<'c, 'p> Extract<'c, 'p> {
         Some(s)
     }
 
-    /// `_getImportElement`: o primeiro import da unidade definidora cujo
-    /// espaço de nomes tem o elemento: `Some(prefix)`; `None` sem import.
+    /// `_getImportElement`: the first import of the defining unit whose
+    /// namespace has the element: `Some(prefix)`; `None` without an import.
     fn element_import(&self, current: LibraryId, el: Element, name: &str) -> Option<Option<String>> {
         let p = self.cx.p;
         let prog = p.program();
@@ -930,7 +927,7 @@ impl<'c, 'p> Extract<'c, 'p> {
             if b.getter != Some(el) {
                 continue;
             }
-            // Os combinadores.
+            // The combinators.
             let visible = imp.combinators.iter().all(|c| match c {
                 ast::Combinator::Show(ns) => ns.iter().any(|n| p.name(n.sym) == name),
                 ast::Combinator::Hide(ns) => !ns.iter().any(|n| p.name(n.sym) == name),
@@ -940,7 +937,7 @@ impl<'c, 'p> Extract<'c, 'p> {
             }
             return Some(imp.prefix.map(|x| p.name(x).to_string()));
         }
-        // O import implícito de `dart:core`.
+        // The implicit `dart:core` import.
         let library = match el {
             Element::Class(c) => prog.class(c).library,
             Element::Typedef(t) => prog.typedef(t).library,
@@ -952,7 +949,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         None
     }
 
-    // -- Condições finais ----------------------------------------------------------
+    // -- Final conditions ----------------------------------------------------------
 
     /// `checkFinalConditions`.
     fn final_conditions(&self) -> State {
@@ -1000,16 +997,16 @@ impl<'c, 'p> Extract<'c, 'p> {
         }
     }
 
-    /// `validateCreateFunction`: `_validateWillConflict` e
+    /// `validateCreateFunction`: `_validateWillConflict` and
     /// `_validateWillShadow(null)`.
     fn validate_create_function(&self) -> State {
         let p = self.cx.p;
         let prog = p.program();
         let lib = prog.unit(self.cx.unit).library;
         let mut r = State::default();
-        // Os elementos de topo de cada unidade, na ordem de `children`:
-        // acessores, classes, enums, extensões, tipos de extensão, funções,
-        // mixins, aliases e variáveis.
+        // The top-level elements of each unit, in `children` order: accessors,
+        // classes, enums, extensions, extension types, functions, mixins, aliases
+        // and variables.
         for &u in prog.library(lib).units.iter() {
             for (kind, name) in top_elements(self.cx, u) {
                 if name == self.name {
@@ -1021,8 +1018,8 @@ impl<'c, 'p> Extract<'c, 'p> {
         r
     }
 
-    /// `_validateWillShadow(null)`: cada membro de classe com o nome, com
-    /// uma referência não qualificada de outra classe.
+    /// `_validateWillShadow(null)`: each class member with the name, with an
+    /// unqualified reference from another class.
     fn shadowings(&self, created_kind: &str) -> State {
         let p = self.cx.p;
         let prog = p.program();
@@ -1039,10 +1036,9 @@ impl<'c, 'p> Extract<'c, 'p> {
         r
     }
 
-    /// O membro `s` → `f` da classe `c` é uma declaração com o nome
-    /// procurado (`searchMemberDeclarations`: acessores explícitos, campos e
-    /// métodos): a espécie, o nome qualificado e as funções cujas
-    /// referências contam.
+    /// Member `s` → `f` of class `c` is a declaration with the searched name
+    /// (`searchMemberDeclarations`: explicit accessors, fields and methods):
+    /// the kind, the qualified name and the functions whose references count.
     fn member_declaration(
         &self,
         c: &dartforge_elements::model::ClassElement,
@@ -1060,7 +1056,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         match fe.kind {
             FunctionKind::Function | FunctionKind::Operator => Some(("method", qualified, vec![f])),
             FunctionKind::ImplicitAccessor if !key.ends_with('=') => {
-                // O campo: as referências do getter e do setter.
+                // The field: the references of the getter and of the setter.
                 let mut fs = vec![f];
                 for (&s2, &g) in c.instance_members.iter().chain(c.static_members.iter()) {
                     if p.name(s2) == format!("{key}=") {
@@ -1075,8 +1071,8 @@ impl<'c, 'p> Extract<'c, 'p> {
         }
     }
 
-    /// Alguma referência sem qualificação a uma das funções, feita fora da
-    /// classe dona.
+    /// Some unqualified reference to one of the functions, made outside the
+    /// owning class.
     fn unqualified_reference_from_other_class(&self, functions: &[dartforge_elements::model::FunctionElementId], owning: ClassId) -> bool {
         let p = self.cx.p;
         let prog = p.program();
@@ -1093,7 +1089,7 @@ impl<'c, 'p> Extract<'c, 'p> {
                     if !functions.contains(&target) {
                         continue;
                     }
-                    // A classe que contém a referência.
+                    // The class that contains the reference.
                     let inside = prog.classes.iter().enumerate().find(|(_, c)| {
                         c.decl.is_some_and(|d| d.unit == u && {
                             let s = unit.ast.decl(d.decl).span;
@@ -1122,8 +1118,8 @@ impl<'c, 'p> Extract<'c, 'p> {
             _ => "class",
         };
         let class_name = p.name(class.name).to_string();
-        // `_checkClassAlreadyDeclares`: acessores, campos, construtores,
-        // métodos, parâmetros de tipo.
+        // `_checkClassAlreadyDeclares`: accessors, fields, constructors, methods,
+        // type parameters.
         let mut children: Vec<&'static str> = Vec::new();
         let mut members: Vec<(&dartforge_intern::SymbolId, &dartforge_elements::model::FunctionElementId)> =
             class.instance_members.iter().chain(class.static_members.iter()).collect();
@@ -1165,8 +1161,7 @@ impl<'c, 'p> Extract<'c, 'p> {
         if class_name == self.name {
             r.add(Severity::Error, format!("Created method has the same name as the declaring {class_kind} '{}'.", self.name));
         }
-        // `_checkHierarchy(isRename: false)`: um membro de superclasse com o
-        // nome.
+        // `_checkHierarchy(isRename: false)`: a superclass member with the name.
         let supers = self.cx.p.supertypes(c);
         for (i, k) in prog.classes.iter().enumerate() {
             let id = ClassId(i as u32);
@@ -1181,9 +1176,9 @@ impl<'c, 'p> Extract<'c, 'p> {
         r
     }
 
-    // -- A mudança -------------------------------------------------------------------
+    // -- The change -------------------------------------------------------------------
 
-    /// A assinatura (`signature`).
+    /// The signature (`signature`).
     fn signature(&self) -> String {
         if self.create_getter {
             return format!("get {}", self.name);
@@ -1237,8 +1232,8 @@ impl<'c, 'p> Extract<'c, 'p> {
         source
     }
 
-    /// `_getExpectedClosureReturnTypeCode`: o retorno do tipo do parâmetro
-    /// que recebe a closure, se não `dynamic`.
+    /// `_getExpectedClosureReturnTypeCode`: the return of the type of the
+    /// parameter that receives the closure, if not `dynamic`.
     fn closure_expected_return(&mut self) -> String {
         let cx = self.cx;
         let Some(f) = self.sel.closure else { return String::new() };
@@ -1329,7 +1324,7 @@ impl<'c, 'p> Extract<'c, 'p> {
             };
             m.add(uri, Span { start: o.range.0, end: o.range.1 }, invocation);
         }
-        // A declaração.
+        // The declaration.
         if let Some(member) = self.member {
             let prefix = cx.node_prefix(member);
             let eol = tx.eol();
@@ -1386,8 +1381,8 @@ impl<'c, 'p> Extract<'c, 'p> {
     }
 }
 
-/// `addLibraryImports(change, targetLibrary, libraries)`: os imports
-/// ordenados, entre os existentes, depois do `library` ou no topo.
+/// `addLibraryImports(change, targetLibrary, libraries)`: the imports
+/// sorted, among the existing ones, after the `library` or at the top.
 pub(crate) fn add_imports(cx: &Context<'_>, m: &mut Change, libraries: &BTreeSet<LibraryId>) {
     if libraries.is_empty() {
         return;
@@ -1401,7 +1396,7 @@ pub(crate) fn add_imports(cx: &Context<'_>, m: &mut Change, libraries: &BTreeSet
     let source = unit.source.as_str();
     let tx = Text::new(source);
     let eol = tx.eol();
-    // As URIs a importar (relativas para `file:`), ordenadas.
+    // The URIs to import (relative for `file:`), sorted.
     let folder = unit.path.as_deref().and_then(|c| c.parent()).map(|c| c.to_path_buf());
     let mut uris: Vec<String> = libraries
         .iter()
@@ -1417,7 +1412,7 @@ pub(crate) fn add_imports(cx: &Context<'_>, m: &mut Change, libraries: &BTreeSet
         })
         .collect();
     uris.sort();
-    // As aspas preferidas.
+    // The preferred quotes.
     let quotes = if crate::refactorings_exec::enabled_rule(p, defining, "prefer_single_quotes") {
         '\''
     } else if crate::refactorings_exec::enabled_rule(p, defining, "prefer_double_quotes") {
@@ -1493,7 +1488,7 @@ pub(crate) fn add_imports(cx: &Context<'_>, m: &mut Change, libraries: &BTreeSet
         }
         return;
     }
-    // No topo: depois do `#!` e dos comentários `//` iniciais.
+    // At the top: after the `#!` and the leading `//` comments.
     let mut offset = 0usize;
     let mut line_before = false;
     let n = source.len();
@@ -1533,7 +1528,7 @@ pub(crate) fn add_imports(cx: &Context<'_>, m: &mut Change, libraries: &BTreeSet
     }
 }
 
-/// `pathContext.relative(what, from: folder)` com `/`.
+/// `pathContext.relative(what, from: folder)` with `/`.
 pub(crate) fn relative_path(target: &std::path::Path, folder: &std::path::Path) -> String {
     let a: Vec<_> = target.components().collect();
     let b: Vec<_> = folder.components().collect();
@@ -1548,8 +1543,8 @@ pub(crate) fn relative_path(target: &std::path::Path, folder: &std::path::Path) 
     parts.join("/")
 }
 
-/// Os elementos de topo de uma unidade com a espécie (`kind.displayName`),
-/// na ordem de `CompilationUnitElementImpl.children`.
+/// The top-level elements of a unit with their kind (`kind.displayName`),
+/// in `CompilationUnitElementImpl.children` order.
 pub(crate) fn top_elements(cx: &Context<'_>, u: dartforge_elements::model::UnitId) -> Vec<(&'static str, String)> {
     let prog = cx.p.program();
     let unit = prog.unit(u);
@@ -1558,7 +1553,7 @@ pub(crate) fn top_elements(cx: &Context<'_>, u: dartforge_elements::model::UnitI
     let text = |n: ast::Name| source[n.span.start..n.span.end].to_string();
     let decls: Vec<&ast::Decl> = unit.unit.declarations.iter().map(|&d| ast.decl(d)).collect();
     let mut v: Vec<(&'static str, String)> = Vec::new();
-    // Acessores: os explícitos e os sintéticos das variáveis, em ordem.
+    // Accessors: the explicit ones and the variables' synthetic ones, in order.
     for d in &decls {
         match &d.kind {
             DeclKind::Function(f) => {
@@ -1627,7 +1622,7 @@ pub(crate) fn top_elements(cx: &Context<'_>, u: dartforge_elements::model::UnitI
         if let DeclKind::Class(c) = &d.kind
             && c.mixin_application
         {
-            // `class C = S with M;` é `ClassElement` (já contado em classes).
+            // `class C = S with M;` is a `ClassElement` (already counted among classes).
         }
     }
     for d in &decls {
@@ -1640,7 +1635,7 @@ pub(crate) fn top_elements(cx: &Context<'_>, u: dartforge_elements::model::UnitI
     v
 }
 
-/// O nome no começo do texto de uma `VariableDeclaration`.
+/// The name at the start of the text of a `VariableDeclaration`.
 fn name_at_start(t: &str) -> String {
     let end = t.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(t.len());
     t[..end].to_string()
@@ -1659,8 +1654,8 @@ fn quoted_with_and(names: &[String]) -> String {
 
 // -- ExitDetector -----------------------------------------------------------------
 
-/// O `ExitDetector` ([`dartforge_analysis::output::Output`]) com o
-/// `_elementExits` pelos elementos do contexto.
+/// The `ExitDetector` ([`dartforge_analysis::saida::Saida`]) with
+/// `_elementExits` through the context's elements.
 pub(crate) struct Output<'c, 'p> {
     cx: &'c Context<'p>,
 }
@@ -1678,7 +1673,7 @@ impl<'c, 'p> Output<'c, 'p> {
     }
 }
 
-/// `_elementExits`: o executável tem `@alwaysThrows` ou retorna `Never`.
+/// `_elementExits`: the executable has `@alwaysThrows` or returns `Never`.
 fn element_exits(cx: &Context<'_>, m: usize) -> bool {
     match cx.identifier_element(m, true) {
         Elem::Function(f) => {
@@ -1700,7 +1695,7 @@ fn element_exits(cx: &Context<'_>, m: usize) -> bool {
     }
 }
 
-/// A declaração tem a anotação `@alwaysThrows` (de `package:meta`).
+/// The declaration has the `@alwaysThrows` annotation (from `package:meta`).
 fn has_always_throws(cx: &Context<'_>, f: dartforge_elements::model::FunctionElementId) -> bool {
     let prog = cx.p.program();
     let dartforge_elements::model::FunctionRef::Function { unit, function } = prog.function(f).node else { return false };

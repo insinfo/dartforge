@@ -1,19 +1,20 @@
-//! `Change to` e os `Create …` do Dart 3.6.2 (docs/LSP-ESPECIFICACAO.md
-//! §13.7.4.2 e §13.7.4.3): `change_to.dart`, `create_class.dart`,
-//! `create_mixin.dart`, `create_field.dart`, `create_getter.dart`,
-//! `create_setter.dart`, `create_local_variable.dart`,
-//! `create_parameter.dart`, `create_method_or_function.dart`,
-//! `create_function.dart`, `create_method.dart` e
-//! `create_extension_member.dart`, sobre a árvore do analyzer.
+//! `Change to` and the `Create …` fixes of Dart 3.6.2
+//! (docs/LSP-ESPECIFICACAO.md §13.7.4.2 and §13.7.4.3): `change_to.dart`,
+//! `create_class.dart`, `create_mixin.dart`, `create_field.dart`,
+//! `create_getter.dart`, `create_setter.dart`,
+//! `create_local_variable.dart`, `create_parameter.dart`,
+//! `create_method_or_function.dart`, `create_function.dart`,
+//! `create_method.dart` and `create_extension_member.dart`, over the
+//! analyzer tree.
 //!
-//! Os `undefined_*` não são publicados por este servidor: cada nome sem
-//! resolução das linhas pedidas recebe o código que o analyzer daria
-//! (`UNDEFINED_IDENTIFIER`, `UNDEFINED_FUNCTION`, `UNDEFINED_CLASS`,
-//! `UNDEFINED_METHOD`, `UNDEFINED_GETTER`, `UNDEFINED_SETTER`, os de
-//! extensão) e os produtores desse código, na ordem do `fix_internal.dart`.
-//! Os códigos publicados (`cast_to_non_type`, `not_a_type`,
-//! `extends_non_class`…) usam os mesmos produtores pelo diagnóstico.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! The `undefined_*` codes are not published by this server: each
+//! unresolved name in the requested lines gets the code the analyzer would
+//! give (`UNDEFINED_IDENTIFIER`, `UNDEFINED_FUNCTION`, `UNDEFINED_CLASS`,
+//! `UNDEFINED_METHOD`, `UNDEFINED_GETTER`, `UNDEFINED_SETTER`, the
+//! extension ones) and the producers of that code, in `fix_internal.dart`
+//! order. The published codes (`cast_to_non_type`, `not_a_type`,
+//! `extends_non_class`…) use the same producers through the diagnostic.
+//! Written without compiling or running (2026-10-05).
 
 use crate::Edit;
 use crate::actions::CodeAction;
@@ -29,7 +30,7 @@ use dartforge_frontend::ast;
 use dartforge_types::{MemberRef, Resolved, Type, TypeId};
 use std::collections::BTreeSet;
 
-/// O código de erro que escolhe os produtores.
+/// The error code that selects the producers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Code {
     Identifier,
@@ -72,7 +73,7 @@ enum Producer {
     CreateExtensionSetter,
 }
 
-/// Os produtores de cada código (`nonLintProducerMap`).
+/// The producers of each code (`nonLintProducerMap`).
 fn producers(c: Code) -> &'static [Producer] {
     use Producer::*;
     match c {
@@ -91,8 +92,8 @@ fn producers(c: Code) -> &'static [Producer] {
     }
 }
 
-/// Distância de Levenshtein com limiar (`levenshtein.dart`): `1 << 20`
-/// quando passa do limiar ou a diferença de tamanhos passa dele.
+/// Levenshtein distance with a threshold (`levenshtein.dart`): `1 << 20`
+/// when it exceeds the threshold or the length difference exceeds it.
 fn levenshtein(s: &str, t: &str, threshold: usize) -> usize {
     const INFINITE: usize = 1 << 20;
     let s: Vec<char> = s.chars().collect();
@@ -118,8 +119,8 @@ fn levenshtein(s: &str, t: &str, threshold: usize) -> usize {
     if d > threshold { INFINITE } else { d }
 }
 
-/// `_ClosestElementFinder`: o primeiro candidato com distância menor que a
-/// melhor (começando em 3).
+/// `_ClosestElementFinder`: the first candidate with a distance smaller
+/// than the best one (starting at 3).
 struct Closest {
     target: String,
     distance: usize,
@@ -131,7 +132,7 @@ impl Closest {
         Closest { target: target.to_string(), distance: 3, name: None }
     }
 
-    /// `name` (o comparado; `x=` num setter) e o proposto.
+    /// `name` (the compared one; `x=` for a setter) and the proposed one.
     fn see(&mut self, name: &str, proposed: &str) {
         let d = levenshtein(name, &self.target, self.distance);
         if d < self.distance {
@@ -141,7 +142,7 @@ impl Closest {
     }
 }
 
-/// O `inGetterContext` de um `SimpleIdentifier`.
+/// The `inGetterContext` of a `SimpleIdentifier`.
 fn in_read_context(cx: &Context<'_>, n: usize) -> bool {
     let Some(parent0) = cx.parent(n) else { return true };
     let (mut parent, mut target) = (parent0, n);
@@ -165,7 +166,7 @@ fn in_read_context(cx: &Context<'_>, n: usize) -> bool {
     }
 }
 
-/// O `inSetterContext` de um `SimpleIdentifier`.
+/// The `inSetterContext` of a `SimpleIdentifier`.
 fn in_write_context(cx: &Context<'_>, n: usize) -> bool {
     let Some(parent0) = cx.parent(n) else { return false };
     let (mut parent, mut target) = (parent0, n);
@@ -191,7 +192,7 @@ fn in_write_context(cx: &Context<'_>, n: usize) -> bool {
     }
 }
 
-/// O operador de uma `AssignmentExpression`.
+/// The operator of an `AssignmentExpression`.
 fn assignment_operator<'c>(cx: &'c Context<'_>, a: usize) -> &'c str {
     let Some(&left) = cx.children(a).first() else { return "" };
     match cx.next_token(cx.tree.nos[left].fim) {
@@ -213,8 +214,8 @@ fn climb_access(cx: &Context<'_>, mut n: usize) -> usize {
     n
 }
 
-/// O alvo de um nome qualificado: o prefixo do `PrefixedIdentifier` ou o
-/// alvo do `PropertyAccess` (`getQualifiedPropertyTarget`).
+/// The target of a qualified name: the prefix of the `PrefixedIdentifier`
+/// or the target of the `PropertyAccess` (`getQualifiedPropertyTarget`).
 fn qualified_target(cx: &Context<'_>, n: usize) -> Option<usize> {
     let p = cx.parent(n)?;
     match cx.kind(p) {
@@ -224,7 +225,7 @@ fn qualified_target(cx: &Context<'_>, n: usize) -> Option<usize> {
 }
 
 impl Context<'_> {
-    /// O elemento resolvido de um nó identificador.
+    /// The resolved element of an identifier node.
     fn resolved(&self, n: usize) -> Option<&Resolved> {
         let x = match self.tree.nos[n].marca {
             Marca::Expr(x) => x,
@@ -233,7 +234,7 @@ impl Context<'_> {
         self.bodies.get_resolved(x)
     }
 
-    /// A classe (ou mixin, enum, tipo de extensão) que o identificador nomeia.
+    /// The class (or mixin, enum, extension type) that the identifier names.
     fn named_class(&self, n: usize) -> Option<ClassId> {
         match self.resolved(n) {
             Some(Resolved::Element(Element::Class(c))) => Some(*c),
@@ -241,8 +242,9 @@ impl Context<'_> {
         }
     }
 
-    /// A extensão que o identificador nomeia, ou a do `ExtensionOverride`
-    /// (`E(x)` / `p.E(x)` como invocação cujo nome resolve para a extensão).
+    /// The extension that the identifier names, or that of the
+    /// `ExtensionOverride` (`E(x)` / `p.E(x)` as an invocation whose name
+    /// resolves to the extension).
     fn target_extension(&self, target: usize) -> Option<ExtensionId> {
         if let Some(Resolved::Element(Element::Extension(x))) = self.resolved(target) {
             return Some(*x);
@@ -259,15 +261,15 @@ impl Context<'_> {
         None
     }
 
-    /// O alvo é um `ExtensionOverride` (`E(x)`), não o nome da extensão.
+    /// The target is an `ExtensionOverride` (`E(x)`), not the extension's name.
     fn is_extension_override(&self, target: usize) -> bool {
         matches!(self.kind(target), "MethodInvocation" | "FunctionExpressionInvocation") && self.target_extension(target).is_some()
     }
 
     /// `getTargetInterfaceElement2(target)`.
     fn target_interface(&self, target: usize) -> Option<ClassId> {
-        // O nome de uma classe como receptor (`A.m()`): o analyzer não dá
-        // tipo estático ao literal de tipo e cai no elemento.
+        // A class name as the receiver (`A.m()`): the analyzer gives no static type
+        // to the type literal and falls back to the element.
         if let Some(c) = self.named_class(target) {
             return Some(c);
         }
@@ -277,8 +279,8 @@ impl Context<'_> {
         }
     }
 
-    /// `enclosingInterfaceElement2`: a `ClassDeclaration` ou
-    /// `MixinDeclaration` envolvente.
+    /// `enclosingInterfaceElement2`: the enclosing `ClassDeclaration` or
+    /// `MixinDeclaration`.
     fn enclosing_interface(&self, n: usize) -> Option<(ClassId, usize)> {
         let mut current = Some(n);
         while let Some(k) = current {
@@ -328,7 +330,7 @@ impl Context<'_> {
         false
     }
 
-    /// As palavras do começo de uma declaração (depois de doc e anotações).
+    /// The keywords at the start of a declaration (after doc and annotations).
     pub(crate) fn initial_tokens_pub(&self, n: usize) -> Vec<String> {
         self.initial_tokens(n)
     }
@@ -350,8 +352,8 @@ impl Context<'_> {
         v
     }
 
-    /// O parâmetro (tipo) que recebe o argumento `arg` (`staticParameterElement`
-    /// / `correspondingParameter`).
+    /// The parameter (type) that receives argument `arg`
+    /// (`staticParameterElement` / `correspondingParameter`).
     fn matching_parameter(&self, arg: usize) -> Option<TypeId> {
         let (value, name) = match self.parent(arg) {
             Some(p) if self.kind(p) == "NamedExpression" => (p, self.children(p).first().and_then(|&r| self.children(r).first()).map(|&i| self.node_text(i).to_string())),
@@ -387,7 +389,7 @@ impl Context<'_> {
         }
     }
 
-    /// O tipo de retorno do executável envolvente.
+    /// The return type of the enclosing executable.
     fn enclosing_return(&self, n: usize) -> Option<TypeId> {
         let mut current = self.parent(n);
         while let Some(k) = current {
@@ -403,7 +405,7 @@ impl Context<'_> {
                             _ => None,
                         };
                     }
-                    // A closure: o tipo da expressão de função.
+                    // A closure: the type of the function expression.
                     let t = self.node_type(k)?;
                     return match self.p.query.table.get(t) {
                         Type::Function { ret, .. } => Some(*ret),
@@ -460,7 +462,7 @@ impl Context<'_> {
                 }
                 if f.get(1) == Some(&e) {
                     if assignment_operator(self, parent) == "=" {
-                        // `writeType`: o tipo do alvo da escrita.
+                        // `writeType`: the type of the write target.
                         return self.node_type(f[0]);
                     }
                     return self.operator_parameter(parent);
@@ -489,7 +491,7 @@ impl Context<'_> {
         }
     }
 
-    /// O tipo do único parâmetro do operador de um binário ou de um `op=`.
+    /// The type of the only parameter of the operator of a binary or an `op=`.
     fn operator_parameter(&self, n: usize) -> Option<TypeId> {
         let x = self.node_expr(n)?;
         let f = match self.bodies.get_resolved(x)? {
@@ -500,9 +502,9 @@ impl Context<'_> {
         (d.parameters.len() == 1).then(|| d.parameters[0].ty)
     }
 
-    /// `getMembers(clazz)`: os membros não sintéticos (acessores, campos,
-    /// métodos) de cada supertipo (`allSupertypes`) e da própria classe:
-    /// (nome comparado, nome exibido, espécie).
+    /// `getMembers(clazz)`: the non-synthetic members (accessors, fields,
+    /// methods) of each supertype (`allSupertypes`) and of the class itself:
+    /// (compared name, displayed name, kind).
     fn members(&self, c: ClassId) -> Vec<(String, String, Member)> {
         let prog = self.p.program();
         let mut order = all_supertypes(self.p, c);
@@ -512,7 +514,7 @@ impl Context<'_> {
             let cl = prog.class(k);
             let mut fs: Vec<FunctionElementId> = cl.instance_members.values().chain(cl.static_members.values()).copied().collect();
             fs.sort_by_key(|f| f.0);
-            // Acessores explícitos.
+            // Explicit accessors.
             for &f in &fs {
                 let fe = prog.function(f);
                 match fe.kind {
@@ -525,13 +527,13 @@ impl Context<'_> {
                     _ => {}
                 }
             }
-            // Campos.
+            // Fields.
             for &var in &cl.fields {
                 let ve = prog.variable(var);
                 let n = self.p.name(ve.name).to_string();
                 v.push((n.clone(), n, Member::Field { getter: ve.getter.is_some(), setter: ve.setter.is_some() }));
             }
-            // Métodos.
+            // Methods.
             for &f in &fs {
                 let fe = prog.function(f);
                 match fe.kind {
@@ -581,7 +583,7 @@ impl Context<'_> {
     }
 }
 
-/// A espécie de um membro candidato.
+/// The kind of a candidate member.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Member {
     Getter,
@@ -591,19 +593,19 @@ enum Member {
     Operator,
 }
 
-/// `allSupertypes` (`ClassHierarchy.implementedInterfaces`): o supertipo e os
-/// dele, as restrições `on`, as interfaces e os mixins, na ordem do
-/// `InterfacesMerger`; as aplicações de mixin sintéticas se desfazem no
-/// supertipo e nos mixins.
-/// As marcas de `e` (a declaração escrita) dentro de `text`, onde ela
-/// entrou (pelo `insertIntoUnitMember` ou com o separador antes).
+/// `allSupertypes` (`ClassHierarchy.implementedInterfaces`): the supertype
+/// and its own, the `on` constraints, the interfaces and the mixins, in
+/// `InterfacesMerger` order; synthetic mixin applications unfold into the
+/// supertype and the mixins.
+/// The marks of `e` (the written declaration) inside `text`, where it went
+/// (through `insertIntoUnitMember` or with the separator before it).
 fn marks_in(text: &str, e: crate::snippets::Write) -> Option<(usize, crate::snippets::Write)> {
     text.find(&e.text).map(|k| (k, e))
 }
 
-/// `addSuperTypesAsSuggestions(type)` num contexto só de leitura: os
-/// supertipos instanciados são internados numa cópia da tabela de tipos,
-/// feita na primeira vez (`copy`).
+/// `addSuperTypesAsSuggestions(type)` in a read-only context: the
+/// instantiated supertypes are interned in a copy of the type table, made
+/// the first time (`copy`).
 pub(crate) fn supertype_suggestions_at(p: &Project, copy: &mut Option<dartforge_types::TypeTable>, t: TypeId) -> Vec<String> {
     let Type::Interface { class, args, nullable } = p.query.table.get(t).clone() else { return Vec::new() };
     let mut v = vec![p.query.format(t)];
@@ -630,7 +632,7 @@ pub(crate) fn all_supertypes(p: &Project, c: ClassId) -> Vec<ClassId> {
         let cl = prog.class(c);
         let mut sup = cl.supertype_class;
         let mut mixins: Vec<ClassId> = Vec::new();
-        // `S with M1, M2`: a cadeia sintética `S&M1&M2`.
+        // `S with M1, M2`: the synthetic chain `S&M1&M2`.
         while let Some(s) = sup {
             let k = prog.class(s);
             if k.kind == ClassKind::MixinApplication && k.decl.is_none() {
@@ -678,8 +680,8 @@ pub(crate) fn all_supertypes(p: &Project, c: ClassId) -> Vec<ClassId> {
     implemented(p, c, &mut std::collections::HashMap::new(), &mut Vec::new())
 }
 
-/// `nameOfType`: o nome de um `SimpleIdentifier` filho de `NamedType` ou
-/// com a primeira letra igual à maiúscula dela.
+/// `nameOfType`: the name of a `SimpleIdentifier` that is a child of a
+/// `NamedType` or whose first letter equals its uppercase form.
 fn type_name(cx: &Context<'_>, n: usize) -> Option<String> {
     if cx.kind(n) != "SimpleIdentifier" {
         return None;
@@ -691,20 +693,21 @@ fn type_name(cx: &Context<'_>, n: usize) -> Option<String> {
     (parent_type || uppercase).then_some(name)
 }
 
-/// O resultado de um produtor: título, espécie, edições (por URI) e
-/// bibliotecas a importar na unidade de destino.
+/// The result of a producer: title, kind, edits (per URI) and libraries to
+/// import in the destination unit.
 struct Proposal {
     title: String,
     kind: &'static str,
     unit: UnitId,
     edits: Vec<(Span, String)>,
     import: BTreeSet<LibraryId>,
-    /// Os grupos ligados (e a seleção) da declaração escrita, com o offset
-    /// dela no texto da primeira edição: o `SnippetTextEdit` dos `Create …`.
+    /// The linked groups (and the selection) of the written declaration, with
+    /// its offset in the text of the first edit: the `SnippetTextEdit` of the
+    /// `Create …` fixes.
     marks: Option<(usize, crate::snippets::Write)>,
 }
 
-/// O `CompilationUnitMember` de topo que contém o nó.
+/// The top-level `CompilationUnitMember` that contains the node.
 fn top_member(cx: &Context<'_>, n: usize) -> Option<usize> {
     let mut current = Some(n);
     while let Some(k) = current {
@@ -716,7 +719,7 @@ fn top_member(cx: &Context<'_>, n: usize) -> Option<usize> {
     None
 }
 
-/// O `CompilationUnitMember` mais interno (uma função local também é).
+/// The innermost `CompilationUnitMember` (a local function is one too).
 fn innermost_member(cx: &Context<'_>, n: usize) -> Option<usize> {
     let mut current = Some(n);
     while let Some(k) = current {
@@ -731,8 +734,8 @@ fn innermost_member(cx: &Context<'_>, n: usize) -> Option<usize> {
     None
 }
 
-/// O nó da declaração de uma classe ou extensão na unidade dela, com o
-/// contexto daquela unidade.
+/// The declaration node of a class or extension in its unit, with that
+/// unit's context.
 fn declaration_in_unit<'p>(p: &'p Project, unit: UnitId, decl: ast::DeclId) -> Option<(Context<'p>, usize)> {
     let cx = Context::new(p, unit);
     let n = cx.tree.nos.iter().position(|no| matches!(no.marca, Marca::Decl(d) if d == decl) && no.especie.ends_with("Declaration"))?;
@@ -740,7 +743,7 @@ fn declaration_in_unit<'p>(p: &'p Project, unit: UnitId, decl: ast::DeclId) -> O
 }
 
 impl Project {
-    /// As propostas de um produtor para o nó.
+    /// The proposals of a producer for the node.
     fn propose(&self, cx: &Context<'_>, producer: Producer, node: usize) -> Option<Proposal> {
         use Producer::*;
         let eol = Text::new(cx.source).eol();
@@ -749,7 +752,7 @@ impl Project {
             SwapClass | SwapAnnotation => {
                 let mut target = node;
                 if producer == SwapAnnotation {
-                    // `Annotation` com nome sem elemento e com argumentos.
+                    // An `Annotation` with a name without an element and with arguments.
                     let annotation = cx.this_or_ancestor_pub(node, "Annotation")?;
                     let name = *cx.children(annotation).first()?;
                     if cx.resolved(name).is_some() || cx.kind_children(annotation, "ArgumentList").is_empty() {
@@ -777,7 +780,7 @@ impl Project {
                 let lib = prog.unit(cx.unit).library;
                 let mut best = Closest::new(&cx.source[token.start..token.end]);
                 if prefix.is_none() {
-                    // `unit.classes` de cada unidade (só classes).
+                    // `unit.classes` of each unit (classes only).
                     for &u in prog.library(lib).units.iter() {
                         let mut cs: Vec<(usize, ClassId)> = (0..prog.classes.len())
                             .map(|i| ClassId(i as u32))
@@ -908,7 +911,7 @@ impl Project {
                 };
                 let members = match target {
                     None => {
-                        // Só a `ClassDeclaration` envolvente.
+                        // Only the enclosing `ClassDeclaration`.
                         let class = cx.this_or_ancestor_pub(node, "ClassDeclaration")?;
                         let Marca::Decl(d) = cx.tree.nos[class].marca else { return None };
                         cx.members(cx.declaration_class(cx.unit, d)?)
@@ -960,7 +963,7 @@ impl Project {
                     }
                     "SimpleIdentifier" => {
                         if producer == CreateMixin {
-                            // Não o identificador de `a.b` nem a propriedade.
+                            // Not the identifier of `a.b` nor the property.
                             if qualified_target(cx, target).is_some() {
                                 return None;
                             }
@@ -985,7 +988,7 @@ impl Project {
                     }
                     _ => return None,
                 };
-                // Onde.
+                // Where.
                 let (unit, offset, before, after) = match prefix {
                     None => {
                         let member = top_member(cx, target)?;
@@ -1002,8 +1005,8 @@ impl Project {
                     }
                 };
                 let eol_d = Text::new(&prog.unit(unit).source).eol().to_string();
-                // O grupo `NAME` no nome da classe (e no do construtor) e os
-                // dos parâmetros (`create_class.dart:118-139`).
+                // The `NAME` group on the class name (and on the constructor's) and those
+                // of the parameters (`create_class.dart:118-139`).
                 let mut e = crate::snippets::Write::default();
                 e.write(&before);
                 let text = if producer == CreateMixin {
@@ -1108,7 +1111,7 @@ impl Project {
                 let mut writer = Writer::new(cx, o);
                 let ret = cx.undefined_inferred_type(inv).and_then(|t| writer.write_type(Some(t), false));
                 let list = cx.kind_children(inv, "ArgumentList").first().copied()?;
-                // `RETURN_TYPE`, `NAME` e os grupos dos parâmetros
+                // `RETURN_TYPE`, `NAME` and the groups of the parameters
                 // (`create_function.dart:51-69`).
                 let mut e = crate::snippets::Write::default();
                 e.write(&format!("{eol}{eol}"));
@@ -1130,7 +1133,7 @@ impl Project {
     /// `create_getter.dart`, `create_setter.dart`).
     fn create_field_getter_setter(&self, cx: &Context<'_>, producer: Producer, node: usize) -> Option<Proposal> {
         let prog = self.program();
-        // `this.x` sem campo (só o `CreateField`).
+        // `this.x` without a field (only `CreateField`).
         if producer == Producer::CreateField
             && let Some(param) = cx.this_or_ancestor_pub(node, "FieldFormalParameter")
         {
@@ -1165,7 +1168,7 @@ impl Project {
             return None;
         }
         let target_ = qualified_target(cx, node);
-        // O destino: classe ou extensão, e o `static`.
+        // The destination: class or extension, and the `static`.
         enum Target {
             Class(ClassId),
             Extension(ExtensionId),
@@ -1181,9 +1184,9 @@ impl Project {
                     }
                     c?
                 } else if cx.named_class(a).is_some() {
-                    // `K.x` com `K` uma classe: o `staticType` do nome não é
-                    // um tipo de interface (ou é o `Type` do SDK), e o
-                    // `CreateGetter`/`CreateSetter` do Dart não oferece nada.
+                    // `K.x` with `K` a class: the name's `staticType` is not an interface type
+                    // (or is the SDK's `Type`), and Dart's `CreateGetter`/`CreateSetter` offer
+                    // nothing.
                     return None;
                 } else {
                     match self.query.table.get(cx.node_type(a)?) {
@@ -1199,8 +1202,7 @@ impl Project {
                     Some((c, _)) => Target::Class(c),
                     None => {
                         if producer == Producer::CreateField {
-                            // Também enum (`enclosingInterfaceElement2` só dá
-                            // classe e mixin).
+                            // Also an enum (`enclosingInterfaceElement2` only gives class and mixin).
                             return None;
                         }
                         Target::Extension(cx.enclosing_extension(node)?.0)
@@ -1218,7 +1220,7 @@ impl Project {
             return None;
         }
         let ty = cx.undefined_inferred_type(type_node);
-        // A declaração de destino (fora do SDK), na unidade dela.
+        // The destination declaration (outside the SDK), in its unit.
         let (lib, decl) = match &target {
             Target::Class(c) => (prog.class(*c).library, prog.class(*c).decl?),
             Target::Extension(x) => (prog.extension(*x).library, prog.extension(*x).decl),
@@ -1238,8 +1240,8 @@ impl Project {
         let o = dcx.insert_in_member(container, filter, "")?.0;
         let mut writer = Writer::new(&dcx, o);
         let s = if is_static { "static " } else { "" };
-        // Os grupos `TYPE` e `NAME` de `writeFieldDeclaration`,
-        // `writeGetterDeclaration` e `writeSetterDeclaration`.
+        // The `TYPE` and `NAME` groups of `writeFieldDeclaration`,
+        // `writeGetterDeclaration` and `writeSetterDeclaration`.
         let mut decl = crate::snippets::Write::default();
         decl.write(s);
         let (title, kind) = match producer {
@@ -1282,8 +1284,8 @@ impl Project {
             return None;
         }
         let name = cx.node_text(node).to_string();
-        // A lista: a da `FunctionExpression` mais interna, senão do método,
-        // senão do construtor.
+        // The list: that of the innermost `FunctionExpression`, else the method's,
+        // else the constructor's.
         let owner = ["FunctionExpression", "MethodDeclaration", "ConstructorDeclaration"].iter().find_map(|e| cx.this_or_ancestor_pub(node, e))?;
         let list = cx.kind_children(owner, "FormalParameterList").first().copied()?;
         let ty = cx.undefined_inferred_type(node);
@@ -1333,8 +1335,8 @@ impl Project {
             }
             Some(u) => (cx.tree.nos[u].fim, format!(", {req}{t} {name}")),
         };
-        // `writeParameter(nameGroupName: 'NAME', typeGroupName: 'TYPE')`: o
-        // tipo com as sugestões de supertipos e o nome.
+        // `writeParameter(nameGroupName: 'NAME', typeGroupName: 'TYPE')`: the type
+        // with the supertype suggestions, and the name.
         let marks = text.rfind(&format!("{t} {name}")).map(|k| {
             let mut e = crate::snippets::Write { text: text.clone(), ..Default::default() };
             let suggestions = ty.map(|x| supertype_suggestions_at(self, &mut None, x)).unwrap_or_default();
@@ -1380,15 +1382,15 @@ impl Project {
             parameter = cx.matching_parameter(p);
         }
         let type_f = parameter?;
-        // `Function` vale `dynamic Function()`.
+        // `Function` counts as `dynamic Function()`.
         let (ret, positional, optional, named): (TypeId, Vec<TypeId>, Vec<TypeId>, Vec<(dartforge_intern::SymbolId, TypeId, bool)>) = match self.query.table.get(type_f).clone() {
             Type::Interface { class, .. } if Some(class) == self.query.core.function_class => (self.query.core.dynamic_, Vec::new(), Vec::new(), Vec::new()),
             Type::Function { ret, positional, optional, named, .. } => (ret, positional.to_vec(), optional.to_vec(), named.to_vec()),
             _ => return None,
         };
-        // `RETURN_TYPE`, `NAME` e o `writeFormalParameters` do tipo de função
-        // (`TYPE<i>` com as sugestões de supertipos; `PARAM<i>` nos não
-        // nomeados), `create_method_or_function.dart:105-128`.
+        // `RETURN_TYPE`, `NAME` and the `writeFormalParameters` of the function
+        // type (`TYPE<i>` with the supertype suggestions; `PARAM<i>` for the
+        // unnamed ones), `create_method_or_function.dart:105-128`.
         let write = |writer: &mut Writer<'_, '_>| -> crate::snippets::Write {
             let mut copy: Option<dartforge_types::TypeTable> = None;
             let mut e = crate::snippets::Write::default();
@@ -1396,7 +1398,7 @@ impl Project {
                 e.linked("RETURN_TYPE", &r, &[]).write(" ");
             }
             e.linked("NAME", &name, &[]);
-            // `writeFormalParameters`: os posicionais sem nome viram `p1`…
+            // `writeFormalParameters`: unnamed positionals become `p1`…
             e.write("(");
             let mut i = 0usize;
             let mut used: BTreeSet<String> = named.iter().map(|(n, _, _)| self.name(*n).to_string()).collect();
@@ -1530,7 +1532,7 @@ impl Project {
         let s = if is_static { "static " } else { "" };
         let ret = cx.undefined_inferred_type(inv).and_then(|t| writer.write_type(Some(t), false));
         let list = cx.kind_children(inv, "ArgumentList").first().copied()?;
-        // `RETURN_TYPE`, `NAME` e os parâmetros (`create_method.dart:183-200`).
+        // `RETURN_TYPE`, `NAME` and the parameters (`create_method.dart:183-200`).
         let mut e = crate::snippets::Write::default();
         e.write(s);
         if let Some(r) = &ret {
@@ -1544,8 +1546,7 @@ impl Project {
         Some(Proposal { title: format!("Create method '{name}'"), kind: "quickfix.create.method", unit: dcx.unit, edits: vec![(Span { start: o, end: o }, text)], import: writer.import, marks })
     }
 
-    /// `CreateExtensionGetter`/`Method`/`Setter`
-    /// (`create_extension_member.dart`).
+    /// `CreateExtensionGetter`/`Method`/`Setter` (`create_extension_member.dart`).
     fn create_extension_member(&self, cx: &Context<'_>, producer: Producer, node: usize) -> Option<Proposal> {
         if cx.kind(node) != "SimpleIdentifier" {
             return None;
@@ -1572,8 +1573,8 @@ impl Project {
                 (qualified_target(cx, node)?, None)
             }
         };
-        // O nome de uma classe como alvo (`K.m()`): o `staticType` dele no
-        // analyzer é nulo, e o Dart não oferece o membro de extensão.
+        // A class name as the target (`K.m()`): its `staticType` in the analyzer is
+        // null, and Dart does not offer the extension member.
         if cx.named_class(target).is_some() {
             return None;
         }
@@ -1582,11 +1583,11 @@ impl Project {
             return None;
         }
         let eol = Text::new(cx.source).eol();
-        // A extensão existente aplicável (a primeira da unidade).
+        // The applicable existing extension (the first one in the unit).
         let existing = self.applicable_extension(cx, type_target);
-        // A declaração e os grupos de cada produtor: o `VALUE` do getter, o
-        // `NAME`/`TYPE` do `writeSetterDeclaration`, e `RETURN_TYPE`, `NAME`
-        // e os parâmetros do método (`create_extension_member.dart`).
+        // The declaration and the groups of each producer: the getter's `VALUE`,
+        // the `NAME`/`TYPE` of `writeSetterDeclaration`, and the method's
+        // `RETURN_TYPE`, `NAME` and parameters (`create_extension_member.dart`).
         let member = |writer: &mut Writer<'_, '_>| -> crate::snippets::Write {
             let mut e = crate::snippets::Write::default();
             match producer {
@@ -1646,8 +1647,8 @@ impl Project {
         Some(Proposal { title, kind, unit: cx.unit, edits: vec![(Span { start: o, end: o }, text)], import, marks })
     }
 
-    /// `_existingExtension`: a primeira `ExtensionDeclaration` da unidade que
-    /// se aplica ao tipo.
+    /// `_existingExtension`: the first `ExtensionDeclaration` of the unit that
+    /// applies to the type.
     fn applicable_extension(&self, cx: &Context<'_>, ty: TypeId) -> Option<usize> {
         let prog = self.program();
         for (k, no) in cx.tree.nos.iter().enumerate() {
@@ -1663,7 +1664,7 @@ impl Project {
         None
     }
 
-    /// As propostas de um código para o nó, como ações.
+    /// The proposals of a code for the node, as actions.
     fn code_actions(&self, cx: &Context<'_>, code: Code, node: usize, d: Option<&Diagnostic>) -> Vec<CodeAction> {
         let mut output = Vec::new();
         for &pr in producers(code) {
@@ -1683,7 +1684,7 @@ impl Project {
             }
             let edits: Vec<Edit> = m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect();
             let mut a = CodeAction { title: p.title, kind: p.kind.into(), edits, diagnostic: d.cloned(), create_file: None, linked: Default::default() };
-            // Os grupos e a seleção da declaração, na edição dela.
+            // The groups and the selection of the declaration, in its edit.
             if let (Some((base, e)), Some((s, t))) = (&p.marks, &main)
                 && let Some(i) = a.edits.iter().position(|x| x.span == *s && x.text == *t)
             {
@@ -1694,17 +1695,16 @@ impl Project {
         output
     }
 
-    /// As correções de criação e troca dos códigos publicados (o `node` do
-    /// diagnóstico).
+    /// The create and change fixes of the published codes (the diagnostic's
+    /// `node`).
     pub(crate) fn create_for_diagnostic(&self, unit: UnitId, d: &Diagnostic, code: Code) -> Vec<CodeAction> {
         let cx = Context::new(self, unit);
         let Some(node) = cx.tree.localizar(d.span.start, d.span.end) else { return Vec::new() };
         self.code_actions(&cx, code, node, Some(d))
     }
 
-    /// As correções de criação e troca para os nomes sem resolução das
-    /// linhas `start..end` de `unit`, cada um com o código que o
-    /// analyzer daria.
+    /// The create and change fixes for the unresolved names in lines
+    /// `start..end` of `unit`, each with the code the analyzer would give.
     pub(crate) fn create_undefined(&mut self, _uri: &str, unit: UnitId, start: usize, end: usize) -> Vec<CodeAction> {
         let cx = Context::new(self, unit);
         let prog = self.program();
@@ -1716,7 +1716,7 @@ impl Project {
             }
             match no.especie {
                 "NamedType" => {
-                    // Tipo escrito sem resolução: `UNDEFINED_CLASS`.
+                    // Unresolved written type: `UNDEFINED_CLASS`.
                     let Some(t) = cx.ast.types.iter().position(|t| t.span.start == no.inicio && t.span.end == no.fim) else { continue };
                     let ast::TypeKind::Named { name, .. } = &cx.ast.ty(ast::TypeId(t as u32)).kind else { continue };
                     let [nm] = &name[..] else { continue };
@@ -1767,7 +1767,7 @@ impl Project {
                         }
                     } else if let Some(a) = qualified {
                         if matches!(cx.resolved(a), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))) {
-                            // `UNDEFINED_PREFIXED_NAME`: só o `DataDriven`.
+                            // `UNDEFINED_PREFIXED_NAME`: only `DataDriven`.
                             continue;
                         }
                         if cx.node_type(a).is_some_and(|t| matches!(self.query.table.get(t), Type::Dynamic)) && cx.named_class(a).is_none() {
@@ -1800,11 +1800,11 @@ impl Project {
     }
 }
 
-/// `writeFieldDeclaration(name, isFinal, isStatic, type)` (com `static`
-/// posto pelo chamador).
+/// `writeFieldDeclaration(name, isFinal, isStatic, type)` (with `static`
+/// added by the caller).
 /// `writeFieldDeclaration(name, nameGroupName: 'NAME', type,
-/// typeGroupName: 'TYPE')`: o ty written é o group `TYPE` (o `dynamic`
-/// depois de `final` não), o nome é o `NAME`.
+/// typeGroupName: 'TYPE')`: the written type is the `TYPE` group (not the
+/// `dynamic` after `final`), the name is `NAME`.
 fn field_declaration(writer: &mut Writer<'_, '_>, name: &str, final_: bool, enum_final: bool, ty: Option<TypeId>) -> crate::snippets::Write {
     let final_ = final_ || enum_final;
     let mut e = crate::snippets::Write::default();
@@ -1844,8 +1844,8 @@ fn requires_const_constructor(cx: &Context<'_>, n: usize) -> bool {
     }
 }
 
-/// `inConstantContext`: dentro de criação `const`, literal `const`,
-/// inicializador de variável `const`, anotação ou padrão constante.
+/// `inConstantContext`: inside a `const` creation, a `const` literal, a
+/// `const` variable initializer, an annotation or a constant pattern.
 pub(crate) fn in_constant_context(cx: &Context<'_>, n: usize) -> bool {
     let mut current = cx.parent(n);
     while let Some(k) = current {
@@ -1869,8 +1869,9 @@ pub(crate) fn in_constant_context(cx: &Context<'_>, n: usize) -> bool {
     false
 }
 
-/// `extension.applicableTo(targetType, strictCasts: true)`: o receptor é
-/// subtipo do tipo estendido com os parâmetros da extensão nos limites.
+/// `extension.applicableTo(targetType, strictCasts: true)`: the receiver is
+/// a subtype of the extended type with the extension's parameters within
+/// their bounds.
 fn extension_applies(p: &Project, x: ExtensionId, recv: TypeId) -> bool {
     let query = &p.query;
     let Some(data) = query.outline.extensions.get(x.0 as usize) else { return false };

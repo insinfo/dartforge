@@ -1,26 +1,26 @@
-//! `textDocument/codeAction`: correções rápidas.
+//! `textDocument/codeAction`: quick fixes.
 //!
-//! * **Inserir `;`** para o `expected_token` "Expected to find ';'." que o
-//!   parser publica, no fim do intervalo do diagnóstico — a correção
-//!   `dart.fix.insertSemicolon` do servidor do Dart, com o mesmo título.
-//! * **Importar biblioteca** para um nome indefinido no intervalo pedido
-//!   (identificador ou tipo que a inferência comum deixou sem resolução e que
-//!   o escopo da biblioteca não conhece): as bibliotecas do SDK que o
-//!   declaram (índice de nomes públicos do SDK, montado uma vez) e as do
-//!   projeto (arquivos sob a raiz com `pubspec.yaml`), como
-//!   `quickfix.import.librarySdk` e `quickfix.import.libraryProject1`.
+//! * **Insert `;`** for the `expected_token` "Expected to find ';'." that the
+//!   parser publishes, at the end of the diagnostic's range — the Dart
+//!   server's `dart.fix.insertSemicolon` fix, with the same title.
+//! * **Import library** for an undefined name in the requested range (an
+//!   identifier or type that the common inference left unresolved and that
+//!   the library scope does not know): the SDK libraries that declare it
+//!   (index of the SDK's public names, built once) and the project's (files
+//!   under the root with `pubspec.yaml`), as `quickfix.import.librarySdk` and
+//!   `quickfix.import.libraryProject1`.
 //!
-//! * **Correções dos códigos semânticos publicados** (os de
-//!   `crates/analysis/verificados.txt` que o servidor do Dart 3.6.2 corrige),
-//!   sobre os diagnósticos imediatos e os tipados da versão vigente, com os
-//!   títulos e espécies do Dart ([`fix_published`]).
-//! * **Assistência** `Add type annotation` (`crate::assists`).
+//! * **Fixes for the published semantic codes** (those in
+//!   `crates/analysis/verificados.txt` that the Dart 3.6.2 server fixes),
+//!   over the immediate diagnostics and the typed ones of the current
+//!   version, with Dart's titles and kinds ([`fix_published`]).
+//! * **Assist** `Add type annotation` (`crate::assists`).
 //!
-//! Dos códigos publicados, os três de enum
+//! Of the published codes, the three enum ones
 //! (`enum_constant_same_name_as_enclosing`, `enum_with_name_values`,
-//! `values_declaration_in_enum`) não têm correção no servidor do Dart 3.6.2
-//! (conferido com o `dart language-server`), e este também não oferece;
-//! nenhuma correção é inventada.
+//! `values_declaration_in_enum`) have no fix in the Dart 3.6.2 server
+//! (checked against `dart language-server`), and this one offers none
+//! either; no fix is made up.
 
 use crate::query::Query;
 use crate::project::Project;
@@ -33,29 +33,30 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use url::Url;
 
-/// Uma ação de código oferecida ao editor.
+/// A code action offered to the editor.
 #[derive(Debug, Clone)]
 pub struct CodeAction {
-    /// Título mostrado (`Insert ';'`, `Import library 'dart:math'`).
+    /// Displayed title (`Insert ';'`, `Import library 'dart:math'`).
     pub title: String,
     /// `CodeActionKind` (`quickfix.insertSemicolon`, ...).
     pub kind: String,
-    /// Edições do `WorkspaceEdit`.
+    /// Edits of the `WorkspaceEdit`.
     pub edits: Vec<Edit>,
-    /// Diagnóstico corrigido, quando a ação responde a um publicado.
+    /// Fixed diagnostic, when the action answers a published one.
     pub diagnostic: Option<Diagnostic>,
-    /// Arquivo que a ação cria (URI e conteúdo): uma operação `create` no
-    /// `WorkspaceEdit`, oferecida só ao cliente que a aceita.
+    /// File the action creates (URI and content): a `create` operation in the
+    /// `WorkspaceEdit`, offered only to a client that accepts it.
     pub create_file: Option<(String, String)>,
-    /// A seleção e os grupos ligados da mudança (`SourceChange.selection` e
-    /// `linkedEditGroups`), que viram `SnippetTextEdit` para o cliente com
-    /// `experimental.snippetTextEdit` (docs/LSP-ESPECIFICACAO.md §13.8.1-G).
+    /// The selection and the linked groups of the change
+    /// (`SourceChange.selection` and `linkedEditGroups`), which become a
+    /// `SnippetTextEdit` for a client with `experimental.snippetTextEdit`
+    /// (docs/LSP-ESPECIFICACAO.md §13.8.1-G).
     pub linked: Linked,
 }
 
-/// A seleção e os grupos ligados de uma ação, em offsets (bytes) do
-/// documento **depois** de aplicadas as edições, como no `SourceChange` do
-/// Dart.
+/// The selection and the linked groups of an action, in offsets (bytes) of
+/// the document **after** the edits are applied, as in Dart's
+/// `SourceChange`.
 ///
 /// ```
 /// use dartforge_lsp::{LinkedGroup, Linked};
@@ -65,22 +66,22 @@ pub struct CodeAction {
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Linked {
-    /// Offset e comprimento da seleção depois da mudança.
+    /// Offset and length of the selection after the change.
     pub selection: Option<(usize, usize)>,
-    /// Os grupos ligados, na ordem em que foram criados.
+    /// The linked groups, in the order they were created.
     pub groups: Vec<LinkedGroup>,
 }
 
 impl Linked {
-    /// Sem seleção nem grupos: a edição fica simples mesmo com a capacidade.
+    /// Without selection or groups: the edit stays plain even with the capability.
     pub fn empty(&self) -> bool {
         self.selection.is_none() && self.groups.is_empty()
     }
 }
 
 impl CodeAction {
-    /// O offset, no documento final, do byte `relative` do texto da edição
-    /// `i`: o início dela mais o saldo das edições que vêm antes.
+    /// The offset, in the final document, of byte `relative` of the text of
+    /// edit `i`: its start plus the balance of the edits that come before it.
     fn in_final_document(&self, i: usize, relative: usize) -> Option<usize> {
         let e = self.edits.get(i)?;
         let before: isize = self
@@ -92,8 +93,8 @@ impl CodeAction {
         usize::try_from(e.span.start as isize + before + relative as isize).ok()
     }
 
-    /// A seleção (`selectHere`/`selectAll`) no byte `relative` do texto da
-    /// edição `i`, com `length` bytes.
+    /// The selection (`selectHere`/`selectAll`) at byte `relative` of the text
+    /// of edit `i`, with `length` bytes.
     pub(crate) fn with_selection(mut self, i: usize, relative: usize, length: usize) -> Self {
         if let Some(s) = self.in_final_document(i, relative) {
             self.linked.selection = Some((s, length));
@@ -101,14 +102,14 @@ impl CodeAction {
         self
     }
 
-    /// A seleção e os grupos de uma [`crate::snippets::Write`] que é o
-    /// texto da edição `i`.
+    /// The selection and the groups of a [`crate::snippets::Write`] that is the
+    /// text of edit `i`.
     pub(crate) fn with_write(self, i: usize, e: &crate::snippets::Write) -> Self {
         self.with_write_at(i, 0, e)
     }
 
-    /// [`Self::with_write`] com a escrita começando no byte `base` do texto
-    /// da edição `i`.
+    /// [`Self::with_write`] with the write starting at byte `base` of the text
+    /// of edit `i`.
     pub(crate) fn with_write_at(mut self, i: usize, base: usize, e: &crate::snippets::Write) -> Self {
         if let Some((k, n)) = e.selection {
             self = self.with_selection(i, base + k, n);
@@ -120,8 +121,8 @@ impl CodeAction {
         self
     }
 
-    /// Um grupo ligado (`addLinkedEdit`) com as posições dadas em bytes do
-    /// texto da edição `i`.
+    /// A linked group (`addLinkedEdit`) with the positions given in bytes of the
+    /// text of edit `i`.
     pub(crate) fn with_group(mut self, i: usize, relative: &[usize], length: usize, suggestions: Vec<String>) -> Self {
         let positions: Vec<usize> = relative.iter().filter_map(|&r| self.in_final_document(i, r)).collect();
         if !positions.is_empty() {
@@ -131,27 +132,26 @@ impl CodeAction {
     }
 }
 
-/// Um grupo ligado (`LinkedEditGroup`): as posições que mudam juntas.
+/// A linked group (`LinkedEditGroup`): the positions that change together.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LinkedGroup {
-    /// Offsets (bytes) das posições no documento final.
+    /// Offsets (bytes) of the positions in the final document.
     pub positions: Vec<usize>,
-    /// Comprimento comum das posições (o da última acrescentada).
+    /// Common length of the positions (that of the last one added).
     pub length: usize,
-    /// Os valores sugeridos, na ordem do produtor.
+    /// The suggested values, in the producer's order.
     pub suggestions: Vec<String>,
 }
 
-/// A espécie do Dart pelo id (`dart.fix.…`, `dart.assist.…`): a
-/// prioridade e a mensagem (docs/LSP-ESPECIFICACAO.md §13.7.2, gerada em
-/// `especies_g.rs`).
+/// The Dart kind by id (`dart.fix.…`, `dart.assist.…`): the priority and the
+/// message (docs/LSP-ESPECIFICACAO.md §13.7.2, generated in `especies_g.rs`).
 pub(crate) fn dart_kind(id: &str) -> Option<(u16, &'static str)> {
     let t = crate::especies_g::ESPECIES;
     t.binary_search_by(|(i, _, _)| (*i).cmp(id)).ok().map(|k| (t[k].1, t[k].2))
 }
 
-/// O intervalo das linhas de um diagnóstico: do começo da linha do início
-/// ao fim da linha do fim (o filtro por linhas do `dart.dart:160-171`).
+/// The line range of a diagnostic: from the start of the start's line to the
+/// end of the end's line (the line filter of `dart.dart:160-171`).
 pub(crate) fn diagnostic_lines(text: &str, d: &Diagnostic) -> (usize, usize) {
     let start = d.span.start.min(text.len());
     let end = d.span.end.min(text.len());
@@ -160,12 +160,12 @@ pub(crate) fn diagnostic_lines(text: &str, d: &Diagnostic) -> (usize, usize) {
     (a, b)
 }
 
-/// As espécies cujos produtores (nas variantes que este servidor emite)
-/// têm `applicability = singleLocation`: não entram no "Fix all in file"
-/// mesmo com a espécie `.multi` (`canBeAppliedAcrossSingleFile` falso).
+/// The kinds whose producers (in the variants this server emits) have
+/// `applicability = singleLocation`: they are not part of "Fix all in file"
+/// even with the `.multi` kind (`canBeAppliedAcrossSingleFile` false).
 const ONLY_ONE_PLACE: &[&str] = &["quickfix.add.await", "quickfix.convert.bodyToBlock", "quickfix.remove.abstract", "quickfix.remove.initializer"];
 
-/// O mesmo código de erro (`errorCode.name`).
+/// The same error code (`errorCode.name`).
 fn same_code(a: &Diagnostic, b: &Diagnostic) -> bool {
     match (a.code, b.code) {
         (Some(x), Some(y)) => x.info().nome == y.info().nome,
@@ -173,14 +173,14 @@ fn same_code(a: &Diagnostic, b: &Diagnostic) -> bool {
     }
 }
 
-/// `FixInFileProcessor.compute` (docs/LSP-ESPECIFICACAO.md §13.7.1 item
-/// 7): para cada correção isolada de um diagnóstico cuja espécie tem a
-/// `*.multi`, com 2+ diagnósticos do mesmo código na unidade, reaplica o
-/// produtor (`produce(diagnóstico, lines)`) a cada um dos outros na ordem
-/// da lista, acumulando as edições; a edição que se sobrepõe a uma
-/// acumulada descarta aquele diagnóstico (`ConflictingEditException`). Sai
-/// a `*.multi` (mensagem sem formatar, prioridade da tabela) quando há
-/// edições e o produtor rodou 2+ vezes sem conflito.
+/// `FixInFileProcessor.compute` (docs/LSP-ESPECIFICACAO.md §13.7.1 item 7):
+/// for each isolated fix of a diagnostic whose kind has a `*.multi`, with 2+
+/// diagnostics of the same code in the unit, reapplies the producer
+/// (`produce(diagnostic, lines)`) to each of the others in list order,
+/// accumulating the edits; an edit that overlaps an accumulated one discards
+/// that diagnostic (`ConflictingEditException`). The `*.multi` comes out
+/// (unformatted message, priority from the table) when there are edits and
+/// the producer ran 2+ times without conflict.
 pub(crate) fn fix_in_whole_file(
     isolated: &[CodeAction],
     diagnostics: &[Diagnostic],
@@ -239,7 +239,7 @@ pub(crate) fn fix_in_whole_file(
     output
 }
 
-/// Correções dos diagnósticos sintáticos que tocam `start..end`.
+/// Fixes for the syntactic diagnostics touching `start..end`.
 pub(crate) fn fix_syntax(
     uri: &str,
     text: &str,
@@ -250,8 +250,8 @@ pub(crate) fn fix_syntax(
     let mut output = Vec::new();
     for d in diagnostics {
         let touches = d.span.start <= end && start <= d.span.end;
-        // `InsertSemicolon`: a mensagem cita `';'` e o `node` não é o
-        // identificador `await`.
+        // `InsertSemicolon`: the message cites `';'` and the `node` is not the
+        // `await` identifier.
         let semicolon = d.code.is_some_and(|c| c.info().nome == "expected_token")
             && d.message.contains("';'")
             && text.get(d.span.start..d.span.end) != Some("await");
@@ -275,7 +275,7 @@ pub(crate) fn fix_syntax(
     output
 }
 
-/// Edição que acrescenta `import 'uri';` na ordem das diretivas existentes.
+/// Edit that adds `import 'uri';` in the order of the existing directives.
 pub(crate) fn insert_import(
     text: &str,
     unit: &ast::CompilationUnit,
@@ -291,11 +291,11 @@ pub(crate) fn insert_import(
             _ => None,
         })
         .collect();
-    // `_addLibraryImports` (`change_builder_dart.dart`), para um import sem
-    // prefixo nem combinadores: entre os existentes, pelo grupo (`dart:`,
-    // `package:`, relativo) e pela ordem do texto da URI.
+    // `_addLibraryImports` (`change_builder_dart.dart`), for an import without
+    // a prefix or combinators: among the existing ones, by group (`dart:`,
+    // `package:`, relative) and by the order of the URI text.
     if !imports.is_empty() {
-        // `preferredQuoteForUris`: a aspa das diretivas existentes.
+        // `preferredQuoteForUris`: the quote of the existing directives.
         let quote = imports
             .iter()
             .find_map(|(d, _)| text.get(d.span.start..d.span.end).and_then(|s| s.find(['\'', '"']).map(|i| &s[i..=i])))
@@ -303,8 +303,8 @@ pub(crate) fn insert_import(
         let line = format!("import {quote}{new_uri}{quote};");
         let is_dart = new_uri.starts_with("dart:");
         let is_package = new_uri.starts_with("package:");
-        // `insert(prev:)`: depois do anterior (e de um comentário na mesma
-        // linha); `insert(next:)`: antes do seguinte.
+        // `insert(prev:)`: after the previous one (and after a comment on the same
+        // line); `insert(next:)`: before the next one.
         let after = |d: &ast::Directive| -> (Span, String) {
             let mut end = d.span.end;
             let rest = &text[end..];
@@ -394,7 +394,7 @@ pub(crate) fn insert_import(
     )
 }
 
-/// `n` é um parâmetro de tipo de alguma declaração que o contém.
+/// `n` is a type parameter of some declaration that contains it.
 fn type_param(ast: &ast::Ast, n: &ast::Name) -> bool {
     let tem = |ps: &[ast::TypeParameter]| ps.iter().any(|t| t.name.sym == n.sym);
     let inside = |s: Span| s.start <= n.span.start && n.span.start < s.end;
@@ -415,13 +415,13 @@ fn type_param(ast: &ast::Ast, n: &ast::Name) -> bool {
         .any(|f| inside(f.span) && tem(&f.type_params))
 }
 
-/// Um nome sem resolução no intervalo, com o código que o analyzer daria
-/// (o que escolhe as variantes do `ImportLibrary`) e o offset do nó.
+/// An unresolved name in the range, with the code the analyzer would give
+/// (which selects the `ImportLibrary` variants) and the node's offset.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Undefined {
-    /// `UNDEFINED_CLASS` (anotação de tipo): `forType`.
+    /// `UNDEFINED_CLASS` (type annotation): `forType`.
     Type(String, usize),
-    /// `UNDEFINED_FUNCTION` (`f()` sem alvo): `forExtension`,
+    /// `UNDEFINED_FUNCTION` (`f()` without a target): `forExtension`,
     /// `forExtensionType`, `forFunction`, `forType`.
     Function(String, usize),
     /// `UNDEFINED_IDENTIFIER`: `forExtension`, `forFunction`,
@@ -429,7 +429,7 @@ enum Undefined {
     Identifier(String, usize),
 }
 
-/// Os nomes sem resolução em `start..end` (sem os privados).
+/// The unresolved names in `start..end` (without the private ones).
 fn undefined_with_context(query: &Query, unit: UnitId, start: usize, end: usize) -> Vec<Undefined> {
     let u = query.program.unit(unit);
     let bodies = &query.bodies.units[unit.0 as usize];
@@ -477,7 +477,7 @@ fn undefined_with_context(query: &Query, unit: UnitId, start: usize, end: usize)
     output
 }
 
-/// A espécie (`ElementKind`) de um elemento do programa.
+/// The kind (`ElementKind`) of a program element.
 fn element_kind(p: &dartforge_elements::model::Program, el: Element) -> Option<crate::known_libraries::Kind> {
     use crate::known_libraries::Kind as E;
     use dartforge_elements::model::ClassKind;
@@ -501,11 +501,11 @@ fn element_kind(p: &dartforge_elements::model::Program, el: Element) -> Option<c
     })
 }
 
-/// `ImportLibrary` (`import_library.dart`) para os nomes sem resolução
-/// das linhas pedidas: as variantes de cada código, o
-/// `_importLibraryForElement` (prefixo e `show` dos imports existentes;
-/// depois as bibliotecas conhecidas, com `SDK`/`PROJECT1`/`2`/`3` e as
-/// variantes absoluta e relativa) e as edições do `DartFileEditBuilder`.
+/// `ImportLibrary` (`import_library.dart`) for the unresolved names of the
+/// requested lines: the variants of each code, `_importLibraryForElement`
+/// (prefix and `show` of the existing imports; then the known libraries,
+/// with `SDK`/`PROJECT1`/`2`/`3` and the absolute and relative variants) and
+/// the edits of the `DartFileEditBuilder`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn import(
     project: &Project,
@@ -542,7 +542,7 @@ pub(crate) fn import(
         };
         let symbol = query.names.lookup(name);
         for kinds in variants {
-            // Os imports existentes (`libraryImports` da unidade definidora).
+            // The existing imports (`libraryImports` of the defining unit).
             let mut by_show: BTreeSet<String> = BTreeSet::new();
             for imp in p.library(lib).imports.iter().filter(|i| Some(i.unit) == defining) {
                 let Some(s) = symbol else { break };
@@ -587,7 +587,7 @@ pub(crate) fn import(
                     }
                 }
             }
-            // As bibliotecas conhecidas.
+            // The known libraries.
             for c in &candidates {
                 if c.path == file {
                     continue;
@@ -605,7 +605,7 @@ pub(crate) fn import(
                 } else {
                     "quickfix.import.libraryProject1"
                 };
-                // `canBeRelativeImport`: as duas `package:` do mesmo pacote.
+                // `canBeRelativeImport`: both `package:` of the same package.
                 let package = |s: &str| s.strip_prefix("package:").and_then(|r| r.split('/').next()).map(str::to_string);
                 let can_relative = package(&c.uri).is_some() && package(&c.uri) == package(&library_uri);
                 let modes: Vec<bool> = if !can_relative || always_package {
@@ -632,12 +632,12 @@ pub(crate) fn import(
     output
 }
 
-/// Código publicado de um diagnóstico (`unused_local_variable`, …).
+/// Published code of a diagnostic (`unused_local_variable`, …).
 fn code(d: &Diagnostic) -> Option<&'static str> {
     d.code.map(|c| c.info().nome)
 }
 
-/// Uma ação de correção com uma edição só.
+/// A fix action with a single edit.
 fn fix(
     uri: &str,
     title: String,
@@ -661,24 +661,25 @@ fn fix(
     }
 }
 
-/// Correções dos diagnósticos semânticos publicados que tocam `start..end`,
-/// sobre a biblioteca carregada (`project`), como as do servidor do Dart:
+/// Fixes for the published semantic diagnostics touching `start..end`, over
+/// the loaded library (`project`), like the Dart server's:
 ///
-/// * `unused_local_variable` → `Remove unused local variable`: a declaração
-///   (ou só a variável, numa lista) e os comandos que só atribuem a ela;
-/// * `unused_element` (função local) → `Remove unused element`;
-/// * `unnecessary_cast` → `Remove unnecessary cast` (e o parêntese que
-///   sobraria em volta de uma expressão primária);
+/// * `unused_local_variable` → `Remove unused local variable`: the
+///   declaration (or only the variable, in a list) and the statements that
+///   only assign to it;
+/// * `unused_element` (local function) → `Remove unused element`;
+/// * `unnecessary_cast` → `Remove unnecessary cast` (and the parenthesis
+///   that would remain around a primary expression);
 /// * `unnecessary_non_null_assertion` → `Remove the '!'`;
-/// * `invalid_null_aware_operator` → `Replace with '.'` (ou `'['`);
+/// * `invalid_null_aware_operator` → `Replace with '.'` (or `'['`);
 /// * `instance_access_to_static_member` → `Change access to static using
-///   'C'`, com o nome da classe como a biblioteca o vê (com prefixo, se é
-///   por prefixo);
+///   'C'`, with the class name as the library sees it (with a prefix, if it
+///   is reached through one);
 /// * `record_literal_one_positional_no_trailing_comma` → `Add trailing comma`.
 ///
-/// Cada edição é conferida contra a árvore do texto vigente: diagnóstico
-/// que não corresponde a um nó esperado (texto já mudou, forma diferente)
-/// não gera ação.
+/// Each edit is checked against the tree of the current text: a diagnostic
+/// that does not match an expected node (text already changed, different
+/// shape) produces no action.
 pub(crate) fn fix_published(
     project: &Project,
     uri: &str,
@@ -693,8 +694,8 @@ pub(crate) fn fix_published(
     let u = query.program.unit(unit);
     let ast = &u.ast;
     let text = u.source.as_str();
-    // A árvore do analyzer (o `node`/`coveringNode` do contexto do fix), só
-    // quando algum produtor precisa dela.
+    // The analyzer tree (the fix context's `node`/`coveringNode`), only when
+    // some producer needs it.
     let tree = std::cell::OnceCell::new();
     let cx = || tree.get_or_init(|| crate::refactorings::Context::new(project, unit));
     let mut output = Vec::new();
@@ -714,15 +715,15 @@ pub(crate) fn fix_published(
                 output.push(fix(uri, "Remove the unused parameter".into(), "quickfix.remove.unusedParameter", vec![(s, String::new())], d));
             }
             Some("unused_element") => {
-                // `RemoveUnusedElement`: sem referências na unidade.
+                // `RemoveUnusedElement`: without references in the unit.
                 let Some(ranges) = cx().remove_element(d.span) else { continue };
                 let edits = ranges.into_iter().map(|s| (s, String::new())).collect();
                 output.push(fix(uri, "Remove unused element".into(), "quickfix.remove.unusedElement", edits, d));
             }
             Some("unnecessary_cast") => {
-                // `RemoveUnnecessaryCast`: o `coveringNode` é a `AsExpression`;
-                // apaga ` as T` e os parênteses em volta enquanto a
-                // precedência do pai do parêntese não passa da do `as`.
+                // `RemoveUnnecessaryCast`: the `coveringNode` is the `AsExpression`;
+                // deletes ` as T` and the surrounding parentheses while the precedence of
+                // the parenthesis's parent does not exceed that of `as`.
                 let cx = cx();
                 let Some(n) = cx.tree.localizar2(d.span.start, d.span.end.saturating_sub(1)) else { continue };
                 if cx.kind(n) != "AsExpression" {
@@ -756,7 +757,7 @@ pub(crate) fn fix_published(
                 }
             }
             Some("invalid_null_aware_operator") => {
-                // `ReplaceWithNotNullAware` sobre o `coveringNode`.
+                // `ReplaceWithNotNullAware` over the `coveringNode`.
                 let cx = cx();
                 let Some(n) = cx.tree.localizar2(d.span.start, d.span.end.saturating_sub(1)) else { continue };
                 if let Some((s, new, title)) = cx.swap_null_aware_operator(n) {
@@ -764,9 +765,8 @@ pub(crate) fn fix_published(
                 }
             }
             Some("instance_access_to_static_member") => {
-                // `ChangeToStaticAccess`: o `node` é o nome de uma
-                // `MethodInvocation` ou o identificador de um
-                // `PrefixedIdentifier`.
+                // `ChangeToStaticAccess`: the `node` is the name of a `MethodInvocation` or
+                // the identifier of a `PrefixedIdentifier`.
                 let cx = cx();
                 if let Some((name, s, new_text, import)) = cx.static_access(d.span) {
                     let mut m = crate::refactorings_exec::Change::default();
@@ -806,7 +806,7 @@ pub(crate) fn fix_published(
                 }
             }
             Some("assignment_to_final") => {
-                // `MakeFieldNotFinal` e `AddLate`, nesta ordem.
+                // `MakeFieldNotFinal` and `AddLate`, in this order.
                 if let Some(action) = non_final_field(project, unit, d) {
                     output.push(action);
                 }
@@ -818,8 +818,8 @@ pub(crate) fn fix_published(
                 output.extend(initialized_abstract_field(project, unit, uri, ast, text, d));
             }
             Some("non_bool_condition") => {
-                // `AddNeNull` (tipo estático sem `?` → nada) e
-                // `AddAwait.nonBool` (`Future<bool>` → `await `), nesta ordem.
+                // `AddNeNull` (static type without `?` → nothing) and `AddAwait.nonBool`
+                // (`Future<bool>` → `await `), in this order.
                 let cx = cx();
                 let Some(n) = cx.tree.localizar(d.span.start, d.span.end) else { continue };
                 if !cx.is_expression(n) {
@@ -864,7 +864,7 @@ pub(crate) fn fix_published(
     output
 }
 
-/// Os tokens de `text[start..end]`, com spans no texto inteiro.
+/// The tokens of `text[start..end]`, with spans in the whole text.
 fn tokens(text: &str, start: usize, end: usize) -> Vec<dartforge_frontend::token::Token> {
     dartforge_frontend::lexer::lex(&text[start..end])
         .map(|ts| {
@@ -879,10 +879,10 @@ fn tokens(text: &str, start: usize, end: usize) -> Vec<dartforge_frontend::token
         .unwrap_or_default()
 }
 
-/// O campo escrito por `assignment_to_final`: o `writeOrReadElement` do
-/// identificador é o getter sintético (o acessor implícito) de um campo não
-/// sintético sem setter; o campo, a unidade e o nome dele, a lista e o
-/// membro que o declara.
+/// The field written by `assignment_to_final`: the identifier's
+/// `writeOrReadElement` is the synthetic getter (the implicit accessor) of a
+/// non-synthetic field without a setter; the field, its unit and name, the
+/// list and the member that declares it.
 fn written_field<'p>(project: &'p Project, unit: UnitId, d: &Diagnostic) -> Option<(dartforge_elements::model::VariableId, UnitId, Span, &'p ast::VariableList, &'p ast::Member)> {
     let query = &project.query;
     let p = &query.program;
@@ -919,11 +919,11 @@ fn written_field<'p>(project: &'p Project, unit: UnitId, d: &Diagnostic) -> Opti
     Some((v, u_decl, name_, l, member))
 }
 
-/// `MakeFieldNotFinal` (`make_field_not_final.dart`): campo de **classe**,
-/// lista de uma variável com `final`; com tipo, apaga `final `; sem tipo,
-/// troca por `var `. Edita o arquivo da declaração (o Dart registra o edit
-/// no arquivo do uso, defeito que só aparece entre arquivos e não é
-/// reproduzido).
+/// `MakeFieldNotFinal` (`make_field_not_final.dart`): a **class** field, a
+/// list of one variable with `final`; with a type, deletes `final `; without
+/// one, replaces it with `var `. Edits the declaration's file (Dart records
+/// the edit in the use's file, a defect that only shows up across files and
+/// is not reproduced).
 fn non_final_field(project: &Project, unit: UnitId, d: &Diagnostic) -> Option<CodeAction> {
     let p = &project.query.program;
     let (v, u_decl, name, l, member) = written_field(project, unit, d)?;
@@ -941,7 +941,7 @@ fn non_final_field(project: &Project, unit: UnitId, d: &Diagnostic) -> Option<Co
     let (span, new) = match l.ty {
         // `range.startStart(final, type)`.
         Some(t) => (Span { start: final_.span.start, end: p.unit(u_decl).ast.ty(t).span.start }, String::new()),
-        // `range.startStart(final, variável)` por `var `.
+        // `range.startStart(final, variable)` with `var `.
         None => (Span { start: final_.span.start, end: name.start }, "var ".to_string()),
     };
     let uri_decl = project.unit_uri(u_decl)?;
@@ -954,9 +954,9 @@ fn non_final_field(project: &Project, unit: UnitId, d: &Diagnostic) -> Option<Co
     })
 }
 
-/// `AddLate` (`add_late.dart:60-91`): o campo de classe, mixin, enum ou
-/// tipo de extensão, não `late`, numa `FieldDeclaration` de uma variável
-/// com `final`: `late ` antes do `final`, no arquivo do campo.
+/// `AddLate` (`add_late.dart:60-91`): a field of a class, mixin, enum or
+/// extension type, not `late`, in a `FieldDeclaration` of one variable with
+/// `final`: `late ` before the `final`, in the field's file.
 fn late_field(project: &Project, unit: UnitId, d: &Diagnostic) -> Option<CodeAction> {
     let p = &project.query.program;
     let (v, u_decl, name, l, member) = written_field(project, unit, d)?;
@@ -978,10 +978,10 @@ fn late_field(project: &Project, unit: UnitId, d: &Diagnostic) -> Option<CodeAct
     })
 }
 
-/// `abstract_field_initializer` → `Remove the 'abstract' keyword` e
-/// `Remove initializer`, nesta ordem (a do `RemoveAbstract` e do
-/// `RemoveInitializer` na lista de produtores do Dart). O `RemoveAbstract`
-/// pula a lista de várias variáveis cujo tipo não é anulável.
+/// `abstract_field_initializer` → `Remove the 'abstract' keyword` and
+/// `Remove initializer`, in this order (that of `RemoveAbstract` and
+/// `RemoveInitializer` in Dart's producer list). `RemoveAbstract` skips a
+/// list of several variables whose type is not nullable.
 fn initialized_abstract_field(project: &Project, unit: UnitId, uri: &str, ast: &ast::Ast, text: &str, d: &Diagnostic) -> Vec<CodeAction> {
     let mut output = Vec::new();
     let Some((member, list, var)) = ast.members.iter().find_map(|m| match &m.kind {
@@ -1003,7 +1003,7 @@ fn initialized_abstract_field(project: &Project, unit: UnitId, uri: &str, ast: &
             .into_iter()
             .find(|t| t.kind == dartforge_frontend::token::Kind::Ident && &text[t.span.start..t.span.end] == "abstract");
         if let Some(t) = abstract_ {
-            // `[abstract.offset, próximoToken.offset)`.
+            // `[abstract.offset, nextToken.offset)`.
             let next = tokens(text, t.span.end, var.name.span.end).into_iter().find(|x| x.kind != dartforge_frontend::token::Kind::Eof).map_or(var.name.span.start, |x| x.span.start);
             output.push(fix(uri, "Remove the 'abstract' keyword".into(), "quickfix.remove.abstract", vec![(Span { start: t.span.start, end: next }, String::new())], d));
         }
@@ -1022,10 +1022,10 @@ fn initialized_abstract_field(project: &Project, unit: UnitId, uri: &str, ast: &
 }
 
 /// `uri_does_not_exist` → `Create file 'x.dart'` (`CreateFile`,
-/// `create_file.dart`): o `node` é o `SimpleStringLiteral` da URI; num
-/// `import`/`export` com fonte referida absoluta `.dart`, o arquivo com
-/// `// TODO Implement this library.`; numa `part`, `part of '<biblioteca
-/// relativa à pasta da parte>';` e duas quebras.
+/// `create_file.dart`): the `node` is the URI's `SimpleStringLiteral`; for
+/// an `import`/`export` with an absolute referenced `.dart` source, the file
+/// with `// TODO Implement this library.`; for a `part`, `part of '<library
+/// relative to the part's folder>';` and two line breaks.
 fn create_file(project: &Project, unit: UnitId, _uri: &str, d: &Diagnostic) -> Option<CodeAction> {
     let p = project.program();
     let u = p.unit(unit);
@@ -1034,7 +1034,7 @@ fn create_file(project: &Project, unit: UnitId, _uri: &str, d: &Diagnostic) -> O
         DirectiveKind::Part { uri } if uri.span == d.span => Some((uri, true)),
         _ => None,
     })?;
-    // Só o literal simples (sem interpolação nem adjacência).
+    // Only a simple literal (no interpolation nor adjacency).
     let simple = tokens(&u.source, literal.span.start, literal.span.end)
         .iter()
         .filter(|t| t.kind != dartforge_frontend::token::Kind::Eof)
@@ -1045,8 +1045,8 @@ fn create_file(project: &Project, unit: UnitId, _uri: &str, d: &Diagnostic) -> O
     }
     let text = literal.constant_value()?.as_str()?.to_string();
     let current = u.path.clone()?;
-    // `referencedSource`: `package:` pelo `package_config`, `file:`, ou
-    // relativo à unidade.
+    // `referencedSource`: `package:` through the `package_config`, `file:`, or
+    // relative to the unit.
     let target: PathBuf = if text.starts_with("package:") {
         let configuration = dartforge_elements::config::PackageConfig::discover(&current)
             .and_then(|c| dartforge_elements::config::PackageConfig::load(&c).ok())?;
@@ -1081,11 +1081,11 @@ fn create_file(project: &Project, unit: UnitId, _uri: &str, d: &Diagnostic) -> O
     })
 }
 
-/// `Organize Imports` (`source.organizeImports`) sobre a unidade só
-/// parseada: o `ImportOrganizer` de `crate::organize_imports`
-/// (docs/LSP-ESPECIFICACAO.md §13.12.6), que ordena, agrupa e tira as
-/// duplicatas textuais. Sem erros semânticos, nenhum import sai por não ser
-/// usado. Sem nada a mudar, a ação vem sem edição.
+/// `Organize Imports` (`source.organizeImports`) over the merely parsed
+/// unit: the `ImportOrganizer` of `crate::organize_imports`
+/// (docs/LSP-ESPECIFICACAO.md §13.12.6), which sorts, groups and removes
+/// textual duplicates. Without semantic errors, no import is removed for
+/// being unused. With nothing to change, the action comes without an edit.
 pub(crate) fn organize_imports(uri: &str, text: &str) -> CodeAction {
     let mut names = dartforge_intern::Interner::new();
     let analyzed = dartforge_frontend::parser::parse(text, &mut names);

@@ -1,6 +1,6 @@
-//! Os `visit*` do `InScopeCompletionPass` (um por espécie de nó) e os
-//! auxiliares `_forX` (`in_scope_completion_pass.dart:241-3929`).
-//! Escrito sem compilar nem executar (2026-10-05).
+//! The `visit*` methods of `InScopeCompletionPass` (one per node kind) and
+//! the `_forX` helpers (`in_scope_completion_pass.dart:241-3929`).
+//! Written without compiling or running (2026-10-05).
 
 use super::isp::{Flags, Initial, Isp};
 use super::*;
@@ -8,7 +8,7 @@ use dartforge_elements::model::UnitId;
 use crate::arvore_analyzer::Ligacao;
 use dartforge_frontend::token::Op;
 
-/// O texto de um `completionLocation` de argumento.
+/// The text of an argument `completionLocation`.
 fn argument_role(parent: &str) -> &'static str {
     match parent {
         "Annotation" => "annotation",
@@ -22,26 +22,26 @@ fn argument_role(parent: &str) -> &'static str {
     }
 }
 
-/// Um parâmetro da invocação (`invokedFormalParameters`).
+/// A parameter of the invocation (`invokedFormalParameters`).
 #[derive(Debug, Clone)]
 pub(super) struct InvokedParameter {
     pub name: String,
     pub named: bool,
     pub required: bool,
     pub ty: TypeId,
-    /// `isFlutterWidgetParameter`: o construtor é de um widget do Flutter.
+    /// `isFlutterWidgetParameter`: the constructor belongs to a Flutter widget.
     pub widget: bool,
-    /// `hasRequired`: a anotação `@required` do `package:meta`.
+    /// `hasRequired`: the `@required` annotation from `package:meta`.
     pub annotated_required: bool,
-    /// Os nomes dos posicionais do tipo de função escrito no parâmetro (o
-    /// `FunctionType.parameters` do analyzer tem os nomes; o tipo do
-    /// DartForge não).
+    /// The names of the positionals of the function type written on the
+    /// parameter (the analyzer's `FunctionType.parameters` has the names;
+    /// DartForge's type does not).
     pub type_names: Vec<String>,
 }
 
 impl<'a, 'c> Isp<'a, 'c> {
-    /// `completionNode.accept(this)`: o `visit*` da espécie (nenhum para as
-    /// espécies sem `visit` próprio: o `SimpleAstVisitor` não faz nada).
+    /// `completionNode.accept(this)`: the kind's `visit*` (none for kinds
+    /// without their own `visit`: the `SimpleAstVisitor` does nothing).
     pub(super) fn visit(&mut self, n: usize) {
         match self.kind(n) {
             "AdjacentStrings" | "DoubleLiteral" | "IntegerLiteral" | "StringInterpolation" => self.visit_parent_if_node_or_before(n),
@@ -303,7 +303,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    // -- Auxiliares do Dart ------------------------------------------------------
+    // -- Dart helpers ------------------------------------------------------------
 
     /// `_visitParentIfAtOrBeforeNode`.
     pub(super) fn visit_parent_if_node_or_before(&mut self, n: usize) {
@@ -367,8 +367,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.lexical_dh(n);
     }
 
-    /// O prefixo de import (o nome) de um `ImportPrefixReference` ou de um
-    /// identificador, se o elemento dele é um `PrefixElement`.
+    /// The import prefix (the name) of an `ImportPrefixReference` or of an
+    /// identifier, if its element is a `PrefixElement`.
     pub(super) fn import_prefix(&self, n: usize) -> Option<SymbolId> {
         let text = &self.source[self.start(n)..self.end(n)];
         let name = text.trim_end_matches('.').trim();
@@ -395,7 +395,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                     }
                 }
                 "WildcardPattern" => {
-                    // O nome `_` é o último token do padrão.
+                    // The name `_` is the pattern's last token.
                     let name = self.end(p).saturating_sub(1);
                     if self.offset < name {
                         self.dh(Flags { ty: true, ..Flags::default() });
@@ -496,7 +496,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.suggest_overrides(class, false);
     }
 
-    /// Os elementos de um literal de coleção (sem o `TypeArgumentList`).
+    /// The elements of a collection literal (without the `TypeArgumentList`).
     pub(super) fn literal_elements(&self, lit: usize) -> Vec<usize> {
         self.children(lit).iter().copied().filter(|&f| self.kind(f) != "TypeArgumentList").collect()
     }
@@ -511,8 +511,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.lexical_dh(previous.unwrap_or(literal));
     }
 
-    /// `_forCombinator`: os nomes exportados da biblioteca da diretiva,
-    /// menos os já listados (fora o que está sob o cursor).
+    /// `_forCombinator`: the names exported by the directive's library, minus
+    /// those already listed (except the one under the cursor).
     pub(super) fn to_combinator(&mut self, n: usize) {
         let Some(directive) = self.parent(n) else { return };
         if !matches!(self.kind(directive), "ImportDirective" | "ExportDirective") {
@@ -531,7 +531,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.library_dh(lib, &excluded);
     }
 
-    /// A biblioteca referida por um `import`/`export` (`referencedLibrary`).
+    /// The library referenced by an `import`/`export` (`referencedLibrary`).
     pub(super) fn directive_library(&self, directive: usize) -> Option<LibraryId> {
         let d = self.real_directive(directive)?;
         let target = self.map(d.span.start);
@@ -591,7 +591,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.dh_fields_for_initializers(ctor, field);
     }
 
-    /// O campo de `x = e` (`fieldName.staticElement`).
+    /// The field of `x = e` (`fieldName.staticElement`).
     pub(super) fn initializer_field(&self, ctor: usize, init: usize) -> Option<dartforge_elements::model::VariableId> {
         let ast::Initializer::Field { name, .. } = self.real_initializer(init)? else { return None };
         let class = self.parent(ctor).and_then(|c| self.node_class(c))?;
@@ -603,8 +603,8 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `_forMemberAccess`.
     pub(super) fn to_member_access(&mut self, n: usize, ty: TypeId, so_super: bool) {
         if so_super {
-            // `request.target.dotTarget is SuperExpression`: o método que o
-            // contém dá o `superMatches` e o `isNoSuchMethod`.
+            // `request.target.dotTarget is SuperExpression`: the containing method
+            // gives `superMatches` and `isNoSuchMethod`.
             self.super_method = self.ancestor(n, &["MethodDeclaration"]).and_then(|m| self.real_function(m)).and_then(|f| f.name).map(|x| self.real_name(x).to_string());
         }
         let assignable = self.must_be_assignable(n);
@@ -614,8 +614,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.dh_instance_members(ty, so_super);
     }
 
-    /// `_computeMustBeAssignable`: o nó é o lado esquerdo de uma atribuição e
-    /// o cursor está na linha do operador.
+    /// `_computeMustBeAssignable`: the node is the left side of an assignment
+    /// and the cursor is on the operator's line.
     pub(super) fn must_be_assignable(&self, n: usize) -> bool {
         let Some(p) = self.parent(n) else { return false };
         if self.kind(p) != "AssignmentExpression" || self.children(p).first() != Some(&n) {
@@ -652,13 +652,13 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// O nome declarado de um `DeclaredVariablePattern` (o último token).
+    /// The declared name of a `DeclaredVariablePattern` (the last token).
     pub(super) fn variable_pattern_name(&self, n: usize) -> Option<usize> {
         let i = self.tok_before(self.end(n))?;
         (self.span_tok(i).start >= self.start(n) && self.word(i)).then_some(i)
     }
 
-    /// O nome (sem prefixo e sem argumentos) de um `NamedType`.
+    /// The name (without prefix and without arguments) of a `NamedType`.
     pub(super) fn named_type_name(&self, t: usize) -> String {
         let mut start = self.start(t);
         if let Some(p) = self.child(t, "ImportPrefixReference") {
@@ -689,7 +689,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `fieldNames` de um padrão objeto ou record: os nomes efetivos.
+    /// `fieldNames` of an object or record pattern: the effective names.
     pub(super) fn field_names(&self, pattern: usize) -> HashSet<String> {
         let mut names = HashSet::new();
         for c in self.children_of(pattern, &["PatternField"]) {
@@ -700,14 +700,14 @@ impl<'a, 'c> Isp<'a, 'c> {
         names
     }
 
-    /// `effectiveName`: o nome escrito, ou o da variável de `:var x`.
+    /// `effectiveName`: the written name, or that of the variable of `:var x`.
     pub(super) fn field_effective_name(&self, c: usize) -> Option<String> {
         let name = self.child(c, "PatternFieldName")?;
         let i = self.tok_after(self.start(name))?;
         if self.word(i) && self.span_tok(i).end <= self.end(name) {
             return Some(self.text_tok(i).to_string());
         }
-        // `:var x`: o nome da variável do subpadrão.
+        // `:var x`: the name of the subpattern's variable.
         let sub = self.children(c).iter().copied().find(|&k| k != name)?;
         if self.kind(sub) == "DeclaredVariablePattern" {
             return self.variable_pattern_name(sub).map(|j| self.text_tok(j).to_string());
@@ -715,12 +715,12 @@ impl<'a, 'c> Isp<'a, 'c> {
         None
     }
 
-    /// O tipo resolvido de um nó de tipo (`type.typeOrThrow`): o dos corpos
-    /// (`annotation_types`) ou o do outline (`written_types`).
+    /// The resolved type of a type node (`type.typeOrThrow`): the bodies'
+    /// (`annotation_types`) or the outline's (`written_types`).
     pub(super) fn type_node_type(&self, t: usize) -> Option<TypeId> {
         let Ligacao::Tipo(tid) = self.link(t) else {
-            // O `NamedType` que a árvore monta para a criação sem `new`
-            // (`A()`, `A.n()`): o tipo criado.
+            // The `NamedType` the tree builds for a creation without `new` (`A()`,
+            // `A.n()`): the created type.
             let name = self.parent(t).filter(|&p| self.kind(p) == "ConstructorName")?;
             let creation = self.parent(name).filter(|&p| self.kind(p) == "InstanceCreationExpression")?;
             let Ligacao::Expr(e) = self.link(creation) else { return None };
@@ -734,7 +734,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         bodies.tipos_de_anotacoes.get(&id).copied().or_else(|| self.query.outline.tipos_escritos.get(&(self.unit, id)).copied())
     }
 
-    /// O `matchedValueType` de um padrão.
+    /// The `matchedValueType` of a pattern.
     pub(super) fn matched_type(&self, pattern: usize) -> Option<TypeId> {
         let Ligacao::Padrao(pid) = self.link(pattern) else { return None };
         let s = self.a.pattern(pid).span;
@@ -758,7 +758,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.dh_type_constructor_names(this, name);
     }
 
-    /// `thisType` de uma classe.
+    /// `thisType` of a class.
     pub(super) fn class_this_type(&mut self, c: ClassId) -> Option<TypeId> {
         class_type(self.query, c)
     }
@@ -777,7 +777,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let Some(previous) = self.previous_member(m) else { return false };
         if self.kind(previous) == "MethodDeclaration" {
             let body = self.children(previous).iter().copied().find(|&k| matches!(self.kind(k), "BlockFunctionBody" | "ExpressionFunctionBody" | "EmptyFunctionBody" | "NativeFunctionBody"));
-            // O corpo todo sintético: o método sem corpo no texto.
+            // The whole body synthetic: the method without a body in the text.
             if body.is_none() {
                 self.local("ClassDeclaration_member");
                 self.body_modifiers_kw(None);
@@ -848,20 +848,20 @@ impl<'a, 'c> Isp<'a, 'c> {
         false
     }
 
-    /// O corpo de uma função/método (o nó do corpo).
+    /// The body of a function/method (the body node).
     pub(super) fn function_body(&self, n: usize) -> Option<usize> {
         let expr = if self.kind(n) == "FunctionDeclaration" { self.child(n, "FunctionExpression")? } else { n };
         self.children(expr).iter().copied().find(|&k| matches!(self.kind(k), "BlockFunctionBody" | "ExpressionFunctionBody" | "EmptyFunctionBody" | "NativeFunctionBody"))
     }
 
-    /// A declaração não tem corpo (`{` e `}` sintéticos).
+    /// The declaration has no body (synthetic `{` and `}`).
     pub(super) fn without_body(&self, n: usize) -> bool {
         let (_, _, left, dir) = self.keys(n);
         left && dir
     }
 
-    /// As chaves do corpo de uma declaração de classe, mixin, enum,
-    /// extensão ou tipo de extensão: `({, }, { sintético, } sintético)`.
+    /// The braces of the body of a class, mixin, enum, extension or extension
+    /// type declaration: `({, }, synthetic {, synthetic })`.
     pub(super) fn keys(&self, n: usize) -> (Span, Span, bool, bool) {
         if let Some(i) = self.tok_before(self.end(n))
             && self.is_op(i, Op::RBrace)
@@ -903,7 +903,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         false
     }
 
-    /// `_handledRecovery` de uma `TopLevelVariableDeclaration`.
+    /// `_handledRecovery` of a `TopLevelVariableDeclaration`.
     pub(super) fn handled_recovery(&mut self, decl: usize) -> bool {
         if self.parent(decl) != Some(0) {
             return false;
@@ -926,8 +926,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         false
     }
 
-    /// `TopLevelVariableDeclaration.isSingleIdentifier`: uma palavra seguida
-    /// do `;` que o fasta criaria (aqui: sem `;` no texto).
+    /// `TopLevelVariableDeclaration.isSingleIdentifier`: a word followed by the
+    /// `;` that fasta would create (here: no `;` in the text).
     pub(super) fn loose_top_declaration(&self, decl: usize) -> bool {
         let Some(i) = self.tok_after(self.start(decl)) else { return false };
         if !self.word(i) {
@@ -943,8 +943,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         format!("ArgumentList_{}_{}", argument_role(parent), if named { "named" } else { "unnamed" })
     }
 
-    /// `_tryAnnotationAtEndOfClassBody`: o token deslocado é o `}` e os dois
-    /// anteriores são `@` e um identificador.
+    /// `_tryAnnotationAtEndOfClassBody`: the displaced token is the `}` and the
+    /// two before it are `@` and an identifier.
     pub(super) fn annotation_at_body_end(&mut self, decl: usize) -> bool {
         let Some(key) = self.tok_after(self.offset) else { return false };
         if !self.is_op(key, Op::RBrace) {
@@ -1000,9 +1000,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    // -- Os parâmetros da invocação ------------------------------------------------
+    // -- The invocation's parameters -----------------------------------------------
 
-    /// `invokedFormalParameters` de uma `ArgumentList`.
+    /// `invokedFormalParameters` of an `ArgumentList`.
     pub(super) fn invoked_parameters(&mut self, list: usize) -> Option<Vec<InvokedParameter>> {
         let parent = self.parent(list)?;
         let query = &*self.query;
@@ -1077,7 +1077,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// Os parâmetros declarados de um executável no AST (o da unidade dele).
+    /// The declared parameters of an executable in the AST (that of its unit).
     pub(super) fn parameters_ast(&self, f: FunctionElementId) -> Option<(UnitId, &[ast::Parameter])> {
         let p = &self.query.program;
         match p.function(f).node {
@@ -1090,9 +1090,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// Os nomes dos posicionais de um tipo de função escrito (`void
-    /// Function(int a)`) or da shape antiga (`void f(int a)`) de um
-    /// parâmetro, na unidade `u` da consulta.
+    /// The positional names of a written function type (`void Function(int
+    /// a)`) or of the old form (`void f(int a)`) of a parameter, in the query's
+    /// unit `u`.
     pub(super) fn written_type_names(&self, u: UnitId, prm: &ast::Parameter) -> Vec<String> {
         let unit = self.query.program.unit(u);
         let names = |ps: &[ast::Parameter]| -> Vec<String> {
@@ -1107,8 +1107,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// Completa os parâmetros pelo elemento: `widget`, `@required` e os
-    /// nomes do tipo de função escrito.
+    /// Completes the parameters through the element: `widget`, `@required` and
+    /// the names of the written function type.
     pub(super) fn enriched(&self, mut v: Vec<InvokedParameter>, f: FunctionElementId) -> Vec<InvokedParameter> {
         let p = &self.query.program;
         let widget = matches!(p.function(f).kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) && p.function(f).class.is_some_and(|c| self.is_widget(c));
@@ -1126,9 +1126,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         v
     }
 
-    /// Os nomes do tipo de função escrito nos parâmetros de `f` (os
-    /// parâmetros vieram do tipo, na ordem: posicionais, opcionais,
-    /// nomeados).
+    /// The names of the function type written on the parameters of `f` (the
+    /// parameters came from the type, in order: positional, optional, named).
     pub(super) fn element_names(&self, mut v: Vec<InvokedParameter>, f: FunctionElementId) -> Vec<InvokedParameter> {
         let Some((u, ps)) = self.parameters_ast(f) else { return v };
         let positional: Vec<&ast::Parameter> = ps.iter().filter(|x| x.kind != ast::ParameterKind::Named).collect();
@@ -1149,7 +1148,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         v
     }
 
-    /// `ClassElement.isWidget`: a classe é (subtipo de) `Widget` do Flutter.
+    /// `ClassElement.isWidget`: the class is (a subtype of) Flutter's `Widget`.
     pub(super) fn is_widget(&self, c: ClassId) -> bool {
         let p = &self.query.program;
         let mut stack = vec![c];
@@ -1169,8 +1168,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         false
     }
 
-    /// O construtor que uma anotação, `super(...)`, `this(...)` ou os
-    /// argumentos de uma constante de enum invocam.
+    /// The constructor that an annotation, `super(...)`, `this(...)` or the
+    /// arguments of an enum constant invoke.
     pub(super) fn invoked_constructor(&self, n: usize) -> Option<FunctionElementId> {
         let p = &self.query.program;
         match self.kind(n) {
@@ -1209,7 +1208,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 }
 
-/// As opções de `_forTypeAnnotation`.
+/// The options of `_forTypeAnnotation`.
 #[derive(Debug, Clone, Default)]
 pub(super) struct TypeOptions {
     pub extensible: bool,
@@ -1221,12 +1220,12 @@ pub(super) struct TypeOptions {
 }
 
 impl<'a, 'c> Isp<'a, 'c> {
-    // -- Os `visit*` -------------------------------------------------------------
+    // -- The `visit*` methods ---------------------------------------------------
 
     pub(super) fn v_annotation(&mut self, n: usize) {
         self.local("Annotation_name");
         self.to_annotation(n);
-        // `@over^` seguido de linha em branco: pedido de sobrescrita.
+        // `@over^` followed by a blank line: an override request.
         let Some(m) = self.real_annotation(n) else { return };
         let without_constructor = m.name.len() == 1 && m.arguments.is_none();
         if !without_constructor {
@@ -1246,7 +1245,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// O `ast::Annotation` de um nó `Annotation`.
+    /// The `ast::Annotation` of an `Annotation` node.
     pub(super) fn real_annotation(&self, n: usize) -> Option<&'a ast::Annotation> {
         let Ligacao::Anotacao(end) = self.link(n) else { return None };
         let all = self
@@ -1345,8 +1344,8 @@ impl<'a, 'c> Isp<'a, 'c> {
                     let l = self.argument_location(n, true);
                     self.local(&l);
                 }
-                // A vírgula depois do nome sugerido (sem tokens sintéticos: a
-                // vírgula está no texto ou não está).
+                // The comma after the suggested name (no synthetic tokens: the comma is in
+                // the text or it is not).
                 let mut comma = false;
                 if let Some(d) = after {
                     let possible = self.tok_before(self.start(d));
@@ -1712,7 +1711,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.dh_type_constructor_names(t, None);
     }
 
-    /// A classe que um `NamedType` nomeia.
+    /// The class a `NamedType` names.
     pub(super) fn named_type_class(&self, t: usize) -> Option<ClassId> {
         match self.query.table.get(self.type_node_type(t)?) {
             Type::Interface { class, .. } => Some(*class),
@@ -1862,7 +1861,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         if !dir_s && self.offset >= dir.end {
             return;
         }
-        // O `;` depois das constantes.
+        // The `;` after the constants.
         let last_constant = self.children_of(n, &["EnumConstantDeclaration"]).last().copied();
         let pv = self.op_in(Op::Semicolon, last_constant.map_or(left.end, |c| self.end(c)), dir.start);
         if let Some(p) = pv
@@ -1975,8 +1974,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `ExpressionStatement.isSingleIdentifier`: uma palavra sem `;` no
-    /// texto.
+    /// `ExpressionStatement.isSingleIdentifier`: a word without `;` in the text.
     pub(super) fn loose_command(&self, n: usize) -> bool {
         let Some(i) = self.tok_after(self.start(n)) else { return false };
         self.word(i) && self.tok_before(self.end(n)) == Some(i)
@@ -2034,7 +2032,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let (left, dir, _, _) = self.keys(n);
         if self.offset <= left.start {
             self.local("ExtensionDeclaration_onClause");
-            // `onClause.onKeyword.isSynthetic`: a cláusula sem `on` escrito.
+            // `onClause.onKeyword.isSynthetic`: the clause without a written `on`.
             let on = self.word_in("on", self.start(n), left.start);
             if self.child(n, "ExtensionOnClause").is_some() && on.is_none() {
                 self.extension_declaration_kw(n);
@@ -2128,8 +2126,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `FieldDeclaration.isSingleIdentifier`: uma palavra e nenhum outro
-    /// token (o `;` sintético).
+    /// `FieldDeclaration.isSingleIdentifier`: a word and no other token (the
+    /// synthetic `;`).
     pub(super) fn loose_field(&self, n: usize) -> bool {
         let Some(i) = self.first_after_annotations(n) else { return false };
         self.word(i) && self.tok_before(self.end(n)) == Some(i)
@@ -2529,7 +2527,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// A expressão é um `TypeLiteral` (o nome resolve a um tipo).
+    /// The expression is a `TypeLiteral` (the name resolves to a type).
     pub(super) fn is_type_literal(&self, e: usize) -> bool {
         let Some(id) = self.real_expr(e) else { return false };
         matches!(self.resolved(id), Some(Resolved::Element(Element::Class(_) | Element::Typedef(_))))
@@ -2581,7 +2579,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.dh_by_prefix(p);
             return;
         }
-        // Não é prefixo: o "prefixo" é um valor (`x.^ y`) ou um tipo.
+        // Not a prefix: the "prefix" is a value (`x.^ y`) or a type.
         let text = self.source[self.start(n)..self.end(n)].trim_end_matches('.').trim().to_string();
         let Some(s) = self.query.names.lookup(&text) else { return };
         let lib = self.query.program.library(self.library());
@@ -2765,7 +2763,7 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             return;
         }
-        // O operador `.`/`?.`/`..` antes do nome do método.
+        // The `.`/`?.`/`..` operator before the method name.
         let name = self.children_of(n, &["SimpleIdentifier"]).last().copied();
         let operator = name.and_then(|m| self.tok_before(self.start(m))).filter(|&i| {
             self.is_op(i, Op::Dot) || self.is_op(i, Op::QuestionDot) || self.is_op(i, Op::DotDot) || self.is_op(i, Op::QuestionDotDot)
@@ -2825,8 +2823,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         t == self.query.core.type_
     }
 
-    /// `staticElement` do identificador alvo: classe ou tipo de extensão →
-    /// estáticos; prefixo → as declarações por ele.
+    /// `staticElement` of the target identifier: class or extension type →
+    /// statics; prefix → the declarations through it.
     pub(super) fn static_or_prefix(&mut self, target: usize) {
         if let Some(p) = self.import_prefix(target) {
             self.dh(Flags::default());
@@ -2938,7 +2936,7 @@ impl<'a, 'c> Isp<'a, 'c> {
                 self.local("ArgumentList_method_named");
             }
             self.to_expression(n, false, in_arguments);
-            // `staticParameterElement`: o tipo do parâmetro nomeado.
+            // `staticParameterElement`: the type of the named parameter.
             if let Some(list) = self.parent(n).filter(|&p| self.kind(p) == "ArgumentList")
                 && let Some(ps) = self.invoked_parameters(list)
                 && let Some(p) = ps.into_iter().find(|p| p.named && p.name == name_text)
@@ -2951,7 +2949,7 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_named_type(&mut self, n: usize) {
-        // `prefix.x^ print(0);` recuperado como declaração de variável.
+        // `prefix.x^ print(0);` recovered as a variable declaration.
         if let Some(p) = self.child(n, "ImportPrefixReference")
             && let Some(prefix) = self.import_prefix(p)
             && let Some(list) = self.parent(n).filter(|&l| self.kind(l) == "VariableDeclarationList")
@@ -3089,8 +3087,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         let _ = id;
         self.local("PropertyAccess_propertyName");
         let ty = self.real_expr(prefix).and_then(|e| self.static_type(e));
-        // Prefixo de import ou nome de classe: o `staticType` é nulo no
-        // analyzer.
+        // Import prefix or class name: the `staticType` is null in the analyzer.
         let element = self.real_expr(prefix).and_then(|e| self.resolved(e));
         let is_type_or_prefix = matches!(element, Some(Resolved::Prefix(_) | Resolved::Element(Element::Class(_) | Element::Typedef(_) | Element::Extension(_))));
         match ty {
@@ -3118,8 +3115,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `request.shouldSuggestTearOff(element)`: o contexto é um tipo de
-    /// função (sugere o tear-off do construtor).
+    /// `request.shouldSuggestTearOff(element)`: the context is a function type
+    /// (suggests the constructor tear-off).
     pub(super) fn preferred_tear_off(&self) -> bool {
         self.context_type.is_some_and(|t| matches!(self.query.table.get(t), Type::Function { .. }))
     }
@@ -3374,7 +3371,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
     }
 
-    /// `FormalParameter.isSingleIdentifier`: um só token, palavra.
+    /// `FormalParameter.isSingleIdentifier`: a single token, a word.
     pub(super) fn one_token_parameter(&self, n: usize) -> bool {
         let Some(i) = self.tok_after(self.start(n)) else { return false };
         self.word(i) && self.span_tok(i).end == self.end(n)
@@ -3686,7 +3683,7 @@ impl<'a, 'c> Isp<'a, 'c> {
         if let Some(list) = self.parent(n)
             && self.kind(list) == "TypeParameterList"
         {
-            // `Future<void^>` num corpo de classe: o fasta inventa `() {}`.
+            // `Future<void^>` in a class body: fasta invents `() {}`.
             let closes = self.tok_before(self.end(list));
             let next = closes.and_then(|f| self.toks.get(f + 1));
             let without_parens = next.is_none_or(|t| t.kind != dartforge_frontend::token::Kind::Op(Op::LParen));
@@ -3938,5 +3935,5 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 }
 
-/// Os lexemas de palavra-chave do analyzer (exportado para as visitas).
+/// The analyzer's keyword lexemes (exported for the visits).
 pub(super) const ANALYZER_PUB_WORDS: &[&str] = super::isp::ANALYZER_WORDS;
