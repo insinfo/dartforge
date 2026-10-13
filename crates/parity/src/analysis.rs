@@ -138,6 +138,17 @@ pub fn key(p: &Path) -> PathBuf {
     dartforge_elements::generated::key(p)
 }
 
+/// The path as the file system spells it (case and links resolved), as the
+/// loading sees the files; for a file that does not exist yet (an unsaved
+/// document), its directory's canonical path with the name.
+fn canonical(p: &Path) -> PathBuf {
+    let c = std::fs::canonicalize(p).ok().or_else(|| {
+        let parent = p.parent()?.canonicalize().ok()?;
+        Some(parent.join(p.file_name()?))
+    });
+    dartforge_elements::config::without_verbatim(c.unwrap_or_else(|| p.to_path_buf()))
+}
+
 /// Is the file a part (`part of`)? Looks at the directives before the first
 /// declaration.
 pub fn is_part(text: &str) -> bool {
@@ -403,7 +414,40 @@ impl Engine {
     /// inference); when it answers true, the analysis stops there and returns
     /// `None` — the LSP discards it because the text changed. The engine
     /// retains nothing between calls.
+    ///
+    /// The paths may differ from the files' own spelling in case (macOS,
+    /// Windows) or in links: the loading canonicalizes them, so the root, the
+    /// files and the texts are canonicalized here too and the result comes
+    /// back keyed by the paths as given.
     pub fn analyze_with(
+        &self,
+        root: &Path,
+        files: &[PathBuf],
+        packages: Option<&Path>,
+        texts: &HashMap<PathBuf, String>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Option<AnalysisResult> {
+        let root_c = canonical(root);
+        let mut given: HashMap<PathBuf, PathBuf> = HashMap::new();
+        let files_c: Vec<PathBuf> = files
+            .iter()
+            .map(|a| {
+                let c = canonical(a);
+                given.insert(key(&c), key(a));
+                c
+            })
+            .collect();
+        let texts_c: HashMap<PathBuf, String> = texts.iter().map(|(k, v)| (key(&canonical(k)), v.clone())).collect();
+        let packages_c = packages.map(canonical);
+        let mut r = self.analyze_canonical(&root_c, &files_c, packages_c.as_deref(), &texts_c, cancelled)?;
+        if given.iter().any(|(c, g)| c != g) {
+            r.files = std::mem::take(&mut r.files).into_iter().map(|(k, v)| (given.get(&k).cloned().unwrap_or(k), v)).collect();
+        }
+        Some(r)
+    }
+
+    /// [`Engine::analyze_with`] over canonical paths.
+    fn analyze_canonical(
         &self,
         root: &Path,
         files: &[PathBuf],

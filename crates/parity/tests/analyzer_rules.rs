@@ -384,19 +384,17 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
     ),
     // A plain `=` has no `readElement`: a deprecated getter does not count
     // when only the setter is written (analyzer's resolve_file.dart; 2026-10-13).
-    // Outside `lib/` the code is `deprecated_member_use` (the oracle, in a
-    // package's `lib/`, gives the `_from_same_package` one at the same places).
     (
         "obsoleto_so_setter.dart",
         "class C {\n  int _o = 0;\n  @Deprecated('use x')\n  int get o => _o;\n  set o(int v) => _o = v;\n  int _p = 0;\n  int get p => _p;\n  @Deprecated('use y')\n  set p(int v) => _p = v;\n}\nvoid f(C c) {\n  c.o = 1;\n  c.o += 1;\n  c.o ??= 2;\n  c.o++;\n  c.p = 1;\n  c.p += 1;\n  print(c.o);\n}\n",
         &[
-            ("deprecated_member_use", 13, 5, 1),
-            ("deprecated_member_use", 14, 5, 1),
+            ("deprecated_member_use_from_same_package", 13, 5, 1),
+            ("deprecated_member_use_from_same_package", 14, 5, 1),
             ("dead_null_aware_expression", 14, 11, 1),
-            ("deprecated_member_use", 15, 3, 3),
-            ("deprecated_member_use", 16, 5, 1),
-            ("deprecated_member_use", 17, 5, 1),
-            ("deprecated_member_use", 18, 11, 1),
+            ("deprecated_member_use_from_same_package", 15, 3, 3),
+            ("deprecated_member_use_from_same_package", 16, 5, 1),
+            ("deprecated_member_use_from_same_package", 17, 5, 1),
+            ("deprecated_member_use_from_same_package", 18, 11, 1),
         ],
     ),
     // A reserved word as a local variable's name (2026-10-13).
@@ -451,4 +449,38 @@ fn ported_rules_give_what_analyzer_3_6_2_gives() {
         exp.sort();
         assert_eq!(found, exp, "{name}");
     }
+}
+
+/// The root and the files reached through another spelling of the same
+/// directory (a link here; a different case on macOS or Windows, where the
+/// file system ignores it): the loading canonicalizes the paths, and the
+/// reports still come back at the paths as given, with "same package" judged
+/// on the canonical root (`deprecated_member_use_from_same_package`, not
+/// `deprecated_member_use`).
+#[cfg(unix)]
+#[test]
+fn root_spelled_differently_from_the_file_system() {
+    let Ok(engine) = Engine::discover() else {
+        eprintln!("SDK missing: test skipped");
+        return;
+    };
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/tmp-agent/grafia-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let real = base.join("real");
+    std::fs::create_dir_all(real.join("lib")).unwrap();
+    std::fs::create_dir_all(real.join("bin")).unwrap();
+    std::fs::write(real.join("pubspec.yaml"), "name: grafia\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
+    std::fs::write(real.join("lib/a.dart"), "@Deprecated('no')\nvoid old() {}\n").unwrap();
+    std::fs::write(real.join("bin/main.dart"), "import 'package:corpus_grafia/a.dart';\nvoid main() => old();\n").unwrap();
+    let g = Group { sdk: OracleSdk::V362, packages: Vec::new(), origin: String::new() };
+    let cfg = corpus::prepare(&real, "grafia", &g).unwrap();
+    let link = base.join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let sources = vec![link.join("bin/main.dart")];
+    let ex = Execution { workers: 1, batch_size: 1, progress: false, isolate: None, max_time: std::time::Duration::from_secs(600) };
+    let cfg_link = link.join(cfg.strip_prefix(&real).unwrap());
+    let r = run_ours(&engine, &link, &sources, Some(&cfg_link), &filters::AnalysisOptions::default(), &ex);
+    let _ = std::fs::remove_dir_all(&base);
+    let found: Vec<(String, String, usize)> = r.records.iter().map(|x| (x.file.clone(), x.code.clone(), x.line)).collect();
+    assert_eq!(found, vec![("bin/main.dart".to_string(), "deprecated_member_use_from_same_package".to_string(), 2)]);
 }
