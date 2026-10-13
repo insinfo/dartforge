@@ -764,7 +764,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 || dentro_de(&raiz.join("bin"))
                 || arquivo == raiz.join("hook").join("build.dart")
                 || arquivo == raiz.join("hook").join("link.dart");
-            if let Some(disponiveis) = super::pubspec::dependencias_disponiveis(&texto, !publico) {
+            if let Some(disponiveis) = super::pubspec::available_dependencies(&texto, !publico) {
                 for d in &u.unit.directives {
                     let uri = match &d.kind {
                         DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } => uri,

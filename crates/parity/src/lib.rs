@@ -221,10 +221,10 @@ pub fn diagnosticos_do_pubspec(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<jso
     let Ok(text) = std::fs::read_to_string(&file) else { return Vec::new() };
     let lines = json::Linhas::new(&text);
     let path = file.to_string_lossy();
-    let ignored = dartforge_analysis::lints::pubspec::IgnoradosYaml::de(&text);
+    let ignored = dartforge_analysis::lints::pubspec::YamlIgnores::parse(&text);
     let mut out: Vec<json::DiagJson> = dartforge_analysis::naodart::pubspec::validate(&text, raiz)
         .into_iter()
-        .filter(|r| !ignored.ignora(r.code.nome, r.code.nome, r.span.start))
+        .filter(|r| !ignored.ignores(r.code.nome, r.code.nome, r.span.start))
         .map(|r| json::DiagJson {
             code: r.code.nome.to_string(),
             severity: r.code.severidade.nome().to_string(),
@@ -242,7 +242,7 @@ pub fn diagnosticos_do_pubspec(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<jso
     if opcoes.regras.values().any(|enabled| *enabled) {
         let enabled = |rule: &str| opcoes.regras.get(rule).copied().unwrap_or(false);
         for r in dartforge_analysis::lints::pubspec::run(&text, &enabled) {
-            if ignored.ignora(r.code.nome, r.code.unico, r.span.start) {
+            if ignored.ignores(r.code.nome, r.code.unico, r.span.start) {
                 continue;
             }
             let severity = match opcoes.errors.get(r.code.nome) {

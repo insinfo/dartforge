@@ -1,16 +1,16 @@
-//! As regras de lint do `pubspec.yaml` (docs/ANALYZER-ESPECIFICACAO-INFRA.md
-//! §8), escritas direto dos emissores da 3.6.2
-//! (`linter/lib/src/rules/pub/`), sobre o modelo `Pubspec` do analyzer
-//! (`analyzer/lib/src/lint/pub.dart`): `package_names`,
-//! `secure_pubspec_urls` e `sort_pub_dependencies`; e o que o
-//! `depend_on_referenced_packages` lê do `pubspec.yaml` do pacote.
+//! The `pubspec.yaml` lint rules (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8),
+//! written directly from the 3.6.2 emitters (`linter/lib/src/rules/pub/`),
+//! over the analyzer's `Pubspec` model (`analyzer/lib/src/lint/pub.dart`):
+//! `package_names`, `secure_pubspec_urls` and `sort_pub_dependencies`; and
+//! what `depend_on_referenced_packages` reads from the package's
+//! `pubspec.yaml`.
 //!
-//! O `Pubspec.parseYaml` só lê um documento que é mapa; as chaves são as
-//! escalares, e a última ocorrência vale. O texto de um nó é o `toString` do
-//! valor do escalar (números e booleanos como escritos; nulo não tem). O
-//! `IgnoreInfo.forYaml` (`# ignore:` e `# ignore_for_file:`) está em
-//! [`IgnoradosYaml`], que vale também para o `PubspecValidator`.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! `Pubspec.parseYaml` only reads a document that is a map; the keys are the
+//! scalar ones, and the last occurrence wins. A node's text is the `toString`
+//! of the scalar's value (numbers and booleans as written; null has none).
+//! `IgnoreInfo.forYaml` (`# ignore:` and `# ignore_for_file:`) is in
+//! [`YamlIgnores`], which also applies to the `PubspecValidator`.
+//! Written without compiling or running (2026-10-05).
 
 use super::codigos_g as c;
 use super::rules::LintReport;
@@ -19,103 +19,103 @@ use crate::naodart::yaml::{self, No, Valor};
 use dartforge_diagnostics::Span;
 
 /// `_PSNode.text`.
-fn texto(no: &No) -> Option<String> {
-    match &no.valor {
+fn text(node: &No) -> Option<String> {
+    match &node.valor {
         Valor::Texto(t) | Valor::Outro(t) => Some(t.clone()),
         _ => None,
     }
 }
 
-/// O texto de uma chave escalar (`key.toString()`).
-fn chave(no: &No) -> Option<String> {
-    if no.escalar() { texto(no).or_else(|| no.nulo().then(|| "null".to_string())) } else { None }
+/// The text of a scalar key (`key.toString()`).
+fn key_text(node: &No) -> Option<String> {
+    if node.escalar() { text(node).or_else(|| node.nulo().then(|| "null".to_string())) } else { None }
 }
 
-/// `_findEntry(map, key)`: o valor escalar da última chave igual.
-fn entrada<'a>(mapa: &'a No, nome: &str) -> Option<&'a No> {
-    let mut achado = None;
-    for (k, v) in mapa.mapa()? {
-        if chave(k).as_deref() == Some(nome) {
-            achado = Some(v).filter(|v| v.escalar());
+/// `_findEntry(map, key)`: the scalar value of the last equal key.
+fn find_entry<'a>(map: &'a No, name: &str) -> Option<&'a No> {
+    let mut found = None;
+    for (k, v) in map.mapa()? {
+        if key_text(k).as_deref() == Some(name) {
+            found = Some(v).filter(|v| v.escalar());
         }
     }
-    achado
+    found
 }
 
-/// Uma dependência (`_PSDependency`).
-pub struct Dependencia<'a> {
-    pub nome: &'a No,
-    /// O `url` do `git` e o do `hosted`.
+/// A dependency (`_PSDependency`).
+pub struct Dependency<'a> {
+    pub name: &'a No,
+    /// The `git` `url` and the `hosted` one.
     pub urls: Vec<&'a No>,
 }
 
-/// O `pubspec.yaml` no modelo do linter.
+/// The `pubspec.yaml` in the linter's model.
 #[derive(Default)]
 pub struct Pubspec<'a> {
-    pub nome: Option<&'a No>,
+    pub name: Option<&'a No>,
     pub documentation: Option<&'a No>,
     pub homepage: Option<&'a No>,
     pub issue_tracker: Option<&'a No>,
     pub repository: Option<&'a No>,
-    pub dependencies: Option<Vec<Dependencia<'a>>>,
-    pub dev_dependencies: Option<Vec<Dependencia<'a>>>,
-    pub dependency_overrides: Option<Vec<Dependencia<'a>>>,
+    pub dependencies: Option<Vec<Dependency<'a>>>,
+    pub dev_dependencies: Option<Vec<Dependency<'a>>>,
+    pub dependency_overrides: Option<Vec<Dependency<'a>>>,
 }
 
 /// `_processDependencies`.
-fn dependencias(v: &No) -> Option<Vec<Dependencia<'_>>> {
-    let pares = v.mapa()?;
-    let mut lista = Vec::new();
-    for (k, valor) in pares {
+fn dependencies_of(v: &No) -> Option<Vec<Dependency<'_>>> {
+    let pairs = v.mapa()?;
+    let mut list = Vec::new();
+    for (k, value) in pairs {
         if !k.escalar() {
             continue;
         }
         let mut git: Option<&No> = None;
         let mut hosted: Option<&No> = None;
-        if let Some(detalhes) = valor.mapa() {
-            for (dk, dv) in detalhes {
-                match chave(dk).as_deref() {
+        if let Some(details) = value.mapa() {
+            for (dk, dv) in details {
+                match key_text(dk).as_deref() {
                     Some("hosted") => {
-                        hosted = if dv.escalar() { Some(dv) } else if dv.mapa().is_some() { entrada(dv, "url") } else { None };
+                        hosted = if dv.escalar() { Some(dv) } else if dv.mapa().is_some() { find_entry(dv, "url") } else { None };
                     }
                     Some("git") => {
-                        git = if dv.escalar() { Some(dv) } else if dv.mapa().is_some() { entrada(dv, "url") } else { None };
+                        git = if dv.escalar() { Some(dv) } else if dv.mapa().is_some() { find_entry(dv, "url") } else { None };
                     }
                     _ => {}
                 }
             }
         }
-        lista.push(Dependencia { nome: k, urls: git.into_iter().chain(hosted).collect() });
+        list.push(Dependency { name: k, urls: git.into_iter().chain(hosted).collect() });
     }
-    Some(lista)
+    Some(list)
 }
 
 /// `Pubspec.parseYaml`.
-pub fn ler(raiz: &No) -> Pubspec<'_> {
+pub fn read(root: &No) -> Pubspec<'_> {
     let mut p = Pubspec::default();
-    let Some(pares) = raiz.mapa() else { return p };
-    for (k, v) in pares {
+    let Some(pairs) = root.mapa() else { return p };
+    for (k, v) in pairs {
         if !k.escalar() {
             continue;
         }
-        let escalar = || Some(v).filter(|v| v.escalar());
-        match chave(k).as_deref() {
-            Some("homepage") => p.homepage = escalar(),
-            Some("repository") => p.repository = escalar(),
-            Some("issue_tracker") => p.issue_tracker = escalar(),
-            Some("name") => p.nome = escalar(),
-            Some("documentation") => p.documentation = escalar(),
-            Some("dependencies") => p.dependencies = dependencias(v),
-            Some("dev_dependencies") => p.dev_dependencies = dependencias(v),
-            Some("dependency_overrides") => p.dependency_overrides = dependencias(v),
+        let scalar = || Some(v).filter(|v| v.escalar());
+        match key_text(k).as_deref() {
+            Some("homepage") => p.homepage = scalar(),
+            Some("repository") => p.repository = scalar(),
+            Some("issue_tracker") => p.issue_tracker = scalar(),
+            Some("name") => p.name = scalar(),
+            Some("documentation") => p.documentation = scalar(),
+            Some("dependencies") => p.dependencies = dependencies_of(v),
+            Some("dev_dependencies") => p.dev_dependencies = dependencies_of(v),
+            Some("dependency_overrides") => p.dependency_overrides = dependencies_of(v),
             _ => {}
         }
     }
     p
 }
 
-/// `^[_$a-z]+(\d[_a-z\d]*)?$` sem caixa.
-fn e_identificador(s: &str) -> bool {
+/// `^[_$a-z]+(\d[_a-z\d]*)?$` case-insensitively.
+fn is_identifier(s: &str) -> bool {
     let b = s.as_bytes();
     let mut i = 0;
     while i < b.len() && (b[i] == b'_' || b[i] == b'$' || b[i].is_ascii_alphabetic()) {
@@ -133,16 +133,16 @@ fn e_identificador(s: &str) -> bool {
     b[i + 1..].iter().all(|c| *c == b'_' || c.is_ascii_alphanumeric())
 }
 
-/// As palavras reservadas do `Keyword` (`isReservedWord`).
-const RESERVADAS: [&str; 33] = [
+/// The reserved words of `Keyword` (`isReservedWord`).
+const RESERVED: [&str; 33] = [
     "assert", "break", "case", "catch", "class", "const", "continue", "default", "do", "else", "enum", "extends", "false", "final", "finally",
     "for", "if", "in", "is", "new", "null", "rethrow", "return", "super", "switch", "this", "throw", "true", "try", "var", "void", "while",
     "with",
 ];
 
-/// `isValidPackageName`: `^_*[a-z](?:_?[a-z\d])*$`, identificador e não
-/// reservada.
-fn nome_de_pacote_valido(s: &str) -> bool {
+/// `isValidPackageName`: `^_*[a-z](?:_?[a-z\d])*$`, an identifier and not
+/// reserved.
+fn is_valid_package_name(s: &str) -> bool {
     let b = s.as_bytes();
     let mut i = 0;
     while i < b.len() && b[i] == b'_' {
@@ -164,16 +164,16 @@ fn nome_de_pacote_valido(s: &str) -> bool {
         }
         i += 1;
     }
-    e_identificador(s) && !RESERVADAS.contains(&s)
+    is_identifier(s) && !RESERVED.contains(&s)
 }
 
-/// O esquema de `Uri.tryParse(texto)`, em minúsculas.
-fn esquema(t: &str) -> Option<String> {
-    let fim = t.find(|c: char| matches!(c, ':' | '/' | '?' | '#'))?;
-    if t.as_bytes()[fim] != b':' || fim == 0 {
+/// The scheme of `Uri.tryParse(text)`, lowercased.
+fn scheme(t: &str) -> Option<String> {
+    let end = t.find(|c: char| matches!(c, ':' | '/' | '?' | '#'))?;
+    if t.as_bytes()[end] != b':' || end == 0 {
         return None;
     }
-    let s = &t[..fim];
+    let s = &t[..end];
     let b = s.as_bytes();
     if !b[0].is_ascii_alphabetic() || !b.iter().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'+' | b'-' | b'.')) {
         return None;
@@ -181,102 +181,102 @@ fn esquema(t: &str) -> Option<String> {
     Some(s.to_ascii_lowercase())
 }
 
-/// Os lints do `pubspec.yaml` com o texto `fonte`.
-pub fn run(fonte: &str, ligada: &dyn Fn(&str) -> bool) -> Vec<LintReport> {
+/// The `pubspec.yaml` lints for the text `source`.
+pub fn run(source: &str, enabled: &dyn Fn(&str) -> bool) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
-    let Ok(Some(raiz)) = yaml::ler(fonte) else { return out };
-    let p = ler(&raiz);
-    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let Ok(Some(root)) = yaml::ler(source) else { return out };
+    let p = read(&root);
+    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
-    let listas = [&p.dependencies, &p.dev_dependencies, &p.dependency_overrides];
+    let lists = [&p.dependencies, &p.dev_dependencies, &p.dependency_overrides];
 
     // `package_names`.
-    if ligada("package_names")
-        && let Some(n) = p.nome
-        && let Some(t) = texto(n)
-        && !nome_de_pacote_valido(&t)
+    if enabled("package_names")
+        && let Some(n) = p.name
+        && let Some(t) = text(n)
+        && !is_valid_package_name(&t)
     {
-        relatar(&c::PACKAGE_NAMES, n.span, &[t.as_str()]);
+        report(&c::PACKAGE_NAMES, n.span, &[t.as_str()]);
     }
 
-    // `secure_pubspec_urls`: na ordem do `accept` (documentation,
-    // homepage, issue_tracker, repository; depois as dependências).
-    if ligada("secure_pubspec_urls") {
-        let mut checar = |no: &No| {
-            if let Some(t) = texto(no)
-                && let Some(s) = esquema(&t)
+    // `secure_pubspec_urls`: in the order of `accept` (documentation,
+    // homepage, issue_tracker, repository; then the dependencies).
+    if enabled("secure_pubspec_urls") {
+        let mut check = |node: &No| {
+            if let Some(t) = text(node)
+                && let Some(s) = scheme(&t)
                 && (s == "http" || s == "git")
             {
-                relatar(&c::SECURE_PUBSPEC_URLS, no.span, &[s.as_str()]);
+                report(&c::SECURE_PUBSPEC_URLS, node.span, &[s.as_str()]);
             }
         };
-        for no in [p.documentation, p.homepage, p.issue_tracker, p.repository].into_iter().flatten() {
-            checar(no);
+        for node in [p.documentation, p.homepage, p.issue_tracker, p.repository].into_iter().flatten() {
+            check(node);
         }
-        for lista in listas.iter().copied().flatten() {
-            for d in lista {
+        for list in lists.iter().copied().flatten() {
+            for d in list {
                 for u in &d.urls {
-                    checar(u);
+                    check(u);
                 }
             }
         }
     }
 
-    // `sort_pub_dependencies`: a primeira fora de ordem de cada lista.
-    if ligada("sort_pub_dependencies") {
-        for lista in listas.iter().copied().flatten() {
-            let mut por_posicao: Vec<&Dependencia<'_>> = lista.iter().collect();
-            por_posicao.sort_by_key(|d| d.nome.span.start);
-            let mut anterior: Vec<u16> = Vec::new();
-            for d in por_posicao {
-                let Some(t) = texto(d.nome) else { continue };
-                let unidades: Vec<u16> = t.encode_utf16().collect();
-                if unidades < anterior {
-                    relatar(&c::SORT_PUB_DEPENDENCIES, d.nome.span, &[]);
+    // `sort_pub_dependencies`: the first out-of-order one in each list.
+    if enabled("sort_pub_dependencies") {
+        for list in lists.iter().copied().flatten() {
+            let mut by_position: Vec<&Dependency<'_>> = list.iter().collect();
+            by_position.sort_by_key(|d| d.name.span.start);
+            let mut previous: Vec<u16> = Vec::new();
+            for d in by_position {
+                let Some(t) = text(d.name) else { continue };
+                let units: Vec<u16> = t.encode_utf16().collect();
+                if units < previous {
+                    report(&c::SORT_PUB_DEPENDENCIES, d.name.span, &[]);
                     break;
                 }
-                anterior = unidades;
+                previous = units;
             }
         }
     }
     out
 }
 
-/// O que o `depend_on_referenced_packages` lê: o nome do pacote, as
-/// dependências e as de desenvolvimento.
-pub fn dependencias_disponiveis(fonte: &str, com_dev: bool) -> Option<Vec<String>> {
-    let raiz = yaml::ler(fonte).ok()??;
-    let p = ler(&raiz);
-    let mut v = vec![texto(p.nome?)?];
+/// What `depend_on_referenced_packages` reads: the package name, the
+/// dependencies and the dev dependencies.
+pub fn available_dependencies(source: &str, with_dev: bool) -> Option<Vec<String>> {
+    let root = yaml::ler(source).ok()??;
+    let p = read(&root);
+    let mut v = vec![text(p.name?)?];
     for d in p.dependencies.iter().flatten() {
-        v.extend(texto(d.nome));
+        v.extend(text(d.name));
     }
-    if com_dev {
+    if with_dev {
         for d in p.dev_dependencies.iter().flatten() {
-            v.extend(texto(d.nome));
+            v.extend(text(d.name));
         }
     }
     Some(v)
 }
 
-/// `IgnoreInfo.forYaml`: os nomes calados por linha (`# ignore:`) e no
-/// arquivo todo (`# ignore_for_file:`), em minúsculas.
-pub struct IgnoradosYaml {
-    no_arquivo: Vec<String>,
-    por_linha: std::collections::HashMap<usize, Vec<String>>,
-    inicios: Vec<usize>,
+/// `IgnoreInfo.forYaml`: the names silenced per line (`# ignore:`) and in the
+/// whole file (`# ignore_for_file:`), lowercased.
+pub struct YamlIgnores {
+    whole_file: Vec<String>,
+    per_line: std::collections::HashMap<usize, Vec<String>>,
+    line_starts: Vec<usize>,
 }
 
 /// `_trimmedCommaSeparatedMatcher` (`[^\s,]([^,]*[^\s,])?`).
-fn nomes_separados(t: &str) -> Vec<String> {
+fn split_names(t: &str) -> Vec<String> {
     t.split(',').map(str::trim).filter(|x| !x.is_empty()).map(str::to_lowercase).collect()
 }
 
-impl IgnoradosYaml {
-    pub fn de(fonte: &str) -> IgnoradosYaml {
-        let mut inicios = vec![0usize];
-        let b = fonte.as_bytes();
+impl YamlIgnores {
+    pub fn parse(source: &str) -> YamlIgnores {
+        let mut line_starts = vec![0usize];
+        let b = source.as_bytes();
         let mut i = 0;
         while i < b.len() {
             match b[i] {
@@ -284,71 +284,71 @@ impl IgnoradosYaml {
                     if b.get(i + 1) == Some(&b'\n') {
                         i += 1;
                     }
-                    inicios.push(i + 1);
+                    line_starts.push(i + 1);
                 }
-                b'\n' => inicios.push(i + 1),
+                b'\n' => line_starts.push(i + 1),
                 _ => {}
             }
             i += 1;
         }
-        let mut r = IgnoradosYaml { no_arquivo: Vec::new(), por_linha: Default::default(), inicios };
-        // As linhas como o `.` do `RegExp` as vê (sem `\n`, `\r`, U+2028 e
-        // U+2029).
-        let linhas: Vec<(usize, &str)> = {
+        let mut r = YamlIgnores { whole_file: Vec::new(), per_line: Default::default(), line_starts };
+        // The lines as the `RegExp` `.` sees them (without `\n`, `\r`, U+2028
+        // and U+2029).
+        let lines: Vec<(usize, &str)> = {
             let mut v = Vec::new();
-            let mut ini = 0;
-            for (k, ch) in fonte.char_indices() {
+            let mut start = 0;
+            for (k, ch) in source.char_indices() {
                 if matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}') {
-                    v.push((ini, &fonte[ini..k]));
-                    ini = k + ch.len_utf8();
+                    v.push((start, &source[start..k]));
+                    start = k + ch.len_utf8();
                 }
             }
-            v.push((ini, &fonte[ini..]));
+            v.push((start, &source[start..]));
             v
         };
-        for &(ini, linha) in &linhas {
-            // `#[ ]*ignore_for_file:(?<ignored>.*)`: cada ocorrência.
-            let mut de = 0;
-            while let Some(k) = linha[de..].find('#') {
-                let pos = de + k;
-                let resto = linha[pos + 1..].trim_start_matches(' ');
-                if let Some(nomes) = resto.strip_prefix("ignore_for_file:") {
-                    r.no_arquivo.extend(nomes_separados(nomes));
+        for &(start, line) in &lines {
+            // `#[ ]*ignore_for_file:(?<ignored>.*)`: each occurrence.
+            let mut from = 0;
+            while let Some(k) = line[from..].find('#') {
+                let pos = from + k;
+                let rest = line[pos + 1..].trim_start_matches(' ');
+                if let Some(names) = rest.strip_prefix("ignore_for_file:") {
+                    r.whole_file.extend(split_names(names));
                     break;
                 }
-                de = pos + 1;
+                from = pos + 1;
             }
-            // `^(?<before>.*)#+[ ]*ignore:(?<ignored>.*)` (multilinha): o
-            // `.*` guloso fica com a última ocorrência de `#+ *ignore:`, e
-            // com todos os `#` dela menos um.
-            let mut ultimo: Option<(usize, usize)> = None;
-            for (k, _) in linha.match_indices('#') {
-                let resto = linha[k + 1..].trim_start_matches(' ');
-                if let Some(nomes) = resto.strip_prefix("ignore:") {
-                    ultimo = Some((k, linha.len() - nomes.len()));
+            // `^(?<before>.*)#+[ ]*ignore:(?<ignored>.*)` (multiline): the
+            // greedy `.*` takes the last occurrence of `#+ *ignore:`, and all
+            // of its `#` but one.
+            let mut last: Option<(usize, usize)> = None;
+            for (k, _) in line.match_indices('#') {
+                let rest = line[k + 1..].trim_start_matches(' ');
+                if let Some(names) = rest.strip_prefix("ignore:") {
+                    last = Some((k, line.len() - names.len()));
                 }
             }
-            if let Some((hash, depois)) = ultimo {
-                // `before.trim().isEmpty`: o comentário vale para a linha
-                // seguinte.
-                let linha_no = linha_de(&r.inicios, ini);
-                let alvo = if linha[..hash].trim().is_empty() { linha_no + 1 } else { linha_no };
-                r.por_linha.entry(alvo).or_default().extend(nomes_separados(&linha[depois..]));
+            if let Some((hash, after)) = last {
+                // `before.trim().isEmpty`: the comment applies to the next
+                // line.
+                let line_no = line_of(&r.line_starts, start);
+                let target = if line[..hash].trim().is_empty() { line_no + 1 } else { line_no };
+                r.per_line.entry(target).or_default().extend(split_names(&line[after..]));
             }
         }
         r
     }
 
-    /// O código `nome` (único `unico`) em `pos` está calado.
-    pub fn ignora(&self, nome: &str, unico: &str, pos: usize) -> bool {
-        let casa = |x: &String| *x == nome.to_lowercase() || *x == unico.to_lowercase();
-        if self.no_arquivo.iter().any(casa) {
+    /// Code `name` (unique name `unique`) at `pos` is silenced.
+    pub fn ignores(&self, name: &str, unique: &str, pos: usize) -> bool {
+        let matches = |x: &String| *x == name.to_lowercase() || *x == unique.to_lowercase();
+        if self.whole_file.iter().any(matches) {
             return true;
         }
-        self.por_linha.get(&linha_de(&self.inicios, pos)).is_some_and(|v| v.iter().any(casa))
+        self.per_line.get(&line_of(&self.line_starts, pos)).is_some_and(|v| v.iter().any(matches))
     }
 }
 
-fn linha_de(inicios: &[usize], pos: usize) -> usize {
-    inicios.partition_point(|&x| x <= pos)
+fn line_of(line_starts: &[usize], pos: usize) -> usize {
+    line_starts.partition_point(|&x| x <= pos)
 }
