@@ -43,8 +43,8 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
-    let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `unnecessary_new`: na palavra `new`.
@@ -62,10 +62,10 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             if lista.ty.is_some() {
                 return;
             }
-            let codigo =
+            let code =
                 if de_campo { &c::PREFER_TYPING_UNINITIALIZED_VARIABLES_FOR_FIELD } else { &c::PREFER_TYPING_UNINITIALIZED_VARIABLES_FOR_LOCAL_VARIABLE };
             for v in lista.variables.iter().filter(|v| v.initializer.is_none()) {
-                relatar(codigo, v.name.span, &[]);
+                relatar(code, v.name.span, &[]);
             }
         };
         for d in a.decls.iter().filter(|d| !d.augment) {
@@ -243,7 +243,7 @@ mod testes {
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
         let mut relatos = executar(u, &nomes, &|_| true, None);
         relatos.sort_by_key(|r| (r.span.start, r.span.end));
-        relatos.into_iter().map(|r| (r.codigo.unico, fonte[r.span.start..r.span.end].to_string())).collect()
+        relatos.into_iter().map(|r| (r.code.unico, fonte[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]

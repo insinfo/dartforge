@@ -122,8 +122,8 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     let program = s.program;
     let table = s.table;
     let lib = program.unit(s.unit).library;
-    let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `omit_obvious_local_variable_types`.

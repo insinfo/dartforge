@@ -992,8 +992,8 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 return;
             }
             if estado == Some(Estado::Assincrono) {
-                let codigo = if v.nao_relacionado { &c::USE_BUILD_CONTEXT_SYNCHRONOUSLY_WRONG_MOUNTED } else { &c::USE_BUILD_CONTEXT_SYNCHRONOUSLY_ASYNC_USE };
-                achados.push((cx.span(no), codigo));
+                let code = if v.nao_relacionado { &c::USE_BUILD_CONTEXT_SYNCHRONOUSLY_WRONG_MOUNTED } else { &c::USE_BUILD_CONTEXT_SYNCHRONOUSLY_ASYNC_USE };
+                achados.push((cx.span(no), code));
                 return;
             }
             filho = pai;
@@ -1132,8 +1132,8 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     }
     achados.sort_by_key(|(sp, c)| (sp.start, sp.end, c.unico));
     achados.dedup_by(|x, y| x.0 == y.0 && x.1.unico == y.1.unico);
-    for (span, codigo) in achados {
-        out.push(LintReport { codigo, span, args: Vec::new() });
+    for (span, code) in achados {
+        out.push(LintReport { code, span, args: Vec::new() });
     }
     out
 }

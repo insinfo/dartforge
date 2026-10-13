@@ -186,8 +186,8 @@ pub fn executar(fonte: &str, ligada: &dyn Fn(&str) -> bool) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Ok(Some(raiz)) = yaml::ler(fonte) else { return out };
     let p = ler(&raiz);
-    let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let listas = [&p.dependencies, &p.dev_dependencies, &p.dependency_overrides];
 

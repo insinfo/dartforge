@@ -187,8 +187,8 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
-    let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     // O número da linha (a partir de 0) de um lugar.
     // `LineInfo`: `\n`, `\r\n` e `\r` sozinho terminam linha.
@@ -598,9 +598,9 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             diretivas.push((span, Tipo::DocImport, uri));
         }
         let mut relatadas: HashSet<(usize, usize)> = HashSet::new();
-        let mut relatar_uma = |span: Span, codigo: &'static CodigoLint, args: &[&str]| {
+        let mut relatar_uma = |span: Span, code: &'static CodigoLint, args: &[&str]| {
             if relatadas.insert((span.start, span.end)) {
-                relatar(codigo, span, args);
+                relatar(code, span, args);
             }
         };
         let uri_comeca = |x: &(Span, Tipo, Option<String>), p: &str| x.2.as_deref().is_some_and(|u| u.starts_with(p));

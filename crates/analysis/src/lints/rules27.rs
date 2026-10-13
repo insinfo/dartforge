@@ -259,8 +259,8 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     let _ = interner;
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let mut relatar = |codigo: &'static CodigoLint, span: Span| {
-        out.push(LintReport { codigo, span, args: Vec::new() });
+    let mut relatar = |code: &'static CodigoLint, span: Span| {
+        out.push(LintReport { code, span, args: Vec::new() });
     };
 
     // `cascade_invocations`.

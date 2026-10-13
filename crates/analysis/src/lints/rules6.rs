@@ -134,8 +134,8 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
-    let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let de_metodo: HashSet<FunctionId> = a
         .members
@@ -574,9 +574,9 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                         }
                         if do_nulo
                             && valor.is_some_and(nulo)
-                            && let Some(codigo) = codigo_do_nulo(pilha, None)
+                            && let Some(code) = codigo_do_nulo(pilha, None)
                         {
-                            relatar(codigo, n.span, &[]);
+                            relatar(code, n.span, &[]);
                         }
                     }
                     _ => {}
@@ -591,9 +591,9 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
                 if do_nulo
                     && let FunctionBody::Expression(v) = &a.function(f).body
                     && nulo(*v)
-                    && let Some(codigo) = codigo_do_nulo(pilha, Some(f))
+                    && let Some(code) = codigo_do_nulo(pilha, Some(f))
                 {
-                    relatar(codigo, corpo_de_seta(a, fonte, *v), &[]);
+                    relatar(code, corpo_de_seta(a, fonte, *v), &[]);
                 }
             }
             _ => {}
@@ -612,7 +612,7 @@ mod testes {
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
         let mut relatos = executar(u, &nomes, &|_| true, None);
         relatos.sort_by_key(|r| (r.span.start, r.span.end));
-        relatos.into_iter().map(|r| (r.codigo.unico, fonte[r.span.start..r.span.end].to_string())).collect()
+        relatos.into_iter().map(|r| (r.code.unico, fonte[r.span.start..r.span.end].to_string())).collect()
     }
 
     fn so(regra: &str, fonte: &str) -> Vec<String> {

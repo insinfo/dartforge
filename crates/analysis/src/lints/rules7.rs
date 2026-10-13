@@ -108,8 +108,8 @@ pub fn executar(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> b
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
-    let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let regras = [
         "prefer_single_quotes",
@@ -158,7 +158,7 @@ pub fn executar(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> b
     let contem_string = |l: &Literal| todos.iter().any(|o| l.interpolacoes.iter().any(|s| dentro(*s, o.span)));
 
     // `prefer_single_quotes` e `prefer_double_quotes` (o `QuoteVisitor`).
-    for (regra, simples, codigo) in
+    for (regra, simples, code) in
         [("prefer_single_quotes", true, &c::PREFER_SINGLE_QUOTES), ("prefer_double_quotes", false, &c::PREFER_DOUBLE_QUOTES)]
     {
         if !ligada(regra) {
@@ -172,7 +172,7 @@ pub fn executar(u: Unidade<'_>, _interner: &Interner, ligada: &dyn Fn(&str) -> b
             if l.interpolado() && contem_string(l) {
                 continue;
             }
-            relatar(codigo, l.span, &[]);
+            relatar(code, l.span, &[]);
         }
     }
     // `avoid_escaping_inner_quotes`: a string comum de uma linha que escapa

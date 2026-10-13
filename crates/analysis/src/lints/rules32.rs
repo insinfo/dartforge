@@ -222,8 +222,8 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             _ => {}
         }
     }
-    for (span, codigo, args) in achados {
-        out.push(LintReport { codigo, span, args });
+    for (span, code, args) in achados {
+        out.push(LintReport { code, span, args });
     }
     out
 }
@@ -288,7 +288,7 @@ fn novos_elementos(u: Unidade<'_>, interner: &Interner, s: &super::Semantics<'_>
             && modelo_antigo(s, interner, c)
             && let Some(ultimo) = name.last()
         {
-            out.push(LintReport { codigo: &ANALYZER_USE_NEW_ELEMENTS, span: ultimo.span, args: Vec::new() });
+            out.push(LintReport { code: &ANALYZER_USE_NEW_ELEMENTS, span: ultimo.span, args: Vec::new() });
         }
     }
     // Os nomes de método invocados: só pelo `visitMethodInvocation`.
@@ -304,7 +304,7 @@ fn novos_elementos(u: Unidade<'_>, interner: &Interner, s: &super::Semantics<'_>
                 ExprKind::Property { name, .. } => name.span,
                 _ => a.expr(*target).span,
             };
-            out.push(LintReport { codigo: &ANALYZER_USE_NEW_ELEMENTS, span: sp, args: Vec::new() });
+            out.push(LintReport { code: &ANALYZER_USE_NEW_ELEMENTS, span: sp, args: Vec::new() });
         }
     }
     // `visitSimpleIdentifier`: o identificador e o nome de propriedade.
@@ -319,7 +319,7 @@ fn novos_elementos(u: Unidade<'_>, interner: &Interner, s: &super::Semantics<'_>
             _ => continue,
         };
         if s.body.get_type(id).is_some_and(|t| tipo_antigo(s, interner, t, 0)) {
-            out.push(LintReport { codigo: &ANALYZER_USE_NEW_ELEMENTS, span: sp, args: Vec::new() });
+            out.push(LintReport { code: &ANALYZER_USE_NEW_ELEMENTS, span: sp, args: Vec::new() });
         }
     }
     out.sort_by_key(|r| (r.span.start, r.span.end));

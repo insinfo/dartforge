@@ -985,7 +985,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     }
     achados.sort_by_key(|(sp, _)| (sp.start, sp.end));
     for (sp, nome) in achados {
-        out.push(LintReport { codigo: &c::UNREACHABLE_FROM_MAIN, span: sp, args: vec![nome] });
+        out.push(LintReport { code: &c::UNREACHABLE_FROM_MAIN, span: sp, args: vec![nome] });
     }
     out
 }

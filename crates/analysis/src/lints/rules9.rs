@@ -101,8 +101,8 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
-    let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     let com_tipo = |tem: bool| if tem { &c::UNNECESSARY_FINAL_WITH_TYPE } else { &c::UNNECESSARY_FINAL_WITHOUT_TYPE };
 
@@ -512,7 +512,7 @@ mod testes {
         let mut relatos = executar(u, &nomes, &|r| r == regra, None);
         relatos.sort_by_key(|r| (r.span.start, r.span.end));
         relatos.dedup_by_key(|r| (r.span.start, r.span.end));
-        relatos.into_iter().map(|r| (r.codigo.unico, fonte[r.span.start..r.span.end].to_string())).collect()
+        relatos.into_iter().map(|r| (r.code.unico, fonte[r.span.start..r.span.end].to_string())).collect()
     }
 
     fn so(regra: &str, fonte: &str) -> Vec<String> {

@@ -58,8 +58,8 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
-    let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
     // Sem comentário: só brancos entre as chaves de um bloco vazio.
     let bloco_vazio = |s: dartforge_frontend::ast::StmtId| {
@@ -315,7 +315,7 @@ mod testes {
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
         let mut relatos = executar(u, &nomes, &|_| true, None);
         relatos.sort_by_key(|r| (r.span.start, r.span.end));
-        relatos.into_iter().map(|r| (r.codigo.nome, fonte[r.span.start..r.span.end].to_string())).collect()
+        relatos.into_iter().map(|r| (r.code.nome, fonte[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]

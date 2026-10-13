@@ -397,7 +397,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             }
         }
         let unico = tipos.len() == 1;
-        let (codigo, args): (&'static CodigoLint, Vec<String>) = if tipos.is_empty() {
+        let (code, args): (&'static CodigoLint, Vec<String>) = if tipos.is_empty() {
             (&c::ALWAYS_SPECIFY_TYPES_ADD_TYPE, Vec::new())
         } else if p == "var" {
             if unico {
@@ -410,12 +410,12 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         } else {
             (&c::ALWAYS_SPECIFY_TYPES_ADD_TYPE, Vec::new())
         };
-        achados.push((kw, codigo, args));
+        achados.push((kw, code, args));
     }
 
     achados.sort_by_key(|(sp, _, _)| (sp.start, sp.end));
-    for (span, codigo, args) in achados {
-        out.push(LintReport { codigo, span, args });
+    for (span, code, args) in achados {
+        out.push(LintReport { code, span, args });
     }
     out
 }

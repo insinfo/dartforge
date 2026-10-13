@@ -19,7 +19,7 @@
 use super::codigos_g::opcoes as c;
 use super::nomes_g::NOMES_DE_CODIGO;
 use super::yaml::{self, No, Valor};
-use super::{CodigoNaoDart, Relato};
+use super::{CodigoNaoDart, Report};
 use crate::lints::{self, EstadoDaRegra};
 use dartforge_diagnostics::Span;
 use std::path::{Path, PathBuf};
@@ -74,14 +74,14 @@ fn is_known_code(upper: &str) -> bool {
 }
 
 struct Validator<'a> {
-    out: Vec<Relato>,
+    out: Vec<Report>,
     sdk_allows: Option<&'a dyn Fn((u32, u32, u32)) -> bool>,
     is_root_file: bool,
 }
 
 impl Validator<'_> {
     fn report(&mut self, code: &'static CodigoNaoDart, node: &No, args: &[&str]) {
-        self.out.push(Relato::novo(code, node.span, args));
+        self.out.push(Report::new(code, node.span, args));
     }
 
     /// `ErrorBuilder.reportError`: the unsupported option, with the proposal.
@@ -411,7 +411,7 @@ fn map_of(text: &str) -> Result<No, yaml::YamlError> {
 
 struct OptionsAnalysis<'a> {
     ctx: &'a OptionsContext<'a>,
-    errors: Vec<Relato>,
+    errors: Vec<Report>,
     /// The range of the initial file's `include:`.
     initial_include: Option<Span>,
     first_plugin: Option<String>,
@@ -421,14 +421,14 @@ struct OptionsAnalysis<'a> {
 
 impl OptionsAnalysis<'_> {
     /// `addDirectErrorOrIncludedError`.
-    fn append(&mut self, reports: Vec<Relato>, file: &Path, is_root_file: bool) {
+    fn append(&mut self, reports: Vec<Report>, file: &Path, is_root_file: bool) {
         match (is_root_file, self.initial_include) {
             (false, Some(where_)) => {
                 for r in reports {
                     let name = file.to_string_lossy();
                     let (de, until) = (r.span.start.to_string(), (r.span.end.saturating_sub(1)).to_string());
-                    let message = r.mensagem();
-                    self.errors.push(Relato::novo(&c::INCLUDED_FILE_WARNING, where_, &[name.as_ref(), de.as_str(), until.as_str(), message.as_str()]));
+                    let message = r.message();
+                    self.errors.push(Report::new(&c::INCLUDED_FILE_WARNING, where_, &[name.as_ref(), de.as_str(), until.as_str(), message.as_str()]));
                 }
             }
             _ => self.errors.extend(reports),
@@ -454,17 +454,17 @@ impl OptionsAnalysis<'_> {
         let name = file.to_string_lossy();
         let included = (self.ctx.resolver)(file, uri);
         if included.as_deref() == Some(self.ctx.file) {
-            self.errors.push(Relato::novo(&c::RECURSIVE_INCLUDE_FILE, where_, &[uri, name.as_ref()]));
+            self.errors.push(Report::new(&c::RECURSIVE_INCLUDE_FILE, where_, &[uri, name.as_ref()]));
             return;
         }
         let Some(included) = included.filter(|p| p.is_file()) else {
-            self.errors.push(Relato::novo(&c::INCLUDE_FILE_NOT_FOUND, where_, &[uri, name.as_ref(), self.ctx.context_root]));
+            self.errors.push(Report::new(&c::INCLUDE_FILE_NOT_FOUND, where_, &[uri, name.as_ref(), self.ctx.context_root]));
             return;
         };
         if let Some((_, previous)) = self.chain.iter().find(|(p, _)| *p == included) {
             let (path, de, length) =
                 (included.to_string_lossy().into_owned(), previous.start.to_string(), (previous.end - previous.start).to_string());
-            self.errors.push(Relato::novo(
+            self.errors.push(Report::new(
                 &c::INCLUDED_FILE_WARNING,
                 where_,
                 &[path.as_str(), de.as_str(), length.as_str(), "The file includes itself recursively."],
@@ -485,7 +485,7 @@ impl OptionsAnalysis<'_> {
             }
             Err(e) => {
                 let (path, pos) = (included.to_string_lossy().into_owned(), e.offset.to_string());
-                self.errors.push(Relato::novo(
+                self.errors.push(Report::new(
                     &c::INCLUDED_FILE_PARSE_ERROR,
                     where_,
                     &[path.as_str(), pos.as_str(), pos.as_str(), e.message.as_str()],
@@ -497,11 +497,11 @@ impl OptionsAnalysis<'_> {
 
 /// `analyzeAnalysisOptions`: the reports of the options file with text
 /// `contents`, all with a range in the initial file.
-pub fn analyze(contents: &str, ctx: &OptionsContext<'_>) -> Vec<Relato> {
+pub fn analyze(contents: &str, ctx: &OptionsContext<'_>) -> Vec<Report> {
     let mut analysis = OptionsAnalysis { ctx, errors: Vec::new(), initial_include: None, first_plugin: None, chain: Vec::new() };
     match map_of(contents) {
         Ok(options) => analysis.validate(ctx.file, &options, contents),
-        Err(e) => analysis.errors.push(Relato::novo(&c::PARSE_ERROR, Span { start: e.offset, end: e.offset }, &[e.message.as_str()])),
+        Err(e) => analysis.errors.push(Report::new(&c::PARSE_ERROR, Span { start: e.offset, end: e.offset }, &[e.message.as_str()])),
     }
     analysis.errors
 }
@@ -514,7 +514,7 @@ mod testes {
     fn findings(source: &str) -> Vec<(&'static str, String)> {
         let without_includes = |_: &Path, _: &str| None;
         let ctx = OptionsContext { file: Path::new("analysis_options.yaml"), context_root: ".", resolver: &without_includes, sdk_allows: None };
-        analyze(source, &ctx).into_iter().map(|r| (r.codigo.nome, source[r.span.start..r.span.end].to_string())).collect()
+        analyze(source, &ctx).into_iter().map(|r| (r.code.nome, source[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]

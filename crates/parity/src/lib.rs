@@ -74,7 +74,7 @@ pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoe
             // The reports over the program's tree, with semantics; without it
             // (a file outside the program), over the text's tree.
             let mut reports = match &a.lint_reports {
-                Some(r) => r.iter().filter(|x| enabled(x.codigo.nome)).cloned().collect::<Vec<_>>(),
+                Some(r) => r.iter().filter(|x| enabled(x.code.nome)).cloned().collect::<Vec<_>>(),
                 None => {
                     let mut names = dartforge_intern::Interner::new();
                     let parsed = dartforge_frontend::parser::parse(&a.texto, &mut names);
@@ -88,38 +88,38 @@ pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoe
                 if let Some(code) = dartforge_analysis::lints::codigos_g::TODOS.iter().copied().find(|k| k.unico == l.unico)
                     && enabled(code.nome)
                 {
-                    reports.push(dartforge_analysis::lints::rules::LintReport { codigo: code, span: l.span, args: l.args.clone() });
+                    reports.push(dartforge_analysis::lints::rules::LintReport { code: code, span: l.span, args: l.args.clone() });
                 }
             }
-            reports.sort_by_key(|r| (r.span.start, r.span.end, r.codigo.unico));
+            reports.sort_by_key(|r| (r.span.start, r.span.end, r.code.unico));
             // The same code at the same place with the same arguments is
             // reported only once (`final (a, b) = …` reports the keyword per
             // variable).
-            reports.dedup_by(|x, y| x.span == y.span && x.codigo.unico == y.codigo.unico && x.args == y.args);
+            reports.dedup_by(|x, y| x.span == y.span && x.code.unico == y.code.unico && x.args == y.args);
             for r in reports {
-                let severity = match opcoes.errors.get(r.codigo.nome) {
+                let severity = match opcoes.errors.get(r.code.nome) {
                     Some(None) => continue,
                     Some(Some(s)) => s.nome(),
                     None => "INFO",
                 };
                 // `cannot-ignore` with the lint's name: `// ignore:` does not silence it.
-                if opcoes.lint_ignorable(r.codigo.nome, r.codigo.unico)
-                    && ignored.ignores_lint(r.codigo.nome, r.codigo.unico, lines.ponto(r.span.start).line)
+                if opcoes.lint_ignorable(r.code.nome, r.code.unico)
+                    && ignored.ignores_lint(r.code.nome, r.code.unico, lines.ponto(r.span.start).line)
                 {
                     continue;
                 }
                 out.push(json::DiagJson {
-                    code: r.codigo.nome.to_string(),
+                    code: r.code.nome.to_string(),
                     severity: severity.to_string(),
                     tipo: "LINT".to_string(),
                     location: json::Local {
                         file: path.to_string(),
                         range: json::Faixa { start: lines.ponto(r.span.start), end: lines.ponto(r.span.end.max(r.span.start)) },
                     },
-                    problem_message: r.mensagem(),
-                    correction_message: r.correcao(),
+                    problem_message: r.message(),
+                    correction_message: r.correction(),
                     context_messages: Vec::new(),
-                    documentation: r.codigo.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.codigo.nome)),
+                    documentation: r.code.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.code.nome)),
                 });
             }
         }
@@ -129,19 +129,19 @@ pub fn diagnosticos_json(analise: &Analise, raiz: &Path, opcoes: &filtros::Opcoe
 }
 
 /// A report on a non-Dart file, in JSON v1.
-fn report_to_json(file: &str, lines: &json::Linhas<'_>, r: &dartforge_analysis::naodart::Relato) -> json::DiagJson {
+fn report_to_json(file: &str, lines: &json::Linhas<'_>, r: &dartforge_analysis::naodart::Report) -> json::DiagJson {
     json::DiagJson {
-        code: r.codigo.nome.to_string(),
-        severity: r.codigo.severidade.nome().to_string(),
-        tipo: r.codigo.tipo.nome().to_string(),
+        code: r.code.nome.to_string(),
+        severity: r.code.severidade.nome().to_string(),
+        tipo: r.code.tipo.nome().to_string(),
         location: json::Local {
             file: file.to_string(),
             range: json::Faixa { start: lines.ponto(r.span.start), end: lines.ponto(r.span.end.max(r.span.start)) },
         },
-        problem_message: r.mensagem(),
-        correction_message: r.correcao(),
+        problem_message: r.message(),
+        correction_message: r.correction(),
         context_messages: Vec::new(),
-        documentation: r.codigo.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.codigo.nome)),
+        documentation: r.code.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.code.nome)),
     }
 }
 
@@ -224,44 +224,44 @@ pub fn diagnosticos_do_pubspec(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<jso
     let ignored = dartforge_analysis::lints::pubspec::IgnoradosYaml::de(&text);
     let mut out: Vec<json::DiagJson> = dartforge_analysis::naodart::pubspec::validate(&text, raiz)
         .into_iter()
-        .filter(|r| !ignored.ignora(r.codigo.nome, r.codigo.nome, r.span.start))
+        .filter(|r| !ignored.ignora(r.code.nome, r.code.nome, r.span.start))
         .map(|r| json::DiagJson {
-            code: r.codigo.nome.to_string(),
-            severity: r.codigo.severidade.nome().to_string(),
-            tipo: r.codigo.tipo.nome().to_string(),
+            code: r.code.nome.to_string(),
+            severity: r.code.severidade.nome().to_string(),
+            tipo: r.code.tipo.nome().to_string(),
             location: json::Local {
                 file: path.to_string(),
                 range: json::Faixa { start: lines.ponto(r.span.start), end: lines.ponto(r.span.end.max(r.span.start)) },
             },
-            problem_message: r.mensagem(),
-            correction_message: r.correcao(),
+            problem_message: r.message(),
+            correction_message: r.correction(),
             context_messages: Vec::new(),
-            documentation: r.codigo.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.codigo.nome)),
+            documentation: r.code.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.code.nome)),
         })
         .collect();
     if opcoes.regras.values().any(|enabled| *enabled) {
         let enabled = |rule: &str| opcoes.regras.get(rule).copied().unwrap_or(false);
         for r in dartforge_analysis::lints::pubspec::executar(&text, &enabled) {
-            if ignored.ignora(r.codigo.nome, r.codigo.unico, r.span.start) {
+            if ignored.ignora(r.code.nome, r.code.unico, r.span.start) {
                 continue;
             }
-            let severity = match opcoes.errors.get(r.codigo.nome) {
+            let severity = match opcoes.errors.get(r.code.nome) {
                 Some(None) => continue,
                 Some(Some(s)) => s.nome(),
                 None => "INFO",
             };
             out.push(json::DiagJson {
-                code: r.codigo.nome.to_string(),
+                code: r.code.nome.to_string(),
                 severity: severity.to_string(),
                 tipo: "LINT".to_string(),
                 location: json::Local {
                     file: path.to_string(),
                     range: json::Faixa { start: lines.ponto(r.span.start), end: lines.ponto(r.span.end.max(r.span.start)) },
                 },
-                problem_message: r.mensagem(),
-                correction_message: r.correcao(),
+                problem_message: r.message(),
+                correction_message: r.correction(),
                 context_messages: Vec::new(),
-                documentation: r.codigo.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.codigo.nome)),
+                documentation: r.code.documentado.then(|| format!("https://dart.dev/diagnostics/{}", r.code.nome)),
             });
         }
     }

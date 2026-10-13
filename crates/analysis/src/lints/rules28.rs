@@ -341,6 +341,6 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     out
 }
 
-fn relatar(out: &mut Vec<LintReport>, codigo: &'static CodigoLint, span: Span) {
-    out.push(LintReport { codigo, span, args: Vec::new() });
+fn relatar(out: &mut Vec<LintReport>, code: &'static CodigoLint, span: Span) {
+    out.push(LintReport { code, span, args: Vec::new() });
 }

@@ -3,7 +3,7 @@
 //! `pubspec.yaml` ([`pubspec`]) and the `analysis_options.yaml` ([`options`])
 //! over YAML with positions ([`yaml`]). The codes are those of the generated
 //! tables ([`codigos_g`]): they are not in the `crates/diagnostics` catalog
-//! yet, so a report from here is a [`Relato`], not a `Diagnostic` with a code.
+//! yet, so a report from here is a [`Report`], not a `Diagnostic` with a code.
 //!
 //! Written without compiling or running (2026-10-05).
 
@@ -35,8 +35,8 @@ pub struct CodigoNaoDart {
 
 /// A diagnostic of a non-Dart file.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Relato {
-    pub codigo: &'static CodigoNaoDart,
+pub struct Report {
+    pub code: &'static CodigoNaoDart,
     pub span: Span,
     pub args: Vec<String>,
 }
@@ -50,19 +50,19 @@ fn fill(template: &str, args: &[String]) -> String {
     out
 }
 
-impl Relato {
-    pub fn novo(codigo: &'static CodigoNaoDart, span: Span, args: &[&str]) -> Relato {
-        Relato { codigo, span, args: args.iter().map(|a| a.to_string()).collect() }
+impl Report {
+    pub fn new(code: &'static CodigoNaoDart, span: Span, args: &[&str]) -> Report {
+        Report { code, span, args: args.iter().map(|a| a.to_string()).collect() }
     }
 
     /// The message of the problem.
-    pub fn mensagem(&self) -> String {
-        fill(self.codigo.mensagem, &self.args)
+    pub fn message(&self) -> String {
+        fill(self.code.mensagem, &self.args)
     }
 
     /// The correction message, if the code has one.
-    pub fn correcao(&self) -> Option<String> {
-        self.codigo.correcao.map(|c| fill(c, &self.args))
+    pub fn correction(&self) -> Option<String> {
+        self.code.correcao.map(|c| fill(c, &self.args))
     }
 }
 
@@ -72,7 +72,7 @@ mod testes {
 
     #[test]
     fn mensagem_com_argumentos() {
-        let r = Relato::novo(&codigos_g::pubspec::DEPRECATED_FIELD, Span { start: 0, end: 6 }, &["author"]);
-        assert!(r.mensagem().contains("author"));
+        let r = Report::new(&codigos_g::pubspec::DEPRECATED_FIELD, Span { start: 0, end: 6 }, &["author"]);
+        assert!(r.message().contains("author"));
     }
 }

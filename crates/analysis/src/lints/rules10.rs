@@ -52,8 +52,8 @@ fn lacos_de_colecao<'x>(a: &Ast, el: &'x CollectionElement, saida: &mut Vec<(&'x
 pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `prefer_inlined_adds` e `prefer_spread_collections`: a primeira seção
@@ -313,7 +313,7 @@ mod testes {
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
         let mut relatos = executar(u, &nomes, &|r| r == regra, None);
         relatos.sort_by_key(|r| (r.span.start, r.span.end));
-        relatos.into_iter().map(|r| (r.codigo.unico, fonte[r.span.start..r.span.end].to_string())).collect()
+        relatos.into_iter().map(|r| (r.code.unico, fonte[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]

@@ -325,8 +325,8 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let fonte = u.fonte;
-    let mut relatar = |codigo: &'static CodigoLint, span: Span, args: &[&str]| {
-        out.push(LintReport { codigo, span, args: args.iter().map(|x| x.to_string()).collect() });
+    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
 
     // `package_prefixed_library_names`: o emissor da 3.6.2 volta sem relatar.
@@ -502,7 +502,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
     }
 
     // `cancel_subscriptions` e `close_sinks`.
-    for (regra, codigo) in [("cancel_subscriptions", &c::CANCEL_SUBSCRIPTIONS), ("close_sinks", &c::CLOSE_SINKS)] {
+    for (regra, code) in [("cancel_subscriptions", &c::CANCEL_SUBSCRIPTIONS), ("close_sinks", &c::CLOSE_SINKS)] {
         if !ligada(regra) {
             continue;
         }
@@ -554,7 +554,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
             let valido = uso_valido(s, a, interner, conteiner, nome, init, campo, local.is_some(), &e_a_variavel, &e_o_elemento, &|m| casa(t, Some(m)));
             if !valido {
                 let fim = init.map_or(nome.span.end, |i| a.expr(i).span.end);
-                relatar(codigo, Span { start: nome.span.start, end: fim }, &[]);
+                relatar(code, Span { start: nome.span.start, end: fim }, &[]);
             }
         }
     }

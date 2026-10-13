@@ -10,7 +10,7 @@
 
 use super::codigos_g::pubspec as c;
 use super::yaml::{self, No, Valor};
-use super::Relato;
+use super::Report;
 use dartforge_diagnostics::Span;
 use std::path::{Path, PathBuf};
 
@@ -43,12 +43,12 @@ fn normalize(p: &Path) -> PathBuf {
 
 struct Ctx<'a> {
     pasta: &'a Path,
-    out: Vec<Relato>,
+    out: Vec<Report>,
 }
 
 impl Ctx<'_> {
     fn report(&mut self, code: &'static super::CodigoNaoDart, node: &No, args: &[&str]) {
-        self.out.push(Relato::novo(code, node.span, args));
+        self.out.push(Report::new(code, node.span, args));
     }
 
     /// `validatePathEntries`.
@@ -192,7 +192,7 @@ impl Ctx<'_> {
     /// `nameValidator`, for a document that is a map.
     fn validate_name(&mut self, root: &No) {
         match root.campo("name") {
-            None => self.out.push(Relato::novo(&c::MISSING_NAME, Span { start: 0, end: 0 }, &[])),
+            None => self.out.push(Report::new(&c::MISSING_NAME, Span { start: 0, end: 0 }, &[])),
             Some(n) if n.texto().is_none() => self.report(&c::NAME_NOT_STRING, n, &[]),
             Some(_) => {}
         }
@@ -268,12 +268,12 @@ impl Ctx<'_> {
 /// `validatePubspec`: the reports of the `pubspec.yaml` with text `source`
 /// that lives in folder `folder`. A YAML syntax error is not reported here
 /// (the server treats the document as an empty map): only the name is missing.
-pub fn validate(source: &str, folder: &Path) -> Vec<Relato> {
+pub fn validate(source: &str, folder: &Path) -> Vec<Report> {
     let mut ctx = Ctx { pasta: folder, out: Vec::new() };
     let root = match yaml::ler(source) {
         Ok(Some(node)) if node.mapa().is_some() => node,
         // A document that is not a map: only `missing_name`, at 0/0.
-        _ => return vec![Relato::novo(&c::MISSING_NAME, Span { start: 0, end: 0 }, &[])],
+        _ => return vec![Report::new(&c::MISSING_NAME, Span { start: 0, end: 0 }, &[])],
     };
     ctx.validate_dependencies(&root);
     ctx.validate_fields(&root);
@@ -293,7 +293,7 @@ mod testes {
     fn findings(source: &str) -> Vec<(&'static str, String)> {
         // A folder that does not exist: every relative path is missing.
         let folder = Path::new("pasta-que-nao-existe-para-o-teste");
-        validate(source, folder).into_iter().map(|r| (r.codigo.nome, source[r.span.start..r.span.end].to_string())).collect()
+        validate(source, folder).into_iter().map(|r| (r.code.nome, source[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]

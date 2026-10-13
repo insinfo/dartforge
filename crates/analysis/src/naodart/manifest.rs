@@ -11,7 +11,7 @@
 //! Written without compiling or running (2026-10-05).
 
 use super::codigos_g::manifesto as c;
-use super::Relato;
+use super::Report;
 use dartforge_diagnostics::Span;
 
 const RELEVANT: [&str; 5] = ["activity", "application", "manifest", "uses-feature", "uses-permission"];
@@ -311,14 +311,14 @@ impl Reader<'_> {
 }
 
 /// `_reportErrorForNode`: on attribute `key`, or on the whole element.
-fn report(out: &mut Vec<Relato>, element: &Element, key: Option<&str>, code: &'static super::CodigoNaoDart, args: &[&str]) {
+fn report(out: &mut Vec<Report>, element: &Element, key: Option<&str>, code: &'static super::CodigoNaoDart, args: &[&str]) {
     let span = key.and_then(|k| element.attribute(k)).map_or(element.span, |a| a.span);
-    out.push(Relato::novo(code, span, args));
+    out.push(Report::new(code, span, args));
 }
 
 /// `ManifestValidator.validate` with `checkManifest` on: the reports of the
 /// `AndroidManifest.xml` with text `source`.
-pub fn validate(source: &str) -> Vec<Relato> {
+pub fn validate(source: &str) -> Vec<Report> {
     let mut out = Vec::new();
     let mut reader = Reader { b: source.as_bytes(), source, pos: 0 };
     // Up to the `manifest` element.
@@ -386,7 +386,7 @@ mod testes {
     use super::*;
 
     fn findings(source: &str) -> Vec<(&'static str, String)> {
-        validate(source).into_iter().map(|r| (r.codigo.nome, source[r.span.start..r.span.end].to_string())).collect()
+        validate(source).into_iter().map(|r| (r.code.nome, source[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]

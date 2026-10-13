@@ -34,15 +34,15 @@ use std::collections::HashSet;
 /// Um relato de lint.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LintReport {
-    pub codigo: &'static CodigoLint,
+    pub code: &'static CodigoLint,
     pub span: Span,
     pub args: Vec<String>,
 }
 
 impl LintReport {
     /// A mensagem com os argumentos no lugar.
-    pub fn mensagem(&self) -> String {
-        let mut saida = self.codigo.mensagem.to_string();
+    pub fn message(&self) -> String {
+        let mut saida = self.code.mensagem.to_string();
         for (i, a) in self.args.iter().enumerate() {
             saida = saida.replace(&format!("{{{i}}}"), a);
         }
@@ -50,8 +50,8 @@ impl LintReport {
     }
 
     /// A mensagem de correção, com os argumentos no lugar.
-    pub fn correcao(&self) -> Option<String> {
-        self.codigo.correcao.map(|molde| {
+    pub fn correction(&self) -> Option<String> {
+        self.code.correcao.map(|molde| {
             let mut saida = molde.to_string();
             for (i, a) in self.args.iter().enumerate() {
                 saida = saida.replace(&format!("{{{i}}}"), a);
@@ -222,8 +222,8 @@ impl<'a> Ctx<'a> {
         self.interner.resolve(n.sym)
     }
 
-    fn relatar(&mut self, codigo: &'static CodigoLint, span: Span, args: &[&str]) {
-        self.out.push(LintReport { codigo, span, args: args.iter().map(|a| a.to_string()).collect() });
+    fn relatar(&mut self, code: &'static CodigoLint, span: Span, args: &[&str]) {
+        self.out.push(LintReport { code, span, args: args.iter().map(|a| a.to_string()).collect() });
     }
 
     /// `camel_case_types` e `camel_case_extensions`.
@@ -641,7 +641,7 @@ mod testes {
         let mut nomes = Interner::new();
         let p = dartforge_frontend::parser::parse(fonte, &mut nomes);
         let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
-        executar(u, &nomes, &|_| true, None).into_iter().map(|r| (r.codigo.nome, fonte[r.span.start..r.span.end].to_string())).collect()
+        executar(u, &nomes, &|_| true, None).into_iter().map(|r| (r.code.nome, fonte[r.span.start..r.span.end].to_string())).collect()
     }
 
     #[test]

@@ -177,7 +177,7 @@ pub fn executar(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bo
         }
     }
     for sp in achados {
-        out.push(LintReport { codigo: &c::USE_LATE_FOR_PRIVATE_FIELDS_AND_VARIABLES, span: sp, args: Vec::new() });
+        out.push(LintReport { code: &c::USE_LATE_FOR_PRIVATE_FIELDS_AND_VARIABLES, span: sp, args: Vec::new() });
     }
     out
 }
