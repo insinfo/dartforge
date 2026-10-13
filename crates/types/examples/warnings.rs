@@ -4,7 +4,7 @@
 //! ```text
 //! # project
 //! cargo run --release -p dartforge-types --example warnings -- \
-//!     projeto <input.dart> <package_config.json>
+//!     project <input.dart> <package_config.json>
 //! # SDK libraries compiled from source (native backend), with the overlay
 //! cargo run --release -p dartforge-types --example warnings -- \
 //!     sdk <sdk/lib> <overlay> <target> core async ...
@@ -34,14 +34,14 @@ fn main() {
 
 fn run(a: Vec<String>) {
     let (sdk, entry, packages, requested): (SdkLayout, PathBuf, Option<PathBuf>, Vec<String>) = match a[0].as_str() {
-        "projeto" => {
+        "project" => {
             let dir = SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
             (SdkLayout::load(&dir, "dartdevc").unwrap(), PathBuf::from(&a[1]), Some(PathBuf::from(&a[2])), Vec::new())
         }
         "sdk" => {
             let sdk = SdkLayout::load_with_overlay(Path::new(&a[1]), Path::new(&a[2]), &a[3]).unwrap();
             let libs: Vec<String> = a[4..].to_vec();
-            let tmp = std::env::temp_dir().join(format!("dartforge-avisos-sdk-{}", std::process::id()));
+            let tmp = std::env::temp_dir().join(format!("dartforge-warnings-sdk-{}", std::process::id()));
             std::fs::create_dir_all(&tmp).unwrap();
             let entry = tmp.join("main.dart");
             let mut source: String = libs.iter().map(|l| format!("import 'dart:{l}';\n")).collect();
@@ -49,7 +49,7 @@ fn run(a: Vec<String>) {
             std::fs::write(&entry, source).unwrap();
             (sdk, entry, None, libs)
         }
-        _ => panic!("usage: warnings projeto <input> <cfg> | warnings sdk <lib> <overlay> <target> <libs...>"),
+        _ => panic!("usage: warnings project <input> <cfg> | warnings sdk <lib> <overlay> <target> <libs...>"),
     };
     let mut interner = Interner::new();
     let (prog, _) = load_lenient(&entry, &sdk, packages.as_deref(), &mut interner);
