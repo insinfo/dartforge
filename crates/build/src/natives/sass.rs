@@ -1,5 +1,5 @@
 //! `sass_builder:sass_builder` through the Sass of `ng_generator`
-//! (`sass::compilar_ativo`, public API), which is dart-sass 1.102.0 byte for
+//! (`sass::compile_asset`, public API), which is dart-sass 1.102.0 byte for
 //! byte (the `dartforge-sass` crate) or, when `pubspec.lock` brings `sass`
 //! 1.66.0, the compatibility mode for it (`DartSassVersion::V1_66_0`).
 //!
@@ -12,7 +12,7 @@
 use crate::query::Query;
 use crate::executor::{GeneratorCtx, NativeGenerator, NativeRequest, NativeOutput};
 use crate::value::Value;
-use dartforge_ng_generator::sass::{Estilo, AssetReader, DartSassVersion, compilar_ativo};
+use dartforge_ng_generator::sass::{Style, AssetReader, DartSassVersion, compile_asset};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -81,9 +81,9 @@ impl NativeGenerator for SassNative {
             // unknown value it warns and uses `expanded` — we do not have the
             // warning.
             let style = match a.options.get("outputStyle") {
-                None | Some(Value::Null) => Estilo::Expandido,
-                Some(Value::Text(v)) if v == "expanded" => Estilo::Expandido,
-                Some(Value::Text(v)) if v == "compressed" => Estilo::Comprimido,
+                None | Some(Value::Null) => Style::Expanded,
+                Some(Value::Text(v)) if v == "expanded" => Style::Expanded,
+                Some(Value::Text(v)) if v == "compressed" => Style::Compressed,
                 Some(_) => {
                     s.refusals.insert(
                         a.natural_input.clone(),
@@ -102,7 +102,7 @@ impl NativeGenerator for SassNative {
             let reader = StepReader {
                 memory: ctx.memory,
             };
-            let sheet = match compilar_ativo(
+            let sheet = match compile_asset(
                 &text,
                 &a.input.package,
                 &a.input.path,
@@ -130,7 +130,7 @@ impl NativeGenerator for SassNative {
             if let Some((_, n)) = a.outputs.iter().find(|(id, _)| id.path.ends_with(".css")) {
                 s.outputs.insert(n.clone(), sheet.css.into_bytes());
             }
-            if let Some(m) = sheet.mapa
+            if let Some(m) = sheet.map
                 && let Some((_, n)) = a
                     .outputs
                     .iter()

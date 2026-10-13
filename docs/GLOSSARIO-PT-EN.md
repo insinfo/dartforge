@@ -256,3 +256,12 @@ outras já em inglês ficam.
 | `sass::VersaoDartSass` (`do_lock`) | `sass::DartSassVersion` (`from_lock`) |
 | `sass_builder::Leitor` (`existe`, `ler`), `Compiled { lidos, sondados }` | `sass_builder::AssetReader` (`exists`, `read`), `Compiled { read_files, probed_files }` |
 | teste `formas_166` (a pasta de dados `tests/formas_166/` fica) | `forms_166` |
+| `ng_generator::resolucao::Resolvedor` (`novo`) | `ng_generator::resolution::Resolver` (`new`) |
+| `ng_generator::Indice` (`novo`, `do_programa`, `atualizar`, `remover`) | `ng_generator::NgIndex` (`new`, `from_program`, `update`, `remove`) |
+| `ng_generator::Pacote { nome, raiz, folhas_geradas }` | `ng_generator::Package { name, root, generated_sheets }` |
+| `Scoreboard { gerados, pendentes, conjuntos }` | `Scoreboard { generated, pending, refusal_sets }` |
+| `caminho_do_template`, `gerar_folha`, `gerar_com_apoio`, `analisar_arquivo`, `gerar_arquivo` | `template_path`, `generate_sheet`, `generate_with_fallback`, `analyze_file`, `generate_file` |
+| `FileOutput { entradas }`, `metadata::ler` | `FileOutput { inputs }`, `metadata::read_directive` |
+| `ng_generator::sass::{Estilo::{Expandido, Comprimido}, compilar_ativo}`, `Sheet { mapa }` | `sass::{Style::{Expanded, Compressed}, compile_asset}`, `Sheet { map }` |
+| `expr::Action::Complexa` | `expr::Action::Complex` |
+| teste `sass_formas` (a pasta de dados `tests/sass_formas/` fica) | `sass_forms` |

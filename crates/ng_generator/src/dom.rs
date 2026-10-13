@@ -179,7 +179,7 @@ pub fn tag_type(name: &str) -> &'static str {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]

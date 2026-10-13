@@ -26,7 +26,7 @@ use crate::directives::{
     ConstValue, DI_TOKENS, Dependency, Directive, Input, Listener, Provider, Provides, Token,
     TokenType,
 };
-use crate::resolucao::Resolvedor;
+use crate::resolution::Resolver;
 use dartforge_elements::model::{
     ClassId, ClassKind, Element, FunctionElementId, LibraryId, UnitId, VariableRef,
 };
@@ -95,12 +95,12 @@ enum Value {
 }
 
 /// Reads the metadata of class `id`, if it has `@Directive` or `@Component`.
-pub fn ler(r: &Resolvedor, id: ClassId) -> Option<Directive> {
-    Leitor { r }.directive(id)
+pub fn read_directive(r: &Resolver, id: ClassId) -> Option<Directive> {
+    MetadataReader { r }.directive(id)
 }
 
-struct Leitor<'r, 'a> {
-    r: &'r Resolvedor<'a>,
+struct MetadataReader<'r, 'a> {
+    r: &'r Resolver<'a>,
 }
 
 /// Where a class is declared: the unit, the library, the members and the names
@@ -117,7 +117,7 @@ struct Declaration<'a> {
     is_abstract: bool,
 }
 
-impl<'r, 'a> Leitor<'r, 'a> {
+impl<'r, 'a> MetadataReader<'r, 'a> {
     fn name(&self, n: &ast::Name) -> &'a str {
         self.r.interner().resolve(n.sym)
     }
@@ -718,13 +718,13 @@ impl<'r, 'a> Leitor<'r, 'a> {
     /// The token of a constant value: a class, a `MultiToken` or an
     /// `OpaqueToken`.
     fn value_token(&self, v: &Value) -> Result<Token, String> {
-        self.token_lido(v, false)
+        self.read_token(v, false)
     }
 
     /// The token of a value; `unnamed`: `const OpaqueToken<T>()` is accepted
     /// (in the generated injector it becomes `const OpaqueToken<T>()`; in the
     /// views there is no case yet).
-    fn token_lido(&self, v: &Value, unnamed: bool) -> Result<Token, String> {
+    fn read_token(&self, v: &Value, unnamed: bool) -> Result<Token, String> {
         match v {
             Value::Type(c) => Ok(Token::Class {
                 uri: c.uri.clone(),
@@ -1825,7 +1825,7 @@ impl Module {
 
 /// The `@GenerateInjector`s of the main unit of library `uri`
 /// (`InjectorReader.findInjectors`), in the order of the top-level variables.
-pub fn read_injectors(r: &Resolvedor, uri: &str) -> Vec<(String, Result<Injector, String>)> {
+pub fn read_injectors(r: &Resolver, uri: &str) -> Vec<(String, Result<Injector, String>)> {
     let p = r.program();
     let Some(i) = p
         .libraries
@@ -1838,7 +1838,7 @@ pub fn read_injectors(r: &Resolvedor, uri: &str) -> Vec<(String, Result<Injector
     let Some(&unit) = p.library(lib).units.first() else {
         return Vec::new();
     };
-    let reader = Leitor { r };
+    let reader = MetadataReader { r };
     let u = p.unit(unit);
     let mut output = Vec::new();
     for &d in &u.unit.declarations {
@@ -1866,7 +1866,7 @@ pub fn read_injectors(r: &Resolvedor, uri: &str) -> Vec<(String, Result<Injector
     output
 }
 
-impl<'r, 'a> Leitor<'r, 'a> {
+impl<'r, 'a> MetadataReader<'r, 'a> {
     /// `_computeProviders`: the annotation argument as a module, flattened,
     /// without the global services and without repetition.
     fn injector(&self, unit: UnitId, a: &ast::Annotation) -> Result<Vec<InjectorProvider>, String> {
@@ -2025,7 +2025,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         if class.name == "ClassProvider" && use_class.is_none() {
             use_class = Some(token_v.clone());
         }
-        let token = self.token_lido(&token_v, true)?;
+        let token = self.read_token(&token_v, true)?;
         let multi = matches!(token, Token::Multi { .. });
         // `_actualProviderType`: outside the exact `Provider`, the `T` of the
         // opaque token; otherwise the `T` of the provider — written, or
@@ -2075,7 +2075,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
         if let Some(e) = use_existing {
             let ty = provider_type(None)?;
             return Ok(InjectorProvider {
-                source: InjectorSource::Existing(self.token_lido(&e, true)?),
+                source: InjectorSource::Existing(self.read_token(&e, true)?),
                 token,
                 multi,
                 ty,
@@ -2398,7 +2398,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 }
             }
         }
-        // 3. A chamada do construtor.
+        // 3. The constructor call.
         let is_private = !public(&class.name) || constructor.as_deref().is_some_and(|c| !public(c));
         if !is_private {
             return Ok(Revived::Object {
@@ -2543,7 +2543,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
             }
         };
         let mut pos = Vec::new();
-        let mut nom = Vec::new();
+        let mut named_values = Vec::new();
         let mut i = 0;
         for param in k.parameters.iter() {
             match param.kind {
@@ -2553,7 +2553,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                         Some((_, x)) => x.clone(),
                         None => default(param)?,
                     };
-                    nom.push((n, x));
+                    named_values.push((n, x));
                 }
                 _ => {
                     let x = match positional.get(i) {
@@ -2565,7 +2565,7 @@ impl<'r, 'a> Leitor<'r, 'a> {
                 }
             }
         }
-        Some((pos, nom))
+        Some((pos, named_values))
     }
 }
 

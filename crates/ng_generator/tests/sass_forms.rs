@@ -6,7 +6,7 @@
 //! **exactly** the bytes the builder wrote. A shape that the official one
 //! rejects (`.erro`) must be refused. No refusal where the official one
 //! compiles, and no approximate output.
-use dartforge_ng_generator::sass::{Estilo, compile_with};
+use dartforge_ng_generator::sass::{Style, compile_with};
 use std::path::Path;
 
 #[test]
@@ -27,8 +27,8 @@ fn sass_shapes_equal_to_sass_builder() {
     let mut lines = Vec::new();
     let mut different = Vec::new();
     for (style, name) in [
-        (Estilo::Comprimido, "compressed"),
-        (Estilo::Expandido, "expanded"),
+        (Style::Compressed, "compressed"),
+        (Style::Expanded, "expanded"),
     ] {
         let (mut equal, mut refused) = (0, Vec::new());
         for f in &shapes {

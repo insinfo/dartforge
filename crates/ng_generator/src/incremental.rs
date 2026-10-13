@@ -7,9 +7,9 @@
 //!
 //! The output is the same as [`crate::generate_in`]: both go through
 //! `generate_internal`.
-use crate::resolucao::{Designated, Resolution};
+use crate::resolution::{Designated, Resolution};
 use crate::view::Refusal;
-use crate::{Findings, Indice, Pacote};
+use crate::{Findings, NgIndex, Package};
 use dartforge_intern::Interner;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -21,7 +21,7 @@ pub struct FileOutput {
     pub template: String,
     /// Files read: the `.dart`, the `.html` of `templateUrl`, each `styleUrls`
     /// stylesheet (the `.css`, or the `.scss` it comes from).
-    pub entradas: Vec<PathBuf>,
+    pub inputs: Vec<PathBuf>,
     /// Extra outputs (`<name>.css.shim.dart`), by natural path.
     pub extras: Vec<(PathBuf, String)>,
     /// What the generation asked other libraries, without repetition, in the
@@ -49,7 +49,7 @@ pub enum NgQuery {
 }
 
 /// Reads and analyzes a `.dart`: the findings the generation and the index use.
-pub fn analisar_arquivo(source: &Path, text: &str, names: &mut Interner) -> Findings {
+pub fn analyze_file(source: &Path, text: &str, names: &mut Interner) -> Findings {
     let _ = source;
     let tokens = dartforge_frontend::lexer::lex(text);
     let parsed = dartforge_frontend::parser::parse_lexed(text, tokens, names);
@@ -59,21 +59,21 @@ pub fn analisar_arquivo(source: &Path, text: &str, names: &mut Interner) -> Find
 /// Generates the `.template.dart` of `source` — the same text
 /// [`crate::generate_in`] would write for it —, or says why not. The refusal
 /// carries the [`crate::view::Reason`] (`refusal.reason`) and the sub-shape.
-pub fn gerar_arquivo(
-    package: &Pacote,
+pub fn generate_file(
+    package: &Package,
     source: &Path,
     findings: &Findings,
     resolver: Option<&dyn Resolution>,
     names: &mut Interner,
-    index: &Indice,
+    index: &NgIndex,
 ) -> Result<FileOutput, Refusal> {
     let name = source
         .file_name()
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
-    let recorder = resolver.map(Recorder::novo);
-    let gerado = crate::generate_internal(
+    let recorder = resolver.map(Recorder::new);
+    let generated = crate::generate_internal(
         package,
         source,
         &name,
@@ -84,7 +84,7 @@ pub fn gerar_arquivo(
     );
     let mut queries: Vec<NgQuery> = recorder.map(|g| g.queries.into_inner()).unwrap_or_default();
     queries.extend(queried_children(source, findings, resolver, index));
-    let (template, inputs, extras) = gerado?;
+    let (template, inputs, extras) = generated?;
     let mut unique = Vec::new();
     for c in queries {
         if !unique.contains(&c) {
@@ -93,7 +93,7 @@ pub fn gerar_arquivo(
     }
     Ok(FileOutput {
         template,
-        entradas: inputs,
+        inputs,
         extras,
         queries: unique,
     })
@@ -105,7 +105,7 @@ fn queried_children(
     source: &Path,
     findings: &Findings,
     resolver: Option<&dyn Resolution>,
-    index: &Indice,
+    index: &NgIndex,
 ) -> Vec<NgQuery> {
     let mut output = Vec::new();
     for comp in &findings.components {
@@ -164,7 +164,7 @@ struct Recorder<'a> {
 }
 
 impl<'a> Recorder<'a> {
-    fn novo(inside: &'a dyn Resolution) -> Self {
+    fn new(inside: &'a dyn Resolution) -> Self {
         Recorder {
             inside,
             queries: RefCell::new(Vec::new()),
@@ -201,7 +201,7 @@ impl Resolution for Recorder<'_> {
         self.inside.member_type(file, ty, member)
     }
 
-    fn method(&self, file: &Path, ty: &str, name: &str) -> Option<crate::resolucao::Method> {
+    fn method(&self, file: &Path, ty: &str, name: &str) -> Option<crate::resolution::Method> {
         if let Some(uri) = self.inside.type_uri(file, ty) {
             self.record_refusal(&uri, ty);
         }
@@ -241,7 +241,7 @@ impl Resolution for Recorder<'_> {
         ty: &str,
         name: &str,
         free: &[String],
-    ) -> Option<crate::resolucao::Method> {
+    ) -> Option<crate::resolution::Method> {
         if let Some(uri) = self.inside.type_uri(file, ty) {
             self.record_refusal(&uri, ty);
         }
@@ -270,7 +270,7 @@ impl Resolution for Recorder<'_> {
         self.inside.nonexistent_type(file, ty)
     }
 
-    fn exported(&self, file: &Path, name: &str) -> Option<(String, crate::resolucao::Exported)> {
+    fn exported(&self, file: &Path, name: &str) -> Option<(String, crate::resolution::Exported)> {
         let r = self.inside.exported(file, name);
         if let Some((uri, _)) = &r {
             self.record_refusal(uri, name);
@@ -283,7 +283,7 @@ impl Resolution for Recorder<'_> {
         file: &Path,
         ty: &str,
         member: &str,
-    ) -> Option<crate::resolucao::Static> {
+    ) -> Option<crate::resolution::Static> {
         if let Some(uri) = self.inside.type_uri(file, ty) {
             self.record_refusal(&uri, ty);
         }

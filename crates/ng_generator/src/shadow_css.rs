@@ -114,7 +114,7 @@ fn create_pseudo_class_selector_sequence(name: &str) -> Rc<Sequence> {
     )
 }
 
-/// `_ComplexSelector`: seletores compostos separados por combinadores.
+/// `_ComplexSelector`: compound selectors separated by combinators.
 struct ComplexSelector {
     compound_selectors: Vec<CompoundSelector>,
 }
@@ -221,7 +221,7 @@ impl CompoundSelector {
     fn compare(a: &Sequence, b: &Sequence) -> R<i32> {
         let x = &a.selector;
         let y = &b.selector;
-        let aviso = || {
+        let warn = || {
             if x.has_span && y.has_span {
                 Ok(0)
             } else {
@@ -230,10 +230,10 @@ impl CompoundSelector {
         };
         if (x.is_element() && y.is_element()) || (x.is_namespace() && y.is_namespace()) {
             // "Compound selector contains multiple type selectors"
-            aviso()
+            warn()
         } else if x.is_pseudo_element() && y.is_pseudo_element() {
             // "Compound selector contains multiple pseudo element selectors"
-            aviso()
+            warn()
         } else if x.is_pseudo_element() || y.is_element() || y.is_namespace() {
             Ok(1)
         } else if y.is_pseudo_element() || x.is_element() || x.is_namespace() {

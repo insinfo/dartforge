@@ -1,6 +1,6 @@
 //! `ngdart:ngdart` through `ng_generator`, stage A (`docs/BUILD-MOTOR.md`;
 //! engine plan §6.2): **one package action**, over the session's `Program`
-//! (the `Resolvedor` is `BuildStep.resolver` without extra loading), with
+//! (the `Resolver` is `BuildStep.resolver` without extra loading), with
 //! conservative queries — any `.dart`/`.html`/`.scss`/`.css` of the package,
 //! the file list of `lib/`, `web/` and `test/`, and the text of every library
 //! outside the package that the package's libraries reach. The engine cuts
@@ -51,7 +51,7 @@ struct NgCache {
     output: NativeOutput,
     /// HTML/CSS/SCSS -> Dart sources that read the resource.
     resource_readers: BTreeMap<PathBuf, Vec<PathBuf>>,
-    index: Option<dartforge_ng_generator::Indice>,
+    index: Option<dartforge_ng_generator::NgIndex>,
 }
 
 /// Something in the text that may be Angular (conservative: any mention of
@@ -187,7 +187,7 @@ impl NativeGenerator for NgStageA {
             collect_files(&dir, &mut v);
         }
         // A `.dart` without any Angular marker only enters the generation
-        // through its API (the `Resolvedor` asks where a type is declared and
+        // through its API (the `Resolver` asks where a type is declared and
         // the type of a public member; its template is the trivial one, which
         // only depends on the name). For it, the query is the library's API:
         // editing a body there does not rerun ngdart. The rest — component,
@@ -220,7 +220,7 @@ impl NativeGenerator for NgStageA {
                 _ => ctx.register(Query::File(k)),
             }
         }
-        // What the `Resolvedor` may ask from outside the package: the
+        // What the `Resolver` may ask from outside the package: the
         // libraries the package's libraries reach through `import`/`export`
         // (generating a file only sees its own scope). In a dependency,
         // editing the application does not wake up the dependency's round.
@@ -253,16 +253,16 @@ impl NativeGenerator for NgStageA {
             }
         }
         let t_queries = t.elapsed();
-        let package = dartforge_ng_generator::Pacote {
-            nome: request.package.clone(),
-            raiz: root.clone(),
-            folhas_geradas: generated_sheets(ctx, root),
+        let package = dartforge_ng_generator::Package {
+            name: request.package.clone(),
+            root: root.clone(),
+            generated_sheets: generated_sheets(ctx, root),
         };
         let resolver =
-            dartforge_ng_generator::resolucao::Resolvedor::novo(program, program_names);
+            dartforge_ng_generator::resolution::Resolver::new(program, program_names);
         let mut names = dartforge_intern::Interner::new();
         let (g, scoreboard) =
-            dartforge_ng_generator::gerar_com_apoio(&package, &mut names, None, Some(&resolver));
+            dartforge_ng_generator::generate_with_fallback(&package, &mut names, None, Some(&resolver));
         if std::env::var_os("DARTFORGE_MOTOR_TEMPOS").is_some() {
             eprintln!(
                 "ngdart (stage A): queries {:.1} ms ({} files), gerar_com_apoio {:.1} ms",
@@ -297,19 +297,19 @@ impl NativeGenerator for NgStageA {
                 }
             }
         }
-        for (i, p) in scoreboard.pendentes.iter().enumerate() {
+        for (i, p) in scoreboard.pending.iter().enumerate() {
             // A refused stylesheet comes through its output: the refusal
             // belongs to the input.
             let p = &sheet_of_output(p).unwrap_or_else(|| p.clone());
             let m = scoreboard
-                .conjuntos
+                .refusal_sets
                 .get(i)
                 .and_then(|c| c.iter().next())
                 .map(|m| format!("ngdart (stage A) refuses: {m:?}"))
                 .unwrap_or_else(|| "ngdart (stage A) refuses".into());
             s.refusals.insert(p.clone(), m);
         }
-        s.generated_unit_count = scoreboard.gerados;
+        s.generated_unit_count = scoreboard.generated;
         self.cache
             .lock()
             .map_err(|_| "ngdart: poisoned cache")?
@@ -364,7 +364,7 @@ impl NgStageA {
     /// child, a resolved type, metadata inherited from a superclass, a
     /// selector) can only come from a library reachable through its imports:
     /// this closure covers, with room to spare, the queries that
-    /// `gerar_arquivo` records. The closure's files are reindexed before
+    /// `generate_file` records. The closure's files are reindexed before
     /// generating.
     ///
     /// Falls back to stage A (returns `None`) for what it cannot handle this
@@ -466,15 +466,15 @@ impl NgStageA {
         closure.sort();
         let mut cache = self.cache.lock().ok()?;
         let cache = cache.get_mut(&request.package)?;
-        let package = dartforge_ng_generator::Pacote {
-            nome: request.package.clone(),
-            raiz: root.clone(),
-            folhas_geradas: generated_sheets(ctx, root),
+        let package = dartforge_ng_generator::Package {
+            name: request.package.clone(),
+            root: root.clone(),
+            generated_sheets: generated_sheets(ctx, root),
         };
         let resolver =
-            dartforge_ng_generator::resolucao::Resolvedor::novo(program, program_names);
+            dartforge_ng_generator::resolution::Resolver::new(program, program_names);
         for source in &closure {
-            let target = dartforge_ng_generator::caminho_do_template(source);
+            let target = dartforge_ng_generator::template_path(source);
             if !cache.output.outputs.contains_key(&target)
                 || cache.output.refusals.contains_key(source)
             {
@@ -488,14 +488,14 @@ impl NgStageA {
         let mut names = dartforge_intern::Interner::new();
         for source in &closure {
             let text = std::fs::read_to_string(source).ok()?;
-            let found = dartforge_ng_generator::analisar_arquivo(source, &text, &mut names);
+            let found = dartforge_ng_generator::analyze_file(source, &text, &mut names);
             findings.push(found);
         }
         match cache.index.as_mut() {
             None => cache.index = Some(package_index(&package, &resolver)),
             Some(index) => {
                 for (source, found) in closure.iter().zip(&findings) {
-                    index.atualizar(&package, source, found, Some(&resolver));
+                    index.update(&package, source, found, Some(&resolver));
                 }
             }
         }
@@ -503,7 +503,7 @@ impl NgStageA {
         let mut new = Vec::new();
         let mut resources: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
         for (source, found) in closure.iter().zip(&findings) {
-            let output = dartforge_ng_generator::gerar_arquivo(
+            let output = dartforge_ng_generator::generate_file(
                 &package,
                 source,
                 found,
@@ -512,7 +512,7 @@ impl NgStageA {
                 index,
             )
             .ok()?;
-            let target = dartforge_ng_generator::caminho_do_template(source);
+            let target = dartforge_ng_generator::template_path(source);
             new.push((target, output.template.into_bytes()));
             for (target, text) in output.extras {
                 if !cache.output.outputs.contains_key(&target) {
@@ -521,7 +521,7 @@ impl NgStageA {
                 new.push((target, text.into_bytes()));
             }
             let read = output
-                .entradas
+                .inputs
                 .iter()
                 .filter(|e| {
                     e.extension().is_some_and(|x| {
@@ -612,14 +612,14 @@ impl NgStageA {
             .extension()
             .is_some_and(|e| matches!(e.to_str(), Some("css" | "scss" | "sass")))
         {
-            let package = dartforge_ng_generator::Pacote {
-                nome: request.package.clone(),
-                raiz: request.package_root.clone(),
-                folhas_geradas: generated_sheets(ctx, &request.package_root),
+            let package = dartforge_ng_generator::Package {
+                name: request.package.clone(),
+                root: request.package_root.clone(),
+                generated_sheets: generated_sheets(ctx, &request.package_root),
             };
             let css = resource.with_extension("css");
             let mut new = Vec::new();
-            for (target, r) in dartforge_ng_generator::gerar_folha(&package, &css) {
+            for (target, r) in dartforge_ng_generator::generate_sheet(&package, &css) {
                 // An output that was not ours, or that stops being ours: the
                 // full path decides.
                 let bytes = r.ok()?.into_bytes();
@@ -639,13 +639,13 @@ impl NgStageA {
         }
         let sources = cache.resource_readers.get(resource)?.clone();
         let (program, program_names) = ctx.program?;
-        let package = dartforge_ng_generator::Pacote {
-            nome: request.package.clone(),
-            raiz: request.package_root.clone(),
-            folhas_geradas: generated_sheets(ctx, &request.package_root),
+        let package = dartforge_ng_generator::Package {
+            name: request.package.clone(),
+            root: request.package_root.clone(),
+            generated_sheets: generated_sheets(ctx, &request.package_root),
         };
         let resolver =
-            dartforge_ng_generator::resolucao::Resolvedor::novo(program, program_names);
+            dartforge_ng_generator::resolution::Resolver::new(program, program_names);
         if cache.index.is_none() {
             cache.index = Some(package_index(&package, &resolver));
         }
@@ -655,8 +655,8 @@ impl NgStageA {
         for source in sources {
             let text = std::fs::read_to_string(&source).ok()?;
             let mut names = dartforge_intern::Interner::new();
-            let found = dartforge_ng_generator::analisar_arquivo(&source, &text, &mut names);
-            let output = dartforge_ng_generator::gerar_arquivo(
+            let found = dartforge_ng_generator::analyze_file(&source, &text, &mut names);
+            let output = dartforge_ng_generator::generate_file(
                 &package,
                 &source,
                 &found,
@@ -665,7 +665,7 @@ impl NgStageA {
                 index,
             )
             .ok()?;
-            let target = dartforge_ng_generator::caminho_do_template(&source);
+            let target = dartforge_ng_generator::template_path(&source);
             if !cache.output.outputs.contains_key(&target) {
                 return None;
             }
@@ -696,13 +696,13 @@ impl NgStageA {
 }
 
 fn package_index(
-    package: &dartforge_ng_generator::Pacote,
-    resolver: &dartforge_ng_generator::resolucao::Resolvedor<'_>,
-) -> dartforge_ng_generator::Indice {
-    let mut index = dartforge_ng_generator::Indice::do_programa(resolver);
+    package: &dartforge_ng_generator::Package,
+    resolver: &dartforge_ng_generator::resolution::Resolver<'_>,
+) -> dartforge_ng_generator::NgIndex {
+    let mut index = dartforge_ng_generator::NgIndex::from_program(resolver);
     let mut dart_files = Vec::new();
     for dir in ["lib", "web", "test"] {
-        collect_files(&package.raiz.join(dir), &mut dart_files);
+        collect_files(&package.root.join(dir), &mut dart_files);
     }
     let mut names = dartforge_intern::Interner::new();
     for source in dart_files {
@@ -713,8 +713,8 @@ fn package_index(
         }
         if let Ok(text) = std::fs::read_to_string(&source) {
             let found =
-                dartforge_ng_generator::analisar_arquivo(Path::new(&source), &text, &mut names);
-            index.atualizar(package, &source, &found, Some(resolver));
+                dartforge_ng_generator::analyze_file(Path::new(&source), &text, &mut names);
+            index.update(package, &source, &found, Some(resolver));
         }
     }
     index

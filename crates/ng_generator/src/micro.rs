@@ -27,7 +27,7 @@
 pub struct Micro {
     /// `(property name, expression)`, already with the directive prefix.
     pub properties: Vec<(String, String)>,
-    /// `(name do local, key em `locals`)`.
+    /// `(local name, key in `locals`)`.
     pub locals: Vec<(String, String)>,
 }
 
@@ -153,7 +153,7 @@ fn property(dir: &str, suffix: &str) -> String {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]

@@ -5,10 +5,10 @@
 use dartforge_elements::load::load_lenient;
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_intern::Interner;
-use dartforge_ng_generator::resolucao::Resolvedor;
+use dartforge_ng_generator::resolution::Resolver;
 use dartforge_ng_generator::{
-    Indice, NgQuery, Pacote, Scoreboard, analisar_arquivo, caminho_do_template, generate_in,
-    gerar_arquivo,
+    NgIndex, NgQuery, Package, Scoreboard, analyze_file, template_path, generate_in,
+    generate_file,
 };
 use std::path::{Path, PathBuf};
 
@@ -48,10 +48,10 @@ fn one_file_at_a_time_gives_the_same_as_the_package() {
     let mut names = Interner::new();
     let entry = root.join("lib").join("corpus_ngdart.dart");
     let (program, _) = load_lenient(&entry, &sdk, Some(&cfg), &mut names);
-    let resolver = Resolvedor::novo(&program, &names);
-    let package = Pacote {
-        nome: "corpus_ngdart".into(),
-        raiz: root.clone(),
+    let resolver = Resolver::new(&program, &names);
+    let package = Package {
+        name: "corpus_ngdart".into(),
+        root: root.clone(),
         ..Default::default()
     };
 
@@ -70,14 +70,14 @@ fn one_file_at_a_time_gives_the_same_as_the_package() {
     let whole_package = c.finish(1).expect("generation");
 
     // One at a time: the program index, and each file put back by
-    // `atualizar` as the engine does when it changes.
-    let mut index = Indice::do_programa(&resolver);
+    // `update` as the engine does when it changes.
+    let mut index = NgIndex::from_program(&resolver);
     let mut i2 = Interner::new();
     let mut findings = Vec::new();
     for p in sources(&root) {
         let text = std::fs::read_to_string(&p).unwrap();
-        let a = analisar_arquivo(&p, &text, &mut i2);
-        index.atualizar(&package, &p, &a, Some(&resolver));
+        let a = analyze_file(&p, &text, &mut i2);
+        index.update(&package, &p, &a, Some(&resolver));
         findings.push((p, a));
     }
     let mut generated = 0;
@@ -85,9 +85,9 @@ fn one_file_at_a_time_gives_the_same_as_the_package() {
     for (p, a) in &findings {
         let expected = whole_package
             .iter()
-            .find(|(k, _)| k.file_name() == caminho_do_template(p).file_name())
+            .find(|(k, _)| k.file_name() == template_path(p).file_name())
             .map(|(_, f)| f.content.to_string());
-        match gerar_arquivo(&package, p, a, Some(&resolver), &mut i2, &index) {
+        match generate_file(&package, p, a, Some(&resolver), &mut i2, &index) {
             Ok(s) => {
                 generated += 1;
                 assert_eq!(
@@ -122,13 +122,13 @@ fn one_file_at_a_time_gives_the_same_as_the_package() {
     // it now queries the missing selector.
     let child = root.join("lib").join("src").join("a02_texto_estatico.dart");
     assert!(index.declarer("a02-texto-estatico").is_some());
-    index.remover(&child);
+    index.remove(&child);
     assert!(index.declarer("a02-texto-estatico").is_none());
     let (p, a) = findings
         .iter()
         .find(|(p, _)| p.ends_with("d01_dois_filhos.dart"))
         .unwrap();
-    let after = gerar_arquivo(&package, p, a, Some(&resolver), &mut i2, &index);
+    let after = generate_file(&package, p, a, Some(&resolver), &mut i2, &index);
     assert!(
         after.is_err(),
         "d01 still generated without the child in the index"

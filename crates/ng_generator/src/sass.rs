@@ -26,16 +26,16 @@ pub use dartforge_sass::DartSassVersion;
 
 /// The output style of `sass_builder` (`outputStyle`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Estilo {
-    Expandido,
-    Comprimido,
+pub enum Style {
+    Expanded,
+    Compressed,
 }
 
-impl Estilo {
+impl Style {
     fn output_style(self) -> OutputStyle {
         match self {
-            Estilo::Expandido => OutputStyle::Expanded,
-            Estilo::Comprimido => OutputStyle::Compressed,
+            Style::Expanded => OutputStyle::Expanded,
+            Style::Compressed => OutputStyle::Compressed,
         }
     }
 }
@@ -72,7 +72,7 @@ pub fn compile(source: &str) -> Result<String, Reason> {
 /// assert_eq!(compile_in("$c: #fff;\na { color: $c; }", None).unwrap(), "a{color:#fff}\n");
 /// ```
 pub fn compile_in(source: &str, dir: Option<&Path>) -> Result<String, Reason> {
-    compile_with(source, dir, Estilo::Comprimido).map(|(css, _)| css)
+    compile_with(source, dir, Style::Compressed).map(|(css, _)| css)
 }
 
 /// Compiles like `sass_builder` 2.2.1 (the dart-sass of the lock): the official
@@ -92,15 +92,15 @@ pub fn compile_in(source: &str, dir: Option<&Path>) -> Result<String, Reason> {
 /// [`Reason::Styles`] when dart-sass would refuse the stylesheet.
 ///
 /// ```
-/// use dartforge_ng_generator::sass::{compile_with, Estilo};
-/// let (css, read_files) = compile_with(".a { color: red; }", None, Estilo::Expandido).unwrap();
+/// use dartforge_ng_generator::sass::{compile_with, Style};
+/// let (css, read_files) = compile_with(".a { color: red; }", None, Style::Expanded).unwrap();
 /// assert_eq!(css, ".a {\n  color: red;\n}\n");
 /// assert!(read_files.is_empty());
 /// ```
 pub fn compile_with(
     source: &str,
     dir: Option<&Path>,
-    style: Estilo,
+    style: Style,
 ) -> Result<(String, Vec<PathBuf>), Reason> {
     // Without a directory, an anonymous package without a root: nothing is
     // loaded.
@@ -127,14 +127,14 @@ pub fn compile_with(
     Ok((format!("{}\n", c.css), c.read_files))
 }
 
-/// O resultado de [`compile_file`].
+/// The result of [`compile_file`].
 #[derive(Debug, Clone)]
 pub struct Sheet {
     /// The `.css` exactly as `sass_builder` writes it (with the
     /// `sourceMappingURL` comment when there is a map).
     pub css: String,
     /// The `.css.map`, when requested.
-    pub mapa: Option<String>,
+    pub map: Option<String>,
     /// The files read (the input is not included) and those looked up without
     /// existing: dependencies of the compilation.
     pub read_files: Vec<PathBuf>,
@@ -149,7 +149,7 @@ pub struct Sheet {
 ///
 /// [`Reason::Styles`] when the file cannot be read or dart-sass would refuse
 /// the stylesheet.
-pub fn compile_file(scss: &Path, style: Estilo, map: bool) -> Result<Sheet, Reason> {
+pub fn compile_file(scss: &Path, style: Style, map: bool) -> Result<Sheet, Reason> {
     let source = std::fs::read_to_string(scss).map_err(|_| Reason::Styles)?;
     let (input, packages) = identify(scss);
     let c = sass_builder::compile(
@@ -164,7 +164,7 @@ pub fn compile_file(scss: &Path, style: Estilo, map: bool) -> Result<Sheet, Reas
     .map_err(|_| Reason::Styles)?;
     Ok(Sheet {
         css: c.css_file(&input),
-        mapa: c.map,
+        map: c.map,
         read_files: c.read_files,
         probed_files: c.probed_files,
     })
@@ -182,7 +182,7 @@ pub fn compile_file(scss: &Path, style: Estilo, map: bool) -> Result<Sheet, Reas
 /// The dart-sass message when the stylesheet is refused.
 ///
 /// ```
-/// use dartforge_ng_generator::sass::{compilar_ativo, Estilo, AssetReader, DartSassVersion};
+/// use dartforge_ng_generator::sass::{compile_asset, Style, AssetReader, DartSassVersion};
 /// use std::collections::BTreeMap;
 /// use std::path::Path;
 /// struct Nothing;
@@ -190,17 +190,17 @@ pub fn compile_file(scss: &Path, style: Estilo, map: bool) -> Result<Sheet, Reas
 ///     fn exists(&self, _: &Path) -> bool { false }
 ///     fn read(&self, _: &Path) -> std::io::Result<String> { Err(std::io::ErrorKind::NotFound.into()) }
 /// }
-/// let f = compilar_ativo("a { b: c }", "app", "web/x.scss", &BTreeMap::new(), &Nothing, Estilo::Comprimido, true, DartSassVersion::V1_102_0).unwrap();
+/// let f = compile_asset("a { b: c }", "app", "web/x.scss", &BTreeMap::new(), &Nothing, Style::Compressed, true, DartSassVersion::V1_102_0).unwrap();
 /// assert_eq!(f.css, "a{b:c}\n\n/*# sourceMappingURL=x.css.map */\n");
-/// assert_eq!(f.mapa.unwrap(), r#"{"version":3,"sourceRoot":"","sources":["x.scss"],"names":[],"mappings":"AAAA"}"#);
+/// assert_eq!(f.map.unwrap(), r#"{"version":3,"sourceRoot":"","sources":["x.scss"],"names":[],"mappings":"AAAA"}"#);
 /// ```
-pub fn compilar_ativo(
+pub fn compile_asset(
     source: &str,
     package: &str,
     path: &str,
     roots: &BTreeMap<String, PathBuf>,
     reader: &dyn AssetReader,
-    style: Estilo,
+    style: Style,
     map: bool,
     version: DartSassVersion,
 ) -> Result<Sheet, String> {
@@ -224,7 +224,7 @@ pub fn compilar_ativo(
     .map_err(|e| e.to_string())?;
     Ok(Sheet {
         css: c.css_file(&input),
-        mapa: c.map,
+        map: c.map,
         read_files: c.read_files,
         probed_files: c.probed_files,
     })

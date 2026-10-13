@@ -150,7 +150,7 @@ pub enum Exported {
     TypeWithoutClass,
     /// Top-level variable: immutable when `const`/`final` (`isImmutable`).
     Variable { immutable: bool },
-    /// Getter de topo.
+    /// Top-level getter.
     Getter,
     /// Top-level function: valid as a call target.
     Function,
@@ -178,15 +178,15 @@ pub enum Designated {
     List { items: Vec<String>, scope: PathBuf },
 }
 
-pub struct Resolvedor<'a> {
+pub struct Resolver<'a> {
     program: &'a Program,
     interner: &'a Interner,
     /// Path of each main unit to its library.
     by_path: HashMap<PathBuf, LibraryId>,
 }
 
-impl<'a> Resolvedor<'a> {
-    pub fn novo(program: &'a Program, interner: &'a Interner) -> Self {
+impl<'a> Resolver<'a> {
+    pub fn new(program: &'a Program, interner: &'a Interner) -> Self {
         let mut by_path = HashMap::new();
         for unit in &program.units {
             let Some(path) = &unit.path else {
@@ -198,7 +198,7 @@ impl<'a> Resolvedor<'a> {
         }
         // The generation's dialect is that of the program (`ngdart` 8 or
         // `ngx_dart` 9).
-        crate::dialect::set_dialect(crate::dialect::do_programa(program));
+        crate::dialect::set_dialect(crate::dialect::from_program(program));
         Self {
             program,
             interner,
@@ -501,7 +501,7 @@ fn relative(module: &str, imported: &str) -> String {
 
 /// Accepts `T` and `p.T`: the prefix is looked up in the prefix's own
 /// namespace, as Dart resolution requires.
-impl Resolution for Resolvedor<'_> {
+impl Resolution for Resolver<'_> {
     fn type_uri(&self, file: &Path, name: &str) -> Option<String> {
         self.look_up(file, name)
             .map(|u| crate::dialect::canonical(u).into_owned())
@@ -833,7 +833,7 @@ impl Resolution for Resolvedor<'_> {
     }
 }
 
-impl<'a> Resolvedor<'a> {
+impl<'a> Resolver<'a> {
     /// The class that the name `ty` designates in the scope of `file`.
     fn class(&self, file: &Path, ty: &str) -> Option<ClassId> {
         let simple = split_arguments(ty.trim().trim_end_matches('?')).0;
@@ -1283,7 +1283,7 @@ pub(crate) fn qualified_name(
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     /// The `CallbackComponent` case: the official compiler wrote

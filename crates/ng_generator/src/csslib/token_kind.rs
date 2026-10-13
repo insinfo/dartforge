@@ -468,11 +468,11 @@ pub(crate) fn hex_to_color_name(value: i64) -> Option<&'static str> {
 }
 
 /// `TokenKind.decimalToHex`.
-pub(crate) fn decimal_to_hex(numero: i64, min_digits: usize) -> String {
+pub(crate) fn decimal_to_hex(number: i64, min_digits: usize) -> String {
     const DIGITS: &[u8] = b"0123456789abcdef";
     let mut result = Vec::new();
-    let mut dividend = numero >> 4;
-    result.push(DIGITS[numero.rem_euclid(16) as usize]);
+    let mut dividend = number >> 4;
+    result.push(DIGITS[number.rem_euclid(16) as usize]);
     while dividend != 0 {
         result.push(DIGITS[dividend.rem_euclid(16) as usize]);
         dividend >>= 4;

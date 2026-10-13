@@ -26,7 +26,7 @@ pub fn shim(css: &str) -> Result<String, Reason> {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     /// The exact output of the official compiler for the CSS of case b15.

@@ -4,7 +4,7 @@
 //!
 //! - `project_stylesheets_equal_to_official`: walks the output of an official
 //!   build (`DARTFORGE_SHIM_GERADO`, the `.dart_tool/build/generated`) and, for
-//!   each `X.css.shim.dart`, generates ours with [`gerar_folha`] from the
+//!   each `X.css.shim.dart`, generates ours with [`generate_sheet`] from the
 //!   `X.css` next to it (output of `sass_builder`) or, if there is none, from
 //!   the `X.css` in the package (`DARTFORGE_SHIM_RAIZES`, `package=dir`
 //!   separated by `,`).
@@ -22,7 +22,7 @@
 //!   throws.
 use std::path::{Path, PathBuf};
 
-use dartforge_ng_generator::{Pacote, css, gerar_folha, shadow_css};
+use dartforge_ng_generator::{Package, css, generate_sheet, shadow_css};
 
 fn files(dir: &Path, suffix: &str, output: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -97,8 +97,8 @@ fn project_stylesheets_equal_to_official() {
                 }
             }
         }
-        let package = Pacote::default();
-        let outputs = gerar_folha(&package, &css);
+        let package = Package::default();
+        let outputs = generate_sheet(&package, &css);
         let ours = outputs
             .into_iter()
             .find(|(p, _)| p.to_string_lossy().ends_with(".shim.dart"))

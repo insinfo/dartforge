@@ -30,10 +30,10 @@ pub struct Attribute {
     pub matching: Match,
 }
 
-/// As formas de `attribute_matcher.dart`.
+/// The shapes of `attribute_matcher.dart`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Match {
-    /// `[name]`: basta existir.
+    /// `[name]`: it only has to exist.
     Exists,
     /// `[name=value]`, with the value already lowercase.
     Equal(Option<String>),
@@ -333,7 +333,7 @@ pub struct Element {
 }
 
 impl Element {
-    pub fn novo(name: &str) -> Self {
+    pub fn new(name: &str) -> Self {
         Element {
             name: name.to_string(),
             ..Default::default()
@@ -357,7 +357,7 @@ impl Element {
     /// attributes, then properties (the `[(x)]` become the property `x` and the
     /// event `xChange`, like ngast's `DesugarVisitor`), then events.
     pub fn of_template(e: &crate::html::Element) -> Self {
-        let mut el = Element::novo(&e.name);
+        let mut el = Element::new(&e.name);
         for a in &e.attributes {
             el.attribute(&a.name, Some(&a.value));
         }
@@ -383,11 +383,11 @@ pub fn matches_any(selectors: &[Selector], el: &Element) -> bool {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     fn el(name: &str, attrs: &[(&str, Option<&str>)]) -> Element {
-        let mut e = Element::novo(name);
+        let mut e = Element::new(name);
         for (n, v) in attrs {
             e.attribute(n, *v);
         }

@@ -388,7 +388,7 @@ fn literal_contents(raw_text: &str) -> Option<(usize, usize)> {
     Some((start, end))
 }
 
-/// Lista de strings literais (`styleUrls: ['a.css', 'b.css']`).
+/// List of literal strings (`styleUrls: ['a.css', 'b.css']`).
 fn text_list(tree: &ast::Ast, id: ast::ExprId) -> Vec<String> {
     let ast::ExprKind::List { elements, .. } = &tree.expr(id).kind else {
         return Vec::new();
@@ -416,7 +416,7 @@ fn list_names(tree: &ast::Ast, interner: &Interner, id: ast::ExprId) -> (Vec<Str
             // name is expanded in place (`Designated::List`).
             ast::CollectionElement::Expression(x)
             | ast::CollectionElement::Spread { value: x, .. } => {
-                match crate::resolucao::qualified_name(tree, interner, *x) {
+                match crate::resolution::qualified_name(tree, interner, *x) {
                     Some(n) => names.push(n),
                     None => unreadable = true,
                 }
@@ -455,7 +455,7 @@ pub fn read_component(
     class: &ast::ClassDecl,
     annotation: &ast::Annotation,
 ) -> Component {
-    ler(tree, source, interner, class, annotation, true)
+    read_annotated(tree, source, interner, class, annotation, true)
 }
 
 /// Extracts the `@Directive` of an annotated class: what its users need to know
@@ -467,7 +467,7 @@ pub fn read_directive(
     class: &ast::ClassDecl,
     annotation: &ast::Annotation,
 ) -> Component {
-    ler(tree, source, interner, class, annotation, false)
+    read_annotated(tree, source, interner, class, annotation, false)
 }
 
 /// A `@Pipe`, as the official `PipeVisitor` reads it: the name, whether it is
@@ -582,7 +582,7 @@ pub fn read_pipe(
     p
 }
 
-fn ler(
+fn read_annotated(
     tree: &ast::Ast,
     source: &str,
     interner: &Interner,
@@ -728,7 +728,7 @@ fn content_queries(
             let (target, reference) = match argument_text(tree, first.value) {
                 Some(t) => (t, true),
                 None => (
-                    crate::resolucao::qualified_name(tree, interner, first.value)?,
+                    crate::resolution::qualified_name(tree, interner, first.value)?,
                     false,
                 ),
             };
@@ -744,7 +744,7 @@ fn content_queries(
                         _ => return None,
                     },
                     Some("read") => {
-                        read = Some(crate::resolucao::qualified_name(tree, interner, x.value)?)
+                        read = Some(crate::resolution::qualified_name(tree, interner, x.value)?)
                     }
                     _ => return None,
                 }
@@ -918,7 +918,7 @@ fn what_we_do_not_understand(
             let name = crate::annotation_name(a, interner);
             let reason = match name.as_str() {
                 "HostBinding" if !is_component => Reason::HostBindingOnComponent,
-                // No componente, a hospedeira atribui o resultado vazio (ver
+                // On a component, the host assigns the empty result (see
                 // [`content_queries`]).
                 "ContentChild" | "ContentChildren" if !is_component => Reason::ContentChild,
                 _ => continue,
@@ -1087,7 +1087,7 @@ fn listener(
         return None;
     }
     let method = interner.resolve(function.name?.sym).to_string();
-    // `element.parameters.length`: todos, opcionais e nomeados inclusive.
+    // `element.parameters.length`: all of them, optional and named included.
     let params = function.parameters.as_ref().map_or(0, |p| p.len());
     let args = annotation.arguments.as_ref()?;
     let (event, list) = match &args.args[..] {
@@ -1625,7 +1625,7 @@ fn field_types(
 /// A `Typed<X>.of([..], on: 'ref')` of `directiveTypes:`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DirectiveType {
-    /// A classe como escrita (`MaterialSelectItemComponent`, `p.X`).
+    /// The class as written (`MaterialSelectItemComponent`, `p.X`).
     pub class: String,
     /// The arguments: the text of each type, and `#T` as `T` (the component's
     /// type parameter, `fromTypeLink`).

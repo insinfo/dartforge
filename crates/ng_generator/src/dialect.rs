@@ -11,17 +11,17 @@
 //! `package:ngdart/…`), and the output goes back to the generation's dialect
 //! through [`writing`] (in the import table). The dialect of a generation is
 //! that of the loaded program
-//! ([`Resolvedor::novo`](crate::resolucao::Resolvedor::novo) sets it on the
+//! ([`Resolver::new`](crate::resolution::Resolver::new) sets it on the
 //! thread): if it contains `package:ngx_dart/…`, it is 9.
 use std::borrow::Cow;
 use std::cell::Cell;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Dialect {
-    /// `ngdart` 8.0.0-dev.4 com `dart:html`.
+    /// `ngdart` 8.0.0-dev.4 with `dart:html`.
     #[default]
     Ngdart,
-    /// `ngx_dart` 9.0.0-dev.2 com `package:web`.
+    /// `ngx_dart` 9.0.0-dev.2 with `package:web`.
     Ngx,
 }
 
@@ -41,7 +41,7 @@ pub fn set_dialect(d: Dialect) {
 
 /// The dialect of a program: that of `ngx_dart` if it loads any library of that
 /// package.
-pub fn do_programa(p: &dartforge_elements::model::Program) -> Dialect {
+pub fn from_program(p: &dartforge_elements::model::Program) -> Dialect {
     if p.libraries
         .iter()
         .any(|l| l.uri.starts_with("package:ngx_dart/"))
@@ -224,7 +224,7 @@ pub fn is_element(uri: &str, name: &str) -> bool {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]

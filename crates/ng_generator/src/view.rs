@@ -17,7 +17,7 @@
 use crate::component::Component;
 use crate::dom;
 use crate::html::Node;
-use crate::resolucao::{Resolution, asset_of_uri, import_path};
+use crate::resolution::{Resolution, asset_of_uri, import_path};
 use std::fmt::Write;
 use std::path::Path;
 
@@ -2594,7 +2594,7 @@ fn where_matches(
 /// (checked in the `html_dart2js.dart` of SDK 3.6.2).
 fn is_element_type(ty: &str, local: &Local, resolver: Option<&dyn Resolution>) -> bool {
     let ty = ty.trim().trim_end_matches('?');
-    let simple = crate::resolucao::without_anchor(ty.rsplit('.').next().unwrap_or(ty));
+    let simple = crate::resolution::without_anchor(ty.rsplit('.').next().unwrap_or(ty));
     // In 9, `Element` is the one from `package:web` (`find_components.dart:533`).
     resolver
         .and_then(|r| r.type_uri(local.path, ty))
@@ -4708,7 +4708,7 @@ impl ViewBody<'_> {
         for a in &actions {
             match a {
                 crate::expr::Action::Simple { statement, .. } => statements.push(statement.clone()),
-                crate::expr::Action::Complexa(c) => {
+                crate::expr::Action::Complex(c) => {
                     statements.push(c.text.clone());
                     for l in &c.locals {
                         if !locals.contains(l) {
@@ -7241,7 +7241,7 @@ impl ViewBody<'_> {
         micro: &crate::micro::Micro,
         dir: Option<&Structural>,
     ) -> Result<(), Refusal> {
-        let mut desc = crate::selector::Element::novo("template");
+        let mut desc = crate::selector::Element::new("template");
         if !micro.properties.iter().any(|(p, _)| p == name) {
             desc.attribute(name, None);
         }
@@ -7655,7 +7655,7 @@ impl ViewBody<'_> {
             self.own_locals.clone(),
         );
         // The text binding is allocated per view; here the output is discarded.
-        self.tb.get_or_insert_with(|| "_coleta".into());
+        self.tb.get_or_insert_with(|| "_collect".into());
         if let Some(micro) = e.star_micro() {
             // The type of the collection, if its expression converts; otherwise
             // the locals stay `dynamic`.
@@ -7691,7 +7691,7 @@ impl ViewBody<'_> {
             self.own_locals.extend(micro.locals.iter().cloned());
             self.embedded = true;
         }
-        let _ = self.nodes(&e.children, "_el_coleta");
+        let _ = self.nodes(&e.children, "_el_collect");
         (
             self.locals,
             self.embedded,
@@ -9280,16 +9280,16 @@ fn injector_method(injectors: &[InjectorNode], asset: &str) -> String {
     let injectors = &converted[..];
     // The forest: each node is a child of the closest one before it that
     // contains it.
-    let mut pais: Vec<Option<usize>> = Vec::new();
+    let mut parents: Vec<Option<usize>> = Vec::new();
     for (i, (begin, end, _)) in injectors.iter().enumerate() {
         let mut p = if i == 0 { None } else { Some(i - 1) };
         while let Some(j) = p {
             if injectors[j].0 <= *begin && *end <= injectors[j].1 {
                 break;
             }
-            p = pais[j];
+            p = parents[j];
         }
-        pais.push(p);
+        parents.push(p);
     }
     fn tokens(ts: &[Token]) -> String {
         let parts: Vec<String> = ts
@@ -9314,18 +9314,18 @@ fn injector_method(injectors: &[InjectorNode], asset: &str) -> String {
     }
     fn level(
         injectors: &[InjectorNode],
-        pais: &[Option<usize>],
+        parents: &[Option<usize>],
         parent: Option<usize>,
         below: i64,
         alto: i64,
         output: &mut Vec<String>,
     ) {
         for (i, (begin, end, providers)) in injectors.iter().enumerate() {
-            if pais[i] != parent {
+            if parents[i] != parent {
                 continue;
             }
             let cond = index(*begin, *end, below, alto);
-            let has_children = pais.contains(&Some(i));
+            let has_children = parents.contains(&Some(i));
             if !has_children && providers.len() == 1 {
                 let (ts, field) = &providers[0];
                 output.push(format!(
@@ -9336,7 +9336,7 @@ fn injector_method(injectors: &[InjectorNode], asset: &str) -> String {
                 let mut inside = Vec::new();
                 level(
                     injectors,
-                    pais,
+                    parents,
                     Some(i),
                     i64::from(*begin),
                     i64::from(*end),
@@ -9356,7 +9356,7 @@ fn injector_method(injectors: &[InjectorNode], asset: &str) -> String {
         }
     }
     let mut body = Vec::new();
-    level(injectors, &pais, None, 0, -1, &mut body);
+    level(injectors, &parents, None, 0, -1, &mut body);
     format!(
         "\n  @override\n  dynamic injectorGetInternal(dynamic token, int nodeIndex, dynamic notFoundResult) {{\n{}\n    return notFoundResult;\n  }}\n",
         indent_lines(&body.join("\n"), 4)
@@ -9628,7 +9628,7 @@ struct EmbeddedSpec {
     /// The same, in the order of the lines of `dirtyParentQueriesInternal`
     /// (that of the first result of each one, [`first_result`]).
     dirty: Vec<(String, String, u32)>,
-    /// As consultas com resultado mais abaixo ([`ViewBody::queries_in_transit`]).
+    /// The queries with a result further down ([`ViewBody::queries_in_transit`]).
     queries_in_transit: Vec<(String, String, u32)>,
     /// The providers above the anchor, seen from the new view.
     above: Vec<(crate::directives::Token, String, Option<(String, u32)>)>,
@@ -9657,7 +9657,7 @@ struct Origin {
 
 /// The names of the component's `exports:`: the qualifier (deferred import) and
 /// what each one designates.
-pub(crate) type Exports = std::collections::HashMap<String, (String, crate::resolucao::Exported)>;
+pub(crate) type Exports = std::collections::HashMap<String, (String, crate::resolution::Exported)>;
 
 /// What every view of the file shares: the component, the directives it uses
 /// and where the file lives.
@@ -9711,7 +9711,7 @@ struct Context<'a> {
     templates_with_container: std::collections::HashSet<String>,
     /// `@changeDetectionLink` no componente.
     detection_link: bool,
-    /// `directiveTypes:` resolvido ([`ResolvedDirectiveType`]).
+    /// The resolved `directiveTypes:` ([`ResolvedDirectiveType`]).
     directive_types: Vec<ResolvedDirectiveType>,
     /// The `#ref` names that are repeated or shadowed by `let`.
     ambiguous_refs: std::collections::HashSet<String>,
@@ -10625,7 +10625,7 @@ fn bound_element_types(
     }
 }
 
-/// Alguma linha usa `_ctx`?
+/// Does any line use `_ctx`?
 fn references_ctx(lines: &[String]) -> bool {
     lines.iter().any(|l| {
         l.split(|c: char| !c.is_alphanumeric() && c != '_')
@@ -10905,7 +10905,7 @@ fn qualified_type(
             if name == "Function" {
                 return None;
             }
-            let simple = crate::resolucao::without_anchor(name.rsplit('.').next().unwrap_or(&name));
+            let simple = crate::resolution::without_anchor(name.rsplit('.').next().unwrap_or(&name));
             // A private type is not visible in the generated file:
             // `fromDartType` replaces it with `dynamic`, with its arguments and
             // `?` (`convert.dart:35-37`).
@@ -11360,7 +11360,7 @@ pub fn ngcd_class(h: &crate::Host, file: &str, imp: &mut Imports) -> String {
             continue;
         };
         let is_static = h.statics.contains(member);
-        if let HostShape::Estilo { text, null, .. } = &mut shape {
+        if let HostShape::Style { text, null, .. } = &mut shape {
             // The static is `dynamic` for `_TypeResolver`: `?.toString()`.
             let ty = if is_static {
                 "dynamic"
@@ -11518,7 +11518,7 @@ pub fn collect(
     if let Err(r) = r {
         unsupported.insert(r);
     }
-    // The stylesheet is another output (`gerar_folha`): the template only
+    // The stylesheet is another output (`generate_sheet`): the template only
     // imports it.
     if c.style_urls
         .iter()
@@ -11550,7 +11550,7 @@ pub(crate) enum HostShape {
     TabIndex,
     /// `style.x` and `style.x.unit`, with the text of the value decided by the
     /// member type (`visitStyleBinding`: `isString`, `isNullable`).
-    Estilo {
+    Style {
         name: String,
         unit: Option<String>,
         text: bool,
@@ -11607,7 +11607,7 @@ impl HostShape {
             HostShape::Property(x, s) => {
                 format!("{dom}.setProperty({el}, '{x}', {})", sanitized(s))
             }
-            HostShape::Estilo {
+            HostShape::Style {
                 name,
                 unit,
                 text,
@@ -11651,7 +11651,7 @@ pub(crate) fn host_shape(name: &str) -> Result<HostShape, String> {
         ["attr", x] if simple(x) => {
             HostShape::Attribute(x.to_string(), sanitizer("div", mapped_property(x)))
         }
-        ["style", x] | ["style", x, _] if simple(x) => HostShape::Estilo {
+        ["style", x] | ["style", x, _] if simple(x) => HostShape::Style {
             name: x.to_string(),
             unit: parts.get(2).map(|u| u.to_string()),
             text: false,
@@ -11722,7 +11722,7 @@ fn component_bindings(
                     unsupported("inherited @HostBinding without a readable declaration")
                 })?,
         };
-        if let HostShape::Estilo { text, null, .. } = &mut shape {
+        if let HostShape::Style { text, null, .. } = &mut shape {
             if immutable {
                 return Err(unsupported("@HostBinding('style.x') on a final field"));
             }
@@ -11736,7 +11736,7 @@ fn component_bindings(
                 return Err(unsupported("@HostBinding('style.x') of unknown type"));
             }
             *text = base == "String";
-            // `canBeNull` de `_ctx.x`: sempre (`analyzed_class.dart:210-221`).
+            // `canBeNull` of `_ctx.x`: always (`analyzed_class.dart:210-221`).
             *null = true;
         }
         output.push(HostBinding {
@@ -11868,7 +11868,7 @@ fn generate_component_with(
         }
     }
     // `ViewEncapsulation.none` with a stylesheet: the template imports the
-    // `.css.dart` (the stylesheet without the shim, from `gerar_folha`),
+    // `.css.dart` (the stylesheet without the shim, from `generate_sheet`),
     // `ComponentStyles.unscoped` and no `addShimC` (case i88).
     // The component's `@HostBinding`s, with the inherited ones.
     let of_host = match component_bindings(c, local, resolver) {
@@ -12884,7 +12884,7 @@ fn generate_component_with(
         .unwrap_or_else(|| selector.trim().to_string());
     // `_getChangeDetectionCheckMode`: an `onPush` component starts in
     // `checkOnce`.
-    let estado = if c.on_push {
+    let check_state = if c.on_push {
         "checkOnce"
     } else {
         "checkAlways"
@@ -12911,7 +12911,7 @@ final List<Object> styles${x} = {style_list};
 
 class View{x}0{decl} extends {component_view_prefix}.ComponentView<{own_prefix}.{x}{args}> {{
 {fields}  static {styles}.ComponentStyles? _componentStyles;
-  View{x}0({view}.View parentView, int parentIndex) : super(parentView, parentIndex, {cd}.ChangeDetectionCheckedState.{estado}) {{
+  View{x}0({view}.View parentView, int parentIndex) : super(parentView, parentIndex, {cd}.ChangeDetectionCheckedState.{check_state}) {{
     this.initComponentStyles();
     this.rootElement = {util}.unsafeCast({document}.createElement('{tag}'));{statics_in_constructor}
   }}
@@ -13499,7 +13499,7 @@ fn component_construction(
             args.push("this.componentView".to_string());
             continue;
         }
-        // `ViewContainerRef`: o `ViewContainer` do elemento hospedeiro.
+        // `ViewContainerRef`: the `ViewContainer` of the host element.
         if e_container(p, local, resolver) {
             args.push("this._appEl_0".to_string());
             continue;
@@ -13688,7 +13688,7 @@ fn missing_for_construction(
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
     use crate::component::Parameter;
     use dartforge_intern::Interner;
@@ -13706,7 +13706,7 @@ mod testes {
             panic!("a single element");
         };
         assert_eq!(e.name, "ng-container");
-        let star = e.star.as_ref().expect("estrela");
+        let star = e.star.as_ref().expect("star");
         assert_eq!(star.name, "ngFor");
         assert_eq!(star.value, "let item; let i = index; trackBy: f; of: xs");
         let micro = e.star_micro().unwrap_or_default();
@@ -13827,7 +13827,7 @@ mod testes {
             &[],
             &Ok(Vec::new()),
         )
-        .expect("gera");
+        .expect("generates");
         let expected = include_str!("../testdata/form_feedback_component.template.dart");
         assert_eq!(output, expected.replace("\r\n", "\n"));
     }
@@ -13863,7 +13863,7 @@ mod testes {
             &[],
             &Ok(Vec::new()),
         )
-        .expect("gera");
+        .expect("generates");
         let expected = include_str!("../testdata/callback_component.template.dart");
         assert_eq!(output, expected.replace("\r\n", "\n"));
     }
@@ -13980,7 +13980,7 @@ mod testes {
             &[],
             &Ok(Vec::new()),
         )
-        .expect("gera");
+        .expect("generates");
         let expected = include_str!("../testdata/callback_with_injection.template.dart");
         assert_eq!(output, expected.replace("\r\n", "\n"));
     }

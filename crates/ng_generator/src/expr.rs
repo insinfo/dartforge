@@ -23,7 +23,7 @@
 //! Event handlers (`parseAction`) are the same language with two more shapes:
 //! `$event` and assignment (`x = y`, `a.b = y`).
 use crate::component::Member;
-use crate::resolucao::Resolution;
+use crate::resolution::Resolution;
 use crate::view::{Reason, Refusal, refusal};
 use dartforge_frontend::ast;
 use dartforge_intern::Interner;
@@ -36,7 +36,7 @@ use std::path::{Path, PathBuf};
 pub const PIPE_MARK: char = '\u{3}';
 
 /// Prefix of [`Converted::is_static`] for an `exports:` receiver without an
-/// `AnalyzedClass` ([`crate::resolucao::Exported::TypeWithoutClass`]).
+/// `AnalyzedClass` ([`crate::resolution::Exported::TypeWithoutClass`]).
 const WITHOUT_CLASS: char = '\u{7}';
 pub const PIPE_END: char = '\u{4}';
 
@@ -269,7 +269,7 @@ pub enum Action {
         statement: String,
     },
     /// Any other shape: a statement of the `_handleEvent_N` method.
-    Complexa(Converted),
+    Complex(Converted),
 }
 
 /// Converts the text of an `(event)="..."`.
@@ -372,7 +372,7 @@ impl Converter<'_> {
 
     /// An inherited instance method ([`Resolution::method`]), looked up only
     /// when the name is neither the class's own nor private.
-    fn inherited_method(&self, name: &str) -> Option<crate::resolucao::Method> {
+    fn inherited_method(&self, name: &str) -> Option<crate::resolution::Method> {
         if name.starts_with('_') {
             return None;
         }
@@ -391,7 +391,7 @@ impl Converter<'_> {
         }
     }
 
-    /// O handler inteiro: classifica (simples × complexo) e converte.
+    /// The whole handler: classifies (simple × complex) and converts.
     fn action(&self, id: ast::ExprId) -> Result<Action, Refusal> {
         let id = self.without_parens(id);
         let e = self.ast.expr(id);
@@ -443,7 +443,7 @@ impl Converter<'_> {
             ast::ExprKind::Assign { .. } => self.assignment(id)?,
             _ => self.expr(id, true)?,
         };
-        Ok(Action::Complexa(c))
+        Ok(Action::Complex(c))
     }
 
     /// A simple handler: the method must belong to the component (or be a
@@ -681,7 +681,7 @@ impl Converter<'_> {
                 // (`analyzed_class.dart:116`), even of a mutable variable or a
                 // getter.
                 if let Some((q, what)) = self.scope.exports.and_then(|e| e.get(name)) {
-                    use crate::resolucao::Exported;
+                    use crate::resolution::Exported;
                     let text = format!("{q}{name}");
                     return match what {
                         Exported::Class => Ok(Converted {
@@ -808,7 +808,7 @@ impl Converter<'_> {
                     });
                 }
                 if let Some(class) = &target.is_static {
-                    use crate::resolucao::Static;
+                    use crate::resolution::Static;
                     let Some((r, file)) = self.scope.types else {
                         return Err(unsupported(
                             "static member from exports: without the semantic database",
@@ -933,7 +933,7 @@ impl Converter<'_> {
                             .scope
                             .exports
                             .and_then(|e| e.get(name))
-                            .filter(|(_, o)| *o == crate::resolucao::Exported::Function);
+                            .filter(|(_, o)| *o == crate::resolution::Exported::Function);
                         match self.scope.methods.get(name) {
                             // An `exports:` function: through the import,
                             // `dynamic`.
@@ -1175,7 +1175,7 @@ fn template_operator(op: ast::BinaryOp) -> bool {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     fn members() -> HashMap<String, Member> {
@@ -1376,16 +1376,16 @@ mod testes {
     /// before the receiver).
     #[test]
     fn complex_handlers() {
-        let Action::Complexa(c) = action("nome = $event") else {
+        let Action::Complex(c) = action("nome = $event") else {
             panic!()
         };
         assert_eq!(c.text, "_ctx.nome = $event");
-        let Action::Complexa(c) = action("ir(x)") else {
+        let Action::Complex(c) = action("ir(x)") else {
             panic!()
         };
         assert_eq!(c.text, "_ctx.ir(local_x)");
         assert_eq!(c.locals, vec!["x".to_string()]);
-        let Action::Complexa(c) = action("$event.stopPropagation()") else {
+        let Action::Complex(c) = action("$event.stopPropagation()") else {
             panic!()
         };
         assert_eq!(c.text, "$event.stopPropagation()");

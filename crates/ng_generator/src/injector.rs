@@ -15,7 +15,7 @@ use crate::metadata::{Injector, InjectorSource, Revived, WrittenType};
 const INJECTOR: &str = "package:ngdart/src/di/injector.dart";
 const UTILITIES: &str = "package:ngdart/src/utilities.dart";
 
-/// A tabela de imports do `Allocator.simplePrefixing`.
+/// The import table of `Allocator.simplePrefixing`.
 #[derive(Default)]
 struct Allocator {
     uris: Vec<String>,
@@ -409,7 +409,7 @@ fn emit_one(al: &mut Allocator, inj: &Injector) -> Result<String, String> {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     #[test]

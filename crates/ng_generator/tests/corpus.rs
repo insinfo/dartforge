@@ -11,8 +11,8 @@ use dartforge_elements::config::PackageConfig;
 use dartforge_elements::load::load_lenient;
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_intern::Interner;
-use dartforge_ng_generator::resolucao::Resolvedor;
-use dartforge_ng_generator::{Pacote, Scoreboard, caminho_do_template, generate_in};
+use dartforge_ng_generator::resolution::Resolver;
+use dartforge_ng_generator::{Package, Scoreboard, template_path, generate_in};
 use std::path::{Path, PathBuf};
 
 /// The names under `dependencies:` in the corpus `pubspec.yaml` (the
@@ -81,9 +81,9 @@ fn what_we_generate_equals_the_official_output() {
         );
         return;
     }
-    let package = Pacote {
-        nome: "corpus_ngdart".into(),
-        raiz: root.clone(),
+    let package = Package {
+        name: "corpus_ngdart".into(),
+        root: root.clone(),
         ..Default::default()
     };
     // The test runs the same path as production: it loads the project and
@@ -118,7 +118,7 @@ fn what_we_generate_equals_the_official_output() {
     };
     let mut names = Interner::new();
     let (program, _) = load_lenient(&entry, &sdk, Some(&cfg), &mut names);
-    let resolver = Resolvedor::novo(&program, &names);
+    let resolver = Resolver::new(&program, &names);
     let mut interner = Interner::new();
     let mut c = dartforge_elements::generated::GenerationBuilder::new();
     let mut scoreboard = Scoreboard::default();
@@ -171,9 +171,9 @@ fn what_we_generate_equals_the_official_output() {
     );
     println!(
         "ngdart corpus: {checked} checked, {} pending",
-        scoreboard.pendentes.len()
+        scoreboard.pending.len()
     );
-    for (p, c) in scoreboard.pendentes.iter().zip(&scoreboard.conjuntos) {
+    for (p, c) in scoreboard.pending.iter().zip(&scoreboard.refusal_sets) {
         let refusals: Vec<String> = c.iter().map(|r| r.text()).collect();
         println!(
             "  pending {}: {}",
@@ -185,9 +185,9 @@ fn what_we_generate_equals_the_official_output() {
     // wrong output, and the refusal must come for the right reason.
     for (file, shape) in REFUSED {
         let found = scoreboard
-            .pendentes
+            .pending
             .iter()
-            .zip(&scoreboard.conjuntos)
+            .zip(&scoreboard.refusal_sets)
             .find(|(p, _)| p.file_name().is_some_and(|n| n == *file));
         let Some((_, set)) = found else {
             panic!("{file} should be refused ({shape}) and was generated");
@@ -226,7 +226,7 @@ fn every_corpus_file_has_an_oracle() {
         if !name.ends_with(".dart") || name.ends_with(".template.dart") {
             continue;
         }
-        let expected = oracle.join(caminho_do_template(&p).file_name().unwrap_or_default());
+        let expected = oracle.join(template_path(&p).file_name().unwrap_or_default());
         if !expected.is_file() {
             missing.push(name);
         }

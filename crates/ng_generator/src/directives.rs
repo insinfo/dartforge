@@ -37,7 +37,7 @@ pub struct TokenType {
 }
 
 impl TokenType {
-    /// `Object` do `dart:core`, o `T` do `ngValidators`.
+    /// `Object` of `dart:core`, the `T` of `ngValidators`.
     pub fn e_object(&self) -> bool {
         self.uri == "dart:core" && self.class == "Object" && self.generics == 0
     }
@@ -55,7 +55,7 @@ impl TokenType {
     }
 }
 
-/// A biblioteca do `Injector` do ngdart.
+/// The library of ngdart's `Injector`.
 const INJECTOR: &str = "package:ngdart/src/di/injector.dart";
 
 /// An injection token.
@@ -139,7 +139,7 @@ pub enum ConstValue {
 /// Where the value of a provider comes from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Provides {
-    /// `useExisting:` — outro token.
+    /// `useExisting:` — another token.
     Existing(Token),
     /// `useClass:` (or the token itself), with the constructor dependencies.
     Class {
@@ -234,11 +234,11 @@ pub struct Directive {
     pub visible: bool,
     pub providers: Vec<Provider>,
     pub dependencies: Vec<Dependency>,
-    /// Na ordem do mapa `inputs` (`_SortInputsVisitor`).
+    /// In the order of the `inputs` map (`_SortInputsVisitor`).
     pub inputs: Vec<Input>,
     /// (name in the template, member), in the order of the `outputs` map.
     pub outputs: Vec<(String, String)>,
-    /// Na ordem do mapa `hostListeners`.
+    /// In the order of the `hostListeners` map.
     pub listeners: Vec<Listener>,
     /// `@HostBinding`: (binding name, member).
     pub host_bindings: Vec<(String, String)>,
@@ -520,7 +520,7 @@ pub struct ResolvedNode {
 enum Source {
     Directive(Arc<Directive>),
     Existing(Token),
-    /// `useClass`/`useValue`/`useFactory` de `providers:`.
+    /// `useClass`/`useValue`/`useFactory` of `providers:`.
     Provider(Provides),
 }
 
@@ -1157,7 +1157,7 @@ fn outside_node(dep: &Dependency, above: Option<Above>) -> Result<Argument, &'st
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
     fn class(uri: &str, c: &str) -> Token {

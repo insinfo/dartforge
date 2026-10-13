@@ -1,6 +1,6 @@
 //! ngdart through the engine (stage A) is **transparent**: the published
 //! generation is the same as calling `ng_generator` directly
-//! (`gerar_com_apoio`), and what it generates matches the oracle of
+//! (`generate_with_fallback`), and what it generates matches the oracle of
 //! `corpus/ngdart/oraculo/` byte for byte — the same contract as
 //! `crates/ng_generator/tests/corpus.rs`, now through the engine.
 //! "Incremental = from scratch" also holds with template edits.
@@ -60,15 +60,15 @@ fn ng_through_the_engine_equals_direct_generator_and_oracle() {
     let g = m.generation();
 
     // Directly, through ng_generator's public API.
-    let resolver = dartforge_ng_generator::resolucao::Resolvedor::novo(&p, &names);
+    let resolver = dartforge_ng_generator::resolution::Resolver::new(&p, &names);
     let mut i = Interner::new();
-    let package = dartforge_ng_generator::Pacote {
-        nome: "corpus_ngdart".into(),
-        raiz: root.clone(),
+    let package = dartforge_ng_generator::Package {
+        name: "corpus_ngdart".into(),
+        root: root.clone(),
         ..Default::default()
     };
     let (direct, _) =
-        dartforge_ng_generator::gerar_com_apoio(&package, &mut i, None, Some(&resolver));
+        dartforge_ng_generator::generate_with_fallback(&package, &mut i, None, Some(&resolver));
     let expected: std::collections::HashSet<&PathBuf> = m.natural_paths_map.values().collect();
     let mut equal = 0;
     for (path, f) in direct.iter().filter(|(_, f)| f.generator == "ngdart") {

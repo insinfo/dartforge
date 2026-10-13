@@ -78,7 +78,7 @@ pub struct Element {
     pub bananas: Vec<Binding>,
     /// `#ref` or `#ref="ngForm"`.
     pub references: Vec<Binding>,
-    /// `*ngIf="e"` — a forma abreviada do `<template>`.
+    /// `*ngIf="e"` — the shorthand form of `<template>`.
     pub star: Option<Binding>,
     /// `@i18n="description"`, `@i18n:title="…"`: the annotations (ngast's
     /// `AnnotationAst`), with the name without the `@`.
@@ -293,7 +293,7 @@ impl<'a> Parser<'a> {
             if self.starts_with_word("</") {
                 let closes = self.read_closing();
                 match parent {
-                    // Fechamento do nosso elemento: devolve ao chamador.
+                    // The closing of our element: return to the caller.
                     Some(p) if closes.eq_ignore_ascii_case(p) => return output,
                     // Closing of another element: HTML allows it, we ignore it.
                     _ => continue,
@@ -306,7 +306,7 @@ impl<'a> Parser<'a> {
             if self.look(0) == b'<' && (self.look(1).is_ascii_alphabetic() || self.look(1) == b'!')
             {
                 if self.look(1) == b'!' {
-                    // `<!DOCTYPE …>` e afins: fora do template do Angular.
+                    // `<!DOCTYPE …>` and the like: outside the Angular template.
                     self.skip_until(b'>');
                     continue;
                 }
@@ -839,7 +839,7 @@ fn collapses_wrapped(children: &[Node], last: bool) -> bool {
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
 
     /// A stray `<` in the text does not hang the parser and is a shape error
     /// (ngast reads it as `openTagStart`); inside `{{ }}` it is the operator.
