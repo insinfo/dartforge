@@ -34,7 +34,7 @@
 
 use super::walk::{walk, Node};
 use super::codigos_g as c;
-use super::scope::{Escopos, Especie};
+use super::scope::{EntryKind, Scopes};
 use super::rules::LintReport;
 use super::CodigoLint;
 use crate::Unidade;
@@ -969,7 +969,7 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                 }
             }
         }
-        let escopos = Escopos::de(a);
+        let escopos = Scopes::new(a);
         // As escritas (o `writeElement`).
         let mut escritos: HashSet<ExprId> = HashSet::new();
         for e in a.exprs.iter() {
@@ -1008,12 +1008,12 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             if elemento.is_none() || matches!(elemento, Some(Resolved::Dynamic)) {
                 continue;
             }
-            let achadas = escopos.procurar(name.sym, e.span.start);
+            let achadas = escopos.lookup(name.sym, e.span.start);
             let mut pedido = Vec::new();
             let mut outro = Vec::new();
             for r in achadas.iter() {
-                let casa = match r.especie {
-                    Especie::Membro { setter: st, .. } => st == setter,
+                let casa = match r.kind {
+                    EntryKind::Member { setter: st, .. } => st == setter,
                     _ => !setter,
                 };
                 if casa {
@@ -1031,13 +1031,13 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     Some(_) => false,
                 }
             } else if let Some(r) = pedido.first() {
-                match r.especie {
-                    Especie::Membro { classe, .. } => dono_do_elemento == Some((s.unit.0, classe)),
+                match r.kind {
+                    EntryKind::Member { owner, .. } => dono_do_elemento == Some((s.unit.0, owner)),
                     _ => false,
                 }
             } else if let Some(r) = outro.first() {
-                match r.especie {
-                    Especie::Membro { classe, .. } => matches!(a.decl(classe).kind, DeclKind::Class(_)),
+                match r.kind {
+                    EntryKind::Member { owner, .. } => matches!(a.decl(owner).kind, DeclKind::Class(_)),
                     _ => false,
                 }
             } else {

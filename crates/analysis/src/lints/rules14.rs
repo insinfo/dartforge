@@ -923,13 +923,13 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
 
     // `avoid_types_as_parameter_names`.
     if ligada("avoid_types_as_parameter_names") {
-        let escopos = super::scope::Escopos::de(a);
+        let escopos = super::scope::Scopes::new(a);
         let e_tipo = |nome: SymbolId, pos: usize| -> bool {
-            let achadas = escopos.procurar(nome, pos);
+            let achadas = escopos.lookup(nome, pos);
             if !achadas.is_empty() {
                 // O getter do escopo: um parâmetro de tipo é tipo; o resto
                 // (local, membro, ou só setter) não.
-                return achadas.iter().any(|r| r.especie == super::scope::Especie::ParametroDeTipo);
+                return achadas.iter().any(|r| r.kind == super::scope::EntryKind::TypeParameter);
             }
             let Some(b) = program.lookup_na_unidade(s.unit, nome) else { return false };
             if b.ambiguous {
