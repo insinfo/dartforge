@@ -1,8 +1,8 @@
-//! Heap preciso com tracing iterativo, raízes explícitas e contadores observáveis.
-//! Células, ambientes, closures e listas são infraestrutura: ainda não implicam
-//! lowering Dart para LLVM. O contrato detalhado está em CONTRACT.md nesta crate.
+//! Precise heap with iterative tracing, explicit roots and observable counters.
+//! Cells, environments, closures and lists are infrastructure: they do not yet imply
+//! Dart lowering to LLVM. The detailed contract is in CONTRACT.md in this crate.
 
-/// Contadores cumulativos de trabalho; não representam bytes físicos do alocador.
+/// Cumulative work counters; they do not represent physical allocator bytes.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HeapStats {
     pub allocations: u64,
@@ -12,89 +12,89 @@ pub struct HeapStats {
     pub slots_scanned: u64,
     pub live_objects: usize,
     pub reserved_slots: usize,
-    /// Valores enum canônicos mantidos vivos até encerrar o runtime.
+    /// Canonical enum values kept alive until the runtime shuts down.
     pub permanent_roots: usize,
     pub live_roots: usize,
     pub peak_roots: usize,
     pub root_slots: usize,
     pub peak_root_slots: usize,
-    /// Cabeçalhos vivos e capacidades dos payloads, sem metadados auxiliares/RSS.
+    /// Live headers and payload capacities, without auxiliary metadata/RSS.
     pub estimated_bytes: usize,
     pub peak_estimated_bytes: usize,
-    /// `int` em posição `Ref` que viraram `Smi` (R10) em vez de caixa: sem o
-    /// `Smi`, cada um seria uma alocação. `allocations + boxes_avoided` é a
-    /// contagem de antes do R10, exata.
+    /// `int`s in a `Ref` position that became a `Smi` (R10) instead of a box: without the
+    /// `Smi`, each would be an allocation. `allocations + boxes_avoided` is the
+    /// count from before R10, exactly.
     pub boxes_avoided: u64,
 }
 
-// `Texto`, `StringMut`, `UnitsIter` e `push_point` moram em `textos.rs` (P1,
+// `Texto`, `StringMut`, `UnitsIter` and `push_point` live in `textos.rs` (P1,
 // docs/NATIVO-ESPACO-UNIFICADO.md §4.3).
 pub use crate::textos::{UnitsIter, Texto, StringMut, push_point};
 
-/// Um campo de objeto: os bits e se são referência (o que o coletor segue).
+/// An object field: the bits and whether they are a reference (what the collector follows).
 pub type Field = (i64, bool);
 
-// O contrato de layout (docs/NATIVO-ESPACO-UNIFICADO.md §3.1) mora em
-// `crate::layout`; o `heap` o reexporta para quem já o usava por aqui.
+// The layout contract (docs/NATIVO-ESPACO-UNIFICADO.md §3.1) lives in
+// `crate::layout`; `heap` re-exports it for those who already used it from here.
 pub use crate::layout::{
     PAGE_HEAD, CAMPOS_EM_LINHA, Header, DESLOCAMENTO_DO_HANDLE, LARGEST_CLASS, PAGINA, Ref, TLAB_N,
     capacidade, is_object, palavras_do_mapa, smi,
 };
 
-// O cabeçalho ([`Header`], `crate::layout`) de um objeto do usuário no
-// espaço de objetos ([`ObjectSpace`]) é seguido dos campos (8 bytes cada,
-// os bits) e, com mais de 32 campos, das palavras que estendem o mapa de
-// referências. Layout C fixo: contrato com o emissor (`llvm/mod.rs`).
+// The header ([`Header`], `crate::layout`) of a user object in the
+// object space ([`ObjectSpace`]) is followed by the fields (8 bytes each,
+// the bits) and, with more than 32 fields, by the words that extend the reference
+// map. Fixed C layout: a contract with the emitter (`llvm/mod.rs`).
 //
-// O handle do objeto é o endereço do cabeçalho com o bit 1 ligado (`bloco +
-// 2`, [`DESLOCAMENTO_DO_HANDLE`]); os blocks são alinhados a 8 e o `Smi` é
-// ímpar (R10), então `h & 7 == 2` ([`is_object`]) distingue o objeto sem
-// consulta.
+// The object handle is the header address with bit 1 set (`block +
+// 2`, [`DESLOCAMENTO_DO_HANDLE`]); blocks are 8-aligned and the `Smi` is
+// odd (R10), so `h & 7 == 2` ([`is_object`]) identifies the object without a
+// lookup.
 //
-// Como na VM, o campo não carrega a marca de referência: o **mapa** (`map`,
-// um bit por campo, e as palavras de extensão) diz quais campos o coletor
-// segue — a VM tira isso da classe (o *unboxed fields bitmap*); aqui cada
-// gravação acende ou apaga o bit do campo, então um campo que a representação
-// faz às vezes `Ref` e às vezes escalar continua preciso.
+// As in the VM, the field does not carry the reference mark: the **map** (`map`,
+// one bit per field, and the extension words) says which fields the collector
+// follows — the VM takes that from the class (the *unboxed fields bitmap*); here each
+// write sets or clears the field's bit, so a field that the representation
+// sometimes makes `Ref` and sometimes scalar stays precise.
 //
-// Um objeto cujos campos mudaram de número depois de criado (o erro que ganha
-// o rastro, a recarga do JIT que muda o layout da classe, J03) não pode mudar
-// de endereço: os campos vão para um **corpo de fora** (bit [`FORA`] em
-// `flags`), com o mesmo layout (cabeçalho + campos + extensão), cujo endereço
-// fica no lugar do primeiro campo. O código gerado lê o corpo de fora com uma
-// seleção sem desvio (`llvm/mod.rs`).
+// An object whose number of fields changed after creation (the error that gains
+// the stack trace, the JIT reload that changes the class layout, J03) cannot change
+// address: the fields go to an **out-of-line body** (bit [`FORA`] in
+// `flags`), with the same layout (header + fields + extension), whose address
+// sits in place of the first field. Generated code reads the out-of-line body with a
+// branchless select (`llvm/mod.rs`).
 
-/// Estados de um bloco ([`Header::estado`]; `crate::layout::estado`). O
-/// coletor é geracional sem mover objetos (marcas "pegajosas"): um objeto nasce
-/// [`JOVEM`] (a alocação em linha grava 1), e o que sobrevive a uma coleta vira
-/// [`VELHO`]. A coleta menor só marca e varre os jovens; os velhos contam como
-/// vivos, e as referências de velho para jovem são achadas pelos [`REMEMBERED`]s
-/// — a barreira de escrita (`Heap::get_mut` e as gravações de campo do
-/// runtime, e a do código gerado depois de gravar um `Ref` num campo,
-/// `llvm/mod.rs`) marca o velho que recebe uma referência, como o *store
-/// buffer* da VM. [`PERMANENTE`] é o objeto estático, fora do heap.
+/// States of a block ([`Header::estado`]; `crate::layout::estado`). The
+/// collector is generational without moving objects ("sticky" marks): an object is born
+/// [`JOVEM`] (inline allocation writes 1), and one that survives a collection becomes
+/// [`VELHO`]. The minor collection only marks and sweeps the young; old ones count as
+/// live, and old-to-young references are found through the [`REMEMBERED`] ones
+/// — the write barrier (`Heap::get_mut` and the runtime's field writes,
+/// and the generated code's one after writing a `Ref` into a field,
+/// `llvm/mod.rs`) marks the old object that receives a reference, like the VM's *store
+/// buffer*. [`PERMANENTE`] is the static object, outside the heap.
 pub const LIVRE: u8 = crate::layout::estado::LIVRE;
 pub const JOVEM: u8 = crate::layout::estado::JOVEM;
 pub const MARKED: u8 = 2;
 pub const VELHO: u8 = crate::layout::estado::VELHO;
 pub const REMEMBERED: u8 = crate::layout::estado::REMEMBERED;
 pub const PERMANENTE: u8 = crate::layout::estado::PERMANENTE;
-/// Bit de [`Header::flags`]: os campos moram num corpo de fora.
+/// Bit of [`Header::flags`]: the fields live in an out-of-line body.
 pub const FORA: u8 = crate::layout::flags::FORA;
 
-// [`PAGINA`] é o tamanho da página do espaço de objetos (e o alinhamento dela:
-// a página de um handle é `h & !(PAGINA - 1)`). [`PAGE_HEAD`] são os
-// bytes do começo de cada página com o mapa de marcas: um bit por palavra de 8
-// bytes da página (o bit do bloco é o da palavra onde ele começa). A marcação
-// acende o bit do objeto alcançado; as varreduras leem só os bits, sem tocar os
-// blocos, vivos ou mortos (a VM também marca fora do objeto no *old space*,
-// `marking.cc`, pelo bit no cabeçalho; aqui o mapa fica junto, por página,
-// como o do Immix).
+// [`PAGINA`] is the page size of the object space (and its alignment:
+// the page of a handle is `h & !(PAGINA - 1)`). [`PAGE_HEAD`] are the
+// bytes at the start of each page with the mark bitmap: one bit per 8-byte word
+// of the page (a block's bit is that of the word where it starts). Marking
+// sets the bit of the reached object; sweeps read only the bits, without touching the
+// blocks, live or dead (the VM also marks outside the object in the *old space*,
+// `marking.cc`, through the header bit; here the bitmap sits alongside, per page,
+// like Immix's).
 
-// O espaço de objetos (páginas, classes de tamanho, regiões grandes, mapa de
-// marcas, cartões, anexos) mora em `crate::space`. [`LARGEST_CLASS`] e
-// [`TLAB_N`] contam palavras do corpo (docs/NATIVO-ESPACO-UNIFICADO.md §2.6): a
-// TLAB de `w` palavras é `Context::tlab[w]`, `w` em `1..=TLAB_N`.
+// The object space (pages, size classes, large regions, mark
+// bitmap, cards, attachments) lives in `crate::space`. [`LARGEST_CLASS`] and
+// [`TLAB_N`] count body words (docs/NATIVO-ESPACO-UNIFICADO.md §2.6): the
+// TLAB of `w` words is `Context::tlab[w]`, `w` in `1..=TLAB_N`.
 pub use crate::space::{ObjectSpace, block_size};
 use crate::space::{
     TLAB_BLOCKS, allocation_bytes, fields_of, body, is_reference, shape, marked, mark_block, mark_reference,
@@ -102,35 +102,35 @@ use crate::space::{
 };
 use crate::layout::{bytes_do_bloco, flags as flags_do_bloco};
 
-/// A coleta menor vem a cada `YOUNG_LIMIT` bytes alocados (o tamanho do
-/// *new space*; o semiespaço da VM começa menor e cresce até 8 MiB em 64
-/// bits — aqui fixo, entre o custo por coleta e o pico de memória; 2 MiB
-/// cabem melhor no cache que 4: medido em `objetos_escapam`, menos tempo e
-/// menos memória)…
+/// The minor collection comes every `YOUNG_LIMIT` allocated bytes (the size of the
+/// *new space*; the VM's semispace starts smaller and grows up to 8 MiB on 64
+/// bits — fixed here, between the cost per collection and the memory peak; 2 MiB
+/// fit the cache better than 4: measured in `objetos_escapam`, less time and
+/// less memory)…
 const YOUNG_LIMIT: usize = 2 * 1024 * 1024;
-/// Quanto o heap cresce até a próxima coleta completa, em % do que
-/// sobreviveu à última: 150 (o dobro, 200, custava ~15 MB a mais de pico em
-/// `objetos_escapam` sem ganho de tempo, já que a varredura só lê o mapa
-/// de marcas).
+/// How much the heap grows until the next full collection, in % of what
+/// survived the last one: 150 (double, 200, cost ~15 MB more peak in
+/// `objetos_escapam` with no time gain, since the sweep only reads the mark
+/// bitmap).
 const GROWTH: usize = 150;
-/// … ou a cada `YOUNG_COUNT` alocações (valores pequenos do runtime).
+/// … or every `YOUNG_COUNT` allocations (small runtime values).
 const YOUNG_COUNT: usize = 256 * 1024;
-/// No `--gc-stress`, uma coleta completa a cada tantas (as demais, menores:
-/// é nelas que uma barreira faltando apareceria) …
+/// Under `--gc-stress`, one full collection every so many (the others minor:
+/// that is where a missing barrier would show up) …
 const MINORS_PER_FULL_UNDER_STRESS: u64 = 8;
-/// … ou, com muito dado vivo, a cada `trabalho / TRABALHO_POR_MENOR_NO_ESTRESSE`
-/// (o trabalho de marcação da última completa: objetos e palavras de
-/// referência visitados): a completa custa o heap vivo inteiro, e uma a cada 8
-/// alocações tornava o estresse quadrático (o programa 99, ~1 s sem estresse,
-/// passava de 6 min; uma lista viva de 40 mil elementos custava 100 µs por
-/// alocação). Assim o custo das completas por alocação fica em ~64 palavras
-/// visitadas; a menor continua antes de toda alocação.
+/// … or, with a lot of live data, every `work / TRABALHO_POR_MENOR_NO_ESTRESSE`
+/// (the marking work of the last full one: objects and reference words
+/// visited): a full one costs the whole live heap, and one every 8
+/// allocations made stress quadratic (program 99, ~1 s without stress,
+/// went over 6 min; a live list of 40 thousand elements cost 100 µs per
+/// allocation). This way the cost of full collections per allocation stays at ~64 words
+/// visited; the minor one still comes before every allocation.
 const WORK_PER_MINOR_UNDER_STRESS: usize = 64;
 
-/// O objeto de ninguém: cabeçalho zerado e campos zerados. A leitura em
-/// linha de um campo de algo que não é objeto do espaço lê daqui (o que
-/// `dartforge_object_get` devolvia); nunca é gravado — está em memória só
-/// de leitura, e gravar nela é erro do compilador que termina o processo.
+/// Nobody's object: zeroed header and zeroed fields. The inline read
+/// of a field of something that is not an object of the space reads from here (what
+/// `dartforge_object_get` returned); it is never written — it is in read-only
+/// memory, and writing to it is a compiler bug that ends the process.
 #[repr(C)]
 pub struct EmptyObject {
     pub header: Header,
@@ -141,49 +141,49 @@ pub static EMPTY_OBJECT: EmptyObject = EmptyObject {
     fields: [0; CAMPOS_EM_LINHA],
 };
 
-/// A vista de um objeto do espaço para o runtime ([`Heap::object`]): a
-/// classe e os campos, `(bits, é referência)`.
+/// The runtime's view of an object of the space ([`Heap::object`]): the
+/// class and the fields, `(bits, is reference)`.
 #[derive(Clone, Copy)]
 pub struct Obj<'a> {
     body: *const Header,
-    /// A classe do objeto.
+    /// The object's class.
     pub class_id: i64,
     _heap: std::marker::PhantomData<&'a Heap>,
 }
 
 #[allow(unsafe_code)]
 impl Obj<'_> {
-    /// Quantos campos.
+    /// How many fields.
     pub fn len(&self) -> usize {
-        // SAFETY: corpo vivo enquanto o empréstimo do heap dura.
+        // SAFETY: body alive while the heap borrow lasts.
         usize::from(unsafe { (*self.body).n })
     }
-    /// Sem campos?
+    /// No fields?
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-    /// O campo `i`: os bits e se é referência.
+    /// Field `i`: the bits and whether it is a reference.
     ///
     /// # Panics
-    /// Com `i` fora do objeto.
+    /// With `i` outside the object.
     pub fn field(&self, i: usize) -> Field {
-        assert!(i < self.len(), "campo {i} fora do objeto de {} campos", self.len());
-        // SAFETY: `i < n`; corpo vivo.
+        assert!(i < self.len(), "field {i} outside the object of {} fields", self.len());
+        // SAFETY: `i < n`; live body.
         unsafe { (*fields_of(self.body.cast_mut()).add(i), is_reference(self.body, i)) }
     }
-    /// O campo `i`, se existe.
+    /// Field `i`, if it exists.
     pub fn get(&self, i: usize) -> Option<Field> {
         (i < self.len()).then(|| self.field(i))
     }
-    /// O primeiro campo, se existe.
+    /// The first field, if it exists.
     pub fn first(&self) -> Option<Field> {
         self.get(0)
     }
-    /// Os campos, em ordem.
+    /// The fields, in order.
     pub fn iter(&self) -> impl Iterator<Item = Field> + '_ {
         (0..self.len()).map(|i| self.field(i))
     }
-    /// Os campos copiados.
+    /// The copied fields.
     pub fn to_vec(&self) -> Vec<Field> {
         self.iter().collect()
     }
@@ -195,13 +195,13 @@ impl std::fmt::Debug for Obj<'_> {
     }
 }
 
-/// O handle `h` foi marcado pela coleta em curso (vivo)? Null, `Smi` e
-/// escalar qualquer: não.
+/// Was handle `h` marked by the collection in progress (live)? Null, `Smi` and
+/// any scalar: no.
 ///
-/// Na coleta menor, o velho conta como vivo.
+/// In the minor collection, an old object counts as live.
 fn marked_in_collection(objects: &ObjectSpace, minor: bool, h: i64) -> bool {
     if is_object(h) {
-        // SAFETY: bloco de uma página do espaço.
+        // SAFETY: block of a page of the space.
         #[allow(unsafe_code)]
         return match objects.block_of(h) {
             Some(b) => unsafe {
@@ -212,24 +212,24 @@ fn marked_in_collection(objects: &ObjectSpace, minor: bool, h: i64) -> bool {
                     marked(b)
                 }
             },
-            // O estático (seção da imagem) nunca morre.
+            // A static (image section) never dies.
             None => is_static(h),
         };
     }
     false
 }
 
-// `is_object` e o módulo `smi` (a etiqueta do `Ref`, R10) moram em
-// `crate::layout` e são reexportados no começo deste módulo.
+// `is_object` and the `smi` module (the `Ref` tag, R10) live in
+// `crate::layout` and are re-exported at the start of this module.
 
-/// Um finalizador nativo e o dado dele (`Dart_NewFinalizableHandle`).
+/// A native finalizer and its data (`Dart_NewFinalizableHandle`).
 pub type Finalizer = (fn(usize), usize);
 
-/// O quadro de raízes de uma função gerada (G1), no stack dela: o
-/// anterior, o número de slots e os slots, que o código gerado grava com um
-/// `store` comum (a pilha-sombra do LLVM, `ShadowStackGC`). O runtime só
-/// encadeia e desencadeia o quadro ([`stack_frame`]) e o percorre na
-/// coleta; os quadros do próprio runtime continuam em `Heap::frames`.
+/// The root frame of a generated function (G1), on its stack: the
+/// previous one, the number of slots and the slots, which the generated code writes with a
+/// plain `store` (LLVM's shadow stack, `ShadowStackGC`). The runtime only
+/// links and unlinks the frame ([`stack_frame`]) and walks it during
+/// collection; the runtime's own frames remain in `Heap::frames`.
 #[repr(C)]
 pub struct RootFrame {
     previous: *const RootFrame,
@@ -237,76 +237,76 @@ pub struct RootFrame {
     slots: [i64; 0],
 }
 
-/// O contexto da thread que o código gerado lê e grava direto, sem
-/// chamada (`llvm/mod.rs`): a exceção pendente (espelho de
-/// `excecoes::EXCEPTION`, conferido depois de cada chamada) e o topo da
-/// pilha-sombra desta thread (do isolado dela). O endereço vem de
-/// `dartforge_contexto`, uma vez por ativação; não muda enquanto a
-/// thread vive. Os deslocamentos são contrato com o emissor.
+/// The thread context that the generated code reads and writes directly, without
+/// a call (`llvm/mod.rs`): the pending exception (mirror of
+/// `exceptions::EXCEPTION`, checked after each call) and the top of
+/// this thread's shadow stack (of its isolate). The address comes from
+/// `dartforge_contexto`, once per activation; it does not change while the
+/// thread lives. The offsets are a contract with the emitter.
 #[repr(C)]
 pub struct Context {
-    /// 1 com exceção pendente (deslocamento 0).
+    /// 1 with a pending exception (offset 0).
     pub pending: std::cell::Cell<u8>,
-    /// O quadro do topo da pilha-sombra (deslocamento 8).
+    /// The top frame of the shadow stack (offset 8).
     pub top: std::cell::Cell<*const RootFrame>,
-    /// A área de globais de cada módulo neste isolado, pelo id do módulo
-    /// (`@df.area_id`; 0 = sem id): o caminho rápido do prólogo das
-    /// funções (`@df.obter_area`). Endereço dos elementos (deslocamento 16)
-    /// e comprimento (24); uma entrada nula vai ao runtime.
+    /// The globals area of each module in this isolate, by module id
+    /// (`@df.area_id`; 0 = no id): the fast path of the function
+    /// prologue (`@df.obter_area`). Address of the elements (offset 16)
+    /// and length (24); a null entry goes to the runtime.
     pub areas: std::cell::Cell<*const *mut i64>,
     pub n_areas: std::cell::Cell<usize>,
-    /// O pedido de interrupção do isolado (deslocamento 32): a porta de
-    /// controle o liga, de outra thread, quando chega uma mensagem de controle
-    /// (`portas.rs`). O código gerado o lê, atômico, no começo de cada volta
-    /// de laço (o ponto seguro da J01).
+    /// The isolate's interrupt request (offset 32): the control port
+    /// sets it, from another thread, when a control message arrives
+    /// (`ports.rs`). The generated code reads it, atomically, at the start of each loop
+    /// iteration (the J01 safepoint).
     pub interrupt: std::sync::atomic::AtomicU8,
-    /// O cabeçalho de [`EMPTY_OBJECT`] (deslocamento 40): a leitura em
-    /// linha de um campo de algo que não é objeto do espaço usa este objeto
-    /// no lugar do cabeçalho em `h - 2` (`llvm/mod.rs`), e lê zeros, como
-    /// `dartforge_object_get` dava.
+    /// The header of [`EMPTY_OBJECT`] (offset 40): the inline read
+    /// of a field of something that is not an object of the space uses this object
+    /// instead of the header at `h - 2` (`llvm/mod.rs`), and reads zeros, as
+    /// `dartforge_object_get` did.
     pub empties: *const Header,
-    /// As classes com tabela de métodos registrada (deslocamento 48; um
-    /// byte 0/1 por id, `seletores.rs`) e quantas (56): a alocação em linha
-    /// de uma classe que registra a tabela na primeira alocação
-    /// (`dartforge_object_new_t`) só pula o runtime depois do registro.
+    /// The classes with a registered method table (offset 48; one
+    /// 0/1 byte per id, `selectors.rs`) and how many (56): the inline allocation
+    /// of a class that registers the table on the first allocation
+    /// (`dartforge_object_new_t`) only skips the runtime after registration.
     pub registered: std::cell::Cell<*const u8>,
     pub n_registered: std::cell::Cell<usize>,
-    /// A TLAB do isolado (deslocamento 64): para cada número de campos
-    /// `n ≤ TLAB_N`, uma faixa `[cursor, end)` de blocos livres contíguos do
-    /// espaço de objetos já contados como alocação
-    /// (`Heap::refill_tlab`): o cursor em `64 + 16n`, o fim em
-    /// `72 + 16n`. O código gerado aloca avançando o cursor um bloco (o
-    /// *bump pointer* da VM, `llvm/mod.rs`); faixa esgotada vai ao runtime,
-    /// que reabastece.
+    /// The isolate's TLAB (offset 64): for each number of fields
+    /// `n ≤ TLAB_N`, a range `[cursor, end)` of contiguous free blocks of the
+    /// object space already counted as allocation
+    /// (`Heap::refill_tlab`): the cursor at `64 + 16n`, the end at
+    /// `72 + 16n`. The generated code allocates by advancing the cursor one block (the
+    /// VM's *bump pointer*, `llvm/mod.rs`); an exhausted range goes to the runtime,
+    /// which refills it.
     pub tlab: [[std::cell::Cell<*mut u8>; 2]; TLAB_N + 1],
-    /// Os mapas de bits de subtipo (`seletores.rs`, fragmento `nucleo.rs`): para
-    /// cada classe alvo `C` (índice; deslocamento 336), o endereço do mapa
-    /// em que o bit `cid` diz se `cid <: C` (nulo = ainda não calculado), e
-    /// quantos alvos (344); a largura de todos os mapas em bits (352): um
-    /// `cid` fora dela vai ao runtime (`dartforge_is_subclass`, que também
-    /// monta o mapa na primeira consulta). Um registro de subclasse novo
-    /// (a carga, uma recarga) zera os mapas.
+    /// The subtype bitmaps (`selectors.rs`, fragment `core.rs`): for
+    /// each target class `C` (index; offset 336), the address of the bitmap
+    /// in which bit `cid` says whether `cid <: C` (null = not computed yet), and
+    /// how many targets (344); the width of all bitmaps in bits (352): a
+    /// `cid` outside it goes to the runtime (`dartforge_is_subclass`, which also
+    /// builds the bitmap on the first lookup). A new subclass registration
+    /// (loading, a reload) clears the bitmaps.
     pub subtypes: std::cell::Cell<*const *const u64>,
     pub n_subtypes: std::cell::Cell<usize>,
     pub subtype_width: std::cell::Cell<usize>,
-    /// Os handles (endereço + 2) das caixas estáticas de `true` (deslocamento
-    /// 360) e `false` (368) deste runtime: `@df.box_bool` e
-    /// `@df.desencaixa_bool` os leem daqui, sem referenciar os dados
-    /// `dartforge_verdadeiro`/`_falso` de outra imagem (o executável e a DLL do
-    /// SDK têm cada um a sua cópia; só a do runtime ativo é a canônica).
+    /// The handles (address + 2) of the static `true` (offset
+    /// 360) and `false` (368) boxes of this runtime: `@df.box_bool` and
+    /// `@df.desencaixa_bool` read them from here, without referencing the
+    /// `dartforge_verdadeiro`/`_falso` data of another image (the executable and the SDK
+    /// DLL each have their own copy; only the active runtime's is canonical).
     pub true_value: *const u8,
     pub false_value: *const u8,
-    /// O limite da pilha nativa da thread (deslocamento 376): o prólogo de
-    /// cada função que chama outra compara o endereço do seu quadro com ele
-    /// e, abaixo, lança `StackOverflowError` em vez de estourar a pilha do
-    /// sistema (o `stack_overflow_check` da VM). 0 = ainda não calculado
-    /// (fragmento `gc_raizes.rs`, `dartforge_contexto`); 1 = sem limite conhecido.
+    /// The thread's native stack limit (offset 376): the prologue of
+    /// each function that calls another compares the address of its frame with it
+    /// and, below it, throws `StackOverflowError` instead of overflowing the system
+    /// stack (the VM's `stack_overflow_check`). 0 = not computed yet
+    /// (fragment `gc_roots.rs`, `dartforge_contexto`); 1 = no known limit.
     pub stack_limit: std::cell::Cell<usize>,
 }
 
-/// O `is C` lido em linha pelo código gerado ([`Context::subtypes`]). Para
-/// medir, `DARTFORGE_SEM_CLASSE_EM_LINHA=1` não publica os mapas: o código
-/// gerado vai sempre ao runtime (a resposta é a mesma).
+/// The `is C` read inline by the generated code ([`Context::subtypes`]). To
+/// measure, `DARTFORGE_SEM_CLASSE_EM_LINHA=1` does not publish the bitmaps: the generated
+/// code always goes to the runtime (the answer is the same).
 pub fn inline_class() -> bool {
     static SIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *SIM.get_or_init(|| std::env::var_os("DARTFORGE_SEM_CLASSE_EM_LINHA").is_none())
@@ -354,65 +354,65 @@ thread_local! {
 }
 
 
-/// Encadeia `q` no topo da pilha-sombra. `q.n` e os slots (zerados) já
-/// foram escritos pelo código gerado.
+/// Links `q` at the top of the shadow stack. `q.n` and the (zeroed) slots were
+/// already written by the generated code.
 ///
 /// # Safety
-/// `q` aponta um quadro válido que vive até o [`unstack_frame`]
-/// correspondente.
+/// `q` points to a valid frame that lives until the matching
+/// [`unstack_frame`].
 #[allow(unsafe_code)]
 pub unsafe fn stack_frame(q: *mut RootFrame) {
     CONTEXTO.with(|c| {
-        // SAFETY: `q` é o quadro no stack da função que chama, vivo até o
-        // `unstack_frame` antes de cada retorno dela.
+        // SAFETY: `q` is the frame on the stack of the calling function, alive until the
+        // `unstack_frame` before each of its returns.
         unsafe { (*q).previous = c.top.get() };
         c.top.set(q);
     });
 }
 
-/// Desencadeia `q`, que tem de ser o topo (os retornos fecham os quadros
-/// em ordem, G3).
+/// Unlinks `q`, which must be the top (returns close the frames
+/// in order, G3).
 ///
 /// # Safety
-/// `q` é o quadro válido passado ao último [`stack_frame`].
+/// `q` is the valid frame passed to the last [`stack_frame`].
 #[allow(unsafe_code)]
 pub unsafe fn unstack_frame(q: *const RootFrame) {
     CONTEXTO.with(|c| {
-        assert!(std::ptr::eq(c.top.get(), q), "bug do compilador: quadro de raízes fechado fora de ordem");
-        // SAFETY: `q` é o topo, ainda no stack de quem chama.
+        assert!(std::ptr::eq(c.top.get(), q), "compiler bug: root frame closed out of order");
+        // SAFETY: `q` is the top, still on the caller's stack.
         c.top.set(unsafe { (*q).previous });
     });
 }
 
-/// O campo `n` de um quadro de raízes: o número de slots nos 40 bits de
-/// baixo; nos de cima, quantos dos últimos são de conferência (o build de
-/// conferência do percurso por mapas, `llvm/mod.rs`).
+/// The `n` field of a root frame: the number of slots in the low 40
+/// bits; in the high ones, how many of the last are check slots (the check
+/// build of the map-based walk, `llvm/mod.rs`).
 const FRAME_SLOTS: u64 = (1 << 40) - 1;
 
-/// O bit 62 do campo `n`: o quadro está num quadro nativo próprio (o
-/// programa sem otimização, sem inlining; `com_quadros_ordenados` do
-/// emissor). Só entre dois quadros assim a ordem dos endereços é garantida.
+/// Bit 62 of the `n` field: the frame is in its own native frame (the
+/// unoptimized program, without inlining; the emitter's `com_quadros_ordenados`).
+/// Only between two such frames is the address order guaranteed.
 const FRAME_ORDERED: u64 = 1 << 62;
 
-/// Visita as raízes de todos os quadros da pilha-sombra desta thread.
+/// Visits the roots of all frames of this thread's shadow stack.
 ///
-/// Os quadros são `alloca` do código gerado na pilha nativa da thread, que
-/// cresce para baixo: cada quadro anterior está num endereço maior. Um
-/// anterior abaixo do atual é um quadro morto, de uma função que já saiu —
-/// o topo que um desenrolamento deixou de restaurar (o pouso de
-/// `--excecoes=tabelas` sem o `store` do topo, a sabotagem `pouso_sem_topo`
-/// do §14.7) e que um quadro novo encadeou. Ler os slots dele seria ler
-/// lixo; o processo encerra com o código 3. A conferência só vale entre dois
-/// quadros com [`FRAME_ORDERED`]: com inlining (o código otimizado, o SDK),
-/// o quadro da função embutida e o da que a chamou são `alloca` do mesmo
-/// quadro nativo, em ordem de endereço qualquer.
+/// The frames are `alloca`s of the generated code on the thread's native stack, which
+/// grows downwards: each previous frame is at a higher address. A
+/// previous frame below the current one is a dead frame, of a function that already returned —
+/// the top an unwind failed to restore (the landing pad of
+/// `--excecoes=tabelas` without the top `store`, the sabotage `pouso_sem_topo`
+/// of §14.7) and that a new frame linked. Reading its slots would be reading
+/// garbage; the process exits with code 3. The check only holds between two
+/// frames with [`FRAME_ORDERED`]: with inlining (optimized code, the SDK),
+/// the frame of the inlined function and that of its caller are `alloca`s of the same
+/// native frame, in arbitrary address order.
 #[allow(unsafe_code)]
 fn visit_frames(mut f: impl FnMut(i64)) {
     let mut q = CONTEXTO.with(|c| c.top.get());
     while !q.is_null() {
-        // SAFETY: cada quadro encadeado está no stack de uma função ainda
-        // ativa desta thread, com `n` slots depois do cabeçalho (a ordem dos
-        // endereços, conferida abaixo antes de seguir, o garante).
+        // SAFETY: each linked frame is on the stack of a still active function
+        // of this thread, with `n` slots after the header (the address order,
+        // checked below before following, guarantees it).
         unsafe {
             let n = ((*q).n as u64 & FRAME_SLOTS) as usize;
             let slots = std::ptr::addr_of!((*q).slots) as *const i64;
@@ -425,7 +425,7 @@ fn visit_frames(mut f: impl FnMut(i64)) {
                 && (*q).n as u64 & FRAME_ORDERED != 0
                 && (*previous).n as u64 & FRAME_ORDERED != 0
             {
-                eprintln!("dartforge: quadro de raízes morto na pilha-sombra");
+                eprintln!("dartforge: dead root frame on the shadow stack");
                 std::process::exit(3);
             }
             q = previous;
@@ -434,20 +434,20 @@ fn visit_frames(mut f: impl FnMut(i64)) {
 }
 
 // ---------------------------------------------------------------------------
-// Raízes por mapas de pilha (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8).
+// Roots through stack maps (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8).
 //
-// Com `--raizes=mapas` os valores vivos através de uma chamada não vão para a
-// pilha-sombra: o LLVM (`rewrite-statepoints-for-gc`) os deixa num registrador
-// preservado ou num slot do quadro nativo e descreve, para cada chamada, onde
-// estão — a seção `.llvm_stackmaps` do objeto (`.llvm_st` na imagem). Na
-// coleta o runtime percorre a pilha nativa da thread e, para cada quadro cujo
-// endereço de retorno tem registro, lê os slots e os registradores (o valor
-// que o desenrolador restaurou para aquele quadro). Os quadros sem registro
-// (o runtime, C, o sistema, as funções que só têm pilha-sombra) são
-// atravessados; a pilha-sombra continua sendo visitada como sempre.
+// With `--raizes=mapas` the values live across a call do not go to the
+// shadow stack: LLVM (`rewrite-statepoints-for-gc`) leaves them in a callee-saved register
+// or in a slot of the native frame and describes, for each call, where
+// they are — the object's `.llvm_stackmaps` section (`.llvm_st` in the image). During
+// collection the runtime walks the thread's native stack and, for each frame whose
+// return address has a record, reads the slots and the registers (the value
+// the unwinder restored for that frame). Frames without a record
+// (the runtime, C, the system, functions that only have a shadow stack) are
+// skipped; the shadow stack is still visited as always.
 
-/// O registrador DWARF do SP e o do FP do alvo, como o `.llvm_stackmaps`
-/// os escreve (x86-64: RSP 7, RBP 6; aarch64: SP 31, x29 29).
+/// The DWARF register of the target's SP and FP, as `.llvm_stackmaps`
+/// writes them (x86-64: RSP 7, RBP 6; aarch64: SP 31, x29 29).
 #[cfg(target_arch = "aarch64")]
 const DWARF_SP: u16 = 31;
 #[cfg(target_arch = "aarch64")]
@@ -457,9 +457,9 @@ const DWARF_SP: u16 = 7;
 #[cfg(not(target_arch = "aarch64"))]
 const DWARF_FP: u16 = 6;
 
-/// Os registradores DWARF preservados através de uma chamada, pela
-/// convenção do alvo (um `Register` do mapa fora deles é defeito: o valor
-/// não sobreviveria à chamada). Windows x64: rbx, rsi, rdi, rbp, r12–r15;
+/// The DWARF registers preserved across a call, by the target's
+/// convention (a map `Register` outside them is a defect: the value
+/// would not survive the call). Windows x64: rbx, rsi, rdi, rbp, r12–r15;
 /// SysV x86-64: rbx, rbp, r12–r15; aarch64: x19–x29.
 #[cfg(target_arch = "aarch64")]
 const PRESERVED: u32 = ((1 << 11) - 1) << 19;
@@ -468,32 +468,32 @@ const PRESERVED: u32 = (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (0xF << 12);
 #[cfg(all(not(target_arch = "aarch64"), not(windows)))]
 const PRESERVED: u32 = (1 << 3) | (1 << 6) | (0xF << 12);
 
-/// O tipo de uma raiz do mapa: slot sobre o SP, slot sobre o FP, ou
-/// registrador (o valor é o número DWARF dele).
+/// The kind of a map root: slot relative to SP, slot relative to FP, or
+/// register (the value is its DWARF number).
 const ROOT_AT_SP: u8 = 0;
 const ROOT_AT_FP: u8 = 1;
 const ROOT_IN_REGISTER: u8 = 2;
 
-/// Uma função com mapa de pilha numa imagem: o endereço do começo dela e
-/// onde está a descrição, que só é decodificada na primeira consulta
-/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.5 e §14.5, E3.2).
+/// A function with a stack map in an image: the address of its start and
+/// where the description is, which is only decoded on the first lookup
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.5 and §14.5, E3.2).
 #[derive(Clone, Copy)]
 struct FunctionWithMap {
     start: u64,
-    /// DFGM: o começo do fluxo da função; `.llvm_stackmaps`: o primeiro
-    /// registro dela.
+    /// DFGM: the start of the function's stream; `.llvm_stackmaps`: its first
+    /// record.
     data: usize,
-    /// `.llvm_stackmaps`: quantos registros e o vetor de constantes do blob
-    /// (os `ConstIndex`); DFGM: `u32::MAX` e a versão do blob (1: só slots;
-    /// 2: com a máscara dos registradores).
+    /// `.llvm_stackmaps`: how many records and the blob's constants vector
+    /// (the `ConstIndex`es); DFGM: `u32::MAX` and the blob version (1: slots only;
+    /// 2: with the register mask).
     n_llvm: u32,
     constants: usize,
 }
 
-/// Os registros de uma função, decodificados: (deslocamento do endereço de
-/// retorno em relação ao começo da função, início em `slots`, número), em
-/// ordem do deslocamento; e as raízes, (tipo, deslocamento em bytes do slot
-/// ou número DWARF do registrador): [`ROOT_AT_SP`], [`ROOT_AT_FP`],
+/// The records of a function, decoded: (offset of the return address
+/// relative to the function start, start in `slots`, count), in
+/// offset order; and the roots, (kind, slot offset in bytes
+/// or DWARF register number): [`ROOT_AT_SP`], [`ROOT_AT_FP`],
 /// [`ROOT_IN_REGISTER`].
 #[derive(Default)]
 struct FunctionRecords {
@@ -501,18 +501,18 @@ struct FunctionRecords {
     slots: Vec<(u8, i32)>,
 }
 
-/// Os mapas de uma imagem (o executável, a DLL do SDK).
+/// The maps of an image (the executable, the SDK DLL).
 struct StackMap {
-    /// O que identifica a imagem no registro: a base no Windows, o começo
-    /// da seção no ELF e no Mach-O.
+    /// What identifies the image in the registry: the base on Windows, the start
+    /// of the section on ELF and Mach-O.
     key: usize,
-    /// Ordenadas pelo começo.
+    /// Sorted by start.
     functions: Vec<FunctionWithMap>,
     decoded: Vec<std::sync::OnceLock<FunctionRecords>>,
 }
 
-// SAFETY: os endereços guardados são de seções só de leitura da imagem,
-// mapeadas enquanto o processo vive; nada é escrito por eles.
+// SAFETY: the stored addresses are of read-only sections of the image,
+// mapped while the process lives; nothing is written through them.
 #[allow(unsafe_code)]
 unsafe impl Send for StackMap {}
 #[allow(unsafe_code)]
@@ -523,33 +523,33 @@ impl StackMap {
         StackMap { key, functions: Vec::new(), decoded: Vec::new() }
     }
 
-    /// Ordena o índice e prepara as decodificações preguiçosas. Duas
-    /// entradas com o mesmo começo (o ICF do ligador juntou duas funções
-    /// idênticas, de mapas idênticos) ficam numa só.
+    /// Sorts the index and prepares the lazy decodings. Two
+    /// entries with the same start (the linker's ICF merged two identical
+    /// functions, with identical maps) become one.
     fn do_close(&mut self) {
         self.functions.sort_by_key(|f| f.start);
         self.functions.dedup_by_key(|f| f.start);
         self.decoded = (0..self.functions.len()).map(|_| std::sync::OnceLock::new()).collect();
     }
 
-    /// A função com o maior começo que não passa de `ret`.
+    /// The function with the largest start that does not exceed `ret`.
     fn function_of(&self, ret: u64) -> Option<usize> {
         self.functions.partition_point(|f| f.start <= ret).checked_sub(1)
     }
 
     #[allow(unsafe_code)]
     fn records(&self, i: usize) -> &FunctionRecords {
-        // SAFETY: `functions[i]` aponta para a descrição de uma função numa
-        // seção mapeada (conferida no registro da imagem).
+        // SAFETY: `functions[i]` points to the description of a function in a
+        // mapped section (checked when registering the image).
         self.decoded[i].get_or_init(|| unsafe { decode_function(self.functions[i]) })
     }
 
-    /// Os slots da chamada da função `i` que retorna em `ret`.
+    /// The slots of the call of function `i` that returns at `ret`.
     ///
-    /// No Windows x64, em parte das chamadas, o gerador de código põe um
-    /// `nop` depois do `call` (para o desenrolador do sistema) e o registro
-    /// aponta depois dele (§14.5): o deslocamento seguinte também vale, só
-    /// quando o byte no endereço de retorno é esse `nop`.
+    /// On Windows x64, for some of the calls, the code generator puts a
+    /// `nop` after the `call` (for the system unwinder) and the record
+    /// points after it (§14.5): the following offset also holds, only
+    /// when the byte at the return address is that `nop`.
     #[allow(unsafe_code)]
     fn slots_of(&self, i: usize, ret: u64) -> Option<&[(u8, i32)]> {
         let r = self.records(i);
@@ -561,8 +561,8 @@ impl StackMap {
             })
         };
         find_one(offset).or_else(|| {
-            // SAFETY: `ret` é um endereço de retorno da pilha desta
-            // thread, um byte de código mapeado.
+            // SAFETY: `ret` is a return address of this thread's
+            // stack, a byte of mapped code.
             let nop = cfg!(all(windows, target_arch = "x86_64")) && !sabotage("sem_nop") && unsafe { *(ret as *const u8) } == 0x90;
             if nop { find_one(offset + 1) } else { None }
         })
@@ -570,33 +570,33 @@ impl StackMap {
 }
 
 static STACK_MAPS: std::sync::RwLock<Vec<StackMap>> = std::sync::RwLock::new(Vec::new());
-/// Alguma imagem registrou mapas: a coleta percorre a pilha nativa.
+/// Some image registered maps: the collection walks the native stack.
 static HAS_STACK_MAPS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Os números do percurso por mapas, do processo inteiro (§7.5, a prova de
-/// que coletou): quadros nativos percorridos, raízes lidas de mapas e
-/// raízes conferidas contra a pilha-sombra (`DARTFORGE_GC_PERCURSO`).
+/// The numbers of the map-based walk, for the whole process (§7.5, the proof
+/// that it collected): native frames walked, roots read from maps and
+/// roots checked against the shadow stack (`DARTFORGE_GC_PERCURSO`).
 static FRAMES_WALKED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static MAP_ROOTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static ROOTS_CHECKED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// (quadros percorridos, raízes de mapa visitadas, raízes conferidas).
+/// (frames walked, map roots visited, roots checked).
 pub fn walk_counts() -> (u64, u64, u64) {
     use std::sync::atomic::Ordering::Relaxed;
     (FRAMES_WALKED.load(Relaxed), MAP_ROOTS.load(Relaxed), ROOTS_CHECKED.load(Relaxed))
 }
 
-/// Alguma imagem do processo registrou mapas de pilha.
+/// Some image of the process registered stack maps.
 pub fn has_stack_maps() -> bool {
     HAS_STACK_MAPS.load(std::sync::atomic::Ordering::Acquire)
 }
 
-/// Uma sabotagem de teste ligada (`DARTFORGE_SABOTAGEM=a,b,…`,
-/// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3 e §14.7): cada teste
-/// dirigido tem de falhar com a dele. As do runtime: `sem_nop` (o leitor
-/// sem a regra do `nop`), `folga` (D8: a folga da pilha de 4 KiB) e
-/// `sem_porta` (D9: as portas Rust → Dart não são registradas) e
-/// `tipo_sem_raiz` (D12: o objeto `Type` canônico fica só no cache).
+/// A test sabotage enabled (`DARTFORGE_SABOTAGEM=a,b,…`,
+/// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3 and §14.7): each targeted
+/// test must fail with its own. The runtime's: `sem_nop` (the reader
+/// without the `nop` rule), `folga` (D8: the 4 KiB stack slack) and
+/// `sem_porta` (D9: the Rust → Dart ports are not registered) and
+/// `tipo_sem_raiz` (D12: the canonical `Type` object stays only in the cache).
 pub fn sabotage(name: &str) -> bool {
     static ENABLED: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
     ENABLED
@@ -605,25 +605,25 @@ pub fn sabotage(name: &str) -> bool {
         .any(|s| s == name)
 }
 
-/// `DARTFORGE_GC_PERCURSO=conferir` (§3.6, E2.5): cada coleta confere que
-/// o percurso por mapas visitou as raízes que o build de conferência
-/// (`DARTFORGE_RAIZES_CONFERIR=1` na compilação) gravou na pilha-sombra, e
-/// uma anomalia do percurso aborta em vez de só encerrá-lo.
+/// `DARTFORGE_GC_PERCURSO=conferir` (§3.6, E2.5): each collection checks that
+/// the map-based walk visited the roots that the check build
+/// (`DARTFORGE_RAIZES_CONFERIR=1` at compile time) wrote on the shadow stack, and
+/// an anomaly of the walk aborts instead of just ending it.
 fn checked_walk() -> bool {
     static SIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *SIM.get_or_init(|| std::env::var("DARTFORGE_GC_PERCURSO").is_ok_and(|v| v == "conferir"))
 }
 
-/// Encerra o processo: um mapa que o runtime não sabe ler é uma raiz
-/// perdida, e continuar seria liberar objeto vivo.
+/// Ends the process: a map the runtime cannot read is a lost
+/// root, and continuing would free a live object.
 fn map_rejected(reason: &str) -> ! {
-    eprintln!("dartforge: mapa de pilha recusado: {reason}");
+    eprintln!("dartforge: stack map rejected: {reason}");
     std::process::abort()
 }
 
-/// Registra os mapas de pilha da imagem PE carregada em `base` (uma vez por
-/// imagem). O módulo que tem funções com raízes no mapa chama isto na
-/// partida, com o `__ImageBase` da imagem em que foi ligado.
+/// Registers the stack maps of the PE image loaded at `base` (once per
+/// image). The module that has functions with roots in the map calls this at
+/// startup, with the `__ImageBase` of the image it was linked into.
 #[allow(unsafe_code)]
 pub fn register_stack_map(base: usize) {
     if base == 0 {
@@ -633,18 +633,18 @@ pub fn register_stack_map(base: usize) {
     if maps.iter().any(|m| m.key == base) {
         return;
     }
-    // SAFETY: `base` é o começo de uma imagem PE carregada neste processo.
+    // SAFETY: `base` is the start of a PE image loaded in this process.
     let map = unsafe { read_image_map(base) };
     if map.functions.is_empty() {
-        map_rejected("a imagem foi compilada com raízes por mapas e não tem a seção `.dfgcm` nem a `.llvm_st` (o ligador renomeia a seção quando há informação de depuração)");
+        map_rejected("the image was compiled with map-based roots and has neither the `.dfgcm` section nor `.llvm_st` (the linker renames the section when there is debug information)");
     }
     HAS_STACK_MAPS.store(true, std::sync::atomic::Ordering::Release);
     maps.push(map);
 }
 
-/// Registra o mapa compacto de uma imagem ELF ou Mach-O: a seção `dfgcm`
-/// (`__DATA_CONST,__dfgcm` no Mach-O) entre `start` e `end`, que o
-/// ligador delimita (`__start_dfgcm`/`__stop_dfgcm`; `section$start$…`).
+/// Registers the compact map of an ELF or Mach-O image: the `dfgcm` section
+/// (`__DATA_CONST,__dfgcm` on Mach-O) between `start` and `end`, which the
+/// linker delimits (`__start_dfgcm`/`__stop_dfgcm`; `section$start$…`).
 #[allow(unsafe_code)]
 pub fn register_map_section(start: usize, end: usize) {
     if start == 0 || end <= start {
@@ -655,22 +655,22 @@ pub fn register_map_section(start: usize, end: usize) {
         return;
     }
     let mut map = StackMap::new(start);
-    // SAFETY: `[start, end)` é a seção do mapa, mapeada e legível.
+    // SAFETY: `[start, end)` is the map section, mapped and readable.
     unsafe { read_dfgm(start as *const u8, end - start, 0, &mut map) };
     map.do_close();
     if map.functions.is_empty() {
-        map_rejected("a seção do mapa de pilha compacto está vazia numa imagem compilada com raízes por mapas");
+        map_rejected("the compact stack map section is empty in an image compiled with map-based roots");
     }
     HAS_STACK_MAPS.store(true, std::sync::atomic::Ordering::Release);
     maps.push(map);
 }
 
-/// Registra o mapa de pilha no formato do LLVM (`.llvm_stackmaps` versão 3)
-/// de uma imagem Mach-O: a seção `__LLVM_STACKMAPS,__llvm_stackmaps` entre
-/// `start` e `end` (`section$start$…`/`section$end$…`), com os endereços
-/// das funções já ajustados pelo carregador. Seção vazia não é erro aqui: o
-/// módulo que registra pode não ter função com mapa, e o `.no_dead_strip`
-/// que guarda a seção vai em todo módulo que tem (`llvm/mod.rs`).
+/// Registers the stack map in LLVM format (`.llvm_stackmaps` version 3)
+/// of a Mach-O image: the `__LLVM_STACKMAPS,__llvm_stackmaps` section between
+/// `start` and `end` (`section$start$…`/`section$end$…`), with the function
+/// addresses already adjusted by the loader. An empty section is not an error here: the
+/// registering module may have no function with a map, and the `.no_dead_strip`
+/// that keeps the section goes into every module that has one (`llvm/mod.rs`).
 #[allow(unsafe_code)]
 pub fn register_llvm_section(start: usize, end: usize) {
     if start == 0 || end <= start {
@@ -681,7 +681,7 @@ pub fn register_llvm_section(start: usize, end: usize) {
         return;
     }
     let mut map = StackMap::new(start);
-    // SAFETY: `[start, end)` é a seção do mapa, mapeada e legível.
+    // SAFETY: `[start, end)` is the map section, mapped and readable.
     unsafe { read_stackmaps(start as *const u8, end - start, &mut map) };
     map.do_close();
     if map.functions.is_empty() {
@@ -691,27 +691,27 @@ pub fn register_llvm_section(start: usize, end: usize) {
     maps.push(map);
 }
 
-/// Tira do índice o mapa registrado com a chave `key` (o começo da seção):
-/// o JIT o chama quando solta a memória de um objeto (uma geração aposentada
-/// da recarga, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.8). A
-/// publicação de uma geração acontece sem quadro Dart na pilha, então nenhum
-/// quadro em curso usa o mapa que sai.
+/// Removes from the index the map registered with key `key` (the section start):
+/// the JIT calls it when it frees the memory of an object (a retired generation
+/// of the reload, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.8). The
+/// publication of a generation happens without a Dart frame on the stack, so no
+/// frame in progress uses the map being removed.
 pub fn unregister_map(key: usize) {
     let mut maps = STACK_MAPS.write().unwrap_or_else(|e| e.into_inner());
     maps.retain(|m| m.key != key);
 }
 
-/// Lê os mapas de pilha da imagem PE em `base`: a seção `.dfgcm` (o mapa
-/// compacto, `emit_native/src/gcmap.rs`) e a `.llvm_st` (o `.llvm_stackmaps`
-/// dos objetos que não passaram pelo conversor — os da LTO —, com o nome
-/// cortado em 8 bytes).
+/// Reads the stack maps of the PE image at `base`: the `.dfgcm` section (the
+/// compact map, `emit_native/src/gcmap.rs`) and `.llvm_st` (the `.llvm_stackmaps`
+/// of objects that did not go through the converter — the LTO ones —, with the name
+/// truncated to 8 bytes).
 ///
 /// # Safety
-/// `base` é o começo de uma imagem PE mapeada.
+/// `base` is the start of a mapped PE image.
 #[allow(unsafe_code)]
 unsafe fn read_image_map(base: usize) -> StackMap {
     let mut map = StackMap::new(base);
-    // SAFETY: os cabeçalhos de uma imagem PE mapeada (DOS, NT, seções).
+    // SAFETY: the headers of a mapped PE image (DOS, NT, sections).
     unsafe {
         let b = base as *const u8;
         let nt = b.add(b.add(0x3c).cast::<u32>().read_unaligned() as usize);
@@ -734,15 +734,15 @@ unsafe fn read_image_map(base: usize) -> StackMap {
     map
 }
 
-/// O tamanho de um registro do `.llvm_stackmaps` v3 que começa em `r`
-/// (cabeçalho, locais, enchimento, *live-outs*, enchimento).
+/// The size of a `.llvm_stackmaps` v3 record starting at `r`
+/// (header, locations, padding, *live-outs*, padding).
 ///
 /// # Safety
-/// `r` é o começo de um registro dentro de uma seção mapeada.
+/// `r` is the start of a record inside a mapped section.
 #[allow(unsafe_code)]
 unsafe fn llvm_record_end(r: *const u8) -> *const u8 {
     let align_up = |q: *const u8| ((q as usize + 7) & !7) as *const u8;
-    // SAFETY: o formato do registro (§14.3).
+    // SAFETY: the record format (§14.3).
     unsafe {
         let n_locals = r.add(14).cast::<u16>().read_unaligned() as usize;
         let q = align_up(r.add(16 + 12 * n_locals));
@@ -751,15 +751,15 @@ unsafe fn llvm_record_end(r: *const u8) -> *const u8 {
     }
 }
 
-/// Indexa os blobs `.llvm_stackmaps` versão 3 de `[p, p + size)` (um
-/// por objeto ligado, com zeros de enchimento entre eles): por função, o
-/// começo e o primeiro registro. Os registros só são lidos na consulta.
+/// Indexes the `.llvm_stackmaps` version 3 blobs of `[p, p + size)` (one
+/// per linked object, with padding zeros between them): per function, the
+/// start and the first record. Records are only read on lookup.
 ///
 /// # Safety
-/// `[p, p + size)` é a seção, mapeada e legível.
+/// `[p, p + size)` is the section, mapped and readable.
 #[allow(unsafe_code)]
 unsafe fn read_stackmaps(mut p: *const u8, size: usize, map: &mut StackMap) {
-    // SAFETY: todas as leituras ficam dentro da seção, pelo formato.
+    // SAFETY: all reads stay inside the section, per the format.
     unsafe {
         let end = p.add(size);
         while (p as usize) + 16 <= end as usize {
@@ -768,7 +768,7 @@ unsafe fn read_stackmaps(mut p: *const u8, size: usize, map: &mut StackMap) {
                 continue;
             }
             if *p != 3 {
-                map_rejected("versão do `.llvm_stackmaps` diferente de 3");
+                map_rejected("`.llvm_stackmaps` version other than 3");
             }
             let n_functions = p.add(4).cast::<u32>().read_unaligned() as usize;
             let n_constants = p.add(8).cast::<u32>().read_unaligned() as usize;
@@ -779,14 +779,14 @@ unsafe fn read_stackmaps(mut p: *const u8, size: usize, map: &mut StackMap) {
                 let address = functions.add(24 * i).cast::<u64>().read_unaligned();
                 let n_records = functions.add(24 * i + 16).cast::<u64>().read_unaligned();
                 if n_records > u64::from(u32::MAX - 1) {
-                    map_rejected("função do `.llvm_stackmaps` com registros demais");
+                    map_rejected("`.llvm_stackmaps` function with too many records");
                 }
                 map.functions.push(FunctionWithMap { start: address, data: r as usize, n_llvm: n_records as u32, constants: constants as usize });
                 for _ in 0..n_records {
                     r = llvm_record_end(r);
                 }
                 if r as usize > end as usize {
-                    map_rejected("`.llvm_stackmaps` truncado");
+                    map_rejected("truncated `.llvm_stackmaps`");
                 }
             }
             p = r;
@@ -794,18 +794,18 @@ unsafe fn read_stackmaps(mut p: *const u8, size: usize, map: &mut StackMap) {
     }
 }
 
-/// Indexa os blobs DFGM v1 e v2 de `[p, p + size)` (o formato está em
-/// `emit_native/src/gcmap.rs`; entre as contribuições dos objetos há zeros
-/// de enchimento, em múltiplos de 4). O endereço de cada função vem do
-/// índice conforme as bandeiras do blob: 0, deslocamento sobre `base` (o
-/// `ADDR32NB` do COFF); 1, deslocamento de 32 bits sobre o próprio campo
-/// (ELF); 2, endereço absoluto de 64 bits (Mach-O).
+/// Indexes the DFGM v1 and v2 blobs of `[p, p + size)` (the format is in
+/// `emit_native/src/gcmap.rs`; between the objects' contributions there are padding
+/// zeros, in multiples of 4). The address of each function comes from the
+/// index according to the blob flags: 0, offset relative to `base` (COFF's
+/// `ADDR32NB`); 1, 32-bit offset relative to the field itself
+/// (ELF); 2, 64-bit absolute address (Mach-O).
 ///
 /// # Safety
-/// `[p, p + size)` é a seção, mapeada e legível.
+/// `[p, p + size)` is the section, mapped and readable.
 #[allow(unsafe_code)]
 unsafe fn read_dfgm(mut p: *const u8, size: usize, base: usize, map: &mut StackMap) {
-    // SAFETY: todas as leituras ficam dentro da seção, pelo formato.
+    // SAFETY: all reads stay inside the section, per the format.
     unsafe {
         let end = p.add(size);
         while (p as usize) + 16 <= end as usize {
@@ -815,14 +815,14 @@ unsafe fn read_dfgm(mut p: *const u8, size: usize, base: usize, map: &mut StackM
             }
             let version = *p.add(4);
             if version != 1 && version != 2 {
-                map_rejected("versão do mapa compacto diferente de 1 e de 2");
+                map_rejected("compact map version other than 1 and 2");
             }
             let flag_bits = p.add(6).cast::<u16>().read_unaligned();
             let total = p.add(8).cast::<u32>().read_unaligned() as usize;
             let n_functions = p.add(12).cast::<u32>().read_unaligned() as usize;
             let input = if flag_bits & 2 != 0 { 16 } else { 8 };
             if total < 16 + input * n_functions || (p as usize) + total > end as usize || (flag_bits & 3 == 0 && base == 0) {
-                map_rejected("mapa compacto com o cabeçalho errado");
+                map_rejected("compact map with the wrong header");
             }
             let ix = p.add(16);
             let stream = ix.add(input * n_functions);
@@ -848,14 +848,14 @@ unsafe fn read_dfgm(mut p: *const u8, size: usize, base: usize, map: &mut StackM
     }
 }
 
-/// Decodifica os registros de uma função (a primeira consulta a ela).
+/// Decodes the records of a function (the first lookup of it).
 ///
 /// # Safety
-/// `f` vem de [`read_stackmaps`] ou [`read_dfgm`] sobre uma seção mapeada.
+/// `f` comes from [`read_stackmaps`] or [`read_dfgm`] over a mapped section.
 #[allow(unsafe_code)]
 unsafe fn decode_function(f: FunctionWithMap) -> FunctionRecords {
     let mut d = FunctionRecords::default();
-    // SAFETY: as leituras seguem o formato a partir de `f.data`.
+    // SAFETY: the reads follow the format starting at `f.data`.
     unsafe {
         if f.n_llvm == u32::MAX {
             let mut q = f.data as *const u8;
@@ -877,7 +877,7 @@ unsafe fn decode_function(f: FunctionWithMap) -> FunctionRecords {
             let n_records = varint(&mut q);
             let _frame = varint(&mut q);
             let mut ret = 0u64;
-            // (início em `slots`, número) do conjunto do registro anterior.
+            // (start in `slots`, count) of the previous record's set.
             let mut previous = (0u32, 0u32);
             for _ in 0..n_records {
                 ret += varint(&mut q);
@@ -891,11 +891,11 @@ unsafe fn decode_function(f: FunctionWithMap) -> FunctionRecords {
                         slot += ((u >> 1) as i64) ^ -((u & 1) as i64);
                         d.slots.push((if s & 1 == 1 { ROOT_AT_FP } else { ROOT_AT_SP }, (slot * 8) as i32));
                     }
-                    // v2: a máscara dos registradores com raiz.
+                    // v2: the mask of registers with a root.
                     if f.constants >= 2 {
                         let mask = varint(&mut q);
                         if mask & !u64::from(PRESERVED) != 0 {
-                            map_rejected("registrador não preservado com raiz no mapa compacto");
+                            map_rejected("non-preserved register with a root in the compact map");
                         }
                         for r in 0..32 {
                             if mask & (1 << r) != 0 {
@@ -906,7 +906,7 @@ unsafe fn decode_function(f: FunctionWithMap) -> FunctionRecords {
                     previous = (first, d.slots.len() as u32 - first);
                 }
                 if ret > u64::from(u32::MAX) {
-                    map_rejected("deslocamento de retorno fora de 32 bits no mapa compacto");
+                    map_rejected("return offset beyond 32 bits in the compact map");
                 }
                 d.records.push((ret as u32, previous.0, previous.1));
             }
@@ -917,25 +917,25 @@ unsafe fn decode_function(f: FunctionWithMap) -> FunctionRecords {
                 let n_locals = r.add(14).cast::<u16>().read_unaligned() as usize;
                 let locals = r.add(16);
                 if n_locals < 3 {
-                    map_rejected("registro de statepoint sem os três locais iniciais");
+                    map_rejected("statepoint record without the three initial locations");
                 }
                 let n_deopt = locals.add(2 * 12 + 8).cast::<i32>().read_unaligned().max(0) as usize;
                 let start = d.slots.len();
                 if 3 + n_deopt > n_locals {
-                    map_rejected("registro de statepoint com mais locais de `deopt` que locais");
+                    map_rejected("statepoint record with more `deopt` locations than locations");
                 }
-                // As raízes: cada local do `"deopt"` (a forma do §14.12) e a
-                // base de cada par (base, derivado) do `"gc-live"`.
+                // The roots: each `"deopt"` location (the §14.12 form) and the
+                // base of each (base, derived) pair of `"gc-live"`.
                 for j in (3..3 + n_deopt).chain((3 + n_deopt..n_locals.saturating_sub(1)).step_by(2)) {
                     let l = locals.add(12 * j);
                     let tipo = *l;
                     let width = l.add(2).cast::<u16>().read_unaligned();
                     let register = l.add(4).cast::<u16>().read_unaligned();
                     let value = l.add(8).cast::<i32>().read_unaligned();
-                    // Constante: null não é raiz, nem o `undef` que o
-                    // otimizador deixou num operando (0xFEFEFEFE); outra
-                    // constante par não nula seria um valor bruto tratado
-                    // como referência (§3.5).
+                    // Constant: null is not a root, nor the `undef` the
+                    // optimizer left in an operand (0xFEFEFEFE); any other
+                    // non-null even constant would be a raw value treated
+                    // as a reference (§3.5).
                     if tipo == 4 || tipo == 5 {
                         let c = if tipo == 4 {
                             i64::from(value)
@@ -943,7 +943,7 @@ unsafe fn decode_function(f: FunctionWithMap) -> FunctionRecords {
                             (f.constants as *const u8).add(8 * value.max(0) as usize).cast::<i64>().read_unaligned()
                         };
                         if c != 0 && c & 1 == 0 && c != 0xFEFE_FEFE {
-                            map_rejected("constante par não nula como raiz no mapa de pilha");
+                            map_rejected("non-null even constant as a root in the stack map");
                         }
                         continue;
                     }
@@ -952,7 +952,7 @@ unsafe fn decode_function(f: FunctionWithMap) -> FunctionRecords {
                     } else if tipo == 3 && width == 8 && (register == DWARF_SP || register == DWARF_FP) {
                         (if register == DWARF_FP { ROOT_AT_FP } else { ROOT_AT_SP }, value)
                     } else {
-                        map_rejected("local que não é `Indirect [SP|FP + d]` nem `Register` preservado de 8 bytes")
+                        map_rejected("location that is neither `Indirect [SP|FP + d]` nor a preserved 8-byte `Register`")
                     };
                     if !d.slots[start..].contains(&slot) {
                         d.slots.push(slot);
@@ -965,18 +965,18 @@ unsafe fn decode_function(f: FunctionWithMap) -> FunctionRecords {
         }
     }
     if d.records.windows(2).any(|pair| pair[0].0 == pair[1].0) {
-        map_rejected("dois registros do mapa de pilha no mesmo endereço de retorno");
+        map_rejected("two stack map records at the same return address");
     }
     d
 }
 
-/// Visita as raízes do quadro nativo parado no endereço de retorno
-/// `ret`, com o SP do quadro no ponto da chamada em `sp` e o FP em `fp`;
-/// `register` dá o valor de um registrador preservado (pelo número
-/// DWARF) naquele quadro, como o desenrolador o restaurou.
-/// `exact_start` é o começo da função como o desenrolador o conhece: se
-/// ela tem mapa e o endereço não tem registro, é defeito do emissor ou do
-/// conversor, e o processo aborta. Devolve se o quadro tinha mapa.
+/// Visits the roots of the native frame stopped at return address
+/// `ret`, with the frame's SP at the call point in `sp` and the FP in `fp`;
+/// `register` gives the value of a preserved register (by DWARF
+/// number) in that frame, as the unwinder restored it.
+/// `exact_start` is the function start as the unwinder knows it: if
+/// it has a map and the address has no record, it is a defect of the emitter or of the
+/// converter, and the process aborts. Returns whether the frame had a map.
 #[allow(unsafe_code)]
 fn visit_frame(
     maps: &[StackMap],
@@ -997,8 +997,8 @@ fn visit_frame(
                         continue;
                     }
                     let b = if tipo == ROOT_AT_FP { fp } else { sp };
-                    // SAFETY: o slot é do quadro de uma função ainda ativa,
-                    // parada na chamada que o registro descreve.
+                    // SAFETY: the slot belongs to the frame of a still active function,
+                    // stopped at the call the record describes.
                     f(unsafe { *((b as i64).wrapping_add(i64::from(d)) as *const i64) });
                 }
                 MAP_ROOTS.fetch_add(slots.len() as u64, std::sync::atomic::Ordering::Relaxed);
@@ -1006,7 +1006,7 @@ fn visit_frame(
             }
             None => {
                 if exact_start == Some(m.functions[i].start) {
-                    map_rejected("função com mapa sem registro exato para o endereço de retorno");
+                    map_rejected("function with a map without an exact record for the return address");
                 }
             }
         }
@@ -1014,18 +1014,18 @@ fn visit_frame(
     false
 }
 
-/// Uma anomalia do percurso (SP que não cresce, fora da pilha): encerra o
-/// percurso; com `DARTFORGE_GC_PERCURSO=conferir`, aborta.
+/// An anomaly of the walk (SP that does not grow, outside the stack): ends the
+/// walk; with `DARTFORGE_GC_PERCURSO=conferir`, aborts.
 fn walk_anomaly(reason: &str) {
     if checked_walk() {
-        map_rejected(&format!("anomalia no percurso da pilha: {reason}"));
+        map_rejected(&format!("stack walk anomaly: {reason}"));
     }
 }
 
-/// Visita as raízes dos quadros nativos desta thread que têm mapa de pilha:
-/// desenrola a pilha a partir daqui (`RtlVirtualUnwind`, sem chamar
-/// tratadores) e, em cada quadro, lê os slots do registro do endereço de
-/// retorno. Sem mapa registrado, não faz nada.
+/// Visits the roots of this thread's native frames that have a stack map:
+/// unwinds the stack from here (`RtlVirtualUnwind`, without calling
+/// handlers) and, in each frame, reads the slots of the return address's
+/// record. Without a registered map, does nothing.
 #[cfg(all(windows, target_arch = "x86_64"))]
 #[allow(unsafe_code)]
 #[inline(never)]
@@ -1033,8 +1033,8 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
     if !HAS_STACK_MAPS.load(std::sync::atomic::Ordering::Acquire) {
         return;
     }
-    /// O `CONTEXT` do x86-64: 1232 bytes, alinhado a 16. São lidos o `Rip`
-    /// (0xF8) e os inteiros de `Rax` (0x78) a `R15` (0xF0).
+    /// The x86-64 `CONTEXT`: 1232 bytes, 16-aligned. `Rip`
+    /// (0xF8) and the integers from `Rax` (0x78) to `R15` (0xF0) are read.
     #[repr(C, align(16))]
     struct CpuContext([u8; 1232]);
     #[link(name = "kernel32")]
@@ -1055,16 +1055,16 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
     }
     let maps = STACK_MAPS.read().unwrap_or_else(|e| e.into_inner());
     let mut contexto = CpuContext([0; 1232]);
-    let field = |c: &CpuContext, d: usize| u64::from_le_bytes(c.0[d..d + 8].try_into().expect("oito bytes"));
-    /// O deslocamento no `CONTEXT` de cada registrador DWARF 0–15 (rax,
+    let field = |c: &CpuContext, d: usize| u64::from_le_bytes(c.0[d..d + 8].try_into().expect("eight bytes"));
+    /// The offset in `CONTEXT` of each DWARF register 0–15 (rax,
     /// rdx, rcx, rbx, rsi, rdi, rbp, rsp, r8–r15).
     const IN_CONTEXT: [usize; 16] = [0x78, 0x88, 0x80, 0x90, 0xA8, 0xB0, 0xA0, 0x98, 0xB8, 0xC0, 0xC8, 0xD0, 0xD8, 0xE0, 0xE8, 0xF0];
     let mut frames = 0u64;
-    // SAFETY: o contexto é o desta thread, capturado aqui; cada passo
-    // desenrola um quadro com a tabela de desenrolamento da função dele, e
-    // para quando o SP deixa de crescer ou sai da pilha da thread. Os slots
-    // lidos são do quadro de uma função ainda ativa, parada na chamada que o
-    // registro descreve.
+    // SAFETY: the context is this thread's, captured here; each step
+    // unwinds a frame with its function's unwind table, and
+    // stops when the SP stops growing or leaves the thread's stack. The slots
+    // read belong to the frame of a still active function, stopped at the call the
+    // record describes.
     unsafe {
         RtlCaptureContext(&mut contexto);
         let (mut low, mut high) = (0usize, 0usize);
@@ -1077,24 +1077,24 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
             let mut data: *mut u8 = std::ptr::null_mut();
             let mut frame = 0u64;
             RtlVirtualUnwind(0, base, pc, function, &mut contexto, &mut data, &mut frame, std::ptr::null_mut());
-            // Agora o contexto é o de quem chamou: `Rip` é o endereço de
-            // retorno nele e `Rsp`, o SP dele no ponto da chamada.
+            // Now the context is the caller's: `Rip` is the return address
+            // in it and `Rsp`, its SP at the call point.
             let (ret, sp, fp) = (field(&contexto, 0xF8), field(&contexto, 0x98), field(&contexto, 0xA0));
             if ret == 0 {
                 break;
             }
             if sp <= sp_before || (sp as usize) < low || (sp as usize) >= high {
-                walk_anomaly("o SP não cresce ou saiu da pilha da thread");
+                walk_anomaly("the SP does not grow or left the thread's stack");
                 break;
             }
             frames += 1;
-            // A função de quem chamou: o começo exato (o `BeginAddress` da
-            // entrada do `.pdata`) e a entrada, para o passo seguinte.
+            // The caller's function: the exact start (the `BeginAddress` of the
+            // `.pdata` entry) and the entry, for the next step.
             let mut next_base = 0u64;
             let next_one = RtlLookupFunctionEntry(ret, &mut next_base, std::ptr::null_mut());
             let start = (!next_one.is_null()).then(|| next_base + u64::from(next_one.cast::<u32>().read_unaligned()));
-            // Os preservados no contexto são os de quem chamou, no ponto da
-            // chamada: o desenrolamento dos quadros de dentro os restaurou.
+            // The preserved registers in the context are the caller's, at the call
+            // point: unwinding the inner frames restored them.
             let register = |r: u16| IN_CONTEXT.get(usize::from(r)).map_or(0, |&d| field(&contexto, d));
             visit_frame(&maps, start, ret, sp, fp, &register, &mut f);
             pc = ret;
@@ -1105,27 +1105,27 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
     FRAMES_WALKED.fetch_add(frames, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// O ponteiro de pilha de um quadro no ponto da chamada que ele fez, no
-/// passo do `_Unwind_Backtrace`: `cfa` é o `_Unwind_GetCFA` do próprio quadro
-/// e `callee_cfa`, o do quadro anterior do percurso (o que ele chamou).
-/// A libgcc (Linux) devolve no `_Unwind_GetCFA` o CFA do quadro — o SP do
-/// chamador no ponto da chamada —, então o SP deste quadro é o CFA do
-/// chamado. A libunwind do LLVM (macOS) devolve o SP do próprio quadro, já
-/// restaurado: é ele. Usar o do chamado no macOS lia os slots `[SP + d]` do
-/// mapa no quadro de dentro (raízes por mapas na produção, em que o LTO do
-/// `ld64.lld` deixa as raízes em slots) e desalinhava o rastro simbólico.
+/// The stack pointer of a frame at the point of the call it made, in the
+/// `_Unwind_Backtrace` step: `cfa` is the frame's own `_Unwind_GetCFA`
+/// and `callee_cfa`, that of the previous frame of the walk (the one it called).
+/// libgcc (Linux) returns in `_Unwind_GetCFA` the frame's CFA — the caller's
+/// SP at the call point —, so this frame's SP is the callee's
+/// CFA. LLVM's libunwind (macOS) returns the frame's own SP, already
+/// restored: that is it. Using the callee's on macOS read the `[SP + d]` slots of the
+/// map in the inner frame (map-based roots in production, where the LTO of
+/// `ld64.lld` leaves roots in slots) and misaligned the symbolic stack trace.
 #[cfg(all(unix, any(target_arch = "x86_64", target_arch = "aarch64")))]
 fn frame_top(cfa: usize, callee_cfa: usize) -> usize {
     if cfg!(target_vendor = "apple") { cfa } else { callee_cfa }
 }
 
-/// O mesmo nos alvos do desenrolador Itanium (Linux e macOS, x86-64 e
-/// aarch64; §3.6): `_Unwind_Backtrace` entrega os quadros de dentro para
-/// fora; o SP de um quadro no ponto da chamada é o CFA do quadro que ele
-/// chamou (o anterior no percurso), o FP é o registrador restaurado nele, e
-/// o começo da função é o da região do FDE. O runtime e o código gerado têm
-/// de ter tabelas de desenrolamento (`uwtable`; `-C
-/// force-unwind-tables=yes` no runtime), senão o percurso vê zero quadros.
+/// The same on the Itanium unwinder targets (Linux and macOS, x86-64 and
+/// aarch64; §3.6): `_Unwind_Backtrace` hands out the frames from inside
+/// out; a frame's SP at the call point is the CFA of the frame it
+/// called (the previous one in the walk), the FP is the register restored in it, and
+/// the function start is that of the FDE region. The runtime and the generated code must
+/// have unwind tables (`uwtable`; `-C
+/// force-unwind-tables=yes` in the runtime), otherwise the walk sees zero frames.
 #[cfg(all(unix, any(target_arch = "x86_64", target_arch = "aarch64")))]
 #[allow(unsafe_code)]
 #[inline(never)]
@@ -1140,19 +1140,19 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
         fn _Unwind_GetGR(contexto: *mut u8, register: i32) -> usize;
         fn _Unwind_GetRegionStart(contexto: *mut u8) -> usize;
     }
-    /// `_URC_NO_REASON` (continua) e `_URC_NORMAL_STOP` (para).
+    /// `_URC_NO_REASON` (continue) and `_URC_NORMAL_STOP` (stop).
     const CONTINUE: i32 = 0;
     const PARA: i32 = 4;
     struct State<'a> {
         maps: &'a [StackMap],
         f: &'a mut dyn FnMut(i64),
-        /// O CFA do quadro anterior do percurso (o chamado).
+        /// The CFA of the previous frame of the walk (the callee).
         previous_cfa: Option<usize>,
         frames: u64,
     }
     unsafe extern "C" fn step(contexto: *mut u8, argument: *mut u8) -> i32 {
-        // SAFETY: `argument` é o `State` abaixo, vivo durante o percurso;
-        // `contexto` é o do desenrolador, válido durante a chamada.
+        // SAFETY: `argument` is the `State` below, alive during the walk;
+        // `contexto` is the unwinder's, valid during the call.
         unsafe {
             let e = &mut *argument.cast::<State<'_>>();
             let ip = _Unwind_GetIP(contexto) as u64;
@@ -1162,15 +1162,15 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
             let cfa = _Unwind_GetCFA(contexto);
             if let Some(previous) = e.previous_cfa {
                 if cfa < previous {
-                    walk_anomaly("o CFA não cresce");
+                    walk_anomaly("the CFA does not grow");
                     return PARA;
                 }
                 let sp = frame_top(cfa, previous);
                 e.frames += 1;
                 let start = _Unwind_GetRegionStart(contexto) as u64;
                 let fp = _Unwind_GetGR(contexto, i32::from(DWARF_FP)) as u64;
-                // O fecho herda o bloco `unsafe` acima: o contexto do
-                // desenrolador é válido durante o passo.
+                // The closure inherits the `unsafe` block above: the unwinder's
+                // context is valid during the step.
                 let register = |r: u16| _Unwind_GetGR(contexto, i32::from(r)) as u64;
                 visit_frame(e.maps, (start != 0).then_some(start), ip, sp as u64, fp, &register, e.f);
             }
@@ -1180,7 +1180,7 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
     }
     let maps = STACK_MAPS.read().unwrap_or_else(|e| e.into_inner());
     let mut estado = State { maps: &maps, f: &mut f, previous_cfa: None, frames: 0 };
-    // SAFETY: o desenrolador percorre a pilha desta thread; `step` só lê.
+    // SAFETY: the unwinder walks this thread's stack; `step` only reads.
     unsafe {
         _Unwind_Backtrace(step, std::ptr::addr_of_mut!(estado).cast::<u8>());
     }
@@ -1190,20 +1190,20 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
 #[cfg(not(any(all(windows, target_arch = "x86_64"), all(unix, any(target_arch = "x86_64", target_arch = "aarch64")))))]
 fn visit_frames_by_maps(_f: impl FnMut(i64)) {}
 
-/// Os endereços de retorno da pilha desta thread, de dentro para fora, com o
-/// começo da função de cada um (0 quando o desenrolador não o dá) e o topo
-/// da pilha do quadro em que o endereço está (o ponteiro de pilha dele na
-/// chamada; 0 quando não se sabe), até `maximum` quadros: o rastro simbólico
-/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14) os guarda no `throw` e
-/// só os simboliza quando o texto é pedido; o topo casa o quadro com a pilha
-/// do rastro (a cadeia de quem espera).
-/// O mesmo percurso de `visit_frames_by_maps`, sem ler raízes: não
-/// depende dos mapas, e vale nos dois modos de raízes.
+/// The return addresses of this thread's stack, from inside out, with the
+/// function start of each one (0 when the unwinder does not provide it) and the stack
+/// top of the frame the address is in (its stack pointer at the
+/// call; 0 when unknown), up to `maximum` frames: the symbolic stack trace
+/// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14) keeps them at `throw` and
+/// only symbolizes them when the text is requested; the top matches the frame with the
+/// trace stack (the chain of awaiters).
+/// The same walk as `visit_frames_by_maps`, without reading roots: it does not
+/// depend on the maps, and holds in both root modes.
 #[cfg(all(windows, target_arch = "x86_64"))]
 #[allow(unsafe_code)]
 #[inline(never)]
 pub fn return_addresses(maximum: usize) -> Vec<(u64, u64, u64)> {
-    /// O `CONTEXT` do x86-64 (veja `visit_frames_by_maps`).
+    /// The x86-64 `CONTEXT` (see `visit_frames_by_maps`).
     #[repr(C, align(16))]
     struct CpuContext([u8; 1232]);
     #[link(name = "kernel32")]
@@ -1224,10 +1224,10 @@ pub fn return_addresses(maximum: usize) -> Vec<(u64, u64, u64)> {
     }
     let mut out = Vec::new();
     let mut contexto = CpuContext([0; 1232]);
-    let field = |c: &CpuContext, d: usize| u64::from_le_bytes(c.0[d..d + 8].try_into().expect("oito bytes"));
-    // SAFETY: como em `visit_frames_by_maps`: o contexto é o desta
-    // thread, cada passo desenrola um quadro com a tabela da função dele, e o
-    // percurso para quando o SP deixa de crescer ou sai da pilha.
+    let field = |c: &CpuContext, d: usize| u64::from_le_bytes(c.0[d..d + 8].try_into().expect("eight bytes"));
+    // SAFETY: as in `visit_frames_by_maps`: the context is this
+    // thread's, each step unwinds a frame with its function's table, and the
+    // walk stops when the SP stops growing or leaves the stack.
     unsafe {
         RtlCaptureContext(&mut contexto);
         let (mut low, mut high) = (0usize, 0usize);
@@ -1256,9 +1256,9 @@ pub fn return_addresses(maximum: usize) -> Vec<(u64, u64, u64)> {
     out
 }
 
-/// O mesmo nos alvos do desenrolador Itanium, por `_Unwind_Backtrace`: o
-/// IP de cada quadro depois do primeiro é o endereço de retorno, e o começo
-/// da função é o da região do FDE.
+/// The same on the Itanium unwinder targets, through `_Unwind_Backtrace`: the
+/// IP of each frame after the first is the return address, and the function
+/// start is that of the FDE region.
 #[cfg(all(unix, any(target_arch = "x86_64", target_arch = "aarch64")))]
 #[allow(unsafe_code)]
 #[inline(never)]
@@ -1269,18 +1269,18 @@ pub fn return_addresses(maximum: usize) -> Vec<(u64, u64, u64)> {
         fn _Unwind_GetRegionStart(contexto: *mut u8) -> usize;
         fn _Unwind_GetCFA(contexto: *mut u8) -> usize;
     }
-    /// `_URC_NO_REASON` (continua) e `_URC_NORMAL_STOP` (para).
+    /// `_URC_NO_REASON` (continue) and `_URC_NORMAL_STOP` (stop).
     const CONTINUE: i32 = 0;
     const PARA: i32 = 4;
     struct State {
         out: Vec<(u64, u64, u64)>,
         maximum: usize,
-        /// O CFA do quadro anterior (mais fundo): o topo da pilha deste.
+        /// The CFA of the previous (deeper) frame: the stack top of this one.
         previous_cfa: u64,
     }
     unsafe extern "C" fn step(contexto: *mut u8, argument: *mut u8) -> i32 {
-        // SAFETY: `argument` é o `State` abaixo, vivo durante o percurso;
-        // `contexto` é o do desenrolador, válido durante a chamada.
+        // SAFETY: `argument` is the `State` below, alive during the walk;
+        // `contexto` is the unwinder's, valid during the call.
         unsafe {
             let e = &mut *argument.cast::<State>();
             let ip = _Unwind_GetIP(contexto) as u64;
@@ -1295,7 +1295,7 @@ pub fn return_addresses(maximum: usize) -> Vec<(u64, u64, u64)> {
         }
     }
     let mut estado = State { out: Vec::new(), maximum, previous_cfa: 0 };
-    // SAFETY: o desenrolador percorre a pilha desta thread; `step` só lê.
+    // SAFETY: the unwinder walks this thread's stack; `step` only reads.
     unsafe {
         _Unwind_Backtrace(step, std::ptr::addr_of_mut!(estado).cast::<u8>());
     }
@@ -1307,15 +1307,15 @@ pub fn return_addresses(_max: usize) -> Vec<(u64, u64, u64)> {
     Vec::new()
 }
 
-/// O build de conferência (§15.2, E2.5): os valores dos slots de
-/// conferência dos quadros da pilha-sombra desta thread (os últimos `k`
-/// slots de um quadro cujo campo `n` traz `k` nos bits 40 em diante).
+/// The check build (§15.2, E2.5): the values of the check slots of
+/// the frames of this thread's shadow stack (the last `k`
+/// slots of a frame whose `n` field carries `k` in bits 40 and up).
 #[allow(unsafe_code)]
 fn visit_check_slots(mut f: impl FnMut(i64)) {
     let mut q = CONTEXTO.with(|c| c.top.get());
     while !q.is_null() {
-        // SAFETY: cada quadro encadeado está no stack de uma função ainda
-        // ativa desta thread (como em `visit_frames`).
+        // SAFETY: each linked frame is on the stack of a still active
+        // function of this thread (as in `visit_frames`).
         unsafe {
             let n = (*q).n as u64;
             let total = (n & FRAME_SLOTS) as usize;
@@ -1329,48 +1329,48 @@ fn visit_check_slots(mut f: impl FnMut(i64)) {
     }
 }
 
-/// `DARTFORGE_GC_PERCURSO=conferir`: toda raiz que o build de conferência
-/// gravou na pilha-sombra tem de estar entre as que o percurso por mapas
-/// visitou (`from_maps`). Uma que falte é raiz que o mapa perdeu.
+/// `DARTFORGE_GC_PERCURSO=conferir`: every root the check build
+/// wrote on the shadow stack must be among those the map-based walk
+/// visited (`from_maps`). A missing one is a root the map lost.
 #[allow(unsafe_code)]
 fn check_walk(from_maps: &[i64]) {
     let seen_set: crate::hash::HashSet<i64> = from_maps.iter().copied().collect();
     let mut checked = 0u64;
     visit_check_slots(|h| {
-        // Só os objetos do heap: um `Smi` (ou o nulo) no slot não é raiz, e
-        // o objeto estático da imagem (`PERMANENTE`) nunca é coletado — o
-        // compilador o tira do `"deopt"` (`remove_statics_from_deopt`, §14.12).
+        // Only heap objects: a `Smi` (or null) in the slot is not a root, and
+        // the image's static object (`PERMANENTE`) is never collected — the
+        // compiler removes it from `"deopt"` (`remove_statics_from_deopt`, §14.12).
         if !crate::layout::is_object(h) {
             return;
         }
-        // SAFETY: `h` é o handle de um objeto que o código gerado gravou no
-        // slot de conferência, vivo neste ponto de coleta.
+        // SAFETY: `h` is the handle of an object the generated code wrote into the
+        // check slot, alive at this collection point.
         if unsafe { (*((h - DESLOCAMENTO_DO_HANDLE) as *const Header)).estado } == PERMANENTE {
             return;
         }
         checked += 1;
         if !seen_set.contains(&h) {
-            map_rejected(&format!("conferência do percurso: a raiz {h:#x} está viva na pilha-sombra de conferência e o percurso por mapas não a visitou"));
+            map_rejected(&format!("walk check: root {h:#x} is alive on the check shadow stack and the map-based walk did not visit it"));
         }
     });
     ROOTS_CHECKED.fetch_add(checked, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// O heap de um isolado: o espaço de objetos (todo valor do runtime é um bloco
-/// dele, docs/NATIVO-ESPACO-UNIFICADO.md), as raízes, as tabelas laterais por
-/// handle e a coleta.
-/// A coleta agendada por semente (`DARTFORGE_GC_AGENDA=<semente>,<taxa>`,
-/// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.5): uma coleta em uma de cada
-/// `rate` alocações, sorteadas por um gerador fixo a partir da semente. A
-/// mesma semente e o mesmo programa coletam nos mesmos pontos: acha o defeito
-/// que o `--gc-stress` total esconde por mudar o tempo, e o reproduz. Como
-/// no estresse, sem TLAB (toda alocação passa pelo runtime).
+/// The heap of an isolate: the object space (every runtime value is a block
+/// of it, docs/NATIVO-ESPACO-UNIFICADO.md), the roots, the side tables per
+/// handle and the collection.
+/// The seeded scheduled collection (`DARTFORGE_GC_AGENDA=<seed>,<rate>`,
+/// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.5): one collection in one out of every
+/// `rate` allocations, drawn by a fixed generator from the seed. The
+/// same seed and the same program collect at the same points: it finds the defect
+/// that full `--gc-stress` hides by changing timing, and reproduces it. As
+/// under stress, without TLAB (every allocation goes through the runtime).
 #[derive(Debug)]
 struct Schedule {
     estado: std::cell::Cell<u64>,
     rate: u64,
-    /// O sorteio já saiu e a coleta ainda não veio: a próxima consulta
-    /// responde o mesmo (o caminho lento consulta de novo).
+    /// The draw already came out and the collection has not come yet: the next query
+    /// answers the same (the slow path queries again).
     pending: std::cell::Cell<bool>,
 }
 
@@ -1384,7 +1384,7 @@ impl Schedule {
         Some(Schedule { estado: std::cell::Cell::new(if estado == 0 { 1 } else { estado }), rate, pending: std::cell::Cell::new(false) })
     }
 
-    /// Esta alocação coleta? (O xorshift64*.)
+    /// Does this allocation collect? (xorshift64*.)
     fn draws(&self) -> bool {
         if self.pending.get() {
             return true;
@@ -1402,180 +1402,180 @@ impl Schedule {
 
 #[derive(Debug)]
 pub struct Heap {
-    /// Identificador, slots e categoria: `true` conta cada ocorrência no ARC.
+    /// Identifier, slots and category: `true` counts each occurrence in ARC.
     frames: Vec<(i64, Vec<i64>, bool)>,
     next_frame: i64,
     allocations: usize,
     stress: bool,
-    /// `DARTFORGE_GC_AGENDA`; `None` sem ela.
+    /// `DARTFORGE_GC_AGENDA`; `None` without it.
     schedule: Option<Schedule>,
     stats: HeapStats,
-    /// Posições percorridas pela última marcação.
+    /// Positions walked by the last marking.
     marking_work: usize,
     pending: Vec<i64>,
     byte_threshold: usize,
-    /// Teto DURO do heap, em bytes.
+    /// HARD ceiling of the heap, in bytes.
     ///
-    /// Nao confundir com `byte_threshold`, que e o gatilho de COLETA. Este e o
-    /// limite do processo: um programa em laco infinito que aloca strings come
-    /// a memoria da maquina inteira antes de qualquer tempo-limite do harness
-    /// disparar (foi o que travou a maquina rodando o corpus nativo em
-    /// paralelo). Ao estourar, o processo sai com mensagem legivel e codigo
-    /// 255, que e o que a VM usa para excecao nao capturada — vira uma falha
-    /// no placar em vez de um travamento.
+    /// Not to be confused with `byte_threshold`, which is the COLLECTION trigger. This is the
+    /// process limit: a program in an infinite loop that allocates strings eats
+    /// the whole machine's memory before any harness timeout
+    /// fires (that is what froze the machine running the native corpus in
+    /// parallel). When exceeded, the process exits with a readable message and code
+    /// 255, which is what the VM uses for an uncaught exception — it becomes a failure
+    /// on the scoreboard instead of a hang.
     ///
-    /// Padrao 256 MiB; `DARTFORGE_HEAP_MAX_MB` ajusta, e 0 desliga o teto.
+    /// Default 256 MiB; `DARTFORGE_HEAP_MAX_MB` adjusts it, and 0 disables the ceiling.
     byte_limit: usize,
     enum_values: crate::hash::HashMap<(i64, i64), i64>,
-    /// Tear-offs canônicos de funções top-level, por ID de código.
+    /// Canonical tear-offs of top-level functions, by code ID.
     ///
-    /// O oráculo Dart 3.6.2 exige `identical(f, f)` verdadeiro para dois
-    /// tear-offs da mesma função top-level; cada `code_id` tem um único handle,
-    /// mantido vivo como raiz permanente, como os singletons de enum.
+    /// The Dart 3.6.2 oracle requires `identical(f, f)` to be true for two
+    /// tear-offs of the same top-level function; each `code_id` has a single handle,
+    /// kept alive as a permanent root, like enum singletons.
     tearoffs: crate::hash::HashMap<i64, i64>,
-    /// Literais do compilador, canônicos por unidades UTF-16. Permanecem
-    /// enraizados pelo isolate; strings criadas em execução não entram aqui.
+    /// Compiler literals, canonical by UTF-16 units. They stay
+    /// rooted by the isolate; strings created at run time do not go here.
     literals: crate::hash::HashMap<Vec<u16>, i64>,
-    /// Objetos permanentes e imutáveis que uma mensagem entre portas do
-    /// mesmo isolado passa pela identidade, sem copiar (a VM compartilha os
-    /// profundamente imutáveis): constantes canônicas, valores de enum e
-    /// globais `const` (o código gerado os marca, `dartforge_marcar_permanente`),
-    /// tear-offs de topo e literais.
+    /// Permanent and immutable objects that a message between ports of the
+    /// same isolate passes by identity, without copying (the VM shares the
+    /// deeply immutable ones): canonical constants, enum values and
+    /// `const` globals (the generated code marks them, `dartforge_marcar_permanente`),
+    /// top-level tear-offs and literals.
     permanentes: crate::hash::HashSet<i64>,
-    /// Constante canônica → o getter gerado que a produz (o mesmo endereço
-    /// em todos os isolados): uma mensagem para outro isolado leva o getter,
-    /// e o destino recebe a própria instância canônica (`identical` entre
-    /// isolados, como os objetos compartilhados do grupo da VM).
+    /// Canonical constant → the generated getter that produces it (the same address
+    /// in all isolates): a message to another isolate carries the getter,
+    /// and the destination receives its own canonical instance (`identical` across
+    /// isolates, like the VM group's shared objects).
     constants: crate::hash::HashMap<i64, usize>,
-    /// Tear-off canônico → o código dele (o inverso de `tearoffs`).
+    /// Canonical tear-off → its code (the inverse of `tearoffs`).
     tearoff_code: crate::hash::HashMap<i64, i64>,
-    /// `DARTFORGE_GC_OFF=1`: nunca coleta. Instrumento de diagnóstico
-    /// (docs/NATIVO-PLANO.md §6): um programa que morre com "handle já
-    /// coletado" e passa com a coleta desligada tem raiz faltando; um que
-    /// morre igual nos dois modos tem escalar usado como handle.
+    /// `DARTFORGE_GC_OFF=1`: never collects. Diagnostic instrument
+    /// (docs/NATIVO-PLANO.md §6): a program that dies with "handle already
+    /// collected" and passes with collection disabled is missing a root; one that
+    /// dies the same way in both modes has a scalar used as a handle.
     gc_disabled: bool,
-    /// Valor corrente de cada global `Ref` do programa (variável de topo ou
-    /// campo estático), por id: raízes permanentes (N6/G6 do contrato).
+    /// Current value of each `Ref` global of the program (top-level variable or
+    /// static field), by id: permanent roots (N6/G6 of the contract).
     globals: crate::hash::HashMap<i64, i64>,
-    /// Raízes que moram no runtime e não num frame (G6): a exceção pendente
-    /// e o rastro corrente. 0 = nenhuma.
+    /// Roots that live in the runtime and not in a frame (G6): the pending exception
+    /// and the current stack trace. 0 = none.
     runtime_roots: [i64; 2],
-    /// Ocorrências compartilhadas mantidas por mensagens neste isolado.
+    /// Shared occurrences held by messages in this isolate.
     message_owners: crate::hash::HashMap<u64, Ref>,
     next_message_owner: u64,
-    /// Tokens SSA da ABI ARC, com multiplicidade separada de slots e mapas.
-    /// O inventário sustenta alcance e auditoria; mapas não contam outra vez.
+    /// SSA tokens of the ARC ABI, with multiplicity separate from slots and maps.
+    /// The inventory sustains reachability and auditing; maps do not count again.
     code_owners: crate::hash::HashMap<Ref, usize>,
-    /// Campos `late` já escritos, por handle e índice físico. A marca fica
-    /// fora do valor: zero e null são atribuições válidas do programa.
+    /// `late` fields already written, by handle and physical index. The mark stays
+    /// outside the value: zero and null are valid program assignments.
     late_fields_initialized: crate::hash::HashSet<(i64, i64)>,
-    /// As marcas de `late_fields_initialized` gravadas desde a última
-    /// coleta: só elas podem ser de um jovem, e a coleta menor confere só
-    /// estas (os velhos não morrem nela).
+    /// The `late_fields_initialized` marks written since the last
+    /// collection: only they can belong to a young object, and the minor collection checks only
+    /// these (old objects do not die in it).
     new_lates: Vec<(i64, i64)>,
-    /// A época de layout (`LAYOUT_EPOCH`) dos objetos deste heap: a de
-    /// quando ele nasceu, e a de cada migração aplicada depois (J03).
+    /// The layout epoch (`LAYOUT_EPOCH`) of this heap's objects: the one from
+    /// when it was born, and that of each migration applied afterwards (J03).
     pub layout_epoch: u64,
-    /// Onde mora todo valor do runtime ([`ObjectSpace`]).
+    /// Where every runtime value lives ([`ObjectSpace`]).
     objects: ObjectSpace,
-    /// O heap do isolado da thread (não um de teste): reabastece a TLAB do
-    /// [`Context`] dela.
+    /// The heap of the thread's isolate (not a test one): refills the TLAB of its
+    /// [`Context`].
     published: bool,
-    /// Bytes alocados desde a última coleta (o gatilho da coleta menor).
+    /// Bytes allocated since the last collection (the minor collection trigger).
     young_bytes: usize,
-    /// A coleta em curso é menor (só os jovens).
+    /// The collection in progress is minor (young only).
     minor_collection: bool,
-    /// `--gc-stress`: coletas desde a última completa e o trabalho de marcação
-    /// dela (o espaçamento das completas, [`Heap::coletar_automatico`]).
+    /// `--gc-stress`: collections since the last full one and its marking
+    /// work (the spacing of full ones, [`Heap::coletar_automatico`]).
     minors_since_full: u64,
     work_in_full: usize,
-    /// Bytes fora do heap que contam para os gatilhos
-    /// ([`Heap::count_external`]); os dos anexos o espaço conta à parte.
+    /// Bytes outside the heap that count toward the triggers
+    /// ([`Heap::count_external`]); the attachments' bytes the space counts separately.
     external: u128,
-    /// Soma interna antes da projeção saturada em HeapStats; preserva descontos após overflow.
+    /// Internal sum before the saturated projection into HeapStats; preserves discounts after overflow.
     exact_estimated_bytes: u128,
-    /// `DARTFORGE_GC_VERIFICAR=1`: toda coleta menor confere, por uma
-    /// travessia completa, que nenhum jovem alcançável ficou sem marca (uma
-    /// barreira de escrita faltando).
-    /// Quanto o heap pode crescer até a próxima coleta completa, em % do que
-    /// sobreviveu à última ([`GROWTH`]; para medir,
+    /// `DARTFORGE_GC_VERIFICAR=1`: every minor collection checks, through a
+    /// full traversal, that no reachable young object was left unmarked (a
+    /// missing write barrier).
+    /// How much the heap may grow until the next full collection, in % of what
+    /// survived the last one ([`GROWTH`]; to measure,
     /// `DARTFORGE_GC_CRESCIMENTO`).
     growth: usize,
-    /// Os bytes entre coletas menores ([`YOUNG_LIMIT`]; para medir,
+    /// The bytes between minor collections ([`YOUNG_LIMIT`]; to measure,
     /// `DARTFORGE_GC_JOVEM_KB`).
     young_limit: usize,
     verify: bool,
-    /// Confere todo handle contra o mapa de páginas antes de ler o bloco (as
-    /// mensagens N4 de handle inválido): no `--gc-stress`, com a verificação,
-    /// nos testes e no runtime de depuração, ou com
-    /// `DARTFORGE_VALIDAR_HANDLES=1`. Fora disso, um handle de objeto é o
-    /// bloco (a invariante do código gerado): só o estado `LIVRE` (objeto já
-    /// coletado) é conferido, na leitura do cabeçalho que se faz de todo modo.
+    /// Checks every handle against the page map before reading the block (the
+    /// N4 invalid handle messages): under `--gc-stress`, with verification,
+    /// in tests and in the debug runtime, or with
+    /// `DARTFORGE_VALIDAR_HANDLES=1`. Otherwise, an object handle is the
+    /// block (the generated code's invariant): only the `LIVRE` state (object already
+    /// collected) is checked, in the header read that happens anyway.
     validate_handles: bool,
-    /// `DARTFORGE_GC_RASTRO=1`: uma linha por coleta no stderr (o tipo, os
-    /// marcados, a estimativa e o gatilho).
+    /// `DARTFORGE_GC_RASTRO=1`: one line per collection on stderr (the kind, the
+    /// marked ones, the estimate and the trigger).
     trace: bool,
-    /// `DARTFORGE_GC_MEMORIA=1`: depois de cada coleta completa (e no fim do
-    /// programa), a quebra da memória do espaço por classe de tamanho, das
-    /// tabelas do runtime e do processo ([`Heap::memory_report`]).
-    /// Com `2`, depois de toda coleta.
+    /// `DARTFORGE_GC_MEMORIA=1`: after each full collection (and at the end of the
+    /// program), the memory breakdown of the space per size class, of the
+    /// runtime tables and of the process ([`Heap::memory_report`]).
+    /// With `2`, after every collection.
     memory: u8,
-    /// Pares nativos finalizáveis (o `Dart_NewFinalizableHandle` da VM):
-    /// objeto → (finalizador, par). Quando o objeto morre, a coleta tira a
-    /// entrada e chama `finalizer(pair)` — que só libera recursos do
-    /// sistema (fecha um arquivo, solta uma contagem de referências) e nunca
-    /// toca o heap.
+    /// Native finalizable pairs (the VM's `Dart_NewFinalizableHandle`):
+    /// object → (finalizer, pair). When the object dies, the collection removes the
+    /// entry and calls `finalizer(pair)` — which only frees system
+    /// resources (closes a file, drops a reference count) and never
+    /// touches the heap.
     pub finalizable: crate::hash::HashMap<i64, Finalizer>,
-    /// As referências fracas (`WeakReference`, o `WeakReference_*` da VM):
-    /// objeto portador → alvo. O alvo NÃO é seguido pela marcação; se não
-    /// sobreviver por outro caminho, a coleta o troca por 0 (null).
+    /// Weak references (`WeakReference`, the VM's `WeakReference_*`):
+    /// holder object → target. The target is NOT followed by marking; if it does not
+    /// survive through another path, the collection replaces it with 0 (null).
     pub weak_refs: crate::hash::HashMap<i64, i64>,
-    /// Os efêmeros (`_WeakProperty`, a base do `Expando`): portador →
-    /// (chave, valor). O valor só é alcançado se a chave for (ponto fixo na
-    /// marcação); chave morta zera os dois.
+    /// Ephemerons (`_WeakProperty`, the base of `Expando`): holder →
+    /// (key, value). The value is only reached if the key is (fixed point in
+    /// marking); a dead key clears both.
     pub ephemerons: crate::hash::HashMap<i64, (i64, i64)>,
-    /// Os anexos de `Finalizer`/`NativeFinalizer` (o `FinalizerEntry` da
-    /// VM): valor, dono e chave de `detach` são fracos; a ação Dart é
-    /// aresta forte do dono. Valor morto: a ação de um `Finalizer` vai para
-    /// [`Heap::ready_finalizations`] (o laço de eventos a chama); a de um
-    /// `NativeFinalizer` roda logo depois da coleta.
+    /// The `Finalizer`/`NativeFinalizer` attachments (the VM's `FinalizerEntry`):
+    /// value, owner and `detach` key are weak; the Dart action is a
+    /// strong edge of the owner. Dead value: the action of a `Finalizer` goes to
+    /// [`Heap::ready_finalizations`] (the event loop calls it); that of a
+    /// `NativeFinalizer` runs right after the collection.
     attachments: Vec<FinalizerAttachment>,
-    /// Posições dos anexos Dart por dono; reconstruído após remoções do vetor.
+    /// Positions of the Dart attachments per owner; rebuilt after removals from the vector.
     attachments_by_owner: crate::hash::HashMap<Ref, Vec<usize>>,
-    /// As ações de `Finalizer` cujo valor morreu, à espera do laço de
-    /// eventos (raízes até lá).
+    /// The `Finalizer` actions whose value died, waiting for the event
+    /// loop (roots until then).
     pub ready_finalizations: std::collections::VecDeque<i64>,
-    /// O ARC (`--memoria=arc`, docs/ARC-IMPLEMENTACAO.md): ligado pelo
-    /// programa na entrada (`dartforge_memoria_arc_v1`); `None` é o coletor
-    /// por rastreamento de sempre.
+    /// ARC (`--memoria=arc`, docs/ARC-IMPLEMENTACAO.md): enabled by the
+    /// program at startup (`dartforge_memoria_arc_v1`); `None` is the usual
+    /// tracing collector.
     arc: Option<Box<HeapArc>>,
 }
 
-/// Um anexo de finalizador (ver `Heap::attachments`).
+/// A finalizer attachment (see `Heap::attachments`).
 #[derive(Debug, Clone, Copy)]
 pub struct FinalizerAttachment {
-    /// O `Finalizer`/`NativeFinalizer` (identidade do `detach`).
+    /// The `Finalizer`/`NativeFinalizer` (identity for `detach`).
     pub owner: i64,
     pub value: i64,
-    /// A chave de `detach` (0 = nenhuma).
+    /// The `detach` key (0 = none).
     pub detach: i64,
     pub action: FinalizerAction,
 }
 
-/// O que um finalizador faz quando o valor morre.
+/// What a finalizer does when the value dies.
 #[derive(Debug, Clone, Copy)]
 pub enum FinalizerAction {
-    /// Uma closure Dart sem argumentos (`callback(token)` já aplicada).
+    /// An argument-less Dart closure (`callback(token)` already applied).
     Dart(i64),
-    /// `function(token)`, uma função C, e bytes externos contabilizados até execução/detach.
+    /// `function(token)`, a C function, and external bytes accounted until execution/detach.
     Native(usize, usize, usize),
 }
 
 #[allow(unsafe_code)]
 impl Heap {
-    /// Roda as ações nativas de todos os anexos ainda vivos (o isolado
-    /// terminou: a VM garante os `NativeFinalizer` no encerramento) e
-    /// descarta os de `Finalizer`.
+    /// Runs the native actions of all still live attachments (the isolate
+    /// ended: the VM guarantees `NativeFinalizer`s at shutdown) and
+    /// discards the `Finalizer` ones.
     pub fn encerrar_finalizadores(&mut self) {
         let attachments = std::mem::take(&mut self.attachments);
         self.attachments_by_owner.clear();
@@ -1586,8 +1586,8 @@ impl Heap {
             }
             if let FinalizerAction::Native(f, token, bytes) = a.action {
                 self.count_external(-(bytes as isize));
-                // SAFETY: `f` é a `NativeFinalizerFunction` que o programa
-                // registrou, `void f(void* token)`.
+                // SAFETY: `f` is the `NativeFinalizerFunction` the program
+                // registered, `void f(void* token)`.
                 let f: extern "C" fn(usize) = unsafe { std::mem::transmute(f) };
                 f(token);
             }
@@ -1595,7 +1595,7 @@ impl Heap {
     }
 }
 impl Heap {
-    /// Inicializa heap; stress força coleta antes de cada alocação.
+    /// Initializes the heap; stress forces a collection before each allocation.
     pub fn new(stress: bool) -> Self {
         Self {
             frames: Vec::new(),
@@ -1628,8 +1628,8 @@ impl Heap {
             late_fields_initialized: crate::hash::HashSet::default(),
             new_lates: Vec::new(),
             layout_epoch: LAYOUT_EPOCH.load(std::sync::atomic::Ordering::Acquire),
-            // Os testes do runtime conferem que o handle de um morto é
-            // recusado: lá, como no `--gc-stress`, os mortos são zerados já.
+            // The runtime tests check that the handle of a dead object is
+            // rejected: there, as under `--gc-stress`, the dead are zeroed right away.
             external: 0,
             exact_estimated_bytes: 0,
             objects: ObjectSpace::new(stress || cfg!(test) || std::env::var("DARTFORGE_GC_VERIFICAR").as_deref() == Ok("1")),
@@ -1642,7 +1642,7 @@ impl Heap {
             verify: std::env::var("DARTFORGE_GC_VERIFICAR").as_deref() == Ok("1"),
             validate_handles: stress
                 || cfg!(any(test, debug_assertions))
-                // O veneno só pega o uso depois de liberar na validação.
+                // Poison only catches use-after-free in validation.
                 || std::env::var("DARTFORGE_GC_VENENO").is_ok_and(|v| !v.is_empty() && v != "0")
                 || std::env::var("DARTFORGE_GC_VERIFICAR").as_deref() == Ok("1")
                 || std::env::var("DARTFORGE_VALIDAR_HANDLES").as_deref() == Ok("1"),
@@ -1656,10 +1656,10 @@ impl Heap {
             ready_finalizations: std::collections::VecDeque::new(),
         }
     }
-    /// Slot proprietário do runtime: 0 = exceção pendente, 1 = rastro corrente.
+    /// Owning slot of the runtime: 0 = pending exception, 1 = current stack trace.
     ///
     /// # Panics
-    /// `which` não é 0 nem 1, ou um handle morto é detectado pela validação.
+    /// `which` is neither 0 nor 1, or a dead handle is detected by validation.
     ///
     /// ```
     /// use dartforge_runtime::heap::Heap;
@@ -1675,14 +1675,14 @@ impl Heap {
         self.runtime_roots[which] = handle;
         if handle != old { self.arc_swap_owning_root(0, old); }
     }
-    /// A string internada com as `unidades` (a tabela `literals`, raiz), se já
-    /// existe: o literal do JIT e do runtime (`textos.rs`, P1).
+    /// The interned string with the `unidades` (the `literals` table, a root), if it already
+    /// exists: the JIT's and the runtime's literal (`textos.rs`, P1).
     pub fn literal(&self, unidades: &[u16]) -> Option<Ref> {
         self.literals.get(unidades).copied()
     }
-    /// Interna `h` (uma string com as `unidades`) como literal canônico: raiz
-    /// (`literals`) e permanente (identidade entre portas do mesmo isolado).
-    /// A entrada conta um owner; repetir o mesmo registro não retém novamente.
+    /// Interns `h` (a string with the `unidades`) as a canonical literal: root
+    /// (`literals`) and permanent (identity across ports of the same isolate).
+    /// The entry counts one owner; repeating the same registration does not retain again.
     ///
     /// ```
     /// use dartforge_runtime::heap::Heap;
@@ -1698,7 +1698,7 @@ impl Heap {
         self.literals.insert(unidades, h);
         self.permanentes.insert(h);
     }
-    /// Copia o valor para o owner global; null ou `Smi` solta o owner anterior.
+    /// Copies the value to the global owner; null or `Smi` releases the previous owner.
     ///
     /// ```
     /// use dartforge_runtime::heap::Heap;
@@ -1710,7 +1710,7 @@ impl Heap {
         let old = self.globals.get(&id).copied().unwrap_or(0);
         if handle != old { self.arc_swap_owning_root(handle, 0); }
         if !smi::e_handle(handle) {
-            // null ou `Smi`: nada no heap a manter vivo.
+            // null or `Smi`: nothing in the heap to keep alive.
             self.globals.remove(&id);
         } else {
             self.globals.insert(id, handle);
@@ -1718,14 +1718,14 @@ impl Heap {
         if handle != old { self.arc_swap_owning_root(0, old); }
     }
 
-    /// Transfere token SSA ao registro proprietário de um slot global.
-    /// O chamador publica os bits no armazenamento real antes desta chamada,
-    /// sem safepoint no intervalo. O registro não guarda null/Smi como valores.
+    /// Transfers an SSA token to the owning registry of a global slot.
+    /// The caller publishes the bits in the actual storage before this call,
+    /// with no safepoint in between. The registry does not keep null/Smi as values.
     pub(crate) fn move_code_to_global(&mut self, id: i64, value: Ref) {
         let old = self.globals.get(&id).copied().unwrap_or(0);
         if smi::e_handle(value) {
             self.check_live(value);
-            let n = *self.code_owners.get(&value).expect("move global ARC sem token do código");
+            let n = *self.code_owners.get(&value).expect("ARC global move without a code token");
             if n == 1 {
                 self.code_owners.remove(&value);
             } else {
@@ -1738,10 +1738,10 @@ impl Heap {
         self.arc_swap_owning_root(0, old);
     }
 
-    /// Move a raiz de um global de um endereço de slot para outro (a área de
-    /// globais de um módulo recarregado, `gc_raizes.rs`).
-    /// Solta o owner anterior do destino. Origem ausente ou movimento para
-    /// o mesmo endereço não altera os owners.
+    /// Moves the root of a global from one slot address to another (the globals
+    /// area of a reloaded module, `gc_roots.rs`).
+    /// Releases the destination's previous owner. A missing source or a move to
+    /// the same address does not change the owners.
     ///
     /// ```
     /// use dartforge_runtime::heap::Heap;
@@ -1757,7 +1757,7 @@ impl Heap {
         }
     }
 
-    /// Solta a raiz de um global que deixou de existir.
+    /// Releases the root of a global that ceased to exist.
     ///
     /// ```
     /// use dartforge_runtime::heap::Heap;
@@ -1770,14 +1770,14 @@ impl Heap {
         }
     }
 
-    /// Marca `handle` como permanente (ver `permanentes`).
+    /// Marks `handle` as permanent (see `permanentes`).
     pub fn mark_permanent(&mut self, handle: i64) {
         if smi::e_handle(handle) {
             self.permanentes.insert(handle);
         }
     }
 
-    /// Marca `handle` como a constante canônica que `getter` produz.
+    /// Marks `handle` as the canonical constant that `getter` produces.
     pub fn mark_constant(&mut self, handle: i64, getter: usize) {
         if smi::e_handle(handle) {
             self.permanentes.insert(handle);
@@ -1787,22 +1787,22 @@ impl Heap {
         }
     }
 
-    /// O getter da constante canônica `handle`, se for uma.
+    /// The getter of the canonical constant `handle`, if it is one.
     pub fn constant_getter(&self, handle: i64) -> Option<usize> {
         self.constants.get(&handle).copied()
     }
 
-    /// O código do tear-off canônico `handle`, se for um.
+    /// The code of the canonical tear-off `handle`, if it is one.
     pub fn tearoff_code(&self, handle: i64) -> Option<i64> {
         self.tearoff_code.get(&handle).copied()
     }
 
-    /// Se `handle` é permanente e imutável (ver `permanentes`): uma
-    /// mensagem no mesmo isolado o passa sem copiar.
+    /// Whether `handle` is permanent and immutable (see `permanentes`): a
+    /// message in the same isolate passes it without copying.
     pub fn is_permanent(&self, handle: i64) -> bool {
         self.permanentes.contains(&handle) || is_static(handle)
     }
-    /// Le o teto do heap do ambiente uma vez, na criacao.
+    /// Reads the heap ceiling from the environment once, at creation.
     fn limit_from_env() -> usize {
         const DEFAULT: usize = 256 * 1024 * 1024;
         match std::env::var("DARTFORGE_HEAP_MAX_MB") {
@@ -1815,13 +1815,13 @@ impl Heap {
         }
     }
 
-    /// Bytes que o heap ocupa: os blocos em uso (com as regiões grandes e os
-    /// bytes de fora, anexos e externos), mais `extra`.
+    /// Bytes the heap takes: the blocks in use (with the large regions and the
+    /// outside bytes, attachments and external ones), plus `extra`.
     fn total_bytes(&self, extra: usize) -> usize {
         self.stats.estimated_bytes.saturating_add(extra)
     }
 
-    /// Para o processo quando o heap passa do teto.
+    /// Stops the process when the heap exceeds the ceiling.
     fn verify_ceiling(&self, extra: usize) {
         if self.byte_limit == usize::MAX {
             return;
@@ -1835,24 +1835,24 @@ impl Heap {
     #[cold]
     #[inline(never)]
     fn abort_out_of_memory(total: usize, limit: usize) -> ! {
-        // Sem `panic!`: o runtime e chamado por `extern "C"` a partir do codigo
-        // gerado, e um panico atravessando essa fronteira aborta com um despejo
-        // de pilha ilegivel. Uma linha e o codigo 255 (o mesmo da VM para
-        // excecao nao capturada) sao o que o harness precisa.
+        // No `panic!`: the runtime is called through `extern "C"` from the generated
+        // code, and a panic crossing that boundary aborts with an unreadable stack
+        // dump. One line and code 255 (the same as the VM's for an
+        // uncaught exception) is what the harness needs.
         let mib = 1024 * 1024;
         eprintln!(
-            "Out of memory: heap do DartForge chegou a {} MiB, acima do teto de {} MiB (ajuste com DARTFORGE_HEAP_MAX_MB, 0 desliga).",
+            "Out of memory: the DartForge heap reached {} MiB, above the ceiling of {} MiB (adjust with DARTFORGE_HEAP_MAX_MB, 0 disables it).",
             total / mib,
             limit / mib
         );
         std::process::exit(255);
     }
 
-    /// Obtém o singleton de um valor enum, protegendo as alocações internas.
-    /// A tabela guarda um owner persistente para cada singleton criado.
+    /// Gets the singleton of an enum value, protecting the internal allocations.
+    /// The table keeps a persistent owner for each created singleton.
     ///
     /// # Panics
-    /// A identidade da classe ou o índice é negativo.
+    /// The class identity or the index is negative.
     ///
     /// ```
     /// use dartforge_runtime::heap::Heap;
@@ -1861,7 +1861,7 @@ impl Heap {
     /// assert_eq!(heap.enum_value(900, 0, "zero"), value);
     /// ```
     pub fn enum_value(&mut self, class_id: i64, index: i64, name: &str) -> i64 {
-        assert!(class_id >= 0 && index >= 0, "identidade enum inválida");
+        assert!(class_id >= 0 && index >= 0, "invalid enum identity");
         if let Some(&handle) = self.enum_values.get(&(class_id, index)) {
             return handle;
         }
@@ -1875,14 +1875,14 @@ impl Heap {
         self.pop_frame(frame);
         object
     }
-    /// O tear-off canônico já registrado da função de topo `code` (a tabela
-    /// `tearoffs`, raiz), se existe (`boxes.rs`, P2).
+    /// The already registered canonical tear-off of the top-level function `code` (the
+    /// `tearoffs` table, a root), if it exists (`boxes.rs`, P2).
     pub fn registered_tearoff(&self, code: i64) -> Option<Ref> {
         self.tearoffs.get(&code).copied()
     }
-    /// Registra `h` como o tear-off canônico de `code`: raiz (`tearoffs`), o
-    /// inverso (`tearoff_code`) e permanente.
-    /// A tabela conta um owner, incluindo substituição sem duplicar aliases.
+    /// Registers `h` as the canonical tear-off of `code`: root (`tearoffs`), the
+    /// inverse (`tearoff_code`) and permanent.
+    /// The table counts one owner, including replacement without duplicating aliases.
     ///
     /// ```
     /// use dartforge_runtime::heap::Heap;
@@ -1899,28 +1899,28 @@ impl Heap {
         self.tearoff_code.insert(h, code);
         self.permanentes.insert(h);
     }
-    /// Abre frame de raízes com identificador monotônico.
+    /// Opens a root frame with a monotonic identifier.
     pub fn push_frame(&mut self) -> i64 {
         self.push_frame_with_slots(0)
     }
-    /// Reserva slots fixos inicialmente null, reutilizados por todas as iterações.
+    /// Reserves fixed slots, initially null, reused by all iterations.
     pub fn push_frame_with_slots(&mut self, slots: usize) -> i64 {
         let id = self.next_frame;
-        self.next_frame = id.checked_add(1).expect("frames esgotados");
+        self.next_frame = id.checked_add(1).expect("frames exhausted");
         self.stats.root_slots = self
             .stats
             .root_slots
             .checked_add(slots)
-            .expect("slots excedem usize");
+            .expect("slots exceed usize");
         self.stats.peak_root_slots = self.stats.peak_root_slots.max(self.stats.root_slots);
         self.frames.push((id, vec![0; slots], false));
         id
     }
-    /// Abre slots proprietários: cópia retém e fechamento solta no ARC.
-    /// Quadros observacionais devem continuar usando `push_frame_with_slots`.
+    /// Opens owning slots: copying retains and closing releases under ARC.
+    /// Observational frames must keep using `push_frame_with_slots`.
     ///
     /// # Panics
-    /// O identificador ou a soma dos slots se esgotou.
+    /// The identifier or the sum of slots ran out.
     ///
     /// ```
     /// use dartforge_runtime::heap::Heap;
@@ -1935,11 +1935,11 @@ impl Heap {
         id
     }
 
-    /// Exige owner antes de uma operação da ABI; quadro observacional não
-    /// pode aceitar uma cópia que o compilador acredita ser contada.
+    /// Requires an owner before an ABI operation; an observational frame cannot
+    /// accept a copy the compiler believes is counted.
     pub(crate) fn check_owning_frame(&self, frame: i64) {
         let (_, _, owning) = self.frames.iter().rfind(|(id, _, _)| *id == frame)
-            .expect("quadro ARC inexistente");
+            .expect("nonexistent ARC frame");
         assert!(*owning, "ARC frame must be owning");
     }
 
@@ -1956,7 +1956,7 @@ impl Heap {
             .chain(self.runtime_roots.iter().copied()).collect()
     }
 
-    /// Publica uma ocorrência proprietária na fila, sem coleta entre retenção e escrita.
+    /// Publishes an owning occurrence in the queue, without collection between retention and write.
     #[cfg(test)]
     pub(crate) fn add_ready_finalization(&mut self, action: Ref) {
         self.check_live(action);
@@ -1964,20 +1964,20 @@ impl Heap {
         self.ready_finalizations.push_back(action);
     }
 
-    /// Consome o owner da primeira finalização; fila vazia é um no-op.
+    /// Consumes the owner of the first finalization; an empty queue is a no-op.
     pub(crate) fn finish_ready_finalization(&mut self) -> Option<Ref> {
         let action = self.ready_finalizations.pop_front()?;
         self.arc_swap_owning_root(0, action);
         Some(action)
     }
 
-    /// Transfere a ocorrência da fila ao callback ativo, sem retenção adicional.
+    /// Transfers the queue occurrence to the active callback, without additional retention.
     pub(crate) fn move_finalization_to_slot(&mut self, frame: i64, slot: usize) -> Ref {
         let ix = self.frames.iter().rposition(|(id, _, _)| *id == frame)
             .expect("frame inexistente");
-        assert!(self.frames[ix].2, "movimento exige quadro proprietário");
-        let old = *self.frames[ix].1.get(slot).expect("slot de raiz inválido");
-        let value = *self.ready_finalizations.front().expect("fila de finalizações vazia");
+        assert!(self.frames[ix].2, "move requires an owning frame");
+        let old = *self.frames[ix].1.get(slot).expect("invalid root slot");
+        let value = *self.ready_finalizations.front().expect("empty finalization queue");
         self.arc_swap_owning_root(0, old);
         self.ready_finalizations.pop_front();
         self.frames[ix].1[slot] = value;
@@ -1987,49 +1987,49 @@ impl Heap {
         value
     }
 
-    /// Retém uma ocorrência de mensagem no domínio deste heap.
+    /// Retains a message occurrence in this heap's domain.
     pub(crate) fn retain_message_owner(&mut self, value: Ref) -> u64 {
         self.check_live(value);
-        let id = self.next_message_owner.checked_add(1).expect("owners de mensagem esgotados");
+        let id = self.next_message_owner.checked_add(1).expect("message owners exhausted");
         self.arc_swap_owning_root(value, 0);
         self.message_owners.insert(id, value);
         self.next_message_owner = id;
         id
     }
 
-    /// Consome uma ocorrência de mensagem neste heap, sem coleta.
+    /// Consumes a message occurrence in this heap, without collection.
     pub(crate) fn release_message_owner(&mut self, id: u64) {
-        let value = self.message_owners.remove(&id).expect("owner de mensagem inexistente");
+        let value = self.message_owners.remove(&id).expect("nonexistent message owner");
         self.arc_swap_owning_root(0, value);
     }
 
-    /// Snapshot de diagnóstico: bit 0 para bloco vivo do heap, bit 1 para owner do código.
-    /// Consulta o índice de páginas antes de ler o cabeçalho; não dereferencia
-    /// endereços fora do heap nem inclui objetos estáticos, null ou Smi.
+    /// Diagnostic snapshot: bit 0 for a live heap block, bit 1 for a code owner.
+    /// Consults the page index before reading the header; does not dereference
+    /// addresses outside the heap nor include static objects, null or Smi.
     pub(crate) fn observe_code_owner(&self, address: i64) -> u8 {
         let alive = self.objects.occupied_block(address);
         u8::from(alive) | (u8::from(self.code_owners.contains_key(&address)) << 1)
     }
 
-    /// `address` tem token do código? O bit 1 de [`Self::observe_code_owner`],
-    /// sem procurar o bloco nas listas de livres (a conferência de cada
-    /// retorno Owned das portas).
+    /// Does `address` have a code token? Bit 1 of [`Self::observe_code_owner`],
+    /// without searching for the block in the free lists (the check of each
+    /// Owned return of the ports).
     pub(crate) fn has_code_owner(&self, address: i64) -> bool {
         self.code_owners.contains_key(&address)
     }
 
-    /// Cria uma ocorrência do código gerado, sem coleta ou execução Dart.
-    /// A localização observacional publicada não cria outro owner.
+    /// Creates an occurrence for the generated code, without collection or Dart execution.
+    /// The published observational location does not create another owner.
     pub(crate) fn retain_code_owner(&mut self, value: Ref) {
         if !smi::e_handle(value) { return; }
         self.check_live(value);
         self.arc_swap_owning_root(value, 0);
-        // Uma busca só no inventário (o caminho de cada retain do código).
+        // A lookup only in the inventory (the path of each code retain).
         let n = self.code_owners.entry(value).or_insert(0);
-        *n = n.checked_add(1).expect("tokens ARC do código esgotados");
+        *n = n.checked_add(1).expect("code ARC tokens exhausted");
     }
 
-    /// Consome exatamente uma ocorrência da ABI, nunca um owner de slot.
+    /// Consumes exactly one ABI occurrence, never a slot owner.
     pub(crate) fn release_code_owner(&mut self, value: Ref) {
         if !smi::e_handle(value) { return; }
         match self.code_owners.entry(value) {
@@ -2040,12 +2040,12 @@ impl Heap {
                     *e.get_mut() -= 1;
                 }
             }
-            std::collections::hash_map::Entry::Vacant(_) => panic!("release ARC sem token do código"),
+            std::collections::hash_map::Entry::Vacant(_) => panic!("ARC release without a code token"),
         }
         self.arc_swap_owning_root(0, value);
     }
 
-    /// Copia um slot proprietário para um token independente do código.
+    /// Copies an owning slot into an independent code token.
     pub(crate) fn copy_root_to_code(&mut self, frame: i64, slot: usize) -> Ref {
         self.check_owning_frame(frame);
         let i = self
@@ -2053,13 +2053,13 @@ impl Heap {
             .iter()
             .rposition(|(id, _, _)| *id == frame)
             .unwrap();
-        let value = *self.frames[i].1.get(slot).expect("slot de raiz inválido");
+        let value = *self.frames[i].1.get(slot).expect("invalid root slot");
         self.retain_code_owner(value);
         value
     }
 
-    /// Transfere um token do código para um slot, sem retain da origem.
-    /// Valida tudo antes de consumir/publicar; solta o antigo após publicação.
+    /// Transfers a code token into a slot, without retaining the source.
+    /// Validates everything before consuming/publishing; releases the old one after publishing.
     pub(crate) fn move_code_to_root(&mut self, frame: i64, slot: usize, value: Ref) {
         self.check_owning_frame(frame);
         let i = self
@@ -2067,13 +2067,13 @@ impl Heap {
             .iter()
             .rposition(|(id, _, _)| *id == frame)
             .unwrap();
-        let old = *self.frames[i].1.get(slot).expect("slot de raiz inválido");
+        let old = *self.frames[i].1.get(slot).expect("invalid root slot");
         if smi::e_handle(value) {
             self.check_live(value);
             let n = *self
                 .code_owners
                 .get(&value)
-                .expect("move ARC sem token do código");
+                .expect("ARC move without a code token");
             if n == 1 {
                 self.code_owners.remove(&value);
             } else {
@@ -2084,11 +2084,11 @@ impl Heap {
         self.stats.live_roots -= usize::from(old != 0);
         self.stats.live_roots += usize::from(value != 0);
         self.stats.peak_roots = self.stats.peak_roots.max(self.stats.live_roots);
-        // A ocorrência nova já era contada no inventário do código.
+        // The new occurrence was already counted in the code inventory.
         self.arc_swap_owning_root(0, old);
     }
 
-    /// Retém antes de soltar, sem coleta nem chamada Dart entre as operações.
+    /// Retains before releasing, with no collection nor Dart call between the operations.
     fn arc_swap_owning_root(&mut self, new: Ref, old: Ref) {
         if new == old { return; }
         let Some(mut arc) = self.arc.take() else { return };
@@ -2097,16 +2097,16 @@ impl Heap {
         self.arc = Some(arc);
     }
 
-    /// Copia a raiz para o slot; zero remove a referência anterior.
-    /// Num quadro proprietário, retém a nova ocorrência antes de soltar a antiga.
-    /// Um `Smi` ocupa o slot como qualquer `Ref`, mas o coletor não o segue.
+    /// Copies the root into the slot; zero removes the previous reference.
+    /// In an owning frame, retains the new occurrence before releasing the old one.
+    /// A `Smi` occupies the slot like any `Ref`, but the collector does not follow it.
     pub fn set_root(&mut self, frame: i64, slot: usize, handle: i64) {
         if smi::e_handle(handle) {
             self.check_live(handle);
         }
         let ix = self.frames.iter().rposition(|(id, _, _)| *id == frame)
             .expect("frame inexistente");
-        let old = *self.frames[ix].1.get(slot).expect("slot de raiz inválido");
+        let old = *self.frames[ix].1.get(slot).expect("invalid root slot");
         let owning = self.frames[ix].2;
         if owning && handle != old { self.arc_swap_owning_root(handle, 0); }
         let previous = &mut self.frames[ix].1[slot];
@@ -2116,13 +2116,13 @@ impl Heap {
         self.stats.peak_roots = self.stats.peak_roots.max(self.stats.live_roots);
         if owning && handle != old { self.arc_swap_owning_root(0, old); }
     }
-    /// Transfere uma ocorrência entre slots proprietários, zerando a origem.
-    /// Solta o conteúdo anterior do destino sem reter o valor transferido.
-    /// Mover um slot para ele próprio preserva seu conteúdo e sua contagem.
-    /// Não há coleta nem chamada Dart durante a transferência.
+    /// Transfers an occurrence between owning slots, zeroing the source.
+    /// Releases the previous content of the destination without retaining the transferred value.
+    /// Moving a slot onto itself preserves its content and its count.
+    /// There is no collection nor Dart call during the transfer.
     ///
     /// # Panics
-    /// Algum quadro não existe, não é proprietário ou o slot é inválido.
+    /// Some frame does not exist, is not owning, or the slot is invalid.
     ///
     /// ```
     /// use dartforge_runtime::heap::Heap;
@@ -2135,12 +2135,12 @@ impl Heap {
     /// ```
     pub fn move_root(&mut self, origin: i64, source_slot: usize, dest: i64, dest_slot: usize) {
         let de = self.frames.iter().rposition(|(id, _, _)| *id == origin)
-            .expect("frame de origem inexistente");
+            .expect("nonexistent source frame");
         let to = self.frames.iter().rposition(|(id, _, _)| *id == dest)
-            .expect("frame de destino inexistente");
-        assert!(self.frames[de].2 && self.frames[to].2, "movimento exige quadros proprietários");
-        let value = *self.frames[de].1.get(source_slot).expect("slot de origem inválido");
-        let old = *self.frames[to].1.get(dest_slot).expect("slot de destino inválido");
+            .expect("nonexistent destination frame");
+        assert!(self.frames[de].2 && self.frames[to].2, "move requires owning frames");
+        let value = *self.frames[de].1.get(source_slot).expect("invalid source slot");
+        let old = *self.frames[to].1.get(dest_slot).expect("invalid destination slot");
         if de == to && source_slot == dest_slot { return; }
         self.frames[de].1[source_slot] = 0;
         self.frames[to].1[dest_slot] = value;
@@ -2148,11 +2148,11 @@ impl Heap {
         self.arc_swap_owning_root(0, old);
     }
 
-    /// Transfere um owner global para um slot proprietário, consumindo o global.
-    /// Solta o conteúdo anterior do slot sem reter o valor transferido.
+    /// Transfers a global owner into an owning slot, consuming the global.
+    /// Releases the previous content of the slot without retaining the transferred value.
     ///
     /// # Panics
-    /// O global não existe, o quadro não é proprietário ou o slot é inválido.
+    /// The global does not exist, the frame is not owning, or the slot is invalid.
     ///
     /// ```
     /// use dartforge_runtime::heap::Heap;
@@ -2166,8 +2166,8 @@ impl Heap {
     pub fn move_global_to_slot(&mut self, global: i64, frame: i64, slot: usize) {
         let ix = self.frames.iter().rposition(|(id, _, _)| *id == frame)
             .expect("frame inexistente");
-        assert!(self.frames[ix].2, "movimento exige quadro proprietário");
-        let old = *self.frames[ix].1.get(slot).expect("slot de raiz inválido");
+        assert!(self.frames[ix].2, "move requires an owning frame");
+        let old = *self.frames[ix].1.get(slot).expect("invalid root slot");
         let value = *self.globals.get(&global).expect("owner global inexistente");
         self.globals.remove(&global);
         self.frames[ix].1[slot] = value;
@@ -2177,7 +2177,7 @@ impl Heap {
         self.arc_swap_owning_root(0, old);
     }
 
-    /// Protege handle até o retorno da função; null não ocupa uma raiz.
+    /// Protects a handle until the function returns; null does not occupy a root.
     pub fn root(&mut self, frame: i64, handle: i64) {
         if !smi::e_handle(handle) {
             return;
@@ -2192,7 +2192,7 @@ impl Heap {
         self.stats.peak_roots = self.stats.peak_roots.max(self.stats.live_roots);
         self.stats.peak_root_slots = self.stats.peak_root_slots.max(self.stats.root_slots);
     }
-    /// Fecha exatamente o frame do topo, sem coletar entre retorno e raiz do chamador.
+    /// Closes exactly the top frame, without collecting between the return and the caller's root.
     pub fn pop_frame(&mut self, frame: i64) {
         assert_eq!(self.frames.last().map(|(id, _, _)| *id), Some(frame));
         let (_, roots, owning) = self.frames.pop().unwrap();
@@ -2202,30 +2202,30 @@ impl Heap {
         self.stats.root_slots -= roots.len();
         self.stats.live_roots -= roots.iter().filter(|handle| **handle != 0).count();
     }
-    /// Coleta se algum gatilho pede, confere o teto e conta a alocação de
+    /// Collects if some trigger asks for it, checks the ceiling and counts the allocation of
     /// `bytes`.
     fn antes_de_alocar(&mut self, bytes: usize) {
-        // Dois limites diferentes (G6):
-        // * o GATILHO (`threshold`, `byte_threshold`): quanto se aloca desde
-        //   a última coleta, recalculado no fim de cada uma
-        //   (`recompute_triggers`) a partir dos sobreviventes e da folga até
-        //   o teto;
-        // * o TETO (`byte_limit`): só a alocação que passaria dele força
-        //   uma última coleta; se ainda passa, falta memória.
-        // O portão antigo (`!self.frames.is_empty()`) existia porque o código
-        // gerado não registrava raízes; com o frame de cada função (G1),
-        // coletar sem frame aberto é só coletar com as raízes permanentes.
+        // Two different limits (G6):
+        // * the TRIGGER (`threshold`, `byte_threshold`): how much is allocated since
+        //   the last collection, recomputed at the end of each one
+        //   (`recompute_triggers`) from the survivors and the slack up to
+        //   the ceiling;
+        // * the CEILING (`byte_limit`): only the allocation that would exceed it forces
+        //   one last collection; if it still exceeds it, memory is out.
+        // The old gate (`!self.frames.is_empty()`) existed because the generated
+        // code did not register roots; with each function's frame (G1),
+        // collecting without an open frame is just collecting with the permanent roots.
         if !self.gc_disabled && self.needs_collection(bytes) {
             self.coletar_automatico(bytes);
         }
-        // Depois da coleta: se ainda passa do teto, nao ha o que recuperar.
+        // After the collection: if it still exceeds the ceiling, there is nothing to reclaim.
         self.verify_ceiling(bytes);
         self.count_allocation(1, bytes);
     }
-    /// Um objeto do usuário novo com os campos `fields` (os que o runtime
-    /// monta à mão: erros, valores de enum, a classe `Type`…). Coleta antes
-    /// como [`Heap::allocate`]: as referências em `fields` precisam de raiz
-    /// de quem chama.
+    /// A new user object with the fields `fields` (those the runtime
+    /// builds by hand: errors, enum values, the `Type` class…). Collects first
+    /// like [`Heap::allocate`]: the references in `fields` need a root
+    /// from the caller.
     pub fn new_object(&mut self, class_id: i64, fields: &[Field]) -> i64 {
         let h = self.allocate_object(class_id, fields.len());
         for (i, &(bits, is_ref_kind)) in fields.iter().enumerate() {
@@ -2233,8 +2233,8 @@ impl Heap {
         }
         h
     }
-    /// Conta `k` alocações de `bytes` no total para os gatilhos e os
-    /// contadores.
+    /// Counts `k` allocations of `bytes` in total for the triggers and the
+    /// counters.
     #[inline]
     fn count_allocation(&mut self, k: usize, bytes: usize) {
         self.add_estimated_bytes(bytes);
@@ -2242,42 +2242,42 @@ impl Heap {
         self.stats.allocations += k as u64;
         self.young_bytes = self.young_bytes.saturating_add(bytes);
     }
-    /// O campo `late` `key` (handle, índice) já foi escrito?
+    /// Was the `late` field `key` (handle, index) already written?
     #[inline]
     pub fn late_initialized(&self, key: (i64, i64)) -> bool {
         !self.late_fields_initialized.is_empty() && self.late_fields_initialized.contains(&key)
     }
-    /// Marca o campo `late` `key` como escrito.
+    /// Marks the `late` field `key` as written.
     pub fn mark_late(&mut self, key: (i64, i64)) {
         if self.late_fields_initialized.insert(key) {
             self.new_lates.push(key);
         }
     }
-    /// Desfaz a marca do campo `late` `key`.
+    /// Undoes the mark of the `late` field `key`.
     pub fn unmark_late(&mut self, key: (i64, i64)) {
         self.late_fields_initialized.remove(&key);
     }
-    /// O heap do isolado da thread: reabastece a TLAB do [`Context`] (a
-    /// alocação em linha do código gerado).
+    /// The heap of the thread's isolate: refills the TLAB of the [`Context`] (the
+    /// generated code's inline allocation).
     pub fn for_isolate(stress: bool) -> Self {
         let mut h = Self::new(stress);
         h.published = true;
         h
     }
-    /// Aloca um objeto do usuário de `n` campos zerados (o caminho do
-    /// `dartforge_object_new`), no espaço de objetos.
+    /// Allocates a user object of `n` zeroed fields (the path of
+    /// `dartforge_object_new`), in the object space.
     ///
-    /// O caminho rápido confere os gatilhos de [`Heap::allocate`] numa
-    /// comparação cada; se algum dispara (coleta, teto, `--gc-stress`), vai
-    /// ao caminho geral.
+    /// The fast path checks the triggers of [`Heap::allocate`] with one
+    /// comparison each; if any fires (collection, ceiling, `--gc-stress`), it goes
+    /// to the general path.
     #[inline]
     pub fn allocate_object(&mut self, class_id: i64, n: usize) -> i64 {
-        let cid = i32::try_from(class_id).expect("id de classe além de 32 bits");
+        let cid = i32::try_from(class_id).expect("class id beyond 32 bits");
         self.alocar_bloco(cid, crate::layout::palavras_de_instancia(n), flags_do_bloco::INSTANCIA, n)
     }
-    /// Um bloco de corpo de `words` palavras zeradas, classe `cid`, `flags` e
-    /// `n` no cabeçalho (em `INSTANCIA`, o número de campos; nos demais, as
-    /// palavras): o caminho de [`Heap::allocate`], [`Heap::allocate_object`] e de
+    /// A block with a body of `words` zeroed words, class `cid`, `flags` and
+    /// `n` in the header (in `INSTANCIA`, the number of fields; in the others, the
+    /// words): the path of [`Heap::allocate`], [`Heap::allocate_object`] and of
     /// `dartforge_alocar`.
     #[inline]
     pub(crate) fn alocar_bloco(&mut self, cid: i32, words: usize, flags: u8, n: usize) -> Ref {
@@ -2288,10 +2288,10 @@ impl Heap {
         self.count_allocation(1, bytes);
         self.objects.allocate(cid, words, flags, n)
     }
-    /// Uma alocação de `bytes` agora passaria de algum gatilho de coleta?
-    /// A menor vem a cada [`YOUNG_LIMIT`] bytes (ou [`YOUNG_COUNT`]
-    /// alocações) desde a última coleta; a completa, quando o total passa do
-    /// gatilho que a última completa calculou (`byte_threshold`) ou do teto.
+    /// Would an allocation of `bytes` now exceed some collection trigger?
+    /// The minor one comes every [`YOUNG_LIMIT`] bytes (or [`YOUNG_COUNT`]
+    /// allocations) since the last collection; the full one, when the total exceeds the
+    /// trigger the last full one computed (`byte_threshold`) or the ceiling.
     #[inline]
     fn needs_collection(&self, bytes: usize) -> bool {
         self.stress
@@ -2301,9 +2301,9 @@ impl Heap {
             || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
             || (self.byte_limit != usize::MAX && self.total_bytes(bytes) > self.byte_limit)
     }
-    /// A coleta que os gatilhos pedem antes de alocar `bytes`: a completa se
-    /// o total passou do gatilho dela (ou do teto, ou a cada
-    /// [`MINORS_PER_FULL_UNDER_STRESS`] no `--gc-stress`); a menor senão.
+    /// The collection the triggers ask for before allocating `bytes`: the full one if
+    /// the total exceeded its trigger (or the ceiling, or every
+    /// [`MINORS_PER_FULL_UNDER_STRESS`] under `--gc-stress`); otherwise the minor one.
     fn coletar_automatico(&mut self, bytes: usize) {
         let full = self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
             || (self.byte_limit != usize::MAX && self.total_bytes(bytes) > self.byte_limit)
@@ -2318,12 +2318,12 @@ impl Heap {
         self.antes_de_alocar(allocation_bytes(words));
         self.objects.allocate(cid, words, flags, n)
     }
-    /// Reabastece a TLAB de `n` campos do [`Context`] (se esgotada) com
-    /// uma faixa contígua de até `TLAB_BLOCKS` blocos livres, contados
-    /// como alocados agora — sem coletar: só o que cabe antes do próximo
-    /// gatilho (o que passa dele fica para o runtime, que coleta). Sem TLAB
-    /// no `--gc-stress` (toda alocação passa pelo runtime, que coleta antes)
-    /// e nos heaps de teste.
+    /// Refills the TLAB for `n` fields of the [`Context`] (if exhausted) with
+    /// a contiguous range of up to `TLAB_BLOCKS` free blocks, counted
+    /// as allocated now — without collecting: only what fits before the next
+    /// trigger (what exceeds it is left to the runtime, which collects). No TLAB
+    /// under `--gc-stress` (every allocation goes through the runtime, which collects first)
+    /// nor in test heaps.
     pub fn refill_tlab(&mut self, words: usize) {
         let n = words;
         if !self.published || self.stress || self.schedule.is_some() || n == 0 || n > TLAB_N {
@@ -2351,9 +2351,9 @@ impl Heap {
             c.tlab[n][1].set(start.wrapping_add(k * size));
         });
     }
-    /// Devolve as TLABs do [`Context`] (o que o código gerado não usou) antes
-    /// de uma coleta: o resto de cada faixa volta à frente da lista livre
-    /// e sai da contagem de alocações.
+    /// Returns the TLABs of the [`Context`] (what the generated code did not use) before
+    /// a collection: the rest of each range goes back to the front of the free list
+    /// and leaves the allocation count.
     fn return_tlabs(&mut self) {
         if !self.published {
             return;
@@ -2373,24 +2373,24 @@ impl Heap {
             }
         }
     }
-    /// O bloco vivo do objeto `h` (`h & 3 == 2`), ou `panic` N4 para handle
-    /// inválido ou objeto já coletado.
+    /// The live block of object `h` (`h & 3 == 2`), or an N4 `panic` for an invalid
+    /// handle or an already collected object.
     ///
-    /// Um objeto estático (seção da imagem, `PERMANENTE`) também é devolvido:
-    /// ele se lê como qualquer bloco; quem grava confere
+    /// A static object (image section, `PERMANENTE`) is also returned:
+    /// it reads like any block; writers check
     /// ([`Heap::check_writable`]).
     ///
-    /// As falhas têm causas diferentes e a mensagem é a chave de agrupamento do
-    /// harness (docs/NATIVO-PLANO.md §6.4, N4): texto fixo na primeira linha e
-    /// o detalhe na segunda — null desreferenciado, `Smi` ou escalar negativo
-    /// usado como handle, handle fora do espaço (escalar positivo) e objeto já
-    /// coletado (raiz faltando).
+    /// The failures have different causes and the message is the harness's grouping
+    /// key (docs/NATIVO-PLANO.md §6.4, N4): fixed text on the first line and
+    /// the detail on the second — dereferenced null, `Smi` or negative scalar
+    /// used as a handle, handle outside the space (positive scalar) and an already
+    /// collected object (missing root).
     #[inline(always)]
     fn live_block(&self, handle: i64) -> *mut Header {
         if !self.validate_handles && is_object(handle) {
             let b = (handle - DESLOCAMENTO_DO_HANDLE) as *mut Header;
-            // SAFETY: sem a validação, um handle de objeto é um bloco do espaço
-            // ou um estático (`validate_handles`).
+            // SAFETY: without validation, an object handle is a block of the space
+            // or a static (`validate_handles`).
             #[allow(unsafe_code)]
             if unsafe { (*b).estado } != LIVRE {
                 return b;
@@ -2398,8 +2398,8 @@ impl Heap {
         }
         self.live_block_checked(handle)
     }
-    /// [`Heap::live_block`] pelo mapa de páginas, com as mensagens N4 (o
-    /// caminho de `validate_handles` e o das falhas).
+    /// [`Heap::live_block`] through the page map, with the N4 messages (the
+    /// path of `validate_handles` and that of the failures).
     #[cold]
     #[inline(never)]
     fn live_block_checked(&self, handle: i64) -> *mut Header {
@@ -2407,25 +2407,25 @@ impl Heap {
             Self::invalid_handle(handle);
         }
         match self.objects.block_of(handle) {
-            // SAFETY: bloco de uma página do espaço.
+            // SAFETY: block of a page of the space.
             #[allow(unsafe_code)]
             Some(b) if unsafe { (*b).estado } == crate::space::POISON_STATE => {
-                panic!("bug do compilador: handle já coletado (raiz faltando; bloco envenenado, DARTFORGE_GC_VENENO)\nhandle {handle}")
+                panic!("compiler bug: handle already collected (missing root; poisoned block, DARTFORGE_GC_VENENO)\nhandle {handle}")
             }
-            // SAFETY: bloco de uma página do espaço.
+            // SAFETY: block of a page of the space.
             #[allow(unsafe_code)]
             Some(b) if unsafe { (*b).estado } != 0 => b,
-            Some(_) => panic!("bug do compilador: handle já coletado (raiz faltando)\nhandle {handle}"),
+            Some(_) => panic!("compiler bug: handle already collected (missing root)\nhandle {handle}"),
             None if is_static(handle) => (handle - DESLOCAMENTO_DO_HANDLE) as *mut Header,
             None if self.objects.in_page(handle) => {
-                panic!("bug do compilador: handle já coletado (raiz faltando)\nhandle {handle}")
+                panic!("compiler bug: handle already collected (missing root)\nhandle {handle}")
             }
-            None => panic!("bug do compilador: handle além da tabela (escalar usado como handle)\nhandle {handle}"),
+            None => panic!("compiler bug: handle beyond the table (scalar used as a handle)\nhandle {handle}"),
         }
     }
-    /// O bloco de `h` se é objeto do espaço (vivo ou `LIVRE`; nunca um
-    /// estático): o mapa de páginas com `validate_handles`, senão o próprio
-    /// endereço.
+    /// The block of `h` if it is an object of the space (live or `LIVRE`; never a
+    /// static): the page map with `validate_handles`, otherwise the address
+    /// itself.
     #[inline]
     fn space_block(&self, h: i64) -> Option<*mut Header> {
         if self.validate_handles {
@@ -2435,59 +2435,59 @@ impl Heap {
             return None;
         }
         let b = (h - DESLOCAMENTO_DO_HANDLE) as *mut Header;
-        // SAFETY: `validate_handles` (um handle de objeto é um bloco ou um estático).
+        // SAFETY: `validate_handles` (an object handle is a block or a static).
         #[allow(unsafe_code)]
         (unsafe { (*b).estado } != PERMANENTE).then_some(b)
     }
-    /// O filho `v` gravado num velho pede a barreira (§2.7)? Só um objeto jovem:
-    /// null, `Smi`, velho e estático não pedem.
+    /// Does the child `v` written into an old object require the barrier (§2.7)? Only a young object:
+    /// null, `Smi`, old and static do not.
     #[inline]
     fn young_child(&self, v: Ref) -> bool {
         if !smi::e_handle(v) || v < 0 {
             return false;
         }
-        // SAFETY: bloco do espaço.
+        // SAFETY: block of the space.
         #[allow(unsafe_code)]
         self.space_block(v).is_some_and(|b| unsafe { (*b).estado } == JOVEM)
     }
-    /// O pânico N4 de um handle que não é de objeto.
+    /// The N4 panic of a handle that is not an object's.
     #[cold]
     #[inline(never)]
     fn invalid_handle(handle: i64) -> ! {
         if handle == 0 {
-            panic!("bug do compilador: handle null (0) desreferenciado");
+            panic!("compiler bug: null handle (0) dereferenced");
         }
         if smi::is_smi(handle) {
             panic!(
-                "bug do compilador: Smi usado como handle (int em posição Ref lido como objeto)\nSmi {}",
+                "compiler bug: Smi used as a handle (int in a Ref position read as an object)\nSmi {}",
                 smi::value(handle)
             );
         }
         if handle < 0 {
-            panic!("bug do compilador: handle negativo (escalar usado como handle)\nhandle {handle}");
+            panic!("compiler bug: negative handle (scalar used as a handle)\nhandle {handle}");
         }
-        panic!("bug do compilador: handle além da tabela (escalar usado como handle)\nhandle {handle}");
+        panic!("compiler bug: handle beyond the table (scalar used as a handle)\nhandle {handle}");
     }
-    /// Pânico se `b` é um objeto estático (gravar nele derrubaria o processo:
-    /// a seção da imagem é só de leitura).
+    /// Panics if `b` is a static object (writing to it would bring down the process:
+    /// the image section is read-only).
     #[inline]
     #[allow(unsafe_code)]
     fn check_writable(b: *const Header) {
-        // SAFETY: bloco legível (de `live_block`).
-        assert!(unsafe { (*b).estado } != PERMANENTE, "bug do compilador: gravação num objeto estático");
+        // SAFETY: readable block (from `live_block`).
+        assert!(unsafe { (*b).estado } != PERMANENTE, "compiler bug: write to a static object");
     }
-    /// O `hashCode` de identidade do objeto `h` do espaço: tirado do
-    /// endereço, que não muda enquanto o objeto vive (o coletor não move) e
-    /// é único entre os vivos — 30 bits espalhados, nunca 0 (a VM sorteia e
-    /// guarda no cabeçalho; aqui o cabeçalho não tem lugar e não precisa).
-    /// `None` se `h` não é objeto vivo do espaço.
+    /// The identity `hashCode` of object `h` of the space: taken from the
+    /// address, which does not change while the object lives (the collector does not move) and
+    /// is unique among the live — 30 scattered bits, never 0 (the VM draws one and
+    /// keeps it in the header; here the header has no room and does not need it).
+    /// `None` if `h` is not a live object of the space.
     pub fn identity_hash(&self, h: i64) -> Option<i64> {
         let b = match self.space_block(h) {
             Some(b) => b,
             None if self.is_static(h) => (h - DESLOCAMENTO_DO_HANDLE) as *mut Header,
             None => return None,
         };
-        // SAFETY: bloco de uma página do espaço.
+        // SAFETY: block of a page of the space.
         #[allow(unsafe_code)]
         if unsafe { (*b).estado } == LIVRE {
             return None;
@@ -2495,23 +2495,23 @@ impl Heap {
         let x = ((b as u64 >> 3).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 34) as i64;
         Some(x.max(1))
     }
-    /// A vista do objeto `h` do espaço (classe e campos), ou `None` se `h`
-    /// não é objeto vivo do espaço (null, `Smi`, valor do runtime, escalar).
+    /// The view of object `h` of the space (class and fields), or `None` if `h`
+    /// is not a live object of the space (null, `Smi`, runtime value, scalar).
     pub fn object(&self, h: i64) -> Option<Obj<'_>> {
         let b = self.space_block(h)?;
-        // SAFETY: bloco de uma página do espaço, conferido vivo.
+        // SAFETY: block of a page of the space, checked alive.
         #[allow(unsafe_code)]
         unsafe {
-            // O mapa só é mapa de referências em `INSTANCIA` (§2.3).
+            // The map is only a reference map in `INSTANCIA` (§2.3).
             if (*b).estado == LIVRE || shape(b) != flags_do_bloco::INSTANCIA {
                 return None;
             }
             Some(Obj { body: body(b), class_id: i64::from((*b).class_id), _heap: std::marker::PhantomData })
         }
     }
-    /// A vista para leitura do objeto `h`: do espaço ou estático (as
-    /// constantes da imagem, nunca gravadas). As leituras auditadas do ARC
-    /// leem campos das duas; a gravação usa [`Heap::object`].
+    /// The read view of object `h`: of the space or static (the
+    /// image constants, never written). The audited ARC reads
+    /// read fields of both; writing uses [`Heap::object`].
     pub fn readable_object(&self, h: i64) -> Option<Obj<'_>> {
         if let Some(o) = self.object(h) {
             return Some(o);
@@ -2520,7 +2520,7 @@ impl Heap {
             return None;
         }
         let b = (h - DESLOCAMENTO_DO_HANDLE) as *mut Header;
-        // SAFETY: bloco estático da imagem, vivo o processo inteiro.
+        // SAFETY: static block of the image, alive for the whole process.
         #[allow(unsafe_code)]
         unsafe {
             if shape(b) != flags_do_bloco::INSTANCIA {
@@ -2529,32 +2529,32 @@ impl Heap {
             Some(Obj { body: body(b), class_id: i64::from((*b).class_id), _heap: std::marker::PhantomData })
         }
     }
-    /// A classe do objeto `h` do espaço (`None` se não é objeto vivo).
+    /// The class of object `h` of the space (`None` if it is not a live object).
     #[inline]
     pub fn object_class(&self, h: i64) -> Option<i64> {
         self.object(h).map(|o| o.class_id)
     }
-    /// Grava o campo `i` do objeto `h` (com a marca de referência e a
-    /// barreira de escrita).
+    /// Writes field `i` of object `h` (with the reference mark and the
+    /// write barrier).
     ///
     /// # Panics
-    /// Se `h` não é objeto vivo ou `i` está fora dele.
+    /// If `h` is not a live object or `i` is outside it.
     pub fn set_field(&mut self, h: i64, i: usize, bits: i64, is_ref_kind: bool) {
         if is_ref_kind && smi::e_handle(bits) {
             self.check_live(bits);
         }
         let b = self.live_block(h);
         Self::check_writable(b);
-        // SAFETY: bloco vivo.
+        // SAFETY: live block.
         #[allow(unsafe_code)]
         let instance = unsafe { shape(b) } == flags_do_bloco::INSTANCIA;
-        assert!(instance, "bug do runtime: definir_campo num objeto que não é INSTANCIA");
+        assert!(instance, "runtime bug: set_field on an object that is not INSTANCIA");
         self.objects.remember(b);
-        // SAFETY: bloco vivo; `i` conferido contra o número de campos.
+        // SAFETY: live block; `i` checked against the number of fields.
         #[allow(unsafe_code)]
         let old = unsafe {
             let c = body(b);
-            assert!(i < usize::from((*c).n), "campo {i} fora do objeto de {} campos", (*c).n);
+            assert!(i < usize::from((*c).n), "field {i} outside the object of {} fields", (*c).n);
             let old = if is_reference(c, i) { *fields_of(c).add(i) } else { 0 };
             *fields_of(c).add(i) = bits;
             mark_reference(c, i, is_ref_kind);
@@ -2564,47 +2564,47 @@ impl Heap {
             self.arc_swapped(b, h, old, if is_ref_kind { bits } else { 0 });
         }
     }
-    /// Pânico (N4) se `h` não é handle vivo.
+    /// Panics (N4) if `h` is not a live handle.
     fn check_live(&self, h: i64) {
         self.live_block(h);
     }
-    /// A barreira de escrita do código gerado (`dartforge_lembrar`): o
-    /// objeto `h`, velho, recebeu um `Ref` num campo.
+    /// The generated code's write barrier (`dartforge_lembrar`): the old
+    /// object `h` received a `Ref` in a field.
     pub fn remember_object(&mut self, h: i64) {
         if let Some(b) = self.space_block(h) {
             self.objects.remember(b);
         }
     }
-    /// O metadado de um handle vivo (0 = nenhum).
+    /// The metadata of a live handle (0 = none).
     pub fn metadata(&self, handle: i64) -> i64 {
-        // SAFETY: bloco vivo (ou estático).
+        // SAFETY: live block (or static).
         #[allow(unsafe_code)]
         i64::from(unsafe { (*self.live_block(handle)).metadata })
     }
-    /// Grava o metadado de um handle vivo.
+    /// Writes the metadata of a live handle.
     pub fn set_metadata(&mut self, handle: i64, value: i64) {
         let b = self.live_block(handle);
         Self::check_writable(b);
-        // SAFETY: bloco vivo.
+        // SAFETY: live block.
         #[allow(unsafe_code)]
         unsafe {
-            (*b).metadata = u32::try_from(value).expect("metadado além de 32 bits")
+            (*b).metadata = u32::try_from(value).expect("metadata beyond 32 bits")
         };
     }
-    /// Migra os objetos das classes de `plan` para o layout novo (J03):
-    /// cada posição nova recebe o valor da antiga indicada (`-1`: zero, que
-    /// é `null` para o campo anulável e "não inicializado" para o `late`), e
-    /// as marcas de `late` inicializado seguem o campo.
+    /// Migrates the objects of the classes in `plan` to the new layout (J03):
+    /// each new position receives the value of the indicated old one (`-1`: zero, which
+    /// is `null` for the nullable field and "uninitialized" for `late`), and
+    /// the initialized-`late` marks follow the field.
     pub fn migrate_instances(&mut self, plan: &crate::hash::HashMap<i64, Vec<i64>>) {
         let mut blocks = Vec::new();
         self.objects.for_each_live(|b| blocks.push(b));
         for b in blocks {
-            // SAFETY: bloco vivo do espaço.
+            // SAFETY: live block of the space.
             #[allow(unsafe_code)]
             let class_id = i64::from(unsafe { (*b).class_id });
             let Some(origin) = plan.get(&class_id) else { continue };
             let h = b as i64 + DESLOCAMENTO_DO_HANDLE;
-            let olds = self.object(h).expect("objeto vivo").to_vec();
+            let olds = self.object(h).expect("live object").to_vec();
             let value_list: Vec<Field> = origin
                 .iter()
                 .map(|&o| usize::try_from(o).ok().and_then(|o| olds.get(o).copied()).unwrap_or((0, false)))
@@ -2623,18 +2623,18 @@ impl Heap {
         }
     }
 
-    /// Troca os campos do objeto do bloco `b` por `value_list`: no próprio bloco
-    /// se o número de campos é o dele, senão num corpo de fora (o objeto não
-    /// muda de endereço; o código gerado segue o corpo, [`FORA`]).
+    /// Replaces the fields of the object of block `b` with `value_list`: in the block itself
+    /// if the number of fields is its own, otherwise in an out-of-line body (the object does not
+    /// change address; the generated code follows the body, [`FORA`]).
     fn swap_fields(&mut self, b: *mut Header, value_list: &[Field]) {
         self.objects.remember(b);
-        // No ARC, a migração (a recarga do JIT) e o campo acrescentado são
-        // uma escrita crua: a foto conta os campos de antes e os de depois.
+        // Under ARC, the migration (the JIT reload) and the added field are
+        // a raw write: the snapshot counts the fields from before and those after.
         if self.arc.is_some() {
             self.arc_snapshot(b, b as i64 + DESLOCAMENTO_DO_HANDLE);
         }
-        // SAFETY: bloco vivo do espaço; o corpo de fora é novo e do tamanho
-        // de `value_list`.
+        // SAFETY: live block of the space; the out-of-line body is new and of the size
+        // of `value_list`.
         #[allow(unsafe_code)]
         unsafe {
             let current = body(b);
@@ -2659,8 +2659,8 @@ impl Heap {
         }
     }
 
-    /// Garante ao objeto `handle` pelo menos `n` campos (os novos,
-    /// zerados): num corpo de fora (`Heap::swap_fields`).
+    /// Guarantees object `handle` at least `n` fields (the new ones,
+    /// zeroed): in an out-of-line body (`Heap::swap_fields`).
     pub fn ensure_fields(&mut self, handle: i64, n: usize) {
         let Some(o) = self.object(handle) else { return };
         if o.len() >= n {
@@ -2671,14 +2671,14 @@ impl Heap {
         let b = self.live_block(handle);
         self.swap_fields(b, &new_ones);
     }
-    /// O endereço dos campos do objeto `handle` (palavras de 8 bytes; o
-    /// caminho de `dartforge_object_campos`); `None` se não é objeto vivo.
-    /// Quem pede o ponteiro pode gravar por ele: conta como barreira de
-    /// escrita, mas o mapa de referências fica com quem grava.
+    /// The address of the fields of object `handle` (8-byte words; the
+    /// path of `dartforge_object_campos`); `None` if it is not a live object.
+    /// Whoever asks for the pointer may write through it: it counts as a write
+    /// barrier, but the reference map is up to the writer.
     #[inline]
     pub fn object_fields(&mut self, handle: i64) -> Option<*mut i64> {
         let b = self.space_block(handle)?;
-        // SAFETY: bloco do espaço.
+        // SAFETY: block of the space.
         #[allow(unsafe_code)]
         unsafe {
             if (*b).estado == LIVRE {
@@ -2691,48 +2691,48 @@ impl Heap {
             Some(fields_of(body(b)))
         }
     }
-    /// Atualiza campo com tag explícita; valores escalares jamais são raízes.
+    /// Updates a field with an explicit tag; scalar values are never roots.
     pub fn set(&mut self, handle: i64, index: i64, bits: i64, is_ref: bool) {
-        self.set_field(handle, usize::try_from(index).expect("índice inválido"), bits, is_ref);
+        self.set_field(handle, usize::try_from(index).expect("invalid index"), bits, is_ref);
     }
-    /// Marca raízes e arestas tipadas iterativamente e libera inclusive ciclos inalcançáveis.
-    /// Marca tudo o que é alcançável a partir de `pending`; devolve quantos
-    /// objetos marcou.
+    /// Marks roots and typed edges iteratively and frees even unreachable cycles.
+    /// Marks everything reachable from `pending`; returns how many
+    /// objects it marked.
     fn mark_pending(&mut self) -> usize {
-        // Uma cópia da marcação para cada tipo de coleta: o teste do estado
-        // de cada objeto (jovem na menor, não marcado na completa) sai sem
-        // desvio pelo tipo.
+        // One copy of the marking for each kind of collection: the test of the state
+        // of each object (young in the minor one, unmarked in the full one) runs without
+        // branching on the kind.
         if self.minor_collection { self.mark::<true>() } else { self.mark::<false>() }
     }
 
     fn mark<const MINOR: bool>(&mut self) -> usize {
         let minor = MINOR;
         let mut live = 0_usize;
-        // A pilha e os contadores em variáveis locais: gravar em `self` a
-        // cada objeto (o `Vec` e o trabalho) impedia o compilador de os
-        // manter em registradores (as gravações nos objetos podem, para
-        // ele, apontar para `self`).
+        // The stack and the counters in local variables: writing to `self` for
+        // each object (the `Vec` and the work) kept the compiler from
+        // keeping them in registers (the writes to objects may, as far as
+        // it knows, point to `self`).
         let mut stack = std::mem::take(&mut self.pending);
         let mut work = 0usize;
         let mut marked_objects = 0usize;
-        // As arestas vêm de raízes e de campos `is_ref`: a validação
-        // completa do handle (a página e o início do bloco) fica para o
-        // `--gc-stress`, o modo que caça raiz faltando (N4).
+        // The edges come from roots and from `is_ref` fields: the full
+        // validation of the handle (the page and the block start) is left to
+        // `--gc-stress`, the mode that hunts missing roots (N4).
         let validate = self.stress;
-        // Esta coleta percorre o objeto no estado `e`? Na menor, só o jovem
-        // (um velho conta como vivo, e as referências dele a jovens estão
-        // nos lembrados); na completa, o que ainda não foi marcado.
-        // Na completa, o marcado é o do bit no mapa de marcas da página (a
-        // varredura lê só os bits).
-        // SAFETY (dos usos): `b` é bloco de uma página do espaço.
+        // Does this collection walk the object in state `e`? In the minor one, only the young
+        // (an old one counts as live, and its references to young objects are
+        // among the remembered); in the full one, what has not been marked yet.
+        // In the full one, marked means the bit in the page's mark bitmap (the
+        // sweep reads only the bits).
+        // SAFETY (of the uses): `b` is a block of a page of the space.
         #[allow(unsafe_code)]
-        // O estático (`PERMANENTE`) é conferido antes do mapa de marcas: o
-        // mapa dele cairia fora de uma página do heap (§2.8).
+        // The static (`PERMANENTE`) is checked before the mark bitmap: its
+        // bitmap would fall outside a heap page (§2.8).
         let walks = |b: *const Header| unsafe {
             if minor { (*b).estado == JOVEM } else { (*b).estado != PERMANENTE && !marked(b) }
         };
-        // Uma aresta: o primeiro filho objeto ainda por marcar vai para
-        // `next_offset` (seguido sem a pilha); os demais, para a pilha.
+        // An edge: the first object child still to be marked goes to
+        // `next_offset` (followed without the stack); the others, to the stack.
         #[allow(unsafe_code)]
         let visit_ref = |bits: i64, next_offset: &mut i64, stack: &mut Vec<i64>| {
             if !smi::e_handle(bits) {
@@ -2750,15 +2750,15 @@ impl Heap {
             stack.push(bits);
         };
         while let Some(handle) = stack.pop() {
-            // null e `Smi` (R10) não são arestas: o coletor nunca segue um
-            // `Smi`, que não aponta para o heap.
+            // null and `Smi` (R10) are not edges: the collector never follows a
+            // `Smi`, which does not point to the heap.
             if !smi::e_handle(handle) {
                 continue;
             }
             if is_object(handle) {
                 let mut current = handle;
-                // Segue direto o primeiro filho ainda por marcar (a lista
-                // ligada, o ramo de uma árvore) sem passar pela pilha.
+                // Follows directly the first child still to be marked (the linked
+                // list, the branch of a tree) without going through the stack.
                 while current != 0 {
                     if validate && self.objects.block_of(current).is_none() && is_static(current) {
                         break;
@@ -2766,19 +2766,19 @@ impl Heap {
                     let b = if validate {
                         self.live_block(current)
                     } else {
-                        debug_assert!(self.objects.block_of(current).is_some(), "aresta inválida {current}");
+                        debug_assert!(self.objects.block_of(current).is_some(), "invalid edge {current}");
                         (current - DESLOCAMENTO_DO_HANDLE) as *mut Header
                     };
                     let mut next_offset = 0;
-                    // SAFETY: bloco vivo do espaço.
+                    // SAFETY: live block of the space.
                     #[allow(unsafe_code)]
                     unsafe {
                         if !walks(b) {
                             break;
                         }
-                        // As duas promovem já na marcação (o jovem alcançado
-                        // fica velho, o lembrado volta a velho na completa:
-                        // a varredura só lê os bits) e acendem o bit.
+                        // Both promote already during marking (the reached young object
+                        // becomes old, the remembered one becomes old again in the full one:
+                        // the sweep reads only the bits) and set the bit.
                         if (*b).estado != VELHO {
                             (*b).estado = VELHO;
                         }
@@ -2786,12 +2786,12 @@ impl Heap {
                         live += 1;
                         marked_objects += 1;
                         self.visit_attachment_edges(current, &mut |action| visit_ref(action, &mut next_offset, &mut stack));
-                        // O corpo pelo formato (§2.8): `BRUTO` não tem
-                        // referências; `REFS`, as palavras `1..=palavra 0`;
-                        // `INSTANCIA`, os campos que o mapa diz referência. O
-                        // que esta coleta não percorre (velho na menor, já
-                        // marcado) nem entra na pilha; o primeiro que falta
-                        // marcar é seguido direto.
+                        // The body by format (§2.8): `BRUTO` has no
+                        // references; `REFS`, the words `1..=word 0`;
+                        // `INSTANCIA`, the fields the map says are references. What
+                        // this collection does not walk (old in the minor one, already
+                        // marked) does not even enter the stack; the first one still to
+                        // mark is followed directly.
                         let tipo = shape(b);
                         if tipo != flags_do_bloco::INSTANCIA {
                             if tipo == flags_do_bloco::REFS {
@@ -2836,7 +2836,7 @@ impl Heap {
                 }
                 continue;
             }
-            // Raiz ou aresta que não é handle de objeto: as mensagens N4.
+            // A root or edge that is not an object handle: the N4 messages.
             Self::invalid_handle(handle);
         }
         self.pending = stack;
@@ -2845,14 +2845,14 @@ impl Heap {
         live
     }
 
-    /// As posições de referência forte do objeto `h`, pela forma do corpo, as
-    /// mesmas que a marcação percorre (§2.8): `REFS`, as palavras
-    /// `1..=palavra 0`; `INSTANCIA`, os campos do mapa (e do mapa estendido);
-    /// `BRUTO`, nenhuma. Um estático ou um bloco livre não tem arestas aqui (o
-    /// estático é imortal no ARC, docs/ARC-CICLOS-ESPECIFICACAO.md §19.1).
+    /// The strong reference positions of object `h`, by body shape, the
+    /// same ones marking walks (§2.8): `REFS`, the words
+    /// `1..=word 0`; `INSTANCIA`, the fields of the map (and of the extended map);
+    /// `BRUTO`, none. A static or a free block has no edges here (the
+    /// static is immortal under ARC, docs/ARC-CICLOS-ESPECIFICACAO.md §19.1).
     fn ref_positions(&self, h: i64, f: &mut dyn FnMut(*mut i64)) {
         let Some(b) = self.space_block(h) else { return };
-        // SAFETY: bloco do espaço; só os vivos são percorridos.
+        // SAFETY: block of the space; only the live ones are walked.
         #[allow(unsafe_code)]
         unsafe {
             if (*b).estado == LIVRE {
@@ -2892,15 +2892,15 @@ impl Heap {
         }
     }
 
-    /// Enumera ocorrências fortes do corpo e dos anexos pertencentes ao dono.
+    /// Enumerates strong occurrences of the body and of the attachments belonging to the owner.
     #[allow(unsafe_code)]
     fn visit_strong_references(&self, h: Ref, f: &mut dyn FnMut(Ref)) {
-        // SAFETY: as posições pertencem ao corpo vivo, sem mutação durante a visita.
+        // SAFETY: the positions belong to the live body, without mutation during the visit.
         self.ref_positions(h, &mut |p| f(unsafe { *p }));
         self.visit_attachment_edges(h, f);
     }
 
-    /// Visita só as ocorrências do dono, preservando aliases de anexos distintos.
+    /// Visits only the owner's occurrences, preserving aliases of distinct attachments.
     fn visit_attachment_edges(&self, owner: Ref, f: &mut dyn FnMut(Ref)) {
         if self.attachments_by_owner.is_empty() { return; }
         if let Some(indices) = self.attachments_by_owner.get(&owner) {
@@ -2910,7 +2910,7 @@ impl Heap {
         }
     }
 
-    /// Remoções deslocam posições; refaz o índice antes do próximo percurso forte.
+    /// Removals shift positions; rebuilds the index before the next strong walk.
     fn reindex_attachments(&mut self) {
         Self::reindex_attachment_list(&self.attachments, &mut self.attachments_by_owner);
     }
@@ -2924,7 +2924,7 @@ impl Heap {
         }
     }
 
-    /// Registra a aresta lateral sem transformar o dono em raiz global.
+    /// Registers the side edge without turning the owner into a global root.
     pub(crate) fn add_attachment(&mut self, attachment: FinalizerAttachment) {
         self.check_live(attachment.owner);
         if let FinalizerAction::Dart(action) = attachment.action {
@@ -2937,13 +2937,13 @@ impl Heap {
             self.attachments_by_owner.entry(attachment.owner).or_default().push(self.attachments.len());
         }
         if let FinalizerAction::Native(_, _, bytes) = attachment.action {
-            let delta = isize::try_from(bytes).expect("externalSize excede o tamanho de endereço");
+            let delta = isize::try_from(bytes).expect("externalSize exceeds the address size");
             self.count_external(delta);
         }
         self.attachments.push(attachment);
     }
 
-    /// Cancela os anexos ainda registrados da chave e solta suas arestas Dart.
+    /// Cancels the still registered attachments of the key and releases their Dart edges.
     pub(crate) fn detach_finalizer(&mut self, owner: Ref, detach: Ref) {
         if owner == 0 { return; }
         let mut actions = Vec::new();
@@ -2959,15 +2959,15 @@ impl Heap {
         for bytes in external { self.count_external(-(bytes as isize)); }
     }
 
-    /// A coleta completa (o `dartforge_gc_collect` e os testes): marca a
-    /// partir das raízes e varre tudo; o que sobrevive fica velho.
+    /// The full collection (`dartforge_gc_collect` and the tests): marks
+    /// from the roots and sweeps everything; what survives becomes old.
     pub fn collect(&mut self) {
         self.coletar(false);
     }
 
-    /// Empilha em `dest` as raízes: as permanentes do runtime, os
-    /// globais, as finalizações prontas e os quadros (os do runtime e a
-    /// pilha-sombra do código gerado).
+    /// Pushes the roots into `dest`: the runtime's permanent ones, the
+    /// globals, the ready finalizations and the frames (the runtime's and the
+    /// generated code's shadow stack).
     fn root_list(&self, dest: &mut Vec<i64>) {
         dest.extend(self.message_owners.values().copied());
         dest.extend(self.code_owners.keys().copied());
@@ -2986,13 +2986,13 @@ impl Heap {
         }
     }
 
-    /// `DARTFORGE_GC_VERIFICAR=1`, depois da marcação de uma coleta menor:
-    /// uma travessia completa a partir das raízes, sem gerações, não pode
-    /// achar jovem sem marca — seria uma referência de velho para jovem que
-    /// a barreira de escrita não lembrou.
+    /// `DARTFORGE_GC_VERIFICAR=1`, after the marking of a minor collection:
+    /// a full traversal from the roots, without generations, must not
+    /// find an unmarked young object — it would be an old-to-young reference that
+    /// the write barrier did not remember.
     ///
     /// # Panics
-    /// Com a primeira referência assim.
+    /// With the first such reference.
     fn verify_minor_collection(&self) {
         let mut stack = Vec::new();
         self.root_list(&mut stack);
@@ -3008,19 +3008,19 @@ impl Heap {
                     continue;
                 }
                 let b = self.live_block(h);
-                // SAFETY: bloco vivo do espaço.
+                // SAFETY: live block of the space.
                 #[allow(unsafe_code)]
                 let estado = unsafe { (*b).estado };
                 if estado == JOVEM {
-                    // O pai: cid, estado, flags e a posição do filho no corpo.
+                    // The parent: cid, state, flags and the child's position in the body.
                     let parent_node = origin.get(&h).copied();
                     let desc = |x: i64| {
                         let c = self.header(x);
                         let pos = self.words(x).iter().position(|&w| w == h);
-                        format!("cid {} estado {} flags {:#x} n {} posição {pos:?}", c.class_id, c.estado, c.flags, c.n)
+                        format!("cid {} state {} flags {:#x} n {} position {pos:?}", c.class_id, c.estado, c.flags, c.n)
                     };
                     panic!(
-                        "bug do coletor: jovem alcançável sem marca na coleta menor (barreira de escrita faltando)\nobjeto {h} (cid {}), alcançado de {parent_node:?} ({})",
+                        "collector bug: reachable young object without a mark in the minor collection (missing write barrier)\nobject {h} (cid {}), reached from {parent_node:?} ({})",
                         self.header(h).class_id,
                         parent_node.map(desc).unwrap_or_default()
                     );
@@ -3035,26 +3035,26 @@ impl Heap {
         }
     }
 
-    /// Uma coleta: `minor` marca e varre só os jovens (os velhos contam como
-    /// vivos, e os lembrados pela barreira de escrita entram como raízes);
-    /// a completa, tudo. Em ambas o que sobrevive fica velho.
+    /// A collection: `minor` marks and sweeps only the young (old ones count as
+    /// live, and those remembered by the write barrier enter as roots);
+    /// the full one, everything. In both, what survives becomes old.
     fn coletar(&mut self, minor: bool) {
-        // O ARC puro não rastreia: a drenagem decide a vida pelo RC e pelas
-        // raízes diretas (docs/ARC-IMPLEMENTACAO.md §6).
+        // Pure ARC does not trace: draining decides lifetime by RC and by the
+        // direct roots (docs/ARC-IMPLEMENTACAO.md §6).
         if self.arc.as_ref().is_some_and(|a| a.pure) {
             self.drain_arc(!minor);
             return;
         }
         check_collection_allowed();
-        // No ARC a marcação é sempre a menor (os jovens); a vida dos velhos é
-        // o RC, e a completa pedida é a rodada de ciclos e a reclamação
+        // Under ARC, marking is always the minor one (the young); the lifetime of old objects is
+        // RC, and the requested full collection is the cycle round and the reclamation
         // (`sync_arc`).
         let full_arc = self.arc.is_some() && !minor;
         let minor = minor || self.arc.is_some();
         if let Some(a) = &self.schedule {
             a.pending.set(false);
         }
-        // O que a TLAB não usou volta a ser livre.
+        // What the TLAB did not use becomes free again.
         self.return_tlabs();
         self.minor_collection = minor;
         self.stats.collections += 1;
@@ -3076,9 +3076,9 @@ impl Heap {
         pending_list.clear();
         self.root_list(&mut pending_list);
         if minor {
-            // Os velhos lembrados: as referências deles podem ser jovens.
+            // The remembered old objects: their references may be young.
             for &b in &self.objects.remembered {
-                // SAFETY: bloco lembrado, vivo.
+                // SAFETY: remembered block, live.
                 #[allow(unsafe_code)]
                 let work = unsafe { self.objects.push_remembered(b, &mut pending_list) };
                 self.marking_work += work;
@@ -3088,8 +3088,8 @@ impl Heap {
         }
         self.pending = pending_list;
         let mut live = self.mark_pending();
-        // Os efêmeros: o valor de um portador vivo é alcançado quando a
-        // chave é — o que pode tornar vivas outras chaves, até o ponto fixo.
+        // Ephemerons: the value of a live holder is reached when the
+        // key is — which may make other keys live, up to the fixed point.
         if !self.ephemerons.is_empty() {
             loop {
                 let objects = &self.objects;
@@ -3106,10 +3106,10 @@ impl Heap {
                 live += self.mark_pending();
             }
         }
-        // Tabelas laterais: só ficam os handles que sobreviveram (G6).
-        // A verificação percorre o heap vivo inteiro: no `--gc-stress` (uma
-        // menor por alocação), espaçada como as completas, para o custo por
-        // alocação não crescer com o heap.
+        // Side tables: only the handles that survived stay (G6).
+        // Verification walks the whole live heap: under `--gc-stress` (one
+        // minor collection per allocation), spaced like the full ones, so the cost per
+        // allocation does not grow with the heap.
         if minor
             && self.verify
             && (!self.stress
@@ -3133,9 +3133,9 @@ impl Heap {
             }
             alive(holder)
         });
-        // Na menor, só as marcas `late` gravadas desde a última coleta podem
-        // ser de um jovem (os velhos não morrem nela): conferir só essas, e
-        // não a tabela inteira (uma por objeto vivo com campo `late`).
+        // In the minor one, only the `late` marks written since the last collection can
+        // belong to a young object (old ones do not die in it): check only those, and
+        // not the whole table (one per live object with a `late` field).
         if minor {
             for key in self.new_lates.drain(..) {
                 if !alive(&key.0) {
@@ -3175,9 +3175,9 @@ impl Heap {
             }
         }
         self.ready_finalizations.extend(ready);
-        // As tabelas de identidade entre portas: purgadas pelo bit de marca
-        // como as demais (quem precisa da constante viva a guarda num global,
-        // o getter já grava lá; §2.8).
+        // The identity tables across ports: purged by the mark bit
+        // like the others (whoever needs the constant alive keeps it in a global,
+        // the getter already writes there; §2.8).
         self.permanentes.retain(|h| alive(h));
         self.constants.retain(|h, _| alive(h));
         self.tearoff_code.retain(|h, _| alive(h));
@@ -3195,9 +3195,9 @@ impl Heap {
                 self.arc_raw_write(owner, action, 0);
             }
         }
-        // A estimativa: a menor desconta o que soltou (blocos, regiões grandes,
-        // corpos de fora e anexos dos mortos); a completa a refaz dos vivos, com
-        // os bytes externos.
+        // The estimate: the minor one subtracts what it freed (blocks, large regions,
+        // out-of-line bodies and attachments of the dead); the full one rebuilds it from the live ones, with
+        // the external bytes.
         if minor {
             let (dead_set, released_bytes) = self.objects.sweep_young();
             self.stats.reclaimed += dead_set as u64;
@@ -3213,8 +3213,8 @@ impl Heap {
         for (f, token, bytes) in natives {
             self.count_external(-(bytes as isize));
             #[allow(unsafe_code)]
-            // SAFETY: a `NativeFinalizerFunction` do anexo, `void f(void*)`;
-            // como na VM, roda durante a coleta e não pode tocar o heap.
+            // SAFETY: the attachment's `NativeFinalizerFunction`, `void f(void*)`;
+            // as in the VM, it runs during collection and cannot touch the heap.
             let f: extern "C" fn(usize) = unsafe { std::mem::transmute(f) };
             f(token);
         }
@@ -3231,13 +3231,13 @@ impl Heap {
             self.recompute_triggers(live);
         }
         if self.memory > 1 || (self.memory == 1 && !minor) {
-            eprintln!("[memória] depois da coleta {}", if minor { "menor" } else { "completa" });
+            eprintln!("[memory] after the {} collection", if minor { "minor" } else { "full" });
             eprint!("{}", self.memory_report());
         }
         if self.trace {
             eprintln!(
-                "[gc] {} marcados={live} trabalho={} estimados={} gatilho={} paginas={} vivos={}",
-                if minor { "menor" } else { "completa" },
+                "[gc] {} marked={live} work={} estimated={} trigger={} pages={} live={}",
+                if minor { "minor" } else { "full" },
                 self.marking_work,
                 self.stats.estimated_bytes,
                 self.byte_threshold,
@@ -3247,9 +3247,9 @@ impl Heap {
         }
     }
 
-    /// A quebra da memória (`DARTFORGE_GC_MEMORIA=1`): o espaço de objetos, as
-    /// tabelas laterais do runtime (entradas e bytes de capacidade) e o
-    /// processo (residente, pico, heap do sistema confirmado).
+    /// The memory breakdown (`DARTFORGE_GC_MEMORIA=1`): the object space, the
+    /// runtime's side tables (entries and capacity bytes) and the
+    /// process (resident, peak, committed system heap).
     pub fn memory_report(&self) -> String {
         use std::fmt::Write;
         fn tabela<K, V>(m: &crate::hash::HashMap<K, V>) -> (usize, usize) {
@@ -3262,7 +3262,7 @@ impl Heap {
         let literals: usize = self.literals.keys().map(|k| k.capacity() * 2).sum::<usize>() / 1024;
         let _ = writeln!(
             s,
-            "[memória] tabelas (entradas, KiB): globais {:?}, literais {:?} (+{literals} KiB de chaves), constantes {:?}, permanentes {:?}, enum {:?}, tearoffs {:?}, código de tearoff {:?}, late {:?}, fracas {:?}, efêmeros {:?}, finalizáveis {:?}; estimados {} KiB, gatilho {} KiB",
+            "[memory] tables (entries, KiB): globals {:?}, literals {:?} (+{literals} KiB of keys), constants {:?}, permanent {:?}, enum {:?}, tearoffs {:?}, tearoff code {:?}, late {:?}, weak {:?}, ephemerons {:?}, finalizable {:?}; estimated {} KiB, trigger {} KiB",
             tabela(&self.globals),
             tabela(&self.literals),
             tabela(&self.constants),
@@ -3280,7 +3280,7 @@ impl Heap {
         let (rss, peak, system_heap) = crate::space::process_memory();
         let _ = writeln!(
             s,
-            "[memória] processo: residente {} KiB, pico {} KiB, heap do sistema confirmado {} KiB",
+            "[memory] process: resident {} KiB, peak {} KiB, committed system heap {} KiB",
             rss / 1024,
             peak / 1024,
             system_heap / 1024
@@ -3288,25 +3288,25 @@ impl Heap {
         s
     }
 
-    /// Os gatilhos da próxima coleta, a partir do que sobreviveu a esta.
+    /// The triggers of the next collection, from what survived this one.
     ///
-    /// Sem teto, o heap cresce [`GROWTH`]% (o geométrico). Com teto, a
-    /// próxima coleta vem quando se gastar metade da folga que resta — a
-    /// histerese: uma coleta que achou quase tudo vivo não se repete na
-    /// alocação seguinte (antes, passar da metade do teto coletava em TODA
-    /// alocação, e um programa com muito dado vivo parava de andar). O passo
-    /// mínimo garante progresso mesmo com a folga no fim; o teto em si é
-    /// conferido à parte (`allocate`).
+    /// Without a ceiling, the heap grows [`GROWTH`]% (geometric). With a ceiling, the
+    /// next collection comes when half of the remaining slack is spent — the
+    /// hysteresis: a collection that found almost everything alive does not repeat on the
+    /// next allocation (before, going past half the ceiling collected on EVERY
+    /// allocation, and a program with a lot of live data stopped making progress). The minimum
+    /// step guarantees progress even with the slack at its end; the ceiling itself is
+    /// checked separately (`allocate`).
     fn recompute_triggers(&mut self, live_set: usize) {
         const MIN_STEP: usize = 256 * 1024;
-        // [`GROWTH`]% do que sobreviveu, e não menos que três quartos do gatilho
-        // anterior (a histerese: uma estrutura grande que morre e volta — a
-        // lista refeita a cada rodada — não faz o gatilho despencar e voltar
-        // a subir com uma coleta completa a cada dobra).
-        // E pelo menos dois semiespaços jovens acima do que sobreviveu: com
-        // pouco dado vivo, o dobro dele vinha antes do gatilho da coleta
-        // menor, e toda coleta era completa (a árvore longa de
-        // `objetos_escapam/arvores` remarcada 250 vezes).
+        // [`GROWTH`]% of what survived, and no less than three quarters of the previous
+        // trigger (the hysteresis: a large structure that dies and comes back — the
+        // list rebuilt every round — does not make the trigger plummet and climb back
+        // with a full collection at each doubling).
+        // And at least two young semispaces above what survived: with
+        // little live data, its double came before the minor collection's
+        // trigger, and every collection was a full one (the long tree of
+        // `objetos_escapam/arvores` re-marked 250 times).
         let growth = (self
             .stats
             .estimated_bytes
@@ -3321,16 +3321,16 @@ impl Heap {
             let folga = self.byte_limit.saturating_sub(self.total_bytes(0));
             growth.min(self.stats.estimated_bytes.saturating_add((folga / 2).max(MIN_STEP)))
         };
-        // Não há mais gatilho por contagem para a coleta completa: ele
-        // existia porque toda coleta varria a tabela de slots inteira, e com
-        // poucos vivos coletava a cada 256 alocações (um `sort` de 100 mil
-        // `int` com alguns `_Mint` percorria a lista toda a cada vez). A
-        // coleta menor varre só os jovens e vem por bytes ou por
-        // `YOUNG_COUNT` alocações; a completa, pelos bytes.
+        // There is no longer a count trigger for the full collection: it
+        // existed because every collection swept the whole slot table, and with
+        // few live objects it collected every 256 allocations (a `sort` of 100 thousand
+        // `int`s with a few `_Mint`s walked the whole list every time). The
+        // minor collection sweeps only the young and comes by bytes or by
+        // `YOUNG_COUNT` allocations; the full one, by bytes.
         let _ = live_set;
     }
 
-    /// Obtém contadores sem percorrer os objetos ou suas raízes.
+    /// Gets the counters without walking the objects or their roots.
     pub fn stats(&self) -> HeapStats {
         HeapStats {
             live_objects: self.objects.live_set,
@@ -3347,13 +3347,13 @@ impl Heap {
 }
 
 // ---------------------------------------------------------------------------
-// A API do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §3.2): todo valor
-// do runtime é um bloco do espaço de objetos; as vistas por tipo estão em
-// `textos.rs`, `boxes.rs`, `lists.rs` e `tipadas.rs`.
+// The unified space API (docs/NATIVO-ESPACO-UNIFICADO.md §3.2): every runtime
+// value is a block of the object space; the per-type views are in
+// `textos.rs`, `boxes.rs`, `lists.rs` and `tipadas.rs`.
 // ---------------------------------------------------------------------------
 
-/// Um valor sem representação de heap decidida (o que era a `TaggedValue`) nas
-/// APIs do runtime (a caixa, se for preciso, é de quem grava numa posição `Ref`).
+/// A value without a decided heap representation (what `TaggedValue` was) in the
+/// runtime APIs (the box, if needed, is up to whoever writes into a `Ref` position).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Value {
     Ref(Ref),
@@ -3362,11 +3362,11 @@ pub enum Value {
     Bool(bool),
 }
 
-/// As caixas estáticas de `false` e `true` (cid 5, `BRUTO`, `PERMANENTE`): o
-/// cabeçalho e o valor, na forma de um bloco; o handle é o endereço + 2. O
-/// código gerado as referencia como `@dartforge_falso`/`@dartforge_verdadeiro`
-/// (`llvm/externs.rs`). São estáticos do runtime (§2.11): nunca marcados,
-/// varridos nem gravados; [`is_static`] os reconhece pelo endereço.
+/// The static boxes of `false` and `true` (cid 5, `BRUTO`, `PERMANENTE`): the
+/// header and the value, in the form of a block; the handle is the address + 2. The
+/// generated code references them as `@dartforge_falso`/`@dartforge_verdadeiro`
+/// (`llvm/externs.rs`). They are runtime statics (§2.11): never marked,
+/// swept nor written; [`is_static`] recognizes them by address.
 #[allow(unsafe_code, non_upper_case_globals)]
 #[unsafe(no_mangle)]
 pub static dartforge_falso: [u64; 3] = [
@@ -3382,16 +3382,16 @@ pub static dartforge_verdadeiro: [u64; 3] = [
     1,
 ];
 
-/// As faixas `[início, end)` da seção de objetos estáticos (`.dfimg`) de cada
-/// imagem carregada (o executável, a DLL do SDK): registradas por
-/// `dartforge_registrar_imagem`, que o `@df.preparar_isolado` de cada imagem
-/// chama. Um handle de objeto fora das páginas do heap só é aceito como
-/// estático dentro de uma delas (a validação do `--gc-stress` e da verificação,
-/// e a leitura do runtime); os estáticos são do processo, compartilhados por
-/// todos os isolados.
+/// The ranges `[start, end)` of the static objects section (`.dfimg`) of each
+/// loaded image (the executable, the SDK DLL): registered by
+/// `dartforge_registrar_imagem`, which the `@df.preparar_isolado` of each image
+/// calls. An object handle outside the heap pages is only accepted as a
+/// static inside one of them (the validation of `--gc-stress` and of verification,
+/// and the runtime's reads); statics belong to the process, shared by
+/// all isolates.
 static IMAGES: std::sync::RwLock<Vec<(usize, usize)>> = std::sync::RwLock::new(Vec::new());
 
-/// Registra a seção de estáticos `[start, end)` de uma imagem (idempotente).
+/// Registers the statics section `[start, end)` of an image (idempotent).
 pub fn register_image(start: usize, end: usize) {
     if start >= end {
         return;
@@ -3402,15 +3402,15 @@ pub fn register_image(start: usize, end: usize) {
     }
 }
 
-/// As faixas das imagens registradas, na ordem do registro (o índice dos
-/// literais estáticos, `textos.rs`).
+/// The ranges of the registered images, in registration order (the index of the
+/// static literals, `textos.rs`).
 pub fn images() -> Vec<(usize, usize)> {
     IMAGES.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
 }
 
-/// `h` é um objeto estático (`PERMANENTE`): uma das caixas de `bool` do runtime
-/// ou um bloco da seção de estáticos de uma imagem registrada? Nunca lê memória
-/// fora dessas faixas.
+/// Is `h` a static object (`PERMANENTE`): one of the runtime's `bool` boxes
+/// or a block of the statics section of a registered image? Never reads memory
+/// outside those ranges.
 #[allow(unsafe_code)]
 pub fn is_static(h: Ref) -> bool {
     if !is_object(h) {
@@ -3422,43 +3422,43 @@ pub fn is_static(h: Ref) -> bool {
         let v = IMAGES.read().unwrap_or_else(std::sync::PoisonError::into_inner);
         v.iter().any(|&(i, f)| i <= b && b + std::mem::size_of::<Header>() <= f)
     };
-    // SAFETY: `b` está numa faixa registrada (memória legível da imagem) ou é
-    // uma das caixas do runtime.
+    // SAFETY: `b` is in a registered range (readable memory of the image) or is
+    // one of the runtime's boxes.
     in_image && unsafe { (*(b as *const Header)).estado } == PERMANENTE
 }
 
 
 impl Heap {
-    /// Um bloco zerado de `words` palavras de corpo, classe `cid` e `flags`
-    /// (formato, forma compacta, cartões…), estado `JOVEM`; coleta antes se um
-    /// gatilho pede (as referências que o chamador segura precisam de raiz). O `n`
-    /// do cabeçalho é `words` (saturado): para `INSTANCIA`, use
-    /// [`Heap::allocate_instance`]. Quem aloca uma `_List` geral grande acende
-    /// `CARTOES` (`layout::has_cards`) e reserva as palavras deles
+    /// A zeroed block of `words` body words, class `cid` and `flags`
+    /// (format, compact shape, cards…), state `JOVEM`; collects first if a
+    /// trigger asks for it (the references the caller holds need a root). The header's `n`
+    /// is `words` (saturated): for `INSTANCIA`, use
+    /// [`Heap::allocate_instance`]. Whoever allocates a large general `_List` sets
+    /// `CARTOES` (`layout::has_cards`) and reserves their words
     /// (`layout::list_words`).
     pub fn allocate(&mut self, cid: i32, words: usize, flags: u8) -> Ref {
         debug_assert!(
             flags & flags_do_bloco::FORMA != flags_do_bloco::INSTANCIA || words <= 32,
-            "INSTANCIA com mapa estendido por `alocar`: use `alocar_instancia`"
+            "INSTANCIA with an extended map through `allocate`: use `allocate_instance`"
         );
         self.alocar_bloco(cid, words, flags, words)
     }
-    /// Um objeto `INSTANCIA` de `fields` campos zerados (o `allocate_object` de hoje).
+    /// An `INSTANCIA` object of `fields` zeroed fields (today's `allocate_object`).
     pub fn allocate_instance(&mut self, cid: i32, fields: usize) -> Ref {
         self.allocate_object(i64::from(cid), fields)
     }
-    /// O cabeçalho do bloco `h` (também de um estático). Pânico N4 para null,
-    /// `Smi`, morto ou inválido.
+    /// The header of block `h` (also of a static). N4 panic for null,
+    /// `Smi`, dead or invalid.
     #[inline]
     #[allow(unsafe_code)]
     pub fn header(&self, h: Ref) -> &Header {
         let b = self.live_block(h);
-        // SAFETY: bloco vivo de uma página do espaço (ou estático); o
-        // empréstimo do heap o mantém (nenhuma coleta com `&self`).
+        // SAFETY: live block of a page of the space (or static); the
+        // heap borrow keeps it (no collection with `&self`).
         unsafe { &*b }
     }
-    /// A classe de `h`: 1 para null, 2 para `Smi`, o cid do cabeçalho para um
-    /// objeto. Pânico N4 para morto ou inválido.
+    /// The class of `h`: 1 for null, 2 for `Smi`, the header cid for an
+    /// object. N4 panic for dead or invalid.
     pub fn class(&self, h: Ref) -> i32 {
         if h == 0 {
             crate::layout::cid::NULL
@@ -3470,34 +3470,34 @@ impl Heap {
             Self::invalid_handle(h)
         }
     }
-    /// `h` é um objeto vivo do espaço, ou um estático (sem pânico)?
+    /// Is `h` a live object of the space, or a static (without panicking)?
     #[allow(unsafe_code)]
     pub fn is_live_object(&self, h: Ref) -> bool {
         if !self.validate_handles {
-            // SAFETY: `validate_handles` (um handle de objeto é um bloco ou um estático).
+            // SAFETY: `validate_handles` (an object handle is a block or a static).
             return is_object(h) && unsafe { (*((h - DESLOCAMENTO_DO_HANDLE) as *const Header)).estado } != LIVRE;
         }
         match self.objects.block_of(h) {
-            // SAFETY: bloco de uma página do espaço.
+            // SAFETY: block of a page of the space.
             Some(b) => (unsafe { (*b).estado }) != LIVRE,
             None => is_static(h),
         }
     }
-    /// `h` é um objeto estático (seção da imagem, `PERMANENTE`)?
+    /// Is `h` a static object (image section, `PERMANENTE`)?
     #[allow(unsafe_code)]
     pub fn is_static(&self, h: Ref) -> bool {
         if !self.validate_handles {
-            // SAFETY: `validate_handles` (um handle de objeto é um bloco ou um estático).
+            // SAFETY: `validate_handles` (an object handle is a block or a static).
             return is_object(h) && unsafe { (*((h - DESLOCAMENTO_DO_HANDLE) as *const Header)).estado } == PERMANENTE;
         }
         self.objects.block_of(h).is_none() && is_static(h)
     }
-    /// As palavras do corpo do bloco `b` (legível): o corpo `INSTANCIA` (o de
-    /// fora, se houver) e o número de palavras dele.
+    /// The body words of block `b` (readable): the `INSTANCIA` body (the
+    /// out-of-line one, if any) and its number of words.
     #[inline]
     #[allow(unsafe_code)]
     fn body_and_words(&self, b: *mut Header) -> (*mut Header, usize) {
-        // SAFETY: bloco legível (de `live_block`).
+        // SAFETY: readable block (from `live_block`).
         unsafe {
             if shape(b) == flags_do_bloco::INSTANCIA {
                 let c = body(b);
@@ -3508,27 +3508,27 @@ impl Heap {
                 if n != usize::from(u16::MAX) {
                     return (b, n);
                 }
-                // Um literal estático com mais de 65 534 palavras: o comprimento
-                // diz (as strings são os únicos estáticos grandes).
+                // A static literal with more than 65 534 words: the length
+                // tells (strings are the only large statics).
                 let c = (*b).class_id;
-                assert!(crate::layout::cid::is_string(c), "bug do compilador: estático grande que não é string");
+                assert!(crate::layout::cid::is_string(c), "compiler bug: large static that is not a string");
                 let len = usize::try_from(*fields_of(b)).unwrap_or(0);
                 return (b, crate::layout::palavras_de_texto(len, c == crate::layout::cid::TWO_BYTE_STRING));
             }
             (b, self.objects.body_words(b))
         }
     }
-    /// O corpo inteiro de `h`, em palavras (a palavra 0 é `b+16`).
+    /// The whole body of `h`, in words (word 0 is `b+16`).
     #[inline]
     #[allow(unsafe_code)]
     pub fn words(&self, h: Ref) -> &[i64] {
         let (c, w) = self.body_and_words(self.live_block(h));
-        // SAFETY: o corpo do bloco vivo tem `w` palavras; o empréstimo do heap
-        // o mantém.
+        // SAFETY: the body of the live block has `w` words; the heap borrow
+        // keeps it.
         unsafe { std::slice::from_raw_parts(fields_of(c), w) }
     }
-    /// O corpo inteiro de `h`, gravável **sem barreira**: só `BRUTO`, ou antes de
-    /// publicar o objeto (quem grava um `Ref` num objeto publicado chama
+    /// The whole body of `h`, writable **without barrier**: only `BRUTO`, or before
+    /// publishing the object (whoever writes a `Ref` into a published object calls
     /// [`Heap::remember`]/[`Heap::remember_element`]).
     #[inline]
     #[allow(unsafe_code)]
@@ -3539,53 +3539,53 @@ impl Heap {
             self.arc_snapshot(b, h);
         }
         let (c, w) = self.body_and_words(b);
-        // SAFETY: o corpo do bloco vivo tem `w` palavras; o empréstimo mutável
-        // do heap é exclusivo.
+        // SAFETY: the body of the live block has `w` words; the mutable heap
+        // borrow is exclusive.
         unsafe { std::slice::from_raw_parts_mut(fields_of(c), w) }
     }
-    /// O corpo inteiro de `h`, em bytes.
+    /// The whole body of `h`, in bytes.
     #[allow(unsafe_code)]
     pub fn bytes(&self, h: Ref) -> &[u8] {
         let p = self.words(h);
-        // SAFETY: as mesmas palavras, vistas como bytes.
+        // SAFETY: the same words, seen as bytes.
         unsafe { std::slice::from_raw_parts(p.as_ptr().cast(), p.len() * 8) }
     }
-    /// O corpo inteiro de `h`, em bytes graváveis (as regras de [`Heap::words_mut`]).
+    /// The whole body of `h`, in writable bytes (the rules of [`Heap::words_mut`]).
     #[allow(unsafe_code)]
     pub fn bytes_mut(&mut self, h: Ref) -> &mut [u8] {
         let p = self.words_mut(h);
-        // SAFETY: as mesmas palavras, vistas como bytes.
+        // SAFETY: the same words, seen as bytes.
         unsafe { std::slice::from_raw_parts_mut(p.as_mut_ptr().cast(), p.len() * 8) }
     }
-    /// Troca os bits `mask` de `flags` por `value`: só `FORMA`/`ELEMENTO` de uma
+    /// Replaces the `mask` bits of `flags` with `value`: only `FORMA`/`ELEMENTO` of a
     /// `_List`/`_ImmutableList` (§2.16).
     #[allow(unsafe_code)]
     pub fn set_flags(&mut self, h: Ref, mask: u8, value: u8) {
         assert!(
             mask & !(flags_do_bloco::FORMA | flags_do_bloco::ELEMENTO) == 0,
-            "bug do runtime: definir_flags só troca FORMA e ELEMENTO"
+            "runtime bug: set_flags only swaps FORMA and ELEMENTO"
         );
         let b = self.live_block(h);
         Self::check_writable(b);
-        // A forma decide que palavras são referências: o ARC fotografa as
-        // contadas antes da troca.
+        // The shape decides which words are references: ARC snapshots the
+        // counted ones before the swap.
         if self.arc.is_some() {
             self.arc_snapshot(b, h);
         }
-        // SAFETY: bloco vivo e gravável.
+        // SAFETY: live and writable block.
         unsafe {
-            assert!(crate::layout::cid::is_fixed_list((*b).class_id), "bug do runtime: definir_flags fora de _List/_ImmutableList");
+            assert!(crate::layout::cid::is_fixed_list((*b).class_id), "runtime bug: set_flags outside _List/_ImmutableList");
             (*b).flags = ((*b).flags & !mask) | (value & mask);
         }
     }
-    /// A barreira de elemento de §2.7 depois de gravar `v` no elemento `i` (índice
-    /// a partir de 0, a palavra `i + 1`) do bloco `REFS` `b`.
+    /// The element barrier of §2.7 after writing `v` into element `i` (index
+    /// from 0, word `i + 1`) of the `REFS` block `b`.
     #[allow(unsafe_code)]
     fn element_barrier(&mut self, b: *mut Header, i: usize, v: Ref) {
         if !self.young_child(v) {
             return;
         }
-        // SAFETY: bloco vivo do espaço.
+        // SAFETY: live block of the space.
         unsafe {
             let e = (*b).estado;
             if e != VELHO && e != REMEMBERED {
@@ -3600,17 +3600,17 @@ impl Heap {
         }
         self.objects.remember(b);
     }
-    /// O bloco `REFS` gravável de `h`.
+    /// The writable `REFS` block of `h`.
     #[allow(unsafe_code)]
     fn refs_block(&self, h: Ref) -> *mut Header {
         let b = self.live_block(h);
         Self::check_writable(b);
-        // SAFETY: bloco vivo.
-        assert!(unsafe { shape(b) } == flags_do_bloco::REFS, "bug do runtime: gravar_ref num objeto que não é REFS");
+        // SAFETY: live block.
+        assert!(unsafe { shape(b) } == flags_do_bloco::REFS, "runtime bug: write_ref on an object that is not REFS");
         b
     }
-    /// Grava o `Ref` `v` na palavra `word ≥ 1` do corpo `REFS` de `h`, com
-    /// barreira (e cartão).
+    /// Writes the `Ref` `v` into word `word ≥ 1` of the `REFS` body of `h`, with
+    /// barrier (and card).
     #[allow(unsafe_code)]
     pub fn write_ref(&mut self, h: Ref, word: usize, v: Ref) {
         if smi::e_handle(v) && self.stress {
@@ -3618,32 +3618,32 @@ impl Heap {
         }
         let b = self.refs_block(h);
         let (c, w) = self.body_and_words(b);
-        assert!(word >= 1 && word < w, "palavra {word} fora do corpo REFS de {w} palavras");
-        // SAFETY: `palavra < w`.
+        assert!(word >= 1 && word < w, "word {word} outside the REFS body of {w} words");
+        // SAFETY: `word < w`.
         let old = unsafe { std::mem::replace(&mut *fields_of(c).add(word), v) };
         if self.arc.is_some() {
             self.arc_swapped(b, h, old, v);
         }
         self.element_barrier(b, word - 1, v);
     }
-    /// Copia `v` para as palavras `word..` do corpo `REFS` de `h`, com uma
-    /// barreira só: num velho com cartões, suja os cartões da faixa inteira (a
-    /// descompactação no lugar e o preenchimento de `lists.rs` contam com isso)
-    /// e o lembra se algum valor é jovem.
+    /// Copies `v` into the words `word..` of the `REFS` body of `h`, with a single
+    /// barrier: in an old object with cards, dirties the cards of the whole range (the
+    /// in-place decompaction and the filling in `lists.rs` rely on this)
+    /// and remembers it if some value is young.
     #[allow(unsafe_code)]
     pub fn write_refs(&mut self, h: Ref, word: usize, v: &[Ref]) {
         let b = self.refs_block(h);
         let (c, w) = self.body_and_words(b);
-        assert!(word >= 1 && word + v.len() <= w, "palavras {word}..+{} fora do corpo REFS de {w} palavras", v.len());
-        // O ARC conta cada troca: as palavras de antes, uma a uma.
+        assert!(word >= 1 && word + v.len() <= w, "words {word}..+{} outside the REFS body of {w} words", v.len());
+        // ARC counts each swap: the words from before, one by one.
         let olds: Vec<Ref> = if self.arc.is_some() {
-            // SAFETY: a faixa está dentro do corpo.
+            // SAFETY: the range is inside the body.
             unsafe { std::slice::from_raw_parts(fields_of(c).add(word), v.len()).to_vec() }
         } else {
             Vec::new()
         };
-        // SAFETY: a faixa está dentro do corpo; `v` não aponta para dentro do
-        // heap mutável (é uma fatia do chamador).
+        // SAFETY: the range is inside the body; `v` does not point into the
+        // mutable heap (it is a slice of the caller).
         unsafe { std::ptr::copy(v.as_ptr(), fields_of(c).add(word), v.len()) };
         if v.is_empty() {
             return;
@@ -3651,7 +3651,7 @@ impl Heap {
         for (&old, &new) in olds.iter().zip(v) {
             self.arc_swapped(b, h, old, new);
         }
-        // SAFETY: bloco vivo do espaço.
+        // SAFETY: live block of the space.
         unsafe {
             let e = (*b).estado;
             if e != VELHO && e != REMEMBERED {
@@ -3671,12 +3671,12 @@ impl Heap {
             self.objects.remember(b);
         }
     }
-    /// A barreira explícita (quem gravou por [`Heap::words_mut`] num objeto
-    /// publicado): lembra o velho `h`; numa lista com cartões, suja todos.
+    /// The explicit barrier (whoever wrote through [`Heap::words_mut`] into a published
+    /// object): remembers the old object `h`; in a list with cards, dirties all of them.
     #[allow(unsafe_code)]
     pub fn remember(&mut self, h: Ref) {
         let Some(b) = self.space_block(h) else { return };
-        // SAFETY: bloco do espaço.
+        // SAFETY: block of the space.
         unsafe {
             let e = (*b).estado;
             if (e == VELHO || e == REMEMBERED) && shape(b) == flags_do_bloco::REFS && (*b).flags & flags_do_bloco::CARTOES != 0 {
@@ -3686,12 +3686,12 @@ impl Heap {
         }
         self.objects.remember(b);
     }
-    /// A barreira de elemento explícita: lembra o velho `h` e suja o cartão do
-    /// elemento `i` (índice a partir de 0).
+    /// The explicit element barrier: remembers the old object `h` and dirties the card of
+    /// element `i` (index from 0).
     #[allow(unsafe_code)]
     pub fn remember_element(&mut self, h: Ref, i: usize) {
         let Some(b) = self.space_block(h) else { return };
-        // SAFETY: bloco do espaço.
+        // SAFETY: block of the space.
         unsafe {
             let e = (*b).estado;
             if e != VELHO && e != REMEMBERED {
@@ -3706,24 +3706,24 @@ impl Heap {
         }
         self.objects.remember(b);
     }
-    /// Anexa ao bloco `h` (`ATTACHMENT`) o ponteiro nativo `ptr`, que ocupa `bytes`
-    /// bytes fora do heap: gravado em `b+16`, `release(ptr)` quando o dono morre
-    /// (ou quando o heap acaba). Os bytes contam para os gatilhos.
+    /// Attaches to block `h` (`ATTACHMENT`) the native pointer `ptr`, which takes `bytes`
+    /// bytes outside the heap: written at `b+16`, `release(ptr)` when the owner dies
+    /// (or when the heap ends). The bytes count toward the triggers.
     ///
     /// # Safety
-    /// `release(ptr)` é a única liberação de `ptr`, e é válida; o corpo de `h` tem
-    /// pelo menos uma palavra e é `BRUTO`.
+    /// `release(ptr)` is the only release of `ptr`, and is valid; the body of `h` has
+    /// at least one word and is `BRUTO`.
     #[allow(unsafe_code)]
     pub unsafe fn attach(&mut self, h: Ref, release: unsafe fn(*mut u8), ptr: *mut u8, bytes: usize) {
         let b = self.live_block(h);
         Self::check_writable(b);
-        // SAFETY: o contrato da função; bloco vivo com a palavra 0.
+        // SAFETY: the function contract; live block with word 0.
         unsafe {
-            // O bloco pode ter nascido com `ATTACHMENT` (`allocate(.., BRUTO | ATTACHMENT)`, a
-            // forma de §2.4): o duplicado é um ponteiro já gravado.
+            // The block may have been born with `ATTACHMENT` (`allocate(.., BRUTO | ATTACHMENT)`, the
+            // form of §2.4): a duplicate is a pointer already written.
             assert!(
                 (*b).flags & flags_do_bloco::ATTACHMENT == 0 || *fields_of(b) == 0,
-                "bug do runtime: anexo duplicado"
+                "runtime bug: duplicate attachment"
             );
             (*b).flags |= flags_do_bloco::ATTACHMENT;
             *fields_of(b) = ptr as i64;
@@ -3732,9 +3732,9 @@ impl Heap {
         self.add_estimated_bytes(bytes);
         self.young_bytes = self.young_bytes.saturating_add(bytes);
     }
-    /// Os bytes do anexo de `h` passam a ser `bytes` (o acumulador do
-    /// `StringBuffer` cresceu): a diferença entra nos gatilhos de coleta, como
-    /// [`Heap::count_external`], e sai quando o dono morre.
+    /// The bytes of the attachment of `h` become `bytes` (the `StringBuffer`
+    /// accumulator grew): the difference enters the collection triggers, like
+    /// [`Heap::count_external`], and leaves when the owner dies.
     pub fn adjust_attachment(&mut self, h: Ref, bytes: usize) {
         let b = self.live_block(h);
         let delta = self.objects.adjust_attachment(b, bytes);
@@ -3745,14 +3745,14 @@ impl Heap {
             self.subtract_estimated_bytes(delta.unsigned_abs());
         }
     }
-    /// O ponteiro nativo anexado a `h` (nulo sem anexo).
+    /// The native pointer attached to `h` (null without an attachment).
     #[allow(unsafe_code)]
     pub fn attachment(&self, h: Ref) -> *mut u8 {
         let b = self.live_block(h);
-        // SAFETY: bloco vivo.
+        // SAFETY: live block.
         unsafe { if (*b).flags & flags_do_bloco::ATTACHMENT != 0 { *fields_of(b) as *mut u8 } else { std::ptr::null_mut() } }
     }
-    /// Projeta a estimativa sem perder bytes que serão descontados posteriormente.
+    /// Projects the estimate without losing bytes that will be subtracted later.
     fn set_estimated_bytes(&mut self, bytes: u128) {
         self.exact_estimated_bytes = bytes;
         self.stats.estimated_bytes = usize::try_from(bytes).unwrap_or(usize::MAX);
@@ -3767,8 +3767,8 @@ impl Heap {
         self.set_estimated_bytes(self.exact_estimated_bytes.saturating_sub(bytes as u128));
     }
 
-    /// Soma `delta` aos bytes de fora do heap (contam para os gatilhos até quem os
-    /// contou descontá-los).
+    /// Adds `delta` to the bytes outside the heap (they count toward the triggers until whoever
+    /// counted them subtracts them).
     pub fn count_external(&mut self, delta: isize) {
         if delta >= 0 {
             let d = delta.unsigned_abs();
@@ -3786,7 +3786,7 @@ impl Heap {
 #[cfg(test)]
 mod tests {
     use super::*;
-    /// Enums preservam identidade e nomes sem frames externos, mesmo em stress.
+    /// Enums preserve identity and names without external frames, even under stress.
     #[test]
     fn enum_singletons_survive_collection_and_keep_nominal_identity() {
         let mut heap = Heap::new(true);
@@ -3797,7 +3797,7 @@ mod tests {
         assert_eq!(heap.enum_value(1, 0, "red"), first);
         assert_ne!(first, second);
         assert_ne!(first, other_class);
-        let fields = heap.object(first).expect("enum deve ser objeto");
+        let fields = heap.object(first).expect("enum must be an object");
         assert_eq!(fields.class_id, 1);
         assert_eq!(fields.field(0), (0, false));
         assert!(heap.text(fields.field(1).0).is_some_and(|name| name == "red"));
@@ -3805,7 +3805,7 @@ mod tests {
         assert_eq!(heap.stats().live_objects, 6);
         assert_eq!(heap.stats().root_slots, 0);
     }
-    /// Um único objeto raiz mantém transitivamente ciclos e strings de seus campos.
+    /// A single root object transitively keeps cycles and strings of its fields.
     #[test]
     fn tagged_edges_keep_unrooted_children_alive() {
         let mut heap = Heap::new(true);
@@ -3826,7 +3826,7 @@ mod tests {
         heap.collect();
         assert_eq!(heap.stats().live_objects, 0);
     }
-    /// Ciclos sobrevivem por raiz, depois são coletados e seus slots reutilizados.
+    /// Cycles survive through a root, then are collected and their slots reused.
     #[test]
     fn cycles_and_slot_reuse() {
         let mut heap = Heap::new(true);
@@ -3841,36 +3841,36 @@ mod tests {
         heap.pop_frame(frame);
         heap.collect();
         assert_eq!(heap.stats().live_objects, 0);
-        // Os blocos dos mortos voltam à lista livre do tamanho deles.
+        // The blocks of the dead go back to the free list of their size.
         let c = heap.new_object(3, &[(0, false)]);
         assert!(c == a || c == b);
         assert_eq!(heap.stats().live_objects, 1);
     }
-    /// Bits escalares coincidentes com handles não retêm objetos.
+    /// Scalar bits that coincide with handles do not retain objects.
     #[test]
     fn scalar_bits_do_not_trace() {
         let mut heap = Heap::new(false);
         let frame = heap.push_frame();
-        let text = heap.allocate_str("descartável");
+        let text = heap.allocate_str("disposable");
         let object = heap.new_object(1, &[(text, false)]);
         heap.root(frame, object);
         heap.collect();
         assert!(!heap.is_live_object(text));
         assert!(heap.is_live_object(object));
     }
-    /// Frames aninhados preservam argumentos; stress coleta durante milhares de alocações.
+    /// Nested frames preserve arguments; stress collects during thousands of allocations.
     #[test]
     fn nested_frames_stress() {
         let mut heap = Heap::new(true);
         let outer = heap.push_frame();
-        let permanent = heap.allocate_str("vivo");
+        let permanent = heap.allocate_str("alive");
         heap.root(outer, permanent);
         for _ in 0..1000 {
             let inner = heap.push_frame();
-            let temporary = heap.allocate_str("temporário");
+            let temporary = heap.allocate_str("temporary");
             heap.root(inner, temporary);
             heap.collect();
-            assert!(heap.text(permanent).is_some_and(|s| s == "vivo"));
+            assert!(heap.text(permanent).is_some_and(|s| s == "alive"));
             heap.pop_frame(inner);
         }
         heap.collect();
@@ -3880,8 +3880,8 @@ mod tests {
 
 #[cfg(test)]
 mod object_space {
-    //! O espaço de objetos: blocos por número de campos, handles com o bit
-    //! 1, listas livres refeitas na varredura e páginas soltas.
+    //! The object space: blocks by number of fields, handles with bit
+    //! 1, free lists rebuilt during the sweep and freed pages.
     use super::*;
 
 
@@ -3892,9 +3892,9 @@ mod object_space {
         let s = heap.allocate_str("x");
         assert!(is_object(o) && is_object(s));
         assert!(matches!(heap.object(o), Some(f) if f.class_id == 7 && f.len() == 3));
-        // A string não é `INSTANCIA`: não tem vista de campos.
+        // The string is not `INSTANCIA`: it has no field view.
         assert!(heap.object(s).is_none());
-        // Escalares quaisquer não são objetos vivos (nem derrubam a consulta).
+        // Arbitrary scalars are not live objects (nor do they crash the lookup).
         for x in [2, 6, 18, o + 4, o - 4, o + 8, -2, i64::MAX - 1] {
             assert!(!heap.is_live_object(x) || x == o || x == s, "{x}");
         }
@@ -3906,7 +3906,7 @@ mod object_space {
     fn collection_returns_blocks_and_keeps_reachable() {
         let mut heap = Heap::new(false);
         let frame = heap.push_frame_with_slots(1);
-        // Uma lista ligada de 10 mil nós alcançável e 10 mil mortos.
+        // A reachable linked list of 10 thousand nodes and 10 thousand dead ones.
         let mut head = 0;
         for i in 0..10_000 {
             let garbage = heap.allocate_object(1, 2);
@@ -3930,15 +3930,15 @@ mod object_space {
         heap.pop_frame(frame);
         heap.collect();
         assert_eq!(heap.stats().live_objects, 0);
-        // As páginas ficam enquanto o pico recente de vivos as pede (a
-        // estrutura pode voltar); o pico decai a cada coleta completa, e as
-        // vazias além da folga voltam ao sistema.
+        // The pages stay while the recent peak of live objects asks for them (the
+        // structure may come back); the peak decays on each full collection, and the
+        // empty ones beyond the slack go back to the system.
         let retained_list = heap.objects.pages.len();
         assert!(retained_list > 2);
         for _ in 0..20 {
             heap.collect();
         }
-        assert!(heap.objects.pages.len() <= 2, "{} páginas de {retained_list}", heap.objects.pages.len());
+        assert!(heap.objects.pages.len() <= 2, "{} pages for {retained_list}", heap.objects.pages.len());
     }
 
     #[test]
@@ -3955,7 +3955,7 @@ mod object_space {
         assert_eq!((fields.len(), fields.field(0).0, fields.field(4).0), (5, 41, 42));
         heap.pop_frame(frame);
         heap.collect();
-        // O bloco voltou ao molde: um objeto novo de 1 campo o reusa zerado.
+        // The block went back to the template: a new 1-field object reuses it zeroed.
         let new = heap.allocate_object(4, 1);
         assert_eq!(new, o);
         assert!(matches!(heap.object(new), Some(f) if f.class_id == 4 && f.len() == 1 && f.field(0) == (0, false)));
@@ -3972,11 +3972,11 @@ mod object_space {
         assert!(ha > 0 && ha <= 0x3fff_ffff);
     }
 
-    /// A alocação em linha do código gerado: avança o cursor da faixa da
-    /// TLAB e grava o cabeçalho (`llvm/mod.rs`).
+    /// The generated code's inline allocation: advances the cursor of the TLAB
+    /// range and writes the header (`llvm/mod.rs`).
     #[allow(unsafe_code)]
     fn allocate_like_generated_code(heap: &mut Heap, class_id: i64, n: usize) -> i64 {
-        // A TLAB é por palavras do corpo (`n ≤ TLAB_N` campos: `max(n, 1)`).
+        // The TLAB is by body words (`n ≤ TLAB_N` fields: `max(n, 1)`).
         let w = crate::layout::palavras_de_instancia(n);
         let size = block_size(n);
         let b = CONTEXTO.with(|c| {
@@ -3992,7 +3992,7 @@ mod object_space {
             heap.refill_tlab(w);
             return h;
         };
-        // SAFETY: bloco livre da faixa.
+        // SAFETY: free block of the range.
         unsafe {
             *b.add(16).cast::<i64>() = 0;
             *b.cast::<u64>() = 1 | (n as u64) << 16 | (class_id as u64) << 32;
@@ -4002,7 +4002,7 @@ mod object_space {
 
     #[test]
     fn tlab_ranges_survive_and_return_to_list() {
-        // Numa thread nova: o `Context` dela começa sem TLAB.
+        // On a new thread: its `Context` starts without a TLAB.
         std::thread::spawn(|| {
             let mut heap = Heap::for_isolate(false);
             let frame = heap.push_frame_with_slots(1);
@@ -4033,7 +4033,7 @@ mod object_space {
             }
             assert_eq!(n, 3_334);
             assert_eq!(heap.stats().live_objects, 3_334);
-            // Os mortos voltaram à lista: alocar de novo não cresce o heap.
+            // The dead went back to the list: allocating again does not grow the heap.
             let pages = heap.objects.pages.len();
             for _ in 0..2_000 {
                 allocate_like_generated_code(&mut heap, 6, 2);
@@ -4049,8 +4049,8 @@ mod object_space {
 
     #[test]
     fn sweep_without_touching_dead_hands_out_zeroed_blocks() {
-        // O caminho de fora dos testes: as varreduras só leem o mapa de
-        // marcas, e a entrega zera a faixa suja.
+        // The path outside tests: sweeps only read the mark
+        // bitmap, and handing out zeroes the dirty range.
         std::thread::spawn(|| {
             let mut heap = Heap::for_isolate(false);
             heap.objects.clear_dead = false;
@@ -4059,10 +4059,10 @@ mod object_space {
             for round in 0..6 {
                 for i in 0..20_000 {
                     let link = allocate_like_generated_code(&mut heap, 5, 3);
-                    // O código gerado só zera o primeiro campo: o resto (e o
-                    // mapa de referências) tem de vir zerado da entrega.
-                    let o = heap.object(link).expect("recém-alocado");
-                    assert_eq!((o.field(1), o.field(2)), ((0, false), (0, false)), "bloco sujo entregue");
+                    // The generated code only zeroes the first field: the rest (and the
+                    // reference map) must come zeroed from the handout.
+                    let o = heap.object(link).expect("freshly allocated");
+                    assert_eq!((o.field(1), o.field(2)), ((0, false), (0, false)), "dirty block handed out");
                     heap.set(link, 0, smi::de(i).unwrap(), false);
                     heap.set(link, 1, head, true);
                     heap.set(link, 2, 77, false);
@@ -4074,7 +4074,7 @@ mod object_space {
                         heap.coletar(i % 9_000 != 8_999);
                     }
                 }
-                // A lista inteira sobrevive; a cada rodada, a de antes morre.
+                // The whole list survives; on each round, the previous one dies.
                 let mut n = 0;
                 let mut h = head;
                 while h != 0 {
@@ -4103,7 +4103,7 @@ mod object_space {
         let old_gen = heap.allocate_object(1, 1);
         heap.set_root(frame, 0, old_gen);
         heap.coletar(false);
-        // Jovem só alcançável pelo velho (a barreira de `set` o lembra).
+        // Young object only reachable through the old one (the `set` barrier remembers it).
         let young = heap.allocate_object(2, 1);
         heap.set(young, 0, 7, false);
         heap.set(old_gen, 0, young, true);
@@ -4112,18 +4112,18 @@ mod object_space {
         assert!(matches!(heap.object(young), Some(f) if f.class_id == 2 && f.field(0).0 == 7));
         assert!(!heap.is_live_object(garbage));
         assert_eq!(heap.stats().live_objects, 2);
-        // Depois dela, o jovem ficou velho: sem barreira nova, outra menor
-        // não o percorre, e ele continua vivo.
+        // After it, the young object became old: without a new barrier, another minor collection
+        // does not walk it, and it stays alive.
         heap.coletar(true);
         assert!(heap.is_live_object(young));
-        // A completa solta o que só os velhos mortos alcançavam.
+        // The full collection frees what only dead old objects reached.
         heap.set_root(frame, 0, 0);
         heap.coletar(false);
         assert_eq!(heap.stats().live_objects, 0);
     }
 
     #[test]
-    #[should_panic(expected = "barreira de escrita faltando")]
+    #[should_panic(expected = "missing write barrier")]
     fn verification_finds_missing_barrier() {
         let mut heap = Heap::new(false);
         heap.verify = true;
@@ -4132,10 +4132,10 @@ mod object_space {
         heap.set_root(frame, 0, old_gen);
         heap.coletar(false);
         let young = heap.allocate_object(2, 0);
-        // Grava sem barreira (como faria código gerado sem ela).
+        // Writes without barrier (as generated code without it would).
         let b = heap.objects.block_of(old_gen).expect("objeto");
         #[allow(unsafe_code)]
-        // SAFETY: bloco vivo de 1 campo.
+        // SAFETY: live 1-field block.
         unsafe {
             *fields_of(b) = young;
             mark_reference(b, 0, true);
@@ -4144,7 +4144,7 @@ mod object_space {
     }
 
     #[test]
-    #[should_panic(expected = "barreira de escrita faltando")]
+    #[should_panic(expected = "missing write barrier")]
     fn verification_finds_missing_barrier_in_side_attachment() {
         let mut heap = Heap::new(false);
         heap.verify = true;
@@ -4153,7 +4153,7 @@ mod object_space {
         heap.set_root(frame, 0, owner);
         heap.coletar(false);
         let action = heap.allocate_object(2, 0);
-        // Sabota a publicação: não chama a barreira de adicionar_anexo.
+        // Sabotages the publication: does not call the barrier of add_attachment.
         heap.attachments.push(FinalizerAttachment {
             owner, value: owner, detach: 0, action: FinalizerAction::Dart(action),
         });
@@ -4180,12 +4180,12 @@ mod object_space {
         assert!(!heap.is_live_object(action));
     }
 
-    /// A carga de `bench/performance/objetos_escapam.dart` (`lista_ligada`)
-    /// direto no heap, para medir o coletor sem compilar Dart:
-    /// `cargo test --release -p dartforge-runtime lista_ligada_no_heap --
-    /// --ignored --nocapture` (com `DARTFORGE_GC_RASTRO=1`, as coletas).
+    /// The workload of `bench/performance/objetos_escapam.dart` (`lista_ligada`)
+    /// directly on the heap, to measure the collector without compiling Dart:
+    /// `cargo test --release -p dartforge-runtime linked_list_on_heap --
+    /// --ignored --nocapture` (with `DARTFORGE_GC_RASTRO=1`, the collections).
     #[test]
-    #[ignore = "medição"]
+    #[ignore = "measurement"]
     fn linked_list_in_heap() {
         let mut heap = Heap::new(false);
         heap.trace = std::env::var("DARTFORGE_GC_RASTRO").as_deref() == Ok("1");
@@ -4200,7 +4200,7 @@ mod object_space {
                 cab = no;
                 heap.set_root(frame, 0, cab);
             }
-            eprintln!("rodada: {:?} coletas={}", t.elapsed(), heap.stats().collections);
+            eprintln!("round: {:?} collections={}", t.elapsed(), heap.stats().collections);
         }
     }
 
@@ -4216,7 +4216,7 @@ mod object_space {
             heap.set(o, i as i64, f, true);
             children.push(f);
         }
-        // Um escalar que parece handle não segura nada.
+        // A scalar that looks like a handle holds nothing.
         let garbage = heap.allocate_object(3, 0);
         heap.set(o, 33, garbage, false);
         heap.coletar(false);
@@ -4227,7 +4227,7 @@ mod object_space {
         let obj = heap.object(o).expect("objeto");
         assert_eq!(obj.field(32), (children[2], true));
         assert!(!obj.field(33).1);
-        // Trocar a referência por escalar apaga o bit.
+        // Replacing the reference with a scalar clears the bit.
         heap.set(o, 39, 5, false);
         heap.coletar(false);
         assert!(heap.object(children[3]).is_none());
@@ -4240,8 +4240,8 @@ mod object_space {
         let o = heap.allocate_object(1, 1);
         heap.set_root(frame, 0, o);
         heap.coletar(false);
-        // O objeto velho cresce (corpo de fora) e recebe um jovem no campo
-        // novo: a coleta menor o acha pelo lembrado.
+        // The old object grows (out-of-line body) and receives a young one in the new
+        // field: the minor collection finds it through the remembered set.
         heap.ensure_fields(o, 3);
         let young = heap.allocate_object(2, 0);
         heap.set(o, 2, young, true);
@@ -4255,8 +4255,8 @@ mod object_space {
 
     #[test]
     fn large_object_has_own_page() {
-        // Acima da maior classe média (`layout::LARGEST_MEDIUM` palavras): uma
-        // região grande só dele, devolvida na coleta completa.
+        // Above the largest medium class (`layout::LARGEST_MEDIUM` words): a
+        // large region of its own, returned in the full collection.
         let mut heap = Heap::new(false);
         let n = crate::layout::LARGEST_MEDIUM + 100;
         let o = heap.allocate_object(9, n);
@@ -4270,23 +4270,23 @@ mod object_space {
 
 #[cfg(test)]
 mod handle_failures {
-    //! N4: cada contrato quebrado tem mensagem própria.
+    //! N4: each broken contract has its own message.
     use super::*;
 
     #[test]
-    #[should_panic(expected = "handle null (0) desreferenciado")]
+    #[should_panic(expected = "null handle (0) dereferenced")]
     fn null_dereferenced() {
         Heap::new(false).header(0);
     }
 
     #[test]
-    #[should_panic(expected = "handle negativo")]
+    #[should_panic(expected = "negative handle")]
     fn negative_handle() {
         Heap::new(false).header(-2);
     }
 
     #[test]
-    #[should_panic(expected = "handle além da tabela")]
+    #[should_panic(expected = "handle beyond the table")]
     fn handle_beyond_table() {
         let mut heap = Heap::new(false);
         heap.allocate_str("x");
@@ -4294,7 +4294,7 @@ mod handle_failures {
     }
 
     #[test]
-    #[should_panic(expected = "handle já coletado")]
+    #[should_panic(expected = "handle already collected")]
     fn collected_handle() {
         let mut heap = Heap::new(false);
         let h = heap.allocate_str("x");
@@ -4305,17 +4305,17 @@ mod handle_failures {
 
 #[cfg(test)]
 mod runtime_roots {
-    //! G6: raízes que não moram num frame, e as tabelas laterais.
+    //! G6: roots that do not live in a frame, and the side tables.
     use super::*;
 
     #[test]
     fn pending_exception_survives_collection_without_frame() {
         let mut heap = Heap::new(true);
-        let error = heap.allocate_str("falhou");
+        let error = heap.allocate_str("failed");
         heap.set_runtime_root(0, error);
-        heap.allocate_str("outra");
+        heap.allocate_str("another");
         heap.collect();
-        assert!(heap.text(error).is_some_and(|s| s == "falhou"));
+        assert!(heap.text(error).is_some_and(|s| s == "failed"));
         heap.set_runtime_root(0, 0);
         heap.collect();
         assert_eq!(heap.stats().live_objects, 0);
@@ -4323,8 +4323,8 @@ mod runtime_roots {
 
     #[test]
     fn collection_without_open_frame() {
-        // O portão antigo só coletava com frame; agora o limiar basta (a
-        // coleta menor, por contagem de alocações).
+        // The old gate only collected with a frame; now the threshold suffices (the
+        // minor collection, by allocation count).
         let mut heap = Heap::new(false);
         let n = YOUNG_COUNT + 1000;
         for _ in 0..n {
@@ -4357,11 +4357,11 @@ mod runtime_roots {
         heap.set_root(frame, 0, old_gen);
         heap.mark_late((old_gen, 0));
         heap.coletar(true);
-        assert!(heap.late_initialized((old_gen, 0)), "o velho vivo continua marcado");
+        assert!(heap.late_initialized((old_gen, 0)), "the live old object stays marked");
         let young = heap.allocate_object(200, 0);
         heap.mark_late((young, 3));
         heap.coletar(true);
-        assert!(!heap.late_initialized((young, 3)), "o jovem morto perde a marca");
+        assert!(!heap.late_initialized((young, 3)), "the dead young object loses the mark");
         assert!(heap.late_initialized((old_gen, 0)));
         heap.pop_frame(frame);
     }
@@ -4371,7 +4371,7 @@ mod runtime_roots {
 #[cfg(test)]
 mod review_tests {
     use super::*;
-    /// Igualdade preserva Unicode, NUL embutido e nulidade sem normalização implícita.
+    /// Equality preserves Unicode, embedded NUL and nullability without implicit normalization.
     #[test]
     fn unicode_nul_nullable_and_concat() {
         let mut heap = Heap::new(true);
@@ -4386,7 +4386,7 @@ mod review_tests {
         heap.root(frame, c);
         assert!(!heap.strings_equal(a, c));
     }
-    /// Retorno transfere raiz sem coleta entre pop e registro no chamador.
+    /// A return transfers the root without collection between pop and registration in the caller.
     #[test]
     fn returned_handles_and_identity() {
         let mut heap = Heap::new(true);
@@ -4402,7 +4402,7 @@ mod review_tests {
         heap.collect();
         assert_eq!(heap.stats().live_objects, 2);
     }
-    /// Tracing e destruição de um ciclo grande não dependem da pilha de chamadas.
+    /// Tracing and destroying a large cycle do not depend on the call stack.
     #[test]
     fn large_cycle_is_iterative() {
         let mut heap = Heap::new(false);
@@ -4422,9 +4422,9 @@ mod review_tests {
         assert_eq!(heap.stats().live_objects, 0);
         assert_eq!(heap.stats().reclaimed, 20_000);
     }
-    /// Microbenchmark reproduzível: tempos incluem raízes e coletas automáticas declaradas.
+    /// Reproducible microbenchmark: times include roots and declared automatic collections.
     #[test]
-    #[ignore = "microbenchmark; execute em release com --ignored --nocapture"]
+    #[ignore = "microbenchmark; run in release with --ignored --nocapture"]
     fn gc_microbenchmark() {
         for (count, stress) in [(100_000, false), (2_000, true)] {
             let mut heap = Heap::new(stress);
@@ -4456,7 +4456,7 @@ mod review_tests {
 #[cfg(test)]
 mod fixed_root_tests {
     use super::*;
-    /// Slots substituídos não crescem com iterações; cópias locais têm raízes independentes.
+    /// Replaced slots do not grow with iterations; local copies have independent roots.
     #[test]
     fn fixed_slots_preserve_copies_and_nested_returns() {
         let mut heap = Heap::new(true);
@@ -4485,7 +4485,7 @@ mod fixed_root_tests {
         heap.pop_frame(frame);
         assert_eq!(heap.stats().root_slots, 0);
     }
-    /// Payload grande dispara coleta antes do limiar por quantidade de objetos.
+    /// A large payload triggers a collection before the object count threshold.
     #[test]
     fn byte_trigger_collects_large_payloads() {
         let mut heap = Heap::new(false);
@@ -4497,17 +4497,17 @@ mod fixed_root_tests {
         let stats = heap.stats();
         assert!(stats.collections >= 3);
         assert!(stats.reclaimed >= 5);
-        // O pico: o jovem entre coletas menores e o lixo velho (cada payload
-        // enraizado vira velho e morre na volta seguinte) até a completa,
-        // que vem dois semiespaços jovens acima do que sobreviveu.
+        // The peak: the young data between minor collections and the old garbage (each
+        // rooted payload becomes old and dies on the next round) until the full one,
+        // which comes two young semispaces above what survived.
         assert!(stats.peak_estimated_bytes < 2 * YOUNG_LIMIT + 3 * 2 * 1024 * 1024, "{}", stats.peak_estimated_bytes);
         heap.pop_frame(frame);
         heap.collect();
         assert_eq!(heap.stats().estimated_bytes, 0);
     }
-    /// Mede alocações transientes com uma única raiz sobrescrita, sem alegar superioridade.
+    /// Measures transient allocations with a single overwritten root, without claiming superiority.
     #[test]
-    #[ignore = "microbenchmark de slots fixos; execute release --ignored --nocapture"]
+    #[ignore = "fixed slots microbenchmark; run release --ignored --nocapture"]
     fn fixed_slot_microbenchmark() {
         for stress in [false, true] {
             let mut heap = Heap::new(stress);
@@ -4532,58 +4532,58 @@ mod fixed_root_tests {
         }
     }
 }
-/// A época dos layouts de objeto do processo (J03): cresce a cada migração
-/// que uma recarga do JIT define (`dartforge_definir_migracao`).
+/// The process's object layout epoch (J03): grows with each migration
+/// that a JIT reload defines (`dartforge_definir_migracao`).
 pub static LAYOUT_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 thread_local! {
-    /// `DARTFORGE_EFEITOS=conferir` (`efeitos_conferir.rs`): as externs em
-    /// execução nesta thread que a tabela de efeitos marca `coleta = 0`. Com
-    /// alguma, uma coleta é a marca errada — o defeito de um mapa de raízes
-    /// errado, só que do nosso lado — e encerra o processo dizendo qual.
+    /// `DARTFORGE_EFEITOS=conferir` (`effects_check.rs`): the externs running
+    /// on this thread that the effects table marks `coleta = 0`. With
+    /// any of them, a collection is the wrong mark — the defect of a wrong roots
+    /// map, only on our side — and ends the process saying which.
     static COLLECTION_FORBIDDEN: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
-/// Proíbe a coleta até o [`allow_collection`] casado: a extern `name` está
-/// marcada `coleta = 0`.
+/// Forbids collection until the matching [`allow_collection`]: the extern `name` is
+/// marked `coleta = 0`.
 pub fn forbid_collection(name: String) {
     COLLECTION_FORBIDDEN.with(|p| p.borrow_mut().push(name));
 }
 
-/// Desfaz o último [`forbid_collection`].
+/// Undoes the last [`forbid_collection`].
 pub fn allow_collection() {
     COLLECTION_FORBIDDEN.with(|p| {
         p.borrow_mut().pop();
     });
 }
 
-/// Encerra o processo se uma extern marcada `coleta = 0` está em execução.
+/// Ends the process if an extern marked `coleta = 0` is running.
 fn check_collection_allowed() {
     let culprit = COLLECTION_FORBIDDEN.with(|p| p.borrow().last().cloned());
     if let Some(name) = culprit {
-        eprintln!("dartforge: a extern {name} está marcada coleta = 0 em efeitos.tsv e coletou");
+        eprintln!("dartforge: the extern {name} is marked coleta = 0 in efeitos.tsv and collected");
         std::process::abort();
     }
 }
 
 #[cfg(test)]
 mod unified_space {
-    //! O coletor do espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §2.3–§2.8,
-    //! §4.2 passo 9): um teste por formato, cartões, anexos, regiões grandes,
-    //! estáticos, a purga das tabelas de identidade e os bytes externos. Todos
-    //! com a verificação da coleta menor ligada.
+    //! The unified space collector (docs/NATIVO-ESPACO-UNIFICADO.md §2.3–§2.8,
+    //! §4.2 step 9): one test per format, cards, attachments, large regions,
+    //! statics, the purge of the identity tables and external bytes. All
+    //! with the minor collection verification enabled.
     use super::*;
     use crate::layout::{self, cid, flags};
 
-    /// Um heap de teste com a verificação da coleta menor (a travessia completa
-    /// que acusa barreira faltando).
+    /// A test heap with the minor collection verification (the full traversal
+    /// that reports a missing barrier).
     fn heap() -> Heap {
         let mut h = Heap::new(false);
         h.verify = true;
         h
     }
 
-    /// Um `_List` geral (`REFS`) de `len` elementos nulos, com cartões se grande.
+    /// A general `_List` (`REFS`) of `len` null elements, with cards if large.
     fn list(heap: &mut Heap, len: usize) -> Ref {
         let mut f = flags::REFS;
         if layout::has_cards(len) {
@@ -4601,11 +4601,11 @@ mod unified_space {
         let target = heap.allocate_object(200, 1);
         let m = heap.allocate(cid::MINT, 2, flags::BRUTO);
         heap.set_root(frame, 0, m);
-        // Bits que parecem um handle, num corpo BRUTO: o coletor não os segue.
+        // Bits that look like a handle, in a BRUTO body: the collector does not follow them.
         heap.words_mut(m)[0] = i64::MAX;
         heap.words_mut(m)[1] = target;
         heap.collect();
-        assert!(!heap.is_live_object(target), "BRUTO seguido como referência");
+        assert!(!heap.is_live_object(target), "BRUTO followed as a reference");
         assert_eq!(heap.words(m)[0], i64::MAX);
         assert_eq!(heap.class(m), cid::MINT);
         assert_eq!(heap.header(m).n, 2);
@@ -4622,16 +4622,16 @@ mod unified_space {
         heap.write_ref(l, 1, a);
         heap.write_ref(l, 3, smi::de(7).unwrap());
         heap.collect();
-        assert!(heap.is_live_object(a), "elemento REFS não seguido");
-        // A lista é velha: um jovem gravado nela sobrevive à coleta menor
-        // pela barreira (sem ela, a verificação acusaria).
+        assert!(heap.is_live_object(a), "REFS element not followed");
+        // The list is old: a young object written into it survives the minor collection
+        // through the barrier (without it, verification would report).
         let b = heap.allocate_object(201, 0);
         heap.write_ref(l, 2, b);
         assert_eq!(heap.header(l).estado, REMEMBERED);
         heap.coletar(true);
-        assert!(heap.is_live_object(b), "jovem de lista velha coletado");
+        assert!(heap.is_live_object(b), "young object of an old list collected");
         assert_eq!(heap.words(l)[1..], [a, b, smi::de(7).unwrap()]);
-        // Sem referência, some.
+        // Without a reference, it goes away.
         heap.write_refs(l, 1, &[0, 0]);
         heap.collect();
         assert!(!heap.is_live_object(a) && !heap.is_live_object(b));
@@ -4650,7 +4650,7 @@ mod unified_space {
         heap.set_field(o, 36, released, false);
         heap.collect();
         assert!(heap.is_live_object(child));
-        assert!(!heap.is_live_object(released), "campo escalar seguido");
+        assert!(!heap.is_live_object(released), "scalar field followed");
         assert_eq!(heap.words(o).len(), layout::palavras_de_instancia(40));
         heap.pop_frame(frame);
     }
@@ -4664,7 +4664,7 @@ mod unified_space {
         heap.set_root(frame, 0, l);
         assert!(heap.header(l).flags & flags::CARTOES != 0);
         heap.collect();
-        // Velha: gravações velho → jovem espalhadas, cada uma sujando o cartão.
+        // Old: scattered old → young writes, each dirtying the card.
         let mut young_set = Vec::new();
         for i in [5, 2048, 40_000, len - 1] {
             let j = heap.allocate_object(200, 0);
@@ -4673,13 +4673,13 @@ mod unified_space {
         }
         heap.coletar(true);
         for &(i, j) in &young_set {
-            assert!(heap.is_live_object(j), "jovem no elemento {i} coletado (cartão não percorrido)");
+            assert!(heap.is_live_object(j), "young object in element {i} collected (card not walked)");
             assert_eq!(heap.words(l)[1 + i], j);
         }
-        // A coleta menor zerou os cartões.
+        // The minor collection cleared the cards.
         let cards = &heap.words(l)[1 + len..];
-        assert!(cards.iter().all(|&c| c == 0), "cartões não zerados");
-        // A barreira explícita (gravação por fora) suja todos.
+        assert!(cards.iter().all(|&c| c == 0), "cards not cleared");
+        // The explicit barrier (write from outside) dirties all of them.
         let k = heap.allocate_object(201, 0);
         heap.words_mut(l)[1 + 77_777] = k;
         heap.remember(l);
@@ -4692,7 +4692,7 @@ mod unified_space {
 
     #[allow(unsafe_code)]
     unsafe fn release_box(p: *mut u8) {
-        // SAFETY: `p` veio de `Box::into_raw` no teste.
+        // SAFETY: `p` came from `Box::into_raw` in the test.
         drop(unsafe { Box::from_raw(p.cast::<[u8; 1000]>()) });
         RELEASED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
@@ -4706,21 +4706,21 @@ mod unified_space {
         let a = heap.allocate(cid::STRING_ACCUMULATOR, 1, flags::BRUTO);
         let p = Box::into_raw(Box::new([0u8; 1000])).cast::<u8>();
         let bytes_before = heap.stats().estimated_bytes;
-        // SAFETY: `release_box` é a única liberação de `p`.
+        // SAFETY: `release_box` is the only release of `p`.
         unsafe { heap.attach(a, release_box, p, 1000) };
         assert_eq!(heap.attachment(a), p);
         assert_eq!(heap.stats().estimated_bytes, bytes_before + 1000);
-        // O anexo cresce (o acumulador do `StringBuffer`): conta nos gatilhos.
+        // The attachment grows (the `StringBuffer` accumulator): it counts toward the triggers.
         heap.adjust_attachment(a, 3000);
         assert_eq!(heap.stats().estimated_bytes, bytes_before + 3000);
         assert_eq!(heap.objects.attachment_bytes, 3000);
         heap.set_root(frame, 0, a);
         heap.coletar(true);
         heap.collect();
-        assert_eq!(RELEASED.load(std::sync::atomic::Ordering::SeqCst), before, "anexo solto com o dono vivo");
+        assert_eq!(RELEASED.load(std::sync::atomic::Ordering::SeqCst), before, "attachment released with the owner alive");
         heap.pop_frame(frame);
         heap.collect();
-        assert_eq!(RELEASED.load(std::sync::atomic::Ordering::SeqCst), before + 1, "anexo do morto não solto");
+        assert_eq!(RELEASED.load(std::sync::atomic::Ordering::SeqCst), before + 1, "attachment of the dead not released");
         assert_eq!(heap.objects.attachment_bytes, 0);
     }
 
@@ -4730,27 +4730,27 @@ mod unified_space {
         let pages = heap.objects.n_pages();
         let t = heap.allocate(cid::tipada(1), 5000, flags::BRUTO);
         assert!(heap.objects.block_of(t).is_some());
-        assert_eq!(heap.words(t).len(), 5000, "o n saturado lido da região");
+        assert_eq!(heap.words(t).len(), 5000, "the saturated n read from the region");
         assert_eq!(heap.objects.n_pages(), pages + 1);
         heap.collect();
-        assert_eq!(heap.objects.n_pages(), pages, "região grande morta não saiu do espaço");
-        assert!(heap.objects.cached_bytes() > 0, "região solta sem cache");
-        // Reusada do cache pela alocação do mesmo tamanho.
+        assert_eq!(heap.objects.n_pages(), pages, "dead large region did not leave the space");
+        assert!(heap.objects.cached_bytes() > 0, "freed region without cache");
+        // Reused from the cache by an allocation of the same size.
         let u = heap.allocate(cid::tipada(1), 5000, flags::BRUTO);
         assert_eq!(heap.objects.cached_bytes(), 0);
-        assert!(heap.words(u).iter().all(|&w| w == 0), "região reusada suja");
+        assert!(heap.words(u).iter().all(|&w| w == 0), "dirty reused region");
         heap.collect();
         heap.collect();
         heap.collect();
-        assert_eq!(heap.objects.cached_bytes(), 0, "região parada não voltou ao sistema");
-        // Uma classe média de 16 KiB não é região grande.
+        assert_eq!(heap.objects.cached_bytes(), 0, "idle region did not go back to the system");
+        // A 16 KiB medium class is not a large region.
         let pages = heap.objects.n_pages();
         let m = heap.allocate(cid::tipada(1), layout::LARGEST_MEDIUM, flags::BRUTO);
         assert_eq!(heap.words(m).len(), layout::LARGEST_MEDIUM);
         assert!(heap.objects.n_pages() <= pages + 1);
     }
 
-    /// Um estático na forma de §2.11 (em memória só de leitura do teste).
+    /// A static in the form of §2.11 (in the test's read-only memory).
     static STATIC_STRING: [u64; 3] = [
         layout::palavra_do_cabecalho(layout::estado::PERMANENTE, flags::BRUTO, 2, cid::ONE_BYTE_STRING),
         0,
@@ -4782,14 +4782,14 @@ mod unified_space {
         }
         assert_eq!(heap.header(s).estado, layout::estado::PERMANENTE);
         assert_eq!(heap.words(s)[0], 3);
-        assert_eq!(heap.weak_refs.get(&o), Some(&s), "referência fraca a estático zerada");
+        assert_eq!(heap.weak_refs.get(&o), Some(&s), "weak reference to a static zeroed");
         assert!(heap.is_permanent(s));
         assert_eq!(heap.identity_hash(s), heap.identity_hash(s));
         heap.pop_frame(frame);
     }
 
     #[test]
-    #[should_panic(expected = "gravação num objeto estático")]
+    #[should_panic(expected = "write to a static object")]
     fn static_is_not_written() {
         let mut heap = heap();
         heap.words_mut(Heap::box_bool(false));
@@ -4803,8 +4803,8 @@ mod unified_space {
         heap.mark_constant(o, 0x1234);
         assert!(heap.is_permanent(o));
         heap.collect();
-        assert!(heap.permanentes.is_empty() && heap.constants.is_empty(), "handle morto nas tabelas de identidade");
-        // Vivo por um global, fica.
+        assert!(heap.permanentes.is_empty() && heap.constants.is_empty(), "dead handle in the identity tables");
+        // Alive through a global, it stays.
         let g = heap.allocate_object(200, 0);
         heap.mark_constant(g, 0x5678);
         heap.set_global_root(9, g);
@@ -4849,7 +4849,7 @@ mod unified_space {
         heap.count_external(isize::MAX);
         heap.count_external(isize::MAX);
         heap.count_external(1);
-        assert!(heap.needs_collection(16), "a dívida não pode voltar a zero por overflow");
+        assert!(heap.needs_collection(16), "the debt cannot go back to zero through overflow");
         heap.count_external(1);
         assert_eq!(heap.young_bytes, usize::MAX);
         assert!(heap.needs_collection(16));
@@ -4861,9 +4861,9 @@ mod unified_space {
         assert!(!heap.needs_collection(16));
         let too_many = heap.byte_threshold + 1;
         heap.count_external(too_many as isize);
-        assert!(heap.needs_collection(16), "bytes externos fora do gatilho");
+        assert!(heap.needs_collection(16), "external bytes outside the trigger");
         heap.collect();
-        assert!(heap.stats().estimated_bytes >= too_many, "a coleta completa perdeu os bytes externos");
+        assert!(heap.stats().estimated_bytes >= too_many, "the full collection lost the external bytes");
         heap.count_external(-(too_many as isize));
         assert!(heap.stats().estimated_bytes < too_many);
     }
@@ -4895,36 +4895,36 @@ mod unified_space {
         heap.collect();
         for &(w, h) in &hs {
             assert_eq!(heap.words(h).len(), w);
-            assert_eq!(heap.words(h)[w - 1], w as i64, "corpo de {w} palavras perdido");
+            assert_eq!(heap.words(h)[w - 1], w as i64, "body of {w} words lost");
         }
         heap.pop_frame(frame);
     }
 }
 
-/// O estado do ARC no heap (docs/ARC-IMPLEMENTACAO.md, sobre
-/// docs/ARC-CICLOS-ESPECIFICACAO.md §19 e §22): o RC das ocorrências fortes
-/// entre objetos velhos e nos slots proprietários. Raízes observacionais são
-/// vistas na sincronização, sem contar RC; jovens usam coleta menor até promoção.
+/// The ARC state in the heap (docs/ARC-IMPLEMENTACAO.md, on top of
+/// docs/ARC-CICLOS-ESPECIFICACAO.md §19 and §22): the RC of the strong occurrences
+/// between old objects and in the owning slots. Observational roots are
+/// seen during synchronization, without counting RC; young objects use the minor collection until promotion.
 pub struct HeapArc {
     pub estado: crate::arc::EstadoDoArc,
-    /// Os velhos entregues crus nesta época ([`Heap::words_mut`],
-    /// [`Heap::object_fields`], [`Heap::set_flags`]): as ocorrências
-    /// contadas que tinham antes. A sincronização conta as de agora e solta
-    /// estas; até lá, as gravações contadas na hora pulam o objeto.
+    /// The old objects handed out raw in this epoch ([`Heap::words_mut`],
+    /// [`Heap::object_fields`], [`Heap::set_flags`]): the counted occurrences
+    /// they had before. Synchronization counts the current ones and releases
+    /// these; until then, the writes counted on the spot skip the object.
     snapshots: crate::hash::HashMap<Ref, Vec<Ref>>,
     ephemerons: ArcEphemerons,
-    /// `DARTFORGE_ARC_CONFERIR=1`: depois de cada sincronização, nenhum
-    /// alcançável morto e o RC de cada vivo igual às ocorrências recontadas.
+    /// `DARTFORGE_ARC_CONFERIR=1`: after each synchronization, no
+    /// reachable object dead and the RC of each live one equal to the recounted occurrences.
     check: bool,
-    /// `DARTFORGE_ARC_CICLOS=sempre`: a rodada de ciclos (*trial
-    /// deletion*) em toda sincronização; `nunca`: nem ela nem o ponto fixo
-    /// da completa (o diagnóstico); o padrão: o ponto fixo na completa.
+    /// `DARTFORGE_ARC_CICLOS=sempre`: the cycle round (*trial
+    /// deletion*) on every synchronization; `nunca`: neither it nor the full collection's
+    /// fixed point (the diagnostic); the default: the fixed point in the full collection.
     cycles: Option<bool>,
-    /// O ARC puro (o padrão; docs/ARC-IMPLEMENTACAO.md §6): toda gravação
-    /// de referência conta na hora, também num jovem, e a drenagem
-    /// ([`Heap::drain_arc`]) decide a vida sem percorrer o heap. Com
-    /// `DARTFORGE_ARC_BERCARIO=1`, o modo da primeira etapa: o berçário pela
-    /// coleta menor rastreada e as arestas do jovem contadas na promoção.
+    /// Pure ARC (the default; docs/ARC-IMPLEMENTACAO.md §6): every reference
+    /// write counts on the spot, also in a young object, and draining
+    /// ([`Heap::drain_arc`]) decides lifetime without walking the heap. With
+    /// `DARTFORGE_ARC_BERCARIO=1`, the first-stage mode: the nursery through the
+    /// traced minor collection and the young object's edges counted at promotion.
     pure: bool,
 }
 
@@ -4939,9 +4939,9 @@ impl std::fmt::Debug for HeapArc {
     }
 }
 
-/// As entradas de efêmero contadas: cada uma é uma ocorrência do valor,
-/// atribuída à chave no grafo (o valor vive enquanto a chave e o portador
-/// vivem; a morte do portador solta a entrada na sincronização).
+/// The counted ephemeron entries: each one is an occurrence of the value,
+/// attributed to the key in the graph (the value lives while the key and the holder
+/// live; the holder's death releases the entry during synchronization).
 #[derive(Default)]
 struct ArcEphemerons {
     counted: crate::hash::HashMap<Ref, (Ref, Ref)>,
@@ -4965,8 +4965,8 @@ impl ArcEphemerons {
     }
 }
 
-/// O grafo do ARC sobre o heap: as posições que a marcação percorre e as
-/// entradas de efêmero contadas (docs/ARC-CICLOS-ESPECIFICACAO.md §19.2).
+/// The ARC graph over the heap: the positions marking walks and the
+/// counted ephemeron entries (docs/ARC-CICLOS-ESPECIFICACAO.md §19.2).
 struct HeapGraph<'a> {
     heap: &'a mut Heap,
     ephemerons: &'a mut ArcEphemerons,
@@ -4974,10 +4974,10 @@ struct HeapGraph<'a> {
 
 impl crate::arc::ArcGraph for HeapGraph<'_> {
     fn edges(&self, h: Ref, f: &mut dyn FnMut(Ref)) {
-        // SAFETY: as posições são palavras do corpo de um bloco vivo.
+        // SAFETY: the positions are body words of a live block.
         #[allow(unsafe_code)]
         self.heap.visit_strong_references(h, f);
-        // Sem efêmero contado (o caso comum), nada de hash por objeto.
+        // Without a counted ephemeron (the common case), no per-object hashing.
         if self.ephemerons.by_key.is_empty() {
             return;
         }
@@ -5002,15 +5002,15 @@ impl crate::arc::ArcGraph for HeapGraph<'_> {
             });
             self.heap.reindex_attachments();
         }
-        // SAFETY: as posições são palavras do corpo de um bloco vivo.
+        // SAFETY: the positions are body words of a live block.
         #[allow(unsafe_code)]
         self.heap.ref_positions(h, &mut |p| unsafe {
             f(*p);
             *p = 0;
         });
         if !self.ephemerons.by_key.is_empty() {
-            // As arestas condicionais (a chave segura o valor) e o
-            // rompimento delas, como em `edges` e `break_off`.
+            // The conditional edges (the key holds the value) and
+            // breaking them, as in `edges` and `break_off`.
             let mut value_list = Vec::new();
             if let Some(ps) = self.ephemerons.by_key.get(&h) {
                 for p in ps {
@@ -5041,7 +5041,7 @@ impl crate::arc::ArcGraph for HeapGraph<'_> {
             self.heap.attachments.retain(|a| a.owner != h || !matches!(a.action, FinalizerAction::Dart(_)));
             self.heap.reindex_attachments();
         }
-        // SAFETY: as posições são palavras do corpo de um bloco vivo.
+        // SAFETY: the positions are body words of a live block.
         #[allow(unsafe_code)]
         self.heap.ref_positions(h, &mut |p| unsafe { *p = 0 });
         if self.ephemerons.by_key.is_empty() {
@@ -5060,36 +5060,36 @@ impl crate::arc::ArcGraph for HeapGraph<'_> {
     }
 }
 
-/// O objeto `h` tem corpo `BRUTO` (nenhuma posição de referência: string,
-/// caixa numérica, dados tipados)? O filtro de candidatos a ciclo do ARC
+/// Does object `h` have a `BRUTO` body (no reference positions: string,
+/// numeric box, typed data)? ARC's cycle candidate filter
 /// (`EstadoDoArc::without_edges`).
 fn block_without_refs(h: Ref) -> bool {
-    // SAFETY: o ARC só chama com handles registrados, blocos vivos do espaço
-    // (a imagem não tem metadados).
+    // SAFETY: ARC only calls with registered handles, live blocks of the space
+    // (the image has no metadata).
     #[allow(unsafe_code)]
     unsafe {
         (*((h - DESLOCAMENTO_DO_HANDLE) as *const Header)).flags & flags_do_bloco::FORMA == flags_do_bloco::BRUTO
     }
 }
 
-/// Uma violação do contador é bug do compilador ou do runtime, nunca erro
-/// Dart (docs/ARC-CICLOS-ESPECIFICACAO.md §19.3).
+/// A counter violation is a compiler or runtime bug, never a Dart
+/// error (docs/ARC-CICLOS-ESPECIFICACAO.md §19.3).
 #[cold]
 fn arc_failure(e: crate::arc::ArcError) -> ! {
     panic!("bug do ARC: {e:?}")
 }
 
-/// A geometria da página do bloco `h` para a tabela de metadados do ARC
-/// (`arc::Geometry`); `None` fora do espaço (o metadado vai para a reserva).
+/// The geometry of the page of block `h` for the ARC metadata table
+/// (`arc::Geometry`); `None` outside the space (the metadata goes to the reserve).
 fn arc_geometry(space: &ObjectSpace, h: Ref) -> Option<crate::arc::Geometry> {
     space.geometry(h).map(|(first, size, blocks)| crate::arc::Geometry { first, size, blocks })
 }
 
-/// ARC puro, no laço da drenagem (depois do passo 4, em que todo jovem que
-/// sobrevive é registrado): o objeto do espaço sem metadados morreu nesta
-/// drenagem — o jovem que ninguém contou, ou o morto pelo RC, cujos
-/// metadados `take_dead` já tirou. O estático (`PERMANENTE`) não é do
-/// espaço e nunca morre.
+/// Pure ARC, in the draining loop (after step 4, in which every young object that
+/// survives is registered): the object of the space without metadata died in this
+/// draining — the young object nobody counted, or one killed by RC, whose
+/// metadata `take_dead` already removed. The static (`PERMANENTE`) is not in the
+/// space and never dies.
 #[allow(unsafe_code)]
 fn died_in_drain(space: &ObjectSpace, validate: bool, estado: &crate::arc::EstadoDoArc, h: Ref) -> bool {
     if !is_object(h) {
@@ -5098,8 +5098,8 @@ fn died_in_drain(space: &ObjectSpace, validate: bool, estado: &crate::arc::Estad
     let in_space = if validate {
         space.block_of(h).is_some()
     } else {
-        // SAFETY: um handle de objeto é um bloco ou um estático (o contrato
-        // de `space_block` sem a validação).
+        // SAFETY: an object handle is a block or a static (the contract
+        // of `space_block` without validation).
         unsafe { (*((h - DESLOCAMENTO_DO_HANDLE) as *const Header)).estado != PERMANENTE }
     };
     in_space && estado.meta(h).is_none()
@@ -5107,25 +5107,25 @@ fn died_in_drain(space: &ObjectSpace, validate: bool, estado: &crate::arc::Estad
 
 #[allow(unsafe_code)]
 impl Heap {
-    /// O ARC está ligado.
+    /// ARC is enabled.
     pub fn arc_active(&self) -> bool {
         self.arc.is_some()
     }
 
-    /// Os contadores do ARC, se ligado.
+    /// The ARC counters, if enabled.
     pub fn arc_statistics(&self) -> Option<crate::arc::ArcStats> {
         self.arc.as_ref().map(|a| a.estado.statistics)
     }
 
-    /// A troca de `old` por `new` numa posição forte do bloco `b` (de
-    /// `h`), contada na hora se o dono não foi fotografado. No ARC puro
-    /// conta sempre, e o destino ainda sem metadados é registrado (o jovem
-    /// que ganha a primeira ocorrência). No modo do berçário só conta com o
-    /// dono velho (as arestas do jovem entram na promoção).
+    /// The swap of `old` for `new` in a strong position of block `b` (of
+    /// `h`), counted on the spot if the owner was not snapshotted. Under pure ARC
+    /// it always counts, and a destination still without metadata is registered (the young object
+    /// that gains its first occurrence). In nursery mode it only counts with an
+    /// old owner (the young object's edges enter at promotion).
     fn arc_swapped(&mut self, b: *mut Header, h: Ref, old: Ref, new: Ref) {
         let new_in_space = self.space_block(new).is_some();
         let Some(arc) = self.arc.as_deref_mut() else { return };
-        // SAFETY: bloco vivo do espaço.
+        // SAFETY: live block of the space.
         let e = unsafe { (*b).estado };
         if old == new || arc.snapshots.contains_key(&h) || (!arc.pure && e != VELHO && e != REMEMBERED) {
             return;
@@ -5139,16 +5139,16 @@ impl Heap {
         arc.estado.release(old).unwrap_or_else(|e| arc_failure(e));
     }
 
-    /// O objeto do espaço `h` ainda sem metadados ganha registro (RC zero,
-    /// vivo) antes da primeira ocorrência contada.
+    /// The object of the space `h` still without metadata gets registered (RC zero,
+    /// live) before its first counted occurrence.
     fn arc_register_if_needed(space: &ObjectSpace, arc: &mut HeapArc, h: Ref) {
         if smi::e_handle(h) && arc.estado.meta(h).is_none() {
             arc.estado.register_live_at(h, arc_geometry(space, h));
         }
     }
 
-    /// Retém `v` (registrando o objeto do espaço sem metadados): uma
-    /// ocorrência nova, no ARC puro.
+    /// Retains `v` (registering the object of the space without metadata): a
+    /// new occurrence, under pure ARC.
     fn arc_retain_registering(&self, arc: &mut HeapArc, v: Ref) {
         if arc.estado.retain_if_registered(v).unwrap_or_else(|e| arc_failure(e)) {
             return;
@@ -5159,38 +5159,38 @@ impl Heap {
         }
     }
 
-    /// As referências que o código gerado gravou em linha num objeto recém
-    /// alocado (`AllocObject`, contexto, célula e closure em linha,
-    /// `dartforge_arc_inicial`): no ARC puro, cada uma conta. No modo do
-    /// berçário não faz nada (contam na promoção).
+    /// The references the generated code wrote inline into a freshly
+    /// allocated object (`AllocObject`, inline context, cell and closure,
+    /// `dartforge_arc_inicial`): under pure ARC, each one counts. In
+    /// nursery mode it does nothing (they count at promotion).
     pub fn arc_count_initial(&mut self, h: Ref) {
         if !smi::e_handle(h) || self.space_block(h).is_none() {
             return;
         }
         let Some(mut arc) = self.arc.take() else { return };
         if arc.pure {
-            // A retenção só altera metadados de ARC: não coleta nem muda o
-            // corpo visitado. Contar diretamente evita um vetor por objeto
-            // e conserva cada ocorrência, inclusive referências repetidas.
+            // Retention only changes ARC metadata: it neither collects nor changes the
+            // visited body. Counting directly avoids a vector per object
+            // and keeps each occurrence, including repeated references.
             self.visit_strong_references(h, &mut |v| self.arc_retain_registering(&mut arc, v));
         }
         self.arc = Some(arc);
     }
 
-    /// A gravação crua de um native que não passa pelo `Heap` (o `_data` do
-    /// `Map` em `nativos_hash.rs`, a pilha do JSON): a troca de `old` por
-    /// `new` numa posição forte de `h`.
+    /// The raw write of a native that does not go through `Heap` (the `_data` of
+    /// `Map` in `natives_hash.rs`, the JSON stack): the swap of `old` for
+    /// `new` in a strong position of `h`.
     pub fn arc_raw_write(&mut self, h: Ref, old: Ref, new: Ref) {
         if let Some(b) = self.space_block(h) {
             self.arc_swapped(b, h, old, new);
         }
     }
 
-    /// A foto das ocorrências contadas de `h` antes de uma escrita crua
-    /// (uma por época): do velho no modo do berçário, de todo objeto no ARC
-    /// puro (o jovem também conta as gravações).
+    /// The snapshot of the counted occurrences of `h` before a raw write
+    /// (one per epoch): of an old object in nursery mode, of every object under pure
+    /// ARC (the young object also counts writes).
     fn arc_snapshot(&mut self, b: *mut Header, h: Ref) {
-        // SAFETY: bloco vivo do espaço.
+        // SAFETY: live block of the space.
         let e = unsafe { (*b).estado };
         if e != VELHO && e != REMEMBERED && !self.arc.as_ref().is_some_and(|a| a.pure) {
             return;
@@ -5199,15 +5199,15 @@ impl Heap {
             return;
         }
         let mut value_list = Vec::new();
-        // SAFETY: as posições são palavras do corpo de um bloco vivo.
+        // SAFETY: the positions are body words of a live block.
         self.visit_strong_references(h, &mut |v| value_list.push(v));
         let arc = self.arc.as_deref_mut().expect("ARC ligado");
         value_list.retain(|&v| arc.estado.meta(v).is_some());
         arc.snapshots.insert(h, value_list);
     }
 
-    /// Os jovens promovidos pela marcação menor em curso e os velhos
-    /// lembrados, como handles (antes da varredura dos jovens).
+    /// The young objects promoted by the minor marking in progress and the remembered
+    /// old ones, as handles (before the sweep of the young).
     fn promotion_data(&self) -> (Vec<Ref>, Vec<Ref>) {
         let mut promoted = Vec::new();
         self.objects.young_marked(&mut |b| promoted.push(b as i64 + DESLOCAMENTO_DO_HANDLE));
@@ -5215,10 +5215,10 @@ impl Heap {
         (promoted, remembered)
     }
 
-    /// Liga o ARC (`dartforge_memoria_arc_v1`, na entrada do programa): uma
-    /// coleta completa por rastreamento e o registro de todo vivo com o RC
-    /// das ocorrências que chegam a ele, incluindo slots proprietários.
-    /// Raízes observacionais apenas protegem os objetos que veem.
+    /// Enables ARC (`dartforge_memoria_arc_v1`, at program startup): a
+    /// full tracing collection and the registration of every live object with the RC
+    /// of the occurrences that reach it, including owning slots.
+    /// Observational roots only protect the objects they see.
     pub fn enable_arc(&mut self) {
         if self.arc.is_some() {
             return;
@@ -5244,7 +5244,7 @@ impl Heap {
         }
         let mut value_list = Vec::new();
         for &x in &reached_set {
-            // SAFETY: as posições são palavras do corpo de um bloco vivo.
+            // SAFETY: the positions are body words of a live block.
             self.visit_strong_references(x, &mut |v| value_list.push(v));
             for v in value_list.drain(..) {
                 arc.estado.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
@@ -5266,7 +5266,7 @@ impl Heap {
         self.arc = Some(arc);
     }
 
-    /// Restaura indicações laterais após ativação ou reconstrução de metadados.
+    /// Restores side indications after activation or metadata rebuilding.
     fn mark_side_edges(&self, arc: &mut HeapArc) {
         for &owner in self.attachments_by_owner.keys() {
             arc.estado.mark_side_edges(owner);
@@ -5276,8 +5276,8 @@ impl Heap {
         }
     }
 
-    /// Os objetos do espaço alcançáveis das raízes, com a regra dos efêmeros
-    /// (o valor quando o portador e a chave são alcançados), sem marcas.
+    /// The objects of the space reachable from the roots, with the ephemeron rule
+    /// (the value when the holder and the key are reached), without marks.
     fn reachable_by_tracing(&self) -> Vec<Ref> {
         let mut stack = Vec::new();
         self.root_list(&mut stack);
@@ -5289,7 +5289,7 @@ impl Heap {
                     continue;
                 }
                 out.push(h);
-                // SAFETY: as posições são palavras do corpo de um bloco vivo.
+                // SAFETY: the positions are body words of a live block.
                 self.visit_strong_references(h, &mut |v| stack.push(v));
             }
             let reached = |h: &Ref| !smi::e_handle(*h) || seen.contains(h) || (is_object(*h) && self.space_block(*h).is_none());
@@ -5305,19 +5305,19 @@ impl Heap {
         out
     }
 
-    /// O ponto fixo e a transação de descarte global da completa (§22.3):
-    /// `L` é o alcance pelas raízes reais pelas arestas fortes, com a regra
-    /// condicional dos efêmeros (o valor entra quando o portador e a chave
-    /// estão em `L`); todo registrado vivo fora de `L` morre num lote só,
-    /// inclusive o de RC positivo só por ciclos.
+    /// The fixed point and the global discard transaction of the full collection (§22.3):
+    /// `L` is the reachability from the actual roots through the strong edges, with the
+    /// conditional ephemeron rule (the value enters when the holder and the key
+    /// are in `L`); every registered live object outside `L` dies in a single batch,
+    /// including one with positive RC only through cycles.
     ///
-    /// Entre as completas a entrada de efêmero é uma ocorrência do valor
-    /// atribuída à chave: segura o valor enquanto a chave vive, mesmo com o
-    /// portador já inalcançável (retenção, nunca morte antes da hora). Aqui o
-    /// portador conta: a entrada de portador fora de `L` sai da contagem
-    /// antes do lote, e o valor que sobrevive perde a ocorrência. A de chave
-    /// fora de `L` sai pelo próprio descarte (o rompimento da chave zera a
-    /// entrada e solta o valor).
+    /// Between full collections an ephemeron entry is an occurrence of the value
+    /// attributed to the key: it holds the value while the key lives, even with the
+    /// holder already unreachable (retention, never premature death). Here the
+    /// holder counts: an entry whose holder is outside `L` leaves the count
+    /// before the batch, and the value that survives loses the occurrence. One whose key is
+    /// outside `L` leaves through the discard itself (breaking the key zeroes the
+    /// entry and releases the value).
     fn arc_fixpoint(&mut self, arc: &mut HeapArc) {
         let l: crate::hash::HashSet<Ref> = self.reachable_by_tracing().into_iter().collect();
         let d: Vec<Ref> = arc
@@ -5326,7 +5326,7 @@ impl Heap {
             .filter(|h| !l.contains(h) && arc.estado.meta(*h).is_some_and(|m| m.estado == crate::arc::ArcState::Live && !m.immortal))
             .collect();
         if arc.estado.trace_log {
-            eprintln!("[arc-traco] ponto fixo: {} alcançados, {} mortos", l.len(), d.len());
+            eprintln!("[arc-trace] fixed point: {} reached, {} dead", l.len(), d.len());
         }
         if d.is_empty() {
             return;
@@ -5353,39 +5353,39 @@ impl Heap {
         estado.statistics.dead_by_cycle += n as u64;
     }
 
-    /// A sincronização do ARC, no fim da coleta menor (§19.3, §19.4, §22):
+    /// ARC synchronization, at the end of the minor collection (§19.3, §19.4, §22):
     ///
-    /// 1. os promovidos ganham metadados (`rc=0`);
-    /// 2. os incrementos: as ocorrências que saem dos promovidos, as que os
-    ///    velhos lembrados têm para promovidos, as atuais dos fotografados e
-    ///    as entradas de efêmero novas;
-    /// 3. os decrementos: as fotos e as entradas de efêmero trocadas;
-    /// 4. os zeros morrem em cascata, menos os vistos pelas raízes (que
-    ///    ficam na fila); na completa, o ponto fixo global
-    ///    ([`Heap::arc_fixpoint`]); com `DARTFORGE_ARC_CICLOS=sempre`, a
-    ///    rodada de ciclos em toda sincronização;
-    /// 5. as tabelas laterais esquecem os mortos (fracas, efêmeros,
-    ///    finalizadores) até não haver morte nova;
-    /// 6. na completa, a reclamação: as marcas são os vivos do RC e a
-    ///    varredura completa devolve os blocos dos mortos.
+    /// 1. the promoted ones get metadata (`rc=0`);
+    /// 2. the increments: the occurrences leaving the promoted ones, those the
+    ///    remembered old objects have to promoted ones, the current ones of the snapshotted and
+    ///    the new ephemeron entries;
+    /// 3. the decrements: the snapshots and the replaced ephemeron entries;
+    /// 4. the zeros die in cascade, except those seen by the roots (which
+    ///    stay in the queue); in the full collection, the global fixed point
+    ///    ([`Heap::arc_fixpoint`]); with `DARTFORGE_ARC_CICLOS=sempre`, the
+    ///    cycle round on every synchronization;
+    /// 5. the side tables forget the dead (weak, ephemerons,
+    ///    finalizers) until there are no new deaths;
+    /// 6. in the full collection, the reclamation: the marks are the RC live ones and the
+    ///    full sweep returns the blocks of the dead.
     fn sync_arc(&mut self, full: bool, promoted: Vec<Ref>, remembered: Vec<Ref>) {
         let mut arc = self.arc.take().expect("ARC ligado");
         if arc.estado.trace_log {
-            eprintln!("[arc-traco] sincronizar completa={full} promovidos={promoted:?} lembrados={remembered:?} fotos={:?}", arc.snapshots.keys().collect::<Vec<_>>());
+            eprintln!("[arc-trace] synchronize full={full} promoted={promoted:?} remembered={remembered:?} snapshots={:?}", arc.snapshots.keys().collect::<Vec<_>>());
         }
         let new_ones: crate::hash::HashSet<Ref> = promoted.iter().copied().collect();
         for &h in &promoted {
             arc.estado.register_live_at(h, arc_geometry(&self.objects, h));
         }
-        // A promoção reconstruiu RC; repõe cada ocorrência proprietária,
-        // sem reter novamente os owners dos objetos que já eram velhos.
+        // Promotion rebuilt RC; restores each owning occurrence,
+        // without retaining again the owners of objects that were already old.
         for h in self.owning_roots() {
             if new_ones.contains(&h) { self.arc_retain_registering(&mut arc, h); }
         }
         let mut value_list = Vec::new();
         let mut release: Vec<Ref> = Vec::new();
         for &h in &promoted {
-            // SAFETY: as posições são palavras do corpo de um bloco vivo.
+            // SAFETY: the positions are body words of a live block.
             self.visit_strong_references(h, &mut |v| value_list.push(v));
             for v in value_list.drain(..) {
                 arc.estado.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
@@ -5395,7 +5395,7 @@ impl Heap {
             if new_ones.contains(&x) || arc.snapshots.contains_key(&x) || !arc.estado.alive(x) {
                 continue;
             }
-            // SAFETY: as posições são palavras do corpo de um bloco vivo.
+            // SAFETY: the positions are body words of a live block.
             self.visit_strong_references(x, &mut |v| value_list.push(v));
             for v in value_list.drain(..) {
                 if new_ones.contains(&v) {
@@ -5405,7 +5405,7 @@ impl Heap {
         }
         for (x, snapshot) in std::mem::take(&mut arc.snapshots) {
             if arc.estado.alive(x) {
-                // SAFETY: as posições são palavras do corpo de um bloco vivo.
+                // SAFETY: the positions are body words of a live block.
                 self.visit_strong_references(x, &mut |v| value_list.push(v));
                 for v in value_list.drain(..) {
                     arc.estado.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
@@ -5413,7 +5413,7 @@ impl Heap {
             }
             release.extend(snapshot);
         }
-        // Os efêmeros: as entradas vivas de agora contra as contadas.
+        // Ephemerons: the current live entries against the counted ones.
         let mut currents: crate::hash::HashSet<Ref> = crate::hash::HashSet::default();
         for (&p, &(k, v)) in &self.ephemerons {
             if !(arc.estado.alive(p) && smi::e_handle(k) && smi::e_handle(v)) {
@@ -5446,8 +5446,8 @@ impl Heap {
         for &h in &promoted {
             arc.estado.review(h);
         }
-        // Todas as raízes protegem os zeros que veem; os slots proprietários
-        // já tiveram suas ocorrências incluídas no RC.
+        // All roots protect the zeros they see; the owning slots
+        // already had their occurrences included in RC.
         let mut root_list = Vec::new();
         self.root_list(&mut root_list);
         let root_list: crate::hash::HashSet<Ref> = root_list.into_iter().filter(|&h| smi::e_handle(h)).collect();
@@ -5455,10 +5455,10 @@ impl Heap {
         for &h in &root_list {
             arc.estado.add_candidate(h);
         }
-        // Com `DARTFORGE_ARC_CICLOS=sempre`, a rodada de ciclos se repete a
-        // cada volta com morte nova: o descarte (e o efêmero que sai com o
-        // portador) solta sobreviventes que podem ter ficado num ciclo sem
-        // raiz. Na completa, o ponto fixo decide a vida de todos (§22.3).
+        // With `DARTFORGE_ARC_CICLOS=sempre`, the cycle round repeats on
+        // each pass with new deaths: the discard (and the ephemeron that leaves with the
+        // holder) releases survivors that may have been left in a cycle without a
+        // root. In the full collection, the fixed point decides everyone's lifetime (§22.3).
         let cycles = arc.cycles == Some(true);
         let mut fixpoint = full && arc.cycles != Some(false);
         let mut ready = Vec::new();
@@ -5551,8 +5551,8 @@ impl Heap {
         if self.trace {
             let e = arc.estado.statistics;
             eprintln!(
-                "[arc] {} promovidos={} contados={} retains={} releases={} mortos_rc={} mortos_ciclo={} rodadas={} examinados={} candidatos={}",
-                if full { "completa" } else { "menor" },
+                "[arc] {} promoted={} counted={} retains={} releases={} rc_dead={} cycle_dead={} rounds={} examined={} candidates={}",
+                if full { "full" } else { "minor" },
                 promoted.len(),
                 arc.estado.registered_set(),
                 e.retains,
@@ -5570,44 +5570,44 @@ impl Heap {
         }
         for (f, token, bytes) in natives {
             self.count_external(-(bytes as isize));
-            // SAFETY: a `NativeFinalizerFunction` do anexo, `void f(void*)`;
-            // como na VM, roda durante a coleta e não pode tocar o heap.
+            // SAFETY: the attachment's `NativeFinalizerFunction`, `void f(void*)`;
+            // as in the VM, it runs during collection and cannot touch the heap.
             let f: extern "C" fn(usize) = unsafe { std::mem::transmute(f) };
             f(token);
         }
     }
 
-    /// A drenagem do ARC puro (docs/ARC-IMPLEMENTACAO.md §6), no lugar da
-    /// coleta menor, sem percorrer o heap:
+    /// Pure ARC draining (docs/ARC-IMPLEMENTACAO.md §6), in place of the
+    /// minor collection, without walking the heap:
     ///
-    /// 1. as fotos (escritas cruas desde a última drenagem) contam as
-    ///    ocorrências de agora e soltam as da foto (a vida do fotografado
-    ///    segue o RC e as raízes, como a de qualquer objeto);
-    /// 2. o jovem (entregue desde a última drenagem) que só uma raiz direta
-    ///    vê ganha registro (RC zero, protegido);
-    /// 3. as entradas de efêmero vivas contra as contadas (o valor é uma
-    ///    ocorrência atribuída à chave);
-    /// 4. o jovem registrado (por uma ocorrência contada ou pelo passo 2)
-    ///    fica (marcado, velho, candidato a ciclo); o resto morreu sem
-    ///    ninguém o ver: solta as ocorrências que contou;
-    /// 5. os zeros morrem em cascata, menos os que as raízes veem; na
-    ///    completa, o ponto fixo (com efêmeros) ou a rodada de ciclos até não
-    ///    haver morte nova; as tabelas laterais esquecem os mortos;
-    /// 6. a memória: os jovens mortos pela varredura dos jovens (sem marca),
-    ///    os mortos pelo RC um a um.
+    /// 1. the snapshots (raw writes since the last draining) count the
+    ///    current occurrences and release the snapshot's (the snapshotted object's lifetime
+    ///    follows RC and the roots, like any object's);
+    /// 2. the young object (handed out since the last draining) that only a direct root
+    ///    sees gets registered (RC zero, protected);
+    /// 3. the live ephemeron entries against the counted ones (the value is an
+    ///    occurrence attributed to the key);
+    /// 4. the registered young object (through a counted occurrence or step 2)
+    ///    stays (marked, old, cycle candidate); the rest died without
+    ///    anyone seeing it: releases the occurrences it counted;
+    /// 5. the zeros die in cascade, except those the roots see; in the
+    ///    full collection, the fixed point (with ephemerons) or the cycle round until there are
+    ///    no new deaths; the side tables forget the dead;
+    /// 6. memory: the young dead through the sweep of the young (without a mark),
+    ///    the RC dead one by one.
     ///
-    /// A pilha-sombra (ou os mapas), quadros observacionais e tabelas ainda
-    /// não migradas protegem o que veem diretamente, sem contar RC.
-    /// Slots proprietários, globais, exceção/rastro e arestas fortes de objetos
-    /// contam ocorrências.
+    /// The shadow stack (or the maps), observational frames and tables not yet
+    /// migrated protect what they see directly, without counting RC.
+    /// Owning slots, globals, exception/stack trace and strong edges of objects
+    /// count occurrences.
     fn drain_arc(&mut self, full: bool) {
         check_collection_allowed();
         let trace = self.trace;
         let start = trace.then(std::time::Instant::now);
-        // O tempo de cada etapa, para o rastro (raízes, fotos, jovens das
-        // raízes, efêmeros, decisão dos jovens, soltura dos jovens mortos,
-        // raízes candidatas, zeros/ciclos, memória).
-        // Sem rastro, não reservar métricas nem consultar o relógio.
+        // The time of each stage, for the trace (roots, snapshots, young objects of the
+        // roots, ephemerons, decision on the young, release of the dead young,
+        // candidate roots, zeros/cycles, memory).
+        // Without a trace, do not reserve metrics nor query the clock.
         let mut phases: Vec<u128> = if trace { Vec::with_capacity(10) } else { Vec::new() };
         if let Some(a) = &self.schedule {
             a.pending.set(false);
@@ -5621,18 +5621,18 @@ impl Heap {
         if let Some(start) = start {
             phases.push(start.elapsed().as_micros());
         }
-        // 1. As fotos.
+        // 1. The snapshots.
         let mut value_list = Vec::new();
         let n_snapshots = arc.snapshots.len();
         for (x, snapshot) in std::mem::take(&mut arc.snapshots) {
             if self.space_block(x).is_some() && !arc.estado.dead(x) {
-                // SAFETY: as posições são palavras do corpo de um bloco vivo.
+                // SAFETY: the positions are body words of a live block.
                 self.visit_strong_references(x, &mut |v| value_list.push(v));
                 for v in value_list.drain(..) {
                     self.arc_retain_registering(&mut arc, v);
                 }
-                // Registrado, o fotografado segue o RC: sem ocorrência nem
-                // raiz, morre adiante e solta as que acabou de contar.
+                // Once registered, the snapshotted object follows RC: without an occurrence or
+                // root, it dies later and releases the ones it just counted.
                 Self::arc_register_if_needed(&self.objects, &mut arc, x);
             }
             for v in snapshot {
@@ -5642,12 +5642,12 @@ impl Heap {
         if let Some(start) = start {
             phases.push(start.elapsed().as_micros());
         }
-        // 2. Os jovens que só as raízes veem.
+        // 2. The young objects only the roots see.
         let mut young_set = Vec::new();
         self.objects.young_handed_out(&mut |b| young_set.push(b));
-        // Só as raízes podem acrescentar registros nesta etapa. Consultar
-        // todos os jovens aqui custava uma busca de metadados por alocação,
-        // embora a decisão de cada jovem já ocorra no passo 4.
+        // Only the roots can add registrations at this stage. Checking
+        // all young objects here cost a metadata lookup per allocation,
+        // although the decision on each young object already happens in step 4.
         for &h in &protected_set {
             if self.young_child(h) && arc.estado.meta(h).is_none() {
                 arc.estado.register_live_at(h, arc_geometry(&self.objects, h));
@@ -5656,7 +5656,7 @@ impl Heap {
         if let Some(start) = start {
             phases.push(start.elapsed().as_micros());
         }
-        // 3. Os efêmeros: as entradas vivas de agora contra as contadas.
+        // 3. Ephemerons: the current live entries against the counted ones.
         let mut release: Vec<Ref> = Vec::new();
         let mut currents: crate::hash::HashSet<Ref> = crate::hash::HashSet::default();
         let entries: Vec<(Ref, Ref, Ref)> = self.ephemerons.iter().map(|(&p, &(k, v))| (p, k, v)).collect();
@@ -5690,13 +5690,13 @@ impl Heap {
         if let Some(start) = start {
             phases.push(start.elapsed().as_micros());
         }
-        // 4. Os jovens: o registrado fica, o resto morreu.
+        // 4. The young: the registered stays, the rest died.
         let mut dead_young: Vec<Ref> = Vec::new();
         let n_young = young_set.len();
         for &b in &young_set {
             let h = b as i64 + DESLOCAMENTO_DO_HANDLE;
             if arc.estado.decide_young(h) {
-                // SAFETY: bloco entregue desde a última drenagem, ocupado.
+                // SAFETY: block handed out since the last draining, occupied.
                 unsafe {
                     (*b).estado = VELHO;
                     mark_block(b);
@@ -5709,7 +5709,7 @@ impl Heap {
             phases.push(start.elapsed().as_micros());
         }
         for &h in &dead_young {
-            // SAFETY: as posições são palavras do corpo de um bloco ainda não solto.
+            // SAFETY: the positions are body words of a block not yet released.
             self.visit_strong_references(h, &mut |v| value_list.push(v));
             for v in value_list.drain(..) {
                 arc.estado.release(v).unwrap_or_else(|e| arc_failure(e));
@@ -5719,8 +5719,8 @@ impl Heap {
             phases.push(start.elapsed().as_micros());
         }
         self.mark_side_edges(&mut arc);
-        // As raízes não geram decremento ao sumir: o que elas seguram volta a
-        // ser candidato a ciclo.
+        // Roots generate no decrement when they disappear: what they hold becomes
+        // a cycle candidate again.
         for &h in &protected_set {
             arc.estado.add_candidate(h);
         }
@@ -5728,7 +5728,7 @@ impl Heap {
         if let Some(start) = start {
             phases.push(start.elapsed().as_micros());
         }
-        // 5. Zeros, ciclos e o ponto fixo da completa.
+        // 5. Zeros, cycles and the full collection's fixed point.
         let round = full && arc.cycles != Some(false);
         let mut fixpoint = round && !self.ephemerons.is_empty();
         let cycles = arc.cycles == Some(true) || (round && !fixpoint);
@@ -5739,8 +5739,8 @@ impl Heap {
         let mut dead_rc: Vec<Ref> = Vec::new();
         let mut first_one = true;
         arc.estado.resume_deferred();
-        // O laço por partes, para o rastro: zeros, ciclos, ponto fixo dos
-        // efêmeros, tabelas laterais (µs).
+        // The loop in parts, for the trace: zeros, cycles, ephemeron fixed
+        // point, side tables (µs).
         let mut run_loop = [0u128; 4];
         loop {
             let t0 = trace.then(std::time::Instant::now);
@@ -5773,18 +5773,18 @@ impl Heap {
             }
             let t3 = trace.then(std::time::Instant::now);
             let amount = arc.estado.transfer_dead(&mut dead_rc);
-            // Jovens também exigem limpeza lateral na primeira rodada, mas
-            // são reclamados pela varredura: não entram nos mortos por RC.
+            // Young objects also require side cleanup in the first round, but
+            // are reclaimed by the sweep: they do not enter the RC dead.
             let has_dead = amount != 0 || (first_one && !dead_young.is_empty());
             first_one = false;
             if !has_dead {
                 break;
             }
-            // As tabelas laterais (pequenas) perdem os mortos: o objeto do
-            // espaço sem metadados morreu nesta drenagem — depois do passo 4,
-            // todo vivo do espaço é registrado. Um conjunto com os mortos da
-            // rodada (milhões, nas árvores que caem de uma vez) custava mais
-            // que a cascata.
+            // The (small) side tables lose the dead: the object of the
+            // space without metadata died in this draining — after step 4,
+            // every live object of the space is registered. A set with the round's
+            // dead (millions, in trees that fall at once) cost more
+            // than the cascade.
             let validate = self.validate_handles;
             let space = &self.objects;
             let estado = &arc.estado;
@@ -5796,8 +5796,8 @@ impl Heap {
                 !dead(holder)
             });
             let holders: Vec<Ref> = self.ephemerons.keys().copied().filter(|p| dead(p)).collect();
-            // A chave morta zera a entrada (o rompimento da chave registrada
-            // já zerou; a do jovem morto, aqui).
+            // A dead key zeroes the entry (breaking the registered key
+            // already zeroed it; that of the dead young object, here).
             for e in self.ephemerons.values_mut() {
                 if dead(&e.0) {
                     *e = (0, 0);
@@ -5854,12 +5854,12 @@ impl Heap {
         if let Some(start) = start {
             phases.push(start.elapsed().as_micros());
         }
-        // 6. A memória.
+        // 6. Memory.
         let (dead_swept, mut released_set) = self.objects.sweep_young();
         for &h in &dead_rc {
             if let Some(b) = self.space_block(h) {
-                // SAFETY: bloco do morto pelo RC, fora da lista dos jovens
-                // (a varredura acima a esvaziou), que ninguém mais lê.
+                // SAFETY: block of the RC dead, outside the young list
+                // (the sweep above emptied it), that nobody reads anymore.
                 released_set += unsafe { self.objects.release_dead(b) };
             }
         }
@@ -5893,8 +5893,8 @@ impl Heap {
                 .collect();
             let e = arc.estado.statistics;
             eprintln!(
-                "[arc] {} us={} fases={} laco={}/{}/{}/{} jovens={n_young} mortos_jovens={} fotos={n_snapshots} contados={} retains={} releases={} mortos_rc={} mortos_ciclo={} rodadas={} examinados={} candidatos={} zeros_vistos={} adiados={}",
-                if full { "completa" } else { "drenagem" },
+                "[arc] {} us={} phases={} loop={}/{}/{}/{} young={n_young} young_dead={} snapshots={n_snapshots} counted={} retains={} releases={} rc_dead={} cycle_dead={} rounds={} examined={} candidates={} zeros_seen={} deferred={}",
+                if full { "full" } else { "drain" },
                 start.elapsed().as_micros(),
                 stages.join("/"),
                 run_loop[0],
@@ -5920,22 +5920,22 @@ impl Heap {
         }
         for (f, token, bytes) in natives {
             self.count_external(-(bytes as isize));
-            // SAFETY: a `NativeFinalizerFunction` do anexo, `void f(void*)`;
-            // como na VM, roda durante a coleta e não pode tocar o heap.
+            // SAFETY: the attachment's `NativeFinalizerFunction`, `void f(void*)`;
+            // as in the VM, it runs during collection and cannot touch the heap.
             let f: extern "C" fn(usize) = unsafe { std::mem::transmute(f) };
             f(token);
         }
     }
 
-    /// A reclamação física (§19.4): as marcas passam a ser os vivos do RC e
-    /// a varredura completa devolve os blocos dos mortos (e solta os corpos
-    /// de fora e os anexos deles).
+    /// The physical reclamation (§19.4): the marks become the RC live ones and
+    /// the full sweep returns the blocks of the dead (and releases their out-of-line
+    /// bodies and attachments).
     fn reclaim_arc(&mut self, arc: &HeapArc) {
         self.objects.clear_marks();
         let mut live_set = 0usize;
         for h in arc.estado.live_set() {
             if let Some(b) = self.space_block(h) {
-                // SAFETY: bloco vivo do espaço.
+                // SAFETY: live block of the space.
                 unsafe { mark_block(b) };
                 live_set += 1;
             }
@@ -5949,12 +5949,12 @@ impl Heap {
         self.recompute_triggers(live_set);
     }
 
-    /// `DARTFORGE_ARC_CONFERIR=1` (§20.3, o modo auditor): nenhum objeto
-    /// alcançável das raízes morreu, e o RC de cada vivo é a soma das
-    /// ocorrências recontadas.
+    /// `DARTFORGE_ARC_CONFERIR=1` (§20.3, the auditor mode): no object
+    /// reachable from the roots died, and the RC of each live one is the sum of the
+    /// recounted occurrences.
     ///
     /// # Panics
-    /// Com a primeira divergência.
+    /// With the first divergence.
     fn check_arc(&mut self, arc: &mut HeapArc) {
         let mut stack = Vec::new();
         self.root_list(&mut stack);
@@ -5971,7 +5971,7 @@ impl Heap {
                     let c = self.header(x);
                     let pos = self.words(x).iter().position(|&w| w == h);
                     format!(
-                        "cid {} estado {} flags {:#x} n {} posição {pos:?} metadados {:?} foto {}",
+                        "cid {} state {} flags {:#x} n {} position {pos:?} metadata {:?} snapshot {}",
                         c.class_id,
                         c.estado,
                         c.flags,
@@ -5981,7 +5981,7 @@ impl Heap {
                     )
                 };
                 panic!(
-                    "bug do ARC: objeto alcançável sem RC vivo: handle {h} (cid {}, estado {}), metadados {:?}, raiz {}; alcançado de {parent_node:?} ({})",
+                    "ARC bug: reachable object without live RC: handle {h} (cid {}, state {}), metadata {:?}, root {}; reached from {parent_node:?} ({})",
                     self.header(h).class_id,
                     self.header(h).estado,
                     arc.estado.meta(h),
@@ -5989,7 +5989,7 @@ impl Heap {
                     parent_node.map(desc).unwrap_or_default()
                 );
             }
-            // SAFETY: as posições são palavras do corpo de um bloco vivo.
+            // SAFETY: the positions are body words of a live block.
             self.visit_strong_references(h, &mut |v| {
                 if smi::e_handle(v) && !seen.contains(&v) {
                     origin.entry(v).or_insert(h);
@@ -6011,7 +6011,7 @@ impl Heap {
 
 #[cfg(test)]
 mod arc_no_heap {
-    //! O ARC sobre o heap real (docs/ARC-CICLOS-ESPECIFICACAO.md §19.2, §22.1).
+    //! ARC over the real heap (docs/ARC-CICLOS-ESPECIFICACAO.md §19.2, §22.1).
     use super::*;
     use crate::layout::{self, cid, flags};
 
@@ -6050,7 +6050,7 @@ mod arc_no_heap {
             assert_eq!(heap.globals[&10], value);
             heap.retain_code_owner(value);
             heap.move_code_to_global(10, smi::de(42).unwrap());
-            assert!(!heap.globals.contains_key(&10), "owner não é armazenamento escalar");
+            assert!(!heap.globals.contains_key(&10), "an owner is not scalar storage");
             heap.collect();
             assert!(heap.is_live_object(value), "token SSA independente protege carga");
             heap.release_code_owner(value);
@@ -6074,7 +6074,7 @@ mod arc_no_heap {
             let frame = heap.push_owning_frame(2);
             let a = heap.allocate_str("carga owned");
             heap.set_root(frame, 0, a);
-            let old = heap.allocate_str("destino substituído");
+            let old = heap.allocate_str("replaced destination");
             heap.set_root(frame, 1, old);
             assert_eq!(heap.copy_root_to_code(frame, 0), a);
             assert_eq!(heap.copy_root_to_code(frame, 0), a);
@@ -6084,7 +6084,7 @@ mod arc_no_heap {
             if let Some(arc) = &heap.arc {
                 assert_eq!(arc.estado.meta(a).unwrap().rc, 3);
             }
-            // O destino já contém a: consome o token e a ocorrência antiga.
+            // The destination already contains a: consumes the token and the old occurrence.
             heap.move_code_to_root(frame, 1, a);
             assert!(heap.code_owners.is_empty());
             if let Some(arc) = &heap.arc {
@@ -6107,7 +6107,7 @@ mod arc_no_heap {
     fn transfer_rejects_invalid_destination_or_token_before_mutating() {
         let mut heap = heap_arc();
         let frame = heap.push_owning_frame(1);
-        let a = heap.allocate_str("owner do slot não é token do código");
+        let a = heap.allocate_str("slot owner is not a code token");
         heap.set_root(frame, 0, a);
         let failure = |heap: &mut Heap, q, s, value| {
             assert!(
@@ -6141,7 +6141,7 @@ mod arc_no_heap {
             let mut heap = if mode.is_some() { heap_arc() } else { Heap::new(true) };
             if let Some(pure) = mode { heap.arc.as_mut().unwrap().pure = pure; }
             let frame = heap.push_frame_with_slots(1);
-            let value = heap.allocate_str("tokens do código");
+            let value = heap.allocate_str("code tokens");
             heap.set_root(frame, 0, value);
             heap.retain_code_owner(value);
             heap.retain_code_owner(value);
@@ -6158,7 +6158,7 @@ mod arc_no_heap {
                 assert_eq!(arc.estado.meta(value).unwrap().rc, 1);
             }
             heap.release_code_owner(value);
-            assert!(heap.is_live_object(value), "release não coleta");
+            assert!(heap.is_live_object(value), "release does not collect");
             heap.collect();
             assert!(!heap.is_live_object(value));
             assert!(heap.code_owners.is_empty());
@@ -6172,7 +6172,7 @@ mod arc_no_heap {
     }
 
     #[test]
-    #[should_panic(expected = "release ARC sem token do código")]
+    #[should_panic(expected = "ARC release without a code token")]
     fn code_release_does_not_consume_frame_owner() {
         let mut heap = heap_arc();
         let frame = heap.push_owning_frame(1);
@@ -6208,7 +6208,7 @@ mod arc_no_heap {
         for pure in [false, true] {
             let mut heap = heap_arc();
             heap.arc.as_mut().unwrap().pure = pure;
-            let action = heap.allocate_str("duas finalizações");
+            let action = heap.allocate_str("two finalizations");
             heap.add_ready_finalization(action);
             heap.add_ready_finalization(action);
             heap.collect();
@@ -6231,9 +6231,9 @@ mod arc_no_heap {
             let frame = heap.push_owning_frame(3);
             let owner = heap.allocate_str("finalizador");
             heap.set_root(frame, 0, owner);
-            let action = heap.allocate_str("ação pronta");
+            let action = heap.allocate_str("ready action");
             heap.set_root(frame, 1, action);
-            let value = heap.allocate_str("alvo fraco");
+            let value = heap.allocate_str("weak target");
             heap.set_root(frame, 2, value);
             heap.add_attachment(FinalizerAttachment {
                 owner, value, detach: 0, action: FinalizerAction::Dart(action),
@@ -6271,11 +6271,11 @@ mod arc_no_heap {
             });
             heap.pop_frame(frame);
             heap.collect();
-            assert!(!heap.is_live_object(owner), "o anexo não é raiz do finalizador");
+            assert!(!heap.is_live_object(owner), "the attachment is not a root of the finalizer");
             assert!(!heap.is_live_object(action));
             assert!(!heap.is_live_object(target));
             assert!(heap.attachments.is_empty());
-            assert!(heap.ready_finalizations.is_empty(), "dono e alvo mortos cancelam a ação Dart");
+            assert!(heap.ready_finalizations.is_empty(), "dead owner and target cancel the Dart action");
         }
     }
 
@@ -6303,7 +6303,7 @@ mod arc_no_heap {
             let mut edges = Vec::new();
             heap.visit_attachment_edges(a, &mut |v| edges.push(v));
             assert_eq!(edges, [action, action]);
-            heap.visit_attachment_edges(b, &mut |_| panic!("anexo removido no índice"));
+            heap.visit_attachment_edges(b, &mut |_| panic!("attachment removed from the index"));
             heap.collect();
             assert_eq!(heap.arc.as_ref().unwrap().estado.meta(action).unwrap().rc, 2);
             heap.detach_finalizer(a, 3);
@@ -6339,7 +6339,7 @@ mod arc_no_heap {
                 action: FinalizerAction::Native(finalize as *const () as usize, 0, size),
             };
             heap.add_attachment(attachment);
-            assert!(heap.needs_collection(16), "externalSize deve provocar pressão de memória");
+            assert!(heap.needs_collection(16), "externalSize must cause memory pressure");
             heap.collect();
             assert_eq!(heap.external, size as u128 + 17);
             heap.detach_finalizer(owner, target);
@@ -6394,7 +6394,7 @@ mod arc_no_heap {
                 let new = list(&mut heap, 0);
                 heap.set_root(retained, slot, new);
                 (new == owner).then_some(new)
-            }).expect("reutilizar o bloco após consumir a faixa livre da página");
+            }).expect("reuse the block after consuming the page's free range");
             heap.set_root(frame, 0, new);
             heap.detach_finalizer(new, target);
             assert_eq!(heap.attachments.len(), 1);
@@ -6466,7 +6466,7 @@ mod arc_no_heap {
             assert_eq!(heap.arc.as_ref().unwrap().estado.meta(b).unwrap().rc, 1);
             heap.set_root(owner, 1, 0);
             heap.coletar(true);
-            assert!(alive(&heap, a), "a raiz observacional ainda protege o zero");
+            assert!(alive(&heap, a), "the observational root still protects the zero");
             heap.pop_frame(observer);
             heap.pop_frame(owner);
             heap.collect();
@@ -6585,7 +6585,7 @@ mod arc_no_heap {
             assert_eq!(heap.list_shape(l), crate::lists::Element::General);
             assert!(matches!(heap.list_get(l, 0), Value::Ref(r) if matches!(heap.value(r), Value::Int(i64::MAX))));
             assert!(matches!(heap.list_get(l, 1), Value::Ref(r) if matches!(heap.value(r), Value::Double(x) if x == 2.5)));
-            assert_eq!(heap.frames.len(), 1, "nenhum quadro temporário pode permanecer aberto");
+            assert_eq!(heap.frames.len(), 1, "no temporary frame may remain open");
             let data = heap.list_data(l);
             let boxes = heap.words(data)[1..3].to_vec();
             for &r in &boxes {
@@ -6704,7 +6704,7 @@ mod arc_no_heap {
             assert_eq!(heap.arc.as_ref().unwrap().estado.meta(replacement).unwrap().rc, 1);
             heap.collect();
             assert_eq!(heap.registered_tearoff(123), Some(replacement));
-            assert!(!alive(&heap, tearoff), "o índice de identidade não é owner");
+            assert!(!alive(&heap, tearoff), "the identity index is not an owner");
             assert!([text, replacement, enum_value_of].iter().all(|&h| alive(&heap, h)));
         }
     }
@@ -6755,7 +6755,7 @@ mod arc_no_heap {
         heap.coletar(true);
         assert!(alive(&heap, a) && alive(&heap, b));
         assert_eq!(heap.arc.as_ref().unwrap().estado.meta(b).unwrap().rc, 1);
-        // a[0] = null num velho: b perde a única ocorrência e morre.
+        // a[0] = null in an old object: b loses its only occurrence and dies.
         heap.write_ref(a, 1, 0);
         heap.coletar(true);
         assert!(!alive(&heap, b));
@@ -6796,10 +6796,10 @@ mod arc_no_heap {
         heap.write_ref(b, 1, a);
         heap.set_root(frame, 0, a);
         heap.collect();
-        assert!(alive(&heap, a) && alive(&heap, b), "a raiz segura o ciclo");
+        assert!(alive(&heap, a) && alive(&heap, b), "the root holds the cycle");
         heap.pop_frame(frame);
         heap.coletar(true);
-        assert!(alive(&heap, a), "a menor não roda a rodada de ciclos");
+        assert!(alive(&heap, a), "the minor collection does not run the cycle round");
         heap.collect();
         assert!(!alive(&heap, a) && !alive(&heap, b));
     }
@@ -6815,7 +6815,7 @@ mod arc_no_heap {
         heap.write_ref(a, 2, c);
         heap.set_root(frame, 0, a);
         heap.coletar(true);
-        // Troca crua: a = [c, c]; b perde, c ganha.
+        // Raw swap: a = [c, c]; b loses, c gains.
         let p = heap.words_mut(a);
         p[1] = c;
         heap.remember(a);
@@ -6826,9 +6826,9 @@ mod arc_no_heap {
         heap.collect();
     }
 
-    // -- Grafos aleatórios com oráculo independente (§26.2) ------------------
+    // -- Random graphs with an independent oracle (§26.2) ---------------------
 
-    /// xorshift64*: a sequência de cada semente é reproduzível.
+    /// xorshift64*: each seed's sequence is reproducible.
     struct Rng(u64);
 
     impl Rng {
@@ -6848,27 +6848,27 @@ mod arc_no_heap {
         }
     }
 
-    /// O alvo de uma fraca ou a entrada de um efêmero no modelo. O alvo (ou a
-    /// chave) que deixou de ser alcançável vira `Pending`: a coleta pode
-    /// zerá-lo a qualquer momento, e a completa tem de zerá-lo.
+    /// The target of a weak reference or the entry of an ephemeron in the model. A target (or
+    /// key) that became unreachable turns into `Pending`: the collection may
+    /// zero it at any time, and the full one must zero it.
     #[derive(Clone, Copy, PartialEq, Debug)]
     enum Weak<T> {
         Holds(T),
         Pending,
     }
 
-    /// O grafo do lado do teste: listas com os elementos, os slots do quadro,
-    /// as fracas e os efêmeros. O alcance é calculado só daqui, sem olhar o
-    /// heap: o forte pelas raízes e o ponto fixo condicional dos efêmeros
-    /// (o valor de um portador alcançado é alcançado quando a chave é).
+    /// The test-side graph: lists with the elements, the frame slots,
+    /// the weak references and the ephemerons. Reachability is computed only from here, without looking at the
+    /// heap: the strong one through the roots and the conditional ephemeron fixed point
+    /// (the value of a reached holder is reached when the key is).
     #[derive(Default)]
     struct Model {
         fields: crate::hash::HashMap<Ref, Vec<Ref>>,
         root_list: Vec<Ref>,
         weak_refs: crate::hash::HashMap<Ref, Weak<Ref>>,
         ephemerons: crate::hash::HashMap<Ref, Weak<(Ref, Ref)>>,
-        /// Os registrados no ARC que ficaram inalcançáveis: a completa tem de
-        /// matá-los.
+        /// Those registered in ARC that became unreachable: the full collection must
+        /// kill them.
         garbage: Vec<Ref>,
     }
 
@@ -6909,19 +6909,19 @@ mod arc_no_heap {
         }
     }
 
-    /// Depois de uma coleta: o alcançável continua com os elementos do
-    /// modelo (e, no ARC, registrado vivo); a fraca e o efêmero de alvo
-    /// alcançável continuam, e os de alvo inalcançável viram `Pending` (a
-    /// completa os exige zerados). Os inalcançáveis saem do modelo.
+    /// After a collection: what is reachable keeps the model's elements
+    /// (and, under ARC, is registered alive); the weak reference and the ephemeron with a reachable
+    /// target stay, and those with an unreachable target become `Pending` (the
+    /// full collection requires them zeroed). The unreachable ones leave the model.
     fn check_model(heap: &Heap, m: &mut Model, full: bool, arc: bool, contexto: &str) {
         let live_set = m.reachable();
         for &h in &live_set {
             if arc {
-                assert!(alive(heap, h), "{contexto}: alcançável {h:#x} sem RC vivo");
+                assert!(alive(heap, h), "{contexto}: reachable {h:#x} without live RC");
             }
             let p = heap.words(h);
             for (i, &f) in m.fields[&h].iter().enumerate() {
-                assert_eq!(p[1 + i], f, "{contexto}: elemento {i} de {h:#x}");
+                assert_eq!(p[1 + i], f, "{contexto}: element {i} of {h:#x}");
             }
         }
         if full && arc {
@@ -6930,7 +6930,7 @@ mod arc_no_heap {
             for &h in &m.garbage {
                 assert!(
                     !alive(heap, h),
-                    "{contexto}: inalcançável {h:#x} sobreviveu à completa ({:?}; efêmeros {:?}; fracas {:?})",
+                    "{contexto}: unreachable {h:#x} survived the full collection ({:?}; ephemerons {:?}; weak {:?})",
                     heap.arc.as_ref().unwrap().estado.meta(h),
                     heap.ephemerons.iter().filter(|(p, (k, v))| **p == h || *k == h || *v == h).collect::<Vec<_>>(),
                     heap.weak_refs.iter().filter(|(p, a)| **p == h || **a == h).collect::<Vec<_>>(),
@@ -6952,9 +6952,9 @@ mod arc_no_heap {
             }
             let current = heap.weak_refs.get(p).copied().unwrap_or(0);
             match *target {
-                Weak::Holds(a) if live_set.contains(&a) => assert_eq!(current, a, "{contexto}: fraca {p:#x} com alvo vivo"),
+                Weak::Holds(a) if live_set.contains(&a) => assert_eq!(current, a, "{contexto}: weak {p:#x} with live target"),
                 Weak::Holds(a) => {
-                    assert!(current == a || current == 0, "{contexto}: fraca {p:#x}");
+                    assert!(current == a || current == 0, "{contexto}: weak {p:#x}");
                     *target = Weak::Pending;
                 }
                 Weak::Pending => {}
@@ -6963,7 +6963,7 @@ mod arc_no_heap {
                 assert_eq!(
                     current,
                     0,
-                    "{contexto}: fraca {p:#x} não zerada na completa (alvo {:?}; efêmeros {:?}; quem aponta {:?})",
+                    "{contexto}: weak {p:#x} not zeroed in the full collection (target {:?}; ephemerons {:?}; pointed to by {:?})",
                     heap.arc.as_ref().map(|a| a.estado.meta(current)),
                     heap.ephemerons
                         .iter()
@@ -6981,24 +6981,24 @@ mod arc_no_heap {
             }
             let current = heap.ephemerons.get(p).copied().unwrap_or((0, 0));
             match *e {
-                Weak::Holds((k, v)) if live_set.contains(&k) => assert_eq!(current, (k, v), "{contexto}: efêmero {p:#x} com chave viva"),
+                Weak::Holds((k, v)) if live_set.contains(&k) => assert_eq!(current, (k, v), "{contexto}: ephemeron {p:#x} with live key"),
                 Weak::Holds((k, v)) => {
-                    assert!(current == (k, v) || current == (0, 0), "{contexto}: efêmero {p:#x}");
+                    assert!(current == (k, v) || current == (0, 0), "{contexto}: ephemeron {p:#x}");
                     *e = Weak::Pending;
                 }
                 Weak::Pending => {}
             }
             if full && *e == Weak::Pending {
-                assert_eq!(current, (0, 0), "{contexto}: efêmero {p:#x} não zerado na completa");
+                assert_eq!(current, (0, 0), "{contexto}: ephemeron {p:#x} not zeroed in the full collection");
             }
             true
         });
     }
 
-    /// Uma semente: alocações, gravações contadas e cruas, raízes que entram
-    /// e saem, fracas e efêmeros, coletas menores e completas, com a auditoria
-    /// do ARC (`check`) em toda sincronização e o oráculo do modelo depois
-    /// de cada coleta.
+    /// One seed: allocations, counted and raw writes, roots that come in
+    /// and go out, weak references and ephemerons, minor and full collections, with the ARC
+    /// audit (`check`) on every synchronization and the model oracle after
+    /// each collection.
     fn random_graph(seed: u64, arc: bool, cycles_always: bool, steps: usize) {
         const SLOTS: usize = 6;
         let mut r = Rng::new(seed);
@@ -7078,12 +7078,12 @@ mod arc_no_heap {
         heap.collect();
         check_model(&heap, &mut m, true, arc, &format!("semente {seed}, fim, arc {arc}"));
         if arc {
-            assert_eq!(heap.arc.as_ref().unwrap().estado.live_set().count(), 0, "semente {seed}: sobrou vivo sem raiz");
+            assert_eq!(heap.arc.as_ref().unwrap().estado.live_set().count(), 0, "seed {seed}: a live object without a root was left");
         }
         heap.pop_frame(frame);
     }
 
-    /// Quantas sementes: `DF_ARC_SEMENTES` amplia a busca fora do CI.
+    /// How many seeds: `DF_ARC_SEMENTES` widens the search outside CI.
     fn seeds(pattern: u64) -> u64 {
         std::env::var("DF_ARC_SEMENTES").ok().and_then(|v| v.parse().ok()).unwrap_or(pattern)
     }
@@ -7095,8 +7095,8 @@ mod arc_no_heap {
         }
     }
 
-    /// Com a rodada de ciclos em toda sincronização (a *trial deletion*
-    /// também nas menores, além do ponto fixo da completa).
+    /// With the cycle round on every synchronization (the *trial deletion*
+    /// also in the minor ones, besides the full collection's fixed point).
     #[test]
     fn arc_random_graphs_with_cycles_always() {
         for seed in 0..seeds(150) {
@@ -7104,7 +7104,7 @@ mod arc_no_heap {
         }
     }
 
-    /// O mesmo oráculo contra o rastreamento: valida o modelo.
+    /// The same oracle against tracing: validates the model.
     #[test]
     fn arc_random_graphs_model_holds_under_tracing() {
         for seed in 0..seeds(60) {
