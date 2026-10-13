@@ -1037,11 +1037,18 @@ fn with_attribute_if(ir: &str, attribute: &str, only_absent: bool) -> String {
         }
         // The attributes come after the parameters and before the `comdat` (or the
         // brace that opens the body).
-        // The `gc "…"` (roots by maps) and the personality (`personality ptr
-        // @…`, of exceptions by tables) come after the attributes.
+        // The `gc "…"` (roots by maps), the personality (`personality ptr
+        // @…`, of exceptions by tables) and the metadata attachments (`!dbg
+        // !3`, with `--debug`) come after the attributes.
         let point = l
             .starts_with("define ")
-            .then(|| l.find(" comdat").or_else(|| l.find(" gc \"")).or_else(|| l.find(" personality ")).or_else(|| l.rfind(" {")))
+            .then(|| {
+                l.find(" comdat")
+                    .or_else(|| l.find(" gc \""))
+                    .or_else(|| l.find(" personality "))
+                    .or_else(|| l.find(" !"))
+                    .or_else(|| l.rfind(" {"))
+            })
             .flatten();
         match point {
             Some(i) => {
@@ -1059,7 +1066,13 @@ fn with_attribute_if(ir: &str, attribute: &str, only_absent: bool) -> String {
 mod tests {
     use super::*;
 
-
+    /// With debug info the attribute goes before the `!dbg` attachment,
+    /// which LLVM only accepts after the attributes.
+    #[test]
+    fn attribute_before_debug_attachment() {
+        let ir = "define i64 @f(i64 %x) !dbg !3 {\n  ret i64 %x\n}\n";
+        assert_eq!(with_nounwind(ir), "define i64 @f(i64 %x) nounwind !dbg !3 {\n  ret i64 %x\n}\n");
+    }
 
     /// The overlay exists, replaces the four files and points to files
     /// that exist.
