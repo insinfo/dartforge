@@ -2732,6 +2732,9 @@ impl Heap {
         // validation of the handle (the page and the block start) is left to
         // `--gc-stress`, the mode that hunts missing roots (N4).
         let validate = self.stress;
+        // Marking adds no attachment: without any, the lookup per marked object
+        // (a call through `dyn FnMut`, ~10% of a linked list's marking) is skipped.
+        let attachments = !self.attachments_by_owner.is_empty();
         // Does this collection walk the object in state `e`? In the minor one, only the young
         // (an old one counts as live, and its references to young objects are
         // among the remembered); in the full one, what has not been marked yet.
@@ -2798,7 +2801,9 @@ impl Heap {
                         mark_block(b);
                         live += 1;
                         marked_objects += 1;
-                        self.visit_attachment_edges(current, &mut |action| visit_ref(action, &mut next_offset, &mut stack));
+                        if attachments {
+                            self.visit_attachment_edges(current, &mut |action| visit_ref(action, &mut next_offset, &mut stack));
+                        }
                         // The body by format (§2.8): `RAW` has no
                         // references; `REFS`, the words `1..=word 0`;
                         // `INSTANCE`, the fields the map says are references. What
