@@ -1,21 +1,21 @@
-# Códigos semânticos publicados pelo `dartforge analyze` e pelo LSP (plano §2.3).
-# Um código entra aqui quando nada do que ele emite está errado: zero falso
-# positivo, zero posição errada e zero mensagem errada no corpus
-# (`dartforge-parity placar`) e nos projetos reais (`dartforge-parity
-# projetos`). Falso negativo (o Dart relata e nós não) é permitido. O placar
-# reprova um código listado que emita algo errado no corpus. Sintaxe é
-# publicada sempre, e por isso os códigos sintáticos não aparecem aqui.
+# Semantic codes published by `dartforge analyze` and by the LSP (plan §2.3).
+# A code enters here when nothing it emits is wrong: zero false positives,
+# zero wrong positions and zero wrong messages in the corpus
+# (`dartforge-parity placar`) and in the real projects (`dartforge-parity
+# projetos`). False negatives (Dart reports and we do not) are allowed. The
+# scoreboard fails a listed code that emits something wrong in the corpus.
+# Syntax is always published, so the syntactic codes do not appear here.
 
-# 2026-09-23: 100% no corpus (placar8) e 0 FP nos três projetos reais.
+# 2026-09-23: 100% in the corpus (placar8) and 0 FP in the three real projects.
 enum_constant_same_name_as_enclosing
 enum_with_name_values
 values_declaration_in_enum
 
-# 2026-09-26: oráculo 3.6.2 regravado; sem erro emitido no corpus (placar
-# 9.660/23.030) e 0 FP em 60 pacotes do pub-cache (2.150 arquivos: analyzer,
+# 2026-09-26: 3.6.2 oracle re-recorded; no wrong output in the corpus (placar
+# 9.660/23.030) and 0 FP in 60 pub-cache packages (2,150 files: analyzer,
 # _fe_analyzer_shared, dart_style, collection, async, build_runner_core,
-# pointycastle, petitparser, rxdart…). Os três projetos do proprietário não
-# existem nesta máquina: conferir com `projetos` lá antes do próximo corte.
+# pointycastle, petitparser, rxdart…). The owner's three projects do not
+# exist on this machine: check with `projetos` there before the next cut.
 abstract_field_initializer
 assignment_to_const
 assignment_to_final
@@ -63,15 +63,15 @@ uri_does_not_exist
 uri_has_not_been_generated
 wrong_number_of_parameters_for_operator
 
-# 2026-09-26, depois dos modificadores de classe (placar 11.758/23.030):
-# 329/329 no corpus e 0 FP nos 60 pacotes do pub-cache.
+# 2026-09-26, after the class modifiers (placar 11.758/23.030):
+# 329/329 in the corpus and 0 FP in the 60 pub-cache packages.
 subtype_of_base_or_final_is_not_base_final_or_sealed
 
-# 2026-10-01, rodada de paridade (docs/ANALISADOR-PARIDADE-PLANO.md; placar
-# 17.428/23.030): sem erro emitido no corpus e 0 FP, posição ou mensagem
-# errada nos 209 pacotes do pub-cache (scripts/paridade-pub-cache.py). Os
-# três projetos do proprietário não existem nesta máquina: conferir com
-# `projetos` lá antes do próximo corte.
+# 2026-10-01, parity round (docs/ANALISADOR-PARIDADE-PLANO.md; placar
+# 17.428/23.030): no wrong output in the corpus and 0 FP, wrong position or
+# wrong message in the 209 pub-cache packages (scripts/paridade-pub-cache.py).
+# The owner's three projects do not exist on this machine: check with
+# `projetos` there before the next cut.
 abstract_super_member_reference
 assert_in_redirecting_constructor
 assignment_to_final_local
@@ -181,9 +181,9 @@ unused_field
 wrong_number_of_parameters_for_setter
 wrong_type_parameter_variance_position
 yield_of_invalid_type
-# 2026-10-01, segunda rodada (docs/ANALISADOR-PARIDADE-PLANO.md §7–8; placar
-# 18.516/23.030): exaustividade de switch e os quatro com FP nos pacotes da
-# rodada anterior, agora limpos no corpus e nos 209 pacotes.
+# 2026-10-01, second round (docs/ANALISADOR-PARIDADE-PLANO.md §7–8; placar
+# 18.516/23.030): switch exhaustiveness and the four with FP in the previous
+# round's packages, now clean in the corpus and in the 209 packages.
 equal_elements_in_const_set
 getter_not_subtype_setter_types
 invalid_override
@@ -193,13 +193,13 @@ non_exhaustive_switch_statement
 unreachable_switch_case
 unreachable_switch_default
 
-# 2026-10-12 (macOS): sem erro emitido no corpus (placar 22.954/23.012, FP 0,
-# posição e mensagem erradas 0 nestes códigos) nem nos projetos reais: os dez
-# projetos desta máquina (new_sali core/frontend/backend, limitless_ui e seis de
-# 2024; FP 0), 567 mutações deles e 209 pacotes do pub-cache, todos contra o
-# `dart analyze` 3.6.2. Ficaram de fora os 13 códigos com FP ou mensagem errada
-# nesses projetos (argument_type_not_assignable, unchecked_use_of_nullable_value,
-# unused_import, override_on_non_overriding_member…).
+# 2026-10-12 (macOS): no wrong output in the corpus (placar 22.954/23.012, FP 0,
+# wrong position and message 0 for these codes) nor in the real projects: the
+# ten projects on this machine (new_sali core/frontend/backend, limitless_ui and
+# six from 2024; FP 0), 567 mutations of them and 209 pub-cache packages, all
+# against `dart analyze` 3.6.2. The 13 codes with FP or a wrong message in those
+# projects were left out (argument_type_not_assignable,
+# unchecked_use_of_nullable_value, unused_import, override_on_non_overriding_member…).
 abi_specific_integer_mapping_extra
 abi_specific_integer_mapping_missing
 abi_specific_integer_mapping_unsupported
