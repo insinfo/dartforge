@@ -222,7 +222,7 @@ pub fn diagnosticos_do_pubspec(raiz: &Path, opcoes: &filtros::Opcoes) -> Vec<jso
     let lines = json::Linhas::new(&text);
     let path = file.to_string_lossy();
     let ignored = dartforge_analysis::lints::pubspec::IgnoradosYaml::de(&text);
-    let mut out: Vec<json::DiagJson> = dartforge_analysis::naodart::pubspec::validar(&text, raiz)
+    let mut out: Vec<json::DiagJson> = dartforge_analysis::naodart::pubspec::validate(&text, raiz)
         .into_iter()
         .filter(|r| !ignored.ignora(r.codigo.nome, r.codigo.nome, r.span.start))
         .map(|r| json::DiagJson {
