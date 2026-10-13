@@ -1,32 +1,32 @@
-// Runtime nativo: natives de lista do SDK da fonte (P5c/P5d, δ) e os erros
-// que o runtime lança como objetos Dart da fonte.
+// Native runtime: list natives of the SDK from source (P5c/P5d, δ) and the errors
+// the runtime throws as Dart objects from source.
 //
-// `_List` (cid 8), `_ImmutableList` (9) e `_GrowableList` (10) são blocos do
-// espaço de objetos com cid fixo (docs/NATIVO-ESPACO-UNIFICADO.md §2.5): a
-// `_GrowableList` guarda (comprimento, `_List`) como a VM, e os natives
-// `GrowableList_*` são as operações da VM sobre esses dois campos. A vista
-// está em `lists.rs` (`Heap::lista_*`); aqui ficam só a conferência de
-// índice, os erros da VM e o tipo reificado (`tipos.rs`). A classe nunca muda
-// depois de criada: fixar ou tornar imutável é copiar (§2.16).
+// `_List` (cid 8), `_ImmutableList` (9) and `_GrowableList` (10) are object-space
+// blocks with fixed cids (docs/NATIVO-ESPACO-UNIFICADO.md §2.5): the
+// `_GrowableList` keeps (length, `_List`) like the VM, and the `GrowableList_*`
+// natives are the VM's operations on those two fields. The view is in `lists.rs`
+// (`Heap::lista_*`); here are only the index check, the VM's errors and the
+// reified type (`types.rs`). The class never changes after creation: fixing or
+// making unmodifiable means copying (§2.16).
 //
-// Os erros: a biblioteca `dart:_internal` da sobreposição
-// (`native_sdk/internal/print_patch.dart`) tem funções `_dartforge*` que
-// constroem o erro da fonte (`IndexError`, `RangeError`…); o registro dela
-// entrega os endereços ao runtime (`dartforge_registrar_ajudante`). Sem o
-// SDK da fonte, o erro é o do runtime (`excecoes.rs`).
+// The errors: the overlay's `dart:_internal` library
+// (`native_sdk/internal/print_patch.dart`) has `_dartforge*` functions that build
+// the source's error (`IndexError`, `RangeError`…); its registration hands the
+// addresses to the runtime (`dartforge_registrar_ajudante`). Without the SDK from
+// source, the error is the runtime's (`exceptions.rs`).
 
 thread_local! {
-    /// Funções Dart que o runtime chama, pelo nome (`_dartforgeErroDeIndice`…).
+    /// Dart functions that the runtime calls, by name (`_dartforgeErroDeIndice`…).
     static HELPERS: RefCell<HashMap<String, usize>> = RefCell::new(HashMap::default());
 }
 
-/// Registra uma função Dart que o runtime chama pelo nome.
+/// Registers a Dart function that the runtime calls by name.
 ///
 /// # Safety
-/// `name` aponta para `len` bytes UTF-8 legíveis; `f` é a função.
+/// `name` points to `len` readable UTF-8 bytes; `f` is the function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_registrar_ajudante(name: *const u8, len: i64, f: usize) {
-    // SAFETY: constante do módulo com `len` bytes.
+    // SAFETY: a module constant with `len` bytes.
     let bytes = unsafe { std::slice::from_raw_parts(name, len as usize) };
     let name = String::from_utf8_lossy(bytes).into_owned();
     HELPERS.with(|a| a.borrow_mut().insert(name, f));
@@ -36,12 +36,12 @@ fn ajudante(name: &str) -> Option<usize> {
     HELPERS.with(|a| a.borrow().get(name).copied())
 }
 
-/// `IndexError` de `ix` em `target` de tamanho `size` (o `RangeError
-/// (index)` da VM).
+/// `IndexError` of `ix` in `target` of size `size` (the VM's `RangeError
+/// (index)`).
 fn throw_index(ix: i64, target: i64, size: i64) {
     if let Some(f) = ajudante("_dartforgeErroDeIndice") {
-        // SAFETY: registrado pela biblioteca `dart:_internal` com esta
-        // assinatura (`int`, `Object?`, `int`) → `Object`.
+        // SAFETY: registered by the `dart:_internal` library with this signature
+        // (`int`, `Object?`, `int`) → `Object`.
         let g = { let dart_target: usize = f; move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
         let error = with_roots(&[target], || g(ix, target, size));
         if dartforge_exception_pending() != 0 {
@@ -55,10 +55,10 @@ fn throw_index(ix: i64, target: i64, size: i64) {
     dartforge_exception_throw(err, 3);
 }
 
-/// A conferência de limites de `[]` (`name` "length") e do `_setIndexed`
-/// das listas ("index") na VM: `RangeError.range(indice, 0, tamanho - 1,
-/// nome)`, não `IndexError` (ex.: "RangeError (length): Invalid value: Not
-/// in inclusive range 0..2: 10").
+/// The bounds check of `[]` (`name` "length") and of the lists' `_setIndexed`
+/// ("index") in the VM: `RangeError.range(index, 0, size - 1, name)`, not
+/// `IndexError` (e.g. "RangeError (length): Invalid value: Not in inclusive range
+/// 0..2: 10").
 fn throw_range(ix: i64, size: i64, name: &str) {
     let n = allocate_str(name);
     let error = with_roots(&[n], || dartforge_range_error_range(ix, 0, size - 1, n, 0));
@@ -68,13 +68,13 @@ fn throw_range(ix: i64, size: i64, name: &str) {
     with_roots(&[error], || dartforge_exception_throw(error, 3));
 }
 
-/// O comprimento da lista do núcleo `this` (pânico N4 se não é uma).
+/// The length of the core list `this` (N4 panic if it is not one).
 fn list_len(this: i64) -> i64 {
     HEAP.with(|heap| heap.borrow().list_len(this) as i64)
 }
 
-/// O `RangeError` de `ix` fora de `[0, n)` com o nome da VM (`"index"` na
-/// gravação, `"length"` na leitura); `true` se lançou.
+/// The `RangeError` of `ix` outside `[0, n)` with the VM's name (`"index"` on
+/// writes, `"length"` on reads); `true` if it threw.
 fn outside_list(ix: i64, n: i64, name: &str) -> bool {
     if ix < 0 || ix >= n {
         throw_range(ix, n, name);
@@ -83,32 +83,32 @@ fn outside_list(ix: i64, n: i64, name: &str) -> bool {
     false
 }
 
-/// Grava o tipo reificado `L<E>` (`class`: o cid concreto) de `h` a partir da
-/// tupla de argumentos de tipo do native, com `h` enraizado (a forma que o `E`
-/// pede pode descompactar, e descompactar aloca).
+/// Writes the reified type `L<E>` (`class`: the concrete cid) of `h` from the
+/// native's type-argument tuple, with `h` rooted (the shape that `E` requires may
+/// decompact, and decompacting allocates).
 fn type_tuple_list(h: i64, tuple: i64, class: i32) {
     if let Some(tipo) = tuple_list_type(tuple, Some(i64::from(class))) {
         with_roots(&[h], || set_list_type(h, tipo + 1));
     }
 }
 
-/// Grava em `h` (`class`) o tipo reificado de `origin`, com o `E` dela.
+/// Writes into `h` (`class`) the reified type of `origin`, with its `E`.
 fn type_copied_list(h: i64, origin: i64, class: i32) {
     if let Some(tipo) = with_roots(&[h], || copied_list_type(origin, Some(i64::from(class)))) {
         with_roots(&[h], || set_list_type(h, tipo + 1));
     }
 }
 
-/// A pilha de valores do `_JsonListener` da sobreposição de `convert_patch.dart`
-/// (docs/NATIVO-PLANO.md §13.2, item 4): uma `_GrowableList` de `Object?` que só
-/// o listener vê, na forma geral. Os natives abaixo a leem e gravam pelos
-/// deslocamentos do contrato (`Data` de `nativos_hash.rs`), sem o `Heap`, e
-/// devolvem -1 sem mudar nada quando ela não está nessa forma — o Dart faz
-/// então o `add`, o laço e o `length =` de sempre.
+/// The value stack of the `_JsonListener` of the `convert_patch.dart` overlay
+/// (docs/NATIVO-PLANO.md §13.2, item 4): a `_GrowableList` of `Object?` that only
+/// the listener sees, in the general shape. The natives below read and write it
+/// through the contract's offsets (`Data` of `natives_hash.rs`), without the `Heap`,
+/// and return -1 without changing anything when it is not in that shape — Dart
+/// then does the usual `add`, loop and `length =`.
 ///
-/// `_JsonListener._dfEmpilhar(stack, v)`: `v` no fim da pilha, sem o despacho
-/// do `add` nem a conferência do `E` (`Object?`). Devolve o novo comprimento.
-/// Pode coletar (o crescimento do armazenamento).
+/// `_JsonListener._dfEmpilhar(stack, v)`: `v` at the end of the stack, without the
+/// `add` dispatch nor the `E` check (`Object?`). Returns the new length. May collect
+/// (the storage growth).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_json_empilhar(stack: i64, v: i64) -> i64 {
     if let Some(n) = push_raw(stack, v) {
@@ -127,19 +127,19 @@ pub extern "C" fn dartforge_nativo_DartForge_json_empilhar(stack: i64, v: i64) -
     })
 }
 
-/// O `empilhar` com capacidade sobrando: grava no armazenamento (com a barreira
-/// de elemento) e o comprimento no campo 0, sem o `Heap`. `None` se precisa
-/// crescer ou a forma não é a simples.
+/// The push with spare capacity: writes into the storage (with the element
+/// barrier) and the length into field 0, without the `Heap`. `None` if it needs to
+/// grow or the shape is not the simple one.
 fn push_raw(stack: i64, v: i64) -> Option<i64> {
     use crate::layout::{cid, desl, is_object};
     if !is_object(stack) {
         return None;
     }
-    // SAFETY: objeto vivo (o campo `_pilha` do listener).
+    // SAFETY: live object (the listener's `_pilha` field).
     if unsafe { raw_header(stack) }.class_id != cid::GROWABLE_LIST {
         return None;
     }
-    // SAFETY: `_GrowableList`: comprimento no campo 0, armazenamento no 1.
+    // SAFETY: `_GrowableList`: length in field 0, storage in field 1.
     let (len, a) = unsafe { (raw_word(stack, desl::COMPRIMENTO), raw_word(stack, desl::EXPANSIVEL_DADOS)) };
     let d = Data::de(a, true)?;
     let n = usize::try_from(len).ok()?;
@@ -147,14 +147,13 @@ fn push_raw(stack: i64, v: i64) -> Option<i64> {
         return None;
     }
     d.write_value(n, v);
-    // SAFETY: o campo 0 (comprimento bruto, sem barreira: não é referência).
+    // SAFETY: field 0 (the raw length, no barrier: it is not a reference).
     unsafe { *in_block(stack, desl::COMPRIMENTO).cast::<i64>() = len + 1 };
     Some(len + 1)
 }
 
-/// A marca em `start - 1` e a pilha (cortada no comprimento), se `start` é
-/// uma posição de contêiner aberto (`1 ≤ start ≤ length`) e a marca um
-/// `Smi`.
+/// The mark at `start - 1` and the stack (cut at the length), if `start` is the
+/// position of an open container (`1 ≤ start ≤ length`) and the mark a `Smi`.
 fn stack_mark(stack: i64, start: i64) -> Option<(Data, usize, i64)> {
     let p = Data::from_growable(stack)?;
     let start = usize::try_from(start).ok().filter(|&i| i >= 1 && i <= p.len)?;
@@ -162,27 +161,27 @@ fn stack_mark(stack: i64, start: i64) -> Option<(Data, usize, i64)> {
     crate::layout::smi::is_smi(m).then(|| (p, start, crate::layout::smi::value(m)))
 }
 
-/// Corta a pilha em `until` (anulando as posições tiradas, para não reter os
-/// valores; null não pede barreira).
+/// Cuts the stack at `until` (nulling the removed positions, so as not to retain
+/// the values; null does not need a barrier).
 fn cut_stack(stack: i64, p: Data, until: usize) {
     for i in until..p.len {
-        // SAFETY: `i < len` do armazenamento geral gravável da pilha.
+        // SAFETY: `i < len` of the stack's writable general storage.
         let old = unsafe { std::mem::replace(&mut *p.p.add(i), 0) };
         if arc_enabled() {
             arc_raw_write(p.h, old, 0);
         }
     }
-    // SAFETY: o campo 0 da `_GrowableList` (comprimento bruto).
+    // SAFETY: field 0 of the `_GrowableList` (the raw length).
     unsafe { *in_block(stack, crate::layout::desl::COMPRIMENTO).cast::<i64>() = until as i64 };
 }
 
-/// `_JsonListener._dfTruncar(stack, start)`: tira os valores `stack[start..]`
-/// e a marca em `start - 1`; devolve a marca, ou -1. Não aloca.
+/// `_JsonListener._dfTruncar(stack, start)`: removes the values `stack[start..]`
+/// and the mark at `start - 1`; returns the mark, or -1. Does not allocate.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_json_truncar(stack: i64, start: i64) -> i64 {
     let Some((p, start, mark)) = stack_mark(stack, start) else { return -1 };
-    // A pilha é gravável (a do listener): a mesma conferência de `push_raw`.
-    // SAFETY: o armazenamento da `_GrowableList` (campo 1).
+    // The stack is writable (the listener's): the same check as `push_raw`.
+    // SAFETY: the `_GrowableList`'s storage (field 1).
     if Data::de(unsafe { raw_word(stack, crate::layout::desl::EXPANSIVEL_DADOS) }, true).is_none() {
         return -1;
     }
@@ -190,41 +189,41 @@ pub extern "C" fn dartforge_nativo_DartForge_json_truncar(stack: i64, start: i64
     mark
 }
 
-/// `_JsonListener._dfMarca(stack, start)`: a marca em `start - 1` (o contêiner
-/// aberto), sem mudar nada; -1 fora da forma simples. Não aloca.
+/// `_JsonListener._dfMarca(stack, start)`: the mark at `start - 1` (the open
+/// container), changing nothing; -1 outside the simple shape. Does not allocate.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_json_marca(stack: i64, start: i64) -> i64 {
     stack_mark(stack, start).map_or(-1, |(_, _, m)| m)
 }
 
-/// `_JsonListener._dfFecharLista(stack, start, model)`: a lista do JSON com os
-/// valores `stack[start..]`, na ordem — uma `_GrowableList` nova do tamanho
-/// exato, com o tipo reificado de `model` (o `[]` de `List<dynamic>` do
-/// listener, o mesmo tipo do `[]` que o listener da VM cria por lista) —, e a
-/// pilha sem esses valores nem a marca em `start - 1`. null, sem mudar nada,
-/// fora da forma simples. Pode coletar.
+/// `_JsonListener._dfFecharLista(stack, start, model)`: the JSON list with the
+/// values `stack[start..]`, in order — a new `_GrowableList` of the exact size,
+/// with the reified type of `model` (the listener's `[]` of `List<dynamic>`, the
+/// same type as the `[]` the VM's listener creates per list) —, and the stack
+/// without those values nor the mark at `start - 1`. null, changing nothing,
+/// outside the simple shape. May collect.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_json_fechar_lista(stack: i64, start: i64, model: i64) -> i64 {
     use crate::layout::{cid, desl, is_object};
     let Some((p, i0, _)) = stack_mark(stack, start) else { return 0 };
-    // SAFETY: o armazenamento da `_GrowableList` (campo 1).
+    // SAFETY: the `_GrowableList`'s storage (field 1).
     if Data::de(unsafe { raw_word(stack, desl::EXPANSIVEL_DADOS) }, true).is_none() {
         return 0;
     }
-    // SAFETY: objeto vivo.
+    // SAFETY: live object.
     if !is_object(model) || unsafe { raw_header(model) }.class_id != cid::GROWABLE_LIST {
         return 0;
     }
     let n = p.len - i0;
     let list = HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        // A pilha e o modelo enraizados: os valores são alcançados pela pilha.
+        // The stack and the model rooted: the values are reached through the stack.
         let list = heap.list_with_roots(&[stack, model], |heap| heap.new_growable(n, n, crate::lists::Element::General));
         let tipo = heap.metadata(model);
         heap.set_metadata(list, tipo);
         if n > 0 {
-            // O coletor não move: `p` continua valendo. O armazenamento é novo e
-            // ninguém mais o vê: cópia crua, sem barreira (como `list_reserve`).
+            // The collector does not move: `p` stays valid. The storage is new and
+            // nobody else sees it: raw copy, no barrier (like `list_reserve`).
             let a = heap.list_data(list);
             let copy: Vec<i64> = (i0..p.len).map(|i| p.do_read(i)).collect();
             heap.words_mut(a)[1..1 + n].copy_from_slice(&copy);
@@ -235,8 +234,8 @@ pub extern "C" fn dartforge_nativo_DartForge_json_fechar_lista(stack: i64, start
     list
 }
 
-/// `_List(length)`: `length` nulls, tamanho fixo. O parâmetro não tem tipo
-/// na declaração (`external factory _List(length)`): chega como `Ref`.
+/// `_List(length)`: `length` nulls, fixed length. The parameter has no type in
+/// the declaration (`external factory _List(length)`): it arrives as a `Ref`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_List_allocate(length: i64, tuple: i64) -> i64 {
     let n = HEAP.with(|heap| heap.borrow().int_of(length)).unwrap_or(0).max(0) as usize;
@@ -251,15 +250,15 @@ pub extern "C" fn dartforge_nativo_List_getLength(this: i64) -> i64 {
     list_len(this)
 }
 
-/// `_List._setIndexed(i, v)`, com a conferência de índice.
+/// `_List._setIndexed(i, v)`, with the index check.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_List_setIndexed(this: i64, ix: i64, value: i64) {
     write_index(this, ix, value);
 }
 
-/// A gravação de `_setIndexed` (`_List` e `_GrowableList`): `RangeError
-/// (index)` fora do comprimento; o valor entra sem caixa numa lista compacta
-/// que o guarda, ou a descompacta (`Heap::list_set`).
+/// The write of `_setIndexed` (`_List` and `_GrowableList`): `RangeError (index)`
+/// outside the length; the value goes in unboxed into a compact list that holds
+/// it, or decompacts it (`Heap::list_set`).
 fn write_index(this: i64, ix: i64, value: i64) {
     if outside_list(ix, list_len(this), "index") {
         return;
@@ -267,9 +266,9 @@ fn write_index(this: i64, ix: i64, value: i64) {
     HEAP.with(|heap| heap.borrow_mut().list_set(this, ix as usize, crate::heap::Value::Ref(value)));
 }
 
-/// `list[i]` de `_List`, `_ImmutableList` e `_GrowableList` (intrínseco
-/// `[]` da VM), com a conferência de índice. O elemento compacto sai numa
-/// caixa (`Smi`, `_Mint`, `_Double`, `bool`).
+/// `list[i]` of `_List`, `_ImmutableList` and `_GrowableList` (the VM's `[]`
+/// intrinsic), with the index check. A compact element comes out in a box (`Smi`,
+/// `_Mint`, `_Double`, `bool`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_lista_get(this: i64, ix: i64) -> i64 {
     if outside_list(ix, list_len(this), "length") {
@@ -278,21 +277,21 @@ pub extern "C" fn dartforge_nativo_DartForge_lista_get(this: i64, ix: i64) -> i6
     HEAP.with(|heap| heap.borrow_mut().list_get_ref(this, ix as usize))
 }
 
-/// Os `how_many` elementos de `de` a partir de `start` numa lista fixa nova
-/// (`cid`) da mesma forma.
+/// The `how_many` elements of `de` from `start` into a new fixed list (`cid`) of
+/// the same shape.
 fn list_slice(de: i64, start: i64, how_many: i64, cid: i32) -> i64 {
     let (start, how_many) = (start.max(0) as usize, how_many.max(0) as usize);
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let shape = heap.list_shape(de);
-        // `de` é argumento do native: o código gerado o mantém enraizado.
+        // `de` is an argument of the native: generated code keeps it rooted.
         let h = heap.new_list(cid, how_many, shape);
         heap.list_copy(de, start, h, 0, how_many);
         h
     })
 }
 
-/// `_List._sliceInternal(start, count, needsTypeArgument)`: `_List` novo.
+/// `_List._sliceInternal(start, count, needsTypeArgument)`: a new `_List`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_List_slice(this: i64, start: i64, how_many: i64, _type: u8) -> i64 {
     let h = list_slice(this, start, how_many, crate::layout::cid::LIST);
@@ -308,14 +307,13 @@ pub extern "C" fn dartforge_nativo_ImmutableList_from(de: i64, start: i64, how_m
     h
 }
 
-/// `_GrowableList._withData(data)`: comprimento 0 sobre o armazenamento
-/// `data` (compartilhado, como na VM: o `_setLength` seguinte expõe os
-/// elementos dele).
+/// `_GrowableList._withData(data)`: length 0 over the storage `data` (shared, as
+/// in the VM: the following `_setLength` exposes its elements).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_GrowableList_allocate(data: i64, tuple: i64) -> i64 {
     let h = HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        // `data` é argumento do native: o código gerado o mantém enraizado.
+        // `data` is an argument of the native: generated code keeps it rooted.
         let h = heap.allocate_instance(crate::layout::cid::GROWABLE_LIST, 2);
         heap.list_set_data(h, data);
         h
@@ -324,7 +322,7 @@ pub extern "C" fn dartforge_nativo_GrowableList_allocate(data: i64, tuple: i64) 
     h
 }
 
-/// `_GrowableList._capacity`: o comprimento do armazenamento.
+/// `_GrowableList._capacity`: the storage's length.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_GrowableList_getCapacity(this: i64) -> i64 {
     HEAP.with(|heap| heap.borrow().list_capacity(this) as i64)
@@ -336,10 +334,10 @@ pub extern "C" fn dartforge_nativo_GrowableList_getLength(this: i64) -> i64 {
     list_len(this)
 }
 
-/// `_GrowableList._setLength(n)`: só o campo (as posições entre o
-/// comprimento velho e `n` já são null — o armazenamento nasce zerado e o
-/// `length =` que encolhe as limpa). O SDK cresce antes (`_grow`); um `n`
-/// além da capacidade reserva, por robustez.
+/// `_GrowableList._setLength(n)`: only the field (the positions between the old
+/// length and `n` are already null — the storage is born zeroed and the shrinking
+/// `length =` clears them). The SDK grows first (`_grow`); an `n` beyond the
+/// capacity reserves, for robustness.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_GrowableList_setLength(this: i64, n: i64) {
     let n = n.max(0) as usize;
@@ -352,9 +350,9 @@ pub extern "C" fn dartforge_nativo_GrowableList_setLength(this: i64, n: i64) {
     });
 }
 
-/// `_GrowableList._setData(data)`: o armazenamento passa a ser `data` (com
-/// barreira). O `_shrink` da VM monta `data` sem tipo (geral); a forma
-/// compacta que a lista tinha volta para o novo armazenamento, sem alocar.
+/// `_GrowableList._setData(data)`: the storage becomes `data` (with a barrier).
+/// The VM's `_shrink` builds `data` without a type (general); the compact shape the
+/// list had comes back for the new storage, without allocating.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_GrowableList_setData(this: i64, data: i64) {
     HEAP.with(|heap| {
@@ -367,24 +365,23 @@ pub extern "C" fn dartforge_nativo_GrowableList_setData(this: i64, data: i64) {
     });
 }
 
-/// `_preencherLista(list, value)` da sobreposição (`array.dart`):
-/// os elementos de `_List.filled`/`_GrowableList.filled`, de uma vez.
-/// `value` já é do `E` da lista (o parâmetro da fábrica); entra sem caixa na
-/// lista compacta, e o mesmo objeto em todas as posições da geral (o
-/// `List.filled` da VM).
+/// The overlay's `_preencherLista(list, value)` (`array.dart`): the elements of
+/// `_List.filled`/`_GrowableList.filled`, at once. `value` is already of the
+/// list's `E` (the factory's parameter); it goes in unboxed into a compact list,
+/// and the same object into every position of a general one (the VM's
+/// `List.filled`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_List_preencher(list: i64, value: i64) {
     HEAP.with(|heap| heap.borrow_mut().list_fill(list, crate::heap::Value::Ref(value)));
 }
 
-/// `_copiarElementos(dest, origin, n)` da sobreposição (`array.dart`):
-/// os `n` primeiros elementos de `origin` nos `n` primeiros de `dest`,
-/// duas listas do núcleo (`List.of`, `toList` e as cópias de
-/// `_List`/`_GrowableList`). Entre listas da mesma forma, as palavras (com a
-/// barreira em bloco na geral); entre formas diferentes, elemento a elemento
-/// (`Heap::list_copy`). `dest` acabou de ser criada com o `E` dela, e
-/// `origin` é um `Iterable<E>`: todo elemento cabe no destino; um que não
-/// coubesse o descompactaria, como pelo `[]=`.
+/// The overlay's `_copiarElementos(dest, origin, n)` (`array.dart`): the first `n`
+/// elements of `origin` into the first `n` of `dest`, two core lists (`List.of`,
+/// `toList` and the copies of `_List`/`_GrowableList`). Between lists of the same
+/// shape, the words (with the block barrier on a general one); between different
+/// shapes, element by element (`Heap::list_copy`). `dest` was just created with its
+/// `E`, and `origin` is an `Iterable<E>`: every element fits in the destination; one
+/// that did not fit would decompact it, as through `[]=`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_List_copiar(dest: i64, origin: i64, n: i64) {
     let n = usize::try_from(n).unwrap_or(0);
@@ -401,11 +398,10 @@ pub extern "C" fn dartforge_nativo_DartForge_List_copiar(dest: i64, origin: i64,
     });
 }
 
-/// `_GrowableList._grow(capacidade)` da sobreposição
-/// (`native_sdk/core/growable_array.dart`): um armazenamento de
-/// `capacidade`, da mesma forma, com os elementos até o comprimento (o
-/// `_grow` da VM, que copiava pelo `[]=` e entregava ao `_setData`, numa
-/// cópia só).
+/// The overlay's `_GrowableList._grow(capacidade)`
+/// (`native_sdk/core/growable_array.dart`): a storage of `capacidade`, of the same
+/// shape, with the elements up to the length (the VM's `_grow`, which copied through
+/// `[]=` and handed over to `_setData`, in a single copy).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_DartForge_GrowableList_reservar(this: i64, capacidade: i64) {
     let cap = usize::try_from(capacidade).unwrap_or(0);
@@ -418,20 +414,20 @@ pub extern "C" fn dartforge_nativo_GrowableList_setIndexed(this: i64, ix: i64, v
     write_index(this, ix, value);
 }
 
-/// `makeListFixedLength(list)`: uma `_List` nova com os elementos de `list`
-/// (a classe não muda depois de publicada, §2.16; os chamadores do SDK usam o
-/// valor devolvido).
+/// `makeListFixedLength(list)`: a new `_List` with the elements of `list` (the
+/// class does not change after publication, §2.16; the SDK's callers use the
+/// returned value).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Internal_makeListFixedLength(list: i64) -> i64 {
-    // `list` é argumento do native: o código gerado a mantém enraizada.
+    // `list` is an argument of the native: generated code keeps it rooted.
     let h = HEAP.with(|heap| heap.borrow_mut().fixed_list_of(list));
     type_copied_list(h, list, crate::layout::cid::LIST);
     h
 }
 
-/// `makeFixedListUnmodifiable(list)`: uma `_ImmutableList` nova com os
-/// elementos de `list` (a VM troca o cid no lugar, `Array::MakeImmutable`;
-/// aqui não, porque `df.class` lê o cid com `!invariant.load`).
+/// `makeFixedListUnmodifiable(list)`: a new `_ImmutableList` with the elements of
+/// `list` (the VM swaps the cid in place, `Array::MakeImmutable`; not here, because
+/// `df.class` reads the cid with `!invariant.load`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_nativo_Internal_makeFixedListUnmodifiable(list: i64) -> i64 {
     let h = HEAP.with(|heap| heap.borrow_mut().unmodifiable_list_of(list));
@@ -456,22 +452,22 @@ mod tests_runtime_type {
     }
 }
 
-/// Uma `_List` com os elementos da tabela `data` (`lower/literais.rs`): os
-/// literais de coleção grandes de escalares constantes chegam como dados, e
-/// não como uma instrução por elemento. Cada elemento: `n` (null), `t`/`f`
-/// (bool), `i` + 8 bytes (int, little-endian), `s` + 4 bytes de tamanho +
-/// os bytes WTF-8 (string, canônica como a de um literal). O apoio Dart
-/// (`_dartforgePreencherLista`…) a percorre e a descarta.
+/// A `_List` with the elements of the table `data` (`lower/literais.rs`): large
+/// collection literals of constant scalars arrive as data, and not as one
+/// instruction per element. Each element: `n` (null), `t`/`f` (bool), `i` + 8 bytes
+/// (int, little-endian), `s` + 4 size bytes + the WTF-8 bytes (a string, canonical
+/// like a literal's). The Dart support (`_dartforgePreencherLista`…) walks it and
+/// discards it.
 ///
 /// # Safety
-/// `data` aponta para `len` bytes legíveis; `getters`, para um vetor com
-/// o endereço de cada getter que a tabela cita (`g` + 4 bytes de índice:
-/// uma constante do programa, `dfc.<hash>.get`, sem argumentos).
+/// `data` points to `len` readable bytes; `getters`, to a vector with the address
+/// of each getter the table cites (`g` + 4 index bytes: a program constant,
+/// `dfc.<hash>.get`, without arguments).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_lista_de_tabela_g(data: *const u8, len: i64, getters: *const extern "C" fn() -> i64) -> i64 {
-    // SAFETY: garantido por quem chama (constantes do módulo).
+    // SAFETY: guaranteed by the caller (module constants).
     let b = unsafe { std::slice::from_raw_parts(data, usize::try_from(len).unwrap_or(0)) };
-    // Os elementos, sem o heap emprestado: o getter roda código Dart.
+    // The elements, without the heap borrowed: the getter runs Dart code.
     enum Item<'a> {
         Value(crate::heap::Value),
         Texto(&'a [u8]),
@@ -508,24 +504,24 @@ pub unsafe extern "C" fn dartforge_lista_de_tabela_g(data: *const u8, len: i64, 
                 i += 4;
                 Item::Getter(word(b, i - 4, 4) as usize)
             }
-            _ => panic!("bug do compilador: tabela de coleção com o marcador {tag}"),
+            _ => panic!("compiler bug: collection table with marker {tag}"),
         });
     }
     let h = HEAP.with(|heap| heap.borrow_mut().new_list(crate::layout::cid::LIST, items.len(), crate::lists::Element::General));
-    // A lista fica enraizada enquanto os textos e os getters alocam.
+    // The list stays rooted while the strings and the getters allocate.
     with_roots(&[h], || {
         for (k, item) in items.into_iter().enumerate() {
             let v = match item {
                 Item::Value(v) => v,
-                // Strings literais são canônicas e permanentes (a tabela
-                // `literals` é raiz).
+                // Literal strings are canonical and permanent (the `literals`
+                // table is a root).
                 Item::Texto(t) => {
                     let t = Texto::de_wtf8(t);
                     crate::heap::Value::Ref(HEAP.with(|heap| heap.borrow_mut().string_literal(t.vista())))
                 }
                 Item::Getter(g) => {
-                    // SAFETY: o índice é de uma entrada do vetor (o compilador
-                    // escreve os dois juntos); o getter é uma função do módulo.
+                    // SAFETY: the index is that of a vector entry (the compiler
+                    // writes both together); the getter is a module function.
                     let f = unsafe { *getters.add(g) };
                     let v = dart_r0(f as usize);
                     if dartforge_exception_pending() != 0 {
@@ -534,7 +530,7 @@ pub unsafe extern "C" fn dartforge_lista_de_tabela_g(data: *const u8, len: i64, 
                     crate::heap::Value::Ref(v)
                 }
             };
-            // As caixas de `int` fora do `Smi` alocam: `list_set` enraíza `h`.
+            // The boxes of `int`s outside the `Smi` range allocate: `list_set` roots `h`.
             HEAP.with(|heap| heap.borrow_mut().list_set(h, k, v));
         }
     });
@@ -542,10 +538,10 @@ pub unsafe extern "C" fn dartforge_lista_de_tabela_g(data: *const u8, len: i64, 
 }
 
 /// # Safety
-/// `data` aponta para `len` bytes legíveis.
+/// `data` points to `len` readable bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_lista_de_tabela(data: *const u8, len: i64) -> i64 {
-    // SAFETY: garantido por quem chama (uma constante do módulo).
+    // SAFETY: guaranteed by the caller (a module constant).
     let b = unsafe { std::slice::from_raw_parts(data, usize::try_from(len).unwrap_or(0)) };
     let mut items: Vec<crate::heap::Value> = Vec::new();
     let mut i = 0;
@@ -576,19 +572,19 @@ pub unsafe extern "C" fn dartforge_lista_de_tabela(data: *const u8, len: i64) ->
                 b's' => {
                     let n = word(b, i, 4) as usize;
                     i += 4;
-                    // Strings literais são canônicas e permanentes (a tabela
-                    // `literals` é raiz): nenhuma coleta no meio as perde.
+                    // Literal strings are canonical and permanent (the `literals`
+                    // table is a root): no collection in the middle loses them.
                     let t = Texto::de_wtf8(&b[i..i + n]);
                     let h = heap.string_literal(t.vista());
                     i += n;
                     crate::heap::Value::Ref(h)
                 }
-                _ => panic!("bug do compilador: tabela de coleção com o marcador {tag}"),
+                _ => panic!("compiler bug: collection table with marker {tag}"),
             };
             items.push(v);
         }
         let h = heap.new_list(crate::layout::cid::LIST, items.len(), crate::lists::Element::General);
-        // As caixas de `int` fora do `Smi` alocam: `list_set` enraíza `h`.
+        // The boxes of `int`s outside the `Smi` range allocate: `list_set` roots `h`.
         for (k, v) in items.into_iter().enumerate() {
             heap.list_set(h, k, v);
         }
@@ -596,43 +592,43 @@ pub unsafe extern "C" fn dartforge_lista_de_tabela(data: *const u8, len: i64) ->
     })
 }
 
-// ─── Espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §3.6) ─────────────────
+// ─── Unified space (docs/NATIVO-ESPACO-UNIFICADO.md §3.6) ────────────────────
 
-/// A lista literal (`AllocList`, `llvm/listas_ir.rs`): `n` palavras em
-/// `words`, da classe `cid` (`_List`, `_ImmutableList` ou `_GrowableList`
-/// de capacidade `n`). `shape`:
+/// The list literal (`AllocList`, `llvm/listas_ir.rs`): `n` words in `words`, of
+/// class `cid` (`_List`, `_ImmutableList` or `_GrowableList` of capacity `n`).
+/// `shape`:
 ///
-/// * `0`–`3` (`Element::code`): todas as palavras já na representação da
-///   forma (`Ref` na geral; `i64`, bits de `f64` ou 0/1 na compacta);
-/// * outro valor: o endereço de `n` bytes com a representação de cada palavra
-///   (a tag da ABI de pares: 1 `int`, 2 `bool`, 3 `Ref`, 4 bits de `double`),
-///   para o literal misto; a lista sai geral, com as caixas feitas aqui (o
-///   código gerado não encaixota, e uma caixa feita antes da lista ficaria sem
-///   raiz na alocação seguinte).
+/// * `0`–`3` (`Element::code`): all words already in the shape's representation
+///   (`Ref` in the general one; `i64`, `f64` bits or 0/1 in the compact one);
+/// * any other value: the address of `n` bytes with the representation of each word
+///   (the tag of the pair ABI: 1 `int`, 2 `bool`, 3 `Ref`, 4 `double` bits), for a
+///   mixed literal; the list comes out general, with the boxes made here (generated
+///   code does not box, and a box made before the list would be unrooted in the
+///   following allocation).
 ///
-/// Os `Ref` das palavras são operandos da instrução, enraizados pelo código
-/// gerado durante a chamada. Não lança.
+/// The words' `Ref`s are operands of the instruction, rooted by generated code
+/// during the call. Does not throw.
 ///
 /// # Safety
-/// `words` aponta `n` palavras legíveis; um `shape` fora de `0..=3` aponta
-/// `n` bytes legíveis.
+/// `words` points to `n` readable words; a `shape` outside `0..=3` points to `n`
+/// readable bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_lista_nova(words: *const i64, n: i64, cid: i64, shape: i64) -> i64 {
-    // SAFETY: o contrato desta entrada é o mesmo da implementação comum.
+    // SAFETY: this entry's contract is the same as the common implementation's.
     unsafe { list_literal(words, n, cid, shape, false) }
 }
 
-/// Cria uma lista literal e entrega um owner independente do código.
-/// Os elementos Ref são copiados, sem consumir owners do chamador, e ficam
-/// enraizados durante todas as alocações. Não executa Dart nem lança pending.
+/// Creates a list literal and hands over an independent code owner. The Ref
+/// elements are copied, without consuming the caller's owners, and stay rooted
+/// during all allocations. Neither runs Dart nor leaves a pending exception.
 ///
 /// # Safety
-/// `n` deve ser não negativo e `words` conter `n` palavras legíveis.
-/// Fora de `0..=3`, `shape` aponta `n` tags legíveis (1 int, 2 bool,
-/// 3 Ref, 4 double). Referências devem estar vivas; bool usa somente 0/1.
+/// `n` must be non-negative and `words` contain `n` readable words. Outside
+/// `0..=3`, `shape` points to `n` readable tags (1 int, 2 bool, 3 Ref, 4 double).
+/// References must be alive; bool uses only 0/1.
 ///
 /// # Panics
-/// Comprimento, classe, tag ou bool inválido; aborta na fronteira C.
+/// Invalid length, class, tag or bool; aborts at the C boundary.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -642,31 +638,31 @@ pub unsafe extern "C" fn dartforge_lista_nova(words: *const i64, n: i64, cid: i6
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_arc_lista_nova_owned_v1(words: *const i64, n: i64, cid: i64, shape: i64) -> i64 {
-    assert!(n >= 0, "comprimento de literal negativo");
-    assert!(matches!(cid, 8..=10), "classe de literal inválida");
-    // SAFETY: buffers e referências válidos pelo contrato da entrada.
+    assert!(n >= 0, "negative literal length");
+    assert!(matches!(cid, 8..=10), "invalid literal class");
+    // SAFETY: buffers and references valid by the entry's contract.
     unsafe { list_literal(words, n, cid, shape, true) }
 }
 
 unsafe fn list_literal(words: *const i64, n: i64, cid: i64, shape: i64, owned: bool) -> i64 {
     use crate::lists::Element;
     let n = usize::try_from(n).unwrap_or(0);
-    // SAFETY: garantido por quem chama (o `alloca` do código gerado).
+    // SAFETY: guaranteed by the caller (generated code's `alloca`).
     let p: &[i64] = if n == 0 { &[] } else { unsafe { std::slice::from_raw_parts(words, n) } };
-    let cid = i32::try_from(cid).expect("bug do compilador: cid de lista inválido");
+    let cid = i32::try_from(cid).expect("compiler bug: invalid list cid");
     let (e, tags): (Element, Option<&[u8]>) = match Element::from_code(shape) {
         Some(e) => (e, None),
-        // SAFETY: garantido por quem chama (o vetor de tags do literal).
+        // SAFETY: guaranteed by the caller (the literal's tag vector).
         None => (Element::General, Some(unsafe { std::slice::from_raw_parts(shape as usize as *const u8, n) })),
     };
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        // Tracing homogêneo conserva o preenchimento direto, sem vetor extra.
+        // Homogeneous tracing keeps the direct fill, without an extra vector.
         let refs: Vec<i64> = if !owned && tags.is_none() { Vec::new() } else { p.iter().enumerate().map(|(k, &w)| {
             let tag = tags.map_or(if e == Element::General { 3 } else { 0 }, |t| t[k]);
             if owned {
-                assert!(tags.is_none() || matches!(tag, 1..=4), "tag de literal inválida");
-                assert!(!(tag == 2 || e == Element::Bool) || matches!(w, 0 | 1), "bool de literal inválido");
+                assert!(tags.is_none() || matches!(tag, 1..=4), "invalid literal tag");
+                assert!(!(tag == 2 || e == Element::Bool) || matches!(w, 0 | 1), "invalid literal bool");
             }
             if tag == 3 { w } else { 0 }
         }).collect() };
@@ -683,13 +679,13 @@ unsafe fn list_literal(words: *const i64, n: i64, cid: i64, shape: i64, owned: b
         let a = heap.list_data(h);
         match tags {
             None => {
-                // Recém-alocada, jovem: as palavras entram sem barreira.
+                // Freshly allocated, young: the words go in without a barrier.
                 if owned && e == Element::General { heap.write_refs(a, 1, p); }
                 else { heap.words_mut(a)[1..1 + n].copy_from_slice(p); }
             }
             Some(tags) => {
-                // Primeiro os `Ref` (sem alocação), depois as caixas (que
-                // podem coletar; `list_set` enraíza `h`).
+                // The `Ref`s first (without allocation), then the boxes (which may
+                // collect; `list_set` roots `h`).
                 if owned { heap.write_refs(a, 1, &refs); }
                 else { heap.words_mut(a)[1..1 + n].copy_from_slice(&refs); }
                 for (k, (&w, &t)) in p.iter().zip(tags).enumerate() {
@@ -711,20 +707,19 @@ unsafe fn list_literal(words: *const i64, n: i64, cid: i64, shape: i64, owned: b
     })
 }
 
-/// O `add` de uma `_GrowableList` com o `Ref` `v` (o caminho do código gerado
-/// quando o armazenamento está cheio ou não guarda `v` sem caixa;
-/// `lower/intrinsecos.rs`, `lower/literais.rs`): cresce para
-/// `(capacidade * 2) | 3` se preciso e grava (descompactando, se for o caso).
-/// Devolve `list`. Não lança; pode coletar (`list` e `v` são operandos,
-/// enraizados pelo código gerado).
-/// O retorno é emprestado do primeiro argumento; não cria owner independente.
-/// O valor é armazenado sem consumir o owner do chamador; na forma geral,
-/// copia a aresta Ref. Crescimento e descompactação invalidam empréstimos
-/// anteriores do armazenamento.
+/// The `add` of a `_GrowableList` with the `Ref` `v` (generated code's path when
+/// the storage is full or does not hold `v` unboxed; `lower/intrinsecos.rs`,
+/// `lower/literais.rs`): grows to `(capacidade * 2) | 3` if needed and writes
+/// (decompacting, if that is the case). Returns `list`. Does not throw; may collect
+/// (`list` and `v` are operands, rooted by generated code).
+/// The return is borrowed from the first argument; it does not create an
+/// independent owner. The value is stored without consuming the caller's owner; in
+/// the general shape, it copies the Ref edge. Growth and decompaction invalidate
+/// previous borrows of the storage.
 ///
 /// # Panics
-/// Receiver não expansível, referências mortas ou layout inválido; aborta na
-/// fronteira C. Quem chama deve manter ambos os argumentos vivos.
+/// A non-growable receiver, dead references or an invalid layout; aborts at the C
+/// boundary. The caller must keep both arguments alive.
 ///
 /// ```
 /// use dartforge_runtime::abi::*;
@@ -752,7 +747,7 @@ mod testes_literal_owned {
             let previous = HEAP.with(|h| h.replace(Heap::new(true)));
             if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
             for cid in [8, 9, 10] {
-                let child = HEAP.with(|h| h.borrow_mut().allocate_str("elemento sem owner do código"));
+                let child = HEAP.with(|h| h.borrow_mut().allocate_str("element without a code owner"));
                 let bits = 0xfff8_1234_5678_9abc_u64;
                 let words = [child, i64::MAX, bits as i64, 1, child, 0];
                 let tags = [3u8, 1, 4, 2, 3, 3];
@@ -769,7 +764,7 @@ mod testes_literal_owned {
                     assert_eq!(w[5], child);
                     assert_eq!(w[6], 0);
                     assert_eq!(heap.value(w[2]), crate::heap::Value::Int(i64::MAX));
-                    let crate::heap::Value::Double(d) = heap.value(w[3]) else { panic!("caixa double esperada") };
+                    let crate::heap::Value::Double(d) = heap.value(w[3]) else { panic!("double box expected") };
                     assert_eq!(d.to_bits(), bits);
                     assert_eq!(heap.value(w[4]), crate::heap::Value::Bool(true));
                 });

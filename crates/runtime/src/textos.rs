@@ -1,50 +1,50 @@
-//! As strings do espaço unificado (P1, docs/NATIVO-ESPACO-UNIFICADO.md §3.3).
+//! The strings of the unified space (P1, docs/NATIVO-ESPACO-UNIFICADO.md §3.3).
 //!
-//! `_OneByteString` (cid 6) e `_TwoByteString` (cid 7) são blocos `BRUTO`: o
-//! comprimento em `b+16`, as unidades a partir de `b+24` (completadas com zeros
-//! até a palavra) e o hash em `map` (`layout::desl`). O coletor não percorre o
-//! corpo; o bloco não se move enquanto vive, então as unidades têm endereço fixo.
+//! `_OneByteString` (cid 6) and `_TwoByteString` (cid 7) are `BRUTO` blocks: the
+//! length at `b+16`, the units from `b+24` on (padded with zeros up to the word)
+//! and the hash in `map` (`layout::desl`). The collector does not walk the body;
+//! the block does not move while it lives, so the units have a fixed address.
 //!
-//! Três tipos:
+//! Three types:
 //!
-//! * [`crate::textos::TextoRef`] é a vista emprestada das unidades (de um bloco do heap ou de um
-//!   [`crate::textos::Texto`] de construção); os algoritmos de busca, comparação e codificação
-//!   moram nela;
-//! * [`crate::textos::Texto`] é o dono das unidades antes de alocar (a saída de `toString`, os
-//!   pedaços que o runtime monta); a forma é canônica, como na VM;
-//! * [`crate::textos::StringMut`] junta unidades sem passar pelo `String` do Rust (que perderia os
-//!   surrogates soltos).
+//! * [`crate::textos::TextoRef`] is the borrowed view of the units (of a heap block
+//!   or of a construction [`crate::textos::Texto`]); the search, comparison and
+//!   encoding algorithms live on it;
+//! * [`crate::textos::Texto`] owns the units before allocating (the output of
+//!   `toString`, the pieces the runtime builds); the form is canonical, as in the VM;
+//! * [`crate::textos::StringMut`] joins units without going through Rust's `String`
+//!   (which would lose lone surrogates).
 //!
-//! As funções de `impl Heap` usam só a API de `heap.rs` (§3.2); o endereço do
-//! bloco sai do handle (`h - 2`), conferido vivo por [`crate::heap::Heap::header`].
+//! The `impl Heap` functions use only the `heap.rs` API (§3.2); the block's address
+//! comes from the handle (`h - 2`), checked live by [`crate::heap::Heap::header`].
 #![allow(unsafe_code)]
 
 use crate::heap::Heap;
 use crate::layout::{self, Ref, cid, desl, estado, flags};
 
 // ---------------------------------------------------------------------------
-// Texto: o dono das unidades antes de alocar.
+// Texto: the owner of the units before allocating.
 // ---------------------------------------------------------------------------
 
-/// Texto Dart: uma sequência de unidades de código UTF-16, na forma da VM
-/// (decisão 5, docs/NATIVO-PLANO.md §7.1).
+/// Dart text: a sequence of UTF-16 code units, in the VM's form (decision 5,
+/// docs/NATIVO-PLANO.md §7.1).
 ///
-/// * `Um` é o `_OneByteString`: toda unidade cabe em um byte (Latin-1,
-///   U+0000–U+00FF), guardada em um byte;
-/// * `Dois` é o `_TwoByteString`: alguma unidade passa de 0xFF, e todas são
-///   guardadas em dois bytes.
+/// * `Um` is the `_OneByteString`: every unit fits in one byte (Latin-1,
+///   U+0000–U+00FF), stored in one byte;
+/// * `Dois` is the `_TwoByteString`: some unit exceeds 0xFF, and all are stored in
+///   two bytes.
 ///
-/// A forma é **canônica**, como na VM (`String::New`/`String::SubString`,
-/// `runtime/vm/object.cc`, escolhem a classe pelo conteúdo): `Dois` só existe
-/// quando alguma unidade passa de 0xFF. Os construtores abaixo garantem isso;
-/// a igualdade compara unidades de todo modo, então um `Dois` Latin-1 criado à
-/// mão só custa espaço, nunca muda o resultado.
+/// The form is **canonical**, as in the VM (`String::New`/`String::SubString`,
+/// `runtime/vm/object.cc`, choose the class by the content): `Dois` only exists
+/// when some unit exceeds 0xFF. The constructors below guarantee it; equality
+/// compares units anyway, so a Latin-1 `Dois` created by hand only costs space,
+/// never changes the result.
 ///
-/// Um *surrogate* solto (U+D800–U+DFFF sem par) é uma unidade como outra
-/// qualquer: `length`, índices, `codeUnitAt`, `substring` no meio de um par e
-/// `runes` (que devolve o próprio valor do surrogate solto) seguem a
-/// semântica do Dart. Só na saída (`print`) ele vira U+FFFD, como a VM
-/// escreve (`Utf8::Encode`, via `Dart_CopyUTF8EncodingOfString`).
+/// A lone *surrogate* (U+D800–U+DFFF without a pair) is a unit like any other:
+/// `length`, indices, `codeUnitAt`, `substring` in the middle of a pair and `runes`
+/// (which returns the lone surrogate's own value) follow Dart semantics. Only on
+/// output (`print`) does it become U+FFFD, as the VM writes it (`Utf8::Encode`,
+/// through `Dart_CopyUTF8EncodingOfString`).
 #[derive(Clone)]
 pub enum Texto {
     Um(Vec<u8>),
@@ -52,12 +52,12 @@ pub enum Texto {
 }
 
 impl Texto {
-    /// A string vazia.
+    /// The empty string.
     pub fn empty() -> Self {
         Texto::Um(Vec::new())
     }
 
-    /// Texto a partir de unidades UTF-16, na forma canônica.
+    /// Text from UTF-16 units, in canonical form.
     pub fn from_units(unidades: Vec<u16>) -> Self {
         if unidades.iter().all(|&u| u <= 0xFF) {
             Texto::Um(unidades.into_iter().map(|u| u as u8).collect())
@@ -66,7 +66,7 @@ impl Texto {
         }
     }
 
-    /// Texto a partir de uma fatia de unidades UTF-16, na forma canônica.
+    /// Text from a slice of UTF-16 units, in canonical form.
     pub fn from_slice(unidades: &[u16]) -> Self {
         if unidades.iter().all(|&u| u <= 0xFF) {
             Texto::Um(unidades.iter().map(|&u| u as u8).collect())
@@ -75,7 +75,7 @@ impl Texto {
         }
     }
 
-    /// Texto a partir de UTF-8 válido (texto que o próprio runtime formatou).
+    /// Text from valid UTF-8 (text the runtime itself formatted).
     pub fn de_str(s: &str) -> Self {
         if s.is_ascii() {
             return Texto::Um(s.as_bytes().to_vec());
@@ -91,11 +91,10 @@ impl Texto {
         Texto::Um(one)
     }
 
-    /// Texto a partir de WTF-8: UTF-8 generalizado em que um surrogate solto
-    /// é codificado em três bytes como qualquer ponto de código (é a forma em
-    /// que o front-end guarda o texto dos literais, `frontend/src/text.rs`).
-    /// UTF-8 válido é WTF-8. Um byte malformado vira U+FFFD — não ocorre
-    /// para bytes emitidos pelo compilador.
+    /// Text from WTF-8: generalized UTF-8 in which a lone surrogate is encoded in
+    /// three bytes like any code point (the form in which the front end keeps the
+    /// text of literals, `frontend/src/text.rs`). Valid UTF-8 is WTF-8. A malformed
+    /// byte becomes U+FFFD — it does not happen for bytes emitted by the compiler.
     pub fn de_wtf8(bytes: &[u8]) -> Self {
         if bytes.is_ascii() {
             return Texto::Um(bytes.to_vec());
@@ -142,7 +141,7 @@ impl Texto {
         Self::from_units(unidades)
     }
 
-    /// A vista das unidades deste texto de construção.
+    /// The view of the units of this construction text.
     pub fn vista(&self) -> TextoRef<'_> {
         match self {
             Texto::Um(b) => TextoRef::Um(b),
@@ -150,7 +149,7 @@ impl Texto {
         }
     }
 
-    /// Quantidade de unidades UTF-16 (`String.length`).
+    /// Number of UTF-16 units (`String.length`).
     pub fn len(&self) -> usize {
         self.vista().len()
     }
@@ -159,22 +158,22 @@ impl Texto {
         self.len() == 0
     }
 
-    /// É um `_OneByteString` (Latin-1)?
+    /// Is it a `_OneByteString` (Latin-1)?
     pub fn e_um_byte(&self) -> bool {
         matches!(self, Texto::Um(_))
     }
 
-    /// A unidade no índice (`codeUnitAt`); o índice é verificado por quem chama.
+    /// The unit at the index (`codeUnitAt`); the caller checks the index.
     pub fn unit(&self, i: usize) -> u16 {
         self.vista().unit(i)
     }
 
-    /// As unidades, em ordem.
+    /// The units, in order.
     pub fn unidades(&self) -> UnitsIter<'_> {
         self.vista().unidades()
     }
 
-    /// As unidades num vetor.
+    /// The units in a vector.
     pub fn para_vec(&self) -> Vec<u16> {
         match self {
             Texto::Um(b) => b.iter().map(|&x| u16::from(x)).collect(),
@@ -182,37 +181,37 @@ impl Texto {
         }
     }
 
-    /// `[start, end)` em unidades, na forma canônica (o `_substringUnchecked`
-    /// da VM: um pedaço Latin-1 de um `_TwoByteString` volta a ser `Um`).
+    /// `[start, end)` in units, in canonical form (the VM's `_substringUnchecked`:
+    /// a Latin-1 piece of a `_TwoByteString` goes back to being `Um`).
     pub fn piece(&self, start: usize, end: usize) -> Texto {
         self.vista().piece(start, end).to_string_fn()
     }
 
-    /// Os pontos de código (`runes`): um par de surrogates vira o escalar; um
-    /// surrogate solto sai como ele mesmo (o `RuneIterator` do `dart:core`).
+    /// The code points (`runes`): a surrogate pair becomes the scalar; a lone
+    /// surrogate comes out as itself (`dart:core`'s `RuneIterator`).
     pub fn points(&self) -> Vec<u32> {
         self.vista().points()
     }
 
-    /// WTF-8 (surrogate solto em três bytes): a forma sem perda, inversa de
+    /// WTF-8 (a lone surrogate in three bytes): the lossless form, the inverse of
     /// [`Texto::de_wtf8`].
     pub fn to_wtf8(&self) -> Vec<u8> {
         self.vista().to_wtf8()
     }
 
-    /// UTF-8 como a VM escreve na saída (`print`): o surrogate solto vira
+    /// UTF-8 as the VM writes it on output (`print`): a lone surrogate becomes
     /// U+FFFD (`Utf8::Encode`, `runtime/vm/unicode.cc`).
     pub fn to_vm_utf8(&self) -> Vec<u8> {
         self.vista().to_vm_utf8()
     }
 
-    /// Texto legível para Rust: surrogate solto vira U+FFFD. Só para
-    /// mensagens e formatação interna; o valor Dart nunca passa por aqui.
+    /// Text readable by Rust: a lone surrogate becomes U+FFFD. Only for messages and
+    /// internal formatting; the Dart value never goes through here.
     pub fn para_string(&self) -> String {
         self.vista().para_string()
     }
 
-    /// Concatenação (`+`), na forma canônica.
+    /// Concatenation (`+`), in canonical form.
     pub fn concatenate(&self, other_one: &Texto) -> Texto {
         match (self, other_one) {
             (Texto::Um(a), Texto::Um(b)) => {
@@ -230,35 +229,35 @@ impl Texto {
         }
     }
 
-    /// Primeira ocorrência de `pattern` a partir de `since` (unidades).
+    /// First occurrence of `pattern` from `since` on (units).
     pub fn search_for(&self, pattern: &Texto, since: usize) -> Option<usize> {
         self.vista().search_for(pattern.vista(), since)
     }
 
-    /// Última ocorrência de `pattern` que começa em `until` ou antes.
+    /// Last occurrence of `pattern` that starts at `until` or before.
     pub fn find_last(&self, pattern: &Texto, until: usize) -> Option<usize> {
         self.vista().find_last(pattern.vista(), until)
     }
 
-    /// `pattern` aparece inteiro a partir da unidade `i`.
+    /// `pattern` appears whole from unit `i` on.
     pub fn matches_at(&self, pattern: &Texto, i: usize) -> bool {
         self.vista().matches_at(pattern.vista(), i)
     }
 
-    /// Ordem lexicográfica por unidades (`String.compareTo`).
+    /// Lexicographic order by units (`String.compareTo`).
     pub fn compare(&self, other_one: &Texto) -> std::cmp::Ordering {
         self.vista().compare(other_one.vista())
     }
 
-    /// `String.hashCode` da VM ([`layout::hash_de_texto`]), como `i64` (a
-    /// forma que a API velha usa).
+    /// The VM's `String.hashCode` ([`layout::hash_de_texto`]), as an `i64` (the form
+    /// the old API uses).
     pub fn hash_vm(&self) -> i64 {
         i64::from(self.vista().hash_vm())
     }
 
 }
 
-/// Uma unidade (ponto ≤ 0xFFFF, inclusive surrogate) ou um par de surrogates.
+/// One unit (a point ≤ 0xFFFF, surrogates included) or a surrogate pair.
 pub fn push_point(unidades: &mut Vec<u16>, point: u32) {
     if point <= 0xFFFF {
         unidades.push(point as u16);
@@ -269,7 +268,7 @@ pub fn push_point(unidades: &mut Vec<u16>, point: u32) {
     }
 }
 
-/// Um ponto de código em WTF-8 (surrogate em três bytes, como qualquer ponto).
+/// A code point in WTF-8 (a surrogate in three bytes, like any point).
 fn encode_wtf8(out: &mut Vec<u8>, p: u32) {
     if p < 0x80 {
         out.push(p as u8);
@@ -337,8 +336,8 @@ impl std::fmt::Debug for Texto {
     }
 }
 
-/// Construtor de texto por unidades: a saída de `toString`/interpolação, que
-/// não pode passar por `String` do Rust sem perder surrogates soltos.
+/// Text builder by units: the output of `toString`/interpolation, which cannot go
+/// through Rust's `String` without losing lone surrogates.
 #[derive(Default)]
 pub struct StringMut(pub Vec<u16>);
 
@@ -356,7 +355,7 @@ impl StringMut {
     pub fn push_string(&mut self, t: &Texto) {
         self.push_vista(t.vista());
     }
-    /// Acrescenta as unidades de uma vista (de um bloco do heap ou de um `Texto`).
+    /// Appends the units of a view (of a heap block or of a `Texto`).
     pub fn push_vista(&mut self, t: TextoRef<'_>) {
         match t {
             TextoRef::Um(b) => self.0.extend(b.iter().map(|&x| u16::from(x))),
@@ -372,15 +371,14 @@ impl StringMut {
 }
 
 // ---------------------------------------------------------------------------
-// TextoRef: a vista emprestada.
+// TextoRef: the borrowed view.
 // ---------------------------------------------------------------------------
 
-/// A vista das unidades de uma string: um byte por unidade (`_OneByteString`) ou
-/// dois (`_TwoByteString`).
+/// The view of a string's units: one byte per unit (`_OneByteString`) or two
+/// (`_TwoByteString`).
 ///
-/// Emprestada de um bloco do heap ([`Heap::text`]) ela vale enquanto o
-/// empréstimo do heap durar (nenhuma alocação no meio); de um [`Texto`],
-/// enquanto ele viver.
+/// Borrowed from a heap block ([`Heap::text`]) it is valid while the heap borrow
+/// lasts (no allocation in the middle); from a [`Texto`], while it lives.
 #[derive(Clone, Copy)]
 pub enum TextoRef<'a> {
     Um(&'a [u8]),
@@ -388,66 +386,66 @@ pub enum TextoRef<'a> {
 }
 
 impl<'a> TextoRef<'a> {
-    /// Quantas unidades.
+    /// How many units.
     pub fn len(self) -> usize {
         match self {
             TextoRef::Um(b) => b.len(),
             TextoRef::Dois(u) => u.len(),
         }
     }
-    /// Sem unidades?
+    /// No units?
     pub fn is_empty(self) -> bool {
         self.len() == 0
     }
-    /// A forma de um byte por unidade?
+    /// The one-byte-per-unit form?
     pub fn e_um_byte(self) -> bool {
         matches!(self, TextoRef::Um(_))
     }
-    /// Toda unidade cabe num byte (a forma canônica de uma cópia é `Um`)?
+    /// Does every unit fit in one byte (the canonical form of a copy is `Um`)?
     pub fn fits_in_one_byte(self) -> bool {
         match self {
             TextoRef::Um(_) => true,
             TextoRef::Dois(u) => u.iter().all(|&x| x <= 0xFF),
         }
     }
-    /// A unidade `i`.
+    /// Unit `i`.
     pub fn unit(self, i: usize) -> u16 {
         match self {
             TextoRef::Um(b) => u16::from(b[i]),
             TextoRef::Dois(u) => u[i],
         }
     }
-    /// As unidades, em ordem.
+    /// The units, in order.
     pub fn unidades(self) -> UnitsIter<'a> {
         UnitsIter { text: self, i: 0, end: self.len() }
     }
-    /// As unidades `start..end`.
+    /// The units `start..end`.
     pub fn piece(self, start: usize, end: usize) -> TextoRef<'a> {
         match self {
             TextoRef::Um(b) => TextoRef::Um(&b[start..end]),
             TextoRef::Dois(u) => TextoRef::Dois(&u[start..end]),
         }
     }
-    /// Uma cópia de construção, na forma canônica.
+    /// A construction copy, in canonical form.
     pub fn to_string_fn(self) -> Texto {
         match self {
             TextoRef::Um(b) => Texto::Um(b.to_vec()),
             TextoRef::Dois(u) => Texto::from_slice(u),
         }
     }
-    /// O texto em UTF-8, com os surrogates soltos trocados por U+FFFD.
+    /// The text in UTF-8, with lone surrogates replaced by U+FFFD.
     pub fn para_string(self) -> String {
         match self {
             TextoRef::Um(b) => b.iter().map(|&x| char::from(x)).collect(),
             TextoRef::Dois(u) => String::from_utf16_lossy(u),
         }
     }
-    /// O texto em WTF-8 (surrogates soltos preservados), inverso de
+    /// The text in WTF-8 (lone surrogates preserved), the inverse of
     /// [`Texto::de_wtf8`].
     pub fn to_wtf8(self) -> Vec<u8> {
         self.encode(false)
     }
-    /// O UTF-8 que a VM escreve (`Utf8::Encode`): o surrogate solto vira U+FFFD.
+    /// The UTF-8 that the VM writes (`Utf8::Encode`): a lone surrogate becomes U+FFFD.
     pub fn to_vm_utf8(self) -> Vec<u8> {
         self.encode(true)
     }
@@ -464,8 +462,8 @@ impl<'a> TextoRef<'a> {
         }
         out
     }
-    /// Os pontos de código (`runes`): um par de surrogates vira o escalar; um
-    /// surrogate solto sai como ele mesmo (o `RuneIterator` do `dart:core`).
+    /// The code points (`runes`): a surrogate pair becomes the scalar; a lone
+    /// surrogate comes out as itself (`dart:core`'s `RuneIterator`).
     pub fn points(self) -> Vec<u32> {
         if let TextoRef::Um(b) = self {
             return b.iter().map(|&x| u32::from(x)).collect();
@@ -488,7 +486,7 @@ impl<'a> TextoRef<'a> {
         }
         out
     }
-    /// A primeira ocorrência de `pattern` a partir de `since`.
+    /// The first occurrence of `pattern` from `since` on.
     pub fn search_for(self, pattern: TextoRef<'_>, since: usize) -> Option<usize> {
         let (n, m) = (self.len(), pattern.len());
         if since > n {
@@ -501,7 +499,7 @@ impl<'a> TextoRef<'a> {
             return None;
         }
         let maximum = n - m;
-        // Latin-1 nos dois: o primeiro byte filtra as posições.
+        // Latin-1 on both: the first byte filters the positions.
         if let (TextoRef::Um(a), TextoRef::Um(b)) = (self, pattern) {
             let first = b[0];
             let mut i = since;
@@ -519,7 +517,7 @@ impl<'a> TextoRef<'a> {
         }
         (since..=maximum).find(|&i| self.matches_at(pattern, i))
     }
-    /// A última ocorrência de `pattern` que começa até `until`.
+    /// The last occurrence of `pattern` that starts up to `until`.
     pub fn find_last(self, pattern: TextoRef<'_>, until: usize) -> Option<usize> {
         let (n, m) = (self.len(), pattern.len());
         if m > n {
@@ -528,7 +526,7 @@ impl<'a> TextoRef<'a> {
         let start = until.min(n - m);
         (0..=start).rev().find(|&i| self.matches_at(pattern, i))
     }
-    /// `pattern` ocorre na posição `i`?
+    /// Does `pattern` occur at position `i`?
     pub fn matches_at(self, pattern: TextoRef<'_>, i: usize) -> bool {
         let m = pattern.len();
         if i.checked_add(m).is_none_or(|f| f > self.len()) {
@@ -540,7 +538,7 @@ impl<'a> TextoRef<'a> {
             _ => (0..m).all(|k| self.unit(i + k) == pattern.unit(k)),
         }
     }
-    /// A ordem de `compareTo` (unidade a unidade, depois o comprimento).
+    /// The `compareTo` order (unit by unit, then the length).
     pub fn compare(self, other_one: TextoRef<'_>) -> std::cmp::Ordering {
         match (self, other_one) {
             (TextoRef::Um(a), TextoRef::Um(b)) => a.cmp(b),
@@ -548,7 +546,7 @@ impl<'a> TextoRef<'a> {
             _ => self.unidades().cmp(other_one.unidades()),
         }
     }
-    /// O `hashCode` da VM ([`layout::hash_de_texto`]): 30 bits, nunca 0.
+    /// The VM's `hashCode` ([`layout::hash_de_texto`]): 30 bits, never 0.
     pub fn hash_vm(self) -> u32 {
         layout::hash_de_texto(self.unidades())
     }
@@ -601,7 +599,7 @@ impl std::fmt::Debug for TextoRef<'_> {
     }
 }
 
-/// Iterador das unidades de uma [`TextoRef`] (e de um [`Texto`]).
+/// Iterator over the units of a [`TextoRef`] (and of a [`Texto`]).
 #[derive(Clone)]
 pub struct UnitsIter<'a> {
     text: TextoRef<'a>,
@@ -637,32 +635,32 @@ impl DoubleEndedIterator for UnitsIter<'_> {
 
 impl ExactSizeIterator for UnitsIter<'_> {}
 
-/// Desliga a vista do empréstimo de onde ela saiu.
+/// Detaches the view from the borrow it came from.
 ///
 /// # Safety
-/// As unidades continuam válidas enquanto a vista for usada: vêm de um bloco do
-/// heap que está vivo (enraizado) e nenhuma coleta acontece no meio (o coletor
-/// não move, então só a morte do bloco as invalida).
+/// The units stay valid while the view is used: they come from a heap block that is
+/// alive (rooted) and no collection happens in the middle (the collector does not
+/// move, so only the block's death invalidates them).
 unsafe fn disable<'b>(t: TextoRef<'_>) -> TextoRef<'b> {
     match t {
-        // SAFETY: contrato acima.
+        // SAFETY: contract above.
         TextoRef::Um(b) => TextoRef::Um(unsafe { std::slice::from_raw_parts(b.as_ptr(), b.len()) }),
         TextoRef::Dois(u) => TextoRef::Dois(unsafe { std::slice::from_raw_parts(u.as_ptr(), u.len()) }),
     }
 }
 
 // ---------------------------------------------------------------------------
-// As strings no heap.
+// The strings on the heap.
 // ---------------------------------------------------------------------------
 
-/// O cid da string na forma pedida.
+/// The cid of the string in the requested form.
 const fn string_cid(dois: bool) -> i32 {
     if dois { cid::TWO_BYTE_STRING } else { cid::ONE_BYTE_STRING }
 }
 
 impl Heap {
-    /// O endereço do bloco e o cid da string `h`; `None` se `h` não é string.
-    /// Pânico N4 (de [`Heap::header`]) para objeto morto ou inválido.
+    /// The address of the block and the cid of string `h`; `None` if `h` is not a
+    /// string. N4 panic (from [`Heap::header`]) for a dead or invalid object.
     fn string_block(&self, h: Ref) -> Option<(usize, i32)> {
         if !layout::is_object(h) {
             return None;
@@ -671,12 +669,12 @@ impl Heap {
         cid::is_string(c).then_some(((h - layout::DESLOCAMENTO_DO_HANDLE) as usize, c))
     }
 
-    /// As unidades da string `h`; `None` se `h` não é string.
+    /// The units of string `h`; `None` if `h` is not a string.
     pub fn text(&self, h: Ref) -> Option<TextoRef<'_>> {
         let (b, c) = self.string_block(h)?;
-        // SAFETY: bloco vivo (ou estático) de string: o comprimento em `b+16` e
-        // as unidades a partir de `b+24`, alinhadas a 8, dentro do corpo. O
-        // empréstimo de `self` impede coleta enquanto a vista vive.
+        // SAFETY: a live (or static) string block: the length at `b+16` and the
+        // units from `b+24` on, aligned to 8, within the body. The borrow of `self`
+        // prevents collection while the view lives.
         unsafe {
             let len = *((b + desl::COMPRIMENTO) as *const i64) as usize;
             let p = (b + desl::UNIDADES) as *const u8;
@@ -688,13 +686,13 @@ impl Heap {
         }
     }
 
-    /// `h` é string (cid 6 ou 7)?
+    /// Is `h` a string (cid 6 or 7)?
     pub fn is_string(&self, h: Ref) -> bool {
         self.string_block(h).is_some()
     }
 
-    /// Uma string nova de `len` unidades zeradas (a forma pedida). Pode coletar:
-    /// as referências que o chamador segura precisam de raiz.
+    /// A new string of `len` zeroed units (in the requested form). May collect: the
+    /// references the caller holds need roots.
     pub fn new_string(&mut self, len: usize, dois: bool) -> Ref {
         let w = layout::palavras_de_texto(len, dois);
         let h = self.allocate(string_cid(dois), w, flags::BRUTO);
@@ -702,36 +700,36 @@ impl Heap {
         h
     }
 
-    /// As unidades de uma `_OneByteString` ainda não publicada.
+    /// The units of a `_OneByteString` not yet published.
     ///
     /// # Panics
-    /// Se `h` não é `_OneByteString`.
+    /// If `h` is not a `_OneByteString`.
     pub fn one_units_mut(&mut self, h: Ref) -> &mut [u8] {
-        let (_, c) = self.string_block(h).expect("bug do compilador: _OneByteString esperada");
-        assert_eq!(c, cid::ONE_BYTE_STRING, "bug do compilador: _OneByteString esperada");
+        let (_, c) = self.string_block(h).expect("compiler bug: _OneByteString expected");
+        assert_eq!(c, cid::ONE_BYTE_STRING, "compiler bug: _OneByteString expected");
         let len = self.words(h)[0] as usize;
         &mut self.bytes_mut(h)[8..8 + len]
     }
 
-    /// As unidades de uma `_TwoByteString` ainda não publicada.
+    /// The units of a `_TwoByteString` not yet published.
     ///
     /// # Panics
-    /// Se `h` não é `_TwoByteString`.
+    /// If `h` is not a `_TwoByteString`.
     pub fn two_units_mut(&mut self, h: Ref) -> &mut [u16] {
-        let (_, c) = self.string_block(h).expect("bug do compilador: _TwoByteString esperada");
-        assert_eq!(c, cid::TWO_BYTE_STRING, "bug do compilador: _TwoByteString esperada");
+        let (_, c) = self.string_block(h).expect("compiler bug: _TwoByteString expected");
+        assert_eq!(c, cid::TWO_BYTE_STRING, "compiler bug: _TwoByteString expected");
         let len = self.words(h)[0] as usize;
         let bytes = &mut self.bytes_mut(h)[8..8 + 2 * len];
-        // SAFETY: os bytes das unidades começam em `b+24` (alinhado a 8) e têm
-        // `2·len` bytes; a fatia de `u16` cobre exatamente eles.
+        // SAFETY: the bytes of the units start at `b+24` (aligned to 8) and are
+        // `2·len` bytes long; the `u16` slice covers exactly them.
         unsafe { std::slice::from_raw_parts_mut(bytes.as_mut_ptr().cast::<u16>(), len) }
     }
 
-    /// Grava as unidades de `t` a partir da unidade `pos` da string `dest`
-    /// (ainda não publicada). Numa `_OneByteString` cada unidade de `t` precisa
-    /// caber num byte (a forma do destino foi escolhida por quem alocou).
+    /// Writes the units of `t` from unit `pos` of string `dest` on (not yet
+    /// published). In a `_OneByteString` each unit of `t` must fit in one byte (the
+    /// destination's form was chosen by whoever allocated it).
     pub fn write_string(&mut self, dest: Ref, pos: usize, t: TextoRef<'_>) {
-        let (_, c) = self.string_block(dest).expect("bug do compilador: string esperada");
+        let (_, c) = self.string_block(dest).expect("compiler bug: string expected");
         let n = t.len();
         if c == cid::ONE_BYTE_STRING {
             let d = &mut self.one_units_mut(dest)[pos..pos + n];
@@ -739,7 +737,7 @@ impl Heap {
                 TextoRef::Um(b) => d.copy_from_slice(b),
                 TextoRef::Dois(u) => {
                     for (x, &y) in d.iter_mut().zip(u) {
-                        debug_assert!(y <= 0xFF, "unidade {y:#x} numa _OneByteString");
+                        debug_assert!(y <= 0xFF, "unit {y:#x} in a _OneByteString");
                         *x = y as u8;
                     }
                 }
@@ -757,46 +755,46 @@ impl Heap {
         }
     }
 
-    /// Copia as unidades `start..end` da string `source` para a posição `pos` da
-    /// string `dest` (outra, ainda não publicada), sem cópia intermediária.
+    /// Copies the units `start..end` of string `source` to position `pos` of string
+    /// `dest` (another one, not yet published), without an intermediate copy.
     ///
     /// # Panics
-    /// Se `source` não é string ou a faixa está fora dela.
+    /// If `source` is not a string or the range is outside it.
     pub fn copy_string(&mut self, dest: Ref, pos: usize, source: Ref, start: usize, end: usize) {
-        let t = self.text(source).expect("bug do compilador: string esperada").piece(start, end);
-        // SAFETY: `source` está viva (o chamador a tem) e `write_string` não
-        // aloca nem coleta; `dest` é outro bloco, então as fatias não se
-        // sobrepõem.
+        let t = self.text(source).expect("compiler bug: string expected").piece(start, end);
+        // SAFETY: `source` is alive (the caller has it) and `write_string` neither
+        // allocates nor collects; `dest` is another block, so the slices do not
+        // overlap.
         let t = unsafe { disable(t) };
         debug_assert_ne!(source, dest);
         self.write_string(dest, pos, t);
     }
 
-    /// Uma string com as unidades de `t`, na forma canônica (um byte se cabe).
-    /// `t` não pode vir deste heap (a alocação pode coletar): para uma fatia de
-    /// uma string viva use [`Heap::string_slice`].
+    /// A string with the units of `t`, in canonical form (one byte if it fits). `t`
+    /// must not come from this heap (the allocation may collect): for a slice of a
+    /// live string use [`Heap::string_slice`].
     pub fn allocate_string(&mut self, t: TextoRef<'_>) -> Ref {
         let h = self.new_string(t.len(), !t.fits_in_one_byte());
         self.write_string(h, 0, t);
         h
     }
 
-    /// As unidades `start..end` da string `h` (enraizada pelo chamador) numa
-    /// string nova, na forma canônica (o `_substringUnchecked` da VM).
+    /// The units `start..end` of string `h` (rooted by the caller) in a new string,
+    /// in canonical form (the VM's `_substringUnchecked`).
     pub fn string_slice(&mut self, h: Ref, start: usize, end: usize) -> Ref {
-        let one = self.text(h).expect("bug do compilador: string esperada").piece(start, end).fits_in_one_byte();
+        let one = self.text(h).expect("compiler bug: string expected").piece(start, end).fits_in_one_byte();
         let r = self.new_string(end - start, !one);
         self.copy_string(r, 0, h, start, end);
         r
     }
 
-    /// A concatenação das strings `part_list` (enraizadas pelo chamador), numa
-    /// alocação só, na forma canônica. Um elemento que não é string é bug do
-    /// compilador (pânico).
+    /// The concatenation of the strings `part_list` (rooted by the caller), in a
+    /// single allocation, in canonical form. An element that is not a string is a
+    /// compiler bug (panic).
     pub fn join_strings(&mut self, part_list: &[Ref]) -> Ref {
         let (mut total, mut one) = (0usize, true);
         for &p in part_list {
-            let t = self.text(p).expect("bug do compilador: string esperada");
+            let t = self.text(p).expect("compiler bug: string expected");
             total += t.len();
             one &= t.fits_in_one_byte();
         }
@@ -810,7 +808,7 @@ impl Heap {
         r
     }
 
-    /// Uma string com o texto de `s`.
+    /// A string with the text of `s`.
     pub fn allocate_str(&mut self, s: &str) -> Ref {
         if s.is_ascii() {
             return self.allocate_string(TextoRef::Um(s.as_bytes()));
@@ -819,7 +817,7 @@ impl Heap {
         self.allocate_string(t.vista())
     }
 
-    /// Uma string a partir de WTF-8.
+    /// A string from WTF-8.
     pub fn string_from_wtf8(&mut self, bytes: &[u8]) -> Ref {
         if bytes.is_ascii() {
             return self.allocate_string(TextoRef::Um(bytes));
@@ -828,30 +826,30 @@ impl Heap {
         self.allocate_string(t.vista())
     }
 
-    /// O `hashCode` da string `h`, calculado na primeira consulta e gravado em
-    /// `map`; `None` se `h` não é string. O estático (`PERMANENTE`) já vem com
-    /// o hash do emissor e nunca é gravado (mora em memória só de leitura).
+    /// The `hashCode` of string `h`, computed on the first query and written into
+    /// `map`; `None` if `h` is not a string. A static one (`PERMANENTE`) already comes
+    /// with the emitter's hash and is never written (it lives in read-only memory).
     pub fn hash_de_texto(&self, h: Ref) -> Option<u32> {
         let (b, _) = self.string_block(h)?;
         let p = (b + desl::HASH_DO_TEXTO) as *mut u32;
-        // SAFETY: `map` do cabeçalho de um bloco vivo; o heap é de uma thread
-        // só e nenhuma referência ao cabeçalho está viva aqui. Pela `AtomicU32`
-        // a gravação por `&self` é um cache sem referência compartilhada ao
-        // mesmo `u32`.
+        // SAFETY: `map` of a live block's header; the heap belongs to a single
+        // thread and no reference to the header is alive here. Through the
+        // `AtomicU32` the write through `&self` is a cache without a shared
+        // reference to the same `u32`.
         let cell = unsafe { std::sync::atomic::AtomicU32::from_ptr(p) };
         let current = cell.load(std::sync::atomic::Ordering::Relaxed);
         if current != 0 {
             return Some(current);
         }
         let x = self.text(h)?.hash_vm();
-        // SAFETY: `b` é o bloco (endereço do cabeçalho).
+        // SAFETY: `b` is the block (the header's address).
         if unsafe { *(b as *const u8) } != estado::PERMANENTE {
             cell.store(x, std::sync::atomic::Ordering::Relaxed);
         }
         Some(x)
     }
 
-    /// As duas strings têm as mesmas unidades? `false` se uma delas não é string.
+    /// Do the two strings have the same units? `false` if either is not a string.
     pub fn strings_equal(&self, a: Ref, b: Ref) -> bool {
         if a == b {
             return layout::is_object(a) && self.is_string(a);
@@ -860,9 +858,9 @@ impl Heap {
         if ta.len() != tb.len() {
             return false;
         }
-        // Os hashes já calculados diferem: unidades diferentes.
+        // The already computed hashes differ: different units.
         let hash = |h: Ref| -> u32 {
-            // SAFETY: `map` de um bloco de string vivo, só lido.
+            // SAFETY: `map` of a live string block, only read.
             unsafe { *((h - layout::DESLOCAMENTO_DO_HANDLE) as usize as *const u32).byte_add(desl::HASH_DO_TEXTO) }
         };
         let (ha, hb) = (hash(a), hash(b));
@@ -872,11 +870,12 @@ impl Heap {
         ta == tb
     }
 
-    /// A string canônica com as unidades de `t` (internada em `literals`, raiz
-    /// permanente: o literal do JIT e do runtime). `t` não vem deste heap.
+    /// The canonical string with the units of `t` (interned in `literals`, a
+    /// permanent root: the literal of the JIT and of the runtime). `t` does not come
+    /// from this heap.
     pub fn string_literal(&mut self, t: TextoRef<'_>) -> Ref {
-        // O literal estático de uma imagem com o mesmo conteúdo é o canônico
-        // (§2.11): `identical(s[0], 'a')` e a `const` interpolada.
+        // An image's static literal with the same content is the canonical one
+        // (§2.11): `identical(s[0], 'a')` and the interpolated `const`.
         if let Some(h) = string_static(t) {
             return h;
         }
@@ -891,22 +890,22 @@ impl Heap {
 }
 
 // ---------------------------------------------------------------------------
-// O índice dos literais estáticos das imagens.
+// The index of the images' static literals.
 // ---------------------------------------------------------------------------
 
-/// Os literais estáticos (`@df.s.*`, §2.11) das imagens registradas, pelo hash
-/// gravado no cabeçalho: `(images já percorridas, hash → blocks)`. Montado sob
-/// demanda (a primeira canonicalização depois de uma imagem nova), só lendo as
-/// palavras de cabeçalho — o hash vem calculado do emissor.
+/// The static literals (`@df.s.*`, §2.11) of the registered images, by the hash
+/// written in the header: `(images already walked, hash → blocks)`. Built on demand
+/// (the first canonicalization after a new image), reading only the header words —
+/// the hash comes precomputed by the emitter.
 static STRING_STATICS: std::sync::RwLock<Option<(usize, std::collections::HashMap<u32, Vec<usize>>)>> =
     std::sync::RwLock::new(None);
 
-/// A vista de um bloco de string estático (`PERMANENTE`, de uma imagem).
+/// The view of a static string block (`PERMANENTE`, from an image).
 ///
 /// # Safety
-/// `b` é o bloco de uma string estática válida.
+/// `b` is the block of a valid static string.
 unsafe fn static_view<'a>(b: usize) -> TextoRef<'a> {
-    // SAFETY: contrato acima; a imagem não é descarregada.
+    // SAFETY: contract above; the image is not unloaded.
     unsafe {
         let c = *((b + desl::CLASSE) as *const i32);
         let len = *((b + desl::COMPRIMENTO) as *const i64) as usize;
@@ -919,13 +918,13 @@ unsafe fn static_view<'a>(b: usize) -> TextoRef<'a> {
     }
 }
 
-/// Percorre a seção de estáticos `[start, end)`: palavras zero (os marcadores,
-/// o enchimento entre as contribuições dos objetos) são puladas; uma palavra
-/// que não é o cabeçalho de uma string estática coerente encerra a travessia.
+/// Walks the static section `[start, end)`: zero words (the markers, the padding
+/// between the objects' contributions) are skipped; a word that is not the header of
+/// a coherent static string ends the walk.
 fn index_image(start: usize, end: usize, ix: &mut std::collections::HashMap<u32, Vec<usize>>) {
     let mut b = start.next_multiple_of(8);
     while b + layout::TAMANHO_DO_CABECALHO + 8 <= end {
-        // SAFETY: `b` está dentro da faixa registrada da imagem.
+        // SAFETY: `b` is within the image's registered range.
         let word = unsafe { *(b as *const u64) };
         if word == 0 {
             b += 8;
@@ -937,7 +936,7 @@ fn index_image(start: usize, end: usize, ix: &mut std::collections::HashMap<u32,
         if est != estado::PERMANENTE || fl & flags::FORMA != flags::BRUTO || !cid::is_string(c) {
             break;
         }
-        // SAFETY: cabeçalho de string estática: o hash e o comprimento seguem.
+        // SAFETY: a static string header: the hash and the length follow.
         let (hash, len) = unsafe { (*((b + desl::HASH_DO_TEXTO) as *const u32), *((b + desl::COMPRIMENTO) as *const i64)) };
         let w = layout::palavras_de_texto(len as usize, c == cid::TWO_BYTE_STRING);
         let size = layout::TAMANHO_DO_CABECALHO + 8 * w;
@@ -949,10 +948,10 @@ fn index_image(start: usize, end: usize, ix: &mut std::collections::HashMap<u32,
     }
 }
 
-/// O literal estático com as unidades de `t`, se alguma imagem registrada o
-/// tem. Entre imagens com o mesmo literal (o executável e a DLL do SDK na
-/// ligação de desenvolvimento, §4.10 item 52), vale a registrada por último — o
-/// programa, que se registra depois do SDK.
+/// The static literal with the units of `t`, if some registered image has it.
+/// Between images with the same literal (the executable and the SDK DLL in the
+/// development link, §4.10 item 52), the one registered last wins — the program,
+/// which registers after the SDK.
 pub fn string_static(t: TextoRef<'_>) -> Option<Ref> {
     let images = crate::heap::images();
     let ready_flag = STRING_STATICS
@@ -972,15 +971,15 @@ pub fn string_static(t: TextoRef<'_>) -> Option<Ref> {
     let (_, ix) = g.as_ref()?;
     let hash = t.hash_vm();
     ix.get(&hash)?.iter().rev().find_map(|&b| {
-        // SAFETY: bloco indexado de uma string estática.
+        // SAFETY: an indexed block of a static string.
         (unsafe { static_view(b) } == t).then_some(b as Ref + layout::DESLOCAMENTO_DO_HANDLE)
     })
 }
 
 impl Heap {
-    /// A forma canônica de uma constante (o getter de `const`, `constantes.rs`):
-    /// uma string vira o literal canônico com o mesmo conteúdo (o estático da
-    /// imagem ou o internado); o resto volta como está.
+    /// The canonical form of a constant (the `const` getter, `constantes.rs`): a
+    /// string becomes the canonical literal with the same content (the image's static
+    /// one or the interned one); the rest comes back as it is.
     pub fn canonical_constant(&mut self, h: Ref) -> Ref {
         if !self.is_string(h) || crate::heap::is_static(h) {
             return h;

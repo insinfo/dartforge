@@ -1,115 +1,117 @@
-//! A fonte única do runtime nativo, compilada também como módulo deste crate.
+//! The single source of the native runtime, also compiled as a module of this crate.
 //!
-//! O runtime que o código gerado chama é a concatenação, na ordem de
-//! [`FRAGMENTOS`], dos arquivos `src/<fragmento>.rs` (um por tema: núcleo,
-//! raízes do coletor, exceções, saída, strings, coleções, closures). Os
-//! fragmentos não são módulos Rust: são pedaços de UM programa, que se enxergam
-//! sem `use`. A lista é uma só, e é esta; o texto é compilado de duas formas:
+//! The runtime that generated code calls is the concatenation, in the order of
+//! [`FRAGMENTOS`], of the files `src/<fragment>.rs` (one per topic: core, collector
+//! roots, exceptions, output, strings, collections, closures…). The fragments are
+//! not Rust modules: they are pieces of ONE program, which see each other without
+//! `use`. There is a single list, and it is this one; the text is compiled in two
+//! ways:
 //!
-//! * pelo AOT, como texto (`RUNTIME_MAIN`), com `rustc` avulso e `-O`
-//!   (`crates/emit_native/src/cache.rs`), virando a `.lib` que o executável
-//!   liga — com o `main` C que chama `@dartforge_entry`;
-//! * por este crate, como o módulo `abi`, para o JIT (`crates/jit`), que
-//!   publica os endereços das funções como símbolos absolutos — **sem** o
-//!   `main` C, que colidiria com o `main` de qualquer binário Rust.
+//! * by the AOT, as text (`RUNTIME_MAIN`), with a standalone `rustc` and `-O`
+//!   (`crates/emit_native/src/cache.rs`), becoming the `.lib` that the executable
+//!   links — with the C `main` that calls `@dartforge_entry`;
+//! * by this crate, as the `abi` module, for the JIT (`crates/jit`), which publishes
+//!   the functions' addresses as absolute symbols — **without** the C `main`, which
+//!   would clash with the `main` of any Rust binary.
 //!
-//! Este script:
+//! This script:
 //!
-//! 1. grava em `OUT_DIR` o texto concatenado (`runtime_main.rs`, que o
-//!    `RUNTIME_MAIN` inclui) e o corpo do módulo `abi` (`abi.rs`: um
-//!    `include!` por fragmento, na mesma ordem, para os erros de compilação
-//!    apontarem o arquivo de verdade);
-//! 2. liga a cfg `dartforge_runtime_embutido`, que tira o `main` C e a
-//!    declaração de `dartforge_entry` (o `rustc` avulso do AOT não a recebe);
-//! 3. gera `simbolos.rs`: a tabela `(nome, endereço)` de todo
-//!    `#[unsafe(no_mangle)] pub [unsafe] extern "C" fn` de **todos** os
-//!    fragmentos, exceto o `main`. Nenhum nome é escrito à mão; tomar o
-//!    endereço também impede o linker de descartar as funções do rlib.
+//! 1. writes into `OUT_DIR` the concatenated text (`runtime_main.rs`, which
+//!    `RUNTIME_MAIN` includes) and the body of the `abi` module (`abi.rs`: one
+//!    `include!` per fragment, in the same order, so that compile errors point to
+//!    the real file);
+//! 2. enables the `dartforge_runtime_embutido` cfg, which removes the C `main` and
+//!    the declaration of `dartforge_entry` (the AOT's standalone `rustc` does not
+//!    receive it);
+//! 3. generates `simbolos.rs`: the `(name, address)` table of every
+//!    `#[unsafe(no_mangle)] pub [unsafe] extern "C" fn` of **all** the fragments,
+//!    except `main`. No name is written by hand; taking the address also prevents
+//!    the linker from discarding the rlib's functions.
 //!
-//! Um arquivo novo em `src/` que não seja `lib.rs`, um dos `MODULOS` nem fragmento
-//! listado derruba o build: um fragmento esquecido fora da lista seria código
-//! do runtime que nenhum dos dois perfis compila.
+//! A new file in `src/` that is neither `lib.rs`, one of the `MODULOS` nor a listed
+//! fragment breaks the build: a fragment forgotten outside the list would be
+//! runtime code that neither profile compiles.
 use std::path::PathBuf;
 
-/// Os fragmentos do runtime, na ordem de concatenação. Acrescentar um
-/// fragmento é acrescentar o nome aqui (e o arquivo em `src/`).
+/// The runtime fragments, in concatenation order. Adding a fragment means adding
+/// its name here (and the file in `src/`).
 const FRAGMENTOS: &[&str] = &[
     "core",
     "gc_roots",
     "arc_abi",
     "arc_native_ports",
     "exceptions",
-    // As portas Rust → Dart e a personalidade das exceções por tabelas.
+    // The Rust → Dart ports and the personality of table-based exceptions.
     "exceptions_tables",
     "stack_trace",
-    // `DARTFORGE_EFEITOS=conferir`: a conferência da tabela de efeitos.
+    // `DARTFORGE_EFEITOS=conferir`: the effects table check.
     "effects_check",
     "output",
     "strings",
     "collections",
     "closures",
-    // δ (P5b): os natives do SDK da fonte (crates/emit_native/src/nativos.rs).
+    // δ (P5b): the natives of the SDK from source (crates/emit_native/src/nativos.rs).
     "natives_numbers",
     "natives_strings",
-    // O caminho rápido do `_Map`/`_Set` padrão para chaves `int` e `String`.
+    // The fast path of the default `_Map`/`_Set` for `int` and `String` keys.
     "natives_hash",
-    // Relógio, fuso horário e entropia.
+    // Clock, time zone and entropy.
     "natives_system",
-    // O motor de expressões regulares do `RegExp`.
+    // The `RegExp` regular expression engine.
     "regexp",
-    // P2 (α): operadores sobre dynamic/num (tapa-buraco até P5).
+    // P2 (α): operators on dynamic/num (a stopgap until P5).
     "dispatch",
-    // δ (P5c): tabelas de métodos e busca por seletor do SDK da fonte.
+    // δ (P5c): method tables and lookup by selector for the SDK from source.
     "selectors",
     "natives_lists",
-    // As listas tipadas do `typed_data_patch.dart` da VM.
+    // The typed lists of the VM's `typed_data_patch.dart`.
     "typed_data",
-    // Os tipos SIMD (`Float32x4`, `Int32x4`, `Float64x2`).
+    // The SIMD types (`Float32x4`, `Int32x4`, `Float64x2`).
     "simd",
-    // P6: o laço de eventos (microtarefas e timers).
+    // P6: the event loop (microtasks and timers).
     "events",
-    // Portas e a fila de mensagens do isolado.
+    // Ports and the isolate's message queue.
     "ports",
-    // Os isolados (`Isolate.spawn`, a porta de controle).
+    // Isolates (`Isolate.spawn`, the control port).
     "isolates",
-    // O dart:ffi (bibliotecas dinâmicas, memória nativa, trampolins de chamada).
+    // dart:ffi (dynamic libraries, native memory, call trampolines).
     "ffi",
     "ffi_callbacks",
-    // A API nativa de portas (Dart_PostCObject…) e os dados da API DL.
+    // The native port API (Dart_PostCObject…) and the DL API data.
     "ffi_api_nativa",
-    // Finalizer e NativeFinalizer sobre os anexos do coletor.
+    // Finalizer and NativeFinalizer on top of the collector's attachments.
     "finalizers",
-    // O `dart:io` da VM: arquivos, diretórios, o IOService e a plataforma.
+    // The VM's `dart:io`: files, directories, the IOService and the platform.
     "io_files",
     "io_directories",
     "io_service",
     "io_platform",
-    // O manipulador de eventos, os soquetes e os processos.
+    // The event handler, the sockets and the processes.
     "io_events",
     "io_sockets",
     "io_sockets_unix",
-    // A observação de arquivos (`FileSystemEntity.watch`).
+    // File watching (`FileSystemEntity.watch`).
     "io_observador",
     "io_processes",
-    // O mesmo no Windows: a porta de conclusão, o Winsock e os processos.
+    // The same on Windows: the completion port, Winsock and the processes.
     "io_windows_eventos",
     "io_windows_sockets",
     "io_windows_processes",
-    // A TLS do `dart:io` (`SecureSocket`, `SecurityContext`), sobre o rustls.
+    // The `dart:io` TLS (`SecureSocket`, `SecurityContext`), on top of rustls.
     "tls",
-    // Os formatos de chave e certificado do `SecurityContext` (PKCS#12,
-    // chaves cifradas).
+    // The key and certificate formats of `SecurityContext` (PKCS#12, encrypted
+    // keys).
     "tls_formats",
-    // Os filtros zlib/gzip do `dart:io` (`ZLibEncoder`, `GZipCodec`).
+    // The `dart:io` zlib/gzip filters (`ZLibEncoder`, `GZipCodec`).
     "zlib",
-    // O que um programa vê na VM JIT e o AOT não dá, para os builders: o
-    // subconjunto de `dart:mirrors` (`reflectClass`) e o package config.
+    // What a program sees in the JIT VM that the AOT does not provide, for the
+    // builders: the `dart:mirrors` subset (`reflectClass`) and the package config.
     "compat_jit",
-    // `dart:developer` e a timeline no perfil de produção.
+    // `dart:developer` and the timeline in the production profile.
     "natives_developer",
-    // RTI: tipos em tempo de execução.
+    // RTI: run-time types.
     "types",
-    // O alocador global do executável, com listas livres por thread (N17).
+    // The executable's global allocator, with per-thread free lists (N17).
     "allocator",
 ];
 
@@ -118,13 +120,13 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(dartforge_runtime_dll)");
     println!("cargo::rerun-if-changed=src");
     println!("cargo::rustc-check-cfg=cfg(dartforge_runtime_embutido)");
-    // As features escolhem o perfil do módulo `abi`: sem nenhuma, o JIT
-    // (sem o `main` C); `aot`, a `staticlib` do executável (com o `main`);
-    // `dll`, a da biblioteca compartilhada do SDK da fonte (sem o `main`).
-    // As duas `staticlib` saem de `crates/runtime_static`.
+    // The features choose the profile of the `abi` module: with none, the JIT
+    // (without the C `main`); `aot`, the executable's `staticlib` (with `main`);
+    // `dll`, that of the shared library of the SDK from source (without `main`).
+    // Both `staticlib`s come out of `crates/runtime_static`.
     let aot = std::env::var_os("CARGO_FEATURE_AOT").is_some();
     let dll = std::env::var_os("CARGO_FEATURE_DLL").is_some();
-    assert!(!(aot && dll), "as features aot e dll do runtime são exclusivas");
+    assert!(!(aot && dll), "the runtime's aot and dll features are mutually exclusive");
     if dll {
         println!("cargo::rustc-cfg=dartforge_runtime_dll");
     } else if !aot {
@@ -137,18 +139,18 @@ fn main() {
     check_list(&src);
 
     let mut text = String::new();
-    let mut abi = String::from("// GERADO por crates/runtime/build.rs — não editar.\n");
+    let mut abi = String::from("// GENERATED by crates/runtime/build.rs — do not edit.\n");
     for f in FRAGMENTOS {
         let file_path = src.join(format!("{f}.rs"));
         let content = std::fs::read_to_string(&file_path)
-            .unwrap_or_else(|e| panic!("ler {}: {e}", file_path.display()));
+            .unwrap_or_else(|e| panic!("read {}: {e}", file_path.display()));
         assert!(
             content.ends_with('\n'),
-            "{} não termina em fim de linha",
+            "{} does not end with a newline",
             file_path.display()
         );
         text.push_str(&content);
-        let literal = format!("{:?}", file_path.to_str().expect("caminho UTF-8"));
+        let literal = format!("{:?}", file_path.to_str().expect("UTF-8 path"));
         abi.push_str(&format!("include!({literal});\n"));
     }
 
@@ -160,15 +162,15 @@ fn main() {
         names.len() - sorted.len() == 1
             && names.iter().filter(|nome| nome.as_str() == "dartforge_personalidade").count() == 2
             || sorted.len() == names.len(),
-        "o runtime define algum símbolo #[unsafe(no_mangle)] duas vezes"
+        "the runtime defines some #[unsafe(no_mangle)] symbol twice"
     );
-    // As duas assinaturas da personalidade são exclusivas por plataforma.
+    // The two personality signatures are mutually exclusive per platform.
     let mut seen_set = std::collections::HashSet::new();
     names.retain(|nome| seen_set.insert(nome.clone()));
 
     let mut output = String::from(
-        "// GERADO por crates/runtime/build.rs a partir dos fragmentos de src/ — não editar.\n\n\
-         /// Os fragmentos do runtime, na ordem em que são concatenados.\n\
+        "// GENERATED by crates/runtime/build.rs from the fragments in src/ — do not edit.\n\n\
+         /// The runtime fragments, in the order they are concatenated.\n\
          pub const FRAGMENTOS: &[&str] = &[\n",
     );
     for f in FRAGMENTOS {
@@ -176,18 +178,18 @@ fn main() {
     }
     output.push_str(
         "];\n\n\
-         /// Nomes dos símbolos que o runtime exporta ao código gerado, na ordem da fonte.\n\
+         /// Names of the symbols the runtime exports to generated code, in source order.\n\
          pub const NOMES: &[&str] = &[\n",
     );
     for nome in &names {
-        // Só de unix, como na [`tabela`].
+        // Unix only, as in [`tabela`].
         if matches!(nome.as_str(), "dartforge_objeto_de_desenrolamento" | "dartforge_desenrolamento_falhou" | "dartforge_personalidade_cleanup_itanium") {
             output.push_str("    #[cfg(unix)]\n");
         }
         output.push_str(&format!("    \"{nome}\",\n"));
     }
     output.push_str(
-        "];\n\n/// Endereço de cada função do runtime neste processo, na ordem de [`NOMES`].\n\
+        "];\n\n/// Address of each runtime function in this process, in the order of [`NOMES`].\n\
          pub fn tabela() -> Vec<(&'static str, usize)> {\n    vec![\n",
     );
     for nome in &names {
@@ -199,9 +201,9 @@ fn main() {
         ));
     }
     output.push_str("    ]\n}\n");
-    // @Native para a ABI reservada precisa do runtime que atende o programa,
-    // não de um homônimo no executável hospedeiro de uma biblioteca RTLD_LOCAL.
-    // Gera a mesma seleção no módulo Cargo e no texto avulso do AOT.
+    // @Native for the reserved ABI needs the runtime that serves the program, not a
+    // same-named one in the host executable of an RTLD_LOCAL library. The same
+    // selection is generated in the Cargo module and in the AOT's standalone text.
     let mut resolver = String::from("fn endereco_nativo_do_runtime(nome: &str) -> Option<usize> {\n    match nome {\n");
     for nome in &names {
         if matches!(nome.as_str(), "dartforge_objeto_de_desenrolamento" | "dartforge_desenrolamento_falhou" | "dartforge_personalidade_cleanup_itanium") {
@@ -213,20 +215,20 @@ fn main() {
     text.insert_str(0, &resolver);
     abi.push_str(&resolver);
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
-    std::fs::write(out.join("simbolos.rs"), output).expect("gravar simbolos.rs");
-    std::fs::write(out.join("efeitos.rs"), effects_table(&manifest, &names)).expect("gravar efeitos.rs");
-    std::fs::write(out.join("ownership.rs"), ownership_table(&manifest, &names)).expect("gravar ownership.rs");
-    std::fs::write(out.join("runtime_main.rs"), text).expect("gravar runtime_main.rs");
-    std::fs::write(out.join("abi.rs"), abi).expect("gravar abi.rs");
+    std::fs::write(out.join("simbolos.rs"), output).expect("write simbolos.rs");
+    std::fs::write(out.join("efeitos.rs"), effects_table(&manifest, &names)).expect("write efeitos.rs");
+    std::fs::write(out.join("ownership.rs"), ownership_table(&manifest, &names)).expect("write ownership.rs");
+    std::fs::write(out.join("runtime_main.rs"), text).expect("write runtime_main.rs");
+    std::fs::write(out.join("abi.rs"), abi).expect("write abi.rs");
 }
 
-/// Contratos auditados ARC; não inventa contratos para as externs ainda ausentes.
-/// A coerção dos ponteiros gerados confere aridade e representação com Rust.
+/// Audited ARC contracts; does not invent contracts for the externs still missing.
+/// The coercion of the generated pointers checks arity and representation against Rust.
 fn ownership_table(manifest: &std::path::Path, names: &[String]) -> String {
     let file_path = manifest.join("ownership.tsv");
     println!("cargo::rerun-if-changed={}", file_path.display());
-    let text = std::fs::read_to_string(file_path).expect("ler ownership.tsv");
-    let efeitos = std::fs::read_to_string(manifest.join("efeitos.tsv")).expect("ler efeitos.tsv");
+    let text = std::fs::read_to_string(file_path).expect("read ownership.tsv");
+    let efeitos = std::fs::read_to_string(manifest.join("efeitos.tsv")).expect("read efeitos.tsv");
     let mut line_list = std::collections::BTreeMap::new();
     let tipo = |s: &str, resultado: bool| -> (&str, String) {
         if resultado
@@ -234,7 +236,7 @@ fn ownership_table(manifest: &std::path::Path, names: &[String]) -> String {
                 .strip_prefix("ref:borrow(")
                 .and_then(|s| s.strip_suffix(')'))
         {
-            let n: usize = n.parse().expect("ownership.tsv: índice de borrow inválido");
+            let n: usize = n.parse().expect("ownership.tsv: invalid borrow index");
             return ("i64", format!("ModoResultado::BorrowArg({n})"));
         }
         let (ty, mode) = match (s, resultado) {
@@ -248,7 +250,7 @@ fn ownership_table(manifest: &std::path::Path, names: &[String]) -> String {
             ("i8:scalar", false) => ("i8", "ModoParametro::ScalarI8"),
             ("i64:native", false) => ("i64", "ModoParametro::Native"),
             ("ptr:native", false) => ("*const i64", "ModoParametro::EnderecoNative"),
-            // Bytes constantes do módulo (um nome UTF-8), o mesmo endereço nativo.
+            // Constant module bytes (a UTF-8 name), the same native address.
             ("bytes:native", false) => ("*const u8", "ModoParametro::EnderecoNative"),
             ("vetor:native", false) => ("*const i64", "ModoParametro::VetorEstatico"),
             ("tabela:native", false) => ("extern \"C\" fn() -> *const i64", "ModoParametro::TabelaEstatica"),
@@ -259,7 +261,7 @@ fn ownership_table(manifest: &std::path::Path, names: &[String]) -> String {
             ("i1:scalar", true) => ("bool", "ModoResultado::ScalarI1"),
             ("u8:scalar", true) => ("u8", "ModoResultado::ScalarI8"),
             ("void:scalar", true) => ("()", "ModoResultado::Void"),
-            _ => panic!("ownership.tsv: tipo/contrato não suportado: {s}"),
+            _ => panic!("ownership.tsv: unsupported type/contract: {s}"),
         };
         (ty, mode.to_string())
     };
@@ -268,28 +270,28 @@ fn ownership_table(manifest: &std::path::Path, names: &[String]) -> String {
             continue;
         }
         let c: Vec<_> = line.split('\t').collect();
-        assert_eq!(c.len(), 6, "ownership.tsv:{}: seis campos", n + 1);
+        assert_eq!(c.len(), 6, "ownership.tsv:{}: six fields", n + 1);
         assert!(
             names.iter().any(|nome| nome == c[0]),
-            "ownership.tsv: símbolo desconhecido {}",
+            "ownership.tsv: unknown symbol {}",
             c[0]
         );
-        // Novas entradas exigem auditoria explícita. Ausência não gera default.
+        // New entries require an explicit audit. Absence does not produce a default.
         let effect = efeitos
             .lines()
             .find(|line| line.split('\t').next() == Some(c[0]))
-            .expect("ownership.tsv: símbolo sem efeitos");
+            .expect("ownership.tsv: symbol without effects");
         let effect: Vec<_> = effect.split('\t').collect();
         let pode_falhar = match c[5] {
             "normal" => false,
             "pending" | "pending-dart" => true,
-            _ => panic!("ownership.tsv: saída desconhecida {}", c[5]),
+            _ => panic!("ownership.tsv: unknown exit {}", c[5]),
         };
         assert!(
             effect.len() == 4
                 && effect[2] == if pode_falhar { "1" } else { "0" }
                 && effect[3] == if c[5] == "pending-dart" { "1" } else { "0" },
-            "ownership.tsv: saídas incompatíveis com efeitos de {}",
+            "ownership.tsv: exits incompatible with the effects of {}",
             c[0]
         );
         let parametros: Vec<_> = if c[1] == "-" {
@@ -307,7 +309,7 @@ fn ownership_table(manifest: &std::path::Path, names: &[String]) -> String {
                 parametros
                     .get(n)
                     .is_some_and(|(_, mode)| mode == "ModoParametro::Borrow"),
-                "ownership.tsv: resultado borrowed exige parâmetro Ref borrowed existente"
+                "ownership.tsv: a borrowed result requires an existing borrowed Ref parameter"
             );
         }
         assert!(
@@ -316,15 +318,15 @@ fn ownership_table(manifest: &std::path::Path, names: &[String]) -> String {
                     mode.as_str(),
                     "ModoParametro::ConsumeSuccess" | "ModoParametro::ConsumeError"
                 )),
-            "ownership.tsv: consumo por aresta exige pending"
+            "ownership.tsv: consumption by edge requires pending"
         );
         let mark = |s: &str| match s {
             "0" => false,
             "1" => true,
-            _ => panic!("ownership.tsv: marca inválida {s}"),
+            _ => panic!("ownership.tsv: invalid mark {s}"),
         };
         let chama_dart = c[5] == "pending-dart";
-        assert!(!chama_dart || mark(c[4]), "ownership.tsv: reentrada Dart exige invalidação de borrows");
+        assert!(!chama_dart || mark(c[4]), "ownership.tsv: Dart reentry requires borrow invalidation");
         assert!(
             line_list
                 .insert(
@@ -332,7 +334,7 @@ fn ownership_table(manifest: &std::path::Path, names: &[String]) -> String {
                     (parametros, resultado, mark(c[3]), mark(c[4]), pode_falhar, chama_dart)
                 )
                 .is_none(),
-            "ownership.tsv: símbolo duplicado {}",
+            "ownership.tsv: duplicate symbol {}",
             c[0]
         );
     }
@@ -356,12 +358,12 @@ fn ownership_table(manifest: &std::path::Path, names: &[String]) -> String {
     }) {
         assert!(
             line_list.contains_key(nome.as_str()),
-            "ownership.tsv: extern auditada sem contrato {nome}"
+            "ownership.tsv: audited extern without a contract {nome}"
         );
     }
     let mut output = String::from(
         r#"
-/// Modo semântico do argumento, independente da largura i64.
+/// Semantic mode of the argument, independent of the i64 width.
 ///
 /// ```
 /// use dartforge_runtime::ownership::ModoParametro;
@@ -369,7 +371,7 @@ fn ownership_table(manifest: &std::path::Path, names: &[String]) -> String {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModoParametro { Borrow, Consume, ConsumeSuccess, ConsumeError, Scalar, ScalarF64, ScalarI8, Native, EnderecoNative, TabelaEstatica, VetorEstatico }
-/// Resultado das externs auditadas, sem convenção implícita.
+/// Result of the audited externs, with no implicit convention.
 ///
 /// ```
 /// use dartforge_runtime::ownership::ModoResultado;
@@ -377,7 +379,7 @@ pub enum ModoParametro { Borrow, Consume, ConsumeSuccess, ConsumeError, Scalar, 
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModoResultado { Owned, BorrowArg(usize), ScalarI64, ScalarF64, ScalarI8, ScalarI1, Void }
-/// Contrato auditado, com resultado disponível somente no sucesso.
+/// Audited contract, with the result available only on success.
 ///
 /// ```
 /// use dartforge_runtime::ownership::{CONTRATOS, ModoResultado};
@@ -386,22 +388,22 @@ pub enum ModoResultado { Owned, BorrowArg(usize), ScalarI64, ScalarF64, ScalarI8
 /// ```
 #[derive(Debug)]
 pub struct Contrato {
-    /// Símbolo C exato, associado à tabela de efeitos.
+    /// Exact C symbol, associated with the effects table.
     pub nome: &'static str,
-    /// Um modo por parâmetro, na ordem da assinatura Rust.
+    /// One mode per parameter, in the order of the Rust signature.
     pub parametros: &'static [ModoParametro],
-    /// Convenção semântica do resultado normal.
+    /// Semantic convention of the normal result.
     pub resultado: ModoResultado,
-    /// Pode guardar ocorrências proprietárias após retornar.
+    /// May keep owning occurrences after returning.
     pub retencao_persistente: bool,
-    /// Pode remover owners ou invalidar empréstimos associados.
+    /// May remove owners or invalidate associated borrows.
     pub invalida_borrows: bool,
-    /// Exige saída de exceção pendente preparada no CFG.
+    /// Requires a pending-exception exit prepared in the CFG.
     pub pode_falhar: bool,
-    /// Pode reentrar em código Dart; exige invalidação de empréstimos.
+    /// May reenter Dart code; requires borrow invalidation.
     pub chama_dart: bool,
 }
-/// Catálogo parcial auditado; nomes ausentes continuam sem contrato.
+/// Partial audited catalog; absent names still have no contract.
 pub const CONTRATOS: &[Contrato] = &[
 "#,
     );
@@ -477,8 +479,8 @@ mod testes_ownership {
         std::fs::write(root.join("ownership.tsv"), &reentry).unwrap();
         std::fs::write(root.join("efeitos.tsv"), "dartforge_arc_retain\t1\t1\t0\n").unwrap();
         assert!(std::panic::catch_unwind(|| ownership_table(&root, &names)).is_err());
-        // O callback tem representação Rust própria: não aceitar um inteiro
-        // ou ponteiro genérico no lugar da função que devolve a tabela estática.
+        // The callback has its own Rust representation: do not accept a generic
+        // integer or pointer in place of the function that returns the static table.
         let factory = "dartforge_arc_objeto_owned_t_v1".to_string();
         std::fs::write(root.join("efeitos.tsv"), format!("{factory}\t1\t0\t0\n")).unwrap();
         std::fs::write(root.join("ownership.tsv"), format!("{factory}\ti64:native,i64:scalar,tabela:native\tref:owned\t0\t1\tnormal\n")).unwrap();
@@ -491,19 +493,19 @@ mod testes_ownership {
     }
 }
 
-/// A tabela de efeitos das externs (`efeitos.tsv`,
-/// docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.8) como código para o
-/// emissor: `(nome, collection, lança, roda Dart)`, em ordem alfabética.
+/// The extern effects table (`efeitos.tsv`, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
+/// §13.8) as code for the emitter: `(name, collects, throws, runs Dart)`, in
+/// alphabetical order.
 ///
-/// O arquivo é a fonte única e tem de ter exatamente uma linha por função
-/// `#[unsafe(no_mangle)]` dos fragmentos: uma extern nova sem linha, uma
-/// linha de uma extern que saiu, um nome repetido ou uma marca fora de `0`/`1`
-/// derrubam o build — uma extern sem marca seria tratada no escuro.
-/// `roda_dart = 1` exige `coleta = 1` e `lanca = 1`.
+/// The file is the single source and must have exactly one line per
+/// `#[unsafe(no_mangle)]` function of the fragments: a new extern without a line, a
+/// line for an extern that is gone, a repeated name or a mark other than `0`/`1`
+/// break the build — an extern without a mark would be handled blindly.
+/// `roda_dart = 1` requires `coleta = 1` and `lanca = 1`.
 fn effects_table(manifest: &std::path::Path, names: &[String]) -> String {
     let file_path = manifest.join("efeitos.tsv");
     println!("cargo::rerun-if-changed={}", file_path.display());
-    let text = std::fs::read_to_string(&file_path).unwrap_or_else(|e| panic!("ler {}: {e}", file_path.display()));
+    let text = std::fs::read_to_string(&file_path).unwrap_or_else(|e| panic!("read {}: {e}", file_path.display()));
     let mut line_list: Vec<(String, bool, bool, bool)> = Vec::new();
     for (n, line) in text.lines().enumerate() {
         let line = line.trim_end();
@@ -514,16 +516,16 @@ fn effects_table(manifest: &std::path::Path, names: &[String]) -> String {
         let mark = |i: usize| match fields.get(i).copied() {
             Some("0") => false,
             Some("1") => true,
-            _ => panic!("efeitos.tsv:{}: a linha é `nome<TAB>coleta<TAB>lanca<TAB>roda_dart`, com marcas 0 ou 1", n + 1),
+            _ => panic!("efeitos.tsv:{}: the line is `nome<TAB>coleta<TAB>lanca<TAB>roda_dart`, with marks 0 or 1", n + 1),
         };
-        assert!(fields.len() == 4, "efeitos.tsv:{}: quatro campos separados por TAB", n + 1);
+        assert!(fields.len() == 4, "efeitos.tsv:{}: four TAB-separated fields", n + 1);
         let (collection, throws, roda_dart) = (mark(1), mark(2), mark(3));
-        assert!(!roda_dart || (collection && throws), "efeitos.tsv:{}: roda_dart = 1 exige coleta = 1 e lanca = 1", n + 1);
+        assert!(!roda_dart || (collection && throws), "efeitos.tsv:{}: roda_dart = 1 requires coleta = 1 and lanca = 1", n + 1);
         line_list.push((fields[0].to_string(), collection, throws, roda_dart));
     }
     line_list.sort();
     for pair in line_list.windows(2) {
-        assert!(pair[0].0 != pair[1].0, "efeitos.tsv: `{}` aparece duas vezes", pair[0].0);
+        assert!(pair[0].0 != pair[1].0, "efeitos.tsv: `{}` appears twice", pair[0].0);
     }
     let in_table: std::collections::BTreeSet<&str> = line_list.iter().map(|l| l.0.as_str()).collect();
     let in_runtime: std::collections::BTreeSet<&str> = names.iter().map(String::as_str).collect();
@@ -531,14 +533,14 @@ fn effects_table(manifest: &std::path::Path, names: &[String]) -> String {
     let without_extern: Vec<&&str> = in_table.difference(&in_runtime).collect();
     assert!(
         without_line.is_empty() && without_extern.is_empty(),
-        "crates/runtime/efeitos.tsv não casa com as externs do runtime.\n  \
-         sem linha na tabela (acrescente `nome<TAB>1<TAB>1<TAB>0`, a marca conservadora): {without_line:?}\n  \
-         na tabela e fora do runtime (tire a linha): {without_extern:?}"
+        "crates/runtime/efeitos.tsv does not match the runtime's externs.\n  \
+         without a line in the table (add `nome<TAB>1<TAB>1<TAB>0`, the conservative mark): {without_line:?}\n  \
+         in the table but not in the runtime (remove the line): {without_extern:?}"
     );
     let mut output = String::from(
-        "// GERADO por crates/runtime/build.rs a partir de efeitos.tsv — não editar.\n\n\
-         /// `(nome, coleta, lança, roda Dart)` de cada extern do runtime, em ordem\n\
-         /// alfabética do nome.\n\
+        "// GENERATED by crates/runtime/build.rs from efeitos.tsv — do not edit.\n\n\
+         /// `(name, collects, throws, runs Dart)` of each runtime extern, in\n\
+         /// alphabetical order of the name.\n\
          pub const EFEITOS: &[(&str, bool, bool, bool)] = &[\n",
     );
     for (nome, collection, throws, roda_dart) in &line_list {
@@ -548,36 +550,36 @@ fn effects_table(manifest: &std::path::Path, names: &[String]) -> String {
     output
 }
 
-/// Os arquivos de `src/` que são módulos Rust (e não fragmentos): o `lib.rs` os
-/// declara com `pub mod` e o `RUNTIME_MAIN` os embrulha em `mod x { … }`. O
-/// espaço unificado (docs/NATIVO-ESPACO-UNIFICADO.md §3.1–§3.3) acrescenta o
-/// contrato de layout, o espaço de objetos e as vistas por pacote; a forma
-/// comprimida da tabela da RTI (`tabela_rti`) serve ao compilador e ao runtime.
+/// The files in `src/` that are Rust modules (and not fragments): `lib.rs` declares
+/// them with `pub mod` and `RUNTIME_MAIN` wraps them in `mod x { … }`. The unified
+/// space (docs/NATIVO-ESPACO-UNIFICADO.md §3.1–§3.3) adds the layout contract, the
+/// object space and the per-kind views; the compressed form of the RTI table
+/// (`tabela_rti`) serves the compiler and the runtime.
 const MODULOS: &[&str] = &["heap", "hash", "arc", "layout", "space", "textos", "boxes", "lists", "tipadas", "tabela_rti"];
 
-/// Todo `src/*.rs` é `lib.rs`, um dos [`MODULOS`] ou um fragmento listado.
+/// Every `src/*.rs` is `lib.rs`, one of the [`MODULOS`] or a listed fragment.
 fn check_list(src: &std::path::Path) {
-    let entries = std::fs::read_dir(src).unwrap_or_else(|e| panic!("ler {}: {e}", src.display()));
+    let entries = std::fs::read_dir(src).unwrap_or_else(|e| panic!("read {}: {e}", src.display()));
     for input in entries {
-        let file_path = input.expect("entrada de src/").path();
+        let file_path = input.expect("entry of src/").path();
         if file_path.extension().is_none_or(|x| x != "rs") {
             continue;
         }
         let nome = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
         assert!(
             nome == "lib" || MODULOS.contains(&nome) || FRAGMENTOS.contains(&nome),
-            "{} não é fragmento do runtime: acrescente \"{nome}\" a FRAGMENTOS em crates/runtime/build.rs",
+            "{} is not a runtime fragment: add \"{nome}\" to FRAGMENTOS in crates/runtime/build.rs",
             file_path.display()
         );
     }
 }
 
-/// Nomes das funções `#[unsafe(no_mangle)]` do runtime, exceto o `main` C.
+/// Names of the runtime's `#[unsafe(no_mangle)]` functions, except the C `main`.
 ///
-/// A forma reconhecida é a que os fragmentos usam: o atributo numa linha e, na
-/// seguinte, `pub [unsafe] extern "C" fn nome(`. Entre as duas pode haver
-/// outros atributos (`#[cfg(...)]`). Qualquer outra forma derruba o build,
-/// porque seria um símbolo que a tabela não saberia publicar.
+/// The recognized form is the one the fragments use: the attribute on one line and,
+/// on the next, `pub [unsafe] extern "C" fn name(`. Other attributes
+/// (`#[cfg(...)]`) may come between the two. Any other form breaks the build,
+/// because it would be a symbol that the table could not publish.
 fn exported_names(text: &str) -> Vec<String> {
     let mut names = Vec::new();
     let mut line_list = text.lines();
@@ -597,7 +599,7 @@ fn exported_names(text: &str) -> Vec<String> {
             .or_else(|| next_one.strip_prefix("pub extern \"C\" fn "))
             .unwrap_or_else(|| {
                 panic!(
-                    "#[unsafe(no_mangle)] seguido de forma não reconhecida no runtime: `{next_one}`"
+                    "#[unsafe(no_mangle)] followed by an unrecognized form in the runtime: `{next_one}`"
                 )
             });
         let nome: String = fn_signature
