@@ -1,95 +1,95 @@
-//! O `ExitDetector` do analyzer 3.6.2 (`analyzer/lib/src/dart/resolver/exit_detector.dart`)
-//! sobre a árvore no formato do analyzer ([`crate::arvore_analyzer`]): usado
-//! pela extração de método do LSP e pelo `use_build_context_synchronously`
-//! (`terminatesControl`). O `_elementExits` vem de fora, pelo nó do nome.
-//! Movido do LSP em 2026-10-05 (escrito sem compilar nem executar).
+//! The `ExitDetector` of analyzer 3.6.2 (`analyzer/lib/src/dart/resolver/exit_detector.dart`)
+//! over the tree in the analyzer's shape ([`crate::arvore_analyzer`]): used by
+//! the LSP's extract-method refactoring and by `use_build_context_synchronously`
+//! (`terminatesControl`). `_elementExits` comes from outside, through the name node.
+//! Moved from the LSP on 2026-10-05 (written without compiling or running).
 
 use crate::arvore_analyzer::Arvore;
 use std::collections::HashSet;
 
-fn e_comando_especie(e: &str) -> bool {
+fn is_stmt_kind(e: &str) -> bool {
     crate::arvore_analyzer::e_comando(e)
 }
 
-/// A árvore e o texto dela.
+/// The tree and its text.
 #[derive(Clone, Copy)]
 struct Cx<'a> {
-    arvore: &'a Arvore,
-    fonte: &'a str,
+    tree: &'a Arvore,
+    source: &'a str,
 }
 
 impl<'a> Cx<'a> {
-    fn especie(&self, n: usize) -> &'static str {
-        self.arvore.nos[n].especie
+    fn kind(&self, n: usize) -> &'static str {
+        self.tree.nos[n].especie
     }
 
-    fn pai(&self, n: usize) -> Option<usize> {
-        self.arvore.nos[n].pai
+    fn parent(&self, n: usize) -> Option<usize> {
+        self.tree.nos[n].pai
     }
 
-    fn filhos(&self, n: usize) -> &'a [usize] {
-        &self.arvore.nos[n].filhos
+    fn children(&self, n: usize) -> &'a [usize] {
+        &self.tree.nos[n].filhos
     }
 
-    fn com_pais(&self, n: usize) -> impl Iterator<Item = usize> + 'a {
-        let arvore = self.arvore;
-        std::iter::successors(Some(n), move |&k| arvore.nos[k].pai)
+    fn with_parents(&self, n: usize) -> impl Iterator<Item = usize> + 'a {
+        let tree = self.tree;
+        std::iter::successors(Some(n), move |&k| tree.nos[k].pai)
     }
 
-    fn texto_do_no(&self, n: usize) -> &'a str {
-        let no = &self.arvore.nos[n];
-        &self.fonte[no.inicio..no.fim]
+    fn node_text(&self, n: usize) -> &'a str {
+        let node = &self.tree.nos[n];
+        &self.source[node.inicio..node.fim]
     }
 
-    /// O `methodName` de uma `MethodInvocation`: o último `SimpleIdentifier`
-    /// filho.
-    fn nome_do_metodo(&self, n: usize) -> Option<usize> {
-        self.filhos(n).iter().rev().copied().find(|&f| self.especie(f) == "SimpleIdentifier")
+    /// The `methodName` of a `MethodInvocation`: the last `SimpleIdentifier`
+    /// child.
+    fn method_name(&self, n: usize) -> Option<usize> {
+        self.children(n).iter().rev().copied().find(|&f| self.kind(f) == "SimpleIdentifier")
     }
 }
 
-/// O `ExitDetector` do analyzer sobre a árvore no formato do analyzer.
+/// The analyzer's `ExitDetector` over the tree in the analyzer's shape.
 pub struct Saida<'a> {
     cx: Cx<'a>,
-    /// `_elementExits` do identificador (o `methodName`) de índice dado.
-    elemento: &'a dyn Fn(usize) -> bool,
+    /// `_elementExits` of the identifier (the `methodName`) with the given index.
+    element: &'a dyn Fn(usize) -> bool,
     /// `_enclosingBlockContainsBreak`.
-    quebra: bool,
+    breaks: bool,
     /// `_enclosingBlockContainsContinue`.
-    continua: bool,
-    /// `_enclosingBlockBreaksLabel`: os comandos alvo de `break rótulo`.
-    rotulos_quebrados: HashSet<usize>,
+    continues: bool,
+    /// `_enclosingBlockBreaksLabel`: the statements targeted by `break label`.
+    broken_labels: HashSet<usize>,
 }
 
 impl<'a> Saida<'a> {
-    /// `elemento(n)`: o `_elementExits` do elemento do identificador `n`
-    /// (o executável com `@alwaysThrows` ou de retorno `Never`).
-    pub fn novo(arvore: &'a Arvore, fonte: &'a str, elemento: &'a dyn Fn(usize) -> bool) -> Saida<'a> {
-        Saida { cx: Cx { arvore, fonte }, elemento, quebra: false, continua: false, rotulos_quebrados: HashSet::new() }
+    /// `element(n)`: the `_elementExits` of the element of identifier `n` (the
+    /// executable with `@alwaysThrows` or with a `Never` return).
+    pub fn novo(tree: &'a Arvore, source: &'a str, element: &'a dyn Fn(usize) -> bool) -> Saida<'a> {
+        Saida { cx: Cx { tree, source }, element, breaks: false, continues: false, broken_labels: HashSet::new() }
     }
 
-    fn texto(&self, n: usize) -> &str {
-        self.cx.texto_do_no(n)
+    fn text(&self, n: usize) -> &str {
+        self.cx.node_text(n)
     }
 
-    fn filhos(&self, n: usize) -> Vec<usize> {
-        self.cx.filhos(n).to_vec()
+    fn children(&self, n: usize) -> Vec<usize> {
+        self.cx.children(n).to_vec()
     }
 
     /// `_nodeExits`.
-    fn talvez(&mut self, n: Option<usize>) -> Result<bool, String> {
+    fn maybe(&mut self, n: Option<usize>) -> Result<bool, String> {
         match n {
             Some(n) => self.sai(n),
             None => Ok(false),
         }
     }
 
-    fn literal_booleano(&self, n: usize) -> Option<bool> {
-        (self.cx.especie(n) == "BooleanLiteral").then(|| self.texto(n) == "true")
+    fn bool_literal(&self, n: usize) -> Option<bool> {
+        (self.cx.kind(n) == "BooleanLiteral").then(|| self.text(n) == "true")
     }
 
-    /// `_visitExpressions`: de trás para a frente.
-    fn expressoes(&mut self, ns: &[usize]) -> Result<bool, String> {
+    /// `_visitExpressions`: back to front.
+    fn exprs(&mut self, ns: &[usize]) -> Result<bool, String> {
         for &n in ns.iter().rev() {
             if self.sai(n)? {
                 return Ok(true);
@@ -98,7 +98,7 @@ impl<'a> Saida<'a> {
         Ok(false)
     }
 
-    fn comandos(&mut self, ns: &[usize]) -> Result<bool, String> {
+    fn stmts(&mut self, ns: &[usize]) -> Result<bool, String> {
         for &n in ns {
             if self.sai(n)? {
                 return Ok(true);
@@ -110,11 +110,11 @@ impl<'a> Saida<'a> {
     /// `node.accept(ExitDetector)`.
     pub fn sai(&mut self, n: usize) -> Result<bool, String> {
         let cx = self.cx;
-        let f = self.filhos(n);
-        match cx.especie(n) {
-            "ArgumentList" => self.expressoes(&f),
+        let f = self.children(n);
+        match cx.kind(n) {
+            "ArgumentList" => self.exprs(&f),
             "AsExpression" | "AwaitExpression" | "ParenthesizedExpression" | "IsExpression" | "SpreadElement" | "ExpressionStatement" => {
-                self.talvez(f.first().copied())
+                self.maybe(f.first().copied())
             }
             "AssertInitializer" | "AssertStatement" | "ConstructorReference" | "EmptyStatement" | "ExtensionOverride"
             | "FunctionDeclarationStatement" | "FunctionExpression" | "GenericFunctionType" | "SimpleIdentifier" | "PrefixedIdentifier"
@@ -126,16 +126,16 @@ impl<'a> Saida<'a> {
                 if self.sai(l)? {
                     return Ok(true);
                 }
-                let entre = &cx.fonte[cx.arvore.nos[l].fim..cx.arvore.nos[r].inicio];
-                let op = entre.trim();
+                let between = &cx.source[cx.tree.nos[l].fim..cx.tree.nos[r].inicio];
+                let op = between.trim();
                 if op.starts_with("&&=") || op.starts_with("||=") || op.starts_with("??=") {
                     return Ok(false);
                 }
-                if cx.especie(l) == "PropertyAccess" && self.texto(l).contains("?.") {
-                    let alvo = cx.filhos(l).first().copied();
-                    let nome = cx.filhos(l).last().copied();
-                    if let (Some(a), Some(b)) = (alvo, nome)
-                        && cx.fonte[cx.arvore.nos[a].fim..cx.arvore.nos[b].inicio].trim() == "?."
+                if cx.kind(l) == "PropertyAccess" && self.text(l).contains("?.") {
+                    let target = cx.children(l).first().copied();
+                    let name = cx.children(l).last().copied();
+                    if let (Some(a), Some(b)) = (target, name)
+                        && cx.source[cx.tree.nos[a].fim..cx.tree.nos[b].inicio].trim() == "?."
                     {
                         return Ok(false);
                     }
@@ -144,15 +144,15 @@ impl<'a> Saida<'a> {
             }
             "BinaryExpression" => {
                 let (Some(&l), Some(&r)) = (f.first(), f.get(1)) else { return Ok(false) };
-                let op = cx.fonte[cx.arvore.nos[l].fim..cx.arvore.nos[r].inicio].trim().to_string();
+                let op = cx.source[cx.tree.nos[l].fim..cx.tree.nos[r].inicio].trim().to_string();
                 if op == "||" {
-                    if self.literal_booleano(l) == Some(false) {
+                    if self.bool_literal(l) == Some(false) {
                         return self.sai(r);
                     }
                     return self.sai(l);
                 }
                 if op == "&&" {
-                    if self.literal_booleano(l) == Some(true) {
+                    if self.bool_literal(l) == Some(true) {
                         return self.sai(r);
                     }
                     return self.sai(l);
@@ -162,21 +162,21 @@ impl<'a> Saida<'a> {
                 }
                 Ok(self.sai(l)? || self.sai(r)?)
             }
-            "Block" => self.comandos(&f),
-            "BlockFunctionBody" => self.talvez(f.first().copied()),
+            "Block" => self.stmts(&f),
+            "BlockFunctionBody" => self.maybe(f.first().copied()),
             "BreakStatement" => {
-                self.quebra = true;
-                if let Some(&rotulo) = f.first() {
-                    let nome = self.texto(rotulo).to_string();
-                    if let Some(alvo) = self.alvo_do_rotulo(n, &nome) {
-                        self.rotulos_quebrados.insert(alvo);
+                self.breaks = true;
+                if let Some(&label) = f.first() {
+                    let name = self.text(label).to_string();
+                    if let Some(target) = self.label_target(n, &name) {
+                        self.broken_labels.insert(target);
                     }
                 }
                 Ok(false)
             }
             "CascadeExpression" => {
-                let Some((&alvo, secoes)) = f.split_first() else { return Ok(false) };
-                Ok(self.sai(alvo)? || self.expressoes(secoes)?)
+                let Some((&target, secoes)) = f.split_first() else { return Ok(false) };
+                Ok(self.sai(target)? || self.exprs(secoes)?)
             }
             "ConditionalExpression" => {
                 let (Some(&c), Some(&t), Some(&e)) = (f.first(), f.get(1), f.get(2)) else { return Ok(false) };
@@ -186,128 +186,128 @@ impl<'a> Saida<'a> {
                 Ok(self.sai(t)? && self.sai(e)?)
             }
             "ContinueStatement" => {
-                self.continua = true;
+                self.continues = true;
                 Ok(false)
             }
             "DoStatement" => {
-                let (fora_q, fora_c) = (self.quebra, self.continua);
-                self.quebra = false;
-                self.continua = false;
+                let (outside_q, outside_c) = (self.breaks, self.continues);
+                self.breaks = false;
+                self.continues = false;
                 let r = (|| -> Result<bool, String> {
-                    let corpo = self.talvez(f.first().copied())?;
-                    let quebra_ou_continua = self.quebra || self.continua;
-                    if corpo && !quebra_ou_continua {
+                    let body = self.maybe(f.first().copied())?;
+                    let break_or_continue = self.breaks || self.continues;
+                    if body && !break_or_continue {
                         return Ok(true);
                     }
                     let Some(&c) = f.get(1) else { return Ok(false) };
                     if self.sai(c)? {
                         return Ok(true);
                     }
-                    if self.literal_booleano(c) == Some(true) && !self.quebra {
+                    if self.bool_literal(c) == Some(true) && !self.breaks {
                         return Ok(true);
                     }
                     Ok(false)
                 })();
-                self.quebra = fora_q;
-                self.continua = fora_c;
+                self.breaks = outside_q;
+                self.continues = outside_c;
                 r
             }
             "ForElement" | "ForStatement" => {
-                let fora = self.quebra;
-                self.quebra = false;
-                let r = self.for_sai(n, &f);
-                self.quebra = fora;
+                let outside = self.breaks;
+                self.breaks = false;
+                let r = self.for_exits(n, &f);
+                self.breaks = outside;
                 r
             }
             "FunctionExpressionInvocation" => {
-                if self.talvez(f.first().copied())? {
+                if self.maybe(f.first().copied())? {
                     return Ok(true);
                 }
-                let lista = f.iter().copied().find(|&k| cx.especie(k) == "ArgumentList");
-                self.talvez(lista)
+                let list = f.iter().copied().find(|&k| cx.kind(k) == "ArgumentList");
+                self.maybe(list)
             }
-            "FunctionReference" => self.talvez(f.first().copied()),
+            "FunctionReference" => self.maybe(f.first().copied()),
             "IfElement" | "IfStatement" => {
                 let Some(&c) = f.first() else { return Ok(false) };
-                let entao = f.get(1).copied();
-                let senao = f.get(2).copied();
+                let then = f.get(1).copied();
+                let else_ = f.get(2).copied();
                 if self.sai(c)? {
                     return Ok(true);
                 }
-                match self.literal_booleano(c) {
-                    Some(true) => return self.talvez(entao),
-                    Some(false) if senao.is_some() => return self.talvez(senao),
+                match self.bool_literal(c) {
+                    Some(true) => return self.maybe(then),
+                    Some(false) if else_.is_some() => return self.maybe(else_),
                     _ => {}
                 }
-                let a = self.talvez(entao)?;
-                let b = self.talvez(senao)?;
-                if senao.is_none() {
+                let a = self.maybe(then)?;
+                let b = self.maybe(else_)?;
+                if else_.is_none() {
                     return Ok(false);
                 }
                 Ok(a && b)
             }
             "IndexExpression" => {
-                let alvo = if f.len() >= 2 { Some(f[0]) } else { self.alvo_da_cascata(n) };
-                if self.talvez(alvo)? {
+                let target = if f.len() >= 2 { Some(f[0]) } else { self.cascade_target(n) };
+                if self.maybe(target)? {
                     return Ok(true);
                 }
-                self.talvez(f.last().copied())
+                self.maybe(f.last().copied())
             }
-            "InstanceCreationExpression" => self.talvez(f.iter().copied().find(|&k| cx.especie(k) == "ArgumentList")),
+            "InstanceCreationExpression" => self.maybe(f.iter().copied().find(|&k| cx.kind(k) == "ArgumentList")),
             "LabeledStatement" => {
-                let corpo = f.last().copied();
-                let r = self.talvez(corpo);
-                let quebrado = corpo.is_some_and(|c| self.rotulos_quebrados.contains(&c));
-                if let Some(c) = corpo {
-                    self.rotulos_quebrados.remove(&c);
+                let body = f.last().copied();
+                let r = self.maybe(body);
+                let broken = body.is_some_and(|c| self.broken_labels.contains(&c));
+                if let Some(c) = body {
+                    self.broken_labels.remove(&c);
                 }
-                Ok(r? && !quebrado)
+                Ok(r? && !broken)
             }
             "ListLiteral" | "SetOrMapLiteral" => {
-                for k in f.iter().copied().filter(|&k| cx.especie(k) != "TypeArgumentList") {
+                for k in f.iter().copied().filter(|&k| cx.kind(k) != "TypeArgumentList") {
                     if self.sai(k)? {
                         return Ok(true);
                     }
                 }
                 Ok(false)
             }
-            "MapLiteralEntry" => Ok(self.talvez(f.first().copied())? || self.talvez(f.get(1).copied())?),
+            "MapLiteralEntry" => Ok(self.maybe(f.first().copied())? || self.maybe(f.get(1).copied())?),
             "MethodInvocation" => {
-                let nome = cx.nome_do_metodo(n);
-                let explicito = f.first().copied().filter(|&a| Some(a) != nome);
-                let alvo = explicito.or_else(|| self.alvo_da_cascata(n));
-                if let Some(a) = alvo {
+                let name = cx.method_name(n);
+                let explicito = f.first().copied().filter(|&a| Some(a) != name);
+                let target = explicito.or_else(|| self.cascade_target(n));
+                if let Some(a) = target {
                     if self.sai(a)? {
                         return Ok(true);
                     }
-                    let nulo = match (explicito, nome) {
-                        (Some(x), Some(m)) => cx.fonte[cx.arvore.nos[x].fim..cx.arvore.nos[m].inicio].trim().starts_with('?'),
-                        (None, Some(m)) => cx.fonte[cx.arvore.nos[n].inicio..cx.arvore.nos[m].inicio].trim().starts_with('?'),
+                    let null = match (explicito, name) {
+                        (Some(x), Some(m)) => cx.source[cx.tree.nos[x].fim..cx.tree.nos[m].inicio].trim().starts_with('?'),
+                        (None, Some(m)) => cx.source[cx.tree.nos[n].inicio..cx.tree.nos[m].inicio].trim().starts_with('?'),
                         _ => false,
                     };
-                    if nulo {
+                    if null {
                         return Ok(false);
                     }
                 }
-                if let Some(m) = nome
-                    && (self.elemento)(m)
+                if let Some(m) = name
+                    && (self.element)(m)
                 {
                     return Ok(true);
                 }
-                self.talvez(f.iter().copied().find(|&k| cx.especie(k) == "ArgumentList"))
+                self.maybe(f.iter().copied().find(|&k| cx.kind(k) == "ArgumentList"))
             }
-            "NamedExpression" => self.talvez(f.get(1).copied()),
+            "NamedExpression" => self.maybe(f.get(1).copied()),
             "PropertyAccess" => {
-                let alvo = if f.len() >= 2 { Some(f[0]) } else { self.alvo_da_cascata(n) };
-                self.talvez(alvo)
+                let target = if f.len() >= 2 { Some(f[0]) } else { self.cascade_target(n) };
+                self.maybe(target)
             }
             "RethrowExpression" | "ReturnStatement" | "ThrowExpression" => Ok(true),
             "SwitchCase" | "SwitchDefault" | "SwitchPatternCase" => {
-                let cmds: Vec<usize> = f.iter().copied().filter(|&k| e_comando_especie(cx.especie(k))).collect();
-                self.comandos(&cmds)
+                let cmds: Vec<usize> = f.iter().copied().filter(|&k| is_stmt_kind(cx.kind(k))).collect();
+                self.stmts(&cmds)
             }
             "SwitchExpression" => {
-                for k in f.iter().copied().filter(|&k| cx.especie(k) == "SwitchExpressionCase") {
+                for k in f.iter().copied().filter(|&k| cx.kind(k) == "SwitchExpressionCase") {
                     if !self.sai(k)? {
                         return Ok(false);
                     }
@@ -315,59 +315,59 @@ impl<'a> Saida<'a> {
                 Ok(true)
             }
             "SwitchExpressionCase" => {
-                // A guarda (`when`) e a expressão.
-                let guarda = f.first().and_then(|&g| cx.filhos(g).iter().copied().find(|&w| cx.especie(w) == "WhenClause"));
-                let condicao = guarda.and_then(|w| cx.filhos(w).first().copied());
-                Ok(self.talvez(condicao)? || self.talvez(f.last().copied())?)
+                // The guard (`when`) and the expression.
+                let guard = f.first().and_then(|&g| cx.children(g).iter().copied().find(|&w| cx.kind(w) == "WhenClause"));
+                let condition = guard.and_then(|w| cx.children(w).first().copied());
+                Ok(self.maybe(condition)? || self.maybe(f.last().copied())?)
             }
             "SwitchStatement" => {
-                let fora = self.quebra;
-                self.quebra = false;
+                let outside = self.breaks;
+                self.breaks = false;
                 let r = (|| -> Result<bool, String> {
-                    let membros: Vec<usize> = f.iter().copied().filter(|&k| matches!(cx.especie(k), "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")).collect();
-                    let mut tem_default = false;
-                    let mut caso_que_nao_sai = false;
-                    for (i, &m) in membros.iter().enumerate() {
-                        let vazio = !cx.filhos(m).iter().any(|&k| e_comando_especie(cx.especie(k)));
-                        if cx.especie(m) == "SwitchDefault" {
-                            tem_default = true;
-                            if vazio && i + 1 == membros.len() {
-                                caso_que_nao_sai = true;
+                    let members: Vec<usize> = f.iter().copied().filter(|&k| matches!(cx.kind(k), "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")).collect();
+                    let mut has_default = false;
+                    let mut case_that_does_not_exit = false;
+                    for (i, &m) in members.iter().enumerate() {
+                        let empty = !cx.children(m).iter().any(|&k| is_stmt_kind(cx.kind(k)));
+                        if cx.kind(m) == "SwitchDefault" {
+                            has_default = true;
+                            if empty && i + 1 == members.len() {
+                                case_that_does_not_exit = true;
                                 continue;
                             }
                         }
-                        if !vazio && !self.sai(m)? {
-                            caso_que_nao_sai = true;
+                        if !empty && !self.sai(m)? {
+                            case_that_does_not_exit = true;
                         }
                     }
-                    if caso_que_nao_sai {
+                    if case_that_does_not_exit {
                         return Ok(false);
                     }
-                    Ok(tem_default)
+                    Ok(has_default)
                 })();
-                self.quebra = fora;
+                self.breaks = outside;
                 r
             }
             "TryStatement" => {
-                let corpo = f.first().copied();
-                let finalmente = f.last().copied().filter(|&k| f.len() > 1 && cx.especie(k) == "Block");
-                if self.talvez(finalmente)? {
+                let body = f.first().copied();
+                let finally_ = f.last().copied().filter(|&k| f.len() > 1 && cx.kind(k) == "Block");
+                if self.maybe(finally_)? {
                     return Ok(true);
                 }
-                if !self.talvez(corpo)? {
+                if !self.maybe(body)? {
                     return Ok(false);
                 }
-                for c in f.iter().copied().filter(|&k| cx.especie(k) == "CatchClause") {
-                    let b = cx.filhos(c).last().copied();
-                    if !self.talvez(b)? {
+                for c in f.iter().copied().filter(|&k| cx.kind(k) == "CatchClause") {
+                    let b = cx.children(c).last().copied();
+                    if !self.maybe(b)? {
                         return Ok(false);
                     }
                 }
                 Ok(true)
             }
-            "VariableDeclaration" => self.talvez(f.first().copied()),
+            "VariableDeclaration" => self.maybe(f.first().copied()),
             "VariableDeclarationList" => {
-                let vs: Vec<usize> = f.iter().copied().filter(|&k| cx.especie(k) == "VariableDeclaration").collect();
+                let vs: Vec<usize> = f.iter().copied().filter(|&k| cx.kind(k) == "VariableDeclaration").collect();
                 for &v in vs.iter().rev() {
                     if self.sai(v)? {
                         return Ok(true);
@@ -376,8 +376,8 @@ impl<'a> Saida<'a> {
                 Ok(false)
             }
             "VariableDeclarationStatement" => {
-                let Some(lista) = f.iter().copied().find(|&k| cx.especie(k) == "VariableDeclarationList") else { return Ok(false) };
-                for v in cx.filhos(lista).iter().copied().filter(|&k| cx.especie(k) == "VariableDeclaration") {
+                let Some(list) = f.iter().copied().find(|&k| cx.kind(k) == "VariableDeclarationList") else { return Ok(false) };
+                for v in cx.children(list).iter().copied().filter(|&k| cx.kind(k) == "VariableDeclaration") {
                     if self.sai(v)? {
                         return Ok(true);
                     }
@@ -385,46 +385,46 @@ impl<'a> Saida<'a> {
                 Ok(false)
             }
             "WhileStatement" => {
-                let fora = self.quebra;
-                self.quebra = false;
+                let outside = self.breaks;
+                self.breaks = false;
                 let r = (|| -> Result<bool, String> {
                     let Some(&c) = f.first() else { return Ok(false) };
                     if self.sai(c)? {
                         return Ok(true);
                     }
-                    let _ = self.talvez(f.get(1).copied())?;
-                    if self.literal_booleano(c) == Some(true) && !self.quebra {
+                    let _ = self.maybe(f.get(1).copied())?;
+                    if self.bool_literal(c) == Some(true) && !self.breaks {
                         return Ok(true);
                     }
                     Ok(false)
                 })();
-                self.quebra = fora;
+                self.breaks = outside;
                 r
             }
-            "YieldStatement" => self.talvez(f.first().copied()),
-            outro => Err(format!("Bad state: Missing a visit method for a node of type {outro}Impl")),
+            "YieldStatement" => self.maybe(f.first().copied()),
+            other => Err(format!("Bad state: Missing a visit method for a node of type {other}Impl")),
         }
     }
 
-    /// As partes de um `for` (`visitForStatement`/`visitForElement`).
-    fn for_sai(&mut self, n: usize, f: &[usize]) -> Result<bool, String> {
+    /// The parts of a `for` (`visitForStatement`/`visitForElement`).
+    fn for_exits(&mut self, n: usize, f: &[usize]) -> Result<bool, String> {
         let cx = self.cx;
-        let Some(&partes) = f.first() else { return Ok(false) };
-        let corpo = f.get(1).copied();
-        match cx.especie(partes) {
+        let Some(&parts) = f.first() else { return Ok(false) };
+        let body = f.get(1).copied();
+        match cx.kind(parts) {
             "ForEachPartsWithDeclaration" | "ForEachPartsWithIdentifier" | "ForEachPartsWithPattern" => {
-                let iteravel = cx.filhos(partes).last().copied();
-                let r = self.talvez(iteravel)?;
-                let _ = self.talvez(corpo)?;
+                let iterable = cx.children(parts).last().copied();
+                let r = self.maybe(iterable)?;
+                let _ = self.maybe(body)?;
                 Ok(r)
             }
             "ForPartsWithDeclarations" | "ForPartsWithExpression" | "ForPartsWithPattern" => {
-                if cx.especie(n) == "ForStatement" && cx.especie(partes) == "ForPartsWithPattern" {
+                if cx.kind(n) == "ForStatement" && cx.kind(parts) == "ForPartsWithPattern" {
                     return Err("UnimplementedError".to_string());
                 }
-                let Some(p) = cx.arvore.partes_de_for.get(&partes).cloned() else { return Ok(false) };
+                let Some(p) = cx.tree.partes_de_for.get(&parts).cloned() else { return Ok(false) };
                 if let Some(i) = p.inicio {
-                    match cx.especie(partes) {
+                    match cx.kind(parts) {
                         "ForPartsWithDeclarations" => {
                             if self.sai(i)? {
                                 return Ok(true);
@@ -438,18 +438,18 @@ impl<'a> Saida<'a> {
                         _ => {}
                     }
                 }
-                if self.talvez(p.condicao)? {
+                if self.maybe(p.condicao)? {
                     return Ok(true);
                 }
-                if self.expressoes(&p.atualizacoes)? {
+                if self.exprs(&p.atualizacoes)? {
                     return Ok(true);
                 }
-                let volta = self.talvez(corpo)?;
-                let verdadeiro = match p.condicao {
+                let back = self.maybe(body)?;
+                let true_ = match p.condicao {
                     None => true,
-                    Some(c) => self.literal_booleano(c) == Some(true),
+                    Some(c) => self.bool_literal(c) == Some(true),
                 };
-                if verdadeiro && (volta || !self.quebra) {
+                if true_ && (back || !self.breaks) {
                     return Ok(true);
                 }
                 Ok(false)
@@ -458,16 +458,16 @@ impl<'a> Saida<'a> {
         }
     }
 
-    /// `realTarget` de uma seção de cascata sem alvo escrito: o alvo da
-    /// `CascadeExpression`.
-    fn alvo_da_cascata(&self, n: usize) -> Option<usize> {
+    /// `realTarget` of a cascade section without a written target: the
+    /// target of the `CascadeExpression`.
+    fn cascade_target(&self, n: usize) -> Option<usize> {
         let cx = self.cx;
         let mut k = n;
-        while let Some(p) = cx.pai(k) {
-            if cx.especie(p) == "CascadeExpression" {
-                return cx.filhos(p).first().copied().filter(|&a| a != k);
+        while let Some(p) = cx.parent(k) {
+            if cx.kind(p) == "CascadeExpression" {
+                return cx.children(p).first().copied().filter(|&a| a != k);
             }
-            if !matches!(cx.especie(p), "MethodInvocation" | "PropertyAccess" | "IndexExpression" | "AssignmentExpression") {
+            if !matches!(cx.kind(p), "MethodInvocation" | "PropertyAccess" | "IndexExpression" | "AssignmentExpression") {
                 return None;
             }
             k = p;
@@ -475,30 +475,30 @@ impl<'a> Saida<'a> {
         None
     }
 
-    /// O comando rotulado com `nome` que contém o `break`.
-    fn alvo_do_rotulo(&self, n: usize, nome: &str) -> Option<usize> {
+    /// The statement labeled `name` that contains the `break`.
+    fn label_target(&self, n: usize, name: &str) -> Option<usize> {
         let cx = self.cx;
-        for k in cx.com_pais(n) {
-            if cx.especie(k) == "LabeledStatement" {
-                let rotulos: Vec<String> = cx
-                    .filhos(k)
+        for k in cx.with_parents(n) {
+            if cx.kind(k) == "LabeledStatement" {
+                let labels: Vec<String> = cx
+                    .children(k)
                     .iter()
-                    .filter(|&&l| cx.especie(l) == "Label")
-                    .filter_map(|&l| cx.filhos(l).first().map(|&i| cx.texto_do_no(i).to_string()))
+                    .filter(|&&l| cx.kind(l) == "Label")
+                    .filter_map(|&l| cx.children(l).first().map(|&i| cx.node_text(i).to_string()))
                     .collect();
-                if rotulos.iter().any(|r| r == nome) {
-                    return cx.filhos(k).last().copied();
+                if labels.iter().any(|r| r == name) {
+                    return cx.children(k).last().copied();
                 }
             }
-            if cx.especie(k) == "SwitchStatement" {
-                // Um `case` rotulado.
-                for m in cx.filhos(k).iter().copied() {
-                    let tem = cx
-                        .filhos(m)
+            if cx.kind(k) == "SwitchStatement" {
+                // A labeled `case`.
+                for m in cx.children(k).iter().copied() {
+                    let has = cx
+                        .children(m)
                         .iter()
-                        .filter(|&&l| cx.especie(l) == "Label")
-                        .any(|&l| cx.filhos(l).first().is_some_and(|&i| cx.texto_do_no(i) == nome));
-                    if tem {
+                        .filter(|&&l| cx.kind(l) == "Label")
+                        .any(|&l| cx.children(l).first().is_some_and(|&i| cx.node_text(i) == name));
+                    if has {
                         return Some(m);
                     }
                 }
