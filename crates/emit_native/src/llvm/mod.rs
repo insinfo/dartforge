@@ -1415,8 +1415,12 @@ impl<'a> LlvmEmitter<'a> {
                         let direct = self.direct_body(object);
                         self.emit_field_addresses_of(v, &only, direct);
                         self.emit_field_write(v, "", *index, &sv, &is_ref.to_string());
-                        if self.inline_barrier(inst) && !fresh {
-                            self.emit_barrier(v, &only, &sv, None);
+                        if self.inline_barrier(inst) {
+                            if fresh {
+                                self.emit_barrier_label(v);
+                            } else {
+                                self.emit_barrier(v, &only, &sv, None);
+                            }
                         }
                     }
                     Instruction::SetField { object, index, value } => {
@@ -1491,9 +1495,13 @@ impl<'a> LlvmEmitter<'a> {
                         let direct = self.direct_body(&args[0].0);
                         self.emit_field_addresses_of(v, &only, direct);
                         self.emit_field_write(v, "", *i as usize, &sv, &is_ref);
-                        if self.inline_barrier(inst) && !fresh {
-                            let dynamic = is_ref.starts_with('%').then_some(is_ref.as_str());
-                            self.emit_barrier(v, &only, &sv, dynamic);
+                        if self.inline_barrier(inst) {
+                            if fresh {
+                                self.emit_barrier_label(v);
+                            } else {
+                                let dynamic = is_ref.starts_with('%').then_some(is_ref.as_str());
+                                self.emit_barrier(v, &only, &sv, dynamic);
+                            }
                         }
                     }
                     Instruction::CallRuntime { .. } if Self::inline_allocation(inst).is_some() => {
@@ -3763,6 +3771,14 @@ impl<'a> LlvmEmitter<'a> {
         self.current_label = format!("wb{v}.fim");
     }
 
+    /// The store into a fresh object needs no barrier (it is young), but the
+    /// HIR block still ends at `wb{v}.fim` ([`LlvmEmitter::exit_labels`]
+    /// decides the label before knowing which objects are fresh).
+    fn emit_barrier_label(&mut self, v: u32) {
+        writeln!(self.out, "  br label %wb{v}.fim\nwb{v}.fim:").unwrap();
+        self.current_label = format!("wb{v}.fim");
+    }
+
     /// Context required by the body or by the tables, before deciding the
     /// roots frames. It also requires a stack check in the prologue;
     /// the ARC summaries share this decision so as not to omit unwinding.
@@ -3854,6 +3870,18 @@ impl<'a> LlvmEmitter<'a> {
                     _ => return true,
                 };
                 !exact(val, t)
+            }
+            // The field read and write with a constant inline index come out
+            // inline like `GetField`/`SetField` (only loads, stores and the
+            // barrier; the operands go through `coerce`, which never boxes):
+            // the object freshly allocated before them stays fresh — direct
+            // body, no barrier — and no root is kept across them.
+            Instruction::CallRuntime { name, args, .. }
+                if !self.module.arc_memory
+                    && (name == "dartforge_object_get" || (name == "dartforge_object_set" && args.len() == 4))
+                    && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)) =>
+            {
+                args.iter().any(|(a, _)| matches!(a, Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))))
             }
             Instruction::NativeLoad { address, index: idx_value, .. } => !(scalar(address) && scalar(idx_value)),
             Instruction::NativeWrite { address, index: idx_value, value: val_ref, .. } => {
