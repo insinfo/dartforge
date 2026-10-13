@@ -1,22 +1,23 @@
-//! O trigésimo lote de regras de lint
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), escritas direto dos emissores
-//! da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`):
+//! The thirtieth batch of lint rules (docs/ANALYZER-ESPECIFICACAO-INFRA.md
+//! §8), written directly from the 3.6.2 emitters
+//! (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`):
 //!
-//! * `use_late_for_private_fields_and_variables`: na biblioteca inteira, as
-//!   variáveis de topo privadas e os campos privados (ou de extensão
-//!   privada), não `late`, de tipo anulável, que nenhum acesso anulável
-//!   alcança. Fora das classes com construtor `const` e dos `enum` (o
-//!   visitante não desce neles), todo identificador, `PrefixedIdentifier` e
-//!   `PropertyAccess` com elemento conta como acesso anulável, menos o
-//!   identificador simples logo antes de um `!` (o nome de propriedade
-//!   dentro de `a.b` tem o `a.b` como pai e conta sempre); a atribuição
-//!   conta pelo elemento de escrita, menos o `=` com lado direito não
-//!   anulável; o lado esquerdo e o operando de `++`/`--` não têm elemento.
+//! * `use_late_for_private_fields_and_variables`: in the whole library, the
+//!   private top-level variables and the private fields (or those of a
+//!   private extension), not `late`, of a nullable type, that no nullable
+//!   access reaches. Outside classes with a `const` constructor and `enum`s
+//!   (the visitor does not descend into them), every identifier,
+//!   `PrefixedIdentifier` and `PropertyAccess` with an element counts as a
+//!   nullable access, except the simple identifier right before a `!` (the
+//!   property name inside `a.b` has `a.b` as its parent and always counts);
+//!   an assignment counts through the write element, except `=` with a
+//!   non-nullable right side; the left side and the operand of `++`/`--` have
+//!   no element.
 //!
-//!   Divergência registrada: as referências de comentário de documentação
-//!   (`[nome]`) não entram.
+//!   Recorded divergence: documentation comment references (`[name]`) do not
+//!   count.
 //!
-//! Escrito sem compilar nem executar (2026-10-05).
+//! Written without compiling or running (2026-10-05).
 
 use super::codigos_g as c;
 use super::rules::LintReport;
@@ -29,10 +30,10 @@ use dartforge_intern::Interner;
 use dartforge_types::resolved::{MemberRef, Resolved, UnitBodyTypes};
 use std::collections::HashSet;
 
-/// A variável do modelo que o elemento resolvido canoniza (o acessor vira
-/// a variável).
-fn variavel(s: &super::Semantics<'_>, corpo: &UnitBodyTypes, e: ExprId) -> Option<VariableId> {
-    match corpo.get_resolved(e)? {
+/// The model variable that the resolved element canonicalizes to (an
+/// accessor becomes the variable).
+fn variable_of(s: &super::Semantics<'_>, body: &UnitBodyTypes, e: ExprId) -> Option<VariableId> {
+    match body.get_resolved(e)? {
         Resolved::Member { member: MemberRef::Variable(v), .. } | Resolved::Element(Element::Variable(v)) => Some(*v),
         Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::Element(Element::Function(f)) => s.program.function(*f).variable,
         Resolved::ExtensionMember { member, .. } => s.program.function(*member).variable,
@@ -40,9 +41,9 @@ fn variavel(s: &super::Semantics<'_>, corpo: &UnitBodyTypes, e: ExprId) -> Optio
     }
 }
 
-/// As regiões que o visitante não visita: as classes com construtor
-/// `const` e os `enum`.
-fn excluidas(a: &Ast) -> Vec<Span> {
+/// The regions the visitor does not visit: classes with a `const`
+/// constructor and `enum`s.
+fn excluded_regions(a: &Ast) -> Vec<Span> {
     let mut v = Vec::new();
     for d in a.decls.iter() {
         match &d.kind {
@@ -54,66 +55,66 @@ fn excluidas(a: &Ast) -> Vec<Span> {
     v
 }
 
-/// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+/// Runs the rules of this batch that are enabled (`enabled(name)`).
+pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
-    if !ligada("use_late_for_private_fields_and_variables") {
+    if !enabled("use_late_for_private_fields_and_variables") {
         return out;
     }
     let program = s.program;
     let table = s.table;
-    let privado = |n: dartforge_intern::SymbolId| interner.resolve(n).starts_with('_');
-    let biblioteca = program.unit(s.unit).library;
-    let unidades: Vec<UnitId> = program.library(biblioteca).units.clone();
-    // Os acessos anuláveis da biblioteca.
-    let mut anulaveis: HashSet<VariableId> = HashSet::new();
-    for &x in unidades.iter() {
+    let is_private = |n: dartforge_intern::SymbolId| interner.resolve(n).starts_with('_');
+    let library = program.unit(s.unit).library;
+    let units: Vec<UnitId> = program.library(library).units.clone();
+    // The library's nullable accesses.
+    let mut nullable_accesses: HashSet<VariableId> = HashSet::new();
+    for &x in units.iter() {
         let a = &program.unit(x).ast;
-        let corpo = &s.bodies.units[x.0 as usize];
-        let fora = excluidas(a);
-        let visitado = |sp: Span| !fora.iter().any(|f| f.start <= sp.start && sp.end <= f.end);
-        let mut escritos: HashSet<ExprId> = HashSet::new();
-        // O operando imediato de um `!` (sem parênteses).
-        let mut checados: HashSet<ExprId> = HashSet::new();
+        let body = &s.bodies.units[x.0 as usize];
+        let excluded = excluded_regions(a);
+        let visited = |sp: Span| !excluded.iter().any(|f| f.start <= sp.start && sp.end <= f.end);
+        let mut written: HashSet<ExprId> = HashSet::new();
+        // The immediate operand of a `!` (without parentheses).
+        let mut checked: HashSet<ExprId> = HashSet::new();
         for e in a.exprs.iter() {
             match &e.kind {
                 ExprKind::Assign { target, .. } => {
-                    escritos.insert(*target);
+                    written.insert(*target);
                 }
                 ExprKind::Unary { op: UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec, operand } => {
-                    escritos.insert(*operand);
+                    written.insert(*operand);
                 }
                 ExprKind::Unary { op: UnaryOp::NullAssert, operand } => {
-                    checados.insert(*operand);
+                    checked.insert(*operand);
                 }
                 _ => {}
             }
         }
         for (k, e) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);
-            if !visitado(e.span) {
+            if !visited(e.span) {
                 continue;
             }
             match &e.kind {
-                ExprKind::Identifier(_) if !escritos.contains(&id) => {
-                    if let Some(v) = variavel(s, corpo, id)
-                        && !checados.contains(&id)
+                ExprKind::Identifier(_) if !written.contains(&id) => {
+                    if let Some(v) = variable_of(s, body, id)
+                        && !checked.contains(&id)
                     {
-                        anulaveis.insert(v);
+                        nullable_accesses.insert(v);
                     }
                 }
-                ExprKind::Property { .. } if !escritos.contains(&id) => {
-                    // O nome dentro de `a.b` tem o próprio `a.b` como pai.
-                    if let Some(v) = variavel(s, corpo, id) {
-                        anulaveis.insert(v);
+                ExprKind::Property { .. } if !written.contains(&id) => {
+                    // The name inside `a.b` has `a.b` itself as its parent.
+                    if let Some(v) = variable_of(s, body, id) {
+                        nullable_accesses.insert(v);
                     }
                 }
                 ExprKind::Assign { op, target, value } => {
-                    if let Some(v) = variavel(s, corpo, *target) {
-                        let nao_nulo = *op == AssignOp::Assign && s.bodies.units[x.0 as usize].get_type(*value).is_some_and(|t| is_non_nullable(table, t));
-                        if !nao_nulo {
-                            anulaveis.insert(v);
+                    if let Some(v) = variable_of(s, body, *target) {
+                        let non_null = *op == AssignOp::Assign && s.bodies.units[x.0 as usize].get_type(*value).is_some_and(|t| is_non_nullable(table, t));
+                        if !non_null {
+                            nullable_accesses.insert(v);
                         }
                     }
                 }
@@ -121,12 +122,12 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             }
         }
     }
-    // As candidatas da unidade.
+    // The unit's candidates.
     let a = u.ast;
-    let fora = excluidas(a);
-    let visitado = |sp: Span| !fora.iter().any(|f| f.start <= sp.start && sp.end <= f.end);
-    let mut achados: Vec<Span> = Vec::new();
-    let candidata = |r: VariableRef, l: &dartforge_frontend::ast::VariableList, i: usize, achados: &mut Vec<Span>| {
+    let excluded = excluded_regions(a);
+    let visited = |sp: Span| !excluded.iter().any(|f| f.start <= sp.start && sp.end <= f.end);
+    let mut findings: Vec<Span> = Vec::new();
+    let candidate = |r: VariableRef, l: &dartforge_frontend::ast::VariableList, i: usize, findings: &mut Vec<Span>| {
         if l.late {
             return;
         }
@@ -135,48 +136,48 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
         if is_non_nullable(table, t) {
             return;
         }
-        if !anulaveis.contains(&v) {
+        if !nullable_accesses.contains(&v) {
             let x = &l.variables[i];
-            let fim = x.initializer.map_or(x.name.span.end, |e| a.expr(e).span.end);
-            achados.push(Span { start: x.name.span.start, end: fim });
+            let end = x.initializer.map_or(x.name.span.end, |e| a.expr(e).span.end);
+            findings.push(Span { start: x.name.span.start, end: end });
         }
     };
     for (k, d) in a.decls.iter().enumerate() {
         let id = DeclId(k as u32);
-        if !visitado(d.span) {
+        if !visited(d.span) {
             continue;
         }
         match &d.kind {
             DeclKind::Variables(l) => {
                 for (i, x) in l.variables.iter().enumerate() {
-                    if privado(x.name.sym) {
-                        candidata(VariableRef::TopLevel { unit: s.unit, decl: id, index: i }, l, i, &mut achados);
+                    if is_private(x.name.sym) {
+                        candidate(VariableRef::TopLevel { unit: s.unit, decl: id, index: i }, l, i, &mut findings);
                     }
                 }
             }
             _ => {
-                let (membros, extensao_privada, tipo_de_extensao): (&[MemberId], bool, bool) = match &d.kind {
+                let (members, private_extension, is_extension_type): (&[MemberId], bool, bool) = match &d.kind {
                     DeclKind::Class(x) => (&x.members, false, false),
                     DeclKind::Mixin(x) => (&x.members, false, false),
-                    DeclKind::Extension(x) => (&x.members, x.name.is_none_or(|n| privado(n.sym)), false),
+                    DeclKind::Extension(x) => (&x.members, x.name.is_none_or(|n| is_private(n.sym)), false),
                     DeclKind::ExtensionType(x) => (&x.members, false, true),
                     _ => continue,
                 };
-                for &m in membros {
+                for &m in members {
                     let MemberKind::Field(l) = &a.member(m).kind else { continue };
-                    if tipo_de_extensao && !l.static_ {
+                    if is_extension_type && !l.static_ {
                         continue;
                     }
                     for (i, x) in l.variables.iter().enumerate() {
-                        if extensao_privada || privado(x.name.sym) {
-                            candidata(VariableRef::Field { unit: s.unit, member: m, index: i }, l, i, &mut achados);
+                        if private_extension || is_private(x.name.sym) {
+                            candidate(VariableRef::Field { unit: s.unit, member: m, index: i }, l, i, &mut findings);
                         }
                     }
                 }
             }
         }
     }
-    for sp in achados {
+    for sp in findings {
         out.push(LintReport { code: &c::USE_LATE_FOR_PRIVATE_FIELDS_AND_VARIABLES, span: sp, args: Vec::new() });
     }
     out
