@@ -77,11 +77,11 @@ impl<C: Channel> BuildClient<C> {
             let kind = message.get("t").and_then(JsonValue::as_str).unwrap_or("");
             if matches!(
                 kind,
-                "build.ler"
-                    | "build.existe"
+                "build.read"
+                    | "build.exists"
                     | "build.glob"
                     | "build.digest"
-                    | "build.escrever"
+                    | "build.write"
                     | "build.log"
                     | "build.resolver"
             ) || kind.starts_with("build.resolver.")
@@ -93,7 +93,7 @@ impl<C: Channel> BuildClient<C> {
                             message.get("id").and_then(JsonValue::as_u64).ok_or_else(|| {
                                 ExecutorError(format!("build query without id: {message}"))
                             })?;
-                        json!({"t":"build.resposta","id":request,"erro":error.0})
+                        json!({"t":"build.response","id":request,"error":error.0})
                     }
                 };
                 self.channel.send(&response).map_err(ExecutorError)?;
@@ -104,10 +104,10 @@ impl<C: Channel> BuildClient<C> {
                     "out-of-order response from the executor: {message}"
                 )));
             }
-            if kind == "erro" {
+            if kind == "error" {
                 return Err(ExecutorError(
                     message
-                        .get("mensagem")
+                        .get("message")
                         .and_then(JsonValue::as_str)
                         .unwrap_or("error without a message")
                         .into(),
@@ -134,19 +134,19 @@ impl<C: Channel> BuildClient<C> {
                 .and_then(AssetId::from_text)
                 .ok_or_else(|| ExecutorError(format!("{kind}: invalid AssetId")))
         };
-        let mut response = json!({"t":"build.resposta","id":id});
+        let mut response = json!({"t":"build.response","id":id});
         match kind {
-            "build.ler" => {
+            "build.read" => {
                 let asset = asset()?;
                 match s.read(&asset) {
                     Some(bytes) => response["bytes_base64"] = json!(STANDARD.encode(bytes)),
-                    None => response["erro"] = json!("AssetNotFound"),
+                    None => response["error"] = json!("AssetNotFound"),
                 }
             }
-            "build.existe" => response["sim"] = json!(s.can_read(&asset()?)),
+            "build.exists" => response["exists"] = json!(s.can_read(&asset()?)),
             "build.glob" => {
                 let pattern = m
-                    .get("padrao")
+                    .get("pattern")
                     .and_then(JsonValue::as_str)
                     .ok_or_else(|| ExecutorError("glob without a pattern".into()))?;
                 response["assets"] = json!(
@@ -162,7 +162,7 @@ impl<C: Channel> BuildClient<C> {
                     .map(|d| d.iter().map(|b| format!("{b:02x}")).collect::<String>())
                     .map_or(JsonValue::Null, JsonValue::String);
             }
-            "build.escrever" => {
+            "build.write" => {
                 let asset = asset()?;
                 let bytes = m
                     .get("bytes_base64")
@@ -173,30 +173,30 @@ impl<C: Channel> BuildClient<C> {
                     .map_err(|e| ExecutorError(format!("invalid base64: {e}")))?
                     .into();
                 if s.write(&asset, bytes).is_err() {
-                    response["erro"] = json!("SaidaNaoPermitida");
+                    response["error"] = json!("OutputNotAllowed");
                 }
             }
             "build.log" => {
-                let level = match m.get("nivel").and_then(JsonValue::as_str).unwrap_or("info") {
-                    "fino" => Level::Fine,
-                    "aviso" => Level::Warning,
-                    "severo" => Level::Severe,
+                let level = match m.get("level").and_then(JsonValue::as_str).unwrap_or("info") {
+                    "fine" => Level::Fine,
+                    "warning" => Level::Warning,
+                    "severe" => Level::Severe,
                     _ => Level::Info,
                 };
                 s.log(
                     level,
-                    m.get("mensagem").and_then(JsonValue::as_str).unwrap_or(""),
+                    m.get("message").and_then(JsonValue::as_str).unwrap_or(""),
                 );
             }
-            "build.resolver" => response["erro"] = json!("indisponivel"),
-            t if t.starts_with("build.resolver.") => response["erro"] = json!("indisponivel"),
+            "build.resolver" => response["error"] = json!("unavailable"),
+            t if t.starts_with("build.resolver.") => response["error"] = json!("unavailable"),
             _ => return Err(ExecutorError(format!("unknown query: {kind}"))),
         }
         Ok(response)
     }
 
-    /// `build.executar` and `build.posprocessar`: the same request and the
-    /// same `build.resultado` response; the post-processor adds `apagados`.
+    /// `build.run` and `build.post_process`: the same request and the
+    /// same `build.result` response; the post-processor adds `deleted`.
     fn action(
         &mut self,
         kind: &str,
@@ -204,19 +204,19 @@ impl<C: Channel> BuildClient<C> {
         service: &mut dyn BuildStepService,
     ) -> Result<ActionResult, ExecutorError> {
         if !self.loaded {
-            return Err(ExecutorError(format!("{kind} before build.carregar")));
+            return Err(ExecutorError(format!("{kind} before build.load")));
         }
         let id = self.id();
-        self.channel.send(&json!({"t":kind,"id":id,"fase":p.phase,"chave":p.key,
-            "fabrica":p.factory,"opcoes":map_json(&p.options),"isRoot":p.root,"entrada":p.input.text(),
-            "saidas_permitidas":p.allowed_outputs.iter().map(AssetId::text).collect::<Vec<_>>()
+        self.channel.send(&json!({"t":kind,"id":id,"phase":p.phase,"key":p.key,
+            "factory":p.factory,"options":map_json(&p.options),"isRoot":p.root,"input":p.input.text(),
+            "allowed_outputs":p.allowed_outputs.iter().map(AssetId::text).collect::<Vec<_>>()
         })).map_err(ExecutorError)?;
-        let response = self.receive(id, "build.resultado", service)?;
+        let response = self.receive(id, "build.result", service)?;
         let mut outputs = Vec::new();
         let list = response
-            .get("saidas")
+            .get("outputs")
             .and_then(JsonValue::as_array)
-            .ok_or_else(|| ExecutorError("build.resultado without a list of outputs".into()))?;
+            .ok_or_else(|| ExecutorError("build.result without a list of outputs".into()))?;
         for output in list {
             let asset = output
                 .get("asset")
@@ -243,11 +243,11 @@ impl<C: Channel> BuildClient<C> {
             .flatten()
             .map(|log| {
                 (
-                    log.get("nivel")
+                    log.get("level")
                         .and_then(JsonValue::as_str)
                         .unwrap_or("info")
                         .to_string(),
-                    log.get("mensagem")
+                    log.get("message")
                         .and_then(JsonValue::as_str)
                         .unwrap_or("")
                         .to_string(),
@@ -255,12 +255,12 @@ impl<C: Channel> BuildClient<C> {
             })
             .collect();
         let failed = response
-            .get("falhou")
+            .get("failed")
             .and_then(JsonValue::as_bool)
-            .ok_or_else(|| ExecutorError("build.resultado without the falhou flag".into()))?;
+            .ok_or_else(|| ExecutorError("build.result without the failed flag".into()))?;
         let mut deleted = Vec::new();
         for a in response
-            .get("apagados")
+            .get("deleted")
             .and_then(JsonValue::as_array)
             .into_iter()
             .flatten()
@@ -280,11 +280,11 @@ impl<C: Channel> BuildClient<C> {
     }
 
     fn handshake(&mut self) -> Result<(), ExecutorError> {
-        self.channel.send(&json!({"t":"ola","protocolo":PROTOCOL,"servicos":["build"],"motor":crate::VERSION})).map_err(ExecutorError)?;
+        self.channel.send(&json!({"t":"hello","protocol":PROTOCOL,"services":["build"],"engine":crate::VERSION})).map_err(ExecutorError)?;
         let response = self.channel.receive().map_err(ExecutorError)?;
-        let services = response.get("servicos").and_then(JsonValue::as_array);
-        if response.get("t").and_then(JsonValue::as_str) != Some("ola")
-            || response.get("protocolo").and_then(JsonValue::as_str) != Some(PROTOCOL)
+        let services = response.get("services").and_then(JsonValue::as_array);
+        if response.get("t").and_then(JsonValue::as_str) != Some("hello")
+            || response.get("protocol").and_then(JsonValue::as_str) != Some(PROTOCOL)
             || !services.is_some_and(|s| s.iter().any(|v| v.as_str() == Some("build")))
         {
             return Err(ExecutorError(format!(
@@ -342,9 +342,9 @@ impl<C: Channel> DartExecutor for BuildClient<C> {
             }
             let id = self.id();
             let applications: Vec<_> = script.applications.iter().map(|(key, import, factories)|
-                json!({"chave":key,"import":import,"fabricas":factories})).collect();
-            self.channel.send(&json!({"t":"build.carregar","id":id,"script":{"aplicacoes":applications,"chave_de_cache":script.cache_key}})).map_err(ExecutorError)?;
-            self.receive(id, "build.carregado", &mut NoService)?;
+                json!({"key":key,"import":import,"factories":factories})).collect();
+            self.channel.send(&json!({"t":"build.load","id":id,"script":{"applications":applications,"cache_key":script.cache_key}})).map_err(ExecutorError)?;
+            self.receive(id, "build.loaded", &mut NoService)?;
             self.loaded = true;
             Ok(())
         })();
@@ -359,7 +359,7 @@ impl<C: Channel> DartExecutor for BuildClient<C> {
             // Notification without a response: the executor resets its
             // per-build state before the next action, which comes through the
             // same ordered channel.
-            if let Err(e) = self.channel.send(&json!({"t":"build.rodada"})) {
+            if let Err(e) = self.channel.send(&json!({"t":"build.round"})) {
                 self.prepare_failure = Some(e);
                 self.loaded = false;
             }
@@ -372,20 +372,20 @@ impl<C: Channel> DartExecutor for BuildClient<C> {
     ) -> Result<Option<RuntimeExtensions>, ExecutorError> {
         if !self.loaded {
             return Err(ExecutorError(
-                "build.extensoes before build.carregar".into(),
+                "build.extensions before build.load".into(),
             ));
         }
         let id = self.id();
         self.channel
             .send(
-                &json!({"t":"build.extensoes","id":id,"chave":p.key,"fabrica":p.factory,
-            "opcoes":map_json(&p.options),"isRoot":p.root}),
+                &json!({"t":"build.extensions","id":id,"key":p.key,"factory":p.factory,
+            "options":map_json(&p.options),"isRoot":p.root}),
             )
             .map_err(ExecutorError)?;
-        let response = self.receive(id, "build.extensoes", &mut NoService)?;
-        let invalid = || ExecutorError(format!("invalid build.extensoes: {response}"));
+        let response = self.receive(id, "build.extensions", &mut NoService)?;
+        let invalid = || ExecutorError(format!("invalid build.extensions: {response}"));
         let pairs = response
-            .get("extensoes")
+            .get("extensions")
             .and_then(JsonValue::as_array)
             .ok_or_else(invalid)?;
         let mut v = Vec::with_capacity(pairs.len());
@@ -409,26 +409,26 @@ impl<C: Channel> DartExecutor for BuildClient<C> {
         p: &ActionRequest,
         service: &mut dyn BuildStepService,
     ) -> Result<ActionResult, ExecutorError> {
-        self.action("build.executar", p, service)
+        self.action("build.run", p, service)
     }
 
     fn post_inputs(&mut self, p: &ExtensionsRequest) -> Result<Option<Vec<String>>, ExecutorError> {
         if !self.loaded {
             return Err(ExecutorError(
-                "build.entradas_pos before build.carregar".into(),
+                "build.post_inputs before build.load".into(),
             ));
         }
         let id = self.id();
         self.channel
             .send(
-                &json!({"t":"build.entradas_pos","id":id,"chave":p.key,"fabrica":p.factory,
-            "opcoes":map_json(&p.options),"isRoot":p.root}),
+                &json!({"t":"build.post_inputs","id":id,"key":p.key,"factory":p.factory,
+            "options":map_json(&p.options),"isRoot":p.root}),
             )
             .map_err(ExecutorError)?;
-        let response = self.receive(id, "build.entradas_pos", &mut NoService)?;
-        let invalid = || ExecutorError(format!("invalid build.entradas_pos: {response}"));
+        let response = self.receive(id, "build.post_inputs", &mut NoService)?;
+        let invalid = || ExecutorError(format!("invalid build.post_inputs: {response}"));
         let v = response
-            .get("entradas")
+            .get("inputs")
             .and_then(JsonValue::as_array)
             .ok_or_else(invalid)?
             .iter()
@@ -443,12 +443,12 @@ impl<C: Channel> DartExecutor for BuildClient<C> {
         p: &ActionRequest,
         service: &mut dyn BuildStepService,
     ) -> Result<ActionResult, ExecutorError> {
-        self.action("build.posprocessar", p, service)
+        self.action("build.post_process", p, service)
     }
 
     fn shutdown(&mut self) {
         if self.started {
-            let _ = self.channel.send(&json!({"t":"fim"}));
+            let _ = self.channel.send(&json!({"t":"end"}));
             let _ = self.channel.receive();
             self.started = false;
             self.loaded = false;
@@ -537,12 +537,12 @@ mod tests {
     fn handshake_load_and_build_queries_on_the_same_channel() {
         let sent = Arc::new(Mutex::new(Vec::new()));
         let received = [
-            json!({"t":"ola","protocolo":"dfexec/1","servicos":["build"],"executor":"test","abi":"a"}),
-            json!({"t":"build.carregado","id":1}),
-            json!({"t":"build.ler","id":9,"asset":"p|lib/a.dart"}),
-            json!({"t":"build.escrever","id":10,"asset":"p|lib/a.g.dart","bytes_base64":STANDARD.encode(b"generated")}),
-            json!({"t":"build.escrever","id":11,"asset":"p|lib/other.dart","bytes_base64":STANDARD.encode(b"improper")}),
-            json!({"t":"build.resultado","id":2,"saidas":[],"falhou":false}),
+            json!({"t":"hello","protocol":"dfexec/1","services":["build"],"executor":"test","abi":"a"}),
+            json!({"t":"build.loaded","id":1}),
+            json!({"t":"build.read","id":9,"asset":"p|lib/a.dart"}),
+            json!({"t":"build.write","id":10,"asset":"p|lib/a.g.dart","bytes_base64":STANDARD.encode(b"generated")}),
+            json!({"t":"build.write","id":11,"asset":"p|lib/other.dart","bytes_base64":STANDARD.encode(b"improper")}),
+            json!({"t":"build.result","id":2,"outputs":[],"failed":false}),
         ].into();
         let mut client = BuildClient::new(FakeChannel {
             received,
@@ -570,12 +570,12 @@ mod tests {
         assert!(!result.failed);
         assert_eq!(service.writes[0].1.as_ref(), b"generated");
         let sent = sent.lock().unwrap();
-        assert_eq!(sent[0]["t"], "ola");
-        assert_eq!(sent[1]["t"], "build.carregar");
+        assert_eq!(sent[0]["t"], "hello");
+        assert_eq!(sent[1]["t"], "build.load");
         assert_eq!(sent[2]["isRoot"], true);
         assert_eq!(sent[3]["bytes_base64"], STANDARD.encode(b"source"));
-        assert_eq!(sent[4], json!({"t":"build.resposta","id":10}));
-        assert_eq!(sent[5]["erro"], "SaidaNaoPermitida");
+        assert_eq!(sent[4], json!({"t":"build.response","id":10}));
+        assert_eq!(sent[5]["error"], "OutputNotAllowed");
     }
 
     #[test]
@@ -583,9 +583,9 @@ mod tests {
         let sent = Arc::new(Mutex::new(Vec::new()));
         let channel = FakeChannel {
             received: [
-                json!({"t":"ola","protocolo":"dfexec/1","servicos":["build"]}),
-                json!({"t":"build.carregado","id":1}),
-                json!({"t":"build.extensoes","id":2,"extensoes":[[".b",[".c",".d"]],[".a",[".e"]]]}),
+                json!({"t":"hello","protocol":"dfexec/1","services":["build"]}),
+                json!({"t":"build.loaded","id":1}),
+                json!({"t":"build.extensions","id":2,"extensions":[[".b",[".c",".d"]],[".a",[".e"]]]}),
             ].into(),
             sent: sent.clone(),
         };
@@ -616,8 +616,8 @@ mod tests {
             ])
         );
         let sent = sent.lock().unwrap();
-        assert_eq!(sent[2], json!({"t":"build.rodada"}));
-        assert_eq!(sent[3]["t"], "build.extensoes");
+        assert_eq!(sent[2], json!({"t":"build.round"}));
+        assert_eq!(sent[3]["t"], "build.extensions");
         assert_eq!(sent[3]["isRoot"], true);
     }
 
@@ -626,11 +626,11 @@ mod tests {
         let sent = Arc::new(Mutex::new(Vec::new()));
         let channel = FakeChannel {
             received: [
-                json!({"t":"ola","protocolo":"dfexec/1","servicos":["build"]}),
-                json!({"t":"build.carregado","id":1}),
-                json!({"t":"build.entradas_pos","id":2,"entradas":[".draft"]}),
-                json!({"t":"build.escrever","id":7,"asset":"p|lib/a.g.dart","bytes_base64":STANDARD.encode(b"r")}),
-                json!({"t":"build.resultado","id":3,"saidas":[],"falhou":false,"apagados":["p|lib/a.dart"]}),
+                json!({"t":"hello","protocol":"dfexec/1","services":["build"]}),
+                json!({"t":"build.loaded","id":1}),
+                json!({"t":"build.post_inputs","id":2,"inputs":[".draft"]}),
+                json!({"t":"build.write","id":7,"asset":"p|lib/a.g.dart","bytes_base64":STANDARD.encode(b"r")}),
+                json!({"t":"build.result","id":3,"outputs":[],"failed":false,"deleted":["p|lib/a.dart"]}),
             ].into(),
             sent: sent.clone(),
         };
@@ -667,16 +667,16 @@ mod tests {
         assert_eq!(r.deleted_outputs, vec![AssetId::new("p", "lib/a.dart")]);
         assert_eq!(service.writes.len(), 1);
         let sent = sent.lock().unwrap();
-        assert_eq!(sent[2]["t"], "build.entradas_pos");
-        assert_eq!(sent[3]["t"], "build.posprocessar");
-        assert_eq!(sent[3]["saidas_permitidas"], json!([]));
+        assert_eq!(sent[2]["t"], "build.post_inputs");
+        assert_eq!(sent[3]["t"], "build.post_process");
+        assert_eq!(sent[3]["allowed_outputs"], json!([]));
     }
 
     #[test]
     fn handshake_rejects_executors_without_build_service() {
         for response in [
-            json!({"t":"ola","protocolo":"dfexec/2","servicos":["build"]}),
-            json!({"t":"ola","protocolo":"dfexec/1","servicos":["macro"]}),
+            json!({"t":"hello","protocol":"dfexec/2","services":["build"]}),
+            json!({"t":"hello","protocol":"dfexec/1","services":["macro"]}),
         ] {
             let channel = FakeChannel {
                 received: [response].into(),
@@ -702,9 +702,9 @@ mod tests {
     fn incomplete_build_result_is_not_success() {
         let channel = FakeChannel {
             received: [
-                json!({"t":"ola","protocolo":"dfexec/1","servicos":["build"]}),
-                json!({"t":"build.carregado","id":1}),
-                json!({"t":"build.resultado","id":2,"falhou":false}),
+                json!({"t":"hello","protocol":"dfexec/1","services":["build"]}),
+                json!({"t":"build.loaded","id":1}),
+                json!({"t":"build.result","id":2,"failed":false}),
             ]
             .into(),
             sent: Arc::new(Mutex::new(Vec::new())),
@@ -736,12 +736,12 @@ mod tests {
         let sent = Arc::new(Mutex::new(Vec::new()));
         let channel = FakeChannel {
             received: [
-                json!({"t":"ola","protocolo":"dfexec/1","servicos":["build"]}),
-                json!({"t":"build.carregado","id":1}),
-                json!({"t":"build.ler","id":9,"asset":"invalid"}),
-                json!({"t":"build.escrever","id":10,"asset":"p|lib/a.g.dart","bytes_base64":"?"}),
-                json!({"t":"build.existe","id":11,"asset":"p|lib/a.dart"}),
-                json!({"t":"build.resultado","id":2,"saidas":[],"falhou":false}),
+                json!({"t":"hello","protocol":"dfexec/1","services":["build"]}),
+                json!({"t":"build.loaded","id":1}),
+                json!({"t":"build.read","id":9,"asset":"invalid"}),
+                json!({"t":"build.write","id":10,"asset":"p|lib/a.g.dart","bytes_base64":"?"}),
+                json!({"t":"build.exists","id":11,"asset":"p|lib/a.dart"}),
+                json!({"t":"build.result","id":2,"outputs":[],"failed":false}),
             ]
             .into(),
             sent: sent.clone(),
@@ -768,12 +768,12 @@ mod tests {
         assert!(!client.execute(&request, &mut service).unwrap().failed);
         let sent = sent.lock().unwrap();
         assert_eq!(sent[3]["id"], 9);
-        assert!(sent[3]["erro"].as_str().unwrap().contains("AssetId"));
+        assert!(sent[3]["error"].as_str().unwrap().contains("AssetId"));
         assert_eq!(sent[4]["id"], 10);
-        assert!(sent[4]["erro"].as_str().unwrap().contains("base64"));
+        assert!(sent[4]["error"].as_str().unwrap().contains("base64"));
         assert_eq!(
             sent[5],
-            json!({"t":"build.resposta","id":11,"sim":true})
+            json!({"t":"build.response","id":11,"exists":true})
         );
         assert!(service.writes.is_empty());
     }
@@ -788,8 +788,8 @@ mod tests {
         let script = dir.path().join("responses");
         let mut b = Vec::new();
         for m in [
-            json!({"t":"ola","protocolo":"dfexec/1","servicos":["build"]}),
-            json!({"t":"build.carregado","id":1}),
+            json!({"t":"hello","protocol":"dfexec/1","services":["build"]}),
+            json!({"t":"build.loaded","id":1}),
         ] {
             dartforge_dfexec::write_frame(&mut b, &m).unwrap();
         }

@@ -70,8 +70,8 @@ como no oficial) e `--packages` do arquivo gerado.
 ## 2. Handshake
 
 ```json
-→ {"t":"ola","protocolo":"dfexec/1","servicos":["build"],"motor":"<versão>"}
-← {"t":"ola","protocolo":"dfexec/1","servicos":["build"],"executor":"<versão>","abi":"<hash>"}
+→ {"t":"hello","protocol":"dfexec/1","services":["build"],"engine":"<versão>"}
+← {"t":"hello","protocol":"dfexec/1","services":["build"],"executor":"<versão>","abi":"<hash>"}
 ```
 
 Versão diferente ou serviço ausente: o hospedeiro encerra o processo e o
@@ -81,53 +81,53 @@ executor fica `Indisponivel(motivo)` para a sessão.
 
 ### Hospedeiro → executor
 
-* `build.carregar {id, script}` — `script` é o equivalente ao
+* `build.load {id, script}` — `script` é o equivalente ao
   `.dart_tool/build/entrypoint/build.dart` do oficial: imports das
   fábricas e mapa chave → fábricas. O script é compilado **uma vez** e
   guardado em cache por uma chave versionada (hash do plano, versões do
   lock, versão do DartForge). No processo pela VM a compilação acontece
   antes de o processo nascer (o bootstrap é o próprio script); o
-  `build.carregar` confere que cada fábrica pedida está no bootstrap. O
+  `build.load` confere que cada fábrica pedida está no bootstrap. O
   kernel é invalidado pelo depfile — as fontes de um builder local
   (`tool/builders.dart`) ou de um pacote por caminho entram nele. Resposta
-  `build.carregado {id}` ou `erro {id, mensagem}`.
-* `build.extensoes {id, chave, fabrica, opcoes, isRoot}` — as extensões de
+  `build.loaded {id}` ou `error {id, message}`.
+* `build.extensions {id, key, factory, options, isRoot}` — as extensões de
   execução do objeto `Builder` que a fábrica devolve com essas opções
   (`buildExtensions`, que o `expected_outputs.dart` usa). Resposta
-  `build.extensoes {id, extensoes: [[entrada, [saídas...]], ...]}`, na ordem
-  do mapa (o primeiro casamento vale), ou `erro {id, mensagem}`. O motor
+  `build.extensions {id, extensions: [[input, [outputs...]], ...]}`, na ordem
+  do mapa (o primeiro casamento vale), ou `error {id, message}`. O motor
   pergunta uma vez por plano, para as fases sem gerador nativo verificado, e
   refaz o grafo se alguma diverge do descritor ou do `build.yaml` (as
   fábricas de um builder com várias, extensões que dependem das opções).
-* `build.rodada` (notificação, sem `id` nem resposta) — começo de uma
+* `build.round` (notificação, sem `id` nem resposta) — começo de uma
   atualização do motor: o executor espera a ação em curso, chama
   `Resolvers.reset()` e renova o `ResourceManager`, como o `build_runner`
   faz entre dois builds (`build_impl.dart:94-96`).
-* `build.executar {id, fase, chave, fabrica, opcoes, isRoot, entrada,
-  saidas_permitidas}` — `entrada` e `saidas_permitidas` são AssetIds
-  (`"pacote|caminho"`); `opcoes` é o `BuilderOptions.config` já com a
+* `build.run {id, phase, key, factory, options, isRoot, input,
+  allowed_outputs}` — `input` e `allowed_outputs` são AssetIds
+  (`"pacote|caminho"`); `options` é o `BuilderOptions.config` já com a
   precedência aplicada. O executor instancia o builder uma vez por
   (chave, fábrica, opções, `isRoot`) e o reusa, como o oficial faz por fase.
-* Resposta `build.resultado {id, saidas: [{asset, bytes_base64}],
-  logs: [{nivel, mensagem}], falhou: bool}`. O executor pela VM escreve
-  pelo `build.escrever` durante a ação e devolve `saidas` vazia; `logs` são
-  os registros do `log` do builder (`fino`/`info`/`aviso`/`severo`, com o
-  `print` do builder como aviso, como o `scopeLogAsync` faz) e `falhou` é
+* Resposta `build.result {id, outputs: [{asset, bytes_base64}],
+  logs: [{level, message}], failed: bool}`. O executor pela VM escreve
+  pelo `build.write` durante a ação e devolve `outputs` vazia; `logs` são
+  os registros do `log` do builder (`fine`/`info`/`warning`/`severe`, com o
+  `print` do builder como aviso, como o `scopeLogAsync` faz) e `failed` é
   verdadeiro quando houve registro severo ou exceção. Uma ação que falha não
   publica saída: o motor cai no apoio com o erro como motivo.
-* `build.entradas_pos {id, chave, fabrica, opcoes, isRoot}` — as
+* `build.post_inputs {id, key, factory, options, isRoot}` — as
   `inputExtensions` do `PostProcessBuilder` que a fábrica devolve. Resposta
-  `build.entradas_pos {id, entradas: [...]}` ou `erro`. O motor pergunta uma
+  `build.post_inputs {id, inputs: [...]}` ou `error`. O motor pergunta uma
   vez por plano e monta as âncoras com elas (`docs/BUILD-MOTOR.md` §6.1).
-* `build.posprocessar {id, fase, chave, fabrica, opcoes, isRoot, entrada,
-  saidas_permitidas: []}` — uma âncora: o `runPostProcessBuilder` do
-  `package:build` sobre `entrada`. As escritas vão pelo `build.escrever`; o
-  hospedeiro recusa (`SaidaNaoPermitida`) o asset que o grafo já tem, como o
+* `build.post_process {id, phase, key, factory, options, isRoot, input,
+  allowed_outputs: []}` — uma âncora: o `runPostProcessBuilder` do
+  `package:build` sobre `input`. As escritas vão pelo `build.write`; o
+  hospedeiro recusa (`OutputNotAllowed`) o asset que o grafo já tem, como o
   `addAsset` do oficial, e o executor recusa o mesmo asset duas vezes. A
-  resposta é o `build.resultado` com `apagados: [asset]`, as entradas
+  resposta é o `build.result` com `deleted: [asset]`, as entradas
   marcadas por `deletePrimaryInput`.
 
-### Executor → hospedeiro (durante um `build.executar`)
+### Executor → hospedeiro (durante um `build.run`)
 
 Cada método do `BuildStep` vira um pedido; o hospedeiro registra **cada
 um** como `Consulta` da ação (é assim que o motor sabe o que a ação leu):
@@ -140,21 +140,21 @@ pacotes que o grafo não listou (dependências sem fase que gere nelas, como o
 (`sources` dos alvos e visibilidade fora da raiz): é assim que o resolver lê
 as bibliotecas importadas, e cada leitura vira consulta. O executor pede cada
 asset uma vez por ação; o `digest` é o `md5` do `AssetReader` padrão do
-`package:build`, calculado sobre os bytes lidos pelo `ler`.
+`package:build`, calculado sobre os bytes lidos pelo `read`.
 
 | pedido | `BuildStep` | resposta |
 |---|---|---|
-| `ler {asset}` | `readAsBytes`/`readAsString` | `{bytes_base64}` ou erro `AssetNotFound` |
-| `existe {asset}` | `canRead` | `{sim: bool}` |
-| `glob {padrao}` | `findAssets` | `{assets: [...]}` ordenados |
+| `read {asset}` | `readAsBytes`/`readAsString` | `{bytes_base64}` ou erro `AssetNotFound` |
+| `exists {asset}` | `canRead` | `{exists: bool}` |
+| `glob {pattern}` | `findAssets` | `{assets: [...]}` ordenados |
 | `digest {asset}` | `digest` | `{hex}` |
-| `escrever {asset, bytes_base64}` | `writeAsBytes` | ok, ou erro `SaidaNaoPermitida` |
-| `log {nivel, mensagem}` | `log.*` | `{}` (o executor pela VM manda os logs no `build.resultado`) |
-| `resolver.* {...}` | `BuildStep.resolver` | Fase 3 (BUILD-RUST.md): servido pelo banco semântico; enquanto não existe, o hospedeiro responde `indisponivel` e o analyzer roda dentro do executor |
+| `write {asset, bytes_base64}` | `writeAsBytes` | ok, ou erro `OutputNotAllowed` |
+| `log {level, message}` | `log.*` | `{}` (o executor pela VM manda os logs no `build.result`) |
+| `resolver.* {...}` | `BuildStep.resolver` | Fase 3 (BUILD-RUST.md): servido pelo banco semântico; enquanto não existe, o hospedeiro responde `unavailable` e o analyzer roda dentro do executor |
 
 No canal, os nomes da primeira coluna usam o prefixo `build.` (por exemplo,
-`build.ler` e `build.resposta`), e cada pedido recebe o mesmo `id` na resposta.
-Um pedido com `AssetId` ou bytes inválidos recebe `build.resposta {id, erro}`;
+`build.read` e `build.response`), e cada pedido recebe o mesmo `id` na resposta.
+Um pedido com `AssetId` ou bytes inválidos recebe `build.response {id, error}`;
 o canal permanece aberto, para que o builder possa tratar o erro e continuar a
 ação. Mensagens sem `id` ou respostas fora de ordem continuam sendo falhas do
 protocolo.
@@ -164,7 +164,7 @@ Legibilidade das respostas segue o `build_impl.dart:443-463` (§3 de
 
 ## 4. Encerramento
 
-`{"t":"fim"}` do hospedeiro; o executor responde `{"t":"fim"}` e sai.
+`{"t":"end"}` do hospedeiro; o executor responde `{"t":"end"}` e sai.
 Processo que morre no meio de uma ação: a ação falha (cai no apoio com o
 motivo) e o `ExecutorVm` fica indisponível pelo resto da sessão. stderr do
 processo é herdado (os avisos de depreciação do dart-sass, por exemplo,

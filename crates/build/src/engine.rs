@@ -1413,7 +1413,7 @@ impl Engine {
     /// The run-time extensions come from the `Builder` object, not from
     /// `build.yaml` (`expected_outputs.dart`). With the Dart executor
     /// available, the engine asks, for each phase that no verified native
-    /// generator covers, what they are (`build.extensoes`) and, if any of
+    /// generator covers, what they are (`build.extensions`) and, if any of
     /// them differs from the descriptor or from `build.yaml` — one factory of
     /// a builder with several, extensions that depend on the options —,
     /// rebuilds the graph with the `Builder`'s. Once per plan; without an
@@ -1918,11 +1918,11 @@ impl Engine {
             .post_process_step(&request, &mut service)
             .map_err(|e| e.0)?;
         if result.failed {
-            // "severo" and "erro" are log levels of the dfexec/1 protocol.
+            // "severe" and "error" are log levels of the dfexec/1 protocol.
             let details = result
                 .logs
                 .iter()
-                .filter(|(level, _)| level == "severo" || level == "erro")
+                .filter(|(level, _)| level == "severe" || level == "error")
                 .map(|(_, message)| message.as_str())
                 .collect::<Vec<_>>()
                 .join("; ");
@@ -2202,11 +2202,11 @@ impl Engine {
             DartFailure::Builder(format!("{}: executor failure: {}", request.key, e.0))
         })?;
         if result.failed {
-            // "severo" and "erro" are log levels of the dfexec/1 protocol.
+            // "severe" and "error" are log levels of the dfexec/1 protocol.
             let details = result
                 .logs
                 .iter()
-                .filter(|(level, _)| level == "severo" || level == "erro")
+                .filter(|(level, _)| level == "severe" || level == "error")
                 .map(|(_, message)| message.as_str())
                 .chain(
                     service

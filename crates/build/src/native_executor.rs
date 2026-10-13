@@ -188,7 +188,7 @@ fn program_files(
 pub struct NativeMeasurement {
     /// Time of `compile-native` (zero when the executable was reused).
     pub compilation: Duration,
-    /// From the start of the process to `build.carregado`.
+    /// From the start of the process to `build.loaded`.
     pub startup: Duration,
     pub executable_reused: bool,
 }
@@ -391,7 +391,7 @@ impl NativeExecutor {
         let client = self
             .client
             .as_mut()
-            .ok_or_else(|| ExecutorError("build.executar before build.carregar".into()))?;
+            .ok_or_else(|| ExecutorError("build.run before build.load".into()))?;
         let r = if post {
             client.post_process_step(request, service)
         } else {

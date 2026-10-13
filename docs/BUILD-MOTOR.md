@@ -67,7 +67,7 @@ Duas perguntas, nada mais: **quando** (plano, agenda, impressão) e
   sufixo, `^caminho` exato, `{{nome}}` com `(.+)` guloso e primeiro casamento.
   Quem diz as extensões de execução é o objeto `Builder`
   (`buildExtensions`): com o executor Dart disponível, o motor pergunta a
-  cada fase sem gerador nativo verificado (`build.extensoes`) e refaz o
+  cada fase sem gerador nativo verificado (`build.extensions`) e refaz o
   grafo se divergirem; sem executor, valem as do **descritor** do builder
   (§6) e, sem descritor, as do `build.yaml` (que não separam as fábricas de
   um builder com várias).
@@ -303,9 +303,9 @@ executor Dart, como o `build_runner_core` 8.0.0 os executa.
   `inputExtensions`, casa o `generate_for` e cuja fonte original está nos
   `sources` do alvo (`_actionMatches`). As `inputExtensions` são as do
   **objeto** `PostProcessBuilder` (o oficial ignora o `input_extensions` do
-  `build.yaml`), perguntadas ao executor por `build.entradas_pos`; sem
+  `build.yaml`), perguntadas ao executor por `build.post_inputs`; sem
   executor Dart a fase não tem âncoras e a saída fica pendente no placar.
-* **Execução** — `build.posprocessar`: o `runPostProcessBuilder` do
+* **Execução** — `build.post_process`: o `runPostProcessBuilder` do
   `package:build` com o leitor e o escritor do motor. Uma entrada gerada que
   não foi escrita não executa a âncora (`wasOutput`, origem `Omitida`). A
   âncora depende do digest da entrada primária mesmo que o pós-processador não

@@ -353,7 +353,7 @@ pub(crate) fn write_bootstrap(
 pub struct VmMeasurement {
     /// Time of `dart compile kernel` (zero when the kernel was reused).
     pub compilation: Duration,
-    /// From process start to `build.carregado`.
+    /// From process start to `build.loaded`.
     pub startup: Duration,
     pub kernel_reused: bool,
 }
@@ -452,7 +452,7 @@ impl VmExecutor {
         let client = self
             .client
             .as_mut()
-            .ok_or_else(|| ExecutorError("build.executar before build.carregar".into()))?;
+            .ok_or_else(|| ExecutorError("build.run before build.load".into()))?;
         let r = if post {
             client.post_process_step(request, service)
         } else {

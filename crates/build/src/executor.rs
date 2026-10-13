@@ -236,7 +236,7 @@ pub struct BuilderScript {
     pub cache_key: String,
 }
 
-/// `build.executar` of `dfexec/1` (`docs/BUILD-PROTOCOLO.md` §3).
+/// `build.run` of `dfexec/1` (`docs/BUILD-PROTOCOLO.md` §3).
 #[derive(Debug, Clone)]
 pub struct ActionRequest {
     pub phase: usize,
@@ -252,7 +252,7 @@ pub struct ActionRequest {
 /// outputs.
 pub type RuntimeExtensions = Vec<(String, Vec<String>)>;
 
-/// `build.extensoes` of `dfexec/1`: a phase's factory, with its options.
+/// `build.extensions` of `dfexec/1`: a phase's factory, with its options.
 #[derive(Debug, Clone)]
 pub struct ExtensionsRequest {
     pub key: String,
@@ -532,7 +532,7 @@ pub trait DartExecutor: Send {
     ) -> Result<Option<Vec<String>>, ExecutorError> {
         Ok(None)
     }
-    /// `build.posprocessar`: `package:build`'s `runPostProcessBuilder` on the
+    /// `build.post_process`: `package:build`'s `runPostProcessBuilder` on the
     /// anchor's input. `allowed_outputs` comes empty; writes go through
     /// [`BuildStepService::write`], which applies the `addAsset` rule.
     /// The files the builders' code depends on (the bootstrap's depfile), so

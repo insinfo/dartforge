@@ -96,80 +96,80 @@ final class _Servico {
   _Servico(this.fabricas, this.canal, this.caminhoDoPackageConfig);
 
   void _erro(Object? id, String mensagem) =>
-      canal.enviar({'t': 'erro', 'id': id, 'mensagem': mensagem});
+      canal.enviar({'t': 'error', 'id': id, 'message': mensagem});
 
   /// Trata uma mensagem do hospedeiro; `false` encerra.
   Future<bool> receber(Map<String, Object?> m) async {
     final id = m['id'];
     _log(() => '<- ${m['t']} ${m['id'] ?? ''}');
     switch (m['t']) {
-      case 'ola':
-        if (m['protocolo'] != protocolo) {
-          _erro(null, 'protocolo ${m['protocolo']} não suportado (este executor fala $protocolo)');
+      case 'hello':
+        if (m['protocol'] != protocolo) {
+          _erro(null, 'protocolo ${m['protocol']} não suportado (este executor fala $protocolo)');
           return false;
         }
         canal.enviar({
-          't': 'ola',
-          'protocolo': protocolo,
-          'servicos': ['build'],
+          't': 'hello',
+          'protocol': protocolo,
+          'services': ['build'],
           'executor': versaoDoExecutor,
           'abi': '',
         });
-      case 'build.carregar':
+      case 'build.load':
         _carregar(id, m['script']);
-      case 'build.rodada':
+      case 'build.round':
         // Uma atualização nova do motor: é o intervalo entre dois builds do
         // `build_runner` (`build_impl.dart:94-96`).
         await _emCurso;
         _resolvers?.reset();
         await _recursos.disposeAll();
         _recursos = ResourceManager();
-      case 'build.extensoes':
+      case 'build.extensions':
         // As extensões de execução são as do objeto `Builder`
         // (`expectedOutputs`), não as do `build.yaml`.
         try {
-          final opcoes = ((m['opcoes'] as Map?) ?? const {}).cast<String, Object?>();
-          final b = _builder(m['chave'] as String, m['fabrica'] as String, opcoes, m['isRoot'] == true);
+          final opcoes = ((m['options'] as Map?) ?? const {}).cast<String, Object?>();
+          final b = _builder(m['key'] as String, m['factory'] as String, opcoes, m['isRoot'] == true);
           canal.enviar({
-            't': 'build.extensoes',
+            't': 'build.extensions',
             'id': id,
-            'extensoes': [
+            'extensions': [
               for (final MapEntry(:key, :value) in b.buildExtensions.entries) [key, value],
             ],
           });
         } catch (e) {
           _erro(id, '$e');
         }
-      case 'build.entradas_pos':
+      case 'build.post_inputs':
         // As `inputExtensions` do objeto `PostProcessBuilder`: é o que o
         // `_actionMatches` do `build_runner_core` usa para as âncoras.
         try {
-          final opcoes = ((m['opcoes'] as Map?) ?? const {}).cast<String, Object?>();
-          final b = _posProcessador(m['chave'] as String, m['fabrica'] as String, opcoes, m['isRoot'] == true);
-          canal.enviar({'t': 'build.entradas_pos', 'id': id, 'entradas': b.inputExtensions.toList()});
+          final opcoes = ((m['options'] as Map?) ?? const {}).cast<String, Object?>();
+          final b = _posProcessador(m['key'] as String, m['factory'] as String, opcoes, m['isRoot'] == true);
+          canal.enviar({'t': 'build.post_inputs', 'id': id, 'inputs': b.inputExtensions.toList()});
         } catch (e) {
           _erro(id, '$e');
         }
-      case 'build.executar':
+      case 'build.run':
         final acao = _executar(id, m);
         _emCurso = acao;
         unawaited(acao);
-      case 'build.posprocessar':
+      case 'build.post_process':
         final acao = _posprocessar(id, m);
         _emCurso = acao;
         unawaited(acao);
-      case 'build.resposta':
+      case 'build.response':
         final pedido = _pendentes.remove(id);
         if (pedido == null) {
           stderr.writeln('dartforge_build_executor: resposta sem pedido: $m');
         } else {
           pedido.complete(m);
         }
-      case 'fim':
+      case 'end':
         await _emCurso;
         await _recursos.disposeAll();
         await _recursos.beforeExit();
-        canal.enviar({'t': 'fim'});
+        canal.enviar({'t': 'end'});
         return false;
       default:
         _erro(id, 'mensagem desconhecida: ${m['t']}');
@@ -178,18 +178,18 @@ final class _Servico {
   }
 
   void _carregar(Object? id, Object? script) {
-    final aplicacoes = (script as Map?)?['aplicacoes'] as List? ?? const [];
+    final aplicacoes = (script as Map?)?['applications'] as List? ?? const [];
     final faltam = <String>[];
     for (final a in aplicacoes.cast<Map<String, Object?>>()) {
-      final chave = a['chave'] as String;
-      for (final f in (a['fabricas'] as List).cast<String>()) {
+      final chave = a['key'] as String;
+      for (final f in (a['factories'] as List).cast<String>()) {
         if (fabricas[chave]?[f] == null) faltam.add('$chave#$f');
       }
     }
     if (faltam.isNotEmpty) {
       _erro(id, 'o bootstrap não tem as fábricas ${faltam.join(', ')}');
     } else {
-      canal.enviar({'t': 'build.carregado', 'id': id});
+      canal.enviar({'t': 'build.loaded', 'id': id});
     }
   }
 
@@ -198,7 +198,7 @@ final class _Servico {
     final id = _proximoPedido++;
     final c = Completer<Map<String, Object?>>();
     _pendentes[id] = c;
-    _log(() => '-> $tipo $id ${campos['asset'] ?? campos['padrao'] ?? ''}');
+    _log(() => '-> $tipo $id ${campos['asset'] ?? campos['pattern'] ?? ''}');
     canal.enviar({'t': tipo, 'id': id, ...campos});
     return c.future;
   }
@@ -237,20 +237,20 @@ final class _Servico {
   /// `build_runner_core`): o `runPostProcessBuilder` do `package:build` com o
   /// leitor e o escritor do hospedeiro. O `addAsset` recusa o mesmo asset
   /// duas vezes; o hospedeiro recusa o que o grafo já tem. O
-  /// `deletePrimaryInput` volta em `apagados`.
+  /// `deletePrimaryInput` volta em `deleted`.
   Future<void> _posprocessar(Object? id, Map<String, Object?> m) async {
     final logs = <Map<String, Object?>>[];
     final apagados = <String>[];
     var falhou = false;
     try {
-      final chave = m['chave'] as String;
-      final entrada = AssetId.parse(m['entrada'] as String);
-      final opcoes = ((m['opcoes'] as Map?) ?? const {}).cast<String, Object?>();
-      final builder = _posProcessador(chave, m['fabrica'] as String, opcoes, m['isRoot'] == true);
+      final chave = m['key'] as String;
+      final entrada = AssetId.parse(m['input'] as String);
+      final opcoes = ((m['options'] as Map?) ?? const {}).cast<String, Object?>();
+      final builder = _posProcessador(chave, m['factory'] as String, opcoes, m['isRoot'] == true);
       final logger = Logger.detached('$builder on $entrada')..level = Level.ALL;
       final assinatura = logger.onRecord.listen((r) {
         if (r.level >= Level.SEVERE) falhou = true;
-        logs.add({'nivel': _nivel(r.level), 'mensagem': _texto(r)});
+        logs.add({'level': _nivel(r.level), 'message': _texto(r)});
       });
       final adicionados = <AssetId>{};
       try {
@@ -263,22 +263,22 @@ final class _Servico {
         });
       } catch (e, s) {
         // O `scopeLogAsync` já registrou o erro como severo no logger.
-        if (!falhou) logs.add({'nivel': 'severo', 'mensagem': '$e\n$s'});
+        if (!falhou) logs.add({'level': 'severe', 'message': '$e\n$s'});
         falhou = true;
       } finally {
         await assinatura.cancel();
       }
     } catch (e, s) {
-      logs.add({'nivel': 'severo', 'mensagem': '$e\n$s'});
+      logs.add({'level': 'severe', 'message': '$e\n$s'});
       falhou = true;
     }
     canal.enviar({
-      't': 'build.resultado',
+      't': 'build.result',
       'id': id,
-      'saidas': const [],
+      'outputs': const [],
       'logs': logs,
-      'falhou': falhou,
-      'apagados': apagados,
+      'failed': falhou,
+      'deleted': apagados,
     });
   }
 
@@ -286,11 +286,11 @@ final class _Servico {
     final logs = <Map<String, Object?>>[];
     var falhou = false;
     try {
-      final chave = m['chave'] as String;
-      final entrada = AssetId.parse(m['entrada'] as String);
-      final opcoes = ((m['opcoes'] as Map?) ?? const {}).cast<String, Object?>();
-      final builder = _builder(chave, m['fabrica'] as String, opcoes, m['isRoot'] == true);
-      _log(() => 'ação ${m['chave']} em ${m['entrada']}: package config');
+      final chave = m['key'] as String;
+      final entrada = AssetId.parse(m['input'] as String);
+      final opcoes = ((m['options'] as Map?) ?? const {}).cast<String, Object?>();
+      final builder = _builder(chave, m['factory'] as String, opcoes, m['isRoot'] == true);
+      _log(() => 'ação ${m['key']} em ${m['input']}: package config');
       final config = await _config();
       _log(() => 'ação: runBuilder');
       final resolvers = _resolvers ??= AnalyzerResolvers.custom(
@@ -299,7 +299,7 @@ final class _Servico {
       final logger = Logger.detached('$chave on $entrada')..level = Level.ALL;
       final assinatura = logger.onRecord.listen((r) {
         if (r.level >= Level.SEVERE) falhou = true;
-        logs.add({'nivel': _nivel(r.level), 'mensagem': _texto(r)});
+        logs.add({'level': _nivel(r.level), 'message': _texto(r)});
       });
       final leitor = _Leitor(this);
       try {
@@ -307,18 +307,18 @@ final class _Servico {
             logger: logger, resourceManager: _recursos, packageConfig: config);
       } catch (e, s) {
         // O `runBuilder` já registrou o erro como severo no logger.
-        if (!falhou) logs.add({'nivel': 'severo', 'mensagem': '$e\n$s'});
+        if (!falhou) logs.add({'level': 'severe', 'message': '$e\n$s'});
         falhou = true;
       } finally {
         await assinatura.cancel();
       }
     } catch (e, s) {
-      logs.add({'nivel': 'severo', 'mensagem': '$e\n$s'});
+      logs.add({'level': 'severe', 'message': '$e\n$s'});
       falhou = true;
     }
-    _log(() => 'ação $id: ${falhou ? 'falhou' : 'ok'}'
-        '${logs.where((l) => l['nivel'] == 'severo').map((l) => '\n  ${l['mensagem']}').join()}');
-    canal.enviar({'t': 'build.resultado', 'id': id, 'saidas': const [], 'logs': logs, 'falhou': falhou});
+    _log(() => 'ação $id: ${falhou ? 'failed' : 'ok'}'
+        '${logs.where((l) => l['level'] == 'severe').map((l) => '\n  ${l['message']}').join()}');
+    canal.enviar({'t': 'build.result', 'id': id, 'outputs': const [], 'logs': logs, 'failed': falhou});
   }
 }
 
@@ -345,7 +345,7 @@ Future<String> Function()? _geradorDoResumoDoSdk() {
     final executavel = File(Platform.resolvedExecutable);
     final atual = jsonEncode({
       'sdk': raiz,
-      'versao': await versao.exists() ? (await versao.readAsString()).trim() : '',
+      'version': await versao.exists() ? (await versao.readAsString()).trim() : '',
       'executor': executavel.path,
       'data': (await executavel.lastModified()).microsecondsSinceEpoch,
     });
@@ -363,12 +363,12 @@ Future<String> Function()? _geradorDoResumoDoSdk() {
 }
 
 String _nivel(Level l) => l >= Level.SEVERE
-    ? 'severo'
+    ? 'severe'
     : l >= Level.WARNING
-        ? 'aviso'
+        ? 'warning'
         : l >= Level.INFO
             ? 'info'
-            : 'fino';
+            : 'fine';
 
 String _texto(LogRecord r) {
   final b = StringBuffer(r.message);
@@ -387,7 +387,7 @@ final class _Leitor extends AssetReader implements MultiPackageAssetReader {
   _Leitor(this.servico);
 
   Future<List<int>?> _ler(AssetId id) => _bytes.putIfAbsent(id, () async {
-        final r = await servico.pedir('build.ler', {'asset': '$id'});
+        final r = await servico.pedir('build.read', {'asset': '$id'});
         final b = r['bytes_base64'];
         return b is String ? base64Decode(b) : null;
       });
@@ -402,15 +402,15 @@ final class _Leitor extends AssetReader implements MultiPackageAssetReader {
 
   @override
   Future<bool> canRead(AssetId id) => _existe.putIfAbsent(id, () async {
-        final r = await servico.pedir('build.existe', {'asset': '$id'});
-        return r['sim'] == true;
+        final r = await servico.pedir('build.exists', {'asset': '$id'});
+        return r['exists'] == true;
       });
 
   @override
   Stream<AssetId> findAssets(Glob glob, {String? package}) async* {
     // O hospedeiro limita a busca ao pacote da entrada primária, como o
     // `SingleStepReader` do `build_runner_core`.
-    final r = await servico.pedir('build.glob', {'padrao': glob.pattern});
+    final r = await servico.pedir('build.glob', {'pattern': glob.pattern});
     for (final a in (r['assets'] as List? ?? const []).cast<String>()) {
       yield AssetId.parse(a);
     }
@@ -423,8 +423,8 @@ final class _Escritor implements AssetWriter {
 
   @override
   Future<void> writeAsBytes(AssetId id, List<int> bytes) async {
-    final r = await servico.pedir('build.escrever', {'asset': '$id', 'bytes_base64': base64Encode(bytes)});
-    final erro = r['erro'];
+    final r = await servico.pedir('build.write', {'asset': '$id', 'bytes_base64': base64Encode(bytes)});
+    final erro = r['error'];
     if (erro != null) throw InvalidOutputException(id, '$erro');
   }
 
