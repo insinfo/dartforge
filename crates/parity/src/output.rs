@@ -3,12 +3,12 @@
 //! of `dart analyze` 3.6.2, in the three formats, plus the exit code.
 //!
 //! Each case is a folder of `<dir>` with:
-//! * `projeto/`: the minimal project (`pubspec.yaml`, sources, optionally
+//! * `project/`: the minimal project (`pubspec.yaml`, sources, optionally
 //!   `analysis_options.yaml` and `.dart_tool/package_config.json`);
 //! * `ARGS`: the arguments after `analyze`, one per line, relative to the
 //!   project (without the file, `.`);
-//! * `ESPERADO.default.txt`, `ESPERADO.json.txt`, `ESPERADO.machine.txt` and
-//!   `ESPERADO.codigo` (the latter optional).
+//! * `EXPECTED.default.txt`, `EXPECTED.json.txt`, `EXPECTED.machine.txt` and
+//!   `EXPECTED.code` (the latter optional).
 //!
 //! Normalization replaces the project's absolute path with `<raiz>` (in both
 //! JSON spellings, with `\\` and with `/`). `--write` runs `dart` (the one on
@@ -85,7 +85,7 @@ fn first_difference(expected: &str, actual: &str) -> Option<(usize, String, Stri
 /// The cases of `dir`, in order.
 fn cases(dir: &Path) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
-        .map(|r| r.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.join("projeto").is_dir()).collect())
+        .map(|r| r.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.join("project").is_dir()).collect())
         .unwrap_or_default();
     v.sort();
     v
@@ -93,17 +93,17 @@ fn cases(dir: &Path) -> Vec<PathBuf> {
 
 /// Re-records each case's expectations with `dart analyze`.
 pub fn record(dir: &Path) -> bool {
-    let state = std::env::temp_dir().join("dartforge-saida-analyze");
+    let state = std::env::temp_dir().join("dartforge-analyze-output");
     let _ = std::fs::create_dir_all(&state);
     let mut ok = true;
     for case in cases(dir) {
-        let project = case.join("projeto");
+        let project = case.join("project");
         let args = case_args(&case);
         let mut code = None;
         for f in FORMATS {
             match run(&dart(), &["analyze"], f, &args, &project, Some(&state)) {
                 Some(s) => {
-                    let _ = std::fs::write(case.join(format!("ESPERADO.{f}.txt")), &s.text);
+                    let _ = std::fs::write(case.join(format!("EXPECTED.{f}.txt")), &s.text);
                     code = Some(s.code);
                 }
                 None => {
@@ -113,7 +113,7 @@ pub fn record(dir: &Path) -> bool {
             }
         }
         if let Some(c) = code {
-            let _ = std::fs::write(case.join("ESPERADO.codigo"), format!("{c}\n"));
+            let _ = std::fs::write(case.join("EXPECTED.code"), format!("{c}\n"));
         }
     }
     ok
@@ -128,11 +128,11 @@ pub fn compare(dir: &Path) -> bool {
         return false;
     }
     for case in all {
-        let project = case.join("projeto");
+        let project = case.join("project");
         let args = case_args(&case);
         let name = case.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         for f in FORMATS {
-            let Ok(expected) = std::fs::read_to_string(case.join(format!("ESPERADO.{f}.txt"))) else { continue };
+            let Ok(expected) = std::fs::read_to_string(case.join(format!("EXPECTED.{f}.txt"))) else { continue };
             let expected = separators(&expected.replace("\r\n", "\n"));
             // `--all`: the whole output, without the publication rule (which
             // only leaves the verified codes in the CLI); what is compared here
@@ -147,7 +147,7 @@ pub fn compare(dir: &Path) -> bool {
                 all_ok = false;
             }
             if f == "default"
-                && let Ok(c) = std::fs::read_to_string(case.join("ESPERADO.codigo"))
+                && let Ok(c) = std::fs::read_to_string(case.join("EXPECTED.code"))
                 && let Ok(c) = c.trim().parse::<i32>()
                 && c != actual.code
             {

@@ -4496,8 +4496,8 @@ comando**.
 1. Comando novo `dartforge-parity output <dir-de-casos>`: cada caso é uma
    pasta com um projeto mínimo (`pubspec.yaml`, `.dart_tool/package_config.json`
    gravado, `analysis_options.yaml` opcional, fontes) e um arquivo
-   `ESPERADO.<formato>.txt` por formato (`default`, `json`, `machine`), mais
-   `ESPERADO.codigo` (o código de saída) e `ARGS` (os argumentos, um por linha,
+   `EXPECTED.<formato>.txt` por formato (`default`, `json`, `machine`), mais
+   `EXPECTED.code` (o código de saída) e `ARGS` (os argumentos, um por linha,
    relativos à pasta).
 2. Gravação do oráculo: `dartforge-parity output --write` roda
    `dart analyze` do 3.6.2 com `ANALYZER_STATE_LOCATION_OVERRIDE` numa pasta
@@ -4509,17 +4509,17 @@ comando**.
    relatório lista, por caso e por formato, a primeira linha diferente.
 4. Casos iniciais: as sondas `s1`–`s7` de
    `E:\dftemp\analise\spec-infra\sonda\` (copiá-las para
-   `corpus/saida-analyze/`), que já têm a saída real nos três formatos.
+   `corpus/analyze-output/`), que já têm a saída real nos três formatos.
 
 **Pronto quando** o comando roda no CI (job `analise` do `heavy.yml`, sem
 SDK: contra o esperado gravado) e reprova qualquer diferença de byte.
 
 **Estado em 2026-10-05 (escrito, não compilado).** `crates/parity/src/saida.rs` e o subcomando
-`dartforge-parity output [DIR] [--write]`: cada caso de `corpus/saida-analyze/` tem `projeto/`, `ARGS` e os
+`dartforge-parity output [DIR] [--write]`: cada caso de `corpus/analyze-output/` tem `project/`, `ARGS` e os
 esperados; a comparação roda o `dartforge` ao lado do executável, normaliza o caminho do projeto para
 `<raiz>` e o separador de caminho dos dois lados (o CI é Windows e Linux), e relata a primeira linha
-diferente por caso e formato, mais o código de saída quando há `ESPERADO.codigo`. As sondas `s1`–`s7` foram
-copiadas por `scripts/copy_output_probes.py`. O `ESPERADO.codigo` sai na primeira regravação com
+diferente por caso e formato, mais o código de saída quando há `EXPECTED.code`. As sondas `s1`–`s7` foram
+copiadas por `scripts/copy_output_probes.py`. O `EXPECTED.code` sai na primeira regravação com
 `--write`. O passo entrou no job `analise` do `heavy.yml`.
 
 ## III.2 Etapa 2 — Supressões

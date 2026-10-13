@@ -135,7 +135,7 @@ fn main() -> ExitCode {
     // `output [DIR] [--write]`: the project parity harness (III.1).
     if raw.first().is_some_and(|c| c == "output") {
         let write = raw.iter().any(|x| x == "--write");
-        let dir = raw.iter().skip(1).find(|x| !x.starts_with("--")).map(PathBuf::from).unwrap_or_else(|| corpus::corpus_root().join("saida-analyze"));
+        let dir = raw.iter().skip(1).find(|x| !x.starts_with("--")).map(PathBuf::from).unwrap_or_else(|| corpus::corpus_root().join("analyze-output"));
         let ok = if write { dartforge_parity::output::record(&dir) } else { dartforge_parity::output::compare(&dir) };
         return if ok { ExitCode::SUCCESS } else { ExitCode::from(1) };
     }

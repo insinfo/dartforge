@@ -887,11 +887,11 @@ jobs:
           retention-days: 14
       # Stage III.1 of docs/ANALYZER-ESPECIFICACAO-INFRA.md: the whole
       # `analyze` output (three formats and exit code) against the recorded one.
-      - name: dartforge-parity output (corpus/saida-analyze)
+      - name: dartforge-parity output (corpus/analyze-output)
         if: always()
         shell: pwsh
         run: |
-          & target/release/dartforge-parity.exe output corpus/saida-analyze
+          & target/release/dartforge-parity.exe output corpus/analyze-output
           exit $LASTEXITCODE
 
 
