@@ -745,6 +745,21 @@ const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
             ("new_with_undefined_constructor_default", 7, 29, 6),
         ],
     ),
+    (
+        "deprecated_annotations_and_docs.dart",
+        "@Deprecated('old')\nclass Old {\n  @Deprecated('m')\n  void m() {}\n}\n@Deprecated('x')\nconst dep = 1;\n/// See [Old], [Old.m], [dep].\n@dep\nvoid a(@dep int p) {}\n/// [dep] is a parameter here.\nvoid b(int dep) {}\nabstract class Ref {\n  @Deprecated('no')\n  void detect() {}\n}\nabstract class View implements Ref {\n  /// Uses [detect] and [Ref.detect].\n  void build();\n}\nclass F {\n  @Deprecated('t')\n  final String? target;\n  F({String? target}) : target = target;\n}\n",
+        &[
+            ("deprecated_member_use_from_same_package", 8, 10, 3),
+            ("deprecated_member_use_from_same_package", 8, 17, 3),
+            ("deprecated_member_use_from_same_package", 8, 21, 1),
+            ("deprecated_member_use_from_same_package", 8, 26, 3),
+            ("deprecated_member_use_from_same_package", 9, 2, 3),
+            ("deprecated_member_use_from_same_package", 10, 9, 3),
+            ("deprecated_member_use_from_same_package", 18, 13, 6),
+            ("deprecated_member_use_from_same_package", 18, 30, 6),
+            ("deprecated_member_use_from_same_package", 24, 25, 6),
+        ],
+    ),
 ];
 
 #[test]

@@ -360,6 +360,304 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
         }
     }
 
+    // 3. The names of the annotations (`visitSimpleIdentifier` of
+    // `BestPracticesVerifier` on the annotation's identifiers): `@x`, `@p.x`,
+    // `@C(…)`, `@C.x`, `@p.C.x`, at each name that resolves to a deprecated
+    // element. The annotations of a deprecated declaration are inside it.
+    // Inside a function body (locals) and inside a container that declares
+    // the first name (its own scope) they are left out.
+    {
+        let local: std::collections::HashSet<usize> = a
+            .local_metadata
+            .iter()
+            .flat_map(|(_, ms)| ms.iter().map(|m| m.span.start))
+            .collect();
+        let mut containers: Vec<(Span, std::collections::HashSet<dartforge_intern::SymbolId>)> = Vec::new();
+        for d in a.decls.iter() {
+            let (members, constants): (&[ast::MemberId], &[ast::EnumConstant]) = match &d.kind {
+                DeclKind::Class(x) => (&x.members, &[]),
+                DeclKind::Mixin(x) => (&x.members, &[]),
+                DeclKind::Enum(x) => (&x.members, &x.constants),
+                DeclKind::Extension(x) => (&x.members, &[]),
+                DeclKind::ExtensionType(x) => (&x.members, &[]),
+                _ => continue,
+            };
+            let mut names: std::collections::HashSet<dartforge_intern::SymbolId> = constants.iter().map(|k| k.name.sym).collect();
+            if let DeclKind::ExtensionType(x) = &d.kind {
+                names.insert(x.representation_name.sym);
+            }
+            for &m in members {
+                match &a.member(m).kind {
+                    MemberKind::Field(v) => names.extend(v.variables.iter().map(|x| x.name.sym)),
+                    MemberKind::Method(f) => names.extend(a.function(*f).name.map(|n| n.sym)),
+                    MemberKind::Constructor(_) => {}
+                }
+            }
+            containers.push((d.span, names));
+        }
+        let deprecated_owner: Vec<Span> = a
+            .decls
+            .iter()
+            .filter(|d| dep(&d.metadata))
+            .flat_map(|d| d.metadata.iter().map(|m| m.span))
+            .chain(a.members.iter().filter(|m| dep(&m.metadata)).flat_map(|m| m.metadata.iter().map(|x| x.span)))
+            .collect();
+        for m in dartforge_frontend::parents::all_annotations(a, &unit_id.unit) {
+            if local.contains(&m.span.start) || deprecated_owner.contains(&m.span) {
+                continue;
+            }
+            let Some(first) = m.name.first() else { continue };
+            if containers.iter().any(|(sp, names)| sp.start <= m.span.start && m.span.end <= sp.end && names.contains(&first.sym)) {
+                continue;
+            }
+            let prefixed = m.name.len() >= 2 && program.prefixes_in_unit(u).contains_key(&first.sym);
+            let (head, rest): (Option<Element>, &[ast::Name]) = if prefixed {
+                (program.lookup_prefixed_in_unit(u, first.sym, m.name[1].sym).and_then(|b| b.getter), &m.name[1..])
+            } else {
+                (program.lookup_in_unit(u, first.sym).and_then(|b| b.getter), &m.name[..])
+            };
+            let Some(head) = head else { continue };
+            if let Some(tgt) = element_target(head) {
+                report(rest[0].span, tgt);
+            }
+            // `@C.x` / `@C.named(…)`: the static member or the constructor.
+            if let (Element::Class(c), Some(member)) = (head, rest.get(1)) {
+                let k = program.class(c);
+                let f = k.static_members.get(&member.sym).copied().or_else(|| k.constructors.get(&member.sym).copied());
+                if let Some(f) = f
+                    && let Some(tgt) = function_target(f)
+                {
+                    report(member.span, tgt);
+                }
+            }
+        }
+    }
+
+    // 4. The references of the documentation comments (`[A]`, `[A.b]`,
+    // `[p.A]`; the `CommentReference` identifiers that `BestPracticesVerifier`
+    // visits), resolved like the `CommentReferenceResolver`: the parameters and
+    // type parameters of the documented function are left out, a name declared
+    // in the enclosing type is that member, otherwise the library's scope.
+    {
+        use dartforge_frontend::ast::{Annotation, Parameter, TypedefKind};
+        let source = &unit_id.source;
+        let comments = dartforge_frontend::comments::Comments::scan(source);
+        let doc = |metadata: &[Annotation], start: usize| -> Option<(Span, Vec<Span>)> {
+            let after = match metadata.last() {
+                Some(m) => dartforge_frontend::source::skip_whitespace(source.as_bytes(), m.span.end),
+                None => start,
+            };
+            let (d, pos) = match comments.dart_doc(source, after) {
+                Some(d) => (d, after),
+                None => metadata.iter().rev().find_map(|m| comments.dart_doc(source, m.span.start).map(|d| (d, m.span.start)))?,
+            };
+            let chain: Vec<Span> = comments.before(source, pos).into_iter().filter(|c| c.start >= d.start).collect();
+            Some((d, chain))
+        };
+        let names_of = |ps: &[Parameter], tps: &[ast::TypeParameter]| -> Vec<dartforge_intern::SymbolId> {
+            ps.iter().filter_map(|p| p.name.map(|n| n.sym)).chain(tps.iter().map(|t| t.name.sym)).collect()
+        };
+        let lib = unit_id.library;
+        let class_of = |n: dartforge_intern::SymbolId| match program.library(lib).declared.get(&n).and_then(|b| b.getter) {
+            Some(Element::Class(c)) => Some(c),
+            _ => None,
+        };
+        // (comment chain, names to leave out, enclosing type, documented item deprecated)
+        let mut docs: Vec<(Vec<Span>, Vec<dartforge_intern::SymbolId>, Option<dartforge_elements::model::ClassId>, bool)> = Vec::new();
+        let mut owners: std::collections::HashMap<u32, (Option<dartforge_elements::model::ClassId>, Vec<dartforge_intern::SymbolId>)> = std::collections::HashMap::new();
+        for decl in a.decls.iter() {
+            let (extras, owner, members, tps): (Vec<dartforge_intern::SymbolId>, Option<dartforge_elements::model::ClassId>, &[ast::MemberId], &[ast::TypeParameter]) = match &decl.kind {
+                DeclKind::Function(f) => {
+                    let g = a.function(*f);
+                    (names_of(g.parameters.as_deref().unwrap_or(&[]), &g.type_params), None, &[], &[])
+                }
+                DeclKind::Typedef(t) => {
+                    let ps: &[Parameter] = match &t.kind {
+                        TypedefKind::Legacy { parameters, .. } => parameters,
+                        TypedefKind::Alias(_) => &[],
+                    };
+                    (names_of(ps, &t.type_params), None, &[], &[])
+                }
+                DeclKind::Class(c) => (Vec::new(), class_of(c.name.sym), &c.members, &c.type_params),
+                DeclKind::Mixin(c) => (Vec::new(), class_of(c.name.sym), &c.members, &c.type_params),
+                DeclKind::Enum(c) => (Vec::new(), class_of(c.name.sym), &c.members, &c.type_params),
+                DeclKind::ExtensionType(c) => (Vec::new(), class_of(c.name.sym), &c.members, &c.type_params),
+                // An extension's members: only the library's scope here.
+                DeclKind::Extension(c) => (c.type_params.iter().map(|t| t.name.sym).collect(), None, &c.members, &c.type_params),
+                DeclKind::Variables(_) => (Vec::new(), None, &[], &[]),
+            };
+            let type_param_names: Vec<dartforge_intern::SymbolId> = tps.iter().map(|t| t.name.sym).collect();
+            for &m in members {
+                owners.insert(m.0, (owner, type_param_names.clone()));
+            }
+            // An extension's members are not looked up here: their names are
+            // left out (in the extension's scope they are those members).
+            let mut extension_names: Vec<dartforge_intern::SymbolId> = Vec::new();
+            if matches!(decl.kind, DeclKind::Extension(_)) {
+                for &m in members {
+                    match &a.member(m).kind {
+                        MemberKind::Field(v) => extension_names.extend(v.variables.iter().map(|x| x.name.sym)),
+                        MemberKind::Method(f) => extension_names.extend(a.function(*f).name.map(|n| n.sym)),
+                        MemberKind::Constructor(_) => {}
+                    }
+                }
+                let mut hidden = type_param_names.clone();
+                hidden.extend(extension_names.iter().copied());
+                for &m in members {
+                    owners.insert(m.0, (None, hidden.clone()));
+                }
+            }
+            if let Some((_, chain)) = doc(&decl.metadata, decl.span.start) {
+                let mut extras = extras;
+                extras.extend(type_param_names.iter().copied());
+                extras.extend(extension_names.iter().copied());
+                docs.push((chain, extras, owner, dep(&decl.metadata)));
+            }
+            if let DeclKind::Enum(c) = &decl.kind {
+                for k in c.constants.iter() {
+                    if let Some((_, chain)) = doc(&k.metadata, k.span.start) {
+                        docs.push((chain, type_param_names.clone(), owner, dep(&decl.metadata) || dep(&k.metadata)));
+                    }
+                }
+            }
+        }
+        for (i, m) in a.members.iter().enumerate() {
+            let Some((_, chain)) = doc(&m.metadata, m.span.start) else { continue };
+            let (owner, mut extras) = owners.get(&(i as u32)).cloned().unwrap_or((None, Vec::new()));
+            match &m.kind {
+                MemberKind::Method(f) => {
+                    let g = a.function(*f);
+                    extras.extend(names_of(g.parameters.as_deref().unwrap_or(&[]), &g.type_params));
+                }
+                MemberKind::Constructor(k) => extras.extend(names_of(&k.parameters, &[])),
+                MemberKind::Field(_) => {}
+            }
+            let deprecated_owner = in_deprecated(m.span);
+            docs.push((chain, extras, owner, dep(&m.metadata) || deprecated_owner));
+        }
+        // A member of class `c` by name: methods and accessors (instance or
+        // static), constructors (`[C.named]`), enum constants.
+        let member_target = |c: dartforge_elements::model::ClassId, n: &str, inherited: bool| -> Option<Option<Target<'_>>> {
+            let sym = interner.lookup(n)?;
+            let k = program.class(c);
+            if let Some(&f) = k.instance_members.get(&sym).or_else(|| k.static_members.get(&sym)) {
+                return Some(function_target(f));
+            }
+            if let Some(&v) = k.enum_constants.iter().find(|&&v| program.variable(v).name == sym) {
+                return Some(variable_target(v));
+            }
+            if let Some(setter) = interner.lookup(&format!("{n}="))
+                && let Some(&f) = k.instance_members.get(&setter).or_else(|| k.static_members.get(&setter))
+            {
+                return Some(function_target(f));
+            }
+            if let Some(&f) = k.constructors.get(&sym) {
+                return Some(function_target(f));
+            }
+            if !inherited {
+                return None;
+            }
+            // An inherited instance member (`_lookUpMember` on the enclosing
+            // class): the supertypes, breadth-first.
+            let setter = interner.lookup(&format!("{n}="));
+            let mut queue: std::collections::VecDeque<dartforge_elements::model::ClassId> = std::collections::VecDeque::new();
+            let mut seen: std::collections::HashSet<dartforge_elements::model::ClassId> = std::collections::HashSet::new();
+            let push = |x: dartforge_elements::model::ClassId, queue: &mut std::collections::VecDeque<_>| {
+                let kx = program.class(x);
+                queue.extend(kx.supertype_class);
+                queue.extend(kx.mixin_classes.iter().copied());
+                queue.extend(kx.interface_classes.iter().copied());
+                queue.extend(kx.on_classes.iter().copied());
+            };
+            push(c, &mut queue);
+            while let Some(x) = queue.pop_front() {
+                if !seen.insert(x) || seen.len() > 200 {
+                    continue;
+                }
+                let kx = program.class(x);
+                if let Some(&f) = kx.instance_members.get(&sym).or_else(|| setter.and_then(|st| kx.instance_members.get(&st))) {
+                    return Some(function_target(f));
+                }
+                push(x, &mut queue);
+            }
+            None
+        };
+        for (chain, extras, owner, deprecated_item) in docs {
+            if deprecated_item {
+                continue;
+            }
+            for r in dartforge_frontend::doc_references::references(source, &chain) {
+                let parts = &r.parts;
+                let Some((s1, t1)) = parts.first() else { continue };
+                let Some(n1) = interner.lookup(t1) else { continue };
+                if extras.contains(&n1) {
+                    continue;
+                }
+                if let Some(c) = owner
+                    && let Some(tgt) = member_target(c, t1, false)
+                {
+                    if let Some(tgt) = tgt {
+                        report(*s1, tgt);
+                    }
+                    continue;
+                }
+                // Not in the library's scope either: the enclosing class's
+                // inherited member.
+                if let Some(c) = owner
+                    && parts.len() == 1
+                    && program.lookup_in_unit(u, n1).is_none()
+                {
+                    if let Some(Some(tgt)) = member_target(c, t1, true) {
+                        report(*s1, tgt);
+                    }
+                    continue;
+                }
+                let (head, rest) = if parts.len() >= 2 && program.prefixes_in_unit(u).contains_key(&n1) {
+                    let Some(n2) = interner.lookup(&parts[1].1) else { continue };
+                    (program.lookup_prefixed_in_unit(u, n1, n2), &parts[1..])
+                } else if parts.len() <= 2 {
+                    (program.lookup_in_unit(u, n1), &parts[..])
+                } else {
+                    // `[A.b.c]` without an import prefix: not resolved
+                    // (`[DartType.element.name]` reports nothing).
+                    continue;
+                };
+                let Some(head) = head.and_then(|b| b.getter.or(b.setter)) else { continue };
+                if let Some(tgt) = element_target(head) {
+                    report(rest[0].0, tgt);
+                }
+                if let (Element::Class(c), Some((s2, t2))) = (head, rest.get(1))
+                    && let Some(Some(tgt)) = member_target(c, t2, true)
+                {
+                    report(*s2, tgt);
+                }
+            }
+        }
+    }
+
+    // 5. The field of a constructor's field initializer (`x = e`: the
+    // `fieldName` identifier is not a declaration).
+    for decl in a.decls.iter() {
+        let (the_name, members) = match &decl.kind {
+            DeclKind::Class(c) => (c.name.sym, &c.members),
+            DeclKind::Enum(c) => (c.name.sym, &c.members),
+            _ => continue,
+        };
+        let Some(Element::Class(c)) = program.library(unit_id.library).declared.get(&the_name).and_then(|b| b.getter) else { continue };
+        for &m in members {
+            let MemberKind::Constructor(k) = &a.member(m).kind else { continue };
+            for init in k.initializers.iter() {
+                let Initializer::Field { name, .. } = init else { continue };
+                let field = program.class(c).fields.iter().copied().find(|&v| program.variable(v).name == name.sym && !program.variable(v).static_);
+                if let Some(v) = field
+                    && let Some(tgt) = variable_target(v)
+                {
+                    report(name.span, tgt);
+                }
+            }
+        }
+    }
+
     let Some(body) = body else { return out };
 
     // The left-hand sides of assignments and the operands of `++`/`--`
