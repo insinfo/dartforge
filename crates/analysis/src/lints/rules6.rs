@@ -1,32 +1,31 @@
-//! O sexto lote de regras de lint que só olham a árvore e o texto
-//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), escritas direto dos emissores
-//! da 3.6.2 (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`):
+//! The sixth batch of lint rules that only look at the tree and the text
+//! (docs/ANALYZER-ESPECIFICACAO-INFRA.md §8), written directly from the 3.6.2
+//! emitters (`E:\references\dart-sdk-3.6.2\pkg\linter\lib\src\rules`):
 //! `control_flow_in_finally`, `throw_in_finally`, `avoid_final_parameters`,
 //! `avoid_void_async`, `avoid_returning_null_for_void`,
 //! `prefer_asserts_with_message`, `unnecessary_library_directive`,
 //! `no_self_assignments`, `avoid_annotating_with_dynamic`,
 //! `unnecessary_constructor_name`, `unnecessary_breaks`,
 //! `prefer_expression_function_bodies`, `combinators_ordering`,
-//! `prefer_null_aware_operators`, `one_member_abstracts` e
+//! `prefer_null_aware_operators`, `one_member_abstracts` and
 //! `avoid_private_typedef_functions`.
 //!
-//! Com o mesmo dado do original (as que pedem o elemento ou o tipo só
-//! relatam com a semântica da unidade):
-//! - `avoid_returning_null_for_void`: o tipo de retorno do elemento da
-//!   função mais próxima (literal, declarada ou método), inferido ou herdado
-//!   (`super::function_return`), `void`, ou `Future<void>` em corpo
-//!   assíncrono.
-//! - `unnecessary_breaks`: só com padrões (a biblioteca na 3.0 ou mais).
-//! - `unnecessary_constructor_name`: a criação sem `new`/`const` é a
-//!   chamada resolvida a construtor.
-//! - `avoid_private_typedef_functions`: os `NamedType` de mesmo nome em
-//!   todas as unidades da biblioteca, também os literais de tipo.
-//! - `avoid_annotating_with_dynamic`: o tipo resolvido da anotação
-//!   (`TypeAnnotation.type`, também por alias), o `this.x`/`super.x` com
-//!   lista, e a isenção de augmentation.
-//! - `unnecessary_library_directive`: a documentação pelo `findDartDoc`.
-//! - `prefer_null_aware_operators`: o `toString` dos nós.
-//! Escrito sem compilar nem executar (2026-10-05).
+//! With the same data as the original (those that need the element or the
+//! type only report with the unit's semantics):
+//! - `avoid_returning_null_for_void`: the return type of the element of the
+//!   nearest function (literal, declared or method), inferred or inherited
+//!   (`super::function_return`), `void`, or `Future<void>` in an async body.
+//! - `unnecessary_breaks`: only with patterns (the library at 3.0 or later).
+//! - `unnecessary_constructor_name`: a creation without `new`/`const` is the
+//!   call resolved to a constructor.
+//! - `avoid_private_typedef_functions`: the `NamedType`s with the same name in
+//!   all the library's units, also type literals.
+//! - `avoid_annotating_with_dynamic`: the annotation's resolved type
+//!   (`TypeAnnotation.type`, also through an alias), `this.x`/`super.x` with
+//!   a list, and the augmentation exemption.
+//! - `unnecessary_library_directive`: the documentation through `findDartDoc`.
+//! - `prefer_null_aware_operators`: the nodes' `toString`.
+//! Written without compiling or running (2026-10-05).
 
 use super::walk::{walk, Node};
 use super::codigos_g as c;
@@ -41,84 +40,84 @@ use dartforge_frontend::ast::{
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::HashSet;
 
-/// O que sai do `finally`: `break`/`continue` (com o rótulo, se houver) ou
+/// What leaves the `finally`: `break`/`continue` (with the label, if any) or
 /// `return`/`throw`.
-enum Fluxo {
+enum Flow {
     Break(Option<SymbolId>),
     Continue(Option<SymbolId>),
-    Saida,
+    Exit,
 }
 
-/// `ControlFlowInFinallyBlockReporter.reportIfFinallyAncestorExists`: o nó
-/// está no `finally` do `try` mais próximo, e nada dentro do `finally` o
-/// contém: nem uma função (para `return` e `throw`), nem o alvo do desvio
-/// (para `break` e `continue`).
-fn foge_do_finally(a: &Ast, pilha: &[Node], fluxo: &Fluxo) -> bool {
-    let Some(t) = pilha.iter().rposition(|n| matches!(n, Node::Stmt(s) if matches!(a.stmt(*s).kind, StmtKind::Try { .. }))) else {
+/// `ControlFlowInFinallyBlockReporter.reportIfFinallyAncestorExists`: the node
+/// is in the `finally` of the nearest `try`, and nothing inside the `finally`
+/// contains it: neither a function (for `return` and `throw`), nor the target
+/// of the jump (for `break` and `continue`).
+fn escapes_finally(a: &Ast, stack: &[Node], flow: &Flow) -> bool {
+    let Some(t) = stack.iter().rposition(|n| matches!(n, Node::Stmt(s) if matches!(a.stmt(*s).kind, StmtKind::Try { .. }))) else {
         return false;
     };
-    let Node::Stmt(tentativa) = pilha[t] else { return false };
-    let StmtKind::Try { finally_: Some(fim), .. } = &a.stmt(tentativa).kind else { return false };
-    if pilha.get(t + 1) != Some(&Node::Stmt(*fim)) {
+    let Node::Stmt(try_stmt) = stack[t] else { return false };
+    let StmtKind::Try { finally_: Some(end), .. } = &a.stmt(try_stmt).kind else { return false };
+    if stack.get(t + 1) != Some(&Node::Stmt(*end)) {
         return false;
     }
-    let dentro = &pilha[t + 2..];
-    if dentro.iter().any(|n| matches!(n, Node::Function(_))) {
+    let inner = &stack[t + 2..];
+    if inner.iter().any(|n| matches!(n, Node::Function(_))) {
         return false;
     }
-    let rotulo = match fluxo {
-        Fluxo::Saida => return true,
-        Fluxo::Break(r) | Fluxo::Continue(r) => *r,
+    let label = match flow {
+        Flow::Exit => return true,
+        Flow::Break(r) | Flow::Continue(r) => *r,
     };
-    let de_break = matches!(fluxo, Fluxo::Break(_));
-    let e_alvo = |n: &Node| {
+    let is_break = matches!(flow, Flow::Break(_));
+    let is_target = |n: &Node| {
         let Node::Stmt(s) = n else { return false };
-        match (&a.stmt(*s).kind, rotulo) {
+        match (&a.stmt(*s).kind, label) {
             (StmtKind::For { .. } | StmtKind::ForIn { .. } | StmtKind::While { .. } | StmtKind::DoWhile { .. }, None) => true,
-            (StmtKind::Switch { .. }, None) => de_break,
+            (StmtKind::Switch { .. }, None) => is_break,
             (StmtKind::Labeled { labels, .. }, Some(r)) => labels.iter().any(|l| l.sym == r),
             (StmtKind::Switch { cases, .. }, Some(r)) => cases.iter().any(|k| k.labels.iter().any(|l| l.sym == r)),
             _ => false,
         }
     };
-    !dentro.iter().any(e_alvo)
+    !inner.iter().any(is_target)
 }
 
-/// O intervalo do corpo `=> e;` (o `ExpressionFunctionBody`): do `async`,
-/// se houver, ou do `=>`, até o `;`.
-fn corpo_de_seta(a: &Ast, fonte: &str, e: ExprId) -> Span {
+/// The range of the `=> e;` body (the `ExpressionFunctionBody`): from the
+/// `async`, if any, or from the `=>`, to the `;`.
+fn arrow_body(a: &Ast, source: &str, e: ExprId) -> Span {
     let s = a.expr(e).span;
-    let antes = fonte.get(..s.start).unwrap_or("").trim_end();
-    let mut inicio = s.start;
-    if antes.ends_with("=>") {
-        inicio = antes.len() - 2;
-        let mais = antes[..inicio].trim_end();
-        if mais.ends_with("async") {
-            inicio = mais.len() - 5;
+    let before = source.get(..s.start).unwrap_or("").trim_end();
+    let mut start = s.start;
+    if before.ends_with("=>") {
+        start = before.len() - 2;
+        let more = before[..start].trim_end();
+        if more.ends_with("async") {
+            start = more.len() - 5;
         }
     }
-    let depois = fonte.get(s.end..).unwrap_or("");
-    let aparado = depois.trim_start();
-    let fim = if aparado.starts_with(';') { s.end + (depois.len() - aparado.len()) + 1 } else { s.end };
-    Span { start: inicio, end: fim }
+    let after = source.get(s.end..).unwrap_or("");
+    let trimmed = after.trim_start();
+    let end = if trimmed.starts_with(';') { s.end + (after.len() - trimmed.len()) + 1 } else { s.end };
+    Span { start: start, end: end }
 }
 
-/// O intervalo do corpo em bloco (o `BlockFunctionBody`): começa na palavra
-/// `async`, `async*` ou `sync*`, se houver.
-fn corpo_em_bloco(fonte: &str, bloco: Span, modificador: AsyncModifier) -> Span {
-    if modificador == AsyncModifier::None {
-        return bloco;
+/// The range of the block body (the `BlockFunctionBody`): it starts at the
+/// word `async`, `async*` or `sync*`, if any.
+fn block_body(source: &str, block: Span, modifier: AsyncModifier) -> Span {
+    if modifier == AsyncModifier::None {
+        return block;
     }
-    let mut antes = fonte.get(..bloco.start).unwrap_or("").trim_end();
-    if let Some(sem) = antes.strip_suffix('*') {
-        antes = sem.trim_end();
+    let mut before = source.get(..block.start).unwrap_or("").trim_end();
+    if let Some(stripped) = before.strip_suffix('*') {
+        before = stripped.trim_end();
     }
-    let palavra = if modificador == AsyncModifier::SyncStar { "sync" } else { "async" };
-    if antes.ends_with(palavra) { Span { start: antes.len() - palavra.len(), end: bloco.end } } else { bloco }
+    let word = if modifier == AsyncModifier::SyncStar { "sync" } else { "async" };
+    if before.ends_with(word) { Span { start: before.len() - word.len(), end: block.end } } else { block }
 }
 
-/// `Identifier`: `x` ou `p.x` (o `PrefixedIdentifier`).
-fn identificador(a: &Ast, e: ExprId) -> Option<(Option<SymbolId>, SymbolId)> {
+/// `Identifier`: `x` or `p.x` (the `PrefixedIdentifier`).
+fn identifier(a: &Ast, e: ExprId) -> Option<(Option<SymbolId>, SymbolId)> {
     match &a.expr(e).kind {
         ExprKind::Identifier(n) => Some((None, n.sym)),
         ExprKind::Property { target, name, null_aware: false } => match &a.expr(*target).kind {
@@ -129,15 +128,15 @@ fn identificador(a: &Ast, e: ExprId) -> Option<(Option<SymbolId>, SymbolId)> {
     }
 }
 
-/// Roda as regras deste lote que estão ligadas (`ligada(nome)`).
-pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+/// Runs the rules of this batch that are enabled (`enabled(name)`).
+pub fn run(u: Unidade<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
-    let fonte = u.fonte;
-    let mut relatar = |code: &'static CodigoLint, span: Span, args: &[&str]| {
+    let source = u.fonte;
+    let mut report = |code: &'static CodigoLint, span: Span, args: &[&str]| {
         out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
     };
-    let de_metodo: HashSet<FunctionId> = a
+    let method_fns: HashSet<FunctionId> = a
         .members
         .iter()
         .filter_map(|m| match &m.kind {
@@ -145,283 +144,283 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
             _ => None,
         })
         .collect();
-    let nulo = |e: ExprId| matches!(a.expr(e).kind, ExprKind::Null);
-    // O `toString` de uma expressão.
-    let fonte_de = |e: ExprId| -> String { dartforge_frontend::fonte::de_expr(a, fonte, interner, e) };
+    let is_null = |e: ExprId| matches!(a.expr(e).kind, ExprKind::Null);
+    // The `toString` of an expression.
+    let source_of = |e: ExprId| -> String { dartforge_frontend::fonte::de_expr(a, source, interner, e) };
 
-    // `prefer_asserts_with_message`: o comando e o inicializador.
-    if ligada("prefer_asserts_with_message") {
+    // `prefer_asserts_with_message`: the statement and the initializer.
+    if enabled("prefer_asserts_with_message") {
         for s in a.stmts.iter() {
             if matches!(s.kind, StmtKind::Assert { message: None, .. }) {
-                relatar(&c::PREFER_ASSERTS_WITH_MESSAGE, s.span, &[]);
+                report(&c::PREFER_ASSERTS_WITH_MESSAGE, s.span, &[]);
             }
         }
         for m in a.members.iter() {
             if let MemberKind::Constructor(k) = &m.kind {
                 for i in k.initializers.iter() {
                     if let Initializer::Assert { span, message: None, .. } = i {
-                        relatar(&c::PREFER_ASSERTS_WITH_MESSAGE, *span, &[]);
+                        report(&c::PREFER_ASSERTS_WITH_MESSAGE, *span, &[]);
                     }
                 }
             }
         }
     }
-    // `no_self_assignments`: `x = x` e `p.x = p.x`.
-    if ligada("no_self_assignments") {
+    // `no_self_assignments`: `x = x` and `p.x = p.x`.
+    if enabled("no_self_assignments") {
         for e in a.exprs.iter() {
             if let ExprKind::Assign { op: AssignOp::Assign, target, value } = &e.kind
-                && let (Some(x), Some(y)) = (identificador(a, *target), identificador(a, *value))
+                && let (Some(x), Some(y)) = (identifier(a, *target), identifier(a, *value))
                 && x == y
             {
-                relatar(&c::NO_SELF_ASSIGNMENTS, e.span, &[]);
+                report(&c::NO_SELF_ASSIGNMENTS, e.span, &[]);
             }
         }
     }
-    // `avoid_final_parameters`: os parâmetros de construtor, método e função
-    // (declarada ou literal); não os de dentro de um parâmetro-função.
-    if ligada("avoid_final_parameters") {
-        let mut checar = |ps: &[ast::Parameter]| {
+    // `avoid_final_parameters`: the parameters of constructors, methods and
+    // functions (declared or literal); not those inside a function parameter.
+    if enabled("avoid_final_parameters") {
+        let mut check = |ps: &[ast::Parameter]| {
             for p in ps.iter().filter(|p| p.final_) {
-                relatar(&c::AVOID_FINAL_PARAMETERS, p.span, &[]);
+                report(&c::AVOID_FINAL_PARAMETERS, p.span, &[]);
             }
         };
         for f in a.functions.iter() {
             if let Some(ps) = &f.parameters {
-                checar(&ps[..]);
+                check(&ps[..]);
             }
         }
         for m in a.members.iter() {
             if let MemberKind::Constructor(k) = &m.kind {
-                checar(&k.parameters[..]);
+                check(&k.parameters[..]);
             }
         }
     }
-    // `avoid_void_async`: função ou método `async` (não gerador) de retorno
-    // `void` escrito; `main` de topo ou local é isenta.
-    if ligada("avoid_void_async") {
+    // `avoid_void_async`: an `async` (non-generator) function or method with a
+    // written `void` return; a top-level or local `main` is exempt.
+    if enabled("avoid_void_async") {
         for (i, f) in a.functions.iter().enumerate() {
-            let Some(nome) = f.name else { continue };
-            // `returnType.type is VoidType`: o `void` escrito, ou um alias dele
-            // (pela semântica da unidade).
-            let vazio = |t: ast::TypeId| {
+            let Some(name) = f.name else { continue };
+            // `returnType.type is VoidType`: the written `void`, or an alias
+            // of it (through the unit's semantics).
+            let is_void = |t: ast::TypeId| {
                 matches!(a.ty(t).kind, TypeKind::Void)
                     || sem.is_some_and(|s| super::written_type(s, t).is_some_and(|x| matches!(s.table.get(x), dartforge_types::table::Type::Void)))
             };
-            if f.modifier != AsyncModifier::Async || !f.return_type.is_some_and(vazio) {
+            if f.modifier != AsyncModifier::Async || !f.return_type.is_some_and(is_void) {
                 continue;
             }
-            if !de_metodo.contains(&FunctionId(i as u32)) && interner.resolve(nome.sym) == "main" {
+            if !method_fns.contains(&FunctionId(i as u32)) && interner.resolve(name.sym) == "main" {
                 continue;
             }
-            relatar(&c::AVOID_VOID_ASYNC, nome.span, &[]);
+            report(&c::AVOID_VOID_ASYNC, name.span, &[]);
         }
     }
-    // `avoid_annotating_with_dynamic`: todo parâmetro comum, `this.x` ou
-    // `super.x` com o tipo `dynamic` escrito, em qualquer lista.
-    if ligada("avoid_annotating_with_dynamic") {
-        fn listas<'x>(lista: &'x [ast::Parameter], saida: &mut Vec<&'x [ast::Parameter]>) {
-            saida.push(lista);
-            for p in lista {
-                if let Some(internos) = &p.function_parameters {
-                    listas(internos, saida);
+    // `avoid_annotating_with_dynamic`: every plain, `this.x` or `super.x`
+    // parameter with the type `dynamic` written, in any list.
+    if enabled("avoid_annotating_with_dynamic") {
+        fn collect_lists<'x>(list: &'x [ast::Parameter], out: &mut Vec<&'x [ast::Parameter]>) {
+            out.push(list);
+            for p in list {
+                if let Some(inner) = &p.function_parameters {
+                    collect_lists(inner, out);
                 }
             }
         }
-        let mut todas: Vec<&[ast::Parameter]> = Vec::new();
+        let mut all_lists: Vec<&[ast::Parameter]> = Vec::new();
         for f in a.functions.iter() {
             if let Some(ps) = &f.parameters {
-                listas(ps, &mut todas);
+                collect_lists(ps, &mut all_lists);
             }
         }
         for m in a.members.iter() {
             if let MemberKind::Constructor(k) = &m.kind {
-                listas(&k.parameters, &mut todas);
+                collect_lists(&k.parameters, &mut all_lists);
             }
         }
         for t in a.types.iter() {
             if let TypeKind::Function { parameters, .. } = &t.kind {
-                listas(parameters, &mut todas);
+                collect_lists(parameters, &mut all_lists);
             }
         }
         for d in a.decls.iter() {
             if let DeclKind::Typedef(x) = &d.kind
                 && let TypedefKind::Legacy { parameters, .. } = &x.kind
             {
-                listas(parameters, &mut todas);
+                collect_lists(parameters, &mut all_lists);
             }
         }
-        // `inAugmentation`: a declaração (função, método, construtor, campo,
-        // variável de topo, typedef) que contém a lista é `augment`.
-        let mut aumentadas: Vec<Span> = a.decls.iter().filter(|d| d.augment).map(|d| d.span).collect();
-        aumentadas.extend(a.members.iter().filter(|m| m.augment).map(|m| m.span));
-        let em_augmentation = |s: Span| aumentadas.iter().any(|x| x.start <= s.start && s.end <= x.end);
-        // O tipo escrito é um `NamedType` cujo tipo é `dynamic` (pede a
-        // semântica da unidade).
-        let dinamico = |t: ast::TypeId| {
+        // `inAugmentation`: the declaration (function, method, constructor,
+        // field, top-level variable, typedef) that contains the list is `augment`.
+        let mut augmented: Vec<Span> = a.decls.iter().filter(|d| d.augment).map(|d| d.span).collect();
+        augmented.extend(a.members.iter().filter(|m| m.augment).map(|m| m.span));
+        let in_augmentation = |s: Span| augmented.iter().any(|x| x.start <= s.start && s.end <= x.end);
+        // The written type is a `NamedType` whose type is `dynamic` (needs the
+        // unit's semantics).
+        let is_dynamic = |t: ast::TypeId| {
             matches!(a.ty(t).kind, TypeKind::Named { .. })
                 && sem.is_some_and(|s| super::written_type(s, t).is_some_and(|x| matches!(s.table.get(x), dartforge_types::table::Type::Dynamic)))
         };
-        for lista in todas {
-            // O parâmetro comum, o `this.x` e o `super.x` (também com lista):
-            // não o parâmetro-função.
-            for p in lista.iter().filter(|p| p.function_parameters.is_none() || p.this_ || p.super_) {
+        for list in all_lists {
+            // The plain parameter, `this.x` and `super.x` (also with a list):
+            // not the function parameter.
+            for p in list.iter().filter(|p| p.function_parameters.is_none() || p.this_ || p.super_) {
                 let Some(t) = p.ty else { continue };
-                if !dinamico(t) || em_augmentation(p.span) {
+                if !is_dynamic(t) || in_augmentation(p.span) {
                     continue;
                 }
                 let ty = a.ty(t);
-                // O nó é o parâmetro sem o valor padrão.
-                let fim = match (p.default_value, p.name) {
+                // The node is the parameter without the default value.
+                let end = match (p.default_value, p.name) {
                     (None, _) => p.span.end,
-                    (Some(_), Some(n)) if p.function_parameters.is_some() => dartforge_frontend::fonte::fim_do_parametro_funcao(fonte, n.span.end),
+                    (Some(_), Some(n)) if p.function_parameters.is_some() => dartforge_frontend::fonte::fim_do_parametro_funcao(source, n.span.end),
                     (Some(_), Some(n)) => n.span.end.max(ty.span.end),
                     (Some(_), None) => ty.span.end,
                 };
-                relatar(&c::AVOID_ANNOTATING_WITH_DYNAMIC, Span { start: p.span.start, end: fim }, &[]);
+                report(&c::AVOID_ANNOTATING_WITH_DYNAMIC, Span { start: p.span.start, end: end }, &[]);
             }
         }
     }
-    // `unnecessary_library_directive`: sem `part`, sem documentação e sem
-    // anotação.
-    if ligada("unnecessary_library_directive") && !u.unit.directives.iter().any(|d| matches!(d.kind, DirectiveKind::Part { .. })) {
-        // `sortedCommentAndAnnotations`: a documentação (`_findComment`) e
-        // a metadata.
-        let comentarios = dartforge_frontend::comentarios::Comentarios::de(fonte);
+    // `unnecessary_library_directive`: no `part`, no documentation and no
+    // annotation.
+    if enabled("unnecessary_library_directive") && !u.unit.directives.iter().any(|d| matches!(d.kind, DirectiveKind::Part { .. })) {
+        // `sortedCommentAndAnnotations`: the documentation (`_findComment`)
+        // and the metadata.
+        let comments = dartforge_frontend::comentarios::Comentarios::de(source);
         for d in u.unit.directives.iter() {
             if !matches!(d.kind, DirectiveKind::Library { .. }) || !d.metadata.is_empty() {
                 continue;
             }
-            if comentarios.dart_doc(fonte, d.span.start).is_none() {
-                relatar(&c::UNNECESSARY_LIBRARY_DIRECTIVE, d.span, &[]);
+            if comments.dart_doc(source, d.span.start).is_none() {
+                report(&c::UNNECESSARY_LIBRARY_DIRECTIVE, d.span, &[]);
             }
         }
     }
-    // `unnecessary_constructor_name`: `.new` na declaração, no construtor
-    // primário de extension type e na criação.
-    if ligada("unnecessary_constructor_name") {
-        let e_new = |n: ast::Name| interner.resolve(n.sym) == "new";
-        // Os construtores de um extension type sem nome no primário não são
-        // conferidos.
-        let mut isentos: HashSet<MemberId> = HashSet::new();
+    // `unnecessary_constructor_name`: `.new` in the declaration, in an
+    // extension type's primary constructor and in the creation.
+    if enabled("unnecessary_constructor_name") {
+        let is_new = |n: ast::Name| interner.resolve(n.sym) == "new";
+        // The constructors of an extension type with an unnamed primary are
+        // not checked.
+        let mut exempt: HashSet<MemberId> = HashSet::new();
         for d in a.decls.iter() {
             if let DeclKind::ExtensionType(x) = &d.kind {
                 match x.constructor {
-                    Some(n) if e_new(n) => relatar(&c::UNNECESSARY_CONSTRUCTOR_NAME, n.span, &[]),
+                    Some(n) if is_new(n) => report(&c::UNNECESSARY_CONSTRUCTOR_NAME, n.span, &[]),
                     Some(_) => {}
-                    None => isentos.extend(x.members.iter().copied()),
+                    None => exempt.extend(x.members.iter().copied()),
                 }
             }
         }
         for (i, m) in a.members.iter().enumerate() {
             if let MemberKind::Constructor(k) = &m.kind
                 && let Some(n) = k.name
-                && e_new(n)
-                && !isentos.contains(&MemberId(i as u32))
+                && is_new(n)
+                && !exempt.contains(&MemberId(i as u32))
             {
-                relatar(&c::UNNECESSARY_CONSTRUCTOR_NAME, n.span, &[]);
+                report(&c::UNNECESSARY_CONSTRUCTOR_NAME, n.span, &[]);
             }
         }
         for (k, e) in a.exprs.iter().enumerate() {
             match &e.kind {
-                ExprKind::InstanceCreation { constructor: Some(n), .. } if e_new(*n) => relatar(&c::UNNECESSARY_CONSTRUCTOR_NAME, n.span, &[]),
-                // A criação sem `new`/`const` (`C.new(…)`): a chamada resolvida
-                // a construtor (pede a semântica da unidade).
+                ExprKind::InstanceCreation { constructor: Some(n), .. } if is_new(*n) => report(&c::UNNECESSARY_CONSTRUCTOR_NAME, n.span, &[]),
+                // The creation without `new`/`const` (`C.new(…)`): the call
+                // resolved to a constructor (needs the unit's semantics).
                 ExprKind::Call { target, .. } => {
                     if let ExprKind::Property { name, null_aware: false, .. } = &a.expr(*target).kind
-                        && e_new(*name)
+                        && is_new(*name)
                         && let Some(s) = sem
                         && matches!(s.body.get_resolved(ExprId(k as u32)), Some(dartforge_types::resolved::Resolved::Constructor(_)))
                     {
-                        relatar(&c::UNNECESSARY_CONSTRUCTOR_NAME, name.span, &[]);
+                        report(&c::UNNECESSARY_CONSTRUCTOR_NAME, name.span, &[]);
                     }
                 }
                 _ => {}
             }
         }
     }
-    // `unnecessary_breaks`: o `break` sem rótulo que fecha um caso de mais
-    // de um comando.
-    if ligada("unnecessary_breaks") && sem.is_some_and(|s| super::version_at_least(s, 3, 0)) {
+    // `unnecessary_breaks`: the unlabeled `break` that closes a case of more
+    // than one statement.
+    if enabled("unnecessary_breaks") && sem.is_some_and(|s| super::version_at_least(s, 3, 0)) {
         for s in a.stmts.iter() {
             let StmtKind::Switch { cases, .. } = &s.kind else { continue };
             for k in cases.iter() {
                 if k.body.len() > 1
-                    && let Some(&ultimo) = k.body.last()
-                    && matches!(a.stmt(ultimo).kind, StmtKind::Break(None))
+                    && let Some(&last) = k.body.last()
+                    && matches!(a.stmt(last).kind, StmtKind::Break(None))
                 {
-                    relatar(&c::UNNECESSARY_BREAKS, a.stmt(ultimo).span, &[]);
+                    report(&c::UNNECESSARY_BREAKS, a.stmt(last).span, &[]);
                 }
             }
         }
     }
-    // `prefer_expression_function_bodies`: bloco de um só `return e;`.
-    if ligada("prefer_expression_function_bodies") {
-        let mut checar = |corpo: &FunctionBody, modificador: AsyncModifier| {
-            if let FunctionBody::Block(s) = corpo
-                && let StmtKind::Block(comandos) = &a.stmt(*s).kind
-                && let [unico] = &comandos[..]
-                && matches!(a.stmt(*unico).kind, StmtKind::Return(Some(_)))
+    // `prefer_expression_function_bodies`: a block with a single `return e;`.
+    if enabled("prefer_expression_function_bodies") {
+        let mut check = |body: &FunctionBody, modifier: AsyncModifier| {
+            if let FunctionBody::Block(s) = body
+                && let StmtKind::Block(stmts) = &a.stmt(*s).kind
+                && let [single] = &stmts[..]
+                && matches!(a.stmt(*single).kind, StmtKind::Return(Some(_)))
             {
-                relatar(&c::PREFER_EXPRESSION_FUNCTION_BODIES, corpo_em_bloco(fonte, a.stmt(*s).span, modificador), &[]);
+                report(&c::PREFER_EXPRESSION_FUNCTION_BODIES, block_body(source, a.stmt(*s).span, modifier), &[]);
             }
         };
         for f in a.functions.iter() {
-            checar(&f.body, f.modifier);
+            check(&f.body, f.modifier);
         }
         for m in a.members.iter() {
             if let MemberKind::Constructor(k) = &m.kind {
-                checar(&k.body, AsyncModifier::None);
+                check(&k.body, AsyncModifier::None);
             }
         }
     }
-    // `combinators_ordering`: os nomes de cada `show`/`hide` em ordem.
-    if ligada("combinators_ordering") {
+    // `combinators_ordering`: the names of each `show`/`hide` in order.
+    if enabled("combinators_ordering") {
         for d in u.unit.directives.iter() {
-            let combinadores = match &d.kind {
+            let combinators = match &d.kind {
                 DirectiveKind::Import { combinators, .. } | DirectiveKind::Export { combinators, .. } => combinators,
                 _ => continue,
             };
-            for k in combinadores.iter() {
-                let (palavra, nomes) = match k {
+            for k in combinators.iter() {
+                let (word, names) = match k {
                     Combinator::Show(n) => ("show", n),
                     Combinator::Hide(n) => ("hide", n),
                 };
-                let (Some(primeiro), Some(ultimo)) = (nomes.first(), nomes.last()) else { continue };
-                if nomes.windows(2).all(|w| interner.resolve(w[0].sym) <= interner.resolve(w[1].sym)) {
+                let (Some(first), Some(last)) = (names.first(), names.last()) else { continue };
+                if names.windows(2).all(|w| interner.resolve(w[0].sym) <= interner.resolve(w[1].sym)) {
                     continue;
                 }
-                let inicio = fonte
-                    .get(..primeiro.span.start)
-                    .and_then(|t| t.rfind(palavra))
+                let start = source
+                    .get(..first.span.start)
+                    .and_then(|t| t.rfind(word))
                     .filter(|&i| i >= d.span.start)
-                    .unwrap_or(primeiro.span.start);
-                relatar(&c::COMBINATORS_ORDERING, Span { start: inicio, end: ultimo.span.end }, &[]);
+                    .unwrap_or(first.span.start);
+                report(&c::COMBINATORS_ORDERING, Span { start: start, end: last.span.end }, &[]);
             }
         }
     }
-    // `prefer_null_aware_operators`: `a == null ? null : a.b` e
+    // `prefer_null_aware_operators`: `a == null ? null : a.b` and
     // `a != null ? a.b : null`.
-    if ligada("prefer_null_aware_operators") {
+    if enabled("prefer_null_aware_operators") {
         for e in a.exprs.iter() {
             let ExprKind::Conditional { condition, then, else_ } = &e.kind else { continue };
             let ExprKind::Binary { op, left, right } = &a.expr(*condition).kind else { continue };
-            let testada = if nulo(*left) {
+            let tested = if is_null(*left) {
                 *right
-            } else if nulo(*right) {
+            } else if is_null(*right) {
                 *left
             } else {
                 continue;
             };
-            let mut resultado = match op {
-                BinaryOp::Eq if nulo(*then) => *else_,
-                BinaryOp::NotEq if nulo(*else_) => *then,
+            let mut result = match op {
+                BinaryOp::Eq if is_null(*then) => *else_,
+                BinaryOp::NotEq if is_null(*else_) => *then,
                 _ => continue,
             };
-            let alvo = fonte_de(testada);
+            let tested_text = source_of(tested);
             loop {
-                // O prefixo, o alvo da chamada de método, o operando de `!`
-                // ou o alvo do acesso.
-                let proximo = match &a.expr(resultado).kind {
+                // The prefix, the target of the method call, the operand of
+                // `!` or the target of the access.
+                let next = match &a.expr(result).kind {
                     ExprKind::Property { target, .. } => Some(*target),
                     ExprKind::Call { target, .. } => match &a.expr(*target).kind {
                         ExprKind::Property { target, .. } => Some(*target),
@@ -434,72 +433,72 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                     ExprKind::Unary { op: UnaryOp::NullAssert, operand } => Some(*operand),
                     _ => None,
                 };
-                let Some(p) = proximo else { break };
-                if fonte_de(p) == alvo {
-                    relatar(&c::PREFER_NULL_AWARE_OPERATORS, e.span, &[]);
+                let Some(p) = next else { break };
+                if source_of(p) == tested_text {
+                    report(&c::PREFER_NULL_AWARE_OPERATORS, e.span, &[]);
                     break;
                 }
-                resultado = p;
+                result = p;
             }
         }
     }
-    // `one_member_abstracts`: classe abstrata sem cláusulas, sem campo nem
-    // acessor, com um só método, e ele abstrato.
-    if ligada("one_member_abstracts") {
+    // `one_member_abstracts`: an abstract class without clauses, without a
+    // field or accessor, with a single method, and that one abstract.
+    if enabled("one_member_abstracts") {
         for d in a.decls.iter().filter(|d| !d.augment) {
             let DeclKind::Class(x) = &d.kind else { continue };
             if !x.modifiers.abstract_ || x.modifiers.macro_ || x.mixin_application || x.extends.is_some() || !x.with.is_empty() || !x.implements.is_empty() {
                 continue;
             }
-            let mut tem_campo = false;
-            let mut metodos: Vec<&ast::Function> = Vec::new();
+            let mut has_field = false;
+            let mut methods: Vec<&ast::Function> = Vec::new();
             for &m in x.members.iter() {
                 match &a.member(m).kind {
-                    MemberKind::Field(_) => tem_campo = true,
+                    MemberKind::Field(_) => has_field = true,
                     MemberKind::Method(f) => {
                         let f = a.function(*f);
                         match f.kind {
-                            FunctionKind::Getter | FunctionKind::Setter => tem_campo = true,
-                            FunctionKind::Function | FunctionKind::Operator => metodos.push(f),
+                            FunctionKind::Getter | FunctionKind::Setter => has_field = true,
+                            FunctionKind::Function | FunctionKind::Operator => methods.push(f),
                         }
                     }
                     MemberKind::Constructor(_) => {}
                 }
             }
-            if let (false, [unico]) = (tem_campo, &metodos[..])
-                && matches!(unico.body, FunctionBody::Empty)
-                && !unico.external
-                && !unico.static_
+            if let (false, [single]) = (has_field, &methods[..])
+                && matches!(single.body, FunctionBody::Empty)
+                && !single.external
+                && !single.static_
             {
-                relatar(&c::ONE_MEMBER_ABSTRACTS, x.name.span, &[unico.name.map_or("", |n| interner.resolve(n.sym))]);
+                report(&c::ONE_MEMBER_ABSTRACTS, x.name.span, &[single.name.map_or("", |n| interner.resolve(n.sym))]);
             }
         }
     }
-    // `avoid_private_typedef_functions`: o alias privado de tipo função
-    // citado no máximo uma vez.
-    if ligada("avoid_private_typedef_functions")
+    // `avoid_private_typedef_functions`: the private function type alias
+    // mentioned at most once.
+    if enabled("avoid_private_typedef_functions")
         && let Some(s) = sem
     {
-        // As unidades da biblioteca (`context.allUnits`).
-        let unidades = &s.program.library(s.program.unit(s.unit).library).units;
+        // The library's units (`context.allUnits`).
+        let units = &s.program.library(s.program.unit(s.unit).library).units;
         for d in a.decls.iter() {
             let DeclKind::Typedef(x) = &d.kind else { continue };
-            let elegivel = match &x.kind {
+            let eligible = match &x.kind {
                 TypedefKind::Legacy { .. } => true,
                 TypedefKind::Alias(t) => x.type_params.is_empty() && matches!(a.ty(*t).kind, TypeKind::Function { .. }),
             };
-            if !elegivel || !interner.resolve(x.name.sym).starts_with('_') {
+            if !eligible || !interner.resolve(x.name.sym).starts_with('_') {
                 continue;
             }
-            // `_CountVisitor`: os `NamedType` de mesmo nome em todas as
-            // unidades, também o literal de tipo (que a resolução torna
-            // `TypeLiteral` com um `NamedType`).
-            let mut usos = 0usize;
-            for &uu in unidades.iter() {
+            // `_CountVisitor`: the `NamedType`s with the same name in all the
+            // units, also a type literal (which resolution turns into a
+            // `TypeLiteral` with a `NamedType`).
+            let mut uses = 0usize;
+            for &uu in units.iter() {
                 let au = &s.program.unit(uu).ast;
-                usos += au.types.iter().filter(|t| matches!(&t.kind, TypeKind::Named { name, .. } if name.last().is_some_and(|n| n.sym == x.name.sym))).count();
+                uses += au.types.iter().filter(|t| matches!(&t.kind, TypeKind::Named { name, .. } if name.last().is_some_and(|n| n.sym == x.name.sym))).count();
                 if let Some(cu) = s.bodies.units.get(uu.0 as usize) {
-                    usos += au
+                    uses += au
                         .exprs
                         .iter()
                         .enumerate()
@@ -513,87 +512,86 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
                         .count();
                 }
             }
-            if usos <= 1 {
-                relatar(&c::AVOID_PRIVATE_TYPEDEF_FUNCTIONS, x.name.span, &[]);
+            if uses <= 1 {
+                report(&c::AVOID_PRIVATE_TYPEDEF_FUNCTIONS, x.name.span, &[]);
             }
         }
     }
 
-    // As regras que perguntam pelos ancestrais.
-    let (do_finally, do_throw, do_nulo) = (ligada("control_flow_in_finally"), ligada("throw_in_finally"), ligada("avoid_returning_null_for_void"));
-    if do_finally || do_throw || do_nulo {
-        // O código do `return null`: o da função mais próxima (literal,
-        // declarada ou método), se o tipo de retorno do elemento é `void`
-        // (ou `Future<void>` num corpo assíncrono). Pede a semântica da
-        // unidade.
-        let codigo_do_nulo = |pilha: &[Node], propria: Option<FunctionId>| -> Option<&'static CodigoLint> {
+    // The rules that ask about the ancestors.
+    let (in_finally, throw_in_finally, null_for_void_on) = (enabled("control_flow_in_finally"), enabled("throw_in_finally"), enabled("avoid_returning_null_for_void"));
+    if in_finally || throw_in_finally || null_for_void_on {
+        // The code of `return null`: that of the nearest function (literal,
+        // declared or method), if the element's return type is `void` (or
+        // `Future<void>` in an async body). Needs the unit's semantics.
+        let null_code = |stack: &[Node], own: Option<FunctionId>| -> Option<&'static CodigoLint> {
             let s = sem?;
-            let f = propria.or_else(|| {
-                pilha.iter().rev().find_map(|n| match n {
+            let f = own.or_else(|| {
+                stack.iter().rev().find_map(|n| match n {
                     Node::Function(f) => Some(*f),
                     _ => None,
                 })
             })?;
-            let funcao = a.function(f);
-            let retorno = super::function_return(s, f)?;
-            let assincrona = matches!(funcao.modifier, AsyncModifier::Async | AsyncModifier::AsyncStar);
-            let vazio = |t: dartforge_types::table::TypeId| matches!(s.table.get(t), dartforge_types::table::Type::Void);
-            let devolve = match s.table.get(retorno) {
-                dartforge_types::table::Type::Void => !assincrona,
+            let function = a.function(f);
+            let ret = super::function_return(s, f)?;
+            let is_async = matches!(function.modifier, AsyncModifier::Async | AsyncModifier::AsyncStar);
+            let is_void = |t: dartforge_types::table::TypeId| matches!(s.table.get(t), dartforge_types::table::Type::Void);
+            let returns_void = match s.table.get(ret) {
+                dartforge_types::table::Type::Void => !is_async,
                 dartforge_types::table::Type::Interface { class, args, .. } => {
-                    assincrona && Some(*class) == s.core.future_class && args.first().is_some_and(|x| vazio(*x))
+                    is_async && Some(*class) == s.core.future_class && args.first().is_some_and(|x| is_void(*x))
                 }
                 _ => false,
             };
-            if !devolve {
+            if !returns_void {
                 return None;
             }
-            Some(if de_metodo.contains(&f) {
+            Some(if method_fns.contains(&f) {
                 &c::AVOID_RETURNING_NULL_FOR_VOID_FROM_METHOD
             } else {
                 &c::AVOID_RETURNING_NULL_FOR_VOID_FROM_FUNCTION
             })
         };
-        walk(u, &mut |no, pilha| match no {
+        walk(u, &mut |node, stack| match node {
             Node::Stmt(s) => {
                 let n = a.stmt(s);
                 match &n.kind {
-                    StmtKind::Break(r) if do_finally => {
-                        if foge_do_finally(a, pilha, &Fluxo::Break(r.map(|x| x.sym))) {
-                            relatar(&c::CONTROL_FLOW_IN_FINALLY, n.span, &["break"]);
+                    StmtKind::Break(r) if in_finally => {
+                        if escapes_finally(a, stack, &Flow::Break(r.map(|x| x.sym))) {
+                            report(&c::CONTROL_FLOW_IN_FINALLY, n.span, &["break"]);
                         }
                     }
-                    StmtKind::Continue(r) if do_finally => {
-                        if foge_do_finally(a, pilha, &Fluxo::Continue(r.map(|x| x.sym))) {
-                            relatar(&c::CONTROL_FLOW_IN_FINALLY, n.span, &["continue"]);
+                    StmtKind::Continue(r) if in_finally => {
+                        if escapes_finally(a, stack, &Flow::Continue(r.map(|x| x.sym))) {
+                            report(&c::CONTROL_FLOW_IN_FINALLY, n.span, &["continue"]);
                         }
                     }
                     StmtKind::Return(valor) => {
-                        if do_finally && foge_do_finally(a, pilha, &Fluxo::Saida) {
-                            relatar(&c::CONTROL_FLOW_IN_FINALLY, n.span, &["return"]);
+                        if in_finally && escapes_finally(a, stack, &Flow::Exit) {
+                            report(&c::CONTROL_FLOW_IN_FINALLY, n.span, &["return"]);
                         }
-                        if do_nulo
-                            && valor.is_some_and(nulo)
-                            && let Some(code) = codigo_do_nulo(pilha, None)
+                        if null_for_void_on
+                            && valor.is_some_and(is_null)
+                            && let Some(code) = null_code(stack, None)
                         {
-                            relatar(code, n.span, &[]);
+                            report(code, n.span, &[]);
                         }
                     }
                     _ => {}
                 }
             }
             Node::Expr(e) => {
-                if do_throw && matches!(a.expr(e).kind, ExprKind::Throw(_)) && foge_do_finally(a, pilha, &Fluxo::Saida) {
-                    relatar(&c::THROW_IN_FINALLY, a.expr(e).span, &["throw"]);
+                if throw_in_finally && matches!(a.expr(e).kind, ExprKind::Throw(_)) && escapes_finally(a, stack, &Flow::Exit) {
+                    report(&c::THROW_IN_FINALLY, a.expr(e).span, &["throw"]);
                 }
             }
             Node::Function(f) => {
-                if do_nulo
+                if null_for_void_on
                     && let FunctionBody::Expression(v) = &a.function(f).body
-                    && nulo(*v)
-                    && let Some(code) = codigo_do_nulo(pilha, Some(f))
+                    && is_null(*v)
+                    && let Some(code) = null_code(stack, Some(f))
                 {
-                    relatar(code, corpo_de_seta(a, fonte, *v), &[]);
+                    report(code, arrow_body(a, source, *v), &[]);
                 }
             }
             _ => {}
@@ -603,69 +601,69 @@ pub fn run(u: Unidade<'_>, interner: &Interner, ligada: &dyn Fn(&str) -> bool, s
 }
 
 #[cfg(test)]
-mod testes {
+mod tests {
     use super::*;
 
-    fn achados(fonte: &str) -> Vec<(&'static str, String)> {
-        let mut nomes = Interner::new();
-        let p = dartforge_frontend::parser::parse(fonte, &mut nomes);
-        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte };
-        let mut relatos = run(u, &nomes, &|_| true, None);
-        relatos.sort_by_key(|r| (r.span.start, r.span.end));
-        relatos.into_iter().map(|r| (r.code.unico, fonte[r.span.start..r.span.end].to_string())).collect()
+    fn findings(source: &str) -> Vec<(&'static str, String)> {
+        let mut names = Interner::new();
+        let p = dartforge_frontend::parser::parse(source, &mut names);
+        let u = Unidade { ast: &p.ast, unit: &p.unit, fonte: source };
+        let mut reports = run(u, &names, &|_| true, None);
+        reports.sort_by_key(|r| (r.span.start, r.span.end));
+        reports.into_iter().map(|r| (r.code.unico, source[r.span.start..r.span.end].to_string())).collect()
     }
 
-    fn so(regra: &str, fonte: &str) -> Vec<String> {
-        achados(fonte).into_iter().filter(|(c, _)| c.starts_with(regra)).map(|(_, t)| t).collect()
-    }
-
-    #[test]
-    fn fluxo_no_finally() {
-        let fonte = "int f(List<int> l) {\n  for (var x in l) {\n    try {\n    } finally {\n      if (x > 0) break;\n      for (;;) {\n        break;\n      }\n      l.forEach((y) {\n        return;\n      });\n      return 1;\n    }\n  }\n  return 0;\n}\n";
-        assert_eq!(so("control_flow_in_finally", fonte), vec!["break;".to_string(), "return 1;".to_string()]);
-        let fonte = "void f() {\n  try {\n    throw 1;\n  } finally {\n    throw 2;\n  }\n}\n";
-        assert_eq!(so("throw_in_finally", fonte), vec!["throw 2".to_string()]);
-        // O `try` mais próximo não tem `finally`: nada.
-        let fonte = "void f() {\n  try {\n  } finally {\n    try {\n      return;\n    } catch (e) {}\n  }\n}\n";
-        assert!(so("control_flow_in_finally", fonte).is_empty());
+    fn only(rule: &str, source: &str) -> Vec<String> {
+        findings(source).into_iter().filter(|(c, _)| c.starts_with(rule)).map(|(_, t)| t).collect()
     }
 
     #[test]
-    fn nulo_para_void() {
-        let fonte = "void f() {\n  return null;\n}\nFuture<void> g() async => null;\nclass A {\n  void m() => null;\n  set s(int v) {\n    return null;\n  }\n  int n() {\n    return null;\n  }\n}\n";
-        // O tipo de retorno é o do elemento: sem a semântica da unidade,
-        // nada.
-        assert!(achados(fonte).into_iter().all(|(c, _)| !c.starts_with("avoid_returning_null_for_void")));
+    fn flow_in_finally() {
+        let source = "int f(List<int> l) {\n  for (var x in l) {\n    try {\n    } finally {\n      if (x > 0) break;\n      for (;;) {\n        break;\n      }\n      l.forEach((y) {\n        return;\n      });\n      return 1;\n    }\n  }\n  return 0;\n}\n";
+        assert_eq!(only("control_flow_in_finally", source), vec!["break;".to_string(), "return 1;".to_string()]);
+        let source = "void f() {\n  try {\n    throw 1;\n  } finally {\n    throw 2;\n  }\n}\n";
+        assert_eq!(only("throw_in_finally", source), vec!["throw 2".to_string()]);
+        // The nearest `try` has no `finally`: nothing.
+        let source = "void f() {\n  try {\n  } finally {\n    try {\n      return;\n    } catch (e) {}\n  }\n}\n";
+        assert!(only("control_flow_in_finally", source).is_empty());
     }
 
     #[test]
-    fn declaracoes() {
-        assert_eq!(so("avoid_void_async", "void main() async {}\nvoid f() async {}\nFuture<void> g() async {}\n"), vec!["f".to_string()]);
-        assert_eq!(so("avoid_final_parameters", "void f(final int a, int b) {}\n"), vec!["final int a".to_string()]);
-        // O tipo resolvido pede a semântica da unidade.
-        assert!(so("avoid_annotating_with_dynamic", "void f(dynamic a, [dynamic b = 1]) {}\n").is_empty());
-        assert_eq!(so("one_member_abstracts", "abstract class A {\n  void m();\n}\nabstract class B {\n  void m();\n  int get x;\n}\n"), vec!["A".to_string()]);
-        // A contagem é na biblioteca inteira: pede a semântica da unidade.
-        assert!(so("avoid_private_typedef_functions", "typedef _F = void Function();\n_F? c;\n").is_empty());
-        // A criação sem `new` pede a semântica; a declaração, não.
-        assert_eq!(so("unnecessary_constructor_name", "class A {\n  A.new();\n}\nvar a = A.new();\nvar t = A.new;\n"), vec!["new".to_string()]);
-        assert_eq!(so("unnecessary_library_directive", "library a;\n"), vec!["library a;".to_string()]);
-        assert!(so("unnecessary_library_directive", "/// Doc.\nlibrary a;\n").is_empty());
-        assert_eq!(so("combinators_ordering", "import 'dart:math' show max, min;\nimport 'dart:async' hide Timer, Future;\n"), vec!["hide Timer, Future".to_string()]);
+    fn null_for_void() {
+        let source = "void f() {\n  return null;\n}\nFuture<void> g() async => null;\nclass A {\n  void m() => null;\n  set s(int v) {\n    return null;\n  }\n  int n() {\n    return null;\n  }\n}\n";
+        // The return type is the element's: without the unit's semantics,
+        // nothing.
+        assert!(findings(source).into_iter().all(|(c, _)| !c.starts_with("avoid_returning_null_for_void")));
     }
 
     #[test]
-    fn comandos_e_expressoes() {
-        assert_eq!(so("prefer_asserts_with_message", "void f(int x) {\n  assert(x > 0);\n  assert(x > 0, 'm');\n}\n"), vec!["assert(x > 0);".to_string()]);
-        assert_eq!(so("no_self_assignments", "class A {\n  int x = 0;\n  void m(int x, A o) {\n    x = x;\n    this.x = x;\n    o.x = o.x;\n  }\n}\n"), vec!["x = x".to_string(), "o.x = o.x".to_string()]);
-        // A versão de linguagem pede a semântica da unidade.
-        assert!(so("unnecessary_breaks", "void f(int x) {\n  switch (x) {\n    case 1:\n      f(2);\n      break;\n    case 2:\n      break;\n  }\n}\n").is_empty());
-        assert_eq!(so("prefer_expression_function_bodies", "int f() {\n  return 1;\n}\nFuture<int> g() async {\n  return 1;\n}\nvoid h() {\n  return;\n}\n"), vec![
+    fn declarations() {
+        assert_eq!(only("avoid_void_async", "void main() async {}\nvoid f() async {}\nFuture<void> g() async {}\n"), vec!["f".to_string()]);
+        assert_eq!(only("avoid_final_parameters", "void f(final int a, int b) {}\n"), vec!["final int a".to_string()]);
+        // The resolved type needs the unit's semantics.
+        assert!(only("avoid_annotating_with_dynamic", "void f(dynamic a, [dynamic b = 1]) {}\n").is_empty());
+        assert_eq!(only("one_member_abstracts", "abstract class A {\n  void m();\n}\nabstract class B {\n  void m();\n  int get x;\n}\n"), vec!["A".to_string()]);
+        // The count is over the whole library: needs the unit's semantics.
+        assert!(only("avoid_private_typedef_functions", "typedef _F = void Function();\n_F? c;\n").is_empty());
+        // The creation without `new` needs the semantics; the declaration does not.
+        assert_eq!(only("unnecessary_constructor_name", "class A {\n  A.new();\n}\nvar a = A.new();\nvar t = A.new;\n"), vec!["new".to_string()]);
+        assert_eq!(only("unnecessary_library_directive", "library a;\n"), vec!["library a;".to_string()]);
+        assert!(only("unnecessary_library_directive", "/// Doc.\nlibrary a;\n").is_empty());
+        assert_eq!(only("combinators_ordering", "import 'dart:math' show max, min;\nimport 'dart:async' hide Timer, Future;\n"), vec!["hide Timer, Future".to_string()]);
+    }
+
+    #[test]
+    fn statements_and_expressions() {
+        assert_eq!(only("prefer_asserts_with_message", "void f(int x) {\n  assert(x > 0);\n  assert(x > 0, 'm');\n}\n"), vec!["assert(x > 0);".to_string()]);
+        assert_eq!(only("no_self_assignments", "class A {\n  int x = 0;\n  void m(int x, A o) {\n    x = x;\n    this.x = x;\n    o.x = o.x;\n  }\n}\n"), vec!["x = x".to_string(), "o.x = o.x".to_string()]);
+        // The language version needs the unit's semantics.
+        assert!(only("unnecessary_breaks", "void f(int x) {\n  switch (x) {\n    case 1:\n      f(2);\n      break;\n    case 2:\n      break;\n  }\n}\n").is_empty());
+        assert_eq!(only("prefer_expression_function_bodies", "int f() {\n  return 1;\n}\nFuture<int> g() async {\n  return 1;\n}\nvoid h() {\n  return;\n}\n"), vec![
             "{\n  return 1;\n}".to_string(),
             "async {\n  return 1;\n}".to_string()
         ]);
         assert_eq!(
-            so("prefer_null_aware_operators", "int? f(String? a) => a == null ? null : a.length;\nint? g(String? a) => a != null ? a.length : null;\nString? h(String? a) => a == null ? null : a;\n"),
+            only("prefer_null_aware_operators", "int? f(String? a) => a == null ? null : a.length;\nint? g(String? a) => a != null ? a.length : null;\nString? h(String? a) => a == null ? null : a;\n"),
             vec!["a == null ? null : a.length".to_string(), "a != null ? a.length : null".to_string()]
         );
     }
