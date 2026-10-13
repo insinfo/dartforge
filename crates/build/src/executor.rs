@@ -337,7 +337,7 @@ impl<'a> ActionService<'a> {
     }
 
     fn query_path(&self, id: &AssetId) -> Option<PathBuf> {
-        let node = self.packages.no(&id.package)?;
+        let node = self.packages.node(&id.package)?;
         // Negative queries must observe files that have not entered the
         // graph yet; even so, they cannot escape the package.
         if id
@@ -436,7 +436,7 @@ impl BuildStepService for ActionService<'_> {
         ids.retain(|id| self.can_read(id));
         // An empty listing also depends on the generated outputs that do not
         // exist yet. An old fallback file does not count as a current output.
-        if let Some(node) = self.packages.no(&package) {
+        if let Some(node) = self.packages.node(&package) {
             self.queries.push((
                 Query::ActiveGlobs {
                     dir: node.root.clone(),
@@ -472,7 +472,7 @@ impl BuildStepService for ActionService<'_> {
                 && !self.graph.external_source(id)
                 && !self.occupied.contains(id)
                 && !self.writes.contains_key(id)
-                && self.packages.no(&id.package).is_some()
+                && self.packages.node(&id.package).is_some()
                 && self.query_path(id).is_some();
             if !new {
                 return Err(DisallowedOutput(id.clone()));
@@ -590,21 +590,21 @@ mod service_tests {
     use super::*;
     use crate::config::DependencyType;
     use crate::graph::{Action, GeneratedNode};
-    use crate::packages::No;
+    use crate::packages::PackageNode;
 
     #[test]
     fn phase_visibility_and_the_actions_own_output() {
         let dir = tempfile::tempdir().unwrap();
         let packages = PackageGraph {
-            nos: vec![
-                No {
+            nodes: vec![
+                PackageNode {
                     name: "p".into(),
                     root: dir.path().join("p"),
                     kind: DependencyType::Path,
                     is_root: true,
                     deps: vec![],
                 },
-                No {
+                PackageNode {
                     name: "q".into(),
                     root: dir.path().join("q"),
                     kind: DependencyType::Path,
@@ -715,7 +715,7 @@ mod service_tests {
     fn post_processor_anchor_writes_only_new_assets() {
         let dir = tempfile::tempdir().unwrap();
         let packages = PackageGraph {
-            nos: vec![No {
+            nodes: vec![PackageNode {
                 name: "p".into(),
                 root: dir.path().join("p"),
                 kind: DependencyType::Path,
@@ -794,15 +794,15 @@ mod service_tests {
     fn unlisted_dependency_is_readable_through_the_package_filter() {
         let dir = tempfile::tempdir().unwrap();
         let packages = PackageGraph {
-            nos: vec![
-                No {
+            nodes: vec![
+                PackageNode {
                     name: "p".into(),
                     root: dir.path().join("p"),
                     kind: DependencyType::Path,
                     is_root: true,
                     deps: vec![],
                 },
-                No {
+                PackageNode {
                     name: "q".into(),
                     root: dir.path().join("q"),
                     kind: DependencyType::Hosted,

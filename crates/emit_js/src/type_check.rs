@@ -49,7 +49,7 @@ pub struct Divergence {
     pub location: String,
     /// Node kind (`Identifier`, `Call`, …).
     pub node: String,
-    /// `kind` (type) or `target` (target); kept in Portuguese because it is a
+    /// `tipo` (type) or `alvo` (target); kept in Portuguese because it is a
     /// column value of the `.tsv` read by `scripts/conferir-tipos-js.mjs`.
     pub kind: &'static str,
     pub category: String,

@@ -42,7 +42,7 @@ pub fn equivalent(
 ) -> Option<Equivalent> {
     let rest = import.strip_prefix("package:")?;
     let (package, path) = rest.split_once('/')?;
-    let file = graph.no(package)?.root.join("lib").join(path);
+    let file = graph.node(package)?.root.join("lib").join(path);
     let source = std::fs::read_to_string(file).ok()?;
     from_source(&source, factory, declared)
 }

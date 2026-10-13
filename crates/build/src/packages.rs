@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
-pub struct No {
+pub struct PackageNode {
     pub name: String,
     pub root: PathBuf,
     pub kind: DependencyType,
@@ -20,7 +20,7 @@ pub struct No {
 pub struct PackageGraph {
     /// `allPackages`: those of `package_config.json` in name order, and
     /// `$sdk` at the end.
-    pub nos: Vec<No>,
+    pub nodes: Vec<PackageNode>,
     pub root: usize,
     pub by_name: HashMap<String, usize>,
     /// Versions from `pubspec.lock`.
@@ -33,8 +33,8 @@ pub struct PackageGraph {
 pub const SDK: &str = "$sdk";
 
 impl PackageGraph {
-    pub fn no(&self, name: &str) -> Option<&No> {
-        self.by_name.get(name).map(|&i| &self.nos[i])
+    pub fn node(&self, name: &str) -> Option<&PackageNode> {
+        self.by_name.get(name).map(|&i| &self.nodes[i])
     }
 
     /// The project's version profile: the `build_config` and `build_runner`
@@ -84,7 +84,7 @@ impl PackageGraph {
                 .map(dartforge_elements::config::sem_verbatim)
                 .map_err(|_| format!("invalid rootUri for {name}"))?;
             by_name.insert(name.clone(), nodes.len());
-            nodes.push(No {
+            nodes.push(PackageNode {
                 name: name.clone(),
                 root: root,
                 kind: lock
@@ -130,7 +130,7 @@ impl PackageGraph {
                 .collect::<Result<_, _>>()?;
         }
         by_name.insert(SDK.to_string(), nodes.len());
-        nodes.push(No {
+        nodes.push(PackageNode {
             name: SDK.to_string(),
             root: sdk.map(Path::to_path_buf).unwrap_or_default(),
             kind: DependencyType::Hosted,
@@ -138,7 +138,7 @@ impl PackageGraph {
             deps: Vec::new(),
         });
         Ok(PackageGraph {
-            nos: nodes,
+            nodes: nodes,
             root: root,
             by_name: by_name,
             lock,
@@ -149,7 +149,7 @@ impl PackageGraph {
     /// Package order for the build script: SCCs from the root, dependencies
     /// first (`build_script_generate.dart:86-92`).
     pub fn script_order(&self) -> Vec<usize> {
-        scc(&[self.root], |n| self.nos[n].deps.clone())
+        scc(&[self.root], |n| self.nodes[n].deps.clone())
             .into_iter()
             .flatten()
             .collect()

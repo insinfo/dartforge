@@ -100,12 +100,12 @@ impl Application {
     }
 
     fn applies_to_package(&self, graph: &PackageGraph, package: usize) -> bool {
-        let node = &graph.nos[package];
+        let node = &graph.nodes[package];
         match &self.filter {
             ApplyFilter::NoneByDefault => false,
             ApplyFilter::All => true,
             ApplyFilter::Root => node.is_root,
-            ApplyFilter::DependentsOf(p) => node.deps.iter().any(|&d| graph.nos[d].name == *p),
+            ApplyFilter::DependentsOf(p) => node.deps.iter().any(|&d| graph.nodes[d].name == *p),
         }
     }
 }
@@ -155,7 +155,7 @@ fn overrides(
     config_key: Option<&str>,
 ) -> Result<HashMap<String, BuildConfig>, String> {
     let profile = graph.profile();
-    let root = &graph.nos[graph.root];
+    let root = &graph.nodes[graph.root];
     let mut m = HashMap::new();
     if let Some(k) = config_key {
         let path = root.root.join(format!("build.{k}.yaml"));
@@ -164,7 +164,7 @@ fn overrides(
         let deps: Vec<String> = root
             .deps
             .iter()
-            .map(|&d| graph.nos[d].name.clone())
+            .map(|&d| graph.nodes[d].name.clone())
             .collect();
         // The file's builder definitions are ignored (the official tool
         // warns): the plan comes from `build.yaml`; only targets, global
@@ -195,13 +195,13 @@ fn overrides(
             continue;
         }
         let package = name.split('.').next().unwrap_or_default().to_string();
-        let Some(node) = graph.no(&package) else {
+        let Some(node) = graph.node(&package) else {
             continue;
         };
         let deps: Vec<String> = node
             .deps
             .iter()
-            .map(|&d| graph.nos[d].name.clone())
+            .map(|&d| graph.nodes[d].name.clone())
             .collect();
         // `--config` wins over `<root>.build.yaml` (it is inserted later).
         if config_key.is_some() && package == root.name {
@@ -247,13 +247,13 @@ impl Configs {
     ) -> Result<Configs, String> {
         let profile = graph.profile();
         let ov = overrides(graph, config_key)?;
-        let mut per_package = Vec::with_capacity(graph.nos.len());
+        let mut per_package = Vec::with_capacity(graph.nodes.len());
         let mut warnings = Vec::new();
-        for node in &graph.nos {
+        for node in &graph.nodes {
             let deps: Vec<String> = node
                 .deps
                 .iter()
-                .map(|&d| graph.nos[d].name.clone())
+                .map(|&d| graph.nodes[d].name.clone())
                 .collect();
             if let Some(c) = ov.get(&node.name) {
                 per_package.push(c.clone());
@@ -315,11 +315,11 @@ impl Plan {
     /// `findBuildScriptOptions` (`build_script_generate.dart:72-160`).
     pub fn from_script(graph: &PackageGraph, configs: &Configs) -> Result<Plan, String> {
         let order = graph.script_order();
-        let root = &graph.nos[graph.root];
+        let root = &graph.nodes[graph.root];
         let valid = |import: &str, package: &str| -> bool {
             if let Some(rest) = import.strip_prefix("package:") {
                 let p = rest.split('/').next().unwrap_or_default();
-                return graph.no(p).is_some();
+                return graph.node(p).is_some();
             }
             package == root.name
         };
@@ -561,7 +561,7 @@ impl Phase {
             "{}#{} {} {} gen={} fontes={} opcional={} oculta={} pos={} ext={:?} entradas_pos={:?} gatilho={}",
             plan.applications[self.application].key,
             self.factory,
-            graph.nos[self.package].name,
+            graph.nodes[self.package].name,
             self.target,
             self.generate_for.text(),
             self.target_sources.text(),
@@ -680,7 +680,7 @@ pub fn phases(
     ) -> bool {
         let ap = &plan.applications[a];
         let node = &nodes[n];
-        let package = &graph.nos[node.package];
+        let package = &graph.nodes[node.package];
         let all_hidden = ap.applies.iter().all(|b| {
             by_application
                 .get(b.as_str())
@@ -815,7 +815,7 @@ pub fn phases(
                         target_sources: InputMatcher::new(&a.sources, None)?,
                         generate_for: InputMatcher::new(&generate_for, None)?,
                         options: options,
-                        root: graph.nos[node.package].is_root,
+                        root: graph.nodes[node.package].is_root,
                         optional: ap.optional,
                         hidden: ap.hidden,
                         pos: ap.pos,

@@ -319,7 +319,7 @@ impl Drop for Engine {
 
 fn natural_path(graph: &PackageGraph, id: &AssetId) -> PathBuf {
     let root = graph
-        .no(&id.package)
+        .node(&id.package)
         .map(|n| n.root.clone())
         .unwrap_or_default();
     chave(&root.join(id.path.as_ref()))
@@ -353,9 +353,9 @@ fn build_indices(gp: &PackageGraph, graph: &Graph, phase_count: usize) -> Indice
     }
     let mut sources = HashSet::new();
     let mut dirs = BTreeSet::new();
-    let root = &gp.nos[gp.root];
+    let root = &gp.nodes[gp.root];
     for (package, paths) in &graph.sources {
-        let Some(node) = gp.no(package) else { continue };
+        let Some(node) = gp.node(package) else { continue };
         for c in paths {
             if c.contains('$') {
                 continue;
@@ -451,13 +451,13 @@ impl Engine {
                     .join("package_config.json"),
             ),
         ];
-        let r = &package_graph.nos[package_graph.root].root;
+        let r = &package_graph.nodes[package_graph.root].root;
         config_files.push(chave(&r.join("pubspec.yaml")));
         // Each package's `build.yaml`, whether it exists or not (creating it
         // changes the plan), and the root directory, whose mark changes when
         // a `<package>.build.yaml` override appears or disappears
         // (DF-BUILD-018).
-        for node in &package_graph.nos {
+        for node in &package_graph.nodes {
             config_files.push(chave(&node.root.join("build.yaml")));
         }
         config_files.push(chave(r));
@@ -790,7 +790,7 @@ impl Engine {
         // A new file in a listed package (outside `.dart_tool` and not a
         // known output written to disk).
         let listed = self.graph.listed.iter().any(|p| {
-            self.package_graph.no(p).is_some_and(|n| {
+            self.package_graph.node(p).is_some_and(|n| {
                 m.starts_with(&n.root) && !m.starts_with(n.root.join(".dart_tool"))
             })
         });
@@ -1103,7 +1103,7 @@ impl Engine {
             // (or reused) in the first phase it covers.
             let mut round_ran: Option<bool> = None;
             if let Some(g) = native.filter(|&g| self.natives[g].by_package()) {
-                let package: Arc<str> = self.package_graph.nos[self.phases[fi].package]
+                let package: Arc<str> = self.package_graph.nodes[self.phases[fi].package]
                     .name
                     .as_str()
                     .into();
@@ -1505,7 +1505,7 @@ impl Engine {
         let phase = self.graph.actions[a].phase;
         let Some(node) = self
             .package_graph
-            .nos
+            .nodes
             .iter()
             .filter(|n| !n.root.as_os_str().is_empty() && p.starts_with(&n.root))
             .max_by_key(|n| n.root.as_os_str().len())
@@ -1575,7 +1575,7 @@ impl Engine {
             .or_else(|| self.restored_code.clone())?;
         let hosted: Vec<&Path> = self
             .package_graph
-            .nos
+            .nodes
             .iter()
             .filter(|n| {
                 n.kind == crate::config::DependencyType::Hosted && !n.root.as_os_str().is_empty()
@@ -2329,7 +2329,7 @@ impl Engine {
         // All the actions of the phases the generator covers in the package.
         let mut actions = Vec::new();
         for (fi, f) in self.phases.iter().enumerate() {
-            if self.package_graph.nos[f.package].name != **package
+            if self.package_graph.nodes[f.package].name != **package
                 || self.native_for_phase(fi) != Some(g)
             {
                 continue;
@@ -2349,7 +2349,7 @@ impl Engine {
                 });
             }
         }
-        let node = self.package_graph.no(package).ok_or("unknown package")?;
+        let node = self.package_graph.node(package).ok_or("unknown package")?;
         let request = NativeRequest {
             package: package.to_string(),
             package_root: node.root.clone(),
@@ -2411,7 +2411,7 @@ impl Engine {
     /// fallback.
     fn package_round_record(&self, g: usize, a: usize, dart_reason: Option<&str>) -> ActionRecord {
         let action = &self.graph.actions[a];
-        let package: Arc<str> = self.package_graph.nos[self.phases[action.phase].package]
+        let package: Arc<str> = self.package_graph.nodes[self.phases[action.phase].package]
             .name
             .as_str()
             .into();
@@ -2510,7 +2510,7 @@ impl Engine {
     /// Name → root of each package in the graph.
     fn package_roots(&self) -> BTreeMap<String, PathBuf> {
         self.package_graph
-            .nos
+            .nodes
             .iter()
             .map(|n| (n.name.clone(), n.root.clone()))
             .collect()
@@ -2529,7 +2529,7 @@ impl Engine {
         let generator = self.natives[g].clone();
         let request = NativeRequest {
             package: action.input.package.to_string(),
-            package_root: self.package_graph.nos[f.package].root.clone(),
+            package_root: self.package_graph.nodes[f.package].root.clone(),
             actions: vec![NativeAction {
                 factory: f.factory.clone(),
                 input: action.input.clone(),
@@ -2986,7 +2986,7 @@ impl Engine {
                 let has_post = self
                     .phases
                     .iter()
-                    .any(|f| f.pos && self.package_graph.nos[f.package].name == *id.package);
+                    .any(|f| f.pos && self.package_graph.nodes[f.package].name == *id.package);
                 if has_post {
                     p.pending.push((
                         id.clone(),

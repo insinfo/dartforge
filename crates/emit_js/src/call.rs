@@ -238,7 +238,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// `solution <: bound` (matched with the free parameters as unknowns), and
     /// the solution becomes the upper bound of the two. `f<X extends A<X>>(C())`,
     /// with `C <: B <: A<B>`, gives `X = B`; `Caixa<T extends Comparable<T>>(3)`
-    /// gives `T = num`. It is the rule of `GenericInferrer::constrain_by_bounds`
+    /// gives `T = num`. It is the rule of `GenericInferrer::restringir_pelos_limites`
     /// in `types`.
     pub fn constrain_by_bounds(&self, params: &[TyParam], free: &[u32], subst: &mut HashMap<u32, Ty>) {
         let library = self.ctx.program.library(self.lib);

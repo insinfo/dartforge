@@ -196,7 +196,7 @@ impl Graph {
         configs: &Configs,
         package: usize,
     ) -> Result<Option<SourceFilter>, String> {
-        let node = &graph.nos[package];
+        let node = &graph.nodes[package];
         let cfg = &configs.by_package[package];
         if node.name == SDK || node.root.as_os_str().is_empty() {
             return Ok(None);
@@ -242,7 +242,7 @@ impl Graph {
             if inc.is_empty() {
                 continue;
             }
-            for c in list(&graph.nos[package].root, &inc) {
+            for c in list(&graph.nodes[package].root, &inc) {
                 if filter.admits(&c) {
                     v.insert(c);
                 }
@@ -279,7 +279,7 @@ impl Graph {
             .filter(|f| f.extensions.is_some())
             .map(|f| f.package)
             .collect();
-        for (i, node) in graph.nos.iter().enumerate() {
+        for (i, node) in graph.nodes.iter().enumerate() {
             let set = g.sources.entry(node.name.as_str().into()).or_default();
             for s in SYNTHETIC {
                 set.insert((*s).into());
@@ -301,7 +301,7 @@ impl Graph {
                 continue;
             }
             let Some(ext) = &phase.extensions else { continue };
-            let package: Arc<str> = graph.nos[phase.package].name.as_str().into();
+            let package: Arc<str> = graph.nodes[phase.package].name.as_str().into();
             let candidates: Vec<Arc<str>> = inputs
                 .get(&package)
                 .map(|s| {
@@ -389,7 +389,7 @@ impl Graph {
         let Some(ext) = &phase.post_inputs else {
             return;
         };
-        let package: Arc<str> = graph.nos[phase.package].name.as_str().into();
+        let package: Arc<str> = graph.nodes[phase.package].name.as_str().into();
         let Some(candidates) = inputs.get(&package) else {
             return;
         };

@@ -348,7 +348,7 @@ fn cli_class_that_disappears_and_returns_keeps_its_id() {
 
 /// Structural reload (J03): a removed field, a new nullable field (before an
 /// existing one) and a new `late` field with an initializer. The live object
-/// migrates by name: `value` carries on, `rotulo` is `null` and `dobro` runs
+/// migrates by name: `valor` carries on, `rotulo` is `null` and `dobro` runs
 /// the initializer on first read.
 #[test]
 fn cli_reloads_with_changed_fields() {

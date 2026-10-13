@@ -73,9 +73,8 @@ pub struct GeneratedText {
     pub text: String,
 }
 
-/// What a macro session produced. The fields `texts`, `executed_macros`
-/// and `warnings` keep their names because `crates/cli` and `crates/emit_js`
-/// read them.
+/// What a macro session produced (`crates/cli` and `crates/emit_js` read
+/// `texts`, `executed_macros` and `warnings`).
 pub struct Output {
     pub program: Program,
     pub generation: Option<Arc<Geracao>>,

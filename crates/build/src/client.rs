@@ -196,7 +196,7 @@ impl<C: Canal> BuildClient<C> {
     }
 
     /// `build.executar` and `build.posprocessar`: the same request and the
-    /// same `build.resultado` response; the post-processor adds `deleted_outputs`.
+    /// same `build.resultado` response; the post-processor adds `apagados`.
     fn action(
         &mut self,
         kind: &str,

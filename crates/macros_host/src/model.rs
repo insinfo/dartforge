@@ -71,7 +71,7 @@ impl Key {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Omitted {
     pub owner: Key,
-    /// `retorno` (return), `kind` (of a field/variable) or the parameter
+    /// `retorno` (return), `tipo` (of a field/variable) or the parameter
     /// name.
     pub place: String,
 }

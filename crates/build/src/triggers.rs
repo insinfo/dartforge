@@ -35,7 +35,8 @@ use std::collections::BTreeMap;
 /// A trigger.
 ///
 /// The `Debug` form of the variants goes into the engine's fingerprint
-/// (`engine.rs` hashes `Triggers::by_builder`), so their names are kept.
+/// (`engine.rs` hashes `Triggers::by_builder`): renaming a variant invalidates
+/// the saved build state once.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Trigger {
     /// `import <library>`: compared with `package:<library>`.
