@@ -97,6 +97,36 @@ caiu de 147 para 17 avisos. Para baixar o pico do filho: escopos materializados
 (~45 MiB, 672 mil entradas) e tamanho dos nós de expressão (141 MiB), em
 `crates/elements` e `crates/frontend`. Pendentes: I5–I6 (motor).
 
+## JS: o piso do runtime, rodada 3 (2026-10-13, macOS)
+
+`print('hi')` saía com 84,7 KB contra 5,1 KB do `dart2js -O4`: três chamadas
+dinâmicas do runtime do DDC (`diagnoseIndexError`, `stringContainsUnchecked`)
+e as `RegExp` do `JSNoSuchMethodError` mantinham vivos o `noSuchMethod`
+inteiro, os mapas e as expressões regulares. Remendos do SDK só no perfil de
+produção (`emit_js/src/sdk_patches.rs`), nomes de *template* `JS()` que não
+alcançam classes chaveadas por `dartx`, promoção dos dois lados de `&&`, `x++`
+descartado como `++x`, *inline* que descarta argumento de parâmetro sem uso (o
+`checkBinding` do ngdart), constantes de enum uma a uma, e regras rti e
+`addRtiResources` do programa numa chamada só. O verificador pula comentários.
+
+| alvo (bruto / gzip) | antes | depois | `dart2js -O4` |
+| --- | ---: | ---: | ---: |
+| `print('hi')` | 84,7 KB | **52,0 KB** | 5,1 KB |
+| `01_print` | 85,5 / 28,0 KB | **60,1 / 20,2 KB** | 34,9 / 11,5 KB |
+| corpus (240) | 23,37 / 7,59 MB | **17,06 / 5,66 MB** | 9,76 / 3,17 MB |
+| mediana nosso/dart2js | 2,35× | **1,64×** | — |
+| `limitless_ui` | 3,857 / 1,136 MB | **3,727 / 1,099 MB** | 3,708 / 0,984 MB |
+| `new_sali` | 8,024 / 2,243 MB | **7,854 / 2,189 MB** | 7,616 / 2,019 MB |
+
+Corpus diferencial 241/241 nos dois perfis; `limitless_ui` e2e 15/15 e 47
+rotas limpas nos dois perfis; `new_sali` carrega sem erro. Pendente, por
+ganho: omitir os nomes dos campos `late` (~64 KB / ~19 KB gzip no
+`limitless_ui`; o `dart2js -O2` já faz, mas muda a mensagem do
+`LateInitializationError` — decisão do dono); o `dart:_rti` no piso e os
+operadores das classes nativas vivos pela regra "operador sempre vivo";
+assinaturas e `dart.fn` com análise de fluxo de valores de função; o
+*polyfill* do DOM em todo programa (`docs/JS-PRODUCAO-TAMANHO.md` §12).
+
 ## JS: `limitless_ui` corrigido e nova rodada de tamanho (2026-10-13, tarde, macOS)
 
 Os dois erros da rodada anterior também aconteciam no desenvolvimento.
