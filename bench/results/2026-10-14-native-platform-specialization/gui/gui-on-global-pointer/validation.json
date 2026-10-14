@@ -1,0 +1,103 @@
+{
+  "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/sizes/on/program",
+  "artifact_sha256": "d40a2312da012fcc34e8e409567e4828ce3bbf6321474985c5ffdeca5b3ce740",
+  "cwd": "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+  "arguments": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+    "--lang=en"
+  ],
+  "entry_source_sha256": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+  "actions": [
+    {
+      "action": "capture",
+      "command": [
+        "python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/window_control_global_pointer.py",
+        "--pid",
+        "58874",
+        "--output",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on-global-pointer",
+        "--action",
+        "capture"
+      ],
+      "started_unix": 1792001179.6443038,
+      "ended_unix": 1792001183.7397451,
+      "exit_code": 0,
+      "stdout": "{\"action\": \"capture\", \"window_id\": 2006, \"host_pid\": 58875, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on-global-pointer\", \"application_alive\": true}\nPNG_DIMENSIONS=1326x846\n",
+      "stderr": "",
+      "application_poll": null
+    },
+    {
+      "action": "navigate",
+      "command": [
+        "python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/window_control_global_pointer.py",
+        "--pid",
+        "58874",
+        "--output",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on-global-pointer",
+        "--action",
+        "navigate",
+        "--folder",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture/dartforge-child"
+      ],
+      "started_unix": 1792001183.7403362,
+      "ended_unix": 1792001188.630495,
+      "exit_code": 0,
+      "stdout": "{\"action\": \"navigate\", \"window_id\": 2006, \"host_pid\": 58875, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on-global-pointer\", \"application_alive\": true}\nPNG_DIMENSIONS=1326x846\n",
+      "stderr": "",
+      "application_poll": null
+    },
+    {
+      "action": "back-button",
+      "command": [
+        "python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/window_control_global_pointer.py",
+        "--pid",
+        "58874",
+        "--output",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on-global-pointer",
+        "--action",
+        "back-button"
+      ],
+      "started_unix": 1792001188.631058,
+      "ended_unix": 1792001193.1936908,
+      "exit_code": 0,
+      "stdout": "{\"action\": \"back-button\", \"window_id\": 2006, \"host_pid\": 58875, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on-global-pointer\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": "",
+      "application_poll": null
+    },
+    {
+      "action": "close-button",
+      "command": [
+        "python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/window_control_global_pointer.py",
+        "--pid",
+        "58874",
+        "--output",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on-global-pointer",
+        "--action",
+        "close-button"
+      ],
+      "started_unix": 1792001193.194046,
+      "ended_unix": 1792001194.635042,
+      "exit_code": 0,
+      "stdout": "{\"action\": \"close-button\", \"window_id\": 2006, \"host_pid\": 58875, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on-global-pointer\", \"application_alive\": true}\n",
+      "stderr": "",
+      "application_poll": 0
+    }
+  ],
+  "visual_review_complete": false,
+  "performance_claim": false,
+  "pid": 58874,
+  "exit_code": 0,
+  "entry_source_unchanged": true,
+  "artifact_unchanged": true,
+  "stdout_bytes": 0,
+  "stderr_bytes": 0,
+  "screenshots_sha256": {
+    "navigate.png": "87a78da17c81760b12b5de291270f0a261614777d0fcdf01bb7d51abf0ca884c",
+    "capture.png": "003bc08caf878bc89f35f1b6d7b18c738192f8a018ff7fb0181653b83dc26a10",
+    "back-button.png": "349c87f4e0f8a061e5b6aa14b7f7916ad5577aba5daf913b2b20a36dd22bbd2d"
+  }
+}

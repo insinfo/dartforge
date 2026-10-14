@@ -1,0 +1,47 @@
+{
+  "all_cg_window": {
+    "kCGWindowName": "File Explorer",
+    "kCGWindowLayer": 0,
+    "kCGWindowMemoryUsage": 2432,
+    "kCGWindowIsOnscreen": true,
+    "kCGWindowSharingState": 1,
+    "kCGWindowOwnerPID": 58875,
+    "kCGWindowOwnerName": "dart_ui_macos_host",
+    "kCGWindowNumber": 2006,
+    "kCGWindowStoreType": 1,
+    "kCGWindowBounds": {
+      "X": 320.0,
+      "Height": 800.0,
+      "Y": 78.0,
+      "Width": 1280.0
+    },
+    "kCGWindowAlpha": 1.0
+  },
+  "children_error": 0,
+  "child_roles": [
+    "AXWindow"
+  ],
+  "raise_error": 0,
+  "activation": "AXFrontmost-after-AXRaise",
+  "event_routing": "observed-native-host-pid",
+  "onscreen_after_raise": [
+    {
+      "kCGWindowName": "File Explorer",
+      "kCGWindowLayer": 0,
+      "kCGWindowMemoryUsage": 2432,
+      "kCGWindowIsOnscreen": true,
+      "kCGWindowSharingState": 1,
+      "kCGWindowOwnerPID": 58875,
+      "kCGWindowOwnerName": "dart_ui_macos_host",
+      "kCGWindowNumber": 2006,
+      "kCGWindowStoreType": 1,
+      "kCGWindowBounds": {
+        "X": 320.0,
+        "Height": 800.0,
+        "Y": 78.0,
+        "Width": 1280.0
+      },
+      "kCGWindowAlpha": 1.0
+    }
+  ]
+}

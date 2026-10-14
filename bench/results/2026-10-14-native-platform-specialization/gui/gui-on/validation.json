@@ -1,0 +1,103 @@
+{
+  "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/sizes/on/program",
+  "artifact_sha256": "d40a2312da012fcc34e8e409567e4828ce3bbf6321474985c5ffdeca5b3ce740",
+  "cwd": "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+  "arguments": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+    "--lang=en"
+  ],
+  "entry_source_sha256": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+  "actions": [
+    {
+      "action": "capture",
+      "command": [
+        "python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/window_control.py",
+        "--pid",
+        "58795",
+        "--output",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on",
+        "--action",
+        "capture"
+      ],
+      "started_unix": 1792001107.04906,
+      "ended_unix": 1792001111.2147899,
+      "exit_code": 0,
+      "stdout": "{\"action\": \"capture\", \"window_id\": 1977, \"host_pid\": 58796, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on\", \"application_alive\": true}\nPNG_DIMENSIONS=1326x846\n",
+      "stderr": "",
+      "application_poll": null
+    },
+    {
+      "action": "navigate",
+      "command": [
+        "python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/window_control.py",
+        "--pid",
+        "58795",
+        "--output",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on",
+        "--action",
+        "navigate",
+        "--folder",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture/dartforge-child"
+      ],
+      "started_unix": 1792001111.215132,
+      "ended_unix": 1792001116.112257,
+      "exit_code": 0,
+      "stdout": "{\"action\": \"navigate\", \"window_id\": 1977, \"host_pid\": 58796, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on\", \"application_alive\": true}\nPNG_DIMENSIONS=1326x846\n",
+      "stderr": "",
+      "application_poll": null
+    },
+    {
+      "action": "back-button",
+      "command": [
+        "python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/window_control.py",
+        "--pid",
+        "58795",
+        "--output",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on",
+        "--action",
+        "back-button"
+      ],
+      "started_unix": 1792001116.1128,
+      "ended_unix": 1792001120.693415,
+      "exit_code": 0,
+      "stdout": "{\"action\": \"back-button\", \"window_id\": 1977, \"host_pid\": 58796, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on\", \"application_alive\": true}\nPNG_DIMENSIONS=1326x846\n",
+      "stderr": "",
+      "application_poll": null
+    },
+    {
+      "action": "close-button",
+      "command": [
+        "python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/window_control.py",
+        "--pid",
+        "58795",
+        "--output",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on",
+        "--action",
+        "close-button"
+      ],
+      "started_unix": 1792001120.693954,
+      "ended_unix": 1792001122.138138,
+      "exit_code": 0,
+      "stdout": "{\"action\": \"close-button\", \"window_id\": 1977, \"host_pid\": 58796, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on\", \"application_alive\": true}\n",
+      "stderr": "",
+      "application_poll": null
+    }
+  ],
+  "visual_review_complete": false,
+  "performance_claim": false,
+  "pid": 58795,
+  "exit_code": 0,
+  "entry_source_unchanged": true,
+  "artifact_unchanged": true,
+  "stdout_bytes": 0,
+  "stderr_bytes": 0,
+  "screenshots_sha256": {
+    "navigate.png": "87a78da17c81760b12b5de291270f0a261614777d0fcdf01bb7d51abf0ca884c",
+    "capture.png": "003bc08caf878bc89f35f1b6d7b18c738192f8a018ff7fb0181653b83dc26a10",
+    "back-button.png": "87a78da17c81760b12b5de291270f0a261614777d0fcdf01bb7d51abf0ca884c"
+  }
+}

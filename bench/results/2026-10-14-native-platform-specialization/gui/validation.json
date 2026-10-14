@@ -1,0 +1,171 @@
+{
+  "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/sizes/on/program",
+  "artifact_sha256": "d40a2312da012fcc34e8e409567e4828ce3bbf6321474985c5ffdeca5b3ce740",
+  "cwd": "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+  "arguments": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+    "--lang=en"
+  ],
+  "entry_source_sha256": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+  "actions": [
+    {
+      "action": "capture",
+      "command": [
+        "python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/window_control_global_pointer.py",
+        "--pid",
+        "58874",
+        "--output",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on-global-pointer",
+        "--action",
+        "capture"
+      ],
+      "started_unix": 1792001179.6443038,
+      "ended_unix": 1792001183.7397451,
+      "exit_code": 0,
+      "stdout": "{\"action\": \"capture\", \"window_id\": 2006, \"host_pid\": 58875, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on-global-pointer\", \"application_alive\": true}\nPNG_DIMENSIONS=1326x846\n",
+      "stderr": "",
+      "application_poll": null
+    },
+    {
+      "action": "navigate",
+      "command": [
+        "python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/window_control_global_pointer.py",
+        "--pid",
+        "58874",
+        "--output",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on-global-pointer",
+        "--action",
+        "navigate",
+        "--folder",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture/dartforge-child"
+      ],
+      "started_unix": 1792001183.7403362,
+      "ended_unix": 1792001188.630495,
+      "exit_code": 0,
+      "stdout": "{\"action\": \"navigate\", \"window_id\": 2006, \"host_pid\": 58875, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on-global-pointer\", \"application_alive\": true}\nPNG_DIMENSIONS=1326x846\n",
+      "stderr": "",
+      "application_poll": null
+    },
+    {
+      "action": "back-button",
+      "command": [
+        "python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/window_control_global_pointer.py",
+        "--pid",
+        "58874",
+        "--output",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on-global-pointer",
+        "--action",
+        "back-button"
+      ],
+      "started_unix": 1792001188.631058,
+      "ended_unix": 1792001193.1936908,
+      "exit_code": 0,
+      "stdout": "{\"action\": \"back-button\", \"window_id\": 2006, \"host_pid\": 58875, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on-global-pointer\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": "",
+      "application_poll": null
+    },
+    {
+      "action": "close-button",
+      "command": [
+        "python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/window_control_global_pointer.py",
+        "--pid",
+        "58874",
+        "--output",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on-global-pointer",
+        "--action",
+        "close-button"
+      ],
+      "started_unix": 1792001193.194046,
+      "ended_unix": 1792001194.635042,
+      "exit_code": 0,
+      "stdout": "{\"action\": \"close-button\", \"window_id\": 2006, \"host_pid\": 58875, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/gui-on-global-pointer\", \"application_alive\": true}\n",
+      "stderr": "",
+      "application_poll": 0
+    }
+  ],
+  "visual_review_complete": true,
+  "performance_claim": false,
+  "pid": 58874,
+  "exit_code": 0,
+  "entry_source_unchanged": true,
+  "artifact_unchanged": true,
+  "stdout_bytes": 0,
+  "stderr_bytes": 0,
+  "screenshots_sha256": {
+    "navigate.png": "87a78da17c81760b12b5de291270f0a261614777d0fcdf01bb7d51abf0ca884c",
+    "capture.png": "003bc08caf878bc89f35f1b6d7b18c738192f8a018ff7fb0181653b83dc26a10",
+    "back-button.png": "349c87f4e0f8a061e5b6aa14b7f7916ad5577aba5daf913b2b20a36dd22bbd2d"
+  },
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/candidate-platform-producer/dartforge",
+  "compiler_sha256": "539086b6334ac61ddbaea956ddf9218aca83d0435eb54633119f9318a88987d7",
+  "compile_profile": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/candidate-platform-producer/dartforge",
+    "compile-native",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+    "--sdk",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "--packages",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+    "--optimize",
+    "--memory=tracing",
+    "--exceptions=check",
+    "--roots=shadow",
+    "--stack-trace=none",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/sizes/on/program"
+  ],
+  "visual_review": {
+    "capture": "Root folder displays dartforge-child and dartforge-fixture.txt; 2 items.",
+    "navigate": "Child folder displays child-content.txt; 1 item.",
+    "back-button": "Root folder displays both original entries; 2 items."
+  },
+  "result": "PASS",
+  "source_edits": false,
+  "no_surviving_owned_pids": true,
+  "owned_pids_ps_stdout": "",
+  "scope": "Actual ordinary entrypoint, default macOS native-host backend: rendered fixture, address navigation, toolbar Back, native chrome close with application exit 0. No startup, throughput or all-feature performance claim.",
+  "previous_attempt": {
+    "path": "gui-on/validation.json",
+    "result": "INCOMPLETE_BACK_NAVIGATION",
+    "detail": "CGEventPostToPid mouse Back left child view unchanged; root/child rendering and chrome close succeeded. Repeated with global pointer events after verified foreground, without application changes. Event-routing explanation is observational, not a proven app failure cause."
+  },
+  "evidence_files": {
+    "window_control_global_pointer.py": "eb011a37c98af093ff7f246a4ea3e2c8e781d0cda18babf29a843e320b149def",
+    "verify_gui_on.py": "564d4c3cad9c4868f0d7f73f0d6c96b6598dd63fc70b9c7808926e390f2db06d",
+    "verify_gui_on_global_pointer.py": "740296aa939329542a4b2bbe3b0390e819dd4819da46d7a3dd51336c4df8be2e",
+    "window_control_pid_pointer.py": "fb87c8d957c6ceb0e96c3ef5fe2374ea6d18f41b4f611dc1b778c66af56a99dc",
+    "ordinary_window_control.py": "ad31f92c6ae142d8c5ba61ee2255282f2d2c4d0353ff185e146bf2b68679ead8",
+    "gui-on/navigate.png": "87a78da17c81760b12b5de291270f0a261614777d0fcdf01bb7d51abf0ca884c",
+    "gui-on/stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "gui-on/back-button.json": "f923dcc214519a01782d85f18a7b81cdc73003a0637a8b22c0d84bcdd1e482cd",
+    "gui-on/stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "gui-on/back-button-raise.json": "6a56417e255486a9208413ae302630dc7809710d66e4f011ae4726683bd4040c",
+    "gui-on/capture.json": "4ff259f2f7dd9970483616b2ae81648c37ac42c4398ffc37b6bbe93c96ddf682",
+    "gui-on/navigate.json": "4672af41aeaa1a05df573530e8cdd3751403e4598bfebef38da0ada2854af284",
+    "gui-on/validation.json": "0d343db56ee708c20646c378ad41040b6846b39bde82b0c72dda2ca24a483df4",
+    "gui-on/close-button-raise.json": "5a0fbcc07baa1e6c3ee13b2d7d34ce6eccfe0f8650b42485b4ccd82e618f881a",
+    "gui-on/capture-raise.json": "5a0fbcc07baa1e6c3ee13b2d7d34ce6eccfe0f8650b42485b4ccd82e618f881a",
+    "gui-on/close-button.json": "ef658a9e8bf350c6f1a427f44592d11c007fa4ae220768537d5bc47f091b66b8",
+    "gui-on/capture.png": "003bc08caf878bc89f35f1b6d7b18c738192f8a018ff7fb0181653b83dc26a10",
+    "gui-on/back-button.png": "87a78da17c81760b12b5de291270f0a261614777d0fcdf01bb7d51abf0ca884c",
+    "gui-on/navigate-raise.json": "6a56417e255486a9208413ae302630dc7809710d66e4f011ae4726683bd4040c",
+    "gui-on-global-pointer/navigate.png": "87a78da17c81760b12b5de291270f0a261614777d0fcdf01bb7d51abf0ca884c",
+    "gui-on-global-pointer/stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "gui-on-global-pointer/back-button.json": "d15942de03c75a010248a2a00e3bfe5f74e7b18be91ee756a06c6ccf5a24ed63",
+    "gui-on-global-pointer/stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "gui-on-global-pointer/back-button-raise.json": "e35e3b5681336d4b3ab33eb71bb9cd82715574bf3ed954824b09c8885f678c50",
+    "gui-on-global-pointer/capture.json": "8504720f0006326315752710a8af5d6ca235409de373f6c4d276cd79b6a68aef",
+    "gui-on-global-pointer/navigate.json": "a38481978164c613a41ab3d236963c5b5907e00019f47b0345b58eb3cb33e430",
+    "gui-on-global-pointer/validation.json": "31e24331a0c2de55e19f87731919dacc038ebf9dd84c142690d8f698822f1e8c",
+    "gui-on-global-pointer/close-button-raise.json": "e35e3b5681336d4b3ab33eb71bb9cd82715574bf3ed954824b09c8885f678c50",
+    "gui-on-global-pointer/capture-raise.json": "e35e3b5681336d4b3ab33eb71bb9cd82715574bf3ed954824b09c8885f678c50",
+    "gui-on-global-pointer/close-button.json": "0075e307ae4eb728cd857dc67673adb0bfc00a37e203fd6e5b81dd128707a030",
+    "gui-on-global-pointer/capture.png": "003bc08caf878bc89f35f1b6d7b18c738192f8a018ff7fb0181653b83dc26a10",
+    "gui-on-global-pointer/back-button.png": "349c87f4e0f8a061e5b6aa14b7f7916ad5577aba5daf913b2b20a36dd22bbd2d",
+    "gui-on-global-pointer/navigate-raise.json": "4a3d6ea08224e21479097c0748ec71d01bc988d859f2e8e54cceaa2f73f8cd91"
+  }
+}
