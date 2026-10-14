@@ -45,6 +45,8 @@ pub struct MetaArc {
     pub state: ArcState,
     /// Is (or was) in the queue of cycle candidates since the last round.
     pub candidate: bool,
+    /// Index in the current candidate queue, or `usize::MAX` when absent.
+    candidate_index: usize,
     /// An ephemeron value (or its closure) protected between rounds (§22.2): a zero
     /// RC does not start the discard.
     pub conditionally_protected: bool,
@@ -362,6 +364,8 @@ impl std::ops::Index<&Ref> for Table {
 pub struct ArcHeapState {
     objects: Table,
     candidates: Vec<ArcId>,
+    /// Diagnostic comparison mode: retain dead queue entries until the cycle round.
+    pub(crate) retain_dead_candidates: bool,
     zeros: Vec<ArcId>,
     /// The zero-RC objects that a root held at the last drain of the zeros, one entry
     /// per object ([`MetaArc::deferred`]); they go back to the queue once per
@@ -415,7 +419,7 @@ impl ArcHeapState {
         self.next_generation = self.next_generation.checked_add(1).expect("ARC: generation exhausted");
         self.objects.insert(
             h,
-            MetaArc { generation, rc: 1, state: ArcState::Building, candidate: false, conditionally_protected: false, immortal: false, deferred: false, side_edges: false },
+            MetaArc { generation, rc: 1, state: ArcState::Building, candidate: false, candidate_index: usize::MAX, conditionally_protected: false, immortal: false, deferred: false, side_edges: false },
             None,
         );
         self.statistics.registered_set += 1;
@@ -437,7 +441,7 @@ impl ArcHeapState {
     pub fn register_immortal(&mut self, h: Ref) {
         let generation = self.next_generation;
         self.next_generation = self.next_generation.checked_add(1).expect("ARC: generation exhausted");
-        self.objects.insert(h, MetaArc { generation, rc: 0, state: ArcState::Live, candidate: false, conditionally_protected: false, immortal: true, deferred: false, side_edges: false }, None);
+        self.objects.insert(h, MetaArc { generation, rc: 0, state: ArcState::Live, candidate: false, candidate_index: usize::MAX, conditionally_protected: false, immortal: true, deferred: false, side_edges: false }, None);
     }
 
     /// Registers an object that already exists and starts being counted (the young
@@ -471,7 +475,7 @@ impl ArcHeapState {
         if self.trace_log {
             eprintln!("[arc-trace] register {h} already={}", self.objects.contains_key(&h));
         }
-        self.objects.insert(h, MetaArc { generation, rc: 0, state: ArcState::Live, candidate: false, conditionally_protected: false, immortal: false, deferred: false, side_edges: false }, geometry);
+        self.objects.insert(h, MetaArc { generation, rc: 0, state: ArcState::Live, candidate: false, candidate_index: usize::MAX, conditionally_protected: false, immortal: false, deferred: false, side_edges: false }, geometry);
         self.statistics.registered_set += 1;
         ArcId { handle: h, generation }
     }
@@ -515,7 +519,34 @@ impl ArcHeapState {
             && (m.side_edges || !without_edges.is_some_and(|f| f(h)))
         {
             m.candidate = true;
+            m.candidate_index = self.candidates.len();
             self.candidates.push(ArcId { handle: h, generation: m.generation });
+        }
+    }
+
+    /// Removes only the queued identity belonging to this registration. A moved
+    /// entry gets its new backlink before any further discard or requeue.
+    fn remove_candidate(&mut self, h: Ref, local: Option<MetadataLocation>) {
+        if self.retain_dead_candidates {
+            return;
+        }
+        let m = match local {
+            Some(local) => self.objects.in_local_mut(local),
+            None => self.objects.get_mut(&h),
+        };
+        let Some(m) = m else { return };
+        let index = std::mem::replace(&mut m.candidate_index, usize::MAX);
+        let id = ArcId { handle: h, generation: m.generation };
+        // Never let a stale generation or backlink remove another identity.
+        if self.candidates.get(index) != Some(&id) {
+            return;
+        }
+        self.candidates.swap_remove(index);
+        if let Some(moved) = self.candidates.get(index).copied()
+            && let Some(m) = self.objects.get_mut(&moved.handle)
+            && m.generation == moved.generation
+        {
+            m.candidate_index = index;
         }
     }
 
@@ -542,6 +573,7 @@ impl ArcHeapState {
         }
         if !m.candidate && (m.side_edges || !without_edges.is_some_and(|f| f(h))) {
             m.candidate = true;
+            m.candidate_index = self.candidates.len();
             self.candidates.push(id);
         }
         true
@@ -614,6 +646,7 @@ impl ArcHeapState {
             self.zeros.push(id);
         } else if !m.candidate && (m.side_edges || !self.without_edges.is_some_and(|f| f(h))) {
             m.candidate = true;
+            m.candidate_index = self.candidates.len();
             self.candidates.push(id);
         }
         Ok(())
@@ -738,6 +771,7 @@ impl ArcHeapState {
             None => item_set.contains(&v),
         };
         for &u in d {
+            self.remove_candidate(u, local);
             let m = match local {
                 Some(local) => self.objects.in_local_mut(local),
                 None => self.objects.get_mut(&u),
@@ -805,10 +839,17 @@ impl ArcHeapState {
     /// which make objects survive like an external reference.
     pub fn collect_cycles(&mut self, graph: &mut dyn ArcGraph, protected: &dyn Fn(Ref) -> bool) -> Result<usize, ArcError> {
         let candidates = std::mem::take(&mut self.candidates);
+        // Detach every old backlink before callbacks can requeue a protected
+        // identity into the new vector. Old indices must never name that vector.
+        for id in &candidates {
+            if let Some(m) = self.objects.get_mut(&id.handle).filter(|m| m.generation == id.generation) {
+                m.candidate = false;
+                m.candidate_index = usize::MAX;
+            }
+        }
         let mut seeds: Vec<Ref> = Vec::new();
         for id in candidates {
-            let Some(m) = self.objects.get_mut(&id.handle).filter(|m| m.generation == id.generation) else { continue };
-            m.candidate = false;
+            let Some(m) = self.objects.get(&id.handle).filter(|m| m.generation == id.generation) else { continue };
             if m.state == ArcState::Live && m.rc > 0 && !m.immortal {
                 if protected(id.handle) {
                     self.add_candidate(id.handle);
@@ -1123,7 +1164,7 @@ mod tests_mod {
         assert!(dead(&a, 2) && dead(&a, 4));
         a.register_live(2);
         assert!(!a.meta(2).unwrap().side_edges);
-        assert_eq!(std::mem::size_of::<MetaArc>(), 24);
+        assert_eq!(std::mem::size_of::<MetaArc>(), 32);
     }
 
     #[test]
@@ -1494,3 +1535,6 @@ mod tests_mod {
         }
     }
 }
+
+#[cfg(test)]
+mod candidates;

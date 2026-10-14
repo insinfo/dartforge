@@ -1,0 +1,1370 @@
+{
+  "rows": [
+    {
+      "mode": "old-legacy-arc",
+      "repeat": 1,
+      "wall_ns": 3965581167,
+      "rss_bytes": 301498368,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            16,
+            16,
+            16,
+            16
+          ],
+          "median_ms": 16
+        },
+        "trees": {
+          "samples_ms": [
+            364,
+            256,
+            253,
+            294
+          ],
+          "median_ms": 256
+        },
+        "numeric": {
+          "samples_ms": [
+            97,
+            98,
+            96,
+            97
+          ],
+          "median_ms": 97
+        },
+        "strings": {
+          "samples_ms": [
+            183,
+            174,
+            178,
+            176
+          ],
+          "median_ms": 176
+        },
+        "json": {
+          "samples_ms": [
+            519,
+            355,
+            375,
+            359
+          ],
+          "median_ms": 359
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": false
+    },
+    {
+      "mode": "old-prepared-arc",
+      "repeat": 1,
+      "wall_ns": 7396136833,
+      "rss_bytes": 349077504,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            15,
+            15,
+            14,
+            14
+          ],
+          "median_ms": 14
+        },
+        "trees": {
+          "samples_ms": [
+            406,
+            397,
+            400,
+            400
+          ],
+          "median_ms": 400
+        },
+        "numeric": {
+          "samples_ms": [
+            97,
+            97,
+            97,
+            97
+          ],
+          "median_ms": 97
+        },
+        "strings": {
+          "samples_ms": [
+            408,
+            384,
+            377,
+            380
+          ],
+          "median_ms": 380
+        },
+        "json": {
+          "samples_ms": [
+            1082,
+            896,
+            895,
+            903
+          ],
+          "median_ms": 896
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": false
+    },
+    {
+      "mode": "old-official",
+      "repeat": 1,
+      "wall_ns": 961828625,
+      "rss_bytes": 197820416,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            9,
+            9,
+            9,
+            9
+          ],
+          "median_ms": 9
+        },
+        "trees": {
+          "samples_ms": [
+            13,
+            11,
+            11,
+            11
+          ],
+          "median_ms": 11
+        },
+        "numeric": {
+          "samples_ms": [
+            95,
+            96,
+            96,
+            96
+          ],
+          "median_ms": 96
+        },
+        "strings": {
+          "samples_ms": [
+            45,
+            45,
+            45,
+            45
+          ],
+          "median_ms": 45
+        },
+        "json": {
+          "samples_ms": [
+            70,
+            75,
+            72,
+            70
+          ],
+          "median_ms": 72
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": false
+    },
+    {
+      "mode": "new-legacy-arc",
+      "repeat": 1,
+      "wall_ns": 4148867208,
+      "rss_bytes": 179912704,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            25,
+            19,
+            16,
+            15
+          ],
+          "median_ms": 16
+        },
+        "trees": {
+          "samples_ms": [
+            257,
+            273,
+            280,
+            289
+          ],
+          "median_ms": 280
+        },
+        "numeric": {
+          "samples_ms": [
+            100,
+            99,
+            97,
+            96
+          ],
+          "median_ms": 97
+        },
+        "strings": {
+          "samples_ms": [
+            187,
+            174,
+            180,
+            178
+          ],
+          "median_ms": 178
+        },
+        "json": {
+          "samples_ms": [
+            485,
+            356,
+            358,
+            367
+          ],
+          "median_ms": 358
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": false
+    },
+    {
+      "mode": "new-prepared-arc",
+      "repeat": 1,
+      "wall_ns": 7651788125,
+      "rss_bytes": 212729856,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            21,
+            17,
+            15,
+            15
+          ],
+          "median_ms": 15
+        },
+        "trees": {
+          "samples_ms": [
+            412,
+            411,
+            413,
+            411
+          ],
+          "median_ms": 411
+        },
+        "numeric": {
+          "samples_ms": [
+            107,
+            114,
+            98,
+            98
+          ],
+          "median_ms": 98
+        },
+        "strings": {
+          "samples_ms": [
+            380,
+            378,
+            378,
+            380
+          ],
+          "median_ms": 378
+        },
+        "json": {
+          "samples_ms": [
+            1078,
+            907,
+            894,
+            898
+          ],
+          "median_ms": 898
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": false
+    },
+    {
+      "mode": "new-retain-legacy-arc",
+      "repeat": 1,
+      "wall_ns": 3833530417,
+      "rss_bytes": 292978688,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            16,
+            15,
+            15,
+            14
+          ],
+          "median_ms": 15
+        },
+        "trees": {
+          "samples_ms": [
+            254,
+            255,
+            254,
+            268
+          ],
+          "median_ms": 255
+        },
+        "numeric": {
+          "samples_ms": [
+            101,
+            100,
+            100,
+            96
+          ],
+          "median_ms": 100
+        },
+        "strings": {
+          "samples_ms": [
+            184,
+            177,
+            180,
+            178
+          ],
+          "median_ms": 178
+        },
+        "json": {
+          "samples_ms": [
+            549,
+            352,
+            351,
+            353
+          ],
+          "median_ms": 352
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": true
+    },
+    {
+      "mode": "new-retain-prepared-arc",
+      "repeat": 1,
+      "wall_ns": 7348695042,
+      "rss_bytes": 363855872,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            15,
+            14,
+            14,
+            15
+          ],
+          "median_ms": 14
+        },
+        "trees": {
+          "samples_ms": [
+            405,
+            397,
+            417,
+            396
+          ],
+          "median_ms": 397
+        },
+        "numeric": {
+          "samples_ms": [
+            99,
+            98,
+            98,
+            97
+          ],
+          "median_ms": 98
+        },
+        "strings": {
+          "samples_ms": [
+            378,
+            376,
+            372,
+            376
+          ],
+          "median_ms": 376
+        },
+        "json": {
+          "samples_ms": [
+            1105,
+            890,
+            883,
+            885
+          ],
+          "median_ms": 885
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": true
+    },
+    {
+      "mode": "new-retain-prepared-arc",
+      "repeat": 2,
+      "wall_ns": 7320618917,
+      "rss_bytes": 300974080,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            15,
+            14,
+            14,
+            14
+          ],
+          "median_ms": 14
+        },
+        "trees": {
+          "samples_ms": [
+            405,
+            396,
+            397,
+            393
+          ],
+          "median_ms": 396
+        },
+        "numeric": {
+          "samples_ms": [
+            101,
+            99,
+            98,
+            98
+          ],
+          "median_ms": 98
+        },
+        "strings": {
+          "samples_ms": [
+            379,
+            377,
+            374,
+            376
+          ],
+          "median_ms": 376
+        },
+        "json": {
+          "samples_ms": [
+            1090,
+            889,
+            886,
+            886
+          ],
+          "median_ms": 886
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": true
+    },
+    {
+      "mode": "new-retain-legacy-arc",
+      "repeat": 2,
+      "wall_ns": 3842130500,
+      "rss_bytes": 294666240,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            16,
+            15,
+            15,
+            16
+          ],
+          "median_ms": 15
+        },
+        "trees": {
+          "samples_ms": [
+            248,
+            253,
+            252,
+            268
+          ],
+          "median_ms": 253
+        },
+        "numeric": {
+          "samples_ms": [
+            109,
+            99,
+            98,
+            99
+          ],
+          "median_ms": 99
+        },
+        "strings": {
+          "samples_ms": [
+            183,
+            176,
+            180,
+            182
+          ],
+          "median_ms": 180
+        },
+        "json": {
+          "samples_ms": [
+            562,
+            352,
+            349,
+            350
+          ],
+          "median_ms": 350
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": true
+    },
+    {
+      "mode": "new-prepared-arc",
+      "repeat": 2,
+      "wall_ns": 7376056708,
+      "rss_bytes": 217464832,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            15,
+            15,
+            15,
+            15
+          ],
+          "median_ms": 15
+        },
+        "trees": {
+          "samples_ms": [
+            408,
+            407,
+            410,
+            410
+          ],
+          "median_ms": 410
+        },
+        "numeric": {
+          "samples_ms": [
+            100,
+            99,
+            98,
+            98
+          ],
+          "median_ms": 98
+        },
+        "strings": {
+          "samples_ms": [
+            381,
+            378,
+            368,
+            377
+          ],
+          "median_ms": 377
+        },
+        "json": {
+          "samples_ms": [
+            1067,
+            899,
+            892,
+            903
+          ],
+          "median_ms": 899
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": false
+    },
+    {
+      "mode": "new-legacy-arc",
+      "repeat": 2,
+      "wall_ns": 3846287625,
+      "rss_bytes": 178225152,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            15,
+            14,
+            14,
+            14
+          ],
+          "median_ms": 14
+        },
+        "trees": {
+          "samples_ms": [
+            258,
+            272,
+            272,
+            286
+          ],
+          "median_ms": 272
+        },
+        "numeric": {
+          "samples_ms": [
+            101,
+            100,
+            99,
+            98
+          ],
+          "median_ms": 99
+        },
+        "strings": {
+          "samples_ms": [
+            188,
+            180,
+            182,
+            180
+          ],
+          "median_ms": 180
+        },
+        "json": {
+          "samples_ms": [
+            484,
+            356,
+            359,
+            355
+          ],
+          "median_ms": 356
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": false
+    },
+    {
+      "mode": "old-official",
+      "repeat": 2,
+      "wall_ns": 959402542,
+      "rss_bytes": 197738496,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            9,
+            9,
+            9,
+            9
+          ],
+          "median_ms": 9
+        },
+        "trees": {
+          "samples_ms": [
+            13,
+            12,
+            11,
+            11
+          ],
+          "median_ms": 11
+        },
+        "numeric": {
+          "samples_ms": [
+            97,
+            97,
+            97,
+            96
+          ],
+          "median_ms": 97
+        },
+        "strings": {
+          "samples_ms": [
+            45,
+            45,
+            45,
+            45
+          ],
+          "median_ms": 45
+        },
+        "json": {
+          "samples_ms": [
+            70,
+            75,
+            72,
+            70
+          ],
+          "median_ms": 72
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": false
+    },
+    {
+      "mode": "old-prepared-arc",
+      "repeat": 2,
+      "wall_ns": 7326282333,
+      "rss_bytes": 367755264,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            15,
+            14,
+            14,
+            14
+          ],
+          "median_ms": 14
+        },
+        "trees": {
+          "samples_ms": [
+            403,
+            397,
+            396,
+            395
+          ],
+          "median_ms": 396
+        },
+        "numeric": {
+          "samples_ms": [
+            99,
+            99,
+            99,
+            99
+          ],
+          "median_ms": 99
+        },
+        "strings": {
+          "samples_ms": [
+            380,
+            378,
+            374,
+            375
+          ],
+          "median_ms": 375
+        },
+        "json": {
+          "samples_ms": [
+            1080,
+            892,
+            891,
+            893
+          ],
+          "median_ms": 892
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": false
+    },
+    {
+      "mode": "old-legacy-arc",
+      "repeat": 2,
+      "wall_ns": 3796726584,
+      "rss_bytes": 337772544,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            16,
+            16,
+            16,
+            16
+          ],
+          "median_ms": 16
+        },
+        "trees": {
+          "samples_ms": [
+            249,
+            253,
+            253,
+            274
+          ],
+          "median_ms": 253
+        },
+        "numeric": {
+          "samples_ms": [
+            100,
+            100,
+            98,
+            100
+          ],
+          "median_ms": 100
+        },
+        "strings": {
+          "samples_ms": [
+            181,
+            175,
+            178,
+            176
+          ],
+          "median_ms": 176
+        },
+        "json": {
+          "samples_ms": [
+            518,
+            354,
+            353,
+            351
+          ],
+          "median_ms": 353
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": false
+    },
+    {
+      "mode": "old-legacy-arc",
+      "repeat": 3,
+      "wall_ns": 3794158333,
+      "rss_bytes": 363528192,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            16,
+            16,
+            16,
+            16
+          ],
+          "median_ms": 16
+        },
+        "trees": {
+          "samples_ms": [
+            249,
+            254,
+            253,
+            266
+          ],
+          "median_ms": 254
+        },
+        "numeric": {
+          "samples_ms": [
+            101,
+            98,
+            98,
+            98
+          ],
+          "median_ms": 98
+        },
+        "strings": {
+          "samples_ms": [
+            182,
+            175,
+            179,
+            176
+          ],
+          "median_ms": 176
+        },
+        "json": {
+          "samples_ms": [
+            518,
+            353,
+            357,
+            355
+          ],
+          "median_ms": 355
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": false
+    },
+    {
+      "mode": "old-prepared-arc",
+      "repeat": 3,
+      "wall_ns": 7388728458,
+      "rss_bytes": 292159488,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            15,
+            15,
+            15,
+            15
+          ],
+          "median_ms": 15
+        },
+        "trees": {
+          "samples_ms": [
+            403,
+            398,
+            399,
+            398
+          ],
+          "median_ms": 398
+        },
+        "numeric": {
+          "samples_ms": [
+            100,
+            100,
+            98,
+            99
+          ],
+          "median_ms": 99
+        },
+        "strings": {
+          "samples_ms": [
+            380,
+            378,
+            378,
+            381
+          ],
+          "median_ms": 378
+        },
+        "json": {
+          "samples_ms": [
+            1112,
+            893,
+            894,
+            898
+          ],
+          "median_ms": 894
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": false
+    },
+    {
+      "mode": "old-official",
+      "repeat": 3,
+      "wall_ns": 960503917,
+      "rss_bytes": 197771264,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            9,
+            9,
+            9,
+            9
+          ],
+          "median_ms": 9
+        },
+        "trees": {
+          "samples_ms": [
+            13,
+            11,
+            11,
+            11
+          ],
+          "median_ms": 11
+        },
+        "numeric": {
+          "samples_ms": [
+            98,
+            98,
+            97,
+            96
+          ],
+          "median_ms": 97
+        },
+        "strings": {
+          "samples_ms": [
+            45,
+            45,
+            44,
+            45
+          ],
+          "median_ms": 45
+        },
+        "json": {
+          "samples_ms": [
+            71,
+            75,
+            72,
+            70
+          ],
+          "median_ms": 72
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": false
+    },
+    {
+      "mode": "new-legacy-arc",
+      "repeat": 3,
+      "wall_ns": 3978902042,
+      "rss_bytes": 200212480,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            16,
+            16,
+            16,
+            16
+          ],
+          "median_ms": 16
+        },
+        "trees": {
+          "samples_ms": [
+            259,
+            272,
+            271,
+            288
+          ],
+          "median_ms": 272
+        },
+        "numeric": {
+          "samples_ms": [
+            100,
+            99,
+            99,
+            104
+          ],
+          "median_ms": 99
+        },
+        "strings": {
+          "samples_ms": [
+            186,
+            177,
+            310,
+            179
+          ],
+          "median_ms": 179
+        },
+        "json": {
+          "samples_ms": [
+            484,
+            357,
+            355,
+            354
+          ],
+          "median_ms": 355
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": false
+    },
+    {
+      "mode": "new-prepared-arc",
+      "repeat": 3,
+      "wall_ns": 7375393166,
+      "rss_bytes": 221151232,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            15,
+            15,
+            15,
+            15
+          ],
+          "median_ms": 15
+        },
+        "trees": {
+          "samples_ms": [
+            410,
+            409,
+            412,
+            410
+          ],
+          "median_ms": 410
+        },
+        "numeric": {
+          "samples_ms": [
+            100,
+            99,
+            99,
+            99
+          ],
+          "median_ms": 99
+        },
+        "strings": {
+          "samples_ms": [
+            379,
+            376,
+            375,
+            378
+          ],
+          "median_ms": 376
+        },
+        "json": {
+          "samples_ms": [
+            1070,
+            890,
+            891,
+            898
+          ],
+          "median_ms": 891
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": false
+    },
+    {
+      "mode": "new-retain-legacy-arc",
+      "repeat": 3,
+      "wall_ns": 3832224458,
+      "rss_bytes": 406028288,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            15,
+            15,
+            15,
+            15
+          ],
+          "median_ms": 15
+        },
+        "trees": {
+          "samples_ms": [
+            253,
+            254,
+            251,
+            268
+          ],
+          "median_ms": 254
+        },
+        "numeric": {
+          "samples_ms": [
+            102,
+            100,
+            98,
+            100
+          ],
+          "median_ms": 100
+        },
+        "strings": {
+          "samples_ms": [
+            183,
+            178,
+            178,
+            177
+          ],
+          "median_ms": 178
+        },
+        "json": {
+          "samples_ms": [
+            552,
+            352,
+            350,
+            355
+          ],
+          "median_ms": 352
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": true
+    },
+    {
+      "mode": "new-retain-prepared-arc",
+      "repeat": 3,
+      "wall_ns": 7367205792,
+      "rss_bytes": 430735360,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            15,
+            15,
+            14,
+            14
+          ],
+          "median_ms": 14
+        },
+        "trees": {
+          "samples_ms": [
+            409,
+            398,
+            398,
+            397
+          ],
+          "median_ms": 398
+        },
+        "numeric": {
+          "samples_ms": [
+            101,
+            101,
+            99,
+            100
+          ],
+          "median_ms": 100
+        },
+        "strings": {
+          "samples_ms": [
+            394,
+            377,
+            374,
+            379
+          ],
+          "median_ms": 377
+        },
+        "json": {
+          "samples_ms": [
+            1102,
+            889,
+            884,
+            888
+          ],
+          "median_ms": 888
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      },
+      "retain_dead_candidates": true
+    }
+  ],
+  "summary": {
+    "old-legacy-arc": {
+      "wall_ms": 3796.726584,
+      "rss_bytes": 337772544,
+      "kernels_ms": {
+        "fib": 16,
+        "trees": 254,
+        "numeric": 98,
+        "strings": 176,
+        "json": 355
+      }
+    },
+    "old-prepared-arc": {
+      "wall_ms": 7388.728458,
+      "rss_bytes": 349077504,
+      "kernels_ms": {
+        "fib": 14,
+        "trees": 398,
+        "numeric": 99,
+        "strings": 378,
+        "json": 894
+      }
+    },
+    "old-official": {
+      "wall_ms": 960.503917,
+      "rss_bytes": 197771264,
+      "kernels_ms": {
+        "fib": 9,
+        "trees": 11,
+        "numeric": 97,
+        "strings": 45,
+        "json": 72
+      }
+    },
+    "new-legacy-arc": {
+      "wall_ms": 3978.902042,
+      "rss_bytes": 179912704,
+      "kernels_ms": {
+        "fib": 16,
+        "trees": 272,
+        "numeric": 99,
+        "strings": 179,
+        "json": 356
+      }
+    },
+    "new-prepared-arc": {
+      "wall_ms": 7376.056708,
+      "rss_bytes": 217464832,
+      "kernels_ms": {
+        "fib": 15,
+        "trees": 410,
+        "numeric": 98,
+        "strings": 377,
+        "json": 898
+      }
+    },
+    "new-retain-legacy-arc": {
+      "wall_ms": 3833.530417,
+      "rss_bytes": 294666240,
+      "kernels_ms": {
+        "fib": 15,
+        "trees": 254,
+        "numeric": 100,
+        "strings": 178,
+        "json": 352
+      }
+    },
+    "new-retain-prepared-arc": {
+      "wall_ms": 7348.695042,
+      "rss_bytes": 363855872,
+      "kernels_ms": {
+        "fib": 14,
+        "trees": 397,
+        "numeric": 98,
+        "strings": 376,
+        "json": 886
+      }
+    }
+  },
+  "complete": true,
+  "started_utc": "2026-10-14T17:56:21.993961+00:00",
+  "finished_utc": "2026-10-14T17:58:06.525150+00:00",
+  "all_outputs_exact": true,
+  "source_stable": true,
+  "scope": "Three alternating fresh-process orders, four calls/kernel discard first, median calls then processes. /usr/bin/time macOS physical peakRSS; new retaining/pruning both32-byte metadata, old24-byte producer provides net memory/performance baseline. Instrumentation disabled; new compiler platform specialization disabled for these artifacts. Millisecond kernel timer resolution; no whole-program parity claim."
+}

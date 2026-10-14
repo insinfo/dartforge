@@ -1,0 +1,36 @@
+sdk-version starting
+sdk-version terminal 0
+fixture-vm starting
+fixture-vm terminal 0
+fixture-aot-build starting
+fixture-aot-build terminal 0
+fixture-aot starting
+fixture-aot terminal 0
+legacy-arc-build starting
+legacy-arc-build terminal 0
+legacy-arc-prune-normal starting
+legacy-arc-prune-normal terminal 0
+legacy-arc-prune-normal exact VM True
+legacy-arc-prune-stress starting
+legacy-arc-prune-stress terminal 0
+legacy-arc-prune-stress exact VM True
+legacy-arc-retain-normal starting
+legacy-arc-retain-normal terminal 0
+legacy-arc-retain-normal exact VM True
+legacy-arc-retain-stress starting
+legacy-arc-retain-stress terminal 0
+legacy-arc-retain-stress exact VM True
+prepared-arc-build starting
+prepared-arc-build terminal 0
+prepared-arc-prune-normal starting
+prepared-arc-prune-normal terminal 0
+prepared-arc-prune-normal exact VM True
+prepared-arc-prune-stress starting
+prepared-arc-prune-stress terminal 0
+prepared-arc-prune-stress exact VM True
+prepared-arc-retain-normal starting
+prepared-arc-retain-normal terminal 0
+prepared-arc-retain-normal exact VM True
+prepared-arc-retain-stress starting
+prepared-arc-retain-stress terminal 0
+prepared-arc-retain-stress exact VM True

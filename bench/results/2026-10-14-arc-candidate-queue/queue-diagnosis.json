@@ -1,0 +1,21 @@
+{
+  "existing_trace": "bench/results/2026-10-14-arc-drain-diagnosis/prepared.stderr",
+  "existing_trace_sha256": "80b3387b7101b6696cce8d7c605b5075b9139c6eb13582bd17a7530a2cbcb9e4",
+  "drains": 421,
+  "phase_sums_us": {
+    "zero_cascade": 517190,
+    "cycles": 272623,
+    "ephemeron": 0,
+    "side_cleanup": 71242
+  },
+  "maximum_pending_candidate_identities": 10024106,
+  "maximum_pending_candidate_payload_bytes": 160385696,
+  "scope": "Existing GC_TRACE diagnostic; no isolated performance or new speed claim. Candidate vector capacity and allocator overhead are not included in payload estimate.",
+  "source_sha256": {
+    "crates/runtime/src/arc.rs": "c8123ae55e52c7ae340b99642bd2284342c3c2502257eed29e125dd1a38c3cbe",
+    "crates/runtime/src/heap.rs": "5fdccee1e348e6a20f45344f6e1d273aeb9a12a920e7509aadd8b1b2852d5bec",
+    "crates/runtime/src/space.rs": "1b5b232519d1131f4f2eb06211e19d8253edcf0a768d18d965bdf5bda03d3395"
+  },
+  "source_changes": false,
+  "sample_limitation": "The baseline executable is stripped; native stack addresses cannot reliably identify Rust ARC frames."
+}

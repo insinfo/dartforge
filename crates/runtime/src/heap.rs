@@ -5654,6 +5654,7 @@ impl Heap {
             pure: !std::env::var("DARTFORGE_ARC_NURSERY").is_ok_and(|v| v == "1"),
         });
         arc.state.trace_log = std::env::var("DARTFORGE_ARC_TRACE").is_ok_and(|v| v == "1");
+        arc.state.retain_dead_candidates = std::env::var("DARTFORGE_ARC_RETAIN_DEAD_CANDIDATES").is_ok_and(|v| v == "1");
         arc.state.without_edges = Some(block_without_refs);
         let reached_set = self.reachable_by_tracing();
         for &x in &reached_set {

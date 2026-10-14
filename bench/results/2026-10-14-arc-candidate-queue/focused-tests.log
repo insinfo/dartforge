@@ -1,0 +1,40 @@
+    Blocking waiting for file lock on build directory
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 09s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_runtime-439dcf0178efcb43)
+
+running 31 tests
+test arc::candidates::building_and_conditional_protection_keep_existing_lifetime_rules ... ok
+test arc::candidates::dead_candidates_swap_remove_and_repair_moved_identity ... ok
+test arc::candidates::negative_trial_still_precedes_rc_or_graph_commit ... ok
+test arc::candidates::randomized_duplicate_edge_graphs_match_retained_candidate_reference ... ok
+test arc::candidates::snapshot_detaches_backlinks_before_protected_requeue_and_death ... ok
+test arc::candidates::stale_generation_and_wrong_backlink_cannot_remove_current_identity ... ok
+test arc::tests_mod::acyclic_chain_dies_in_cascade_when_root_is_released ... ok
+test arc::tests_mod::audit_finds_wrong_rc ... ok
+test arc::tests_mod::bounded_cascade_preserves_root_multiplicity_and_generation_in_reformatted_page ... ok
+test arc::tests_mod::cycle_holding_an_acyclic_releases_both ... ok
+test arc::tests_mod::cycle_with_external_reference_survives_and_collection_keeps_rc ... ok
+test arc::tests_mod::dense_negative_trial_identifies_handle_and_aborts_before_discard ... ok
+test arc::tests_mod::dense_survival_preserves_converging_paths_and_repeated_edges ... ok
+test arc::tests_mod::dense_trial_preserves_multiplicity_and_external_entry_in_sparse_handles ... ok
+test arc::tests_mod::immortal_does_not_reuse_generation_after_exhaustion ... ok
+test arc::candidates::candidate_indices_do_not_truncate_large_live_queues ... ok
+test arc::tests_mod::index_by_inverse_checks_large_sizes_and_u64_bounds ... ok
+test arc::tests_mod::isolated_cycle_dies_only_by_cycle_collection ... ok
+test arc::tests_mod::null_and_smi_are_not_counted ... ok
+test arc::tests_mod::observational_root_holds_zero_and_cycle ... ok
+test arc::tests_mod::occurrence_multiplicity ... ok
+test arc::tests_mod::protected_root_does_not_expand_trial_and_keeps_candidate ... ok
+test arc::tests_mod::reformatted_page_updates_inverse_and_preserves_metadata ... ok
+test arc::tests_mod::release_with_zero_rc_is_an_error_and_overflow_too ... ok
+test arc::tests_mod::retain_if_registered_tells_absence_without_hiding_errors ... ok
+test arc::tests_mod::side_edge_prevents_refless_body_filter ... ok
+test arc::tests_mod::stale_queue_entry_is_ignored_by_generation ... ok
+test arc::tests_mod::successive_cycles_inherit_neither_survivors_nor_reclaimed_generations ... ok
+test arc::tests_mod::transferred_dead_preserve_cascade_and_rounds_without_copying_first_buffer ... ok
+test arc::tests_mod::under_construction_and_protected_do_not_die ... ok
+test arc::tests_mod::index_by_inverse_checks_every_class_byte ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 282 filtered out; finished in 0.02s
+

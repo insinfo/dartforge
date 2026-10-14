@@ -1,0 +1,20 @@
+{
+  "scope": "Archive names recovered from immutable compiler; exact uniquely matching build directory files. Runtime cache chooses MAIN executable and PRODUCTION source-SDK static archives; DLL variant recorded for producer completeness.",
+  "archives": [
+    {
+      "path": "target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_runtime_590855c57706f5f3441473c001ffe798.a",
+      "bytes": 12284792,
+      "sha256": "ffdedd4ac90e86b3e83620c97fcd0a3d99543ac82d4732721967cb0771484810"
+    },
+    {
+      "path": "target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_rtdll_de04130f7e57f425f8c1f530573e4ac2.a",
+      "bytes": 12885608,
+      "sha256": "e1f4e84cb15410cb14762543205317a9be19d3751dbdb9db904f237fa7e4ee76"
+    },
+    {
+      "path": "target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_rtprod_64e1e7ceb3be5fc1fd8daebf12bac8e2.a",
+      "bytes": 12284568,
+      "sha256": "d7ab40db5b95c33e5b7a9eb814e8721ba1e2a495e0f2a7ed69f3b499be5330f1"
+    }
+  ]
+}

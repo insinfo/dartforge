@@ -1,0 +1,21 @@
+sdk-version starting
+sdk-version terminal 0
+fixture-vm starting
+fixture-vm terminal 0
+fixture-aot-build starting
+fixture-aot-build terminal 0
+fixture-aot starting
+fixture-aot terminal 0
+legacy-arc-build starting
+Traceback (most recent call last):
+  File "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-arc-candidate-queue/validate_native.py", line 88, in <module>
+    result, row = run(mode + '-build', [compiler, 'compile-native', fixture, '--sdk', sdk / 'lib',
+  File "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-arc-candidate-queue/validate_native.py", line 59, in run
+    result = subprocess.run(command, cwd=root, env=execution, capture_output=True, timeout=1800)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/subprocess.py", line 505, in run
+    with Popen(*popenargs, **kwargs) as process:
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/subprocess.py", line 951, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/subprocess.py", line 1821, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+PermissionError: [Errno 13] Permission denied: '/Volumes/ssd_dock/MyRustProjects/dartforge/target/candidate-platform-producer/dartforge'
