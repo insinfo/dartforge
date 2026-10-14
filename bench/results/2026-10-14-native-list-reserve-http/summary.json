@@ -1,0 +1,27 @@
+{
+  "median_cpu_ms_per_1000_requests": {
+    "/": {
+      "before": 52.0,
+      "after": 50.0,
+      "official": 34.0
+    },
+    "/json": {
+      "before": 54.0,
+      "after": 54.0,
+      "official": 34.0
+    }
+  },
+  "scope": "Tracing, direct UTF-8 JSON, one local keep-alive connection, 500 warmup plus 5000 measured requests per process, three alternating process orders. All response bodies checked.",
+  "conclusion": "No measurable JSON CPU improvement in this sample; the official AOT uses less CPU per request. Text variation is within the observed spread.",
+  "limitations": [
+    "Local Python client limits wall throughput",
+    "One keep-alive connection",
+    "macOS CPU counter resolution is 0.01 seconds"
+  ],
+  "performance_claims_excluded": [
+    "server capacity",
+    "tail latency",
+    "ARC performance",
+    "statistical significance"
+  ]
+}

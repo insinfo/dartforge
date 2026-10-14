@@ -1,0 +1,19 @@
+{
+  "source": "bench/comparison/server_utf8.dart",
+  "flags": [
+    "--optimize",
+    "--memory=tracing",
+    "--exceptions=check",
+    "--roots=shadow",
+    "--stack-trace=none"
+  ],
+  "sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+  "hashes": {
+    "bench/comparison/server_utf8.dart": "ef6c3c5aab0b66dad432d027077ffe6ea3159c1c426100aeb68e32e97ef27896",
+    "scripts/measure-http-pairs.py": "596adbe93ab93baa2da08ba2823de6b3fbb1f8b44e59aa6a7904f796f6bbb503",
+    "target/native-provenance/arc-null-metadata-compiler/dartforge": "02dd0c2ef1d5a4eeefdc9a1a76faf4d4ad0b4f4711989480bb5ec5e2087c2002",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa"
+  },
+  "compiler_before": "target/native-provenance/arc-null-metadata-compiler/dartforge",
+  "scope": "Untimed exact HTTP response and shutdown validation. Timing is not yet available."
+}
