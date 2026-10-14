@@ -1,0 +1,125 @@
+{
+  "rows": [
+    {
+      "profile": "off",
+      "rounds": 1000,
+      "calls": 576000,
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/off",
+        "1000"
+      ],
+      "exit_code": 0,
+      "artifact_sha256": "280405175398dd6ff71fe87fc64b08eed67a8355099c01f902d4311f72b44cce",
+      "stats": {
+        "allocations": 192598,
+        "collections": 2,
+        "reclaimed": 172788,
+        "live_objects": 19810,
+        "reserved_slots": 0,
+        "root_slots": 0,
+        "peak_root_slots": 3,
+        "live_roots": 0,
+        "peak_roots": 3,
+        "live_bytes": 488344,
+        "peak_live_bytes": 2098496,
+        "permanent_roots": 1,
+        "smi_caixas_evitadas": 0,
+        "map_frames": 0,
+        "map_roots": 0,
+        "checked_roots": 0
+      }
+    },
+    {
+      "profile": "on",
+      "rounds": 1000,
+      "calls": 576000,
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/on",
+        "1000"
+      ],
+      "exit_code": 0,
+      "artifact_sha256": "775eeb10bf302e09f4b5f34105a18e3f2f0e8dd801ea45333bd4a22a2ee1582e",
+      "stats": {
+        "allocations": 192598,
+        "collections": 2,
+        "reclaimed": 172788,
+        "live_objects": 19810,
+        "reserved_slots": 0,
+        "root_slots": 0,
+        "peak_root_slots": 3,
+        "live_roots": 0,
+        "peak_roots": 3,
+        "live_bytes": 488344,
+        "peak_live_bytes": 2098496,
+        "permanent_roots": 1,
+        "smi_caixas_evitadas": 0,
+        "map_frames": 0,
+        "map_roots": 0,
+        "checked_roots": 0
+      }
+    },
+    {
+      "profile": "off",
+      "rounds": 10000,
+      "calls": 5760000,
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/off",
+        "10000"
+      ],
+      "exit_code": 0,
+      "artifact_sha256": "280405175398dd6ff71fe87fc64b08eed67a8355099c01f902d4311f72b44cce",
+      "stats": {
+        "allocations": 1920330,
+        "collections": 22,
+        "reclaimed": 1920025,
+        "live_objects": 305,
+        "reserved_slots": 0,
+        "root_slots": 0,
+        "peak_root_slots": 3,
+        "live_roots": 0,
+        "peak_roots": 3,
+        "live_bytes": 18104,
+        "peak_live_bytes": 2098496,
+        "permanent_roots": 1,
+        "smi_caixas_evitadas": 0,
+        "map_frames": 0,
+        "map_roots": 0,
+        "checked_roots": 0
+      }
+    },
+    {
+      "profile": "on",
+      "rounds": 10000,
+      "calls": 5760000,
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/on",
+        "10000"
+      ],
+      "exit_code": 0,
+      "artifact_sha256": "775eeb10bf302e09f4b5f34105a18e3f2f0e8dd801ea45333bd4a22a2ee1582e",
+      "stats": {
+        "allocations": 1920330,
+        "collections": 22,
+        "reclaimed": 1920025,
+        "live_objects": 305,
+        "reserved_slots": 0,
+        "root_slots": 0,
+        "peak_root_slots": 3,
+        "live_roots": 0,
+        "peak_roots": 3,
+        "live_bytes": 18104,
+        "peak_live_bytes": 2098496,
+        "permanent_roots": 1,
+        "smi_caixas_evitadas": 0,
+        "map_frames": 0,
+        "map_roots": 0,
+        "checked_roots": 0
+      }
+    }
+  ],
+  "environment": {
+    "DARTFORGE_GC_STATS": "1"
+  },
+  "scope": "Diagnostic GC-counter executions, not timings. Counts include startup, fixture allocations and outstanding unused TLAB reservations. Heap::return_tlabs refunds unused reservations before collection; shutdown stats do not flush them. These are reported allocation counters, not exact consumed-object counts. OFF/ON output equal for each workload.",
+  "interpretation": "Enum identity optimization improved measured wall time without reducing these reported allocation counters or collection counts. It removes dynamic equality dispatch; remaining double boxing requires a separate change."
+}
