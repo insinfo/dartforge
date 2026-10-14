@@ -1,0 +1,57 @@
+{
+  "source_sha256": {
+    "crates/emit_native/src/llvm/mod.rs": "ab3a40521e66297493fe73e4aaacc0d14d2ad74888bd27f8baa3d4ece9c94146",
+    "crates/emit_native/src/llvm/selectors.rs": "c49f9a0cba751f415604f1594f96984021f7987b09bd6e83d7db0a09d3104a8a",
+    "crates/emit_native/src/llvm/numeric_vectors.rs": "4d4957491be71eec5449a49623b43f73ce259a33e5706c52d7ff6708eaaf5ee4",
+    "crates/emit_native/src/llvm/numeric_vectors/tests.rs": "96af38b8e0de2d348f4bf5aa0d8227ba695b91f3b976d063cbd513d9590c38e4",
+    "crates/emit_native/src/optimize/arc/classification.rs": "ecdbf224430d9a78bb89fddb5ae6bc5710019c2cb9cb3a550fb7b2ad5a157931",
+    "crates/emit_native/src/optimize/arc/classification/speed_tests.rs": "1b32f6a5fa18e596313e0d67fa0aed75e3ff6686030c0d5cb3265241fcb209b6",
+    "crates/emit_native/src/sdk_module.rs": "64c6b98bb0ce36cfd03f5f77f11c2fbc960bdd2712250ca6738e2719248cf5e4",
+    "crates/emit_native/src/lib.rs": "1282cd2395e8764c6a18052e4073c05311ace5fecd53cca5c5b83e5234204c5d"
+  },
+  "full_native": {
+    "passed": 618,
+    "failed": 0,
+    "ignored": 8
+  },
+  "verifier_focused": 8,
+  "pooling_focused_including_actual_link": 5,
+  "release_exit_code": 0,
+  "compiler_sha256": "19eb472446813e41e9f21ca501da9f020cf7e5d68a18f33ccfa4cb3dc97b7585",
+  "production_sources_frozen_before_release": true,
+  "lib_rs_after_release_change": "Test-only normalization of content-addressed reflection metadata symbols. No production change.",
+  "raw_log_sha256": {
+    "verifier-speed-tests.log": "4f2e1c889f10eb710813641d3d8de5002ac160c175b7e0ed584c6fd566e3aad4",
+    "verifier-speed-full-native-lib.log": "ca43fd41b242ea04ca4fe6831cc0f1cc34f20417cbf32af3fa41d379b11f0e93",
+    "pooled-indexed-release.log": "592443771514332a26a1de2a13f0b24e214bf6ad5f18a29f2a76ca1160459be6",
+    "pooled-indexed-full-native-final.log": "09a9dc28fb6dbce3e7644051eda69159d3a05ce2a872601ffc9c2ffc85b31af5",
+    "numeric-pooling-tests.log": "b9e85421bedffc10b67af82b8613649176bcaf5fa852329cb0b10ffd04c6e52a",
+    "stable-symbol-tests.log": "9cf5f98c6c1b5831d511e334171145e321d2ef1c6b464756fac7753d79b1485b",
+    "determinism-tests.log": "98029aeed99bf2f6b40cd19dd3f034569ab9140e23e1e7844957986c70f4894f",
+    "pooled-indexed-full-native-lib.log": "e0c81de69bd756754099b6ea7e629d7156384a59e302082244c0a890a824d2cc",
+    "pooled-indexed-full-native-lib-correct-env.log": "c9c282c2c6b1d49695195ec48eda629540774d10c6038e370ea0f967e0f196b2",
+    "pooled-indexed-failure-recheck.log": "4eafee70843bbb3cea32ed0f0f13732dd32ae4ef62ae6cdfa2e65929d262eadc"
+  },
+  "timing_scope": "Correctness gates only; no timing claims.",
+  "earlier_runs": [
+    {
+      "log": "pooled-indexed-full-native-lib.log",
+      "exit_code": 143,
+      "status": "terminated after SDK failures in a shell missing DARTFORGE_CLANG; not a passing gate"
+    },
+    {
+      "log": "pooled-indexed-full-native-lib-correct-env.log",
+      "exit_code": 101,
+      "passed": 617,
+      "failed": 1,
+      "ignored": 8,
+      "reason": "Existing stable-IR test only exempted old private vector names; adjusted test normalization and reran the full gate."
+    },
+    {
+      "log": "pooled-indexed-failure-recheck.log",
+      "exit_code": 0,
+      "passed": 1,
+      "scope": "Recheck of the canonical contract test with LLVM 22"
+    }
+  ]
+}

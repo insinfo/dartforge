@@ -487,6 +487,9 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     if !crate::pruning::arc_ports::enabled() {
         h.update(b"arc_port_pruning=disabled\0");
     }
+    if !crate::llvm::numeric_vector_pooling_enabled() {
+        h.update(b"aot_const_array_pooling=disabled_v1\0");
+    }
     // The debug trace changes the code (`llvm/mod.rs`).
     h.update(std::env::var("DARTFORGE_CALL_TRACE").unwrap_or_default().as_bytes());
     h.update(b"\0");

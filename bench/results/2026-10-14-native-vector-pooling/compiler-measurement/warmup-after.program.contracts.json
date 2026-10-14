@@ -1,0 +1,23 @@
+{
+  "artifact": {
+    "blake3": "c509398537e11c53ace29db493fad5013139adb5702855200e60bf1648147db7",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "07f7f0e029589081d5d714c0b9ccddcdc292900dd1b8c7895ba890fde092a37d",
+    "optimized": true,
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/pending-results-measurement/warmup-after.program"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "da543862e7b090d87fccbbe9781fdc2f387f975fc5249c52f8e6b6b53f1b54f9",
+      "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/pending-results-measurement/main.dart"
+    }
+  ],
+  "verification_implemented": false
+}

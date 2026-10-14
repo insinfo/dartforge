@@ -278,6 +278,8 @@ pub(super) fn liveness_with_exits(
     }
     let mut calls: Vec<_> = tables.invocations.iter().chain(pendings).collect();
     calls.sort_by_key(|(v, _)| v.0);
+    if calls.is_empty() { return Ok(v); }
+    let uses = ResultUses::new(f, classes, &pos, &calls);
     for (&call, &landing_pad) in calls {
         let Some(&origin) = defs.get(&call) else {
             return Err(format!(
@@ -320,17 +322,17 @@ pub(super) fn liveness_with_exits(
                 f.symbol, call.0
             )
         })?;
-        // Removing the edge distinguishes block dominance from result dominance.
-        let without_success = reachable_without_edge(&cfg, (origin, success));
-        let mut aliases: Vec<_> = classes.iter().filter_map(|(&alias,class)| {
-            matches!(class, Ownership::Borrowed { owner: OwnerOrigin::Value(owner), .. } if *owner == call)
-                .then_some(alias)
-        }).collect();
-        aliases.sort_by_key(|v| v.0);
-        for alias in aliases {
+        // Call shape and full classification are checked even for unused
+        // results. The local index contains every direct use and borrow link;
+        // any transitive borrow dependency necessarily includes a direct link.
+        let aliases = uses.aliases.get(&call).map_or(&[][..], Vec::as_slice);
+        let direct = uses.direct.get(&call).map_or(&[][..], Vec::as_slice);
+        if aliases.is_empty() && direct.is_empty() { continue; }
+        let without_success = reachable_without_edge_dense(&cfg, (origin, success));
+        for &alias in aliases {
             if let Some(&block) = defs.get(&alias)
                 && cfg.reachable(block)
-                && without_success.contains(&block)
+                && without_success[block]
             {
                 return Err(format!(
                     "ARC003 in {}: b{}: v{} depends on result v{} unavailable on the exceptional path; path [{}, {}]",
@@ -338,7 +340,19 @@ pub(super) fn liveness_with_exits(
                 ));
             }
         }
-        check_result_uses(f, &cfg, &pos, call, (origin, success), &without_success)?;
+        for site in direct {
+            if !cfg.reachable(site.block) { continue; }
+            let invalid = match site.predecessor {
+                Some(pred) => cfg.reachable(pred) && without_success[pred] && (pred, site.block) != (origin, success),
+                None => without_success[site.block],
+            };
+            if invalid {
+                return Err(format!(
+                    "ARC003 in {}: b{}: result v{} used without crossing its success edge",
+                    f.symbol, f.blocks[site.block].id.0, call.0
+                ));
+            }
+        }
     }
     Ok(v)
 }
@@ -381,70 +395,71 @@ pub(super) fn check_pending(b: &BasicBlock, call: ValueId, error: BlockId) -> Op
     }
 }
 
-/// The result of an invoke does not exist before going through its success edge.
-/// A Phi may join success and error if the exceptional entry does not use the result.
-fn check_result_uses(
-    f: &Function,
-    cfg: &Cfg,
-    pos: &HashMap<BlockId, usize>,
-    call: ValueId,
-    success: (usize, usize),
-    without_success: &HashSet<usize>,
-) -> Result<(), String> {
-    let uses = |o: &Operand| matches!(o, Operand::Val(v) if *v == call);
-    for (i, b) in f.blocks.iter().enumerate() {
-        if !cfg.reachable(i) {
-            continue;
+#[derive(Clone, Copy)]
+struct UseSite {
+    block: usize,
+    predecessor: Option<usize>,
+}
+
+#[derive(Default)]
+struct ResultUses {
+    aliases: HashMap<ValueId, Vec<ValueId>>,
+    direct: HashMap<ValueId, Vec<UseSite>>,
+}
+
+impl ResultUses {
+    fn new(
+        f: &Function,
+        classes: &HashMap<ValueId, Ownership>,
+        positions: &HashMap<BlockId, usize>,
+        calls: &[(&ValueId, &BlockId)],
+    ) -> Self {
+        let calls: HashSet<_> = calls.iter().map(|(call, _)| **call).collect();
+        let mut index = Self::default();
+        for (&alias, class) in classes {
+            if let Ownership::Borrowed { owner: OwnerOrigin::Value(owner), .. } = class
+                && calls.contains(owner)
+            { index.aliases.entry(*owner).or_default().push(alias); }
         }
-        let mut invalid = false;
-        for (_, inst, _) in &b.instructions {
-            if let Instruction::Phi { incoming, .. } = inst {
-                for (of, op) in incoming {
-                    let Some(&p) = pos.get(of) else { continue };
-                    // The success edge publishes the result; all the
-                    // others must be dominated by that publication.
-                    if uses(op) && cfg.reachable(p) && without_success.contains(&p) && (p, i) != success
-                    {
-                        invalid = true;
-                    }
+        for aliases in index.aliases.values_mut() { aliases.sort_unstable_by_key(|v| v.0); }
+        // Preserve block order: the first invalid use must produce the same
+        // diagnostic, including Phi operands used on predecessor edges.
+        for (block, b) in f.blocks.iter().enumerate() {
+            let mut record = |operand: &Operand, predecessor| {
+                if let Operand::Val(value) = operand && calls.contains(value) {
+                    index.direct.entry(*value).or_default().push(UseSite { block, predecessor });
                 }
-            } else if without_success.contains(&i) {
-                super::super::operands::operands(inst, &mut |o| invalid |= uses(o));
+            };
+            for (_, instruction, _) in &b.instructions {
+                if let Instruction::Phi { incoming, .. } = instruction {
+                    for (pred, operand) in incoming {
+                        if let Some(&pred) = positions.get(pred) { record(operand, Some(pred)); }
+                    }
+                } else {
+                    super::super::operands::operands(instruction, &mut |operand| record(operand, None));
+                }
             }
+            super::super::operands::terminator_operands(&b.terminator, &mut |operand| record(operand, None));
         }
-        if without_success.contains(&i) {
-            super::super::operands::terminator_operands(&b.terminator, &mut |o| {
-                invalid |= uses(o)
-            });
-        }
-        if invalid {
-            return Err(format!(
-                "ARC003 in {}: b{}: result v{} used without crossing its success edge",
-                f.symbol, b.id.0, call.0
-            ));
+        index
+    }
+}
+
+fn reachable_without_edge_dense(cfg: &Cfg, removed: (usize, usize)) -> Vec<bool> {
+    let mut seen = vec![false; cfg.successors.len()];
+    let mut queue = if seen.is_empty() { vec![] } else { vec![0] };
+    while let Some(block) = queue.pop() {
+        if !seen[block] {
+            seen[block] = true;
+            queue.extend(cfg.successors[block].iter().copied().filter(|&successor| (block, successor) != removed));
         }
     }
-    Ok(())
+    seen
 }
 
 pub(super) fn reachable_without_edge(cfg: &Cfg, removed: (usize, usize)) -> HashSet<usize> {
-    let mut seen_set = HashSet::new();
-    let mut queue = if cfg.successors.is_empty() {
-        vec![]
-    } else {
-        vec![0]
-    };
-    while let Some(b) = queue.pop() {
-        if seen_set.insert(b) {
-            queue.extend(
-                cfg.successors[b]
-                    .iter()
-                    .copied()
-                    .filter(|&s| (b, s) != removed),
-            );
-        }
-    }
-    seen_set
+    reachable_without_edge_dense(cfg, removed).into_iter().enumerate()
+        .filter_map(|(block, seen)| seen.then_some(block)).collect()
 }
 
 #[cfg(test)]
@@ -471,3 +486,6 @@ mod availability_tests {
         assert!(!remaining.contains(&1) && !remaining.contains(&3));
     }
 }
+
+#[cfg(test)]
+mod speed_tests;

@@ -1,0 +1,89 @@
+{
+  "complete": true,
+  "compiler_sha256": "19eb472446813e41e9f21ca501da9f020cf7e5d68a18f33ccfa4cb3dc97b7585",
+  "entry": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+  "flags": [
+    "--optimize",
+    "--memory=arc",
+    "--exceptions=check",
+    "--roots=shadow",
+    "--stack-trace=none"
+  ],
+  "environment_common": {
+    "DARTFORGE_ARC_PREPARED": "1",
+    "DARTFORGE_ARC_CHECK": "1",
+    "DARTFORGE_EFFECTS": "check",
+    "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang"
+  },
+  "input_inventory_reference": "bench/results/2026-10-14-arc-port-file-explorer/input-snapshot.json",
+  "input_inventory_sha256": "d92598ed5aee6782f685fdd090337e3263463c54bd06e537439075f7e8ef2898",
+  "input_count": 9784,
+  "inputs_unchanged": true,
+  "timing_measured": false,
+  "variants": {
+    "on": {
+      "DARTFORGE_AOT_CONST_ARRAY_POOLING": "1",
+      "binary_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/pooled-indexed-app/program",
+      "binary_bytes": 43946032,
+      "binary_sha256": "28a54a0490440b9736342aa450b4e9b41f0f44153813b616ddbcb2bdcaf353a7",
+      "compile_exit_code": 0,
+      "gui_validation": "on/gui/validation.json",
+      "gui_validated": true,
+      "macho_section_bytes": {
+        "__TEXT,__text": 40415056,
+        "__TEXT,__stubs": 2028,
+        "__TEXT,__stub_helper": 2052,
+        "__TEXT,__literals": 11552,
+        "__TEXT,__gcc_except_tab": 5532,
+        "__TEXT,__const": 1039841,
+        "__TEXT,__cstring": 21561,
+        "__TEXT,__unwind_info": 22288,
+        "__TEXT,__eh_frame": 141616,
+        "__DATA_CONST,__got": 40,
+        "__DATA_CONST,__const": 769088,
+        "__DATA_CONST,__dfimg": 1036272,
+        "__DATA,__la_symbol_ptr": 1352,
+        "__DATA,__data": 5512,
+        "__DATA,__thread_vars": 1464,
+        "__DATA,__thread_data": 19585,
+        "__DATA,__thread_bss": 5704,
+        "__DATA,__bss": 440,
+        "__DATA,__common": 192
+      }
+    },
+    "off": {
+      "DARTFORGE_AOT_CONST_ARRAY_POOLING": "0",
+      "binary_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/pooled-indexed-app-off/program",
+      "binary_bytes": 49443840,
+      "binary_sha256": "06d594957efd4c46d23acf5e342d126211c482926a727c5b87ac7f9d718e5746",
+      "compile_exit_code": 0,
+      "gui_validation": "off/gui/validation.json",
+      "gui_validated": true,
+      "macho_section_bytes": {
+        "__TEXT,__text": 40391840,
+        "__TEXT,__stubs": 2028,
+        "__TEXT,__stub_helper": 2052,
+        "__TEXT,__literals": 11888,
+        "__TEXT,__gcc_except_tab": 5532,
+        "__TEXT,__const": 6517537,
+        "__TEXT,__cstring": 21561,
+        "__TEXT,__unwind_info": 22288,
+        "__TEXT,__eh_frame": 141616,
+        "__DATA_CONST,__got": 40,
+        "__DATA_CONST,__const": 769088,
+        "__DATA_CONST,__dfimg": 1036312,
+        "__DATA,__la_symbol_ptr": 1352,
+        "__DATA,__data": 5512,
+        "__DATA,__thread_vars": 1464,
+        "__DATA,__thread_data": 19585,
+        "__DATA,__thread_bss": 5704,
+        "__DATA,__bss": 440,
+        "__DATA,__common": 192
+      }
+    }
+  },
+  "bytes_saved": 5497808,
+  "reduction_percent": 11.119298177487833,
+  "historical_baseline_reference": "bench/results/2026-10-14-arc-text-phi/validation.json",
+  "gui_scope": "Initial folder, child folder, Back and native close only; no full component or performance claim."
+}

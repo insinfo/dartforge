@@ -954,7 +954,40 @@ void main() {
         // (`dartforge_runtime::rti_table`), so the size of a
         // constant (the `[N x i64]` type) and the argument of the call that
         // registers the table may also change.
-        let (la, la2): (Vec<_>, Vec<_>) = (ia.lines().collect(), ia2.lines().collect());
+        // A content-addressed numeric constant changes its symbol together
+        // with those URI bytes. Restore registration-ordinal identities only
+        // for definitions actually emitted in this IR; declaration/function
+        // identities and instructions remain subject to the exact comparison.
+        let normalize_vectors = |ir: &str| {
+            let definitions: Vec<_> = ir.lines().filter_map(|line| {
+                let name = line.strip_prefix('@')?.split_once(" = ")?.0;
+                name.starts_with("df.const.i64.").then_some(name)
+            }).collect();
+            let mut normalized = ir.to_string();
+            for (ordinal, name) in definitions.into_iter().enumerate() {
+                let old = format!("@{name}");
+                let new = format!("@df.arr.{ordinal}");
+                let mut text = String::with_capacity(normalized.len());
+                let mut start = 0;
+                for (offset, _) in normalized.match_indices(&old) {
+                    let end = offset + old.len();
+                    // Do not rewrite a longer declaration/function identifier
+                    // merely because it begins with a pooled data symbol.
+                    if normalized.as_bytes().get(end).is_some_and(|byte|
+                        byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'$' | b'-')) {
+                        continue;
+                    }
+                    text.push_str(&normalized[start..offset]);
+                    text.push_str(&new);
+                    start = end;
+                }
+                text.push_str(&normalized[start..]);
+                normalized = text.replace(&format!("$\"{name}\""), &format!("$\"df.arr.{ordinal}\""));
+            }
+            normalized
+        };
+        let (normalized_a, normalized_a2) = (normalize_vectors(&ia), normalize_vectors(&ia2));
+        let (la, la2): (Vec<_>, Vec<_>) = (normalized_a.lines().collect(), normalized_a2.lines().collect());
         assert_eq!(la.len(), la2.len(), "the same program in another directory gives the same IR");
         let rti_table = |l: &str| l.contains("@dartforge_rti_init_table(");
         for (x, y) in la.iter().zip(&la2) {

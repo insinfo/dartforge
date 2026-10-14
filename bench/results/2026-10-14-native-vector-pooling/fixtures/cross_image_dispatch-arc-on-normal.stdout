@@ -1,0 +1,13 @@
+sdk:true:2
+sdk:true:4
+typed:app:7
+scalar:13
+map:app:2|app:4|app:6
+callable:call:9
+tearoff:method:5:end
+apply:method:8:named
+fallback:missing:first,second
+json:{"items":["app:2","app:4","app:6"]}
+caught:callback:4
+caught:apply:11
+after:app:2|app:4|app:6

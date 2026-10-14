@@ -6,6 +6,8 @@ mod debug_info;
 mod roots;
 mod arc_context;
 mod arc_ports;
+mod numeric_vectors;
+pub(crate) use numeric_vectors::numeric_vector_pooling_enabled;
 mod stack_trace;
 pub mod verify_maps;
 pub mod verify_shadow;
@@ -75,9 +77,11 @@ pub struct LlvmEmitter<'a> {
     /// split instruction opened): the predecessor of an inner `phi`.
     current_label: String,
     // --- P1 (closures, α) ---
-    /// Constant vectors of `i64` (`@df.arr.<k>`): signatures and descriptors.
+    /// Immutable numeric vectors: layouts and call descriptors, shared only in AOT.
     vectors: Vec<Vec<i64>>,
     vector_of: std::collections::HashMap<Vec<i64>, usize>,
+    vector_symbols: Vec<String>,
+    numeric_vector_pooling: bool,
     /// Constant vectors of function addresses (`@df.fns.<k>`).
     function_tables: Vec<Vec<String>>,
     function_table_of: std::collections::HashMap<Vec<String>, usize>,
@@ -277,6 +281,8 @@ impl<'a> LlvmEmitter<'a> {
 
             vectors: Vec::new(),
             vector_of: std::collections::HashMap::new(),
+            vector_symbols: Vec::new(),
+            numeric_vector_pooling: numeric_vector_pooling_enabled(),
             function_tables: Vec::new(),
             function_table_of: std::collections::HashMap::new(),
             argument_names: std::collections::BTreeSet::new(),
@@ -2288,9 +2294,19 @@ impl<'a> LlvmEmitter<'a> {
             return k;
         }
         let k = self.vectors.len();
+        self.vector_symbols.push(if self.pool_numeric_vectors() {
+            numeric_vectors::symbol(&v)
+        } else {
+            format!("df.arr.{k}")
+        });
         self.vector_of.insert(v.clone(), k);
         self.vectors.push(v);
         k
+    }
+
+    fn pool_numeric_vectors(&self) -> bool {
+        self.numeric_vector_pooling && self.body_without_outside && self.module.arc_fixed_ancestry
+            && self.previous_area.is_none() && !self.maps_in_jit && !self.stack_trace_in_jit
     }
 
     /// `@df_clo_invalido` (the entry that the call uses when the value is not a
@@ -2333,9 +2349,16 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str("define internal i64 @df_clo_invalido(i64 %c, ptr %a, ptr %d) {\nb0:\n  ret i64 0\n}\n");
         for (k, v) in self.vectors.iter().enumerate() {
             let items: Vec<String> = v.iter().map(|x| format!("i64 {x}")).collect();
+            let symbol = &self.vector_symbols[k];
+            let shared = self.pool_numeric_vectors();
+            let linkage = if shared { "linkonce_odr hidden" } else { "private" };
+            let comdat = if shared && crate::target::has_comdat() {
+                self.comdats.push(symbol.clone());
+                format!(", comdat($\"{symbol}\")")
+            } else { String::new() };
             writeln!(
                 self.out,
-                "@df.arr.{k} = private unnamed_addr constant [{} x i64] [{}]",
+                "@{symbol} = {linkage} unnamed_addr constant [{} x i64] [{}]{comdat}, align 8",
                 v.len(),
                 items.join(", ")
             )
@@ -2414,13 +2437,14 @@ impl<'a> LlvmEmitter<'a> {
                 writeln!(self.out, "  %cat{v} = getelementptr [{n} x i64], ptr %cargs{v}, i64 0, i64 {}", args.len()).unwrap();
                 writeln!(self.out, "  store i64 {tuple}, ptr %cat{v}").unwrap();
                 let c = self.coerce(closure, Type::Ref);
+                let descriptor = &self.vector_symbols[k];
                 if self.arc_uniform_abi() {
                     writeln!(self.out, "  %cav{v} = ptrtoint ptr %cargs{v} to i64").unwrap();
-                    writeln!(self.out, "  %cdv{v} = ptrtoint ptr @df.arr.{k} to i64").unwrap();
+                    writeln!(self.out, "  %cdv{v} = ptrtoint ptr @{descriptor} to i64").unwrap();
                     writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invoke_uniform_closure_v1(i64 {c}, i64 %cav{v}, i64 %cdv{v})").unwrap();
                 } else {
                     self.closure_entry(v, &c);
-                    writeln!(self.out, "  %v{v} = call i64 %cf{v}(i64 {c}, ptr %cargs{v}, ptr @df.arr.{k})").unwrap();
+                    writeln!(self.out, "  %v{v} = call i64 %cf{v}(i64 {c}, ptr %cargs{v}, ptr @{})", self.vector_symbols[k]).unwrap();
                 }
             }
             Instruction::CallClosureForward { arc_owned, closure, args, desc } => {
@@ -2452,7 +2476,7 @@ impl<'a> LlvmEmitter<'a> {
             }
             Instruction::ConstArray(vals) => {
                 let k = self.vector_of[vals];
-                writeln!(self.out, "  %v{v} = getelementptr i64, ptr @df.arr.{k}, i64 0").unwrap();
+                writeln!(self.out, "  %v{v} = getelementptr i64, ptr @{}, i64 0", self.vector_symbols[k]).unwrap();
             }
             Instruction::FunctionTable(fns) => {
                 let k = self.function_table_of[fns];

@@ -1,0 +1,54 @@
+{
+  "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/pooled-indexed-app/program",
+  "binary_sha256": "28a54a0490440b9736342aa450b4e9b41f0f44153813b616ddbcb2bdcaf353a7",
+  "binary_bytes": 43946032,
+  "cwd": "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+  "args": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+    "--lang=en"
+  ],
+  "actions": [
+    {
+      "action": "capture",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"capture\", \"window_id\": 1629, \"host_pid\": 15536, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/pooled-indexed-ui\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": ""
+    },
+    {
+      "action": "navigate",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"navigate\", \"window_id\": 1629, \"host_pid\": 15536, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/pooled-indexed-ui\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": ""
+    },
+    {
+      "action": "back-button",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"back-button\", \"window_id\": 1629, \"host_pid\": 15536, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/pooled-indexed-ui\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": ""
+    },
+    {
+      "action": "close-button",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"close-button\", \"window_id\": 1629, \"host_pid\": 15536, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/pooled-indexed-ui\", \"application_alive\": true}\n",
+      "stderr": ""
+    }
+  ],
+  "visual_review_completed": true,
+  "performance_claim": false,
+  "pid": 15535,
+  "exit_code": 0,
+  "stdout_bytes": 0,
+  "stderr_bytes": 0,
+  "binary_unchanged": true,
+  "screenshots": {
+    "navigate.png": "6a03d25e301ad1bef812922608d0e94acda03a88d4e0aebf38fc2966e868b4ca",
+    "capture.png": "344610d8b0a0a9adbda7570956cbca263b8a173b59632fc53e5354f6b2cf2684",
+    "back-button.png": "349c87f4e0f8a061e5b6aa14b7f7916ad5577aba5daf913b2b20a36dd22bbd2d"
+  },
+  "observed_item_counts": [
+    2,
+    1,
+    2
+  ],
+  "scope": "Initial folder, child folder, Back and native close only; no full component or performance claim."
+}

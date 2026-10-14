@@ -1,0 +1,23 @@
+{
+  "artifact": {
+    "blake3": "f9c48a9e1494a07077371e2da36b2c5df6ee670407493a8297ceb6ac59eb44c8",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "759b228fbc327c529c3ec866c63c7544409214e0c0513d4abff968bb512880bf",
+    "optimized": true,
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/pending-results-measurement/sample-3-before.program"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "da543862e7b090d87fccbbe9781fdc2f387f975fc5249c52f8e6b6b53f1b54f9",
+      "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/pending-results-measurement/main.dart"
+    }
+  ],
+  "verification_implemented": false
+}

@@ -99,10 +99,10 @@ impl LlvmEmitter<'_> {
         if self.arc_uniform_abi() {
             writeln!(self.out, "  %sc{v} = ptrtoint ptr %sf{v} to i64").unwrap();
             writeln!(self.out, "  %sav{v} = ptrtoint ptr %sargs{v} to i64").unwrap();
-            writeln!(self.out, "  %sdv{v} = ptrtoint ptr @df.arr.{k} to i64").unwrap();
+            writeln!(self.out, "  %sdv{v} = ptrtoint ptr @{} to i64", self.vector_symbols[k]).unwrap();
             writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invoke_uniform_v1(i64 %sc{v}, i64 {r}, i64 %sav{v}, i64 %sdv{v})").unwrap();
         } else {
-            writeln!(self.out, "  %v{v} = call i64 %sf{v}(i64 {r}, ptr %sargs{v}, ptr @df.arr.{k})").unwrap();
+            writeln!(self.out, "  %v{v} = call i64 %sf{v}(i64 {r}, ptr %sargs{v}, ptr @{})", self.vector_symbols[k]).unwrap();
         }
     }
 
@@ -310,6 +310,7 @@ impl LlvmEmitter<'_> {
         self.current_function = "dartforge_dispatch_toString".to_string();
         self.cache_in_function = 0;
         let slot = self.cache_slot();
+        let descriptor = &self.vector_symbols[k];
         writeln!(
             self.out,
             "define i64 @dartforge_dispatch_toString(i64 %obj) {{\nb0:\n  %a = alloca [1 x i64]\n  \
@@ -317,7 +318,7 @@ impl LlvmEmitter<'_> {
              %area = call ptr @df.get_area()\n  \
              %ic = getelementptr i64, ptr %area, i64 {slot}\n  \
              %f = call ptr @df.selector(ptr %ic, i64 %obj, i64 {h}, ptr @df.seln.{name}, i64 {})\n  \
-             %r = call i64 %f(i64 %obj, ptr %a, ptr @df.arr.{k})\n  ret i64 %r\n}}\n",
+             %r = call i64 %f(i64 %obj, ptr %a, ptr @{descriptor})\n  ret i64 %r\n}}\n",
             s.len()
         )
         .unwrap();
