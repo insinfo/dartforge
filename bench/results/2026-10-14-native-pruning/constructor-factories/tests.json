@@ -1,0 +1,23 @@
+{
+  "native_library": {
+    "passed": 571,
+    "failed": 0,
+    "ignored": 7,
+    "exit_code": 0,
+    "log": "constructor-native-lib.log"
+  },
+  "receiver_focus": {
+    "passed": 22,
+    "failed": 0,
+    "exit_code": 0,
+    "log": "constructor-receiver-tests.log"
+  },
+  "release_build": {
+    "exit_code": 0,
+    "log": "constructor-release-build.log"
+  },
+  "source": {
+    "crates/emit_native/src/pruning/receiver_provenance.rs": "f6922ceac21e3ad8881614176b6c6d68d9e051909bb6bf223ae90ea349aeccc3",
+    "crates/emit_native/tests/fixtures/receiver_cones/constructor_return_classes.dart": "aba853bf2c35123cd1c65a11629d1be9dbe7285c79e98f2bdff961ae50da2b4b"
+  }
+}

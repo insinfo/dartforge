@@ -1,0 +1,53 @@
+{
+  "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/constructor-file-explorer-binaries/enabled-fixed-name/program",
+  "binary_sha256": "3b95fb34cccf58c80de6b654bcda31e74c5413e7d51621a8b7fdbd38ca4fedaa",
+  "binary_bytes": 28758192,
+  "cwd": "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+  "args": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+    "--lang=en"
+  ],
+  "actions": [
+    {
+      "action": "capture",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"capture\", \"window_id\": 1564, \"host_pid\": 99750, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/constructor-file-explorer-ui\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": ""
+    },
+    {
+      "action": "navigate",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"navigate\", \"window_id\": 1564, \"host_pid\": 99750, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/constructor-file-explorer-ui\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": ""
+    },
+    {
+      "action": "back-button",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"back-button\", \"window_id\": 1564, \"host_pid\": 99750, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/constructor-file-explorer-ui\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": ""
+    },
+    {
+      "action": "close-button",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"close-button\", \"window_id\": 1564, \"host_pid\": 99750, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/constructor-file-explorer-ui\", \"application_alive\": true}\n",
+      "stderr": ""
+    }
+  ],
+  "visual_review_completed": true,
+  "performance_claim": false,
+  "pid": 99749,
+  "exit_code": 0,
+  "stdout_bytes": 0,
+  "stderr_bytes": 0,
+  "binary_unchanged": true,
+  "screenshots": {
+    "navigate.png": "1d77ebc097986a8e66993a2bc9068a60a27fd12b8102691aced0f42dddf19484",
+    "capture.png": "00c203f00cdc9fd717abf684e4cbc14607ed7ebd988341342b6bfa9cb439b852",
+    "back-button.png": "349c87f4e0f8a061e5b6aa14b7f7916ad5577aba5daf913b2b20a36dd22bbd2d"
+  },
+  "observed_entries": {
+    "capture": 2,
+    "navigate": 1,
+    "back-button": 2
+  }
+}

@@ -1,4 +1,4 @@
-//! Physical list-class provenance from allocation bodies, independent of Dart types.
+//! Physical class provenance from allocation bodies, independent of Dart types.
 //!
 //! Facts concern only normal returns and remain unknown across loads, parameters,
 //! dynamic calls, and recursive return summaries. They are not ownership/effect proofs.
@@ -177,8 +177,34 @@ fn value_classes(
                     I::Const(Constant::Null) => Some(BTreeSet::from([1])),
                     // ir_lists.rs always emits cid::GROWABLE_LIST for AllocList.
                     I::AllocList { .. } => Some(BTreeSet::from([10])),
-                    I::AllocObject { class_id, .. } if matches!(class_id, 8 | 9 | 10) => {
+                    I::AllocObject { class_id, .. } if i32::try_from(*class_id).is_ok() => {
                         Some(BTreeSet::from([*class_id]))
+                    }
+                    I::CallRuntime {
+                        name,
+                        args,
+                        ret_ty: Type::Ref,
+                    } if matches!(
+                        name.as_str(),
+                        "dartforge_object_new" | "dartforge_arc_object_owned_v1"
+                    ) && !functions.contains_key(name) =>
+                    {
+                        // Both ABIs allocate an instance with the supplied header CID.
+                        // Literal arguments keep malformed calls and runtime-selected
+                        // classes/counts outside this bounded allocation contract.
+                        match args.as_slice() {
+                            [
+                                (Operand::Constant(Constant::Int(cid)), Type::I64),
+                                (Operand::Constant(Constant::Int(count)), Type::I64),
+                            ] if (0..=i64::from(i32::MAX)).contains(cid)
+                                && usize::try_from(*count).is_ok()
+                                && (name == "dartforge_object_new"
+                                    || u16::try_from(*count).is_ok()) =>
+                            {
+                                Some(BTreeSet::from([*cid as u32]))
+                            }
+                            _ => None,
+                        }
                     }
                     I::ArcCopy { value } | I::ArcMove { value } => operand_classes(value, &values),
                     I::Phi {
@@ -500,6 +526,188 @@ mod tests {
         TestFacts {
             returns: proof.returns,
             values: proof.values,
+        }
+    }
+    fn instance_call(name: &str, cid: i64, count: i64) -> I {
+        I::CallRuntime {
+            name: name.into(),
+            args: vec![
+                (Operand::Constant(Constant::Int(cid)), Type::I64),
+                (Operand::Constant(Constant::Int(count)), Type::I64),
+            ],
+            ret_ty: Type::Ref,
+        }
+    }
+    #[test]
+    fn instance_allocation_cids_and_factory_returns_are_physical() {
+        for cid in [0, 123, 32001, i32::MAX as u32] {
+            let factory = function(
+                "factory",
+                vec![block(
+                    0,
+                    vec![allocated(0, cid)],
+                    Terminator::Return(Some(value(0))),
+                )],
+            );
+            assert_eq!(run(vec![factory]).returns["factory"], BTreeSet::from([cid]));
+            for name in ["dartforge_object_new", "dartforge_arc_object_owned_v1"] {
+                let factory = function(
+                    "factory",
+                    vec![block(
+                        0,
+                        vec![(
+                            ValueId(0),
+                            instance_call(name, i64::from(cid), 2),
+                            Type::Ref,
+                        )],
+                        Terminator::Return(Some(value(0))),
+                    )],
+                );
+                let caller = function(
+                    "caller",
+                    vec![block(
+                        0,
+                        vec![(
+                            ValueId(0),
+                            I::CallStatic {
+                                symbol: "factory".into(),
+                                args: vec![],
+                                ret_ty: Type::Ref,
+                            },
+                            Type::Ref,
+                        )],
+                        Terminator::Return(Some(value(0))),
+                    )],
+                );
+                let proof = run(vec![factory, caller]);
+                assert_eq!(proof.returns["caller"], BTreeSet::from([cid]));
+                assert_eq!(proof.values["factory"][&ValueId(0)], BTreeSet::from([cid]));
+            }
+        }
+        let proof = run(vec![function(
+            "invalid",
+            vec![block(
+                0,
+                vec![allocated(0, i32::MAX as u32 + 1)],
+                Terminator::Return(Some(value(0))),
+            )],
+        )]);
+        assert!(!proof.returns.contains_key("invalid"));
+    }
+    #[test]
+    fn instance_runtime_allocations_reject_unproved_abi_ranges_and_homonyms() {
+        for name in ["dartforge_object_new", "dartforge_arc_object_owned_v1"] {
+            let mut invalid = vec![
+                instance_call(name, -1, 0),
+                instance_call(name, i64::from(i32::MAX) + 1, 0),
+                instance_call(name, 123, -1),
+                instance_call(&format!("{name}_t"), 123, 0),
+            ];
+            for position in 0..2 {
+                let mut declared = instance_call(name, 123, 0);
+                let I::CallRuntime { args, .. } = &mut declared else {
+                    unreachable!()
+                };
+                args[position].1 = Type::Ref;
+                invalid.push(declared);
+                let mut actual = instance_call(name, 123, 0);
+                let I::CallRuntime { args, .. } = &mut actual else {
+                    unreachable!()
+                };
+                args[position].0 = Operand::Constant(Constant::Null);
+                invalid.push(actual);
+            }
+            let mut arity = instance_call(name, 123, 0);
+            let I::CallRuntime { args, .. } = &mut arity else {
+                unreachable!()
+            };
+            args.pop();
+            invalid.push(arity);
+            let mut arity = instance_call(name, 123, 0);
+            let I::CallRuntime { args, .. } = &mut arity else {
+                unreachable!()
+            };
+            args.push((Operand::Constant(Constant::Int(0)), Type::I64));
+            invalid.push(arity);
+            let mut result = instance_call(name, 123, 0);
+            let I::CallRuntime { ret_ty, .. } = &mut result else {
+                unreachable!()
+            };
+            *ret_ty = Type::I64;
+            invalid.push(result);
+            if name == "dartforge_arc_object_owned_v1" {
+                invalid.push(instance_call(name, 123, i64::from(u16::MAX) + 1));
+            }
+            for instruction in invalid {
+                let proof = run(vec![function(
+                    "invalid",
+                    vec![block(
+                        0,
+                        vec![(ValueId(0), instruction, Type::Ref)],
+                        Terminator::Return(Some(value(0))),
+                    )],
+                )]);
+                assert!(!proof.returns.contains_key("invalid"));
+                assert!(!proof.values["invalid"].contains_key(&ValueId(0)));
+            }
+            let factory = function(
+                "shadowed",
+                vec![block(
+                    0,
+                    vec![(ValueId(0), instance_call(name, 123, 0), Type::Ref)],
+                    Terminator::Return(Some(value(0))),
+                )],
+            );
+            let homonym = function(
+                name,
+                vec![block(
+                    0,
+                    vec![],
+                    Terminator::Return(Some(Operand::Constant(Constant::Null))),
+                )],
+            );
+            assert!(!run(vec![factory, homonym]).returns.contains_key("shadowed"));
+            for position in 0..2 {
+                let mut instruction = instance_call(name, 123, 0);
+                let I::CallRuntime { args, .. } = &mut instruction else {
+                    unreachable!()
+                };
+                args[position].0 = value(1);
+                let mut factory = function(
+                    "dynamic",
+                    vec![block(
+                        0,
+                        vec![(ValueId(0), instruction, Type::Ref)],
+                        Terminator::Return(Some(value(0))),
+                    )],
+                );
+                factory.params.push((ValueId(1), "input".into(), Type::I64));
+                assert!(!run(vec![factory]).returns.contains_key("dynamic"));
+            }
+            let mut wrong_result = function(
+                "scalar",
+                vec![block(
+                    0,
+                    vec![(ValueId(0), instance_call(name, 123, 0), Type::I64)],
+                    Terminator::Return(Some(value(0))),
+                )],
+            );
+            wrong_result.return_ty = Type::I64;
+            assert!(!run(vec![wrong_result]).values["scalar"].contains_key(&ValueId(0)));
+        }
+        for (name, count) in [
+            ("dartforge_object_new", i64::from(u16::MAX) + 1),
+            ("dartforge_arc_object_owned_v1", i64::from(u16::MAX)),
+        ] {
+            let proof = run(vec![function(
+                "boundary",
+                vec![block(
+                    0,
+                    vec![(ValueId(0), instance_call(name, 123, count), Type::Ref)],
+                    Terminator::Return(Some(value(0))),
+                )],
+            )]);
+            assert_eq!(proof.returns["boundary"], BTreeSet::from([123]));
         }
     }
     #[test]
