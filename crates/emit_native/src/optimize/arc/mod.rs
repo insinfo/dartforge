@@ -42,6 +42,9 @@ mod phis;
 mod layouts;
 mod objects;
 mod fields;
+pub(super) fn fold_fixed_subtype_tests(module: &mut Module) -> bool {
+    fields::fold_fixed_subtype_tests(module)
+}
 mod globals;
 mod receivers;
 mod cfg_classes;

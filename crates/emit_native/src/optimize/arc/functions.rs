@@ -78,7 +78,7 @@ pub fn insert_arc_dart_functions(
     functions: &mut [Function],
     plans: &mut HashMap<String, DartFunctionPlan>,
 ) -> Result<(usize, usize), String> {
-    insert(functions, plans, false, None, &HashMap::new(), &HashMap::new(), &HashSet::new(), true, false)
+    insert(functions, plans, false, None, None, &HashMap::new(), &HashMap::new(), &HashSet::new(), true, false)
 }
 
 /// Prepares missing invokes and inserts ARC into a closed set of Dart functions.
@@ -145,7 +145,7 @@ pub(super) fn prepare_functions(
     plans: &mut HashMap<String, DartFunctionPlan>,
     externals: bool,
 ) -> Result<(usize, usize), String> {
-    insert(functions, plans, true, None, &HashMap::new(), &HashMap::new(), &HashSet::new(), true, externals)
+    insert(functions, plans, true, None, None, &HashMap::new(), &HashMap::new(), &HashSet::new(), true, externals)
 }
 
 /// Atomically prepares the lowering facts and the closed set of an ARC module.
@@ -261,11 +261,13 @@ pub(super) fn prepare_with_variants(
     // objects (those of the module prevail).
     let mut layouts = work.arc_external_layouts.clone();
     layouts.extend(module.arc_field_layouts.iter().map(|(c, l)| (*c, l.clone())));
+    let ancestry = super::fields::PhysicalAncestry::from_module(&work);
     let total = insert(
         &mut prepared_set,
         &mut new_set,
         true,
         Some(&layouts),
+        Some(&ancestry),
         &variants,
         &receivers,
         &preserve_fields,
@@ -295,6 +297,7 @@ fn insert(
     plans: &mut HashMap<String, DartFunctionPlan>,
     prepare_calls: bool,
     layouts: Option<&HashMap<u32, Vec<Type>>>,
+    ancestry: Option<&super::fields::PhysicalAncestry>,
     variants: &HashMap<String, Vec<String>>,
     receivers: &HashMap<String, HashMap<ValueId, u32>>,
     preserve_fields: &HashSet<String>,
@@ -334,11 +337,13 @@ fn insert(
         super::natives::prepare(f)?;
         if let Some(layouts) = layouts {
             let plan = new_plans.get_mut(&f.symbol).unwrap();
-            super::fields::prepare_with_class_cases(
+            super::fields::prepare_with_ancestry(
                 f, layouts, plan, receivers.get(&f.symbol), preserve_fields,
                 !signatures.contains_key("dartforge_value_class")
+                    && !signatures.contains_key("dartforge_is_subclass")
                     && !signatures.contains_key("dartforge_object_new")
                     && !signatures.contains_key("dartforge_arc_object_owned_v1"),
+                ancestry,
             )?;
             super::objects::prepare(f, layouts, plan, &signatures)?;
         }

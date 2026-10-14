@@ -327,6 +327,7 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
         debug_assert_eq!(ctx.class_ids, base.class_ids);
         let mut module = crate::lower::lower_program(&ctx);
         module.sdk_library = true;
+        module.arc_fixed_ancestry = production;
         // The classes of `null` and of the `Smi` inline (`llvm/mod.rs`, `df.class`).
         module.runtime_cids = runtime_cids(&ctx);
         module.record = Some(registration_symbol(&uri));

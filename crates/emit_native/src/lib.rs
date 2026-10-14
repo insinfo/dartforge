@@ -127,6 +127,7 @@ fn prune_program_hir(module: &mut hir::Module, production: bool) -> Result<Optio
     }
     let summaries = pruning::read_summaries(&sdk.summaries)?;
     let refs: Vec<&pruning::Summary> = summaries.iter().map(|r| r.as_ref()).collect();
+    module.arc_external_ancestry = hir::ArcExternalAncestry::from_summaries(&refs);
     Ok(Some(pruning::prune_hir(module, &refs)))
 }
 
@@ -488,6 +489,7 @@ fn emit_ir_internal(
     let t_optimize = Instant::now();
     // The same pipeline prepares the SDK libraries and materializes tables
     // only after the HIR transformations.
+    hir_module.arc_fixed_ancestry = prune;
     optimize::prepare_for_emission(&mut hir_module, arc_memory, table_exceptions);
     // The published ARC preparation (`DARTFORGE_ARC_PREPARED=1`): the program
     // alone, calling the prepared SDK (`sdk_module`, the same option in the

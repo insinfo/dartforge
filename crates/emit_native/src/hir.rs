@@ -1028,6 +1028,15 @@ pub enum InlinePolicy {
     Never,
 }
 
+/// Registered ancestry from the exact SDK images linked with the program.
+/// These nominal facts do not certify allocation identity or field layout.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ArcExternalAncestry {
+    pub nominal_classes: std::collections::HashSet<u32>,
+    pub ambiguous_classes: std::collections::HashSet<u32>,
+    pub parent_edges: Vec<(u32, u32)>,
+}
+
 /// Complete HIR module representing a compilable Dart program.
 #[derive(Debug, Default, Clone)]
 pub struct Module {
@@ -1088,6 +1097,11 @@ pub struct Module {
     /// image follows the legacy regime (direct calls, factories without an owner of the
     /// code); with it, the emission requires the AOT ports certificate.
     pub arc_prepared: bool,
+    /// AOT registration keeps this image's ancestry facts fixed.
+    /// Reloadable images leave this false: older generations may add edges.
+    pub arc_fixed_ancestry: bool,
+    /// Registration facts from the same compiled SDK summaries used at link time.
+    pub arc_external_ancestry: ArcExternalAncestry,
     /// The ARC preparation accepts direct calls to Dart functions of another
     /// already prepared image (the prepared source SDK), with the summary taken
     /// from the call itself: arguments by the representation of the operands,

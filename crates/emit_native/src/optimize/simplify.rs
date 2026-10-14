@@ -73,15 +73,58 @@ pub fn fold_constants(func: &mut Function) -> bool {
             };
             i32::try_from(cid).ok().map(|_| (*v, cid))
         }).collect();
+        // Narrow zero definitions remain SSA operands for typed stores and
+        // extensions. Only a later comparison in the same block reads the fact.
+        let needs_representation_facts = func.blocks.iter().flat_map(|b| &b.instructions).any(|(_, instruction, ty)|
+            matches!((instruction, ty), (Instruction::Const(Constant::Int(0)), Type::I8))
+                || matches!((instruction, ty), (Instruction::And(a, b), Type::I64)
+                    if matches!(a, Operand::Constant(Constant::Bool(false))) || matches!(b, Operand::Constant(Constant::Bool(false)))));
+        let mut definitions = HashMap::new();
+        let mut duplicate_definitions = HashSet::new();
+        if needs_representation_facts {
+        for (v, _, ty) in &func.params {
+            if definitions.insert(*v, (*ty, None)).is_some() { duplicate_definitions.insert(*v); }
+        }
+        for (block, b) in func.blocks.iter().enumerate() {
+            for (position, (v, instruction, ty)) in b.instructions.iter().enumerate() {
+                if *ty == Type::I1 && crate::llvm::LlvmEmitter::result_type(instruction, *ty) != Type::I1 { duplicate_definitions.insert(*v); }
+                if definitions.insert(*v, (*ty, Some((block, position)))).is_some() { duplicate_definitions.insert(*v); }
+            }
+        }
+        }
+        definitions.retain(|v, _| !duplicate_definitions.contains(v));
+        let narrow_zeros: HashMap<_, _> = func.blocks.iter().enumerate().flat_map(|(block, b)|
+            b.instructions.iter().enumerate().filter_map(move |(position, (v, inst, ty))|
+                matches!((inst, ty), (Instruction::Const(Constant::Int(0)), Type::I8))
+                    .then_some((*v, (block, position)))))
+            .filter(|(v, _)| definitions.contains_key(v)).collect();
         let mut values: HashMap<ValueId, Operand> = HashMap::new();
-        for b in &func.blocks {
-            for (v, inst, _) in &b.instructions {
+        for (block, b) in func.blocks.iter().enumerate() {
+            for (position, (v, inst, ty)) in b.instructions.iter().enumerate() {
+                let comparison_integer = |operand: &Operand| integer(operand).or_else(|| {
+                    let Operand::Val(value) = operand else { return None };
+                    (*ty == Type::I1 && narrow_zeros.get(value).is_some_and(|&(definition_block, definition_position)|
+                        definition_block == block && definition_position < position)).then_some(0)
+                });
+                let one_bit = |operand: &Operand| match operand {
+                    Operand::Constant(Constant::Bool(_)) => true,
+                    Operand::Val(value) => definitions.get(value).is_some_and(|(ty, location)|
+                        *ty == Type::I1 && location.is_none_or(|(definition_block, definition_position)|
+                            definition_block == block && definition_position < position)),
+                    _ => false,
+                };
                 let r = match inst {
                     Instruction::CallRuntime { name, args, ret_ty: Type::I64 }
                         if name == "dartforge_value_class" => match args.as_slice() {
                             [(Operand::Val(obj), Type::Ref)] => classes.get(obj).map(|&cid| Operand::Constant(Constant::Int(cid))),
                             _ => None,
                         },
+                    // LLVM widens both one-bit inputs before this I64 And.
+                    // The false result does not permit dropping either producer.
+                    Instruction::And(a, c) if *ty == Type::I64 && one_bit(a) && one_bit(c)
+                        && matches!(a, Operand::Constant(Constant::Bool(false))) => Some(Operand::Constant(Constant::Int(0))),
+                    Instruction::And(a, c) if *ty == Type::I64 && one_bit(a) && one_bit(c)
+                        && matches!(c, Operand::Constant(Constant::Bool(false))) => Some(Operand::Constant(Constant::Int(0))),
                     // `x == null` with `x` also constant: the null handle is 0.
                     Instruction::ICmp(op @ (ICmpOp::Eq | ICmpOp::Ne), a, c)
                         if matches!((a, c), (Operand::Constant(Constant::Null), _) | (_, Operand::Constant(Constant::Null)))
@@ -91,7 +134,7 @@ pub fn fold_constants(func: &mut Function) -> bool {
                         let equal = bits(a) == bits(c);
                         Some(Operand::Constant(Constant::Bool(if *op == ICmpOp::Eq { equal } else { !equal })))
                     }
-                    Instruction::ICmp(op, a, c) => match (integer(a), integer(c)) {
+                    Instruction::ICmp(op, a, c) => match (comparison_integer(a), comparison_integer(c)) {
                         (Some(x), Some(y)) => Some(match op {
                             ICmpOp::Eq => x == y,
                             ICmpOp::Ne => x != y,
@@ -357,3 +400,6 @@ pub fn remove_dead(func: &mut Function) -> bool {
         changed = true;
     }
 }
+
+#[cfg(test)]
+mod narrow_zero_tests;

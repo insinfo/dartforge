@@ -1,0 +1,41 @@
+{
+  "native_lib": {
+    "passed": 601,
+    "failed": 0,
+    "ignored": 7,
+    "exit_code": 0
+  },
+  "focused_fields": {
+    "passed": 32,
+    "failed": 0
+  },
+  "focused_cleanup": {
+    "passed": 3,
+    "failed": 0
+  },
+  "release_exit_code": 0,
+  "logs": {
+    "arc-subtype-native-lib.log": "e355fa6be23faeb6175d6ff08acdf5fd00c6ef6811167e67d9784cf377fcf204",
+    "arc-subtype-release.log": "22dd805c52b70da84a37b15da5ac12192284c4ad4c57707a32a6ca80a5131267",
+    "subtype-fields-tests.log": "a4074cb1e638a702bf83fca50f739ea89e6dd24082d41abf7eaa46424cd4cdff",
+    "subtype-zero-tests.log": "53a946c2f3bca59ae64961b2c1b53851280c0c98968f268a6cad73277bf77540"
+  },
+  "sources": {
+    "crates/emit_native/src/hir.rs": "983ba557efb327edae99b7a37e6f39deda55d502da53047153d5b6d30a7844a2",
+    "crates/emit_native/src/lib.rs": "c196aae81243506db738d26ea56cd493df2c29c0067730a03b217b528396e3d0",
+    "crates/emit_native/src/lower/mod.rs": "56ff855281110cee6912f6f76eef17b30802c3fa6f886c44ee4f1e566029dea5",
+    "crates/emit_native/src/optimize/arc/fields.rs": "36f24b105cdc3a10a31e8b180452ee699746ac9943e17deb71eda9a5fe8bb59f",
+    "crates/emit_native/src/optimize/arc/fields/class_cases.rs": "2456adabbc6a2553dcc0848c99aa81be5d2fcdb121cff674cc9bfd76d57f08f1",
+    "crates/emit_native/src/optimize/arc/fields/class_cases/ancestry_tests.rs": "d77f9d3708ab9ad769f8d3492bdcabecb2a04cd6ca21251809637355175f8969",
+    "crates/emit_native/src/optimize/arc/fields/class_cases/predicates.rs": "03260f0f5e53efe5bc39ee40f4eca6bfbd008cddae8e11ab6bbf4b03b7c92b43",
+    "crates/emit_native/src/optimize/arc/fields/class_cases/tests.rs": "ad21d9d34f54fcda13c747e65a08071a98cae780e27a3e22c67f495d3cdef60d",
+    "crates/emit_native/src/optimize/arc/functions.rs": "16dc84d9f295c5bd793472b03c81de4ddf325c1255af21a0e262f6b968d01614",
+    "crates/emit_native/src/optimize/arc/mod.rs": "af8a2aeaef09a2f6c98bc676a53464bbc15ec81e1211c48b530e86159d90a327",
+    "crates/emit_native/src/optimize/arc/ports.rs": "4ac17dd9906b5e1832d2c9af64e8a9628550d3fdb152183c09b0d0a54e23f29a",
+    "crates/emit_native/src/optimize/mod.rs": "40c400bd1b244038e3fb0dd429b83a3ad5e4be953b8e4631105e378a98878976",
+    "crates/emit_native/src/optimize/simplify.rs": "1e3895610211d236e3814ddcd3b57cc8ad1f2aaadf724fbe380a207992c0b161",
+    "crates/emit_native/src/optimize/simplify/narrow_zero_tests.rs": "5bce3595af4679388d698b30665622787f08d898117b3356e5e0f6c266fbacac",
+    "crates/emit_native/src/sdk_module.rs": "6ee5e1ca9c8086efd1c536872ce9a047c44abc43552e1c91c49630b3b386299f",
+    "crates/emit_native/tests/fixtures/arc_ports/nullable_huffman_nodes.dart": "4af88c6fb9e8e5f928e49193c95dc7b0ef10b8c5ddf4c115041ba8154642824d"
+  }
+}

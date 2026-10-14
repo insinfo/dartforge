@@ -2,11 +2,35 @@ use super::*;
 use crate::optimize::cfg::{Cfg, successors};
 
 #[derive(Default)]
-pub(super) struct Cases {
+pub(super) struct Cases<'a> {
     positions: HashMap<BlockId, usize>,
     idom: Vec<usize>,
-    witnesses: Vec<(ValueId, usize, u32)>,
+    witnesses: Vec<(ValueId, usize, Restriction)>,
     allocations: HashSet<ValueId>,
+    ancestry: Option<&'a PhysicalAncestry>,
+}
+
+#[derive(Clone, Copy)]
+enum Restriction {
+    Exact(u32),
+    Subtype(u32),
+}
+
+type Definitions = HashMap<ValueId, (Type, Option<(usize, usize)>)>;
+
+fn available(
+    definitions: &Definitions,
+    idom: &[usize],
+    value: ValueId,
+    consumer: (usize, usize),
+) -> bool {
+    match definitions.get(&value) {
+        Some((_, None)) => true,
+        Some((_, Some((block, position)))) => {
+            dominates(idom, *block, consumer.0) && (*block != consumer.0 || *position < consumer.1)
+        }
+        None => false,
+    }
 }
 
 fn dominates(idom: &[usize], ancestor: usize, mut block: usize) -> bool {
@@ -25,14 +49,24 @@ fn dominates(idom: &[usize], ancestor: usize, mut block: usize) -> bool {
     }
 }
 
-impl Cases {
+impl<'a> Cases<'a> {
+    #[cfg(test)]
     pub(super) fn new(f: &Function, canonical_runtime: bool) -> Self {
+        Self::with_ancestry(f, canonical_runtime, None)
+    }
+
+    pub(super) fn with_ancestry(
+        f: &Function,
+        canonical_runtime: bool,
+        ancestry: Option<&'a PhysicalAncestry>,
+    ) -> Self {
+        let ancestry = ancestry.filter(|ancestry| !ancestry.complete.is_empty());
         if !canonical_runtime
             || f.blocks.is_empty()
-            || !f
-                .blocks
-                .iter()
-                .any(|b| matches!(b.terminator, Terminator::Switch { .. }))
+            || !f.blocks.iter().any(|b| {
+                matches!(b.terminator, Terminator::Switch { .. })
+                    || (ancestry.is_some() && matches!(b.terminator, Terminator::CondBranch { .. }))
+            })
             || f.blocks.len() > 512
             || f.blocks.iter().any(
                 |b| matches!(&b.terminator, Terminator::Switch { cases, .. } if cases.len() > 512),
@@ -61,12 +95,14 @@ impl Cases {
             }
         }
         let mut queries = HashMap::new();
+        let mut instructions = HashMap::new();
         let mut allocations = HashSet::new();
         for (b, block) in f.blocks.iter().enumerate() {
             for (position, (v, instruction, ty)) in block.instructions.iter().enumerate() {
                 if definitions.insert(*v, (*ty, Some((b, position)))).is_some() {
                     return Self::default();
                 }
+                instructions.insert(*v, instruction);
                 match instruction {
                     Instruction::CallRuntime {
                         name,
@@ -114,8 +150,77 @@ impl Cases {
         if !cfg.predecessors[0].is_empty() {
             return Self::default();
         }
+        queries.retain(|_, query| {
+            let (receiver, block, position) = *query;
+            definitions
+                .get(&receiver)
+                .is_some_and(|(ty, _)| *ty == Type::Ref)
+                && available(&definitions, &cfg.idom, receiver, (block, position))
+        });
+        let mut subtype_queries = HashMap::new();
+        if ancestry.is_some() {
+            for (value, instruction) in &instructions {
+                let Instruction::CallRuntime {
+                    name,
+                    args,
+                    ret_ty: Type::I8,
+                } = instruction
+                else {
+                    continue;
+                };
+                if name != "dartforge_is_subclass" || definitions[value].0 != Type::I8 {
+                    continue;
+                }
+                let [
+                    (Operand::Val(query), Type::I64),
+                    (Operand::Constant(Constant::Int(target)), Type::I64),
+                ] = args.as_slice()
+                else {
+                    continue;
+                };
+                let Some(&(receiver, _, _)) = queries.get(query) else {
+                    continue;
+                };
+                let Ok(target) = u32::try_from(*target) else {
+                    continue;
+                };
+                let Some(location) = definitions[value].1 else {
+                    continue;
+                };
+                if i32::try_from(target).is_ok()
+                    && available(&definitions, &cfg.idom, *query, location)
+                {
+                    subtype_queries.insert(*value, (receiver, target));
+                }
+            }
+        }
         let mut witnesses = Vec::new();
         for (switch, block) in f.blocks.iter().enumerate() {
+            if let Terminator::CondBranch {
+                cond,
+                then_block,
+                else_block,
+            } = &block.terminator
+                && then_block != else_block
+                && ancestry.is_some()
+            {
+                let entry = positions[then_block];
+                if cfg.predecessors[entry].as_slice() == [switch] && cfg.reachable(entry) {
+                    let predicates = predicates::positive(
+                        cond,
+                        (switch, block.instructions.len()),
+                        &definitions,
+                        &instructions,
+                        &cfg.idom,
+                        &subtype_queries,
+                    );
+                    witnesses.extend(
+                        predicates.into_iter().map(|(receiver, target)| {
+                            (receiver, entry, Restriction::Subtype(target))
+                        }),
+                    );
+                }
+            }
             let Terminator::Switch {
                 val: Operand::Val(query),
                 default,
@@ -127,7 +232,14 @@ impl Cases {
             let Some(&(receiver, query_block, query_position)) = queries.get(query) else {
                 continue;
             };
-            if !dominates(&cfg.idom, query_block, switch) {
+            if !dominates(&cfg.idom, query_block, switch)
+                || !available(
+                    &definitions,
+                    &cfg.idom,
+                    *query,
+                    (switch, block.instructions.len()),
+                )
+            {
                 continue;
             }
             let Some((Type::Ref, definition)) = definitions.get(&receiver) else {
@@ -157,7 +269,7 @@ impl Cases {
                 if cfg.predecessors[entry].as_slice() != [switch] || !cfg.reachable(entry) {
                     continue;
                 }
-                witnesses.push((receiver, entry, cid));
+                witnesses.push((receiver, entry, Restriction::Exact(cid)));
             }
         }
         Self {
@@ -165,6 +277,7 @@ impl Cases {
             idom: cfg.idom,
             witnesses,
             allocations,
+            ancestry,
         }
     }
 
@@ -181,7 +294,7 @@ impl Cases {
         let Some(&block) = self.positions.get(&block) else {
             return;
         };
-        for &(value, entry, cid) in &self.witnesses {
+        for &(value, entry, restriction) in &self.witnesses {
             if value != *receiver || !dominates(&self.idom, entry, block) {
                 continue;
             }
@@ -189,7 +302,12 @@ impl Cases {
             // Unknown candidates keep their runtime guard and ownership contract.
             origin.sites.retain(|site| {
                 !self.allocations.contains(site)
-                    || classes.get(site).is_none_or(|class| *class == cid)
+                    || classes.get(site).is_none_or(|class| match restriction {
+                        Restriction::Exact(cid) => *class == cid,
+                        Restriction::Subtype(target) => !self
+                            .ancestry
+                            .is_some_and(|ancestry| ancestry.excludes(*class, target)),
+                    })
             });
         }
     }
@@ -197,3 +315,8 @@ impl Cases {
 
 #[cfg(test)]
 mod tests;
+
+mod predicates;
+
+#[cfg(test)]
+mod ancestry_tests;

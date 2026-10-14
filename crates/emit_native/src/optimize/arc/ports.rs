@@ -53,7 +53,9 @@ fn state(m: &Module) -> String {
             &m.entry_symbol,
             &m.record,
             &m.call_dart,
-            &m.arc_shared_functions
+            &m.arc_shared_functions,
+            &m.subtyping_edges, &m.pruning_class_ids,
+            &m.pruning_ambiguous_class_ids, m.arc_fixed_ancestry, &m.arc_external_ancestry
         )
     )
 }

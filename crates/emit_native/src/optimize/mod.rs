@@ -209,6 +209,16 @@ pub fn optimize(module: &mut Module) {
         }
         false
     });
+    // Inlining and representation folding can expose literal class queries.
+    // Fixed registration facts prove only the negative cases; the usual cleanup
+    // removes their unreachable branches before tables or ownership plans exist.
+    if arc::fold_fixed_subtype_tests(module) {
+        let do_not_throw = effects::do_not_throw(module);
+        in_parallel(&mut module.functions, &|f| {
+            clear(f, &do_not_throw);
+            false
+        });
+    }
     if module.arc_memory {
         direct_locals::prune(module);
         arc::analysis::origins::prune(module);

@@ -42,7 +42,7 @@ fn ordinary_late_generic_notifier_dispatch_prepares_without_erasing_field_guards
 fn value(n: u32) -> Operand {
     Operand::Val(ValueId(n))
 }
-fn function() -> Function {
+pub(super) fn function() -> Function {
     let block = |n, instructions, terminator| BasicBlock {
         id: BlockId(n),
         instructions,

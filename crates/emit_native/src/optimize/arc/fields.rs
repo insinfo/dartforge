@@ -13,6 +13,123 @@ use std::collections::{HashMap, HashSet};
 
 mod class_cases;
 
+impl ArcExternalAncestry {
+    pub(crate) fn from_summaries(summaries: &[&crate::pruning::Summary]) -> Self {
+        let mut facts = Self::default();
+        for summary in summaries {
+            for &cid in &summary.nominal_classes {
+                let Ok(cid) = u32::try_from(cid) else {
+                    facts.ambiguous_classes.insert(0);
+                    return facts;
+                };
+                if !facts.nominal_classes.insert(cid) && cid != 0 {
+                    facts.ambiguous_classes.insert(cid);
+                }
+            }
+            for &cid in &summary.ambiguous_classes {
+                let Ok(cid) = u32::try_from(cid) else {
+                    facts.ambiguous_classes.insert(0);
+                    return facts;
+                };
+                facts.ambiguous_classes.insert(cid);
+            }
+            for &(child, parent) in &summary.parent_edges {
+                let (Ok(child), Ok(parent)) = (u32::try_from(child), u32::try_from(parent)) else {
+                    facts.ambiguous_classes.insert(0);
+                    return facts;
+                };
+                facts.parent_edges.push((child, parent));
+            }
+        }
+        facts.parent_edges.sort_unstable();
+        facts.parent_edges.dedup();
+        facts
+    }
+}
+
+#[derive(Default)]
+pub(super) struct PhysicalAncestry {
+    complete: HashSet<u32>,
+    parents: HashMap<u32, Vec<u32>>,
+}
+
+impl PhysicalAncestry {
+    pub(super) fn from_module(module: &Module) -> Self {
+        if !module.arc_fixed_ancestry { return Self::default(); }
+        let external = &module.arc_external_ancestry;
+        let mut counts = HashMap::new();
+        for class in &module.classes { *counts.entry(class.id).or_insert(0) += 1; }
+        if counts.values().any(|&count| count != 1)
+            || external.ambiguous_classes.contains(&0)
+            || external.nominal_classes.iter().chain(external.parent_edges.iter().map(|(child, _)| child))
+                .any(|cid| *cid != 0 && (counts.contains_key(cid) || module.pruning_class_ids.contains(cid))) {
+            return Self::default();
+        }
+        let mut parents: HashMap<u32, Vec<u32>> = HashMap::new();
+        for &(child, parent) in module.subtyping_edges.iter().chain(&external.parent_edges) {
+            if child == 0 && parent != 0 { return Self::default(); }
+            let entry = parents.entry(child).or_default();
+            if !entry.contains(&parent) { entry.push(parent); }
+        }
+        let complete = module.pruning_class_ids.iter().copied().filter(|cid|
+            i32::try_from(*cid).is_ok() && !module.pruning_ambiguous_class_ids.contains(cid)
+                && !external.ambiguous_classes.contains(cid)
+                && (*cid == 0 || (counts.get(cid) == Some(&1)
+                    && parents.get(cid).is_some_and(|parents| parents.contains(&0)))))
+            .chain(external.nominal_classes.iter().copied().filter(|cid|
+                i32::try_from(*cid).is_ok() && !external.ambiguous_classes.contains(cid)
+                    && !module.pruning_ambiguous_class_ids.contains(cid)
+                    && (*cid == 0 || parents.get(cid).is_some_and(|parents| parents.contains(&0)))))
+            .collect();
+        Self { complete, parents }
+    }
+
+    fn excludes(&self, cid: u32, target: u32) -> bool {
+        if target == 0 || !self.complete.contains(&target) { return false; }
+        let mut active = HashSet::new();
+        let mut complete = HashSet::new();
+        let mut pending = vec![(cid, false)];
+        while let Some((cid, exit)) = pending.pop() {
+            if cid == target { return false; }
+            if exit { active.remove(&cid); complete.insert(cid); continue; }
+            if complete.contains(&cid) { continue; }
+            if !self.complete.contains(&cid) || !active.insert(cid) || active.len() + complete.len() > 512 { return false; }
+            pending.push((cid, true));
+            if let Some(parents) = self.parents.get(&cid) {
+                pending.extend(parents.iter().filter(|&&parent| cid != 0 || parent != 0).map(|&parent| (parent, false)));
+            }
+        }
+        true
+    }
+}
+
+// A fixed-image negative subtype query is pure. Folding only complete negative
+// facts lets the ordinary constant/CFG pipeline remove impossible field paths.
+pub(super) fn fold_fixed_subtype_tests(module: &mut Module) -> bool {
+    if module.functions.iter().any(|function| function.symbol == "dartforge_is_subclass") {
+        return false;
+    }
+    let ancestry = PhysicalAncestry::from_module(module);
+    if ancestry.complete.is_empty() { return false; }
+    let mut changed = false;
+    for function in &mut module.functions {
+        for block in &mut function.blocks {
+            for (_, instruction, ty) in &mut block.instructions {
+                let Instruction::CallRuntime { name, args, ret_ty: Type::I8 } = instruction else { continue };
+                if *ty != Type::I8 || name != "dartforge_is_subclass" { continue; }
+                let [(Operand::Constant(Constant::Int(cid)), Type::I64),
+                     (Operand::Constant(Constant::Int(target)), Type::I64)] = args.as_slice() else { continue };
+                let (Ok(cid), Ok(target)) = (u32::try_from(*cid), u32::try_from(*target)) else { continue };
+                if i32::try_from(cid).is_ok() && i32::try_from(target).is_ok() && ancestry.excludes(cid, target) {
+                    *instruction = Instruction::Const(Constant::Int(0));
+                    changed = true;
+                }
+            }
+        }
+    }
+    changed
+}
+
 // Carries eligibility for the physical guard, without proving ownership/layout.
 // Each SCC requires a Ref/Null anchor and every external dependency checked.
 fn propagate_ref_entries(f: &Function, entries: &mut HashSet<ValueId>) {
@@ -257,6 +374,7 @@ pub(super) fn prepare(
     prepare_with_class_cases(f, layouts, plan, receivers, preserve_fields, false)
 }
 
+#[cfg(test)]
 pub(super) fn prepare_with_class_cases(
     f: &mut Function,
     layouts: &HashMap<u32, Vec<Type>>,
@@ -264,6 +382,18 @@ pub(super) fn prepare_with_class_cases(
     receivers: Option<&HashMap<ValueId, u32>>,
     preserve_fields: &HashSet<String>,
     canonical_runtime: bool,
+) -> Result<(), String> {
+    prepare_with_ancestry(f, layouts, plan, receivers, preserve_fields, canonical_runtime, None)
+}
+
+pub(super) fn prepare_with_ancestry(
+    f: &mut Function,
+    layouts: &HashMap<u32, Vec<Type>>,
+    plan: &mut DartFunctionPlan,
+    receivers: Option<&HashMap<ValueId, u32>>,
+    preserve_fields: &HashSet<String>,
+    canonical_runtime: bool,
+    ancestry: Option<&PhysicalAncestry>,
 ) -> Result<(), String> {
     // Const Null in SSA has no token. At a Phi entry, use the literal
     // shape for the nullable protocol, without confusing Const Int(0) or
@@ -294,7 +424,8 @@ pub(super) fn prepare_with_class_cases(
         return Ok(());
     }
     let (origins, classes) = origins(f, layouts, receivers);
-    let class_cases = class_cases::Cases::new(f, canonical_runtime);
+    let ancestry = ancestry.filter(|ancestry| !ancestry.complete.is_empty());
+    let class_cases = class_cases::Cases::with_ancestry(f, canonical_runtime, ancestry);
     // Borrowed entries must already be valid instances by Dart
     // semantics. A local factory without a layout may still contain zeroed fields
     // without a Ref mark; do not confuse it with an open entry receiver.

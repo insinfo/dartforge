@@ -305,6 +305,13 @@ pub fn sdk_arc_layouts(ctx: &Context) -> std::collections::HashMap<u32, Vec<Type
     m.arc_field_layouts
 }
 
+#[cfg(test)]
+pub(crate) fn class_registration_facts(ctx: &Context) -> Module {
+    let mut module = Module::new();
+    register_program_classes(ctx, &mut module);
+    module
+}
+
 // Shared with the audit of the layout facts, without lowering bodies.
 fn register_program_classes(ctx: &Context, module: &mut Module) {
     // Zero is the terminal universal parent used by the subtype registration
