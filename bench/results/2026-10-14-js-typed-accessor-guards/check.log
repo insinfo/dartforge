@@ -1,0 +1,5 @@
+    Checking dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)
+    Checking dartforge-macros-host v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/macros_host)
+    Checking dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+    Checking dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.30s

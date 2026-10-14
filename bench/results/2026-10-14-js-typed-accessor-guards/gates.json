@@ -1,0 +1,17 @@
+{
+  "scope": "Correctness gates only; no timing claim.",
+  "SDK_lib": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+  "command_suffix": "--tests -- --include-ignored",
+  "gates": {
+    "production-verified.log": {
+      "passed": 82,
+      "failed": 0,
+      "log_sha256": "816cab72d100085a335e649f21ea6485e08faee9e28d24b9d92d8498bbfe1971"
+    },
+    "development-full.log": {
+      "passed": 20,
+      "failed": 0,
+      "log_sha256": "4e525f58a72bc27ba1321885c47890e35c844ebae86edb97b95a2def2b87ab9e"
+    }
+  }
+}

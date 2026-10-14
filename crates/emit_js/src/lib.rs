@@ -7,6 +7,7 @@ pub mod body;
 pub mod call;
 pub mod type_check;
 mod typed_loops;
+mod typed_read_guards;
 mod counter_loops;
 pub mod ctx;
 pub mod expr;

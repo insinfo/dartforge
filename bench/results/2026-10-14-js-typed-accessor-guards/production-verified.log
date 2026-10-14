@@ -1,0 +1,161 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/js/debug/deps/dartforge_emit_js_production-fb6c86a20c8ec7b0)
+
+running 67 tests
+test bundle::tests::resolves_relative_paths ... ok
+test bundle::tests::splits_preamble ... ok
+test bundle::tests::node_list_gets_list_methods_before_user_code ... ok
+test bundle::tests::renamed_export_becomes_alias_in_bundle ... ok
+test bundle::tests::cycle_does_not_abort ... ok
+test bundle::tests::orders_dependency_first ... ok
+test cache::tests::second_read_comes_from_the_cache_and_is_equal ... ok
+test cache::tests::pruning_through_the_cache_is_identical ... ok
+test cache::tests::corrupted_file_rebuilds ... ok
+test flatten::tests::shadowed_name_stays ... ok
+test flatten::tests::observed_object_stays ... ok
+test alias_this::tests::four_citations_become_a_local ... ok
+test inline::tests::inlines_a_static_accessor ... ok
+test flatten::tests::written_member_becomes_variable ... ok
+test inline::tests::drops_the_arguments_of_unused_parameters ... ok
+test flatten::tests::lazy_this_delete_and_unwritten_stay ... ok
+test inline::tests::refuses_a_reassigned_function ... ok
+test inline::tests::refuses_a_used_parameter_with_a_default ... ok
+test inline::tests::keeps_order_with_effects ... ok
+test alias_this::tests::few_citations_constructor_and_field_stay ... ok
+test minify::tests::keeps_line_breaks_that_decide_semicolons ... ok
+test minify::tests::literals_are_copied_as_they_are ... ok
+test minify::tests::is_deterministic_and_idempotent ... ok
+test minify::tests::removes_comments_and_indentation ... ok
+test inline::tests::removes_a_definition_without_uses ... ok
+test inline::tests::refuses_a_shadowed_free_name ... ok
+test minify::tests::slash_after_expression_is_division ... ok
+test minify::tests::shares_short_names_only_outside_common_groups ... ok
+test minify::tests::whitespace_that_separates_tokens_stays ... ok
+test own_sdk::front_coding_tests::front_coding_round_trips ... ok
+test reach::tests::member_requires_class_and_selector ... ok
+test reach::tests::selector_used_by_live_member_lights_up_another ... ok
+test reach::tests::simple_chain ... ok
+test cache::tests::incompatible_runtime_or_configuration_rebuilds ... ok
+test scan::tests::class_members_conserve_bytes ... ok
+test scan::tests::closing_brace_ignores_strings ... ok
+test rti_rules::tests::program_rules_merge_into_the_last_call ... ok
+test sdk::tests::call_is_not_declaration ... ok
+test scan::tests::conserves_bytes ... ok
+test scan::tests::object_entries_at_level_zero ... ok
+test rti_rules::tests::identical_rules_forward_to_the_first ... ok
+test sdk::tests::class_members ... ok
+test sdk::tests::constant_and_bar_member_references ... ok
+test sdk::tests::does_not_mistake_field_for_library ... ok
+test sdk::tests::html_reference_with_dollar ... ok
+test rti_rules::tests::program_resources_batch_into_the_last_statement ... ok
+test sdk::tests::rti_recipe_reference ... ok
+test sdk::tests::pruning_keeps_what_lives_and_drops_the_rest ... ok
+test sdk::tests::class_define_lazy_does_not_tie_to_namespace ... ok
+test sdk::tests::sdk_alias_in_user_module_points_to_the_local_name ... ok
+test sdk::tests::extension_list_follows_the_member ... ok
+test sdk::tests::symbol_table_private_entry_reference ... ok
+test shapes::tests::class_with_default_constructor ... ok
+test shapes::tests::class_signature ... ok
+test shapes::tests::constructor_with_prototype ... ok
+test tests::assembles_one_file_in_topological_order ... ok
+test verify::tests::operator_selectors_from_text ... ok
+test shapes::tests::generic_constructor_prologue ... ok
+test verify::tests::rti_recipe_is_a_reference ... ok
+test tests::bundling_does_not_merge_libraries ... ok
+test verify::tests::selectors_from_text ... ok
+test verify::tests::top_level_class_and_lazy_definitions ... ok
+test tests::prunes_the_embedded_runtime ... ok
+test tests::assembly_is_deterministic ... ok
+test rti_rules::tests::resource_transport_accepts_only_bounded_canonical_singletons ... ok
+test cache::tests::evicts_the_oldest ... ok
+test rti_rules::tests::resource_transport_preserves_class_identity_strings_and_call_order_in_node ... ok
+
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src/main.rs (target/js/debug/deps/dartforge_jsprod-97d619844272f752)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/const_record_cache.rs (target/js/debug/deps/const_record_cache-663d0aca9b363b7b)
+
+running 2 tests
+test development_warm_fragments_keep_the_existing_cache_prelude ... ok
+test live_records_keep_canonical_identity_without_unused_library_caches ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.48s
+
+     Running tests/identity.rs (target/js/debug/deps/identity-602a099ffefd1e66)
+
+running 1 test
+test no_filter_and_all_live_emit_the_same_text ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.97s
+
+     Running tests/index_assignment_order.rs (target/js/debug/deps/index_assignment_order-69796d40fc6915bb)
+
+running 1 test
+test indexed_assignments_match_vm_and_o2 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.26s
+
+     Running tests/native_number_ranges.rs (target/js/debug/deps/native_number_ranges-e125b1e1df0f07b5)
+
+running 2 tests
+test sdk_modulo_preserves_numbers_errors_user_identity_and_foreign_fallbacks ... ok
+test changed_sdk_modulo_body_keeps_original_dispatch ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.78s
+
+     Running tests/numeric_dynamic_operands.rs (target/js/debug/deps/numeric_dynamic_operands-0ec9cc91fdd9bd08)
+
+running 1 test
+test checked_numeric_dynamic_arguments_match_vm_and_checked_o2 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.40s
+
+     Running tests/positive_counter_modulo.rs (target/js/debug/deps/positive_counter_modulo-31898fa26233e3f6)
+
+running 3 tests
+test zero_divisor_keeps_sdk_dispatch_and_existing_divergence_visible ... ok
+test resolved_foreign_intrinsic_refuses_hidden_counter_mutation ... ok
+test canonical_counters_and_refusals_match_checked_vm_and_o2 ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.99s
+
+     Running tests/property_assignment_order.rs (target/js/debug/deps/property_assignment_order-74ccbf4e35aad1a2)
+
+running 1 test
+test property_assignments_match_vm_and_o2 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.82s
+
+     Running tests/typed_loop_brands.rs (target/js/debug/deps/typed_loop_brands-6497037de8dd798d)
+
+running 1 test
+test mixed_width_reads_preserve_precision_signedness_and_checked_fallbacks ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.05s
+
+     Running tests/typed_loop_ranges.rs (target/js/debug/deps/typed_loop_ranges-233c363ea5026ecf)
+
+running 1 test
+test typed_loops_preserve_ranges_precision_order_and_mutations ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.23s
+
+     Running tests/typed_native_length.rs (target/js/debug/deps/typed_native_length-d4649f3dd143dad8)
+
+running 1 test
+test inherited_mixin_aliases_preserve_views_order_and_generic_tearoffs ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.84s
+
+     Running tests/typed_public_accessors.rs (target/js/debug/deps/typed_public_accessors-abc6fc35514ba4ab)
+
+running 1 test
+test typed_guards_preserve_public_accessor_effects ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.68s
+

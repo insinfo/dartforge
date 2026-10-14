@@ -1,0 +1,41 @@
+   Compiling dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+   Compiling dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.89s
+     Running unittests src/lib.rs (target/js/debug/deps/dartforge_emit_js-3f9c348d235f5895)
+
+running 3 tests
+test sdk_patches::tests::every_patch_changes_its_text ... ok
+test module::const_record_cache_tests::derived_and_reused_fragments_preserve_per_library_const_record_uses ... ok
+test module::typed_read_guard_cache_tests::captured_guard_uses_survive_fragment_merge_and_reuse ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/basic.rs (target/js/debug/deps/basic-475ff2481c5c47e4)
+
+running 15 tests
+test p3_generics ... ok
+test p7_dynamic ... ok
+test p5_exceptions ... ok
+test indexed_assignment_order ... ok
+test p2_functions ... ok
+test p1_basic ... ok
+test p3_classes ... ok
+test p10_reified_types ... ok
+test p6_async ... ok
+test p4_collections ... ok
+test p8_nosuchmethod_order ... ok
+test property_assignment_order ... ok
+test p9_lexical_scope ... ok
+test p7_patterns ... ok
+test p7_libraries ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.22s
+
+     Running tests/determinism.rs (target/js/debug/deps/determinism-0117ae68f7ff147f)
+
+running 2 tests
+test forwarders_come_out_in_cfe_order ... ok
+test emission_with_nosuchmethod_is_identical_byte_for_byte ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.84s
+

@@ -1,0 +1,311 @@
+{
+  "scope": "Correctness and compile-only artifact sizes; no performance measurement.",
+  "sdk_lib": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+  "SDK_version": "3.6.2",
+  "compilers": {
+    "baseline": {
+      "path": "target/tmp-js-production-audit/typed-public-accessors/baseline-jsprod",
+      "sha256": "e766cebd86ec4ef2bf5312e524e582f4c8fb8b642302257f75521db5bb692ce2"
+    },
+    "current": {
+      "path": "target/js/debug/dartforge-jsprod",
+      "sha256": "6557a85b2628e5948e9ad915439c6533f8e417a7ff9ec7c1dad4b3e729f81f84"
+    }
+  },
+  "hello": {
+    "source_sha256": "7ff298a7a3bdd940af231b9c19078e7d3aae02f16a00bb7f453022b97800e72b",
+    "baseline.raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-public-accessors/baseline-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-public-accessors/hello.baseline.raw.js",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify"
+      ],
+      "artifact_sha256": "e453d68c77728ce4096ccdbb3db15d1a901e94eebbb91ac3476012d4bbb947a9",
+      "bytes": 167765,
+      "gzip_bytes": 30079,
+      "guard_helper_present": false,
+      "stdout": "hello\n",
+      "stderr": "",
+      "exit": 0
+    },
+    "baseline.min": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-public-accessors/baseline-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-public-accessors/hello.baseline.min.js",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+      ],
+      "artifact_sha256": "8f893152401bef76ac1bdeb847b2a8c5ab98e8cb093b3106e3e921415d0a6a62",
+      "bytes": 46212,
+      "gzip_bytes": 16046,
+      "guard_helper_present": false,
+      "stdout": "hello\n",
+      "stderr": "",
+      "exit": 0
+    },
+    "current.raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/debug/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-public-accessors/hello.current.raw.js",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify"
+      ],
+      "artifact_sha256": "e453d68c77728ce4096ccdbb3db15d1a901e94eebbb91ac3476012d4bbb947a9",
+      "bytes": 167765,
+      "gzip_bytes": 30079,
+      "guard_helper_present": false,
+      "stdout": "hello\n",
+      "stderr": "",
+      "exit": 0
+    },
+    "current.min": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/debug/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-public-accessors/hello.current.min.js",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+      ],
+      "artifact_sha256": "8f893152401bef76ac1bdeb847b2a8c5ab98e8cb093b3106e3e921415d0a6a62",
+      "bytes": 46212,
+      "gzip_bytes": 16046,
+      "guard_helper_present": false,
+      "stdout": "hello\n",
+      "stderr": "",
+      "exit": 0
+    },
+    "byte_identical_baseline_current": true
+  },
+  "witness": {
+    "sources": {
+      "crates/emit_js/tests/programs/typed_public_accessors/hook_stub.dart": "49a8d3e3b5ef4c13e713b9a28cb488bd65d5a63dae2ba65e8a06e0b529ba3097",
+      "crates/emit_js/tests/programs/typed_public_accessors/hook_web.dart": "44bd63bc9151b0b9d9d6687fc0d4411d1de3fc236da634bddd7b1b5b7aa3a0cc",
+      "crates/emit_js/tests/programs/typed_public_accessors/main.dart": "700b56ddd3546bc785019c43eb410a337f80dff9eabcd97595998ef1f917b34c"
+    },
+    "profiles": {
+      "baseline": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-public-accessors/baseline-jsprod",
+          "--no-minify",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_public_accessors/main.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-public-accessors/witness.baseline.js",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "artifact_sha256": "9425731bbe91a50fe9a38cd6a8d40366f6efdbb187354455608203580baa8d07",
+        "bytes": 275149,
+        "gzip_bytes": 47258,
+        "modes": {
+          "buffer": {
+            "stdout": "6\n2\n",
+            "exit": 0
+          },
+          "byteOffset": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "byteLength": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "baseBuffer": {
+            "stdout": "6\n2\n",
+            "exit": 0
+          },
+          "resizable": {
+            "stdout": "6\n1\n",
+            "exit": 0
+          },
+          "descriptor": {
+            "stdout": "6\n2\n",
+            "exit": 0
+          },
+          "isView": {
+            "stdout": "6\n1\n",
+            "exit": 0
+          },
+          "length": {
+            "stdout": "6\n5\n",
+            "exit": 0
+          }
+        }
+      },
+      "raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/debug/dartforge-jsprod",
+          "--no-minify",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_public_accessors/main.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-public-accessors/witness.raw.js",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "artifact_sha256": "43ae6eb7c1e42c37ae340c72cafb7299fe89da674ed25eea70d5b692c7392345",
+        "bytes": 277525,
+        "gzip_bytes": 47961,
+        "modes": {
+          "buffer": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "byteOffset": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "byteLength": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "baseBuffer": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "resizable": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "descriptor": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "isView": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "length": {
+            "stdout": "6\n7\n",
+            "exit": 0
+          }
+        }
+      },
+      "min": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/debug/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_public_accessors/main.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-public-accessors/witness.min.js",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "artifact_sha256": "49c1ca0d1bb432a968ce9a2e6360c7956626f85d16b41239c640cfc384b90cb8",
+        "bytes": 87904,
+        "gzip_bytes": 27558,
+        "modes": {
+          "buffer": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "byteOffset": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "byteLength": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "baseBuffer": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "resizable": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "descriptor": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "isView": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "length": {
+            "stdout": "6\n7\n",
+            "exit": 0
+          }
+        }
+      },
+      "O2": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "js",
+          "-O2",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_public_accessors/main.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-public-accessors/witness.O2.js"
+        ],
+        "artifact_sha256": "9ff12401d5c3010ecfe8de3ebc344de7d4182fb44c30b0ef2a211ad9174f4aa6",
+        "bytes": 48192,
+        "gzip_bytes": 14683,
+        "modes": {
+          "buffer": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "byteOffset": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "byteLength": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "baseBuffer": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "resizable": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "descriptor": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "isView": {
+            "stdout": "6\n0\n",
+            "exit": 0
+          },
+          "length": {
+            "stdout": "6\n1\n",
+            "exit": 0
+          }
+        }
+      }
+    },
+    "host_sha256": "f988d234d8cb6595d654581c43ebef63bc305e11fac3e9ee19f458432581ef50",
+    "VM": {
+      "stdout": "6\n0\n",
+      "exit": 0
+    }
+  },
+  "limitations": [
+    "No performance measurement or broad backend parity claim.",
+    "Length accessor replacement follows Forge checked fallback trace (7 calls); dart2js O2 hoists to one call. Both sums equal 6.",
+    "Helpers capture SDK bootstrap primitives; no adversarial realm-security claim for replacement of all reflection primitives before bootstrap."
+  ],
+  "source_sha256": {
+    "crates/emit_js/src/lib.rs": "b6c6020fa4b5109cecc0c38d457908f6637c360c0ccb07e818c425a2ca2b5fb9",
+    "crates/emit_js/src/module.rs": "dea4ca61761499554b2751533130b02b10ed2a3422a9e7f1abcf39fb0b46d223",
+    "crates/emit_js/src/own_sdk.rs": "a9c440ed37e0ffea99fc4099174fdb4e3625a81a5d8c528c50b5bb8ff14f2310",
+    "crates/emit_js/src/typed_loops.rs": "d18323c947483166166d8854bdb410bbba9a65b3e80c6805f1e9a1adcd6d6cdb",
+    "crates/emit_js/src/typed_read_guards.rs": "d0a794509e5e9bdca41cdfdab14f45da61c6364a47e94d0a96a4c63eb7ca5c08",
+    "crates/emit_js_production/tests/typed_loop_brands.rs": "fa55a53ce6556e0dc5d2f40b253af57542fec024205c8dcfcb28e387bd713418",
+    "crates/emit_js_production/tests/typed_loop_ranges.rs": "a9ad49b4af1fc7833368b60f9bcc07a1a7beabed4feff8ca638a0744cc111536",
+    "crates/emit_js_production/tests/support/typed_guards.rs": "b3340011129d2ee23e93039cb4c3fce0fdbf0488280e628c30f1e0a2c99a364a",
+    "crates/emit_js_production/tests/typed_public_accessors.rs": "f72157def7407458e7fd9076139cc7ad453ce87c31a1584bb1a6783e76c18103"
+  },
+  "HEAD": "a30e5ede31c89bca5c1f23e364485fb676bb17ad"
+}

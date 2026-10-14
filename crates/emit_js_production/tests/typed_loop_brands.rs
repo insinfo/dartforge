@@ -12,45 +12,9 @@ fn node_output(js: &str) -> String {
     String::from_utf8(output.stdout).unwrap().replace("\r\n", "\n")
 }
 
-fn guard_checks(guard: &str) -> String {
-    let mut names = Vec::new();
-    let mut brands = Vec::new();
-    for part in guard.split("globalThis.ArrayBuffer.isView(").skip(1) {
-        let name = part.split(')').next().unwrap();
-        let brand = part.split("=== globalThis.").nth(1).unwrap().split(".prototype").next().unwrap();
-        names.push(name);
-        brands.push(brand);
-    }
-    let values = brands.iter().map(|brand| format!("new globalThis.{brand}(2)")).collect::<Vec<_>>().join(", ");
-    let parameters = names.iter().map(|name| dartforge_emit_js::js::string_literal(name)).collect::<Vec<_>>().join(", ");
-    let mut checks = format!("{{\nconst check = new Function({parameters}, {});\nconst values = [{values}];\nif (!check(...values)) throw Error('fixed mixed brands refused');\n", dartforge_emit_js::js::string_literal(&format!("return ({guard});")));
-    for (index, brand) in brands.iter().enumerate() {
-        checks.push_str(&format!(r#"
-{{
-const Brand = globalThis.{brand};
-const bad = [new DataView(new ArrayBuffer(16)), new (class extends Brand {{}})(2)];
-if (typeof BigInt64Array !== 'undefined') bad.push(new BigInt64Array(2));
-const ownLength = new Brand(2);
-Object.defineProperty(ownLength, 'length', {{get() {{throw Error('own length read');}}}});
-bad.push(ownLength);
-const ownBuffer = new Brand(2);
-Object.defineProperty(ownBuffer, 'buffer', {{get() {{throw Error('own buffer read');}}}});
-bad.push(ownBuffer);
-if (typeof SharedArrayBuffer !== 'undefined') bad.push(new Brand(new SharedArrayBuffer(16)));
-if (Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'resizable')) bad.push(new Brand(new ArrayBuffer(16, {{maxByteLength: 32}})));
-for (const value of bad) {{
-  const args = values.slice(); args[{index}] = value;
-  if (check(...args)) throw Error('unsafe physical brand accepted');
-}}
-}}
-"#));
-    }
-    if brands.len() == 2 {
-        checks.push_str(&format!("const short = values.slice(); short[1] = new globalThis.{}(1); if (check(...short)) throw Error('short secondary accepted');\n", brands[1]));
-    }
-    checks.push_str("}\n");
-    checks
-}
+#[path = "support/typed_guards.rs"]
+mod typed_guards;
+use typed_guards::{guard_checks, helper_expression};
 
 #[test]
 #[ignore = "requires Dart 3.6.2 and Node on PATH"]
@@ -70,19 +34,17 @@ fn mixed_width_reads_preserve_precision_signedness_and_checked_fallbacks() {
         let production = dartforge_emit_js_production::compile_own_sdk(&source, None, None, options, &Default::default()).expect("production compilation");
         let mut checks = String::new();
         if !minify {
-            assert_eq!(production.js.matches(".length <= 4294967296").count(), 7);
-            assert_eq!(production.js.matches(".prototype && !Object.prototype.hasOwnProperty.call(").count(), 8);
-            for brand in ["Float32Array", "Int8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array", "Int32Array", "Uint32Array"] {
-                assert!(production.js.contains(&format!("=== globalThis.{brand}.prototype")), "missing exact brand: {brand}");
-            }
+            assert_eq!(production.js.matches(" <= 4294967296").count(), 7);
+            assert_eq!(production.js.matches(" = t$typedReadGuard").count(), 8);
+            let helper = helper_expression(&production.js);
             for name in ["mutate", "offset"] {
                 let start = production.js.find(&format!("function {name}(")).expect("live refusal");
                 let body = &production.js[start..];
                 let body = &body[..body.find("\n};").expect("function end")];
-                assert!(!body.contains("ArrayBuffer.isView"), "effectful/offset loop versioned: {name}");
+                assert!(!body.contains(" = t$typedReadGuard"), "effectful/offset loop versioned: {name}");
             }
-            for guard in production.js.lines().filter_map(|line| line.trim().strip_prefix("if (").and_then(|s| s.strip_suffix(") {"))).filter(|s| s.starts_with("globalThis.ArrayBuffer.isView(")) {
-                checks.push_str(&guard_checks(guard));
+            for guard in production.js.lines().filter_map(|line| line.trim().strip_prefix("if (").and_then(|s| s.strip_suffix(") {"))).filter(|s| s.starts_with("(t$") && s.contains(" = t$typedReadGuard")) {
+                checks.push_str(&guard_checks(guard, helper));
             }
         }
         assert_eq!(node_output(&format!("{}\n{checks}", production.js)), expected, "minify={minify}");

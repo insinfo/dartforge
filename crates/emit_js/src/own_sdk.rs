@@ -1414,6 +1414,7 @@ pub fn emit_sdk_module(ctx: &Ctx) -> (String, BTreeSet<String>) {
         out.push_str(&format!("var {var} = dart.privateName({lv}, {});\n", js::string_literal(name)));
     }
     crate::module::emit_const_caches(ctx, &m, &libs, &mut out);
+    crate::typed_read_guards::emit(&m, &mut out);
     out.push_str(&body.out);
     let object_recipe = ctx.recipe_of("dart:core", "Object", "core|Object");
     out.push_str(&format!("dart_rti.findType(\"{object_recipe}*\");\ndart_rti.findType(\"{object_recipe}?\");\ndart_rti.findType(\"0&*\");\n"));

@@ -24,6 +24,8 @@ pub struct ModState {
     pub noted_classes: RefCell<BTreeSet<u32>>,
     /// Libraries whose emitted constant records call their canonical cache.
     pub const_record_libraries: RefCell<BTreeSet<u32>>,
+    /// Private descriptor guards required by emitted typed-array loop versions.
+    pub typed_read_guard_libraries: RefCell<BTreeSet<u32>>,
 }
 
 impl ModState {
@@ -37,6 +39,7 @@ impl ModState {
             private_syms: RefCell::new(BTreeMap::new()),
             noted_classes: RefCell::new(BTreeSet::new()),
             const_record_libraries: RefCell::new(BTreeSet::new()),
+            typed_read_guard_libraries: RefCell::new(BTreeSet::new()),
         }
     }
     pub fn use_sdk(&self, name: &str) {
@@ -97,6 +100,7 @@ impl ModState {
         self.private_syms.borrow_mut().extend(other.private_syms.borrow().iter().map(|(k, v)| (k.clone(), v.clone())));
         self.noted_classes.borrow_mut().extend(other.noted_classes.borrow().iter().copied());
         self.const_record_libraries.borrow_mut().extend(other.const_record_libraries.borrow().iter().copied());
+        self.typed_read_guard_libraries.borrow_mut().extend(other.typed_read_guard_libraries.borrow().iter().copied());
     }
 }
 
@@ -111,6 +115,7 @@ pub struct Fragment {
     pub private_syms: BTreeMap<String, (u32, String)>,
     pub noted_classes: BTreeSet<u32>,
     pub const_record_libraries: BTreeSet<u32>,
+    pub typed_read_guard_libraries: BTreeSet<u32>,
 }
 
 impl Fragment {
@@ -123,6 +128,7 @@ impl Fragment {
             private_syms: m.private_syms.borrow().clone(),
             noted_classes: m.noted_classes.borrow().clone(),
             const_record_libraries: m.const_record_libraries.borrow().clone(),
+            typed_read_guard_libraries: m.typed_read_guard_libraries.borrow().clone(),
         }
     }
     fn apply_to(&self, m: &ModState) {
@@ -132,6 +138,7 @@ impl Fragment {
         m.private_syms.borrow_mut().extend(self.private_syms.iter().map(|(k, v)| (k.clone(), v.clone())));
         m.noted_classes.borrow_mut().extend(self.noted_classes.iter().copied());
         m.const_record_libraries.borrow_mut().extend(self.const_record_libraries.iter().copied());
+        m.typed_read_guard_libraries.borrow_mut().extend(self.typed_read_guard_libraries.iter().copied());
     }
 }
 
@@ -425,6 +432,7 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<FragmentCac
     }
     out.push_str("dart._checkModuleNullSafetyMode(true);\n");
     emit_const_caches(ctx, &m, group, &mut out);
+    crate::typed_read_guards::emit(&m, &mut out);
     out.push_str(&body.out);
     out.push_str(&rules);
     let tracked: Vec<String> = group
@@ -2861,5 +2869,29 @@ mod const_record_cache_tests {
         second.note_const_record(LibraryId(1));
         fresh_module.merge(&second);
         assert_eq!(*fresh_module.const_record_libraries.borrow(), BTreeSet::from([1, 2]));
+    }
+}
+
+#[cfg(test)]
+mod typed_read_guard_cache_tests {
+    use super::*;
+
+    #[test]
+    fn captured_guard_uses_survive_fragment_merge_and_reuse() {
+        let module = ModState::new(LibraryId(1));
+        let state = module.derived();
+        state.typed_read_guard_libraries.borrow_mut().insert(1);
+        module.merge(&state);
+        assert_eq!(*module.typed_read_guard_libraries.borrow(), BTreeSet::from([1]));
+        let fragment = Fragment::new("cached typed loop".into(), &state);
+        let reused = module.derived();
+        fragment.apply_to(&reused);
+        fragment.apply_to(&reused);
+        let mut emitted = String::new();
+        crate::typed_read_guards::emit(&reused, &mut emitted);
+        assert_eq!(emitted.matches("const t$typedReadGuard1 =").count(), 1);
+        let mut unused = String::new();
+        crate::typed_read_guards::emit(&ModState::new(LibraryId(2)), &mut unused);
+        assert!(unused.is_empty());
     }
 }

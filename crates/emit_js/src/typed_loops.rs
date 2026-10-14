@@ -82,7 +82,7 @@ impl FnEmitter<'_, '_> {
         }
     }
 
-    pub(crate) fn typed_read_loop(&self, init: &Option<ast::ForInit>, condition: Option<ExprId>, updates: &[ExprId], body: StmtId) -> Option<ReadLoop> {
+    pub(crate) fn typed_read_loop(&mut self, init: &Option<ast::ForInit>, condition: Option<ExprId>, updates: &[ExprId], body: StmtId) -> Option<ReadLoop> {
         if !self.ctx.production() || std::env::var("DARTFORGE_JSPROD_TYPED_LOOPS").is_ok_and(|v| v == "0") { return None; }
         let Some(ast::ForInit::Variables(list)) = init else { return None };
         if list.variables.len() != 1 || list.late || list.final_ || list.const_ { return None; }
@@ -105,22 +105,27 @@ impl FnEmitter<'_, '_> {
         let mut raw = HashMap::new();
         if !self.numeric_loop_body(body, index, &mut arrays, &mut raw) || raw.is_empty() { return None; }
         raw.insert(right, self.ctx.t_int());
+        self.m.typed_read_guard_libraries.borrow_mut().insert(self.m.lib.0);
+        let helper = crate::typed_read_guards::name(self.m.lib.0);
         let mut guards = Vec::new();
-        // Brands must be proved before reading any secondary array length or
-        // backing store. Prototype and own-property checks reject JS subclasses
-        // and interop overrides without invoking their accessors.
+        let mut lengths = Vec::new();
         for s in &arrays {
-            let js = &self.lookup_local(*s)?.js;
+            let js = self.lookup_local(*s)?.js.clone();
             let (brand, _) = self.loop_array(*s)?;
-            guards.push(format!("globalThis.ArrayBuffer.isView({js}) && Object.getPrototypeOf({js}) === globalThis.{brand}.prototype && !Object.prototype.hasOwnProperty.call({js}, 'length') && !Object.prototype.hasOwnProperty.call({js}, 'buffer')"));
+            let brand = match brand {
+                "Float32Array" => 0, "Float64Array" => 1, "Int8Array" => 2,
+                "Uint8Array" => 3, "Uint8ClampedArray" => 4, "Int16Array" => 5,
+                "Uint16Array" => 6, "Int32Array" => 7, "Uint32Array" => 8,
+                _ => return None,
+            };
+            let length = self.temp();
+            guards.push(format!("({length} = {helper}({js}, {brand})) >= 0"));
+            lengths.push(length);
         }
-        for s in &arrays {
-            let js = &self.lookup_local(*s)?.js;
-            guards.push(format!("{js}.buffer instanceof globalThis.ArrayBuffer && !(Object.getOwnPropertyDescriptor(globalThis.ArrayBuffer.prototype, 'resizable') && Object.getOwnPropertyDescriptor(globalThis.ArrayBuffer.prototype, 'resizable').get.call({js}.buffer))"));
+        guards.push(format!("{} <= 4294967296", lengths[0]));
+        for length in lengths.iter().skip(1) {
+            guards.push(format!("{} <= {length}", lengths[0]));
         }
-        let len = &self.lookup_local(bound)?.js;
-        guards.push(format!("{len}.length <= 4294967296"));
-        for s in arrays.iter().skip(1) { guards.push(format!("{len}.length <= {}.length", self.lookup_local(*s)?.js)); }
         Some(ReadLoop { guard: guards.join(" && "), raw })
     }
 }

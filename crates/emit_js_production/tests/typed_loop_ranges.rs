@@ -3,6 +3,8 @@
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
+#[path = "support/typed_guards.rs"]
+mod typed_guards;
 
 #[test]
 #[ignore = "requires Dart 3.6.2 and Node on PATH"]
@@ -18,27 +20,14 @@ fn typed_loops_preserve_ranges_precision_order_and_mutations() {
             // Only precision/product/shadowBuiltins/bytes qualify. Offset indexes, receiver or
             // index mutation, callback calls and custom List.length must stay
             // checked. Five F64 receivers and one byte receiver are guarded.
-            assert_eq!(production.js.matches(".length <= 4294967296").count(), 4);
-            assert_eq!(production.js.matches(".prototype && !Object.prototype.hasOwnProperty.call(").count(), 6);
+            assert_eq!(production.js.matches(" <= 4294967296").count(), 4);
+            assert_eq!(production.js.matches(" = t$typedReadGuard").count(), 6);
         }
         let mut guard_checks = String::new();
         if !minify {
-            for guard in production.js.lines().filter_map(|line| line.trim().strip_prefix("if (").and_then(|s| s.strip_suffix(") {"))).filter(|s| s.starts_with("globalThis.ArrayBuffer.isView(")) {
-                let brand = if guard.contains("Float64Array") { "Float64Array" } else { "Uint8Array" };
-                guard_checks.push_str(&format!(r#"
-{{
-const check = new Function('a', 'b', {});
-const Brand = globalThis.{brand};
-if (!check(new Brand(2), new Brand(2))) throw Error('fixed fast path refused');
-if (check(new DataView(new ArrayBuffer(8)), new Brand(2))) throw Error('DataView accepted');
-if (check(new (class extends Brand {{}})(2), new Brand(2))) throw Error('subclass accepted');
-const own = new Brand(2);
-Object.defineProperty(own, 'length', {{get() {{throw Error('own length must not be read');}}}});
-if (check(own, new Brand(2))) throw Error('own length accepted');
-if (typeof SharedArrayBuffer !== 'undefined' && check(new Brand(new SharedArrayBuffer(16)), new Brand(2))) throw Error('shared accepted');
-if (Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'resizable') && check(new Brand(new ArrayBuffer(16, {{maxByteLength: 32}})), new Brand(2))) throw Error('resizable accepted');
-}}
-"#, dartforge_emit_js::js::string_literal(&format!("return ({guard});"))));
+            let helper = typed_guards::helper_expression(&production.js);
+            for guard in production.js.lines().filter_map(|line| line.trim().strip_prefix("if (").and_then(|s| s.strip_suffix(") {"))).filter(|s| s.starts_with("(t$") && s.contains(" = t$typedReadGuard")) {
+                guard_checks.push_str(&typed_guards::guard_checks(guard, helper));
             }
         }
         let mut node = Command::new("node").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("Node");
