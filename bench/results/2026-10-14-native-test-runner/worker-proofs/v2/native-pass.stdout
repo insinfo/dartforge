@@ -1,0 +1,16 @@
+{"type":"testStart","name":"outer (setUpAll)"}
+{"type":"testStart","name":"outer inner sync"}
+{"type":"testStart","name":"outer inner async"}
+{"type":"testStart","name":"outer inner callback"}
+{"type":"message","name":"outer inner callback","message":"DYNAMIC_CLEAN"}
+{"type":"testStart","name":"outer inner skip"}
+{"type":"message","name":"outer inner skip","message":"Skip: fixture skip"}
+{"type":"testStart","name":"outer inner failure"}
+{"type":"testStart","name":"outer (tearDownAll)"}
+{"type":"message","name":"outer (tearDownAll)","message":"ALL_CLEAN"}
+{"type":"testDone","name":"outer inner sync","result":"success"}
+{"type":"testDone","name":"outer inner async","result":"success"}
+{"type":"testDone","name":"outer inner callback","result":"success"}
+{"type":"testDone","name":"outer inner failure","result":"success"}
+{"type":"testDone","name":"outer inner skip","result":"skipped"}
+{"type":"suiteDone","schemaVersion":1,"token":"oracle-token","total":5,"passed":4,"failed":0,"skipped":1,"success":true}

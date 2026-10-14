@@ -1,0 +1,16 @@
+RUN outer (setUpAll)
+RUN outer inner sync
+RUN outer inner async
+RUN outer inner callback
+DYNAMIC_CLEAN
+RUN outer inner skip
+Skip: fixture skip
+RUN outer inner failure
+RUN outer (tearDownAll)
+ALL_CLEAN
+success outer inner sync
+success outer inner async
+success outer inner callback
+success outer inner failure
+skipped outer inner skip
+5 tests selected; all passed or skipped

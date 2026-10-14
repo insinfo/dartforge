@@ -1,0 +1,15 @@
+Resolving dependencies in `/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/hosted-official`...
+Downloading packages...
++ async 2.13.1
++ collection 1.19.1
++ http 1.6.0
++ http_parser 4.1.2
++ meta 1.19.0
++ path 1.9.1
++ pub_semver 2.2.1
++ source_span 1.10.2
++ string_scanner 1.4.1
++ term_glyph 1.2.2
++ typed_data 1.4.0
++ web 1.1.1
+Changed 12 dependencies in `/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/hosted-official`!

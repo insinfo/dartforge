@@ -1,0 +1,22 @@
+discovery-pass 0 0
+assertion-failure 1 1
+unawaited-async-failure 1 1
+name-regex 0 0
+plain-name 0 0
+no-match 79 79
+early-exit-zero 1 1
+annotations-refused 1 64
+ Test artifacts: /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-47834-1791995608299058000
+error: test: library annotations in /Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/controls/annotated_test.dart are not supported yet
+
+yaml-refused 1 64
+ Test artifacts: /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-47835-1791995608304683000
+error: test: dart_test.yaml is not supported yet; its settings cannot be silently ignored
+
+platform-refused 1 64
+ error: test: unsupported option --platform
+usage: dartforge test [<file|directory> ...] [--name <regex> | --plain-name <text>] [--reporter expanded|json] [--sdk <lib>] [--packages <package_config.json>] [--process-timeout <seconds>] [--keep-artifacts]
+Runs resolved package:test suites in native DartForge executables, serially.
+Requires resolved test, test_api and test_core dependencies. Library annotations, dart_test.yaml, browser platforms, coverage and watch mode are not supported yet.
+
+missing-main 1 1

@@ -1,0 +1,17 @@
+{"type":"testStart","name":"outer (setUpAll)"}
+{"type":"testStart","name":"outer inner sync"}
+{"type":"testStart","name":"outer inner async"}
+{"type":"testStart","name":"outer inner callback"}
+{"type":"message","name":"outer inner callback","message":"DYNAMIC_CLEAN"}
+{"type":"testStart","name":"outer inner skip"}
+{"type":"message","name":"outer inner skip","message":"Skip: fixture skip"}
+{"type":"testStart","name":"outer inner failure"}
+{"type":"error","name":"outer inner failure","error":"Bad state: ASYNC_ORACLE","stackTrace":"target/test-runner-development/cases/semantics_test.dart 29:38  main.<fn>.<fn>.<fn>.<fn>\ndart:async/zone.dart 1406:47                                    _rootRun\ndart:async/zone.dart 1317:19                                    _CustomZone.run\ndart:async/zone.dart 1225:7                                     _CustomZone.runGuarded\ndart:async/zone.dart 1265:23                                    _CustomZone.bindCallbackGuarded.<fn>\ndart:async/zone.dart 1414:13                                    _rootRun\ndart:async/zone.dart 1317:19                                    _CustomZone.run\ndart:async/zone.dart 1249:23                                    _CustomZone.bindCallback.<fn>\ndart:async-patch/timer_patch.dart 18:15                         Timer._createTimer.<fn>\ndart:isolate-patch/timer_impl.dart 398:19                       _Timer._runTimers\ndart:isolate-patch/timer_impl.dart 429:5                        _Timer._handleMessage\ndart:isolate-patch/isolate_patch.dart 184:12                    _RawReceivePort._handleMessage\n"}
+{"type":"testStart","name":"outer (tearDownAll)"}
+{"type":"message","name":"outer (tearDownAll)","message":"ALL_CLEAN"}
+{"type":"testDone","name":"outer inner sync","result":"success"}
+{"type":"testDone","name":"outer inner async","result":"success"}
+{"type":"testDone","name":"outer inner callback","result":"success"}
+{"type":"testDone","name":"outer inner skip","result":"skipped"}
+{"type":"testDone","name":"outer inner failure","result":"error"}
+{"type":"suiteDone","schemaVersion":1,"token":"oracle-token","total":5,"passed":3,"failed":1,"skipped":1,"success":false}

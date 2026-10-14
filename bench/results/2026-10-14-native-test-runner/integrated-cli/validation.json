@@ -1,0 +1,386 @@
+{
+  "cli": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+  "cli_sha256": "50c1a7a7ff7cc1b4e79ab0181c479f03c897d553913723cfdb1109d9589edfc4",
+  "sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+  "source_and_fixture_sha256": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/project/pubspec.yaml": "a185bc056731815de8622bf61943068be28564f86bcb2d26416bde7a02690bda",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/project/test/semantics_test.dart": "6893421c32c9019a61053d61c36d7ef5edcde7e7c41ed797532d70fc9ef4e5df",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/project/.dart_tool/package_config.json": "0a99be5d0f5ee9f820eca320e203d7e307f57c70d216dae96c2f205a24ce80f2",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/controls/annotated_test.dart": "7f0001803b2109c1f41a7675669e151c32c05b647062a4fe9bf8e950a7384942",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/controls/early_exit_test.dart": "2256db9bcd733d2872ac24d35b8207cc2c1610e29cd612d9b6039aa012c0509e",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/controls/no_main_test.dart": "6b89c58c287cf28c1d492e6297c94eaec4fe73f76ee3a1d2bfc7c5efba1d9075",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/configured-project/dart_test.yaml": "2ff02e726a75eb08871be4d0f825b048d620123b50a48e7546a5ec0b74f86716",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/configured-project/pubspec.yaml": "a185bc056731815de8622bf61943068be28564f86bcb2d26416bde7a02690bda",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/configured-project/test/semantics_test.dart": "6893421c32c9019a61053d61c36d7ef5edcde7e7c41ed797532d70fc9ef4e5df",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/configured-project/.dart_tool/package_config.json": "0a99be5d0f5ee9f820eca320e203d7e307f57c70d216dae96c2f205a24ce80f2",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli/src/test_runner.rs": "28ba842275689bb53bfbb663b2acfa31e4561b6448ee66e8c0c54fc576b52fba",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli/src/test_runner/worker.dart": "115f0ee59a85c587553d10375f68d39e4d0b08e2cb52467e2e4568b8ded211de"
+  },
+  "inputs_stable": true,
+  "cases": [
+    {
+      "label": "discovery-pass",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+        "test",
+        "--reporter",
+        "json",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--keep-artifacts"
+      ],
+      "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/project",
+      "TEST_FAILURE": "",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "passed": true,
+      "started_unix": 1791995541.991317,
+      "stdout_sha256": "9a9a6ea760b821e6fa37d5fa8ebcbd3a05b7a59781205ed3b6509174a4837b1d",
+      "stderr_sha256": "9fd88c859b37a6688754d1ea0baba370246b0d920342b0a7c61b43e6e483acb3",
+      "exact_suite_summary": {
+        "failed": 0,
+        "passed": 5,
+        "schemaVersion": 1,
+        "skipped": 1,
+        "success": true,
+        "token": "1791995541995409000-0",
+        "total": 6,
+        "type": "suiteDone"
+      },
+      "completion_report_sha256": "91d2fa17387999c75fc7824c12ed67b96f0533964f04bcb5941f11575eb93ce6",
+      "generated_artifact_sha256": {
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46865-1791995541995409000/0/result.json": "91d2fa17387999c75fc7824c12ed67b96f0533964f04bcb5941f11575eb93ce6",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46865-1791995541995409000/0/worker.contracts.json": "eadf90bef8f04c7d54fdb3e7e17ef9a2c842f94d46c59c06ae6e81322aaf9cd7",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46865-1791995541995409000/0/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46865-1791995541995409000/0/worker.dart": "1ab0975b57512f90c6b8bd9f95065fd262e04c2d37535336badaa921bc6812fe",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46865-1791995541995409000/0/worker": "cd1bdaddd605c6545131778da4f9f80ee62afc7b86d42e5d4c0a1444a9f24eff",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46865-1791995541995409000/0/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "label": "assertion-failure",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+        "test",
+        "--reporter",
+        "json",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--keep-artifacts"
+      ],
+      "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/project",
+      "TEST_FAILURE": "assertion",
+      "exit_code": 1,
+      "expected_exit": 1,
+      "passed": true,
+      "started_unix": 1791995558.415071,
+      "stdout_sha256": "2b1300e369e878eeaef35fa555b79f3620ff156b79f2dbdf0dae6076a0ae1040",
+      "stderr_sha256": "07c7107f53baed0b31d92d47e1f2bd303f083b6e725b363a035685f6177757cd",
+      "exact_suite_summary": {
+        "failed": 1,
+        "passed": 4,
+        "schemaVersion": 1,
+        "skipped": 1,
+        "success": false,
+        "token": "1791995558423108000-0",
+        "total": 6,
+        "type": "suiteDone"
+      },
+      "completion_report_sha256": "700fbe69f6f41036ee2dc164d6ee13dd1a7224532f17ae563ad66fb03d60e0f6",
+      "generated_artifact_sha256": {
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46894-1791995558423108000/0/result.json": "700fbe69f6f41036ee2dc164d6ee13dd1a7224532f17ae563ad66fb03d60e0f6",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46894-1791995558423108000/0/worker.contracts.json": "d776667cbe2d6f7c4e589fe0da2852205349ab218d1eedd6a158a0c943844cfb",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46894-1791995558423108000/0/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46894-1791995558423108000/0/worker.dart": "1ab0975b57512f90c6b8bd9f95065fd262e04c2d37535336badaa921bc6812fe",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46894-1791995558423108000/0/worker": "6219bb862b0788d55369cc9e03607ac70ad5ec4bca51a4ee2e136ed2795ff04b",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46894-1791995558423108000/0/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "label": "unawaited-async-failure",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+        "test",
+        "--reporter",
+        "json",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--keep-artifacts"
+      ],
+      "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/project",
+      "TEST_FAILURE": "async",
+      "exit_code": 1,
+      "expected_exit": 1,
+      "passed": true,
+      "started_unix": 1791995566.1962419,
+      "stdout_sha256": "b4100a7e53291b818efbc2efb77933dcf5e3c3c7bdc76c31e817dd48a131148b",
+      "stderr_sha256": "2878392e444c40da0f84ebab3102dde487d5d5c0cafceba0df0ece2f9c0435a7",
+      "exact_suite_summary": {
+        "failed": 1,
+        "passed": 4,
+        "schemaVersion": 1,
+        "skipped": 1,
+        "success": false,
+        "token": "1791995566204966000-0",
+        "total": 6,
+        "type": "suiteDone"
+      },
+      "completion_report_sha256": "e5c2f3e72924f0d80ac6dd7123ef50533226a4ae5e39c6700585285f35492b24",
+      "generated_artifact_sha256": {
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46900-1791995566204966000/0/result.json": "e5c2f3e72924f0d80ac6dd7123ef50533226a4ae5e39c6700585285f35492b24",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46900-1791995566204966000/0/worker.contracts.json": "770328d6f285eb198f69e1bb5e2ebfc6995fd098da5392b36598b00f98398ba4",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46900-1791995566204966000/0/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46900-1791995566204966000/0/worker.dart": "1ab0975b57512f90c6b8bd9f95065fd262e04c2d37535336badaa921bc6812fe",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46900-1791995566204966000/0/worker": "7fb59c38b2376313323b5bbaf461daf9aa92cd26e95c1a97ec09d0edbaf59a4d",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46900-1791995566204966000/0/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "label": "name-regex",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+        "test",
+        "--name",
+        "inner (async|callback)$",
+        "--reporter",
+        "json",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--keep-artifacts"
+      ],
+      "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/project",
+      "TEST_FAILURE": "",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "passed": true,
+      "started_unix": 1791995573.9460769,
+      "stdout_sha256": "742c7a6e3956548f55b76e9f99a0f72d6ccf29ae15d0998468a9c15d225bc088",
+      "stderr_sha256": "e7a1aa301354ee68b908b61f67ad7e7c683dbd297405102568b3f00205ffadcf",
+      "exact_suite_summary": {
+        "failed": 0,
+        "passed": 2,
+        "schemaVersion": 1,
+        "skipped": 0,
+        "success": true,
+        "token": "1791995573952827000-0",
+        "total": 2,
+        "type": "suiteDone"
+      },
+      "completion_report_sha256": "0d92fc0f3a28ac0370b7b9dd15b97790dc4ebd467ef176185236e37efa2a3729",
+      "generated_artifact_sha256": {
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46914-1791995573952827000/0/result.json": "0d92fc0f3a28ac0370b7b9dd15b97790dc4ebd467ef176185236e37efa2a3729",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46914-1791995573952827000/0/worker.contracts.json": "5fd105bb86ec55c606908e73a66ffb43b5c69b3b112366253ccaad88d0f26da1",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46914-1791995573952827000/0/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46914-1791995573952827000/0/worker.dart": "1ab0975b57512f90c6b8bd9f95065fd262e04c2d37535336badaa921bc6812fe",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46914-1791995573952827000/0/worker": "60f45db7fd21ea84f3f37c3b393915e0f88e6f84ee1ed2bde4d9aabb7e71b209",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46914-1791995573952827000/0/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "label": "plain-name",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+        "test",
+        "--plain-name",
+        "callback",
+        "--reporter",
+        "json",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--keep-artifacts"
+      ],
+      "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/project",
+      "TEST_FAILURE": "",
+      "exit_code": 0,
+      "expected_exit": 0,
+      "passed": true,
+      "started_unix": 1791995581.832532,
+      "stdout_sha256": "b87bf3565eeb3374c8aa358d2fa56e226bf5497f4cc09992ecabcbb21451aa7f",
+      "stderr_sha256": "11068a2e41f49c6fe489b50cee17076c6baf5dadd4d7e4a0c51b82840fa824b3",
+      "exact_suite_summary": {
+        "failed": 0,
+        "passed": 1,
+        "schemaVersion": 1,
+        "skipped": 0,
+        "success": true,
+        "token": "1791995581837226000-0",
+        "total": 1,
+        "type": "suiteDone"
+      },
+      "completion_report_sha256": "bb69eb36ffc27c2ee75cdc05376d646295a27c2f73672ac0416f39267a032ba0",
+      "generated_artifact_sha256": {
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46968-1791995581837226000/0/result.json": "bb69eb36ffc27c2ee75cdc05376d646295a27c2f73672ac0416f39267a032ba0",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46968-1791995581837226000/0/worker.contracts.json": "591af1eded775a97b7aa74dda501a8aec0364a1c8db608feab09310a5a77c423",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46968-1791995581837226000/0/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46968-1791995581837226000/0/worker.dart": "1ab0975b57512f90c6b8bd9f95065fd262e04c2d37535336badaa921bc6812fe",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46968-1791995581837226000/0/worker": "99ed8871d428afd4198d83dca81b7513e7f723973e1e9fd68c87e4b9882aec44",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-46968-1791995581837226000/0/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "label": "no-match",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+        "test",
+        "--name",
+        "not-an-existing-test",
+        "--reporter",
+        "json",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--keep-artifacts"
+      ],
+      "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/project",
+      "TEST_FAILURE": "",
+      "exit_code": 79,
+      "expected_exit": 79,
+      "passed": true,
+      "started_unix": 1791995590.949103,
+      "stdout_sha256": "40aa682f0eb1d0e5fee1df6855bb45463f13c0fbf5bc970719aadd8617ddce0c",
+      "stderr_sha256": "01ea43ed41ed06f0172cfeebdd5ffadfb1dee1f68640466dde69407469e5126b",
+      "exact_suite_summary": {
+        "failed": 0,
+        "passed": 0,
+        "schemaVersion": 1,
+        "skipped": 0,
+        "success": true,
+        "token": "1791995590953770000-0",
+        "total": 0,
+        "type": "suiteDone"
+      },
+      "completion_report_sha256": "8e2b1ff98c4c345c31657b41275608d2cfe5a78f20f44651f0f5ca61d6c66a31",
+      "generated_artifact_sha256": {
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-47122-1791995590953770000/0/result.json": "8e2b1ff98c4c345c31657b41275608d2cfe5a78f20f44651f0f5ca61d6c66a31",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-47122-1791995590953770000/0/worker.contracts.json": "f7af931b622db23cf335aec47c87f74c880ccf23d1abd9bcc3b6c3718bc68109",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-47122-1791995590953770000/0/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-47122-1791995590953770000/0/worker.dart": "1ab0975b57512f90c6b8bd9f95065fd262e04c2d37535336badaa921bc6812fe",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-47122-1791995590953770000/0/worker": "693847e40a79b225dd4e65f0c95440d800ca0ce1393795a6fa3019e540b96692",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-47122-1791995590953770000/0/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "label": "early-exit-zero",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+        "test",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/controls/early_exit_test.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/project/.dart_tool/package_config.json",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--keep-artifacts"
+      ],
+      "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/project",
+      "TEST_FAILURE": "",
+      "exit_code": 1,
+      "expected_exit": 1,
+      "passed": true,
+      "started_unix": 1791995599.6709461,
+      "stdout_sha256": "fd60e57d891febc804fea82d5a5078003b433b8da9dcf0f09d3435d82ef2147e",
+      "stderr_sha256": "57961403c4003f624d80785f960a26ea383d6ed278e66be691d068f0161a0ca7",
+      "generated_artifact_sha256": {
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-47538-1791995599675352000/0/worker.contracts.json": "ee6bcc858405ab129c8799ece5337d8a801a5d6f6b80ed837c09e98555bbe3ab",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-47538-1791995599675352000/0/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-47538-1791995599675352000/0/worker.dart": "7212977c5d801547b16d79bc08839ea6a3622997401527596491bc3264b840eb",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-47538-1791995599675352000/0/worker": "ff7d1ef21c01a7760739155c19c1119dcd416bfbfae2802913504c86115e8a15",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-47538-1791995599675352000/0/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "label": "annotations-refused",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+        "test",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/controls/annotated_test.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/project/.dart_tool/package_config.json",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--keep-artifacts"
+      ],
+      "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/project",
+      "TEST_FAILURE": "",
+      "exit_code": 1,
+      "expected_exit": 1,
+      "passed": true,
+      "started_unix": 1791995608.2942379,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e8a96e36b508f40865b999bcc9111fedf8f55e02ab55630638b68d1b41428af9",
+      "generated_artifact_sha256": {}
+    },
+    {
+      "label": "yaml-refused",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+        "test",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--keep-artifacts"
+      ],
+      "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/configured-project",
+      "TEST_FAILURE": "",
+      "exit_code": 1,
+      "expected_exit": 1,
+      "passed": true,
+      "started_unix": 1791995608.30034,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "c84204b1db7203569016a167343339c14d24eafcb2738c3a4ab1ebdf05f1e95b",
+      "generated_artifact_sha256": {}
+    },
+    {
+      "label": "platform-refused",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+        "test",
+        "--platform",
+        "chrome",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--keep-artifacts"
+      ],
+      "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/project",
+      "TEST_FAILURE": "",
+      "exit_code": 1,
+      "expected_exit": 1,
+      "passed": true,
+      "started_unix": 1791995608.305749,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "a9a17e4c96eaf6b424847be49d022aadc1d059d971c720084ebd6fb7fb0a93a8"
+    },
+    {
+      "label": "missing-main",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+        "test",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/controls/no_main_test.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/project/.dart_tool/package_config.json",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--keep-artifacts"
+      ],
+      "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/project",
+      "TEST_FAILURE": "",
+      "exit_code": 1,
+      "expected_exit": 1,
+      "passed": true,
+      "started_unix": 1791995608.3109791,
+      "stdout_sha256": "3a1577fbd16f3dafb426c47606943f22fa62240b5cbf8e5a53daa9233ac27d62",
+      "stderr_sha256": "02f4b26c6ea44fa37affcd3ed7d788b24201b2482380125ef7ff0770ab76ac4a",
+      "generated_artifact_sha256": {
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-47837-1791995608315418000/0/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-47837-1791995608315418000/0/worker.dart": "5ebcd8af25194ea1e4baf5c78bc227bf5aa71bd4f64e95cb6ffe660f2f11ec4e",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-47837-1791995608315418000/0/compile.stderr": "4cc7fadcda65d41d1cc809dcf91e118864edcc12a6fa97c1ddb6b2416601b498"
+      }
+    }
+  ],
+  "all_expected_exits": true,
+  "limitations": [
+    "Correctness protocol executions, no speed benchmark.",
+    "Actual dartforge test command compiles and runs native workers; no SDK test runner delegation."
+  ],
+  "exact_protocol_verified": true,
+  "refusal_policy": "Exit 1 by the explicit current main test dispatcher; full SDK CLI exit-policy parity is not claimed.",
+  "correction": "Derived from unchanged raw executions: initial validator incorrectly expected refusal exit64 and included its generated run.log as a source input. Initial failing harness ledger retained separately; no successful native tests rerun or relabeled.",
+  "validator_sha256": "25f64f37c75f4bf2abf41f3f5136bc322cf7a416dca628a670e1e0a7f4e76a5f"
+}

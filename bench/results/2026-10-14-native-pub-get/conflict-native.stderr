@@ -1,0 +1,1 @@
+error: no compatible version for collection: conflict_app requires ^1.19.0; constrained requires <1.19.0

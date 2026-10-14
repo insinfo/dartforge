@@ -1,0 +1,17 @@
+{"type":"testStart","name":"outer (setUpAll)"}
+{"type":"testStart","name":"outer inner sync"}
+{"type":"testStart","name":"outer inner async"}
+{"type":"testStart","name":"outer inner callback"}
+{"type":"message","name":"outer inner callback","message":"DYNAMIC_CLEAN"}
+{"type":"testStart","name":"outer inner skip"}
+{"type":"message","name":"outer inner skip","message":"Skip: fixture skip"}
+{"type":"testStart","name":"outer inner failure"}
+{"type":"error","name":"outer inner failure","error":"Expected: <2>\n  Actual: <1>\n","stackTrace":"package:matcher/src/expect/expect.dart 149:31                   fail\npackage:matcher/src/expect/expect.dart 144:3                    _expect\npackage:matcher/src/expect/expect.dart 56:3                     expect\ntarget/test-runner-development/cases/semantics_test.dart 26:66  main.<fn>.<fn>.<fn>\npackage:test_api/src/backend/declarer.dart 215:19               Declarer.test.<fn>.<fn>\n===== asynchronous gap ===========================\npackage:test_api/src/backend/declarer.dart 213:7                Declarer.test.<fn>\n===== asynchronous gap ===========================\npackage:test_api/src/backend/invoker.dart 258:9                 Invoker._waitForOutstandingCallbacks.<fn>\n"}
+{"type":"testStart","name":"outer (tearDownAll)"}
+{"type":"message","name":"outer (tearDownAll)","message":"ALL_CLEAN"}
+{"type":"testDone","name":"outer inner sync","result":"success"}
+{"type":"testDone","name":"outer inner async","result":"success"}
+{"type":"testDone","name":"outer inner callback","result":"success"}
+{"type":"testDone","name":"outer inner skip","result":"skipped"}
+{"type":"testDone","name":"outer inner failure","result":"failure"}
+{"type":"suiteDone","schemaVersion":1,"token":"oracle-token","total":5,"passed":3,"failed":1,"skipped":1,"success":false}

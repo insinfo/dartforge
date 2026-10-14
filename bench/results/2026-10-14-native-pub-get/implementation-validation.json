@@ -1,0 +1,51 @@
+{
+  "source_sha256": {
+    "crates/cli/src/pub_get.rs": "291c8d4f9175227e54477a575a21ecda043808d557af4108ca2c292e4b9d9a53",
+    "crates/cli/src/pub_get/constraints.rs": "f1b5893605c55c9ef82aee8ea234c5e8cd6cb833cde836df597d11478da8a1b6",
+    "crates/cli/src/pub_get/hosted.rs": "4923a180398d96463fd4ebb36712b39aa9da625972391b607c44cc09881b3308",
+    "crates/cli/src/pub_get/manifest.rs": "c4d7ee0b4215457fa25a2a81400eeae541bad7930826dd400b2e43ddb1fe0e26",
+    "crates/cli/src/pub_get/output.rs": "251eb5579992e89e3cd2481c850de23a893d567b9cabfb4953188b8852907336",
+    "crates/cli/src/pub_get/resolver.rs": "14db9ccb9cae6f6f14bda730ca03fc3afc0ecc1e053afd4769a5ef8859a23277",
+    "crates/cli/src/pub_get/tests.rs": "9a8ffda98272a5563a06a78df2284a7ef22c4917028cffdb8ad7cedb4389f9df"
+  },
+  "focused_cli_tests": {
+    "passed": 11,
+    "failed": 0,
+    "command": "cargo test --locked -p dartforge-cli --features native --bin dartforge pub_get:: -- --test-threads=2"
+  },
+  "implementation": "Rust YAML, own Dart intervals/build ordering, bounded backtracking and compatible-lock preference, ureq/rustls hosted HTTP, SHA256 archive verification, safe bounded tar extraction, staged package cache, Pub lockfile and package_config output. No official Dart/Pub subprocess in implementation.",
+  "supported": [
+    "root+transitive path dependencies",
+    "pub.dev/custom hosted HTTP API dependencies",
+    "root dev dependencies",
+    "exact/caret/comparator intervals including prerelease/build ordering",
+    "Dart SDK checks including null-safe Dart3 upper-bound compatibility",
+    "compatible existing lock preference",
+    "offline metadata/package cache rerun"
+  ],
+  "explicitly_unsupported": [
+    "git and SDK package sources (including Flutter)",
+    "root/path workspaces",
+    "root dependency_overrides and pubspec_overrides.yaml",
+    "union/wildcard constraints",
+    "dependency graphs over512 packages or100000 decisions",
+    "archive links/special files"
+  ],
+  "primary_semantics_sources": [
+    "https://pub.dev/packages/pub_semver#semantics",
+    "https://raw.githubusercontent.com/dart-lang/tools/main/pkgs/pub_semver/lib/src/version_range.dart",
+    "https://dart.dev/resources/dart-3-migration"
+  ],
+  "pending": null,
+  "actual_immutable_cli_validation": {
+    "compiler_sha256": "50c1a7a7ff7cc1b4e79ab0181c479f03c897d553913723cfdb1109d9589edfc4",
+    "terminal_exit": 0,
+    "path_sdk_lock_and_config_equivalent": true,
+    "hosted_sdk_lock_and_config_equivalent": true,
+    "generated_configs_execute_exact_sdk": true,
+    "offline_reruns_byte_identical": true,
+    "native_and_sdk_conflict_refused": true,
+    "pub_sources_unchanged": true,
+    "timing_measured": false
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "status": "implemented native-only dartforge test command; actual integrated command protocol validated",
+  "compiler_sha256": "50c1a7a7ff7cc1b4e79ab0181c479f03c897d553913723cfdb1109d9589edfc4",
+  "command_cases": 11,
+  "exact_protocol_verified": true,
+  "source_and_fixture_inputs_stable": true,
+  "exit_policy": {
+    "pass": 0,
+    "test_failure": 1,
+    "unawaited_async_failure": 1,
+    "early_exit_without_result": 1,
+    "no_matches": 79,
+    "explicit_unsupported_refusals": 1,
+    "compile_failure": 1
+  },
+  "protocol_coverage": [
+    "default discovery and genuine native execution",
+    "real assertion and unawaited asynchronous failures",
+    "regular-expression and plain-name filters",
+    "no-match result",
+    "native exit(0) cannot impersonate completion",
+    "explicit library-annotation/dart_test.yaml/platform refusal",
+    "missing main is a compile failure, not a passing suite"
+  ],
+  "source_sha256": {
+    "crates/cli/src/test_runner.rs": "28ba842275689bb53bfbb663b2acfa31e4561b6448ee66e8c0c54fc576b52fba",
+    "crates/cli/src/test_runner/worker.dart": "115f0ee59a85c587553d10375f68d39e4d0b08e2cb52467e2e4568b8ded211de"
+  },
+  "gates": {
+    "integrated_focused_rust_tests": 4,
+    "VM_native_worker_executions": 20
+  },
+  "limits": [
+    "Native serial execution only; not complete dart test command/platform/configuration equivalence.",
+    "Library annotations and dart_test.yaml are explicitly refused.",
+    "Browser, coverage, watch and unsupported options are unavailable.",
+    "Package internal API compatibility validated for test1.25.7/test_api0.7.2/test_core0.6.4 on SDK3.6.2 macOS ARM64.",
+    "No performance measurement or speed claim.",
+    "Ordinary test failures executed actual test bodies; compilation failures are separately identified."
+  ],
+  "ledger": "integrated-cli/validation.json",
+  "initial_harness_failure_preserved": "integrated-cli/validation-initial-harness-failure.json",
+  "archive_sha256": {
+    "integrated-cli/source.json": "3a1947c610bbe218ae2b69315d292cc9476610b1001ae4bfdacbae91df0aad9e",
+    "integrated-cli/run.log": "09c512b7151968cbad6a78b7c6604109cd8b17c9fdfcde24e9353c099a9ea2f6",
+    "integrated-cli/validation-initial-harness-failure.json": "0a1aa1e09c9996f8f0e2fd73c1ccd2c251ad800e1139bdd6fdd92cd0ffcd40ba",
+    "integrated-cli/native-provenance.json": "20016a4e0f8c3b7f16970e3afa950ff5eb12fc3d4d607e08e649a250f6211e24",
+    "integrated-cli/validation.json": "56a44fe998c8f767ce6b893845da7ff1f50ed274744248a2cd067a775f1c070e",
+    "integrated-cli/verify.py": "25f64f37c75f4bf2abf41f3f5136bc322cf7a416dca628a670e1e0a7f4e76a5f",
+    "integrated-cli/project/pubspec.yaml": "a185bc056731815de8622bf61943068be28564f86bcb2d26416bde7a02690bda",
+    "integrated-cli/project/test/semantics_test.dart": "6893421c32c9019a61053d61c36d7ef5edcde7e7c41ed797532d70fc9ef4e5df",
+    "integrated-cli/project/.dart_tool/package_config.json": "0a99be5d0f5ee9f820eca320e203d7e307f57c70d216dae96c2f205a24ce80f2",
+    "integrated-cli/controls/annotated_test.dart": "7f0001803b2109c1f41a7675669e151c32c05b647062a4fe9bf8e950a7384942",
+    "integrated-cli/controls/early_exit_test.dart": "2256db9bcd733d2872ac24d35b8207cc2c1610e29cd612d9b6039aa012c0509e",
+    "integrated-cli/controls/no_main_test.dart": "6b89c58c287cf28c1d492e6297c94eaec4fe73f76ee3a1d2bfc7c5efba1d9075",
+    "integrated-cli/configured-project/dart_test.yaml": "2ff02e726a75eb08871be4d0f825b048d620123b50a48e7546a5ec0b74f86716",
+    "integrated-cli/configured-project/pubspec.yaml": "a185bc056731815de8622bf61943068be28564f86bcb2d26416bde7a02690bda",
+    "integrated-cli/configured-project/test/semantics_test.dart": "6893421c32c9019a61053d61c36d7ef5edcde7e7c41ed797532d70fc9ef4e5df",
+    "integrated-cli/configured-project/.dart_tool/package_config.json": "0a99be5d0f5ee9f820eca320e203d7e307f57c70d216dae96c2f205a24ce80f2",
+    "integrated-cli/raw/yaml-refused.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "integrated-cli/raw/plain-name.stdout": "b87bf3565eeb3374c8aa358d2fa56e226bf5497f4cc09992ecabcbb21451aa7f",
+    "integrated-cli/raw/missing-main.stdout": "3a1577fbd16f3dafb426c47606943f22fa62240b5cbf8e5a53daa9233ac27d62",
+    "integrated-cli/raw/early-exit-zero.stdout": "fd60e57d891febc804fea82d5a5078003b433b8da9dcf0f09d3435d82ef2147e",
+    "integrated-cli/raw/no-match.stdout": "40aa682f0eb1d0e5fee1df6855bb45463f13c0fbf5bc970719aadd8617ddce0c",
+    "integrated-cli/raw/annotations-refused.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "integrated-cli/raw/annotations-refused.stderr": "e8a96e36b508f40865b999bcc9111fedf8f55e02ab55630638b68d1b41428af9",
+    "integrated-cli/raw/early-exit-zero.stderr": "57961403c4003f624d80785f960a26ea383d6ed278e66be691d068f0161a0ca7",
+    "integrated-cli/raw/missing-main.stderr": "02f4b26c6ea44fa37affcd3ed7d788b24201b2482380125ef7ff0770ab76ac4a",
+    "integrated-cli/raw/no-match.stderr": "01ea43ed41ed06f0172cfeebdd5ffadfb1dee1f68640466dde69407469e5126b",
+    "integrated-cli/raw/plain-name.stderr": "11068a2e41f49c6fe489b50cee17076c6baf5dadd4d7e4a0c51b82840fa824b3",
+    "integrated-cli/raw/yaml-refused.stderr": "c84204b1db7203569016a167343339c14d24eafcb2738c3a4ab1ebdf05f1e95b",
+    "integrated-cli/raw/assertion-failure.stdout": "2b1300e369e878eeaef35fa555b79f3620ff156b79f2dbdf0dae6076a0ae1040",
+    "integrated-cli/raw/platform-refused.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "integrated-cli/raw/discovery-pass.stderr": "9fd88c859b37a6688754d1ea0baba370246b0d920342b0a7c61b43e6e483acb3",
+    "integrated-cli/raw/name-regex.stdout": "742c7a6e3956548f55b76e9f99a0f72d6ccf29ae15d0998468a9c15d225bc088",
+    "integrated-cli/raw/unawaited-async-failure.stderr": "2878392e444c40da0f84ebab3102dde487d5d5c0cafceba0df0ece2f9c0435a7",
+    "integrated-cli/raw/unawaited-async-failure.stdout": "b4100a7e53291b818efbc2efb77933dcf5e3c3c7bdc76c31e817dd48a131148b",
+    "integrated-cli/raw/name-regex.stderr": "e7a1aa301354ee68b908b61f67ad7e7c683dbd297405102568b3f00205ffadcf",
+    "integrated-cli/raw/platform-refused.stderr": "a9a17e4c96eaf6b424847be49d022aadc1d059d971c720084ebd6fb7fb0a93a8",
+    "integrated-cli/raw/discovery-pass.stdout": "9a9a6ea760b821e6fa37d5fa8ebcbd3a05b7a59781205ed3b6509174a4837b1d",
+    "integrated-cli/raw/assertion-failure.stderr": "07c7107f53baed0b31d92d47e1f2bd303f083b6e725b363a035685f6177757cd"
+  }
+}

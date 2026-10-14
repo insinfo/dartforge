@@ -1,0 +1,21 @@
+{
+  "configVersion": 2,
+  "packages": [
+    {
+      "name": "local_dep",
+      "rootUri": "../../shared",
+      "packageUri": "lib/",
+      "languageVersion": "3.6"
+    },
+    {
+      "name": "local_app",
+      "rootUri": "../",
+      "packageUri": "lib/",
+      "languageVersion": "3.6"
+    }
+  ],
+  "generated": "2026-10-14T16:31:32.080887Z",
+  "generator": "pub",
+  "generatorVersion": "3.6.2",
+  "pubCache": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/official-cache"
+}

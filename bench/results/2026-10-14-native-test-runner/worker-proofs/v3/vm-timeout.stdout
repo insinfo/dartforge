@@ -1,0 +1,19 @@
+{"type":"testStart","name":"outer (setUpAll)"}
+{"type":"testStart","name":"outer inner sync"}
+{"type":"testStart","name":"outer inner async"}
+{"type":"testStart","name":"outer inner callback"}
+{"type":"message","name":"outer inner callback","message":"DYNAMIC_CLEAN"}
+{"type":"testStart","name":"outer inner skip"}
+{"type":"message","name":"outer inner skip","message":"Skip: fixture skip"}
+{"type":"testStart","name":"outer inner timeout"}
+{"type":"error","name":"outer inner timeout","error":"TimeoutException after 0:00:00.020000: Test timed out after 0 seconds.","stackTrace":"package:test_api/src/backend/invoker.dart 338:28  Invoker._handleError.<fn>\ndart:async/zone.dart 1406:47                      _rootRun\ndart:async/zone.dart 1317:19                      _CustomZone.run\npackage:test_api/src/backend/invoker.dart 336:10  Invoker._handleError\npackage:test_api/src/backend/invoker.dart 291:9   Invoker.heartbeat.<fn>.<fn>\ndart:async/zone.dart 1414:13                      _rootRun\ndart:async/zone.dart 1317:19                      _CustomZone.run\npackage:test_api/src/backend/invoker.dart 290:38  Invoker.heartbeat.<fn>\ndart:async-patch/timer_patch.dart 18:15           Timer._createTimer.<fn>\ndart:isolate-patch/timer_impl.dart 398:19         _Timer._runTimers\ndart:isolate-patch/timer_impl.dart 429:5          _Timer._handleMessage\ndart:isolate-patch/isolate_patch.dart 184:12      _RawReceivePort._handleMessage\n"}
+{"type":"testStart","name":"outer inner failure"}
+{"type":"testStart","name":"outer (tearDownAll)"}
+{"type":"message","name":"outer (tearDownAll)","message":"ALL_CLEAN"}
+{"type":"testDone","name":"outer inner sync","result":"success"}
+{"type":"testDone","name":"outer inner async","result":"success"}
+{"type":"testDone","name":"outer inner callback","result":"success"}
+{"type":"testDone","name":"outer inner failure","result":"success"}
+{"type":"testDone","name":"outer inner skip","result":"skipped"}
+{"type":"testDone","name":"outer inner timeout","result":"error"}
+{"type":"suiteDone","schemaVersion":1,"token":"oracle-token","total":6,"passed":4,"failed":1,"skipped":1,"success":false}

@@ -1,0 +1,9 @@
+{"type":"testStart","name":"outer (setUpAll)"}
+{"type":"testStart","name":"outer inner async"}
+{"type":"testStart","name":"outer inner callback"}
+{"type":"message","name":"outer inner callback","message":"DYNAMIC_CLEAN"}
+{"type":"testStart","name":"outer (tearDownAll)"}
+{"type":"message","name":"outer (tearDownAll)","message":"ALL_CLEAN"}
+{"type":"testDone","name":"outer inner async","result":"success"}
+{"type":"testDone","name":"outer inner callback","result":"success"}
+{"type":"suiteDone","schemaVersion":1,"token":"regex-token","total":2,"passed":2,"failed":0,"skipped":0,"success":true}

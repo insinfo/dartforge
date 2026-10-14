@@ -1,0 +1,85 @@
+{
+  "configVersion": 2,
+  "generator": "dartforge",
+  "generatorVersion": "0.1.0",
+  "packages": [
+    {
+      "languageVersion": "3.4",
+      "name": "async",
+      "packageUri": "lib/",
+      "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/hosted/pub.dev/async-2.13.1/"
+    },
+    {
+      "languageVersion": "3.4",
+      "name": "collection",
+      "packageUri": "lib/",
+      "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/hosted/pub.dev/collection-1.19.1/"
+    },
+    {
+      "languageVersion": "3.6",
+      "name": "hosted_app",
+      "packageUri": "lib/",
+      "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/hosted-native/"
+    },
+    {
+      "languageVersion": "3.4",
+      "name": "http",
+      "packageUri": "lib/",
+      "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/hosted/pub.dev/http-1.6.0/"
+    },
+    {
+      "languageVersion": "3.4",
+      "name": "http_parser",
+      "packageUri": "lib/",
+      "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/hosted/pub.dev/http_parser-4.1.2/"
+    },
+    {
+      "languageVersion": "3.5",
+      "name": "meta",
+      "packageUri": "lib/",
+      "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/hosted/pub.dev/meta-1.19.0/"
+    },
+    {
+      "languageVersion": "3.4",
+      "name": "path",
+      "packageUri": "lib/",
+      "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/hosted/pub.dev/path-1.9.1/"
+    },
+    {
+      "languageVersion": "3.4",
+      "name": "pub_semver",
+      "packageUri": "lib/",
+      "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/hosted/pub.dev/pub_semver-2.2.1/"
+    },
+    {
+      "languageVersion": "3.1",
+      "name": "source_span",
+      "packageUri": "lib/",
+      "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/hosted/pub.dev/source_span-1.10.2/"
+    },
+    {
+      "languageVersion": "3.1",
+      "name": "string_scanner",
+      "packageUri": "lib/",
+      "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/hosted/pub.dev/string_scanner-1.4.1/"
+    },
+    {
+      "languageVersion": "3.1",
+      "name": "term_glyph",
+      "packageUri": "lib/",
+      "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/hosted/pub.dev/term_glyph-1.2.2/"
+    },
+    {
+      "languageVersion": "3.5",
+      "name": "typed_data",
+      "packageUri": "lib/",
+      "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/hosted/pub.dev/typed_data-1.4.0/"
+    },
+    {
+      "languageVersion": "3.4",
+      "name": "web",
+      "packageUri": "lib/",
+      "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/hosted/pub.dev/web-1.1.1/"
+    }
+  ]
+}

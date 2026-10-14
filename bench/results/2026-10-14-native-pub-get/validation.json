@@ -1,0 +1,292 @@
+{
+  "prototype": false,
+  "delegates_to_dart": false,
+  "timing_measured": false,
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+  "compiler_sha256": "50c1a7a7ff7cc1b4e79ab0181c479f03c897d553913723cfdb1109d9589edfc4",
+  "dart_sdk_executable": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+  "dart_sdk_executable_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+  "runs": [
+    {
+      "label": "dart-sdk-version",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "--version"
+      ],
+      "PUB_CACHE": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/official-cache",
+      "exit": 0,
+      "stdout_sha256": "8f0d86b90abe935205f97182731a2c9f48121ccf3ae26defba84d14fe2be04ed",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "path-native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+        "pub",
+        "get",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/path-native",
+        "--offline"
+      ],
+      "PUB_CACHE": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache",
+      "exit": 0,
+      "stdout_sha256": "838c9c4f17dc9ab21d57b68110847e181f4010e16557c9d2e929ba6d008fc69d",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "path-official",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "pub",
+        "get",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/path-official",
+        "--offline"
+      ],
+      "PUB_CACHE": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/official-cache",
+      "exit": 0,
+      "stdout_sha256": "31ab134baeb044cc984482be64a71118fcee52588911201e7636b58b83eb3a61",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "path-native-package-config-vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/path-native/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/path-native/main.dart"
+      ],
+      "PUB_CACHE": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/official-cache",
+      "exit": 0,
+      "stdout_sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "path-official-package-config-vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/path-official/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/path-official/main.dart"
+      ],
+      "PUB_CACHE": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/official-cache",
+      "exit": 0,
+      "stdout_sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "path-native-offline",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+        "pub",
+        "get",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/path-native",
+        "--offline"
+      ],
+      "PUB_CACHE": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache",
+      "exit": 0,
+      "stdout_sha256": "838c9c4f17dc9ab21d57b68110847e181f4010e16557c9d2e929ba6d008fc69d",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "hosted-native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+        "pub",
+        "get",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/hosted-native"
+      ],
+      "PUB_CACHE": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache",
+      "exit": 0,
+      "stdout_sha256": "4557e20981fdb7f3c190b2338c5e136e65c67881f9f247b535d1ea372a582b47",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "hosted-official",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "pub",
+        "get",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/hosted-official"
+      ],
+      "PUB_CACHE": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/official-cache",
+      "exit": 0,
+      "stdout_sha256": "61fcd43e9bff186a9ad36b569fd39a05e7b592600f89baf54811e75e887fba15",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "hosted-native-package-config-vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/hosted-native/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/hosted-native/main.dart"
+      ],
+      "PUB_CACHE": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/official-cache",
+      "exit": 0,
+      "stdout_sha256": "26d752bfa06b0f59bcc02046a9732ea92d6491379ed0cff4ed69673ae69ca57e",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "hosted-official-package-config-vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/hosted-official/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/hosted-official/main.dart"
+      ],
+      "PUB_CACHE": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/official-cache",
+      "exit": 0,
+      "stdout_sha256": "26d752bfa06b0f59bcc02046a9732ea92d6491379ed0cff4ed69673ae69ca57e",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "hosted-native-offline",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+        "pub",
+        "get",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/hosted-native",
+        "--offline"
+      ],
+      "PUB_CACHE": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache",
+      "exit": 0,
+      "stdout_sha256": "4557e20981fdb7f3c190b2338c5e136e65c67881f9f247b535d1ea372a582b47",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "conflict-native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+        "pub",
+        "get",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/conflict-native"
+      ],
+      "PUB_CACHE": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache",
+      "exit": 1,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "69a1db826cb480c075807f5e14595a94759b7f50c4e73c6095f7dd4f1b6d8dac"
+    },
+    {
+      "label": "conflict-official",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "pub",
+        "get",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/conflict-official"
+      ],
+      "PUB_CACHE": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/official-cache",
+      "exit": 1,
+      "stdout_sha256": "4a2374daef90cca2cff04a179742461ef053cbaf466cbd8ba3ab69d4f424e975",
+      "stderr_sha256": "7fb57f8f039e966273033b1ab7decc1cf12dc8581b86e2c6ce14b73f6cbe27f5"
+    }
+  ],
+  "path_sdk_lock_and_config_equivalent": true,
+  "path_generated_config_executes_exact_sdk": true,
+  "artifacts": [
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/path-native/pubspec.lock",
+      "sha256": "d8c0e30cb20b7a5ac6743e58b1de804d3927aaac1d276c1d613c60be0f2b252f"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/path-native/.dart_tool/package_config.json",
+      "sha256": "6765d2424cc2227acb31ac680d89fbf241c734270c920c521a1b0bc43c15bc97"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/path-official/pubspec.lock",
+      "sha256": "8210a83f92ef0c8b11352d63c14a9e9ea21ed501a99519ac438a15ce96775d10"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/path-official/.dart_tool/package_config.json",
+      "sha256": "5fd919fc3d6639a64d6dd7e2f284d009f74f2a4014833b0870be050506c1e183"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/hosted-native/pubspec.lock",
+      "sha256": "0378e03627e38377500217138178bd6878013865d6fb1fa0ef64a25a25756fff"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/hosted-native/.dart_tool/package_config.json",
+      "sha256": "7169a8ef11f76dc1619f414812386dc97045d4c1e59975095b013f67eea6f9b2"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/hosted-official/pubspec.lock",
+      "sha256": "4c301e64b350341431bcaa27f3b172ffb4316f34727debc95424338d17d52bb3"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/hosted-official/.dart_tool/package_config.json",
+      "sha256": "80eef11a8a98bd425c96cf63da327e61e0e51e8e6f879829025aab5b94471fd4"
+    }
+  ],
+  "hosted_sdk_lock_and_config_equivalent": true,
+  "hosted_generated_config_executes_exact_sdk": true,
+  "hosted_metadata": [
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/dartforge/pub.dev/async-versions.json",
+      "sha256": "c50b6495f68b13e8b96bcb1f50df26fb15cb90da2d0613218e2b4b353118b559"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/dartforge/pub.dev/collection-versions.json",
+      "sha256": "d6c36da2d158d644cb31020fff2ca13476cb9a066116481aa1b48bebabfe04f4"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/dartforge/pub.dev/http-versions.json",
+      "sha256": "dc9987f63ae34b508a8542b6a6b4ff243a6265c8ab57ea6667f8cb4a1ad2a2b3"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/dartforge/pub.dev/http_parser-versions.json",
+      "sha256": "4f33bf2dded7bf27dd826e33c20699bc03bb6c46fc29afee21aece93c89eaabf"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/dartforge/pub.dev/meta-versions.json",
+      "sha256": "cec1290840e2bfa7024b48e2d6a61fddc6df6cec5f6bf87813554a1f95638659"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/dartforge/pub.dev/path-versions.json",
+      "sha256": "2c6df253f757e8c1d3ee400742211ddc9011681cf72973b2ff98ecd30211648a"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/dartforge/pub.dev/pub_semver-versions.json",
+      "sha256": "6bdcd9a4dd5a082ae06b4dc5eb2ea8da5b100f4e2a1090d7fd4ab4bf04c27009"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/dartforge/pub.dev/source_span-versions.json",
+      "sha256": "76ca517513499d95e477b2451cd5e8a496300a3fc4ef0da5567e361d21a2b6a7"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/dartforge/pub.dev/string_scanner-versions.json",
+      "sha256": "4b6873923f6b0588ce67d81de7040cac61ef3cb5eaddae46b7247e59f68bfe0a"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/dartforge/pub.dev/term_glyph-versions.json",
+      "sha256": "025773bf460bb07b3579172ead4f811e3d06bdd8ddf5121152e0add13334dcc6"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/dartforge/pub.dev/typed_data-versions.json",
+      "sha256": "f9e6986cbc266a5741495024845ee32cbba2bf8d005f41d7f13a5b845463f6b7"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/native-pub-get-validation/native-cache/dartforge/pub.dev/web-versions.json",
+      "sha256": "bb47b7687f740ac5a578424682525e7c72a5cac9cecfba3dd18d1e1df466f74b"
+    }
+  ],
+  "compiler_unchanged": true,
+  "complete": true,
+  "pub_sources_unchanged": true,
+  "all_successful_native_commands_stderr_empty": true,
+  "resolved_hosted_versions": {
+    "async": "2.13.1",
+    "collection": "1.19.1",
+    "http": "1.6.0",
+    "http_parser": "4.1.2",
+    "meta": "1.19.0",
+    "path": "1.9.1",
+    "pub_semver": "2.2.1",
+    "source_span": "1.10.2",
+    "string_scanner": "1.4.1",
+    "term_glyph": "1.2.2",
+    "typed_data": "1.4.0",
+    "web": "1.1.1"
+  }
+}

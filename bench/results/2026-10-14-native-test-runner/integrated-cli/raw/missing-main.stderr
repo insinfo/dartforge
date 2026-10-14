@@ -1,0 +1,5 @@
+Test artifacts: /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime/dartforge-test-47837-1791995608315418000
+Failed to compile /Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-final/controls/no_main_test.dart with DartForge:
+error: compile error: not supported by the native backend: top-level element
+  not supported by the native backend: top-level element (worker.dart:32:46)
+

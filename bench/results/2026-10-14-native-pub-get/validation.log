@@ -1,0 +1,13 @@
+dart-sdk-version 0
+path-native 0
+path-official 0
+path-native-package-config-vm 0
+path-official-package-config-vm 0
+path-native-offline 0
+hosted-native 0
+hosted-official 0
+hosted-native-package-config-vm 0
+hosted-official-package-config-vm 0
+hosted-native-offline 0
+conflict-native 1
+conflict-official 1

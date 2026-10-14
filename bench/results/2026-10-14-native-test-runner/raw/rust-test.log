@@ -1,0 +1,28 @@
+    Updating crates.io index
+     Locking 14 packages to latest Rust 1.98.1 compatible versions
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling serde_core v1.0.229
+   Compiling syn v3.0.9
+   Compiling serde v1.0.229
+   Compiling serde_derive v1.0.229
+   Compiling zmij v1.0.23
+   Compiling serde_json v1.0.154
+   Compiling itoa v1.0.18
+   Compiling memchr v2.8.3
+   Compiling dartforge-intern v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/intern)
+   Compiling dartforge-diagnostics v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/diagnostics)
+   Compiling dartforge-frontend v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/frontend)
+   Compiling dartforge-test-runner-development v0.0.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-runner-development/rust-harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.19s
+     Running unittests main.rs (target/test-runner-development/rust-build/debug/deps/test_runner_development-8b17c38a1c9027e2)
+
+running 4 tests
+test test_runner::tests::ordinary_test_filters_and_unsupported_flags_are_explicit ... ok
+test test_runner::tests::relative_import_and_dart_escaping_preserve_literal_path ... ok
+test test_runner::tests::discovery_keeps_sorted_unique_suites_and_skips_helper_files ... ok
+test test_runner::metadata_tests::library_annotations_and_project_configuration_are_refused_without_text_guessing ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

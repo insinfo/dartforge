@@ -1,0 +1,6 @@
+Because every version of constrained from path depends on collection <1.19.0 and conflict_app depends on collection ^1.19.0, constrained from path is forbidden.
+So, because conflict_app depends on constrained from path, version solving failed.
+
+
+You can try the following suggestion to make the pubspec resolve:
+* Consider downgrading your constraint on collection: dart pub add collection:^1.18.0

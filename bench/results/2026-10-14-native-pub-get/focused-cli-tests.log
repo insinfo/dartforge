@@ -1,0 +1,119 @@
+   Compiling url v2.5.8
+   Compiling log v0.4.34
+   Compiling simd-adler32 v0.3.10
+   Compiling crc32fast v1.5.2
+   Compiling bytes v1.12.1
+   Compiling httparse v1.10.1
+   Compiling rustls v0.23.45
+   Compiling miniz_oxide v0.9.1
+   Compiling base64 v0.23.1
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+   Compiling dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)
+   Compiling http v1.5.0
+   Compiling xattr v1.6.1
+   Compiling flate2 v1.1.10
+   Compiling filetime v0.2.29
+   Compiling utf8-zero v0.8.1
+   Compiling ureq-proto v0.6.4
+   Compiling tar v0.4.46
+   Compiling sha2 v0.10.9
+   Compiling semver v1.0.28
+   Compiling dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+   Compiling dartforge-macros-host v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/macros_host)
+   Compiling dartforge-ng-generator v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/ng_generator)
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling ureq v3.4.2
+   Compiling dartforge-build v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/build)
+   Compiling dartforge-world v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/world)
+   Compiling dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+   Compiling dartforge-analysis v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/analysis)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling dartforge-parity v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/parity)
+   Compiling dartforge-dev v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dev)
+warning: `dartforge-emit-native` (lib) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native` to apply 1 suggestion)
+   Compiling dartforge-cli v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 32.55s
+     Running unittests src/main.rs (target/p4/debug/deps/dartforge-6897583b94e3cd5c)
+
+running 9 tests
+test pub_get::tests::archive_files_allowed_links_refused ... ok
+test pub_get::tests::dart_intervals_and_sdk_compatibility ... ok
+test pub_get::tests::cached_pubspec_must_match_the_resolved_registry_graph ... ok
+test pub_get::tests::hosted_backtracks_transitive_constraints_and_prefers_existing_lock ... ok
+test pub_get::tests::hosted_integrity_missing_metadata_and_source_conflict_fail ... ok
+test pub_get::tests::irrelevant_unsupported_historical_versions_do_not_poison_supported_release ... ok
+test pub_get::tests::native_http_checksum_failure_does_not_publish_archive ... ok
+test pub_get::tests::offline_path_transitive_cycles_and_root_dev ... ok
+test pub_get::tests::sdk_source_identity_conflicts_are_errors ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.02s
+
+     Running tests/analyze_sdk_path.rs (target/p4/debug/deps/analyze_sdk_path-b6f5b79f9b199872)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/contracts_cli.rs (target/p4/debug/deps/contracts_cli-a14f07b18360c5d8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/debugging.rs (target/p4/debug/deps/debugging-b3fd11fb95e80197)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/directed_maps.rs (target/p4/debug/deps/directed_maps-96c8650925b84eeb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/io_regression.rs (target/p4/debug/deps/io_regression-9f0212ea86eb4b4e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+
+     Running tests/jit_program.rs (target/p4/debug/deps/jit_program-2c1e7c1ea02931a6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/memory_cli.rs (target/p4/debug/deps/memory_cli-e791108f48d59811)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/native_generated.rs (target/p4/debug/deps/native_generated-832aab23f221496e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/reload_state.rs (target/p4/debug/deps/reload_state-d12813b3f268f591)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/subsystem_cli.rs (target/p4/debug/deps/subsystem_cli-7bd163d86ae00f9e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+

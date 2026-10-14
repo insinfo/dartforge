@@ -1,0 +1,22 @@
+{"type":"testStart","name":"outer (setUpAll)"}
+{"type":"testStart","name":"outer inner sync"}
+{"type":"error","name":"outer inner sync","error":"Bad state: SETUP_ORACLE","stackTrace":"target/test-runner-development/v3/semantics_test.dart 11:127  main.<fn>.<fn>\n===== asynchronous gap ===========================\ndart:async/future.dart 656:3                                  Future._kTrue\n===== asynchronous gap ===========================\ndart:async/zone.dart 1270:12                                  _CustomZone.bindUnaryCallbackGuarded.<fn>\n"}
+{"type":"testStart","name":"outer inner async"}
+{"type":"error","name":"outer inner async","error":"Bad state: SETUP_ORACLE","stackTrace":"target/test-runner-development/v3/semantics_test.dart 11:127  main.<fn>.<fn>\n===== asynchronous gap ===========================\ndart:async/future.dart 656:3                                  Future._kTrue\n===== asynchronous gap ===========================\ndart:async/zone.dart 1270:12                                  _CustomZone.bindUnaryCallbackGuarded.<fn>\n"}
+{"type":"testStart","name":"outer inner callback"}
+{"type":"error","name":"outer inner callback","error":"Bad state: SETUP_ORACLE","stackTrace":"target/test-runner-development/v3/semantics_test.dart 11:127  main.<fn>.<fn>\n===== asynchronous gap ===========================\ndart:async/future.dart 656:3                                  Future._kTrue\n===== asynchronous gap ===========================\ndart:async/zone.dart 1270:12                                  _CustomZone.bindUnaryCallbackGuarded.<fn>\n"}
+{"type":"testStart","name":"outer inner skip"}
+{"type":"message","name":"outer inner skip","message":"Skip: fixture skip"}
+{"type":"testStart","name":"outer inner timeout"}
+{"type":"error","name":"outer inner timeout","error":"Bad state: SETUP_ORACLE","stackTrace":"target/test-runner-development/v3/semantics_test.dart 11:127  main.<fn>.<fn>\n===== asynchronous gap ===========================\ndart:async/future.dart 656:3                                  Future._kTrue\n===== asynchronous gap ===========================\ndart:async/zone.dart 1270:12                                  _CustomZone.bindUnaryCallbackGuarded.<fn>\n"}
+{"type":"testStart","name":"outer inner failure"}
+{"type":"error","name":"outer inner failure","error":"Bad state: SETUP_ORACLE","stackTrace":"target/test-runner-development/v3/semantics_test.dart 11:127  main.<fn>.<fn>\n===== asynchronous gap ===========================\ndart:async/future.dart 656:3                                  Future._kTrue\n===== asynchronous gap ===========================\ndart:async/zone.dart 1270:12                                  _CustomZone.bindUnaryCallbackGuarded.<fn>\n"}
+{"type":"testStart","name":"outer (tearDownAll)"}
+{"type":"message","name":"outer (tearDownAll)","message":"ALL_CLEAN"}
+{"type":"testDone","name":"outer inner skip","result":"skipped"}
+{"type":"testDone","name":"outer inner sync","result":"error"}
+{"type":"testDone","name":"outer inner async","result":"error"}
+{"type":"testDone","name":"outer inner callback","result":"error"}
+{"type":"testDone","name":"outer inner timeout","result":"error"}
+{"type":"testDone","name":"outer inner failure","result":"error"}
+{"type":"suiteDone","schemaVersion":1,"token":"oracle-token","total":6,"passed":0,"failed":5,"skipped":1,"success":false}

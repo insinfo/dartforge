@@ -1,0 +1,127 @@
+{
+  "cli_sha256": "70fc11430b03771d0b1155eb1454aac9fbd032454de1f7a2aeb7fb2190fb5708",
+  "native_sha256": "3863abfcc30a5100840cf774c710390a41880897b38367e317a6dbc18fe4b098",
+  "inputs_stable": true,
+  "results": [
+    {
+      "mode": "pass",
+      "engine": "vm",
+      "exit_code": 0,
+      "report": {
+        "schemaVersion": 1,
+        "token": "oracle-token",
+        "total": 6,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 1,
+        "success": true
+      },
+      "stderr": ""
+    },
+    {
+      "mode": "pass",
+      "engine": "native",
+      "exit_code": 0,
+      "report": {
+        "schemaVersion": 1,
+        "token": "oracle-token",
+        "total": 6,
+        "passed": 5,
+        "failed": 0,
+        "skipped": 1,
+        "success": true
+      },
+      "stderr": ""
+    },
+    {
+      "mode": "setup",
+      "engine": "vm",
+      "exit_code": 1,
+      "report": {
+        "schemaVersion": 1,
+        "token": "oracle-token",
+        "total": 6,
+        "passed": 0,
+        "failed": 5,
+        "skipped": 1,
+        "success": false
+      },
+      "stderr": ""
+    },
+    {
+      "mode": "setup",
+      "engine": "native",
+      "exit_code": 1,
+      "report": {
+        "schemaVersion": 1,
+        "token": "oracle-token",
+        "total": 6,
+        "passed": 0,
+        "failed": 5,
+        "skipped": 1,
+        "success": false
+      },
+      "stderr": ""
+    },
+    {
+      "mode": "teardown",
+      "engine": "vm",
+      "exit_code": 1,
+      "report": {
+        "schemaVersion": 1,
+        "token": "oracle-token",
+        "total": 6,
+        "passed": 0,
+        "failed": 5,
+        "skipped": 1,
+        "success": false
+      },
+      "stderr": ""
+    },
+    {
+      "mode": "teardown",
+      "engine": "native",
+      "exit_code": 1,
+      "report": {
+        "schemaVersion": 1,
+        "token": "oracle-token",
+        "total": 6,
+        "passed": 0,
+        "failed": 5,
+        "skipped": 1,
+        "success": false
+      },
+      "stderr": ""
+    },
+    {
+      "mode": "timeout",
+      "engine": "vm",
+      "exit_code": 1,
+      "report": {
+        "schemaVersion": 1,
+        "token": "oracle-token",
+        "total": 6,
+        "passed": 4,
+        "failed": 1,
+        "skipped": 1,
+        "success": false
+      },
+      "stderr": ""
+    },
+    {
+      "mode": "timeout",
+      "engine": "native",
+      "exit_code": 1,
+      "report": {
+        "schemaVersion": 1,
+        "token": "oracle-token",
+        "total": 6,
+        "passed": 4,
+        "failed": 1,
+        "skipped": 1,
+        "success": false
+      },
+      "stderr": ""
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{"name":"outer (setUpAll)","type":"testStart"}
+{"name":"outer inner async","type":"testStart"}
+{"name":"outer inner callback","type":"testStart"}
+{"message":"DYNAMIC_CLEAN","name":"outer inner callback","type":"message"}
+{"name":"outer (tearDownAll)","type":"testStart"}
+{"message":"ALL_CLEAN","name":"outer (tearDownAll)","type":"message"}
+{"name":"outer inner async","result":"success","type":"testDone"}
+{"name":"outer inner callback","result":"success","type":"testDone"}
+{"failed":0,"passed":2,"schemaVersion":1,"skipped":0,"success":true,"token":"1791995573952827000-0","total":2,"type":"suiteDone"}
+{"success":true,"total":2,"type":"done"}

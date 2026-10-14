@@ -8,6 +8,8 @@ mod format;
 mod jit;
 mod macros;
 mod native;
+mod pub_get;
+mod test_runner;
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = env::args_os().skip(1).collect();
     if args.first().is_some_and(|arg| arg == "abi-info") {
@@ -18,7 +20,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "DartForge - Dart to JavaScript compiler\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--interval <ms>] [--once]
        dartforge serve <input.dart> -o <dir> [--web <dir>] [--port N] [--packages <cfg>]\n       dartforge build [<input.dart>] [--root <dir>] [--plan] [--compare] [--release] [--strict] [--workers N] [--write-cache <dir>] [--dart <exe>] [--state]\n       dartforge aot|abi-info ...  (build with --features native)
        dartforge run|reload <input.dart> ...  (build with --features jit)
-       dartforge pack <destination>  (the distribution: executable, runtime, SDK, linker)\n       dartforge analyze [--format=json] [--all] [<dir|file>]  (the JSON of dart analyze)\n       dartforge format [-o write|show|json|none] [--set-exit-if-changed] [-l N] <files|dirs>  (dart format 3.6.2)\n       dartforge macros <input.dart> [--materialize] [--shape 3.6|current] [--dart <exe>]\n\ncompile-js emits one ES module per library under the DDC contract.\ndev keeps the session alive and recompiles only what the edit affects."
+       dartforge pack <destination>  (the distribution: executable, runtime, SDK, linker)\n       dartforge analyze [--format=json] [--all] [<dir|file>]  (the JSON of dart analyze)\n       dartforge format [-o write|show|json|none] [--set-exit-if-changed] [-l N] <files|dirs>  (dart format 3.6.2)\n       dartforge test [<file|directory> ...] [--name <regex>] [--sdk <lib>] [--packages <cfg>]\n       dartforge pub get [--offline] [--directory <dir>] [--sdk-version <version>]\n       dartforge macros <input.dart> [--materialize] [--shape 3.6|current] [--dart <exe>]\n\ncompile-js emits one ES module per library under the DDC contract.\ndev keeps the session alive and recompiles only what the edit affects."
         );
         return Ok(());
     }
@@ -59,6 +61,28 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 /// Turns the command's result into a message and the process exit code.
 fn main() -> ExitCode {
     let args: Vec<_> = env::args_os().skip(1).collect();
+    if args.first().is_some_and(|a| a == "test") {
+        return match test_runner::run(&args[1..]) {
+            Ok(code) => code,
+            Err(error) => {
+                eprintln!("error: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    if args.first().is_some_and(|a| a == "pub") {
+        if args.get(1).is_none_or(|a| a != "get") {
+            eprintln!("error: usage: dartforge pub get [--offline] [--directory <dir>] [--sdk-version <version>]");
+            return ExitCode::from(64);
+        }
+        return match pub_get::run(&args[2..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("error: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if args.first().is_some_and(|a| a == "format") {
         return format::run(&args[1..]);
     }

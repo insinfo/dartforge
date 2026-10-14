@@ -1,0 +1,19 @@
+{"name":"outer (setUpAll)","type":"testStart"}
+{"name":"outer inner sync","type":"testStart"}
+{"name":"outer inner async","type":"testStart"}
+{"name":"outer inner callback","type":"testStart"}
+{"message":"DYNAMIC_CLEAN","name":"outer inner callback","type":"message"}
+{"name":"outer inner skip","type":"testStart"}
+{"message":"Skip: fixture skip","name":"outer inner skip","type":"message"}
+{"name":"outer inner timeout","type":"testStart"}
+{"name":"outer inner failure","type":"testStart"}
+{"name":"outer (tearDownAll)","type":"testStart"}
+{"message":"ALL_CLEAN","name":"outer (tearDownAll)","type":"message"}
+{"name":"outer inner sync","result":"success","type":"testDone"}
+{"name":"outer inner async","result":"success","type":"testDone"}
+{"name":"outer inner callback","result":"success","type":"testDone"}
+{"name":"outer inner timeout","result":"success","type":"testDone"}
+{"name":"outer inner failure","result":"success","type":"testDone"}
+{"name":"outer inner skip","result":"skipped","type":"testDone"}
+{"failed":0,"passed":5,"schemaVersion":1,"skipped":1,"success":true,"token":"1791995541995409000-0","total":6,"type":"suiteDone"}
+{"success":true,"total":6,"type":"done"}
