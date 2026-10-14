@@ -1,0 +1,25 @@
+   Compiling dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+   Compiling dartforge-emit-js-production v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js_production)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.88s
+     Running tests/property_assignment_order.rs (target/js/debug/deps/property_assignment_order-74ccbf4e35aad1a2)
+
+running 1 test
+test property_assignments_match_vm_and_o2 ... FAILED
+
+failures:
+
+---- property_assignments_match_vm_and_o2 stdout ----
+
+thread 'property_assignments_match_vm_and_o2' (1261426) panicked at crates/emit_js_production/tests/property_assignment_order.rs:59:9:
+assertion `left == right` failed: raw
+  left: "plain-prefix: 3 10 3\nplain-prefix-order: plain.get,rhs,plain.set:3\nplain-post: 2 10 1\nplain-post-order: post.get,post.set:2\nplain-ifnull: 3 10 3\nplain-ifnull-order: null.get,rhs,null.set:3\nextension-prefix: 3 10 3\nextension-prefix-order: extension.get,rhs,extension.set:3\nwrapped-post: 2 10 1\nwrapped-post-order: wrapped-post.get,wrapped-post.set:2\nwrapped-ifnull: 3 10 3\nwrapped-ifnull-order: wrapped-null.get,rhs,wrapped-null.set:3\nextension-simple: 7 10 7\nextension-simple-order: rhs,extension-simple.set:7\nthrow-rhs: 1 10\nthrow-rhs-order: throw.get,rhs,caught\nnonnull: 5 10 5\nnonnull-order: nonnull.get\n"
+ right: "plain-prefix: 3 10 3\nplain-prefix-order: plain.get,rhs,plain.set:3\nplain-post: 2 10 1\nplain-post-order: post.get,post.set:2\nplain-ifnull: 3 10 3\nplain-ifnull-order: null.get,rhs,null.set:3\nextension-prefix: 3 10 3\nextension-prefix-order: extension.get,rhs,extension.set:3\nwrapped-post: 2 10 1\nwrapped-post-order: wrapped-post.get,wrapped-post.set:2\nwrapped-ifnull: 3 10 3\nwrapped-ifnull-order: wrapped-null.get,rhs,wrapped-null.set:3\nextension-simple: 1 7 7\nextension-simple-order: rhs,other.set:7\nthrow-rhs: 1 10\nthrow-rhs-order: throw.get,rhs,caught\nnonnull: 5 10 5\nnonnull-order: nonnull.get\n"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    property_assignments_match_vm_and_o2
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.00s
+
+error: test failed, to rerun pass `-p dartforge-emit-js-production --test property_assignment_order`

@@ -1,0 +1,50 @@
+{
+  "source_sha256": "8c43f357e9a855b6c0e75a4dfc0dc82ab025479de5746075b6d20782e48e6c7c",
+  "compiler_sha256": "8bc54daaf656cd658ecb927cf80a52552dd2a2d3e0c06a6ff7861e21b80792f1",
+  "runs": {
+    "VM": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "run",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/property_snapshot.dart"
+      ],
+      "exit": 0,
+      "stdout": "plain-prefix: 3 10 3\nplain-prefix-order: plain.get,rhs,plain.set:3\nplain-post: 2 10 1\nplain-post-order: post.get,post.set:2\nplain-ifnull: 3 10 3\nplain-ifnull-order: null.get,rhs,null.set:3\nextension-prefix: 3 10\nextension-prefix-order: extension.get,rhs,extension.set:3\nwrapped-post: 2 10 1\nwrapped-post-order: wrapped-post.get,wrapped-post.set:2\nwrapped-ifnull: 3 10 3\nwrapped-ifnull-order: wrapped-null.get,rhs,wrapped-null.set:3\n",
+      "artifact_sha256": null
+    },
+    "O2": {
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/O2.js"
+      ],
+      "exit": 0,
+      "stdout": "plain-prefix: 3 10 3\nplain-prefix-order: plain.get,rhs,plain.set:3\nplain-post: 2 10 1\nplain-post-order: post.get,post.set:2\nplain-ifnull: 3 10 3\nplain-ifnull-order: null.get,rhs,null.set:3\nextension-prefix: 3 10\nextension-prefix-order: extension.get,rhs,extension.set:3\nwrapped-post: 2 10 1\nwrapped-post-order: wrapped-post.get,wrapped-post.set:2\nwrapped-ifnull: 3 10 3\nwrapped-ifnull-order: wrapped-null.get,rhs,wrapped-null.set:3\n",
+      "artifact_sha256": "6206870c39f53144e29a01a7d120ba035145cd5d565caf17c827a6e3f70c717e"
+    },
+    "raw": {
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/raw.js"
+      ],
+      "exit": 0,
+      "stdout": "plain-prefix: 3 10 3\nplain-prefix-order: plain.get,rhs,plain.set:3\nplain-post: 1 2 1\nplain-post-order: post.get,other.set:2\nplain-ifnull: null 3 3\nplain-ifnull-order: null.get,rhs,other.set:3\nextension-prefix: 3 10\nextension-prefix-order: extension.get,rhs,extension.set:3\nwrapped-post: 1 2 1\nwrapped-post-order: wrapped-post.get,other.set:2\nwrapped-ifnull: null 3 3\nwrapped-ifnull-order: wrapped-null.get,rhs,other.set:3\n",
+      "artifact_sha256": "f0340ce52791acf33e45c04ec2de046eb7c4ab249047cded0867b7488c1fc395"
+    },
+    "min": {
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/min.js"
+      ],
+      "exit": 0,
+      "stdout": "plain-prefix: 3 10 3\nplain-prefix-order: plain.get,rhs,plain.set:3\nplain-post: 1 2 1\nplain-post-order: post.get,other.set:2\nplain-ifnull: null 3 3\nplain-ifnull-order: null.get,rhs,other.set:3\nextension-prefix: 3 10\nextension-prefix-order: extension.get,rhs,extension.set:3\nwrapped-post: 1 2 1\nwrapped-post-order: wrapped-post.get,other.set:2\nwrapped-ifnull: null 3 3\nwrapped-ifnull-order: wrapped-null.get,rhs,other.set:3\n",
+      "artifact_sha256": "08cf52ff1933d4c106e249f640486bdded05ed0a4f1a5b44a44da4cf636e6e71"
+    }
+  },
+  "scope": "Ordinary property-assignment correctness before fix; no timing claim."
+}

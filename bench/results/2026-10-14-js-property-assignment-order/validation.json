@@ -1,0 +1,158 @@
+{
+  "scope": "Correctness only; no size or performance claim. Same final fixture for before/after.",
+  "source_sha256": "377412cfed56ac689920a1f8797ca98791686c3c583d3967fb1f83bd05add617",
+  "runs": {
+    "VM": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "run",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/property_assignment_order.dart"
+      ],
+      "exit": 0,
+      "stdout_sha256": "e49239b6b8555c9cf0e1fc343f618eee2e5074c8b14257baee2020a3fb19ff23"
+    },
+    "baseline.raw.compile": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/baseline-jsprod",
+        "--no-minify",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/property_assignment_order.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/baseline.raw.js"
+      ],
+      "exit": 0,
+      "stdout_sha256": "f6a1d5959e27dab2dda1e71c775a6398375151b5b188969b2864b5f93a83726a"
+    },
+    "baseline.raw": {
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/baseline.raw.js"
+      ],
+      "exit": 255,
+      "stdout_sha256": "2a7b41aba2a10cbc3fc30b2471b1ae005bd35b0f05f5dbc74cddf44d5b6bb2c1",
+      "artifact_sha256": "eb8fd233a37084a83eb1a20c273297adf22e1ea289282301262fb3716154f2de"
+    },
+    "baseline.min.compile": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/baseline-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/property_assignment_order.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/baseline.min.js"
+      ],
+      "exit": 0,
+      "stdout_sha256": "d9173f452488bd35791bf0987b30d3bd8bedcb1f7c1adca18db81f71b37be5bf"
+    },
+    "baseline.min": {
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/baseline.min.js"
+      ],
+      "exit": 255,
+      "stdout_sha256": "2a7b41aba2a10cbc3fc30b2471b1ae005bd35b0f05f5dbc74cddf44d5b6bb2c1",
+      "artifact_sha256": "d1bdc253918640f962050c1155dcfa9eb06a4e08d5b0dac150ba331d2f0fc219"
+    },
+    "current.raw.compile": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/debug/dartforge-jsprod",
+        "--no-minify",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/property_assignment_order.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/current.raw.js"
+      ],
+      "exit": 0,
+      "stdout_sha256": "66af7b376ac6055fc3f1ffb57f8449422de20b4426f413bedc804b391899fec4"
+    },
+    "current.raw": {
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/current.raw.js"
+      ],
+      "exit": 0,
+      "stdout_sha256": "e49239b6b8555c9cf0e1fc343f618eee2e5074c8b14257baee2020a3fb19ff23",
+      "artifact_sha256": "0321b9e668a0b888fdbc69d68131309b80c296c449ad807794e94039b11a82e2"
+    },
+    "current.min.compile": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/debug/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/property_assignment_order.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/current.min.js"
+      ],
+      "exit": 0,
+      "stdout_sha256": "12b30324e1df22b5f6c9ebf4ed7f3c5ac2f5f8746fe26ea76f22daedcb23a787"
+    },
+    "current.min": {
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/current.min.js"
+      ],
+      "exit": 0,
+      "stdout_sha256": "e49239b6b8555c9cf0e1fc343f618eee2e5074c8b14257baee2020a3fb19ff23",
+      "artifact_sha256": "33700322d9d34871674438dca30ea45286a91a6437f16aad92b9844d38f6abd8"
+    },
+    "O2.compile": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "js",
+        "-O2",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/property_assignment_order.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/final.O2.js"
+      ],
+      "exit": 0,
+      "stdout_sha256": "966f4663fb6d50956f49e729c8cba73801112a63278e7ae4c39d6407de5126b9"
+    },
+    "O2": {
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/final.O2.js"
+      ],
+      "exit": 0,
+      "stdout_sha256": "e49239b6b8555c9cf0e1fc343f618eee2e5074c8b14257baee2020a3fb19ff23",
+      "artifact_sha256": "6db96dad8d7eec9aa3d5a292d218c630a9aef80998a43a69fb9ace39bc5ab98e"
+    }
+  },
+  "compiler_sha256": {
+    "baseline": "8bc54daaf656cd658ecb927cf80a52552dd2a2d3e0c06a6ff7861e21b80792f1",
+    "current": "e766cebd86ec4ef2bf5312e524e582f4c8fb8b642302257f75521db5bb692ce2"
+  },
+  "source_files_sha256": {
+    "crates/emit_js/src/expr.rs": "0125b0b6ab066cabe4635fbe8357236b143b20e647746ca96cb76475e91a739a",
+    "crates/emit_js/tests/basic.rs": "5a78f7819579deac3e8aed87278e6f64a8f463efaf3a5e80675b9b90a6da1f4d",
+    "crates/emit_js/tests/programs/property_assignment_order.dart": "377412cfed56ac689920a1f8797ca98791686c3c583d3967fb1f83bd05add617",
+    "crates/emit_js_production/tests/property_assignment_order.rs": "61e5d131065954afd6facc2fcf82e387ee3d6e76a1f025a66c7416236d581f76"
+  },
+  "adjacent_case_note": "adjacent-simple-extension.dart is a separate probe: simple extension receiver rebinding on RHS differs in VM/O2 and Forge. It is excluded from this bounded compound-property fix; original focused.log retains evidence. Final fixture simple extension assignment checks result without receiver rebinding.",
+  "original_statement_baseline_note": "baseline.json belongs to archived property_snapshot.dart (statement-only extension compound), not final fixture. Final baseline/current runs in this validation.json use one identical final fixture.",
+  "exact_output_match_current_raw_min_o2_vm": true,
+  "gates": {
+    "production": {
+      "command": "cargo test --locked -p dartforge-emit-js-production --tests -- --include-ignored",
+      "passed": 81,
+      "failed": 0,
+      "explicit_sdk_lib": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "log_sha256": "c55a8700608513d02eb52c5b61e0979ccc71790887739b3e5af756e8b95e0d2b"
+    },
+    "development": {
+      "command": "cargo test --locked -p dartforge-emit-js --tests -- --include-ignored",
+      "passed": 19,
+      "failed": 0,
+      "explicit_sdk_lib": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "log_sha256": "a4e0077510dd2b76499d811fdefdc1d2e46866f4f7958cfb0228bc420f0911c8"
+    }
+  },
+  "adjacent_case_specification_review": {
+    "source": "https://raw.githubusercontent.com/dart-lang/language/main/specification/dartLangSpec.tex",
+    "parent_review": "Current specification explicitExtensionInvocations lines6080-6099 and normal assignment lines14703-14709 evaluate receiver before actual arguments/RHS. The SDK 3.6.2 discrepancy needs front_end/explicit-extension investigation; no change to match it in this checkpoint."
+  }
+}

@@ -1,0 +1,18 @@
+plain-prefix: 3 10 3
+plain-prefix-order: plain.get,rhs,plain.set:3
+plain-post: 2 10 1
+plain-post-order: post.get,post.set:2
+plain-ifnull: 3 10 3
+plain-ifnull-order: null.get,rhs,null.set:3
+extension-prefix: 3 10 3
+extension-prefix-order: extension.get,rhs,extension.set:3
+wrapped-post: 2 10 1
+wrapped-post-order: wrapped-post.get,wrapped-post.set:2
+wrapped-ifnull: 3 10 3
+wrapped-ifnull-order: wrapped-null.get,rhs,wrapped-null.set:3
+extension-simple: 7 10 7
+extension-simple-order: rhs,extension-simple.set:7
+throw-rhs: 1 10
+throw-rhs-order: throw.get,rhs,caught
+nonnull: 5 10 5
+nonnull-order: nonnull.get

@@ -1,0 +1,6 @@
+plain-prefix: 3 10 3
+plain-prefix-order: plain.get,rhs,plain.set:3
+plain-post: 1 2 1
+plain-post-order: post.get,other.set:2
+plain-ifnull: null 3 3
+plain-ifnull-order: null.get,rhs,other.set:3

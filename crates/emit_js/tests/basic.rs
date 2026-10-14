@@ -117,3 +117,8 @@ fn p10_reified_types() {
 fn indexed_assignment_order() {
     check("index_assignment_order");
 }
+
+#[test]
+fn property_assignment_order() {
+    check("property_assignment_order");
+}

@@ -1,0 +1,3 @@
+/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/property_assignment_order.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/baseline.min.js (49 KB; 1 modules; user 9 KB; runtime 178 -> 178 KB, 0/0 live units)
+compaction: 174 -> 49 KB
+world: classes 5/5 instantiated + 0 type only; functions 29/29; 252 selectors; 4 round(s); world 26 ms, emission 173 ms, verifier 59 ms

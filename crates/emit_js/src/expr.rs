@@ -2102,8 +2102,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let name = self.name(self.ctx.program.function(fid).name).trim_end_matches("_=").to_string();
         let mut args = self.ext_type_args(ext, subst);
         args.push(recv.code.clone());
-        args.push(v.code.clone());
-        Js::prim(format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|set#{name}")), args.join(", ")))
+        let result = self.temp();
+        args.push(format!("{result} = {}", v.at(P_ASSIGN)));
+        // A Dart assignment returns its RHS, even when the setter returns void.
+        Js::new(format!("({lib_var}[{}]({}), {result})", js::string_literal(&format!("{ext_name}|set#{name}")), args.join(", ")), P_PRIMARY)
     }
 
     /// Looks up an extension member applicable to the receiver type.
@@ -3313,7 +3315,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let n = self.name(name.sym).to_string();
                 let recv_e = *recv;
                 let (rjs, _, _guards) = self.emit_target(recv_e);
-                let recv_js = if is_simple(&rjs.code) {
+                let recv_js = if matches!(rjs.code.as_str(), "this" | "super") {
                     rjs.code.clone()
                 } else {
                     let tmp = self.temp();
@@ -3377,7 +3379,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 } else {
                     let (rjs, rty, guards) = self.emit_target(*recv);
                     let rty = if *null_aware { rty.non_null() } else { rty };
-                    let recv_js = if is_simple(&rjs.code) {
+                    let recv_js = if matches!(rjs.code.as_str(), "this" | "super") {
                         rjs.code.clone()
                     } else {
                         let tmp = self.temp();

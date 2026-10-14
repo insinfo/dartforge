@@ -1,0 +1,2 @@
+/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/property_assignment_order.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/property-assignment/current.raw.js (174 KB; 1 modules; user 10 KB; runtime 178 -> 178 KB, 0/0 live units)
+world: classes 5/5 instantiated + 0 type only; functions 29/29; 252 selectors; 4 round(s); world 27 ms, emission 204 ms, verifier 67 ms
