@@ -1,0 +1,22 @@
+{
+  "label": "official-bench-rea-mapped",
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-bench-snapshot.elf",
+  "procedures": [
+    {
+      "label": "json",
+      "address": "0x197e1c"
+    },
+    {
+      "label": "tree",
+      "address": "0x19d3a4"
+    },
+    {
+      "label": "Node-count",
+      "address": "0x19d2bc"
+    },
+    {
+      "label": "JsonStringifier-writeStringContent",
+      "address": "0x179498"
+    }
+  ]
+}

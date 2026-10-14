@@ -1,0 +1,22 @@
+{
+  "config": {
+    "label": "official-color-raw-rea",
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-color-raw.bin",
+    "open_options": {
+      "format": "raw-binary",
+      "architecture": "arm64",
+      "entry_point": "0x3566c8"
+    },
+    "procedures": [
+      {
+        "label": "convertFormatValue",
+        "address": "0x3566c8"
+      }
+    ]
+  },
+  "target_sha256": "a430b7e0b7b1d48611c43628b0a529204352efff72b4ece472a1587464a6894b",
+  "REA_version": "6.5.0",
+  "provider": "Ghidra12.1.4/JDK21.0.12.1/nativeARM64",
+  "server_exit": 0,
+  "scope": "Local static native assembly and heuristic C pseudocode; Dart custom snapshot ABI is not interpreted as recovered Dart semantics."
+}

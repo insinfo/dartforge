@@ -1,0 +1,312 @@
+{
+  "result": {
+    "_meta": {
+      "provenance": {
+        "untrusted_content": true,
+        "source": "analysis_target"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"evidence_id\":\"ev_dc23fd367943da012c2af038c255f07a40b281b05c84df86b3209b761f462290\",\"subject\":{\"name\":\"program\",\"digest\":{\"sha256\":\"d40a2312da012fcc34e8e409567e4828ce3bbf6321474985c5ffdeca5b3ce740\"},\"local_path\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/sizes/on/program\",\"format\":\"mach-o\",\"architecture\":\"arm64\"},\"provider\":{\"id\":\"rea-workflow\",\"name\":\"REA composed investigation workflow\",\"version\":\"1\"},\"analysis_profile\":{\"provider\":{\"id\":\"rea-workflow\",\"name\":\"REA composed investigation workflow\",\"version\":\"1\"},\"parameters\":{\"upstream_analysis_profile\":{\"provider\":{\"id\":\"ghidra\",\"name\":\"Ghidra\",\"version\":\"12.1.4\"},\"parameters\":{\"target_kind\":\"executable\",\"target_format\":\"mach-o\",\"architecture\":\"arm64\",\"available_architectures\":[\"arm64\"],\"import_mode\":\"ephemeral-source-immutable\",\"annotation_policy\":\"atomic-function-entry-metadata-v1\",\"load_image_observations\":\"source-mappings-entry-context-v2\",\"function_body_evidence\":\"complete-inclusive-ranges-v1\",\"function_references\":\"complete-body-and-entry-reference-manager-v2\",\"call_relationship_coverage\":\"function-body-call-coverage-v5\",\"function_dossier_coverage\":\"observed-facets-and-call-relationships-v1\",\"string_inventory_evidence\":\"defined-data-coverage-v1\",\"location_resolution\":\"explicit-address-exact-entry-symbol-first-v3\",\"procedure_file_offset_resolution\":\"address-first-unique-target-source-mapping-v2\",\"instruction_flow_evidence\":\"decoded-return-pcode-v1\",\"instruction_references\":\"exact-address-incoming-v1\",\"function_boundary_observations\":\"ghidra-function-boundary-limitations-v3\",\"no_return_repair\":\"returning-imports-decoded-return-v2\",\"process_launch\":\"inspected-jvm-launch-support-v1\",\"jump_table_evidence\":\"typed-case-default-blocks-v1\",\"decompiler_jump_loads\":true,\"loader\":\"auto-from-header\",\"language_id\":\"auto-from-header\",\"compiler_spec_id\":\"auto-default\",\"analyzer_preset\":\"ghidra-default+disabled:Basic Constant Reference Analyzer\",\"analysis_options\":{\"disabled_analyzers\":[\"Basic Constant Reference Analyzer\"]}},\"digest\":\"8adc939a0dd8b820543988bd794aee84c62b81e7ed00b988fff45785275b1649\"},\"workflow_revision\":3},\"digest\":\"7acf60058bac3e4f950ce461741f91f9d2e98b62ebe83c651e47c74a1329820f\"},\"predicate_type\":\"rea.analysis\",\"operation\":\"binary_overview\",\"parameters\":{},\"raw_result\":null,\"normalized_result\":{\"document\":\"target-d40a2312da01.bin\",\"image_base\":\"0x100000000\",\"segments\":[{\"name\":\"__TEXT\",\"start\":\"0x100000000\",\"end\":\"0x1000009d0\",\"length\":2512,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__text\",\"start\":\"0x1000009d0\",\"end\":\"0x10181b05c\",\"length\":25273996,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__stubs\",\"start\":\"0x10181b05c\",\"end\":\"0x10181b83c\",\"length\":2016,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__stub_helper\",\"start\":\"0x10181b83c\",\"end\":\"0x10181c040\",\"length\":2052,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__literals\",\"start\":\"0x10181c040\",\"end\":\"0x10181eb4c\",\"length\":11020,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__gcc_except_tab\",\"start\":\"0x10181eb4c\",\"end\":\"0x1018200d0\",\"length\":5508,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__const\",\"start\":\"0x1018200d0\",\"end\":\"0x1018df641\",\"length\":783729,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__cstring\",\"start\":\"0x1018df641\",\"end\":\"0x1018e4128\",\"length\":19175,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__unwind_info\",\"start\":\"0x1018e4128\",\"end\":\"0x1018e8828\",\"length\":18176,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__eh_frame\",\"start\":\"0x1018e8828\",\"end\":\"0x101908000\",\"length\":128984,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__got\",\"start\":\"0x101908000\",\"end\":\"0x101908028\",\"length\":40,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__DATA_CONST\",\"start\":\"0x101908028\",\"end\":\"0x101908030\",\"length\":8,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__const\",\"start\":\"0x101908030\",\"end\":\"0x1019c1d40\",\"length\":761104,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__dfimg\",\"start\":\"0x1019c1d40\",\"end\":\"0x101ac0000\",\"length\":1041088,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__la_symbol_ptr\",\"start\":\"0x101ac0000\",\"end\":\"0x101ac0540\",\"length\":1344,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__data\",\"start\":\"0x101ac0540\",\"end\":\"0x101ac1ac8\",\"length\":5512,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__thread_vars\",\"start\":\"0x101ac1ac8\",\"end\":\"0x101ac2098\",\"length\":1488,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__DATA\",\"start\":\"0x101ac2098\",\"end\":\"0x101ac20a0\",\"length\":8,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__thread_data\",\"start\":\"0x101ac20a0\",\"end\":\"0x101ac8000\",\"length\":24416,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__DATA\",\"start\":\"0x101ac8000\",\"end\":\"0x101ac8368\",\"length\":872,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__bss\",\"start\":\"0x101ac8368\",\"end\":\"0x101ac8528\",\"length\":448,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__common\",\"start\":\"0x101ac8528\",\"end\":\"0x101acc000\",\"length\":15064,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"__LINKEDIT\",\"start\":\"0x101acc000\",\"end\":\"0x101b2c1c0\",\"length\":393664,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"},{\"name\":\"EXTERNAL\",\"start\":\"0x101b2d000\",\"end\":\"0x101b2d500\",\"length\":1280,\"image_base\":\"0x100000000\",\"address_space\":\"ram\"}],\"segment_count\":24,\"procedure_count\":123786,\"string_count\":11972},\"confidence\":\"derived\",\"authority\":\"shipped-artifact\",\"environment\":null,\"limitations\":[\"Derived by an REA composed workflow.\",\"A headless Ghidra session contains exactly one imported Program, unlike Hopper's multi-document GUI session.\",\"Cancelling an active Ghidra request terminates its ephemeral database and discards session annotations. The selected target remains open; the next provider query imports the original artifact again.\",\"Charset is reported, while a non-missing terminator cannot distinguish a present terminator from a fixed or Pascal layout.\",\"Default-space addresses use lowercase 0x-prefixed hexadecimal; other address spaces use <percent-encoded-space>:0x<hex>.\",\"External functions and local thunks are distinct; procedure metadata identifies both and preserves a thunk target when Ghidra resolves one.\",\"Memory-block end addresses are exclusive; permissions come from Ghidra MemoryBlock flags rather than inference from section names.\",\"Only Ghidra-defined string Data is observed; packed or undefined string bytes may be absent. Completeness applies to that inventory, and an empty search does not establish that text is absent from the artifact. If an address is known, use read_bytes and xrefs to inspect bytes and references.\",\"The imported Program and temporary project are ephemeral and deleted on close. Annotation operations edit session database metadata; original executable bytes are never written.\",\"The session serves operations only after Ghidra reports default auto-analysis complete; incomplete analysis does not expose partial results.\",\"macOS sessions require a matching executable Ghidra native decompiler; REA checks for it but does not build native components or change Gatekeeper quarantine state.\"],\"relationship_coverage\":null,\"locations\":[],\"evidence_links\":[]}"
+      }
+    ],
+    "structuredContent": {
+      "evidence_id": "ev_dc23fd367943da012c2af038c255f07a40b281b05c84df86b3209b761f462290",
+      "subject": {
+        "name": "program",
+        "digest": {
+          "sha256": "d40a2312da012fcc34e8e409567e4828ce3bbf6321474985c5ffdeca5b3ce740"
+        },
+        "local_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/sizes/on/program",
+        "format": "mach-o",
+        "architecture": "arm64"
+      },
+      "provider": {
+        "id": "rea-workflow",
+        "name": "REA composed investigation workflow",
+        "version": "1"
+      },
+      "analysis_profile": {
+        "provider": {
+          "id": "rea-workflow",
+          "name": "REA composed investigation workflow",
+          "version": "1"
+        },
+        "parameters": {
+          "upstream_analysis_profile": {
+            "provider": {
+              "id": "ghidra",
+              "name": "Ghidra",
+              "version": "12.1.4"
+            },
+            "parameters": {
+              "target_kind": "executable",
+              "target_format": "mach-o",
+              "architecture": "arm64",
+              "available_architectures": [
+                "arm64"
+              ],
+              "import_mode": "ephemeral-source-immutable",
+              "annotation_policy": "atomic-function-entry-metadata-v1",
+              "load_image_observations": "source-mappings-entry-context-v2",
+              "function_body_evidence": "complete-inclusive-ranges-v1",
+              "function_references": "complete-body-and-entry-reference-manager-v2",
+              "call_relationship_coverage": "function-body-call-coverage-v5",
+              "function_dossier_coverage": "observed-facets-and-call-relationships-v1",
+              "string_inventory_evidence": "defined-data-coverage-v1",
+              "location_resolution": "explicit-address-exact-entry-symbol-first-v3",
+              "procedure_file_offset_resolution": "address-first-unique-target-source-mapping-v2",
+              "instruction_flow_evidence": "decoded-return-pcode-v1",
+              "instruction_references": "exact-address-incoming-v1",
+              "function_boundary_observations": "ghidra-function-boundary-limitations-v3",
+              "no_return_repair": "returning-imports-decoded-return-v2",
+              "process_launch": "inspected-jvm-launch-support-v1",
+              "jump_table_evidence": "typed-case-default-blocks-v1",
+              "decompiler_jump_loads": true,
+              "loader": "auto-from-header",
+              "language_id": "auto-from-header",
+              "compiler_spec_id": "auto-default",
+              "analyzer_preset": "ghidra-default+disabled:Basic Constant Reference Analyzer",
+              "analysis_options": {
+                "disabled_analyzers": [
+                  "Basic Constant Reference Analyzer"
+                ]
+              }
+            },
+            "digest": "8adc939a0dd8b820543988bd794aee84c62b81e7ed00b988fff45785275b1649"
+          },
+          "workflow_revision": 3
+        },
+        "digest": "7acf60058bac3e4f950ce461741f91f9d2e98b62ebe83c651e47c74a1329820f"
+      },
+      "predicate_type": "rea.analysis",
+      "operation": "binary_overview",
+      "parameters": {},
+      "raw_result": null,
+      "normalized_result": {
+        "document": "target-d40a2312da01.bin",
+        "image_base": "0x100000000",
+        "segments": [
+          {
+            "name": "__TEXT",
+            "start": "0x100000000",
+            "end": "0x1000009d0",
+            "length": 2512,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__text",
+            "start": "0x1000009d0",
+            "end": "0x10181b05c",
+            "length": 25273996,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__stubs",
+            "start": "0x10181b05c",
+            "end": "0x10181b83c",
+            "length": 2016,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__stub_helper",
+            "start": "0x10181b83c",
+            "end": "0x10181c040",
+            "length": 2052,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__literals",
+            "start": "0x10181c040",
+            "end": "0x10181eb4c",
+            "length": 11020,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__gcc_except_tab",
+            "start": "0x10181eb4c",
+            "end": "0x1018200d0",
+            "length": 5508,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__const",
+            "start": "0x1018200d0",
+            "end": "0x1018df641",
+            "length": 783729,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__cstring",
+            "start": "0x1018df641",
+            "end": "0x1018e4128",
+            "length": 19175,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__unwind_info",
+            "start": "0x1018e4128",
+            "end": "0x1018e8828",
+            "length": 18176,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__eh_frame",
+            "start": "0x1018e8828",
+            "end": "0x101908000",
+            "length": 128984,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__got",
+            "start": "0x101908000",
+            "end": "0x101908028",
+            "length": 40,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__DATA_CONST",
+            "start": "0x101908028",
+            "end": "0x101908030",
+            "length": 8,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__const",
+            "start": "0x101908030",
+            "end": "0x1019c1d40",
+            "length": 761104,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__dfimg",
+            "start": "0x1019c1d40",
+            "end": "0x101ac0000",
+            "length": 1041088,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__la_symbol_ptr",
+            "start": "0x101ac0000",
+            "end": "0x101ac0540",
+            "length": 1344,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__data",
+            "start": "0x101ac0540",
+            "end": "0x101ac1ac8",
+            "length": 5512,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__thread_vars",
+            "start": "0x101ac1ac8",
+            "end": "0x101ac2098",
+            "length": 1488,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__DATA",
+            "start": "0x101ac2098",
+            "end": "0x101ac20a0",
+            "length": 8,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__thread_data",
+            "start": "0x101ac20a0",
+            "end": "0x101ac8000",
+            "length": 24416,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__DATA",
+            "start": "0x101ac8000",
+            "end": "0x101ac8368",
+            "length": 872,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__bss",
+            "start": "0x101ac8368",
+            "end": "0x101ac8528",
+            "length": 448,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__common",
+            "start": "0x101ac8528",
+            "end": "0x101acc000",
+            "length": 15064,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "__LINKEDIT",
+            "start": "0x101acc000",
+            "end": "0x101b2c1c0",
+            "length": 393664,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          },
+          {
+            "name": "EXTERNAL",
+            "start": "0x101b2d000",
+            "end": "0x101b2d500",
+            "length": 1280,
+            "image_base": "0x100000000",
+            "address_space": "ram"
+          }
+        ],
+        "segment_count": 24,
+        "procedure_count": 123786,
+        "string_count": 11972
+      },
+      "confidence": "derived",
+      "authority": "shipped-artifact",
+      "environment": null,
+      "limitations": [
+        "Derived by an REA composed workflow.",
+        "A headless Ghidra session contains exactly one imported Program, unlike Hopper's multi-document GUI session.",
+        "Cancelling an active Ghidra request terminates its ephemeral database and discards session annotations. The selected target remains open; the next provider query imports the original artifact again.",
+        "Charset is reported, while a non-missing terminator cannot distinguish a present terminator from a fixed or Pascal layout.",
+        "Default-space addresses use lowercase 0x-prefixed hexadecimal; other address spaces use <percent-encoded-space>:0x<hex>.",
+        "External functions and local thunks are distinct; procedure metadata identifies both and preserves a thunk target when Ghidra resolves one.",
+        "Memory-block end addresses are exclusive; permissions come from Ghidra MemoryBlock flags rather than inference from section names.",
+        "Only Ghidra-defined string Data is observed; packed or undefined string bytes may be absent. Completeness applies to that inventory, and an empty search does not establish that text is absent from the artifact. If an address is known, use read_bytes and xrefs to inspect bytes and references.",
+        "The imported Program and temporary project are ephemeral and deleted on close. Annotation operations edit session database metadata; original executable bytes are never written.",
+        "The session serves operations only after Ghidra reports default auto-analysis complete; incomplete analysis does not expose partial results.",
+        "macOS sessions require a matching executable Ghidra native decompiler; REA checks for it but does not build native components or change Gatekeeper quarantine state."
+      ],
+      "relationship_coverage": null,
+      "locations": [],
+      "evidence_links": []
+    }
+  },
+  "jsonrpc": "2.0",
+  "id": 3
+}

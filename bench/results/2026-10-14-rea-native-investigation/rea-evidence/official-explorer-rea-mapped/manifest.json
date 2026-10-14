@@ -1,0 +1,17 @@
+{
+  "config": {
+    "label": "official-explorer-rea-mapped",
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-explorer-snapshot.elf",
+    "procedures": [
+      {
+        "label": "convertFormatValue",
+        "address": "0x4566c8"
+      }
+    ]
+  },
+  "target_sha256": "db131aa6e8b76921afc777c2a6adf0b89d09514513216fe9f8048abd23c42536",
+  "REA_version": "6.5.0",
+  "provider": "Ghidra12.1.4/JDK21.0.12.1/nativeARM64",
+  "server_exit": 0,
+  "scope": "Local static native assembly and heuristic C pseudocode; Dart custom snapshot ABI is not interpreted as recovered Dart semantics."
+}

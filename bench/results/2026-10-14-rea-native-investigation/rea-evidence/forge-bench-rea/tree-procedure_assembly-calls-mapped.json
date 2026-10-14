@@ -1,0 +1,50 @@
+[
+  {
+    "at": "0x1000f4204",
+    "opcode": "bl",
+    "target": "0x1000f4198",
+    "symbols": [
+      "_df.bench$2edart..tree"
+    ]
+  },
+  {
+    "at": "0x1000f421c",
+    "opcode": "bl",
+    "target": "0x1000f4198",
+    "symbols": [
+      "_df.bench$2edart..tree"
+    ]
+  },
+  {
+    "at": "0x1000f42f8",
+    "opcode": "bl",
+    "target": "0x1000b0d1c",
+    "symbols": [
+      "_dartforge_object_new_t"
+    ]
+  },
+  {
+    "at": "0x1000f430c",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f431c",
+    "opcode": "bl",
+    "target": "0x1000b7c08",
+    "symbols": [
+      "_dartforge_stack_overflow"
+    ]
+  },
+  {
+    "at": "0x1000f4338",
+    "opcode": "bl",
+    "target": "0x1000b0d1c",
+    "symbols": [
+      "_dartforge_object_new_t"
+    ]
+  }
+]

@@ -1,0 +1,7 @@
+{"level":30,"time":1792002266725,"application":"rea","mode":"mcp","layer":"server","tool":"open_binary","durationMs":29.08,"status":"ok","msg":"MCP tool execution completed"}
+{"level":30,"time":1792002271099,"application":"rea","mode":"mcp","layer":"server","tool":"binary_overview","durationMs":4371.59,"status":"ok","msg":"MCP tool execution completed"}
+{"level":30,"time":1792002271105,"application":"rea","mode":"mcp","layer":"server","tool":"procedure_assembly","durationMs":2.42,"status":"ok","msg":"MCP tool execution completed"}
+{"level":30,"time":1792002271126,"application":"rea","mode":"mcp","layer":"server","tool":"procedure_pseudo_code","durationMs":17.83,"status":"ok","msg":"MCP tool execution completed"}
+{"level":30,"time":1792002271131,"application":"rea","mode":"mcp","layer":"server","tool":"procedure_callees","durationMs":2.69,"status":"ok","msg":"MCP tool execution completed"}
+{"level":30,"time":1792002271134,"application":"rea","mode":"mcp","layer":"server","tool":"procedure_callers","durationMs":1.15,"status":"ok","msg":"MCP tool execution completed"}
+{"level":30,"time":1792002271594,"application":"rea","mode":"mcp","layer":"server","tool":"close_binary","durationMs":458.14,"status":"ok","msg":"MCP tool execution completed"}

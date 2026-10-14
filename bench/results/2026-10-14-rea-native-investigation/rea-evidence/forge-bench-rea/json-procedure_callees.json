@@ -1,0 +1,178 @@
+{
+  "result": {
+    "_meta": {
+      "provenance": {
+        "untrusted_content": true,
+        "source": "analysis_target"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"evidence_id\":\"ev_f9bf42600cb9ac59cc616911a891b0402e71e0bcf5b68b0e256d0a8c16319747\",\"subject\":{\"name\":\"bench\",\"digest\":{\"sha256\":\"2ba176a6b1cb7e927b6711c0f4f7e458f13868b4ffc894dead6dc9f297b0ff77\"},\"local_path\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/tracing/bench\",\"format\":\"mach-o\",\"architecture\":\"arm64\"},\"provider\":{\"id\":\"ghidra\",\"name\":\"Ghidra\",\"version\":\"12.1.4\"},\"analysis_profile\":{\"provider\":{\"id\":\"ghidra\",\"name\":\"Ghidra\",\"version\":\"12.1.4\"},\"parameters\":{\"target_kind\":\"executable\",\"target_format\":\"mach-o\",\"architecture\":\"arm64\",\"available_architectures\":[\"arm64\"],\"import_mode\":\"ephemeral-source-immutable\",\"annotation_policy\":\"atomic-function-entry-metadata-v1\",\"load_image_observations\":\"source-mappings-entry-context-v2\",\"function_body_evidence\":\"complete-inclusive-ranges-v1\",\"function_references\":\"complete-body-and-entry-reference-manager-v2\",\"call_relationship_coverage\":\"function-body-call-coverage-v5\",\"function_dossier_coverage\":\"observed-facets-and-call-relationships-v1\",\"string_inventory_evidence\":\"defined-data-coverage-v1\",\"location_resolution\":\"explicit-address-exact-entry-symbol-first-v3\",\"procedure_file_offset_resolution\":\"address-first-unique-target-source-mapping-v2\",\"instruction_flow_evidence\":\"decoded-return-pcode-v1\",\"instruction_references\":\"exact-address-incoming-v1\",\"function_boundary_observations\":\"ghidra-function-boundary-limitations-v3\",\"no_return_repair\":\"returning-imports-decoded-return-v2\",\"process_launch\":\"inspected-jvm-launch-support-v1\",\"jump_table_evidence\":\"typed-case-default-blocks-v1\",\"decompiler_jump_loads\":true,\"loader\":\"auto-from-header\",\"language_id\":\"auto-from-header\",\"compiler_spec_id\":\"auto-default\",\"analyzer_preset\":\"ghidra-default\"},\"digest\":\"966e6016724421ad282356f583a9d5bf24577db4ac77a75c7099d236b88bcc28\"},\"predicate_type\":\"rea.analysis\",\"operation\":\"procedure_callees\",\"parameters\":{\"procedure\":\"0x1000f4e64\"},\"raw_result\":{\"value\":[\"0x10009b470\",\"0x10009c234\",\"0x10009c5d4\",\"0x10009ec90\",\"0x10009f014\",\"0x1000a08f0\",\"0x1000a099c\",\"0x1000a0ad8\",\"0x1000b0d1c\",\"0x1000b38a4\",\"0x1000b64c8\",\"0x1000b6b78\",\"0x1000b736c\",\"0x1000b7430\",\"0x1000b7c08\",\"0x1000b8c90\",\"0x1000b95ac\",\"0x1000b9958\",\"0x1000f7008\",\"0x1000f70b4\",\"0x1000f7160\",\"0x1000f720c\",\"0x1000f72b8\",\"0x1000f946c\",\"0x100115628\",\"0x1001a70a4\",\"0x1001a95c0\",\"0x1001ead34\",\"0x1001eb690\"],\"limitations\":[],\"relationship_coverage\":{\"status\":\"partial\",\"diagnostics\":[\"Only resolved Ghidra call references are returned; unresolved computed or indirect calls remain unknown, while function classifications distinguish thunks and externals.\"],\"limitations\":[\"Ghidra's callee inventory omits targets of 16 call reference(s) or decoded call(s) without destinations.\"],\"limited_directions\":[\"callees\"]}},\"normalized_result\":[\"0x10009b470\",\"0x10009c234\",\"0x10009c5d4\",\"0x10009ec90\",\"0x10009f014\",\"0x1000a08f0\",\"0x1000a099c\",\"0x1000a0ad8\",\"0x1000b0d1c\",\"0x1000b38a4\",\"0x1000b64c8\",\"0x1000b6b78\",\"0x1000b736c\",\"0x1000b7430\",\"0x1000b7c08\",\"0x1000b8c90\",\"0x1000b95ac\",\"0x1000b9958\",\"0x1000f7008\",\"0x1000f70b4\",\"0x1000f7160\",\"0x1000f720c\",\"0x1000f72b8\",\"0x1000f946c\",\"0x100115628\",\"0x1001a70a4\",\"0x1001a95c0\",\"0x1001ead34\",\"0x1001eb690\"],\"confidence\":\"observed\",\"authority\":\"shipped-artifact\",\"environment\":null,\"limitations\":[\"The session serves operations only after Ghidra reports default auto-analysis complete; incomplete analysis does not expose partial results.\",\"The imported Program and temporary project are ephemeral and deleted on close. Annotation operations edit session database metadata; original executable bytes are never written.\",\"Cancelling an active Ghidra request terminates its ephemeral database and discards session annotations. The selected target remains open; the next provider query imports the original artifact again.\",\"Default-space addresses use lowercase 0x-prefixed hexadecimal; other address spaces use <percent-encoded-space>:0x<hex>.\",\"macOS sessions require a matching executable Ghidra native decompiler; REA checks for it but does not build native components or change Gatekeeper quarantine state.\"],\"relationship_coverage\":{\"status\":\"partial\",\"limitations\":[\"Ghidra's callee inventory omits targets of 16 call reference(s) or decoded call(s) without destinations.\"],\"limited_directions\":[\"callees\"],\"diagnostics\":[\"Only resolved Ghidra call references are returned; unresolved computed or indirect calls remain unknown, while function classifications distinguish thunks and externals.\"]},\"locations\":[],\"evidence_links\":[]}"
+      }
+    ],
+    "structuredContent": {
+      "evidence_id": "ev_f9bf42600cb9ac59cc616911a891b0402e71e0bcf5b68b0e256d0a8c16319747",
+      "subject": {
+        "name": "bench",
+        "digest": {
+          "sha256": "2ba176a6b1cb7e927b6711c0f4f7e458f13868b4ffc894dead6dc9f297b0ff77"
+        },
+        "local_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/tracing/bench",
+        "format": "mach-o",
+        "architecture": "arm64"
+      },
+      "provider": {
+        "id": "ghidra",
+        "name": "Ghidra",
+        "version": "12.1.4"
+      },
+      "analysis_profile": {
+        "provider": {
+          "id": "ghidra",
+          "name": "Ghidra",
+          "version": "12.1.4"
+        },
+        "parameters": {
+          "target_kind": "executable",
+          "target_format": "mach-o",
+          "architecture": "arm64",
+          "available_architectures": [
+            "arm64"
+          ],
+          "import_mode": "ephemeral-source-immutable",
+          "annotation_policy": "atomic-function-entry-metadata-v1",
+          "load_image_observations": "source-mappings-entry-context-v2",
+          "function_body_evidence": "complete-inclusive-ranges-v1",
+          "function_references": "complete-body-and-entry-reference-manager-v2",
+          "call_relationship_coverage": "function-body-call-coverage-v5",
+          "function_dossier_coverage": "observed-facets-and-call-relationships-v1",
+          "string_inventory_evidence": "defined-data-coverage-v1",
+          "location_resolution": "explicit-address-exact-entry-symbol-first-v3",
+          "procedure_file_offset_resolution": "address-first-unique-target-source-mapping-v2",
+          "instruction_flow_evidence": "decoded-return-pcode-v1",
+          "instruction_references": "exact-address-incoming-v1",
+          "function_boundary_observations": "ghidra-function-boundary-limitations-v3",
+          "no_return_repair": "returning-imports-decoded-return-v2",
+          "process_launch": "inspected-jvm-launch-support-v1",
+          "jump_table_evidence": "typed-case-default-blocks-v1",
+          "decompiler_jump_loads": true,
+          "loader": "auto-from-header",
+          "language_id": "auto-from-header",
+          "compiler_spec_id": "auto-default",
+          "analyzer_preset": "ghidra-default"
+        },
+        "digest": "966e6016724421ad282356f583a9d5bf24577db4ac77a75c7099d236b88bcc28"
+      },
+      "predicate_type": "rea.analysis",
+      "operation": "procedure_callees",
+      "parameters": {
+        "procedure": "0x1000f4e64"
+      },
+      "raw_result": {
+        "value": [
+          "0x10009b470",
+          "0x10009c234",
+          "0x10009c5d4",
+          "0x10009ec90",
+          "0x10009f014",
+          "0x1000a08f0",
+          "0x1000a099c",
+          "0x1000a0ad8",
+          "0x1000b0d1c",
+          "0x1000b38a4",
+          "0x1000b64c8",
+          "0x1000b6b78",
+          "0x1000b736c",
+          "0x1000b7430",
+          "0x1000b7c08",
+          "0x1000b8c90",
+          "0x1000b95ac",
+          "0x1000b9958",
+          "0x1000f7008",
+          "0x1000f70b4",
+          "0x1000f7160",
+          "0x1000f720c",
+          "0x1000f72b8",
+          "0x1000f946c",
+          "0x100115628",
+          "0x1001a70a4",
+          "0x1001a95c0",
+          "0x1001ead34",
+          "0x1001eb690"
+        ],
+        "limitations": [],
+        "relationship_coverage": {
+          "status": "partial",
+          "diagnostics": [
+            "Only resolved Ghidra call references are returned; unresolved computed or indirect calls remain unknown, while function classifications distinguish thunks and externals."
+          ],
+          "limitations": [
+            "Ghidra's callee inventory omits targets of 16 call reference(s) or decoded call(s) without destinations."
+          ],
+          "limited_directions": [
+            "callees"
+          ]
+        }
+      },
+      "normalized_result": [
+        "0x10009b470",
+        "0x10009c234",
+        "0x10009c5d4",
+        "0x10009ec90",
+        "0x10009f014",
+        "0x1000a08f0",
+        "0x1000a099c",
+        "0x1000a0ad8",
+        "0x1000b0d1c",
+        "0x1000b38a4",
+        "0x1000b64c8",
+        "0x1000b6b78",
+        "0x1000b736c",
+        "0x1000b7430",
+        "0x1000b7c08",
+        "0x1000b8c90",
+        "0x1000b95ac",
+        "0x1000b9958",
+        "0x1000f7008",
+        "0x1000f70b4",
+        "0x1000f7160",
+        "0x1000f720c",
+        "0x1000f72b8",
+        "0x1000f946c",
+        "0x100115628",
+        "0x1001a70a4",
+        "0x1001a95c0",
+        "0x1001ead34",
+        "0x1001eb690"
+      ],
+      "confidence": "observed",
+      "authority": "shipped-artifact",
+      "environment": null,
+      "limitations": [
+        "The session serves operations only after Ghidra reports default auto-analysis complete; incomplete analysis does not expose partial results.",
+        "The imported Program and temporary project are ephemeral and deleted on close. Annotation operations edit session database metadata; original executable bytes are never written.",
+        "Cancelling an active Ghidra request terminates its ephemeral database and discards session annotations. The selected target remains open; the next provider query imports the original artifact again.",
+        "Default-space addresses use lowercase 0x-prefixed hexadecimal; other address spaces use <percent-encoded-space>:0x<hex>.",
+        "macOS sessions require a matching executable Ghidra native decompiler; REA checks for it but does not build native components or change Gatekeeper quarantine state."
+      ],
+      "relationship_coverage": {
+        "status": "partial",
+        "limitations": [
+          "Ghidra's callee inventory omits targets of 16 call reference(s) or decoded call(s) without destinations."
+        ],
+        "limited_directions": [
+          "callees"
+        ],
+        "diagnostics": [
+          "Only resolved Ghidra call references are returned; unresolved computed or indirect calls remain unknown, while function classifications distinguish thunks and externals."
+        ]
+      },
+      "locations": [],
+      "evidence_links": []
+    }
+  },
+  "jsonrpc": "2.0",
+  "id": 6
+}

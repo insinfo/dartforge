@@ -1,0 +1,15 @@
+{
+  "label": "official-raw-json-rea",
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-raw-json.bin",
+  "open_options": {
+    "format": "raw-binary",
+    "architecture": "arm64",
+    "entry_point": "0x97e1c"
+  },
+  "procedures": [
+    {
+      "label": "json",
+      "address": "0x97e1c"
+    }
+  ]
+}

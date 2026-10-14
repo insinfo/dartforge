@@ -1,0 +1,28 @@
+{
+  "result": {
+    "_meta": {
+      "provenance": {
+        "untrusted_content": true,
+        "source": "analysis_target"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"result\":{\"path\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-raw-json.bin\",\"format\":\"raw-binary\",\"kind\":\"executable\",\"sha256\":\"0120a3e7ba0f4ccd219c18555e51294f7f015b6279c5459b7a36a7829978833f\",\"architecture\":\"arm64\",\"entry_point\":\"0x97e1c\"}}"
+      }
+    ],
+    "structuredContent": {
+      "result": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-raw-json.bin",
+        "format": "raw-binary",
+        "kind": "executable",
+        "sha256": "0120a3e7ba0f4ccd219c18555e51294f7f015b6279c5459b7a36a7829978833f",
+        "architecture": "arm64",
+        "entry_point": "0x97e1c"
+      }
+    }
+  },
+  "jsonrpc": "2.0",
+  "id": 2
+}

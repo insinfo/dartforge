@@ -1,0 +1,23 @@
+{
+  "artifact": {
+    "blake3": "1c696465f9aaf46113c433366ddfc3c812838ff40bf248a989dfa10f875b4791",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "038525aaf3417f21e37513bf1c4fbff91a337aae3d376df003dfa4c4b8e10a00",
+    "optimized": true,
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/forge-bench-map/bench"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "ed517b2cdcf3a80fcc5095e0df2cdcc884a0b92fd066cb86ff8943e8a1b63f80",
+      "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/bench.dart"
+    }
+  ],
+  "verification_implemented": false
+}

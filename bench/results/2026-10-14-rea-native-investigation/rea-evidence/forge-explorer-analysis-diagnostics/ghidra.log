@@ -1,0 +1,185 @@
+2026-10-14 15:20:30 INFO  (LoggingInitialization) Using log config file: jar:file:/Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Framework/Generic/lib/Generic.jar!/generic.log4j.xml  
+2026-10-14 15:20:30 INFO  (LoggingInitialization) Using log file: /Volumes/ssd_dock/tools/rea/tmp/rea-ghidra-48aq5h/ghidra.log  
+2026-10-14 15:20:30 DEBUG (GhidraObjectInputFilter) Including serial input filter: FileSystem/data/client.rmi.serial.filter  
+2026-10-14 15:20:30 INFO  (Preferences) Loading user preferences: /Volumes/ssd_dock/tools/rea/tmp/rea-ghidra-48aq5h/config/isaque-ghidra/ghidra_12.1.4_PUBLIC/preferences  
+2026-10-14 15:20:30 INFO  (ClassSearcher) Searching for classes...  
+2026-10-14 15:20:31 INFO  (ClassSearcher) Class search complete (553 ms)  
+2026-10-14 15:20:31 INFO  (DefaultSSLContextInitializer) Initializing SSL Context  
+2026-10-14 15:20:31 INFO  (SecureRandomFactory) Initializing Random Number Generator...  
+2026-10-14 15:20:31 INFO  (SecureRandomFactory) Random Number Generator initialization complete: NativePRNGNonBlocking  
+2026-10-14 15:20:31 INFO  (DefaultTrustManagerFactory) Trust manager disabled, cacerts have not been set  
+2026-10-14 15:20:31 INFO  (FileCacheMaintenanceDaemon) Starting cache cleanup: /Volumes/ssd_dock/tools/rea/tmp/rea-ghidra-48aq5h/cache/isaque-ghidra/fscache2  
+2026-10-14 15:20:31 INFO  (FileCacheMaintenanceDaemon) Finished cache cleanup, estimated storage used: 0  
+2026-10-14 15:20:31 INFO  (AnalyzeHeadless) Headless startup complete (1055 ms)  
+2026-10-14 15:20:31 INFO  (ClassSearcher) Class searcher loaded 59 extension points (20 false positives)  
+2026-10-14 15:20:31 INFO  (HeadlessAnalyzer) HEADLESS Script Paths:
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/SwiftDemangler/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/WildcardAssembler/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/node_modules/rea-agents/bridge/ghidra
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Processors/JVM/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Debug/Debugger-rmi-trace/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/GnuDemangler/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/PDB/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/Decompiler/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/SystemEmulation/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Processors/8051/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/BytePatterns/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Processors/DATA/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Debug/Debugger/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/PyGhidra/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Processors/PIC/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/BSim/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/DecompilerDependent/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/VersionTracking/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/FunctionID/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Processors/Atmel/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/Base/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/FileFormats/ghidra_scripts
+    /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/MicrosoftCodeAnalyzer/ghidra_scripts  
+2026-10-14 15:20:31 INFO  (HeadlessAnalyzer) HEADLESS: execution starts  
+2026-10-14 15:20:31 INFO  (HeadlessAnalyzer) Creating temporary project: /Volumes/ssd_dock/tools/rea/tmp/rea-ghidra-48aq5h/project/rea-project  
+2026-10-14 15:20:31 DEBUG (DefaultProjectManager) No tools found; Installing default tools  
+2026-10-14 15:20:31 DEBUG (DefaultProjectManager) 	no recent project directories found  
+2026-10-14 15:20:31 INFO  (DefaultProject) Creating project: /Volumes/ssd_dock/tools/rea/tmp/rea-ghidra-48aq5h/project/rea-project  
+2026-10-14 15:20:31 INFO  (HeadlessAnalyzer) REPORT: Processing input files:   
+2026-10-14 15:20:31 INFO  (HeadlessAnalyzer)      project: /Volumes/ssd_dock/tools/rea/tmp/rea-ghidra-48aq5h/project/rea-project  
+2026-10-14 15:20:31 INFO  (HeadlessAnalyzer) IMPORTING: file:///Volumes/ssd_dock/tools/rea/tmp/rea-ghidra-48aq5h/target-d40a2312da01.bin  
+2026-10-14 15:20:32 INFO  (ProgramLoader) Using Loader: Mac OS X Mach-O  
+2026-10-14 15:20:32 INFO  (ProgramLoader) Using Language/Compiler: AARCH64:LE:64:AppleSilicon:default  
+2026-10-14 15:20:32 INFO  (ProgramLoader) Using Library Search Path: [., /System/Library/dyld/dyld_shared_cache_arm64e, /System/Library/dyld/dyld_shared_cache_x86_64, /System/Library/dyld/dyld_shared_cache_x86_64h, /System/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_arm64e, /System/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64, /System/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64h, /Volumes/ssd_dock/tools/rea/tmp/rea-ghidra-48aq5h/home/Library/Java/Extensions, /Library/Java/Extensions, /Network/Library/Java/Extensions, /System/Library/Java/Extensions, /usr/lib/java]  
+2026-10-14 15:20:33 INFO  (ProgramLoader) Additional info:
+Loading file:///Volumes/ssd_dock/tools/rea/tmp/rea-ghidra-48aq5h/target-d40a2312da01.bin?MD5=c7cffecc5a98e3f5e738047201ff420a...
+target-d40a2312da01.bin: Rust error - data/extensions/rust/unix64 does not exist in module AARCH64
+------------------------------------------------
+
+Linking the External Programs of 'target-d40a2312da01.bin' to imported libraries...
+  [/usr/lib/libSystem.B.dylib] -> not found in project
+  [/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation] -> not found in project
+  [/System/Library/Frameworks/Security.framework/Versions/A/Security] -> not found in project
+------------------------------------------------
+
+  
+2026-10-14 15:20:33 INFO  (HeadlessAnalyzer) IMPORTING: Loaded 0 additional files  
+2026-10-14 15:20:33 INFO  (HeadlessAnalyzer) REPORT: Execute script: /Volumes/ssd_dock/tools/rea/node_modules/rea-agents/bridge/ghidra/ReaGhidraAnalysisOptions.java 'Basic Constant Reference Analyzer'   
+2026-10-14 15:20:34 INFO  (HeadlessAnalyzer) SCRIPT: /Volumes/ssd_dock/tools/rea/node_modules/rea-agents/bridge/ghidra/ReaGhidraAnalysisOptions.java  
+2026-10-14 15:20:34 INFO  (HeadlessAnalyzer) ANALYZING all memory and code: file:///Volumes/ssd_dock/tools/rea/tmp/rea-ghidra-48aq5h/target-d40a2312da01.bin  
+2026-10-14 15:20:42 INFO  (DecompilerSwitchAnalyzer) hit non-returning function, restarting decompiler switch analyzer later  
+2026-10-14 15:24:21 DEBUG (FidAnalyzer) No FID Libraries apply for language AARCH64:LE:64:AppleSilicon  
+2026-10-14 15:24:21 INFO  (PackedDatabaseCache) Packed database cache: /Volumes/ssd_dock/tools/rea/tmp/rea-ghidra-48aq5h/cache/isaque-ghidra/packed-db-cache  
+2026-10-14 15:24:21 DEBUG (PackedDatabaseCache) Caching packed database: /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/Base/data/typeinfo/mac_10.9/mac_osx.gdt  
+2026-10-14 15:24:21 DEBUG (PackedDatabase) Unpacking database /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/Base/data/typeinfo/mac_10.9/mac_osx.gdt -> /Volumes/ssd_dock/tools/rea/tmp/rea-ghidra-48aq5h/cache/isaque-ghidra/packed-db-cache/pdbA30B2A34/db.1.gbf  
+2026-10-14 15:24:21 DEBUG (PackedDatabaseCache) Cache update completed: /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/Base/data/typeinfo/mac_10.9/mac_osx.gdt  
+2026-10-14 15:24:21 DEBUG (PackedDatabaseCache) Caching packed database: /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/Base/data/typeinfo/rust/rust-common.gdt  
+2026-10-14 15:24:21 DEBUG (PackedDatabase) Unpacking database /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/Base/data/typeinfo/rust/rust-common.gdt -> /Volumes/ssd_dock/tools/rea/tmp/rea-ghidra-48aq5h/cache/isaque-ghidra/packed-db-cache/pdbDFD2D5C2/db.1.gbf  
+2026-10-14 15:24:21 DEBUG (PackedDatabaseCache) Cache update completed: /Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/Base/data/typeinfo/rust/rust-common.gdt  
+2026-10-14 15:24:21 INFO  (ApplyDataArchiveAnalyzer) Applied data type archive: mac_osx  
+2026-10-14 15:24:21 INFO  (ApplyDataArchiveAnalyzer) Applied data type archive: rust-common  
+2026-10-14 15:24:39 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100a3bc58 for: q0-100a3bc58  
+2026-10-14 15:24:42 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @10147c86c for: x0-10147c86c  
+2026-10-14 15:24:42 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1003f9cb8 for: d22-1003f9cb8  
+2026-10-14 15:24:45 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @101181a64 for: x17-101181a64  
+2026-10-14 15:24:46 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @101140664 for: d21-101140664  
+2026-10-14 15:24:48 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1011c1f94 for: d24-1011c1f94  
+2026-10-14 15:24:51 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @10123a330 for: d26-10123a330  
+2026-10-14 15:24:51 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @101076804 for: d17-101076804  
+2026-10-14 15:24:53 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @10017a9c4 for: q0-10017a9c4  
+2026-10-14 15:24:54 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1011b7a38 for: d29-1011b7a38  
+2026-10-14 15:24:55 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @10103afe0 for: x12-10103afe0  
+2026-10-14 15:25:00 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1004f650c for: x13-1004f650c  
+2026-10-14 15:25:02 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @10143694c for: d23-10143694c  
+2026-10-14 15:25:05 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @10042a6d8 for: x1-10042a6d8  
+2026-10-14 15:25:07 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @10016c290 for: d18-10016c290  
+2026-10-14 15:25:08 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1014ec180 for: d23-1014ec180  
+2026-10-14 15:25:09 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100eea2e0 for: d25-100eea2e0  
+2026-10-14 15:25:11 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @10122f1f4 for: q0-10122f1f4  
+2026-10-14 15:25:15 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100ef045c for: x11-100ef045c  
+2026-10-14 15:25:15 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1008ecc40 for: d27-1008ecc40  
+2026-10-14 15:25:15 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @10096d424 for: x9-10096d424  
+2026-10-14 15:25:18 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100764604 for: x26-100764604  
+2026-10-14 15:25:19 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1014e48f4 for: x13-1014e48f4  
+2026-10-14 15:25:22 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1004276b8 for: d30-1004276b8  
+2026-10-14 15:25:23 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1009e8a58 for: x1-1009e8a58  
+2026-10-14 15:25:24 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @10152ed80 for: x14-10152ed80  
+2026-10-14 15:25:25 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1004eb650 for: d31-1004eb650  
+2026-10-14 15:25:26 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1005a6d38 for: x18-1005a6d38  
+2026-10-14 15:25:27 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100c28e84 for: d27-100c28e84  
+2026-10-14 15:25:30 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100c5cf7c for: x16-100c5cf7c  
+2026-10-14 15:25:31 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100c1be14 for: d26-100c1be14  
+2026-10-14 15:25:33 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1005da174 for: x9-1005da174  
+2026-10-14 15:25:33 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1014dcee4 for: x9-1014dcee4  
+2026-10-14 15:25:33 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @10135dd08 for: x12-10135dd08  
+2026-10-14 15:25:33 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100a19298 for: x8-100a19298  
+2026-10-14 15:25:35 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100199d94 for: d18-100199d94  
+2026-10-14 15:25:36 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100f24a24 for: d27-100f24a24  
+2026-10-14 15:25:37 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100563a4c for: x10-100563a4c  
+2026-10-14 15:25:37 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100c62fd4 for: d18-100c62fd4  
+2026-10-14 15:25:38 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1010222e8 for: d17-1010222e8  
+2026-10-14 15:25:38 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100c203cc for: x10-100c203cc  
+2026-10-14 15:25:41 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100a9dd8c for: d26-100a9dd8c  
+2026-10-14 15:25:41 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100b1c23c for: x9-100b1c23c  
+2026-10-14 15:25:43 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1009560d4 for: x16-1009560d4  
+2026-10-14 15:25:45 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1011d33f4 for: x13-1011d33f4  
+2026-10-14 15:25:45 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1002581dc for: d18-1002581dc  
+2026-10-14 15:25:49 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100e5cf78 for: d22-100e5cf78  
+2026-10-14 15:25:53 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100619be0 for: x0-100619be0  
+2026-10-14 15:25:55 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @101355fb4 for: d29-101355fb4  
+2026-10-14 15:25:57 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100e4b888 for: x16-100e4b888  
+2026-10-14 15:25:57 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1010100f8 for: x17-1010100f8  
+2026-10-14 15:25:58 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1006cb8f8 for: x16-1006cb8f8  
+2026-10-14 15:25:59 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @10104b1e8 for: x10-10104b1e8  
+2026-10-14 15:26:01 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @10078c5ec for: d23-10078c5ec  
+2026-10-14 15:26:01 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1011c97ec for: d24-1011c97ec  
+2026-10-14 15:26:06 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100f11e08 for: x13-100f11e08  
+2026-10-14 15:26:07 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1004cc7c0 for: x12-1004cc7c0  
+2026-10-14 15:26:08 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1011c42f8 for: d30-1011c42f8  
+2026-10-14 15:26:12 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1004c4c94 for: d30-1004c4c94  
+2026-10-14 15:26:15 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1017cb200 for: d27-1017cb200  
+2026-10-14 15:26:16 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100948bcc for: d18-100948bcc  
+2026-10-14 15:26:16 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @10108ce18 for: x15-10108ce18  
+2026-10-14 15:26:16 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @101147bd0 for: d22-101147bd0  
+2026-10-14 15:26:17 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @10124e718 for: d20-10124e718  
+2026-10-14 15:26:20 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @100dca948 for: d21-100dca948  
+2026-10-14 15:26:21 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @1004885a4 for: d17-1004885a4  
+2026-10-14 15:26:21 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @101046200 for: d23-101046200  
+2026-10-14 15:26:21 ERROR (VarnodeContext) VarnodeContext: out of address spaces at @101408978 for: x11-101408978  
+2026-10-14 15:26:23 INFO  (AutoAnalysisManager) -----------------------------------------------------
+    AARCH64 ELF PLT Thunks                     0.000 secs
+    ASCII Strings                              0.912 secs
+    Apply Data Archives                        0.628 secs
+    Call Convention ID                         0.308 secs
+    Call-Fixup Installer                       0.914 secs
+    Create Address Tables                      2.602 secs
+    Create Address Tables - One Time           0.431 secs
+    Create Function                            9.352 secs
+    Data Reference                            28.443 secs
+    Decompiler Switch Analysis                90.461 secs
+    Decompiler Switch Analysis - One Time      2.736 secs
+    Demangler GNU                              0.174 secs
+    Demangler Rust                             0.072 secs
+    Disassemble                                9.077 secs
+    Disassemble Entry Points                   2.078 secs
+    Embedded Media                             0.084 secs
+    External Entry References                  0.001 secs
+    Function ID                                0.024 secs
+    Function Start Search                      0.471 secs
+    Function Start Search After Code           0.462 secs
+    Function Start Search After Data           0.517 secs
+    Function Start Search delayed - One Time   0.073 secs
+    Mach-O Function Starts                     9.411 secs
+    Non-Returning Functions - Discovered      13.016 secs
+    Non-Returning Functions - Known            0.002 secs
+    Reference                                  4.048 secs
+    Rust String Analyzer                       0.137 secs
+    Shared Return Calls                       10.584 secs
+    Stack                                    106.072 secs
+    Subroutine References                     56.075 secs
+-----------------------------------------------------
+     Total Time   349 secs
+-----------------------------------------------------
+  
+2026-10-14 15:26:23 INFO  (HeadlessAnalyzer) REPORT: Analysis succeeded for file: file:///Volumes/ssd_dock/tools/rea/tmp/rea-ghidra-48aq5h/target-d40a2312da01.bin  
+2026-10-14 15:26:23 INFO  (HeadlessAnalyzer) REPORT: Execute script: /Volumes/ssd_dock/tools/rea/node_modules/rea-agents/bridge/ghidra/ReaGhidraNoReturnFix.java   
+2026-10-14 15:26:23 INFO  (HeadlessAnalyzer) SCRIPT: /Volumes/ssd_dock/tools/rea/node_modules/rea-agents/bridge/ghidra/ReaGhidraNoReturnFix.java  
+2026-10-14 15:26:23 INFO  (GhidraScript) ReaGhidraNoReturnFix.java> REA no-return fix: cleared=0 sites=0 refit=0  
+2026-10-14 15:26:23 INFO  (HeadlessAnalyzer) REPORT: Execute script: /Volumes/ssd_dock/tools/rea/node_modules/rea-agents/bridge/ghidra/ReaGhidraBridge.java '/Volumes/ssd_dock/tools/rea/tmp/rea-ghidra-48aq5h/session.json'   
+2026-10-14 15:26:23 INFO  (HeadlessAnalyzer) SCRIPT: /Volumes/ssd_dock/tools/rea/node_modules/rea-agents/bridge/ghidra/ReaGhidraBridge.java  

@@ -1,0 +1,12 @@
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/call",
+  "params": {
+    "name": "open_binary",
+    "arguments": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-bench-snapshot.elf",
+      "provider_id": "ghidra"
+    }
+  }
+}

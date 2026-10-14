@@ -1,0 +1,126 @@
+diff --git a/crates/emit_native/src/driver.rs b/crates/emit_native/src/driver.rs
+index 63968d45..3551b226 100644
+--- a/crates/emit_native/src/driver.rs
++++ b/crates/emit_native/src/driver.rs
+@@ -17,6 +17,8 @@ pub struct NativeDriverOptions {
+     pub debug_info: bool,
+     /// The target CPU (`--cpu`, `generator::Cpu`); `None`, the baseline of the target.
+     pub cpu: Option<crate::generator::Cpu>,
++    /// SDK library directory matching the emitted IR. Raw IR callers may use discovery.
++    pub sdk_lib: Option<PathBuf>,
+ }
+ 
+ impl Default for NativeDriverOptions {
+@@ -27,6 +29,7 @@ impl Default for NativeDriverOptions {
+             timings: false,
+             debug_info: false,
+             cpu: None,
++            sdk_lib: None,
+         }
+     }
+ }
+@@ -80,7 +83,10 @@ pub fn compile_and_link(
+     // A program with the source SDK (P5c): the entry calls the registration of the
+     // SDK libraries, which live in the cached objects.
+     let sdk = if llvm_ir.contains("declare void @df.register.") {
+-        let dir = crate::dart_sdk()?;
++        let dir = match &options.sdk_lib {
++            Some(directory) => directory.clone(),
++            None => crate::dart_sdk()?,
++        };
+         let profile = if options.optimize {
+             crate::sdk_module::SdkProfile::Production
+         } else {
+diff --git a/crates/emit_native/src/lib.rs b/crates/emit_native/src/lib.rs
+index 551f4d5c..ece45c81 100644
+--- a/crates/emit_native/src/lib.rs
++++ b/crates/emit_native/src/lib.rs
+@@ -87,6 +87,8 @@ pub struct EmittedIr {
+     /// Contract provenance for this exact emission; never an implicit proof.
+     pub contracts: contracts::ContractReport,
+     pub text: String,
++    /// SDK library directory selected for this emission and its linked SDK objects.
++    pub sdk_lib: PathBuf,
+     pub times: EmissionTimes,
+     /// Bytes of `text` that are function bodies of the SDK (`dart:`); see
+     /// `sdk_bytes`.
+@@ -113,7 +115,7 @@ pub const UNSUPPORTED_PREFIX: &str = "not supported by the native backend: ";
+ /// [`pruning::prune_hir`] with the summaries of the SDK libraries of the profile (the
+ /// SDK comes out of the cache, or is compiled now, as the link would do right
+ /// after). `None` when the module does not use the source SDK.
+-fn prune_program_hir(module: &mut hir::Module, production: bool) -> Result<Option<pruning::HirPruning>, String> {
++fn prune_program_hir(module: &mut hir::Module, production: bool, sdk_lib: &Path) -> Result<Option<pruning::HirPruning>, String> {
+     if module.sdk_library || module.sdk_records.is_empty() {
+         return Ok(None);
+     }
+@@ -121,7 +123,7 @@ fn prune_program_hir(module: &mut hir::Module, production: bool) -> Result<Optio
+     let clang = driver::NativeDriverOptions::default().clang;
+     // The same directory and the same Clang as the link (`driver::compile_and_link`):
+     // the same cache key.
+-    let sdk = sdk_module::compiled_sdk_in_profile(&dart_sdk()?, &clang, profile)?;
++    let sdk = sdk_module::compiled_sdk_in_profile(sdk_lib, &clang, profile)?;
+     if !sdk.summaries.iter().all(|r| r.is_file()) {
+         return Ok(None);
+     }
+@@ -471,7 +473,8 @@ fn emit_ir_internal(
+     // `DARTFORGE_NO_HIR_PRUNING=1` turns it off.
+     if prune && !std::env::var("DARTFORGE_NO_HIR_PRUNING").is_ok_and(|v| v == "1") {
+         let t_prune = Instant::now();
+-        if let Some(e) = prune_program_hir(&mut hir_module, options.optimize)?
++        optimize::prepare_for_pruning(&mut hir_module);
++        if let Some(e) = prune_program_hir(&mut hir_module, options.optimize, &sdk_dir)?
+             && options.timings
+         {
+             eprintln!(
+@@ -597,6 +600,7 @@ fn emit_ir_internal(
+     Ok(EmittedIr {
+         text: format!("; DartForge contract provenance {}\n{llvm_ir}", contract_report.cache_tag()),
+         contracts: contract_report,
++        sdk_lib: sdk_dir,
+         times: EmissionTimes {
+             frontend: front_duration,
+             world: world_duration,
+@@ -661,6 +665,7 @@ pub fn compile_with(
+         timings: options.timings,
+         debug_info: options.debug,
+         cpu: options.cpu,
++        sdk_lib: Some(ir.sdk_lib.clone()),
+     };
+ 
+     let linkage = driver::compile_and_link(&ir.text, exit, &driver_opts)?;
+diff --git a/crates/emit_native/src/optimize/mod.rs b/crates/emit_native/src/optimize/mod.rs
+index 77303312..4f3674d7 100644
+--- a/crates/emit_native/src/optimize/mod.rs
++++ b/crates/emit_native/src/optimize/mod.rs
+@@ -30,10 +30,31 @@ mod tables;
+ 
+ #[cfg(test)]
+ mod tests;
++#[cfg(test)]
++mod pre_prune_tests;
++#[cfg(test)]
++mod physical_devirtualize;
+ 
+ use crate::hir::*;
+ use std::collections::HashMap;
+ 
++/// Remove proven unreachable CFG edges before collecting symbol/selector roots.
++/// This performs no inlining, ownership insertion, or exception-table lowering.
++pub(crate) fn prepare_for_pruning(module: &mut Module) {
++    if disabled() || std::env::var("DARTFORGE_NO_PRE_PRUNE_CFG").as_deref() == Ok("1") {
++        return;
++    }
++    prune_constant_cfg(module);
++}
++
++fn prune_constant_cfg(module: &mut Module) {
++    for function in &mut module.functions {
++        representation_constants::propagate_literals(function);
++        simplify::fold_constants(function);
++        simplify::remove_unreachable(function);
++    }
++}
++
+ /// Prepares the program and the SDK libraries through the same emission pipeline.
+ /// The memory model is defined before the passes; the materialization of
+ /// exceptions stays last, since its IDs describe the final HIR.

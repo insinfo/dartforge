@@ -1,0 +1,15 @@
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/call",
+  "params": {
+    "name": "open_binary",
+    "arguments": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/forge-color-raw.bin",
+      "provider_id": "ghidra",
+      "format": "raw-binary",
+      "architecture": "arm64",
+      "entry_point": "0x101086da4"
+    }
+  }
+}

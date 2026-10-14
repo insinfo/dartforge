@@ -1,0 +1,11 @@
+{
+  "jsonrpc": "2.0",
+  "id": 19,
+  "method": "tools/call",
+  "params": {
+    "name": "procedure_callers",
+    "arguments": {
+      "procedure": "0x1001ecdc4"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "label": "forge-explorer-rea",
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/sizes/on/program",
+  "procedures": [
+    {
+      "label": "convertFormatValue",
+      "address": "0x101086da4"
+    },
+    {
+      "label": "drawPixel",
+      "address": "0x101246384"
+    },
+    {
+      "label": "register-program",
+      "address": "0x1014783ec"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "result": {
+    "_meta": {
+      "provenance": {
+        "untrusted_content": true,
+        "source": "analysis_target"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"result\":{\"path\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-raw-Node-count-rea/snapshot.json\",\"bytes\":33653,\"primitive_entries\":0,\"workflow_entries\":1,\"evidence_records\":5}}"
+      }
+    ],
+    "structuredContent": {
+      "result": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-raw-Node-count-rea/snapshot.json",
+        "bytes": 33653,
+        "primitive_entries": 0,
+        "workflow_entries": 1,
+        "evidence_records": 5
+      }
+    }
+  },
+  "jsonrpc": "2.0",
+  "id": 8
+}

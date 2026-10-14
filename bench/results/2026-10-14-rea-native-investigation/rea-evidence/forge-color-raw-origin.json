@@ -1,0 +1,9 @@
+{
+  "original_container": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/sizes/on/program",
+  "container_sha256": "d40a2312da012fcc34e8e409567e4828ce3bbf6321474985c5ffdeca5b3ce740",
+  "container_offset": 17329572,
+  "original_address": "0x101086da4",
+  "symbol_bytes": 43376,
+  "raw_sha256": "8eb4129e0c8b43be5ddf0d7222834fafba9cf11db4580ca003297f62632579ec",
+  "scope": "Exact original function bytes with original ARM64 address. No external data/targets included; decompiler body and direct instruction targets only, not complete runtime callgraph."
+}

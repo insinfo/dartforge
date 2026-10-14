@@ -1,0 +1,22 @@
+{
+  "label": "forge-bench-rea",
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/tracing/bench",
+  "procedures": [
+    {
+      "label": "json",
+      "address": "0x1000f4e64"
+    },
+    {
+      "label": "tree",
+      "address": "0x1000f4198"
+    },
+    {
+      "label": "Node-count",
+      "address": "0x1000f3ee8"
+    },
+    {
+      "label": "JsonStringifier-writeStringContent",
+      "address": "0x1001ecdc4"
+    }
+  ]
+}

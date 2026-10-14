@@ -1,0 +1,11 @@
+{
+  "jsonrpc": "2.0",
+  "id": 8,
+  "method": "tools/call",
+  "params": {
+    "name": "close_binary",
+    "arguments": {
+      "snapshot_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-raw-tree-rea/snapshot.json"
+    }
+  }
+}

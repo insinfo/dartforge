@@ -1,0 +1,37 @@
+{
+  "root": "/Volumes/ssd_dock/tools/rea",
+  "rea_version": "6.5.0",
+  "source_repository": "https://github.com/morluto/rea",
+  "source_commit_from_registry_attestation": "3b79af28e80785afce9f5998d8f03289402a1847",
+  "attestation_limit": "Registry DSSE payload decoded to record source commit; no independent DSSE signature verification claim. npm tarball SHA512 integrity was checked against official registry metadata.",
+  "node_version": "24.21.0",
+  "jdk_version": "Temurin21.0.12.1+1",
+  "ghidra_version": "12.1.4",
+  "official_distribution_checks": [
+    "Node archive SHA256 equals official nodejs.org SHASUMS256",
+    "REA archive SHA512 equals official npm dist.integrity",
+    "Temurin archive SHA256 equals Adoptium release metadata checksum",
+    "Ghidra archive SHA256 equals GitHub NSA release asset digest"
+  ],
+  "install_policy": "Local npm prefix with --ignore-scripts --no-audit --no-fund; installer read but not executed, rea setup not invoked; no agent registration or config edited; no remote target upload. All downloads/build/temp/cache under SSD.",
+  "native_decompiler_build": [
+    "make",
+    "-j2",
+    "ghidra_opt",
+    "ARCH_TYPE=-arch arm64",
+    "OSDIR=mac_arm_64"
+  ],
+  "environment_file": "/Volumes/ssd_dock/tools/rea/env.zsh",
+  "file_hashes": {
+    "/Volumes/ssd_dock/tools/rea/downloads/rea-agents-6.5.0.tgz": "531717a06e92ca651aab52691190f916fac044272c01f875e22c5e293218e699",
+    "/Volumes/ssd_dock/tools/rea/downloads/node-v24.21.0-darwin-arm64.tar.gz": "bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057",
+    "/Volumes/ssd_dock/tools/rea/downloads/ghidra_12.1.4_PUBLIC_20260921.zip": "ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db",
+    "/Volumes/ssd_dock/tools/rea/downloads/jdk21.tar.gz": "3623232f33a9c3baadf304480b2535f9a3cba8a58d42ecbb438ba267315d9998",
+    "/Volumes/ssd_dock/tools/rea/node_modules/rea-agents/scripts/rea.mjs": "526105418604cc6e5a202a6275b700814e27450bfaffd45e7510530ba669de8d",
+    "/Volumes/ssd_dock/tools/rea/node_modules/rea-agents/package.json": "a500302319c1214a8bb6c9a8b4a4a090806e95eef884204a9d9fbb4003050a6c",
+    "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node": "e4b5a3af0e05c75de2eae013904145f40fe7fc2a6e6f17510128bf45cca4e79b",
+    "/Volumes/ssd_dock/tools/rea/jdk-21.0.12.1+1/Contents/Home/bin/java": "9be1d0a740ff6502df1a762145e62860f5de4b7e17658d9cb9498da3acf9d16c",
+    "/Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC/Ghidra/Features/Decompiler/os/mac_arm_64/decompile": "7434284fc5a6b46b3cb27ef2e8d3c4ea7f801ac1f0cca30e95eb27732c0c62f0"
+  },
+  "doctor_healthy": true
+}

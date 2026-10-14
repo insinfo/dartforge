@@ -1,0 +1,1321 @@
+[
+  {
+    "at": "0x1000f4ee4",
+    "opcode": "bl",
+    "target": "0x10009ec90",
+    "symbols": [
+      "_dartforge_globals_area_id"
+    ]
+  },
+  {
+    "at": "0x1000f4f4c",
+    "opcode": "bl",
+    "target": "0x1000a099c",
+    "symbols": [
+      "_dartforge_list_new"
+    ]
+  },
+  {
+    "at": "0x1000f4fc4",
+    "opcode": "bl",
+    "target": "0x1000b6b78",
+    "symbols": [
+      "_dartforge_rti_set"
+    ]
+  },
+  {
+    "at": "0x1000f4fd0",
+    "opcode": "bl",
+    "target": "0x1000a08f0",
+    "symbols": [
+      "_dartforge_list_append"
+    ]
+  },
+  {
+    "at": "0x1000f4ff0",
+    "opcode": "bl",
+    "target": "0x1000b736c",
+    "symbols": [
+      "_dartforge_safepoint"
+    ]
+  },
+  {
+    "at": "0x1000f504c",
+    "opcode": "bl",
+    "target": "0x1001a95c0",
+    "symbols": [
+      "_df.dart$3a_compact_hash._Map.new"
+    ]
+  },
+  {
+    "at": "0x1000f50c4",
+    "opcode": "bl",
+    "target": "0x1000b8c90",
+    "symbols": [
+      "_dartforge_string_join_typed"
+    ]
+  },
+  {
+    "at": "0x1000f50f4",
+    "opcode": "bl",
+    "target": "0x1000b8c90",
+    "symbols": [
+      "_dartforge_string_join_typed"
+    ]
+  },
+  {
+    "at": "0x1000f5120",
+    "opcode": "bl",
+    "target": "0x1000b8c90",
+    "symbols": [
+      "_dartforge_string_join_typed"
+    ]
+  },
+  {
+    "at": "0x1000f513c",
+    "opcode": "bl",
+    "target": "0x1000a099c",
+    "symbols": [
+      "_dartforge_list_new"
+    ]
+  },
+  {
+    "at": "0x1000f51b0",
+    "opcode": "bl",
+    "target": "0x1000b6b78",
+    "symbols": [
+      "_dartforge_rti_set"
+    ]
+  },
+  {
+    "at": "0x1000f522c",
+    "opcode": "bl",
+    "target": "0x1000a099c",
+    "symbols": [
+      "_dartforge_list_new"
+    ]
+  },
+  {
+    "at": "0x1000f5250",
+    "opcode": "bl",
+    "target": "0x1001a70a4",
+    "symbols": [
+      "_df.dart$3a_compact_hash.._dartforgeFillMap"
+    ]
+  },
+  {
+    "at": "0x1000f52bc",
+    "opcode": "bl",
+    "target": "0x10009ec90",
+    "symbols": [
+      "_dartforge_globals_area_id"
+    ]
+  },
+  {
+    "at": "0x1000f52d8",
+    "opcode": "bl",
+    "target": "0x1000b64c8",
+    "symbols": [
+      "_dartforge_rti_recipe"
+    ]
+  },
+  {
+    "at": "0x1000f52fc",
+    "opcode": "bl",
+    "target": "0x10009ec90",
+    "symbols": [
+      "_dartforge_globals_area_id"
+    ]
+  },
+  {
+    "at": "0x1000f5318",
+    "opcode": "bl",
+    "target": "0x1000b64c8",
+    "symbols": [
+      "_dartforge_rti_recipe"
+    ]
+  },
+  {
+    "at": "0x1000f532c",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f5334",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f534c",
+    "opcode": "bl",
+    "target": "0x1000b0d1c",
+    "symbols": [
+      "_dartforge_object_new_t"
+    ]
+  },
+  {
+    "at": "0x1000f53a8",
+    "opcode": "bl",
+    "target": "0x10009ec90",
+    "symbols": [
+      "_dartforge_globals_area_id"
+    ]
+  },
+  {
+    "at": "0x1000f53c0",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f53c8",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f53dc",
+    "opcode": "bl",
+    "target": "0x1000b64c8",
+    "symbols": [
+      "_dartforge_rti_recipe"
+    ]
+  },
+  {
+    "at": "0x1000f53f8",
+    "opcode": "bl",
+    "target": "0x1000b6b78",
+    "symbols": [
+      "_dartforge_rti_set"
+    ]
+  },
+  {
+    "at": "0x1000f5404",
+    "opcode": "bl",
+    "target": "0x1001ead34",
+    "symbols": [
+      "_df.dart$3aconvert..jsonEncode"
+    ]
+  },
+  {
+    "at": "0x1000f5418",
+    "opcode": "bl",
+    "target": "0x1001eb690",
+    "symbols": [
+      "_df.dart$3aconvert..jsonDecode"
+    ]
+  },
+  {
+    "at": "0x1000f548c",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f5498",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f54e4",
+    "opcode": "bl",
+    "target": "0x10009f014",
+    "symbols": [
+      "_dartforge_is_subclass"
+    ]
+  },
+  {
+    "at": "0x1000f5584",
+    "opcode": "bl",
+    "target": "0x1000b7430",
+    "symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "at": "0x1000f559c",
+    "opcode": "blr",
+    "target": "x8",
+    "symbols": []
+  },
+  {
+    "at": "0x1000f563c",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f567c",
+    "opcode": "bl",
+    "target": "0x1000b7430",
+    "symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "at": "0x1000f5690",
+    "opcode": "blr",
+    "target": "x8",
+    "symbols": []
+  },
+  {
+    "at": "0x1000f56c4",
+    "opcode": "bl",
+    "target": "0x1000b95ac",
+    "symbols": [
+      "_dartforge_unbox_bool"
+    ]
+  },
+  {
+    "at": "0x1000f56e4",
+    "opcode": "bl",
+    "target": "0x1000b736c",
+    "symbols": [
+      "_dartforge_safepoint"
+    ]
+  },
+  {
+    "at": "0x1000f5714",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f5754",
+    "opcode": "bl",
+    "target": "0x1000b7430",
+    "symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "at": "0x1000f5768",
+    "opcode": "blr",
+    "target": "x8",
+    "symbols": []
+  },
+  {
+    "at": "0x1000f578c",
+    "opcode": "bl",
+    "target": "0x1000f70b4",
+    "symbols": [
+      "_df.rti.0ecc08e5a0169545.bench$2edart"
+    ]
+  },
+  {
+    "at": "0x1000f57a0",
+    "opcode": "bl",
+    "target": "0x1000b38a4",
+    "symbols": [
+      "_dartforge_rti_as_with_context"
+    ]
+  },
+  {
+    "at": "0x1000f57e8",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f5828",
+    "opcode": "bl",
+    "target": "0x1000b7430",
+    "symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "at": "0x1000f5840",
+    "opcode": "blr",
+    "target": "x8",
+    "symbols": []
+  },
+  {
+    "at": "0x1000f5884",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f58d0",
+    "opcode": "bl",
+    "target": "0x10009f014",
+    "symbols": [
+      "_dartforge_is_subclass"
+    ]
+  },
+  {
+    "at": "0x1000f58f0",
+    "opcode": "bl",
+    "target": "0x1000f7160",
+    "symbols": [
+      "_df.rti.877bf89dd991b2af.bench$2edart"
+    ]
+  },
+  {
+    "at": "0x1000f5904",
+    "opcode": "bl",
+    "target": "0x1000b38a4",
+    "symbols": [
+      "_dartforge_rti_as_with_context"
+    ]
+  },
+  {
+    "at": "0x1000f5940",
+    "opcode": "bl",
+    "target": "0x1000b9958",
+    "symbols": [
+      "_dartforge_unbox_int"
+    ]
+  },
+  {
+    "at": "0x1000f598c",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f59cc",
+    "opcode": "bl",
+    "target": "0x1000b7430",
+    "symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "at": "0x1000f59e4",
+    "opcode": "blr",
+    "target": "x8",
+    "symbols": []
+  },
+  {
+    "at": "0x1000f5a28",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f5a74",
+    "opcode": "bl",
+    "target": "0x10009f014",
+    "symbols": [
+      "_dartforge_is_subclass"
+    ]
+  },
+  {
+    "at": "0x1000f5a94",
+    "opcode": "bl",
+    "target": "0x1000f720c",
+    "symbols": [
+      "_df.rti.8782f99dd997d310.bench$2edart"
+    ]
+  },
+  {
+    "at": "0x1000f5aa8",
+    "opcode": "bl",
+    "target": "0x1000b38a4",
+    "symbols": [
+      "_dartforge_rti_as_with_context"
+    ]
+  },
+  {
+    "at": "0x1000f5af8",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f5b38",
+    "opcode": "bl",
+    "target": "0x1000b7430",
+    "symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "at": "0x1000f5b50",
+    "opcode": "blr",
+    "target": "x8",
+    "symbols": []
+  },
+  {
+    "at": "0x1000f5b94",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f5be0",
+    "opcode": "bl",
+    "target": "0x10009f014",
+    "symbols": [
+      "_dartforge_is_subclass"
+    ]
+  },
+  {
+    "at": "0x1000f5c00",
+    "opcode": "bl",
+    "target": "0x1000f7008",
+    "symbols": [
+      "_df.rti.2d283ae9a97924ad.bench$2edart"
+    ]
+  },
+  {
+    "at": "0x1000f5c14",
+    "opcode": "bl",
+    "target": "0x1000b38a4",
+    "symbols": [
+      "_dartforge_rti_as_with_context"
+    ]
+  },
+  {
+    "at": "0x1000f5c4c",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f5c88",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f5cd4",
+    "opcode": "bl",
+    "target": "0x1000b7430",
+    "symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "at": "0x1000f5ce8",
+    "opcode": "blr",
+    "target": "x8",
+    "symbols": []
+  },
+  {
+    "at": "0x1000f5d24",
+    "opcode": "bl",
+    "target": "0x1000b9958",
+    "symbols": [
+      "_dartforge_unbox_int"
+    ]
+  },
+  {
+    "at": "0x1000f5d74",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f5db8",
+    "opcode": "bl",
+    "target": "0x1000b7430",
+    "symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "at": "0x1000f5dd0",
+    "opcode": "blr",
+    "target": "x8",
+    "symbols": []
+  },
+  {
+    "at": "0x1000f5e14",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f5e68",
+    "opcode": "bl",
+    "target": "0x10009f014",
+    "symbols": [
+      "_dartforge_is_subclass"
+    ]
+  },
+  {
+    "at": "0x1000f5e90",
+    "opcode": "bl",
+    "target": "0x1000f72b8",
+    "symbols": [
+      "_df.rti.090f8307b5a74105.bench$2edart"
+    ]
+  },
+  {
+    "at": "0x1000f5ea4",
+    "opcode": "bl",
+    "target": "0x1000b38a4",
+    "symbols": [
+      "_dartforge_rti_as_with_context"
+    ]
+  },
+  {
+    "at": "0x1000f5ee8",
+    "opcode": "bl",
+    "target": "0x1000b95ac",
+    "symbols": [
+      "_dartforge_unbox_bool"
+    ]
+  },
+  {
+    "at": "0x1000f5f38",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f5f7c",
+    "opcode": "bl",
+    "target": "0x1000b7430",
+    "symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "at": "0x1000f5f94",
+    "opcode": "blr",
+    "target": "x8",
+    "symbols": []
+  },
+  {
+    "at": "0x1000f5fdc",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f6028",
+    "opcode": "bl",
+    "target": "0x10009f014",
+    "symbols": [
+      "_dartforge_is_subclass"
+    ]
+  },
+  {
+    "at": "0x1000f6050",
+    "opcode": "bl",
+    "target": "0x1000f7160",
+    "symbols": [
+      "_df.rti.877bf89dd991b2af.bench$2edart"
+    ]
+  },
+  {
+    "at": "0x1000f6064",
+    "opcode": "bl",
+    "target": "0x1000b38a4",
+    "symbols": [
+      "_dartforge_rti_as_with_context"
+    ]
+  },
+  {
+    "at": "0x1000f60a4",
+    "opcode": "bl",
+    "target": "0x1000b9958",
+    "symbols": [
+      "_dartforge_unbox_int"
+    ]
+  },
+  {
+    "at": "0x1000f60e8",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f6104",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f6120",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f613c",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f6154",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f615c",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f6168",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f6180",
+    "opcode": "bl",
+    "target": "0x1000f7008",
+    "symbols": [
+      "_df.rti.2d283ae9a97924ad.bench$2edart"
+    ]
+  },
+  {
+    "at": "0x1000f6194",
+    "opcode": "bl",
+    "target": "0x1000b38a4",
+    "symbols": [
+      "_dartforge_rti_as_with_context"
+    ]
+  },
+  {
+    "at": "0x1000f61b4",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f6224",
+    "opcode": "bl",
+    "target": "0x1000b736c",
+    "symbols": [
+      "_dartforge_safepoint"
+    ]
+  },
+  {
+    "at": "0x1000f625c",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f63f0",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f6430",
+    "opcode": "bl",
+    "target": "0x1000b7430",
+    "symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "at": "0x1000f6444",
+    "opcode": "blr",
+    "target": "x8",
+    "symbols": []
+  },
+  {
+    "at": "0x1000f6470",
+    "opcode": "bl",
+    "target": "0x1000f70b4",
+    "symbols": [
+      "_df.rti.0ecc08e5a0169545.bench$2edart"
+    ]
+  },
+  {
+    "at": "0x1000f6484",
+    "opcode": "bl",
+    "target": "0x1000b38a4",
+    "symbols": [
+      "_dartforge_rti_as_with_context"
+    ]
+  },
+  {
+    "at": "0x1000f64d0",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f6514",
+    "opcode": "bl",
+    "target": "0x1000b7430",
+    "symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "at": "0x1000f6528",
+    "opcode": "blr",
+    "target": "x8",
+    "symbols": []
+  },
+  {
+    "at": "0x1000f6570",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f65bc",
+    "opcode": "bl",
+    "target": "0x10009f014",
+    "symbols": [
+      "_dartforge_is_subclass"
+    ]
+  },
+  {
+    "at": "0x1000f65e0",
+    "opcode": "bl",
+    "target": "0x1000f7160",
+    "symbols": [
+      "_df.rti.877bf89dd991b2af.bench$2edart"
+    ]
+  },
+  {
+    "at": "0x1000f65f4",
+    "opcode": "bl",
+    "target": "0x1000b38a4",
+    "symbols": [
+      "_dartforge_rti_as_with_context"
+    ]
+  },
+  {
+    "at": "0x1000f6634",
+    "opcode": "bl",
+    "target": "0x1000b9958",
+    "symbols": [
+      "_dartforge_unbox_int"
+    ]
+  },
+  {
+    "at": "0x1000f6684",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f66c8",
+    "opcode": "bl",
+    "target": "0x1000b7430",
+    "symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "at": "0x1000f66dc",
+    "opcode": "blr",
+    "target": "x8",
+    "symbols": []
+  },
+  {
+    "at": "0x1000f6724",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f6770",
+    "opcode": "bl",
+    "target": "0x10009f014",
+    "symbols": [
+      "_dartforge_is_subclass"
+    ]
+  },
+  {
+    "at": "0x1000f6794",
+    "opcode": "bl",
+    "target": "0x1000f720c",
+    "symbols": [
+      "_df.rti.8782f99dd997d310.bench$2edart"
+    ]
+  },
+  {
+    "at": "0x1000f67a8",
+    "opcode": "bl",
+    "target": "0x1000b38a4",
+    "symbols": [
+      "_dartforge_rti_as_with_context"
+    ]
+  },
+  {
+    "at": "0x1000f6800",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f6844",
+    "opcode": "bl",
+    "target": "0x1000b7430",
+    "symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "at": "0x1000f6858",
+    "opcode": "blr",
+    "target": "x8",
+    "symbols": []
+  },
+  {
+    "at": "0x1000f68a0",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f68ec",
+    "opcode": "bl",
+    "target": "0x10009f014",
+    "symbols": [
+      "_dartforge_is_subclass"
+    ]
+  },
+  {
+    "at": "0x1000f6910",
+    "opcode": "bl",
+    "target": "0x1000f7008",
+    "symbols": [
+      "_df.rti.2d283ae9a97924ad.bench$2edart"
+    ]
+  },
+  {
+    "at": "0x1000f6924",
+    "opcode": "bl",
+    "target": "0x1000b38a4",
+    "symbols": [
+      "_dartforge_rti_as_with_context"
+    ]
+  },
+  {
+    "at": "0x1000f6960",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f699c",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f69e0",
+    "opcode": "bl",
+    "target": "0x1000b7430",
+    "symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "at": "0x1000f69f8",
+    "opcode": "blr",
+    "target": "x8",
+    "symbols": []
+  },
+  {
+    "at": "0x1000f6a38",
+    "opcode": "bl",
+    "target": "0x1000b9958",
+    "symbols": [
+      "_dartforge_unbox_int"
+    ]
+  },
+  {
+    "at": "0x1000f6a8c",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f6ad0",
+    "opcode": "bl",
+    "target": "0x1000b7430",
+    "symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "at": "0x1000f6ae4",
+    "opcode": "blr",
+    "target": "x8",
+    "symbols": []
+  },
+  {
+    "at": "0x1000f6b2c",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f6b80",
+    "opcode": "bl",
+    "target": "0x10009f014",
+    "symbols": [
+      "_dartforge_is_subclass"
+    ]
+  },
+  {
+    "at": "0x1000f6bac",
+    "opcode": "bl",
+    "target": "0x1000f72b8",
+    "symbols": [
+      "_df.rti.090f8307b5a74105.bench$2edart"
+    ]
+  },
+  {
+    "at": "0x1000f6bc0",
+    "opcode": "bl",
+    "target": "0x1000b38a4",
+    "symbols": [
+      "_dartforge_rti_as_with_context"
+    ]
+  },
+  {
+    "at": "0x1000f6c08",
+    "opcode": "bl",
+    "target": "0x1000b95ac",
+    "symbols": [
+      "_dartforge_unbox_bool"
+    ]
+  },
+  {
+    "at": "0x1000f6c5c",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f6ca0",
+    "opcode": "bl",
+    "target": "0x1000b7430",
+    "symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "at": "0x1000f6cb4",
+    "opcode": "blr",
+    "target": "x8",
+    "symbols": []
+  },
+  {
+    "at": "0x1000f6d08",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f6d54",
+    "opcode": "bl",
+    "target": "0x10009f014",
+    "symbols": [
+      "_dartforge_is_subclass"
+    ]
+  },
+  {
+    "at": "0x1000f6d78",
+    "opcode": "bl",
+    "target": "0x1000f7160",
+    "symbols": [
+      "_df.rti.877bf89dd991b2af.bench$2edart"
+    ]
+  },
+  {
+    "at": "0x1000f6d8c",
+    "opcode": "bl",
+    "target": "0x1000b38a4",
+    "symbols": [
+      "_dartforge_rti_as_with_context"
+    ]
+  },
+  {
+    "at": "0x1000f6dd0",
+    "opcode": "bl",
+    "target": "0x1000b9958",
+    "symbols": [
+      "_dartforge_unbox_int"
+    ]
+  },
+  {
+    "at": "0x1000f6e1c",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f6e30",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f6e44",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f6e54",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f6e5c",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f6e68",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f6e80",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f6e88",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f6e90",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f6e9c",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f6eb0",
+    "opcode": "bl",
+    "target": "0x10009b470",
+    "symbols": [
+      "_dartforge_allocate"
+    ]
+  },
+  {
+    "at": "0x1000f6ecc",
+    "opcode": "bl",
+    "target": "0x10009b470",
+    "symbols": [
+      "_dartforge_allocate"
+    ]
+  },
+  {
+    "at": "0x1000f6ee0",
+    "opcode": "bl",
+    "target": "0x10009b470",
+    "symbols": [
+      "_dartforge_allocate"
+    ]
+  },
+  {
+    "at": "0x1000f6f0c",
+    "opcode": "bl",
+    "target": "0x1000a0ad8",
+    "symbols": [
+      "_dartforge_native_ClassID_getID",
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "at": "0x1000f6f18",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f6f30",
+    "opcode": "bl",
+    "target": "0x1000b7c08",
+    "symbols": [
+      "_dartforge_stack_overflow"
+    ]
+  },
+  {
+    "at": "0x1000f6fa4",
+    "opcode": "bl",
+    "target": "0x100115628",
+    "symbols": [
+      "_df.dart$3acore.ConcurrentModificationError.new"
+    ]
+  },
+  {
+    "at": "0x1000f6fbc",
+    "opcode": "bl",
+    "target": "0x10009c5d4",
+    "symbols": [
+      "_dartforge_exception_throw"
+    ]
+  },
+  {
+    "at": "0x1000f6fe0",
+    "opcode": "bl",
+    "target": "0x10009c234",
+    "symbols": [
+      "_dartforge_exception_clear"
+    ]
+  },
+  {
+    "at": "0x1000f6ffc",
+    "opcode": "bl",
+    "target": "0x1000b0d1c",
+    "symbols": [
+      "_dartforge_object_new_t"
+    ]
+  }
+]

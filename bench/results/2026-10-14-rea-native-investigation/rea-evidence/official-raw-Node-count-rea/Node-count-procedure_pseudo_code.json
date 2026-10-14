@@ -1,0 +1,104 @@
+{
+  "result": {
+    "_meta": {
+      "provenance": {
+        "untrusted_content": true,
+        "source": "analysis_target"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"evidence_id\":\"ev_51da1461f99ddbfbf7f46342dec3def6d22a2dd785056a14cc9d7b0bf95017bf\",\"subject\":{\"name\":\"official-raw-Node-count.bin\",\"digest\":{\"sha256\":\"d07137b74cbf4e0ddc95022eee56614a6949eb1e83bcfcc245f2b2e788a18d60\"},\"local_path\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-raw-Node-count.bin\",\"format\":\"raw-binary\",\"architecture\":\"arm64\"},\"provider\":{\"id\":\"ghidra\",\"name\":\"Ghidra\",\"version\":\"12.1.4\"},\"analysis_profile\":{\"provider\":{\"id\":\"ghidra\",\"name\":\"Ghidra\",\"version\":\"12.1.4\"},\"parameters\":{\"target_kind\":\"executable\",\"target_format\":\"raw-binary\",\"architecture\":\"arm64\",\"available_architectures\":[\"arm64\"],\"import_mode\":\"ephemeral-source-immutable\",\"annotation_policy\":\"atomic-function-entry-metadata-v1\",\"load_image_observations\":\"source-mappings-entry-context-v2\",\"function_body_evidence\":\"complete-inclusive-ranges-v1\",\"function_references\":\"complete-body-and-entry-reference-manager-v2\",\"call_relationship_coverage\":\"function-body-call-coverage-v5\",\"function_dossier_coverage\":\"observed-facets-and-call-relationships-v1\",\"string_inventory_evidence\":\"defined-data-coverage-v1\",\"location_resolution\":\"explicit-address-exact-entry-symbol-first-v3\",\"procedure_file_offset_resolution\":\"address-first-unique-target-source-mapping-v2\",\"instruction_flow_evidence\":\"decoded-return-pcode-v1\",\"instruction_references\":\"exact-address-incoming-v1\",\"function_boundary_observations\":\"ghidra-function-boundary-limitations-v3\",\"no_return_repair\":\"returning-imports-decoded-return-v2\",\"process_launch\":\"inspected-jvm-launch-support-v1\",\"load_image_evidence\":\"independent-raw-mapping-context-v4\",\"jump_table_evidence\":\"typed-case-default-blocks-v1\",\"decompiler_jump_loads\":true,\"loader\":\"BinaryLoader\",\"language_id\":\"AARCH64:LE:64:v8A\",\"compiler_spec_id\":\"default\",\"language_selection\":\"caller-supplied-v1\",\"entry_point\":\"0x9d2bc\",\"entry_seed\":\"external-entry-and-function-before-analysis-v1\",\"analyzer_preset\":\"ghidra-default\"},\"digest\":\"ad372206ecdab8cbfd9252e335edc98a2f6362c5a8d811c7ab5eae14c4c54827\"},\"predicate_type\":\"rea.analysis\",\"operation\":\"procedure_pseudo_code\",\"parameters\":{\"procedure\":\"0x9d2bc\"},\"raw_result\":{\"value\":\"\\nlong entry(undefined8 param_1,long param_2)\\n\\n{\\n  ulong uVar1;\\n  long lVar2;\\n  long in_x15;\\n  ulong unaff_x22;\\n  long unaff_x26;\\n  undefined8 unaff_x29;\\n  undefined8 unaff_x30;\\n  \\n  *(undefined8 *)(in_x15 + -0x10) = unaff_x29;\\n  *(undefined8 *)(in_x15 + -8) = unaff_x30;\\n  *(long *)(in_x15 + -0x18) = param_2;\\n  if (in_x15 - 0x20U <= *(ulong *)(unaff_x26 + 0x38)) {\\n    param_2 = func_0x0008de34();\\n  }\\n  uVar1 = unaff_x22;\\n  if (*(ulong *)(param_2 + 7) != unaff_x22) {\\n    lVar2 = entry();\\n    uVar1 = lVar2 * 2;\\n    if (SCARRY8(lVar2,lVar2)) {\\n      uVar1 = func_0x0008dfb4();\\n      *(long *)(uVar1 + 7) = lVar2;\\n    }\\n  }\\n  if (uVar1 == unaff_x22) {\\n    lVar2 = 0;\\n  }\\n  else {\\n    lVar2 = (long)uVar1 >> 1;\\n    if ((uVar1 & 1) != 0) {\\n      lVar2 = *(long *)(uVar1 + 7);\\n    }\\n  }\\n  *(long *)(in_x15 + -0x20) = lVar2 + 1;\\n  uVar1 = unaff_x22;\\n  if (*(ulong *)(*(long *)(in_x15 + -0x18) + 0xf) != unaff_x22) {\\n    lVar2 = entry();\\n    uVar1 = lVar2 * 2;\\n    if (SCARRY8(lVar2,lVar2)) {\\n      uVar1 = func_0x0008dfb4();\\n      *(long *)(uVar1 + 7) = lVar2;\\n    }\\n  }\\n  if (uVar1 == unaff_x22) {\\n    lVar2 = 0;\\n  }\\n  else {\\n    lVar2 = (long)uVar1 >> 1;\\n    if ((uVar1 & 1) != 0) {\\n      lVar2 = *(long *)(uVar1 + 7);\\n    }\\n  }\\n  return *(long *)(in_x15 + -0x20) + lVar2;\\n}\\n\\n\",\"limitations\":[]},\"normalized_result\":\"\\nlong entry(undefined8 param_1,long param_2)\\n\\n{\\n  ulong uVar1;\\n  long lVar2;\\n  long in_x15;\\n  ulong unaff_x22;\\n  long unaff_x26;\\n  undefined8 unaff_x29;\\n  undefined8 unaff_x30;\\n  \\n  *(undefined8 *)(in_x15 + -0x10) = unaff_x29;\\n  *(undefined8 *)(in_x15 + -8) = unaff_x30;\\n  *(long *)(in_x15 + -0x18) = param_2;\\n  if (in_x15 - 0x20U <= *(ulong *)(unaff_x26 + 0x38)) {\\n    param_2 = func_0x0008de34();\\n  }\\n  uVar1 = unaff_x22;\\n  if (*(ulong *)(param_2 + 7) != unaff_x22) {\\n    lVar2 = entry();\\n    uVar1 = lVar2 * 2;\\n    if (SCARRY8(lVar2,lVar2)) {\\n      uVar1 = func_0x0008dfb4();\\n      *(long *)(uVar1 + 7) = lVar2;\\n    }\\n  }\\n  if (uVar1 == unaff_x22) {\\n    lVar2 = 0;\\n  }\\n  else {\\n    lVar2 = (long)uVar1 >> 1;\\n    if ((uVar1 & 1) != 0) {\\n      lVar2 = *(long *)(uVar1 + 7);\\n    }\\n  }\\n  *(long *)(in_x15 + -0x20) = lVar2 + 1;\\n  uVar1 = unaff_x22;\\n  if (*(ulong *)(*(long *)(in_x15 + -0x18) + 0xf) != unaff_x22) {\\n    lVar2 = entry();\\n    uVar1 = lVar2 * 2;\\n    if (SCARRY8(lVar2,lVar2)) {\\n      uVar1 = func_0x0008dfb4();\\n      *(long *)(uVar1 + 7) = lVar2;\\n    }\\n  }\\n  if (uVar1 == unaff_x22) {\\n    lVar2 = 0;\\n  }\\n  else {\\n    lVar2 = (long)uVar1 >> 1;\\n    if ((uVar1 & 1) != 0) {\\n      lVar2 = *(long *)(uVar1 + 7);\\n    }\\n  }\\n  return *(long *)(in_x15 + -0x20) + lVar2;\\n}\\n\\n\",\"confidence\":\"observed\",\"authority\":\"shipped-artifact\",\"environment\":null,\"limitations\":[\"The session serves operations only after Ghidra reports default auto-analysis complete; incomplete analysis does not expose partial results.\",\"The imported Program and temporary project are ephemeral and deleted on close. Annotation operations edit session database metadata; original executable bytes are never written.\",\"Cancelling an active Ghidra request terminates its ephemeral database and discards session annotations. The selected target remains open; the next provider query imports the original artifact again.\",\"Default-space addresses use lowercase 0x-prefixed hexadecimal; other address spaces use <percent-encoded-space>:0x<hex>.\",\"Pseudocode is Ghidra decompiler output, not original source and not text-equivalent to Hopper output.\",\"External functions and functions without an analyzable body return null; other decompiler failures remain explicit.\",\"macOS sessions require a matching executable Ghidra native decompiler; REA checks for it but does not build native components or change Gatekeeper quarantine state.\",\"Headerless raw-binary analysis uses the caller-supplied architecture and entry address; file offset 0 is mapped at that address. Headers are not discovered from file bytes.\",\"Little-endian generic Ghidra languages are used for x86, x86_64, arm, arm64, and NMOS 6502. Big-endian, Thumb-only, Cortex-M, 65C02, 65816, and other processor variants are unsupported in this increment.\",\"Static analysis does not emulate reset vectors, memory-mapped I/O, or firmware boot sequences.\"],\"relationship_coverage\":null,\"locations\":[],\"evidence_links\":[]}"
+      }
+    ],
+    "structuredContent": {
+      "evidence_id": "ev_51da1461f99ddbfbf7f46342dec3def6d22a2dd785056a14cc9d7b0bf95017bf",
+      "subject": {
+        "name": "official-raw-Node-count.bin",
+        "digest": {
+          "sha256": "d07137b74cbf4e0ddc95022eee56614a6949eb1e83bcfcc245f2b2e788a18d60"
+        },
+        "local_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-raw-Node-count.bin",
+        "format": "raw-binary",
+        "architecture": "arm64"
+      },
+      "provider": {
+        "id": "ghidra",
+        "name": "Ghidra",
+        "version": "12.1.4"
+      },
+      "analysis_profile": {
+        "provider": {
+          "id": "ghidra",
+          "name": "Ghidra",
+          "version": "12.1.4"
+        },
+        "parameters": {
+          "target_kind": "executable",
+          "target_format": "raw-binary",
+          "architecture": "arm64",
+          "available_architectures": [
+            "arm64"
+          ],
+          "import_mode": "ephemeral-source-immutable",
+          "annotation_policy": "atomic-function-entry-metadata-v1",
+          "load_image_observations": "source-mappings-entry-context-v2",
+          "function_body_evidence": "complete-inclusive-ranges-v1",
+          "function_references": "complete-body-and-entry-reference-manager-v2",
+          "call_relationship_coverage": "function-body-call-coverage-v5",
+          "function_dossier_coverage": "observed-facets-and-call-relationships-v1",
+          "string_inventory_evidence": "defined-data-coverage-v1",
+          "location_resolution": "explicit-address-exact-entry-symbol-first-v3",
+          "procedure_file_offset_resolution": "address-first-unique-target-source-mapping-v2",
+          "instruction_flow_evidence": "decoded-return-pcode-v1",
+          "instruction_references": "exact-address-incoming-v1",
+          "function_boundary_observations": "ghidra-function-boundary-limitations-v3",
+          "no_return_repair": "returning-imports-decoded-return-v2",
+          "process_launch": "inspected-jvm-launch-support-v1",
+          "load_image_evidence": "independent-raw-mapping-context-v4",
+          "jump_table_evidence": "typed-case-default-blocks-v1",
+          "decompiler_jump_loads": true,
+          "loader": "BinaryLoader",
+          "language_id": "AARCH64:LE:64:v8A",
+          "compiler_spec_id": "default",
+          "language_selection": "caller-supplied-v1",
+          "entry_point": "0x9d2bc",
+          "entry_seed": "external-entry-and-function-before-analysis-v1",
+          "analyzer_preset": "ghidra-default"
+        },
+        "digest": "ad372206ecdab8cbfd9252e335edc98a2f6362c5a8d811c7ab5eae14c4c54827"
+      },
+      "predicate_type": "rea.analysis",
+      "operation": "procedure_pseudo_code",
+      "parameters": {
+        "procedure": "0x9d2bc"
+      },
+      "raw_result": {
+        "value": "\nlong entry(undefined8 param_1,long param_2)\n\n{\n  ulong uVar1;\n  long lVar2;\n  long in_x15;\n  ulong unaff_x22;\n  long unaff_x26;\n  undefined8 unaff_x29;\n  undefined8 unaff_x30;\n  \n  *(undefined8 *)(in_x15 + -0x10) = unaff_x29;\n  *(undefined8 *)(in_x15 + -8) = unaff_x30;\n  *(long *)(in_x15 + -0x18) = param_2;\n  if (in_x15 - 0x20U <= *(ulong *)(unaff_x26 + 0x38)) {\n    param_2 = func_0x0008de34();\n  }\n  uVar1 = unaff_x22;\n  if (*(ulong *)(param_2 + 7) != unaff_x22) {\n    lVar2 = entry();\n    uVar1 = lVar2 * 2;\n    if (SCARRY8(lVar2,lVar2)) {\n      uVar1 = func_0x0008dfb4();\n      *(long *)(uVar1 + 7) = lVar2;\n    }\n  }\n  if (uVar1 == unaff_x22) {\n    lVar2 = 0;\n  }\n  else {\n    lVar2 = (long)uVar1 >> 1;\n    if ((uVar1 & 1) != 0) {\n      lVar2 = *(long *)(uVar1 + 7);\n    }\n  }\n  *(long *)(in_x15 + -0x20) = lVar2 + 1;\n  uVar1 = unaff_x22;\n  if (*(ulong *)(*(long *)(in_x15 + -0x18) + 0xf) != unaff_x22) {\n    lVar2 = entry();\n    uVar1 = lVar2 * 2;\n    if (SCARRY8(lVar2,lVar2)) {\n      uVar1 = func_0x0008dfb4();\n      *(long *)(uVar1 + 7) = lVar2;\n    }\n  }\n  if (uVar1 == unaff_x22) {\n    lVar2 = 0;\n  }\n  else {\n    lVar2 = (long)uVar1 >> 1;\n    if ((uVar1 & 1) != 0) {\n      lVar2 = *(long *)(uVar1 + 7);\n    }\n  }\n  return *(long *)(in_x15 + -0x20) + lVar2;\n}\n\n",
+        "limitations": []
+      },
+      "normalized_result": "\nlong entry(undefined8 param_1,long param_2)\n\n{\n  ulong uVar1;\n  long lVar2;\n  long in_x15;\n  ulong unaff_x22;\n  long unaff_x26;\n  undefined8 unaff_x29;\n  undefined8 unaff_x30;\n  \n  *(undefined8 *)(in_x15 + -0x10) = unaff_x29;\n  *(undefined8 *)(in_x15 + -8) = unaff_x30;\n  *(long *)(in_x15 + -0x18) = param_2;\n  if (in_x15 - 0x20U <= *(ulong *)(unaff_x26 + 0x38)) {\n    param_2 = func_0x0008de34();\n  }\n  uVar1 = unaff_x22;\n  if (*(ulong *)(param_2 + 7) != unaff_x22) {\n    lVar2 = entry();\n    uVar1 = lVar2 * 2;\n    if (SCARRY8(lVar2,lVar2)) {\n      uVar1 = func_0x0008dfb4();\n      *(long *)(uVar1 + 7) = lVar2;\n    }\n  }\n  if (uVar1 == unaff_x22) {\n    lVar2 = 0;\n  }\n  else {\n    lVar2 = (long)uVar1 >> 1;\n    if ((uVar1 & 1) != 0) {\n      lVar2 = *(long *)(uVar1 + 7);\n    }\n  }\n  *(long *)(in_x15 + -0x20) = lVar2 + 1;\n  uVar1 = unaff_x22;\n  if (*(ulong *)(*(long *)(in_x15 + -0x18) + 0xf) != unaff_x22) {\n    lVar2 = entry();\n    uVar1 = lVar2 * 2;\n    if (SCARRY8(lVar2,lVar2)) {\n      uVar1 = func_0x0008dfb4();\n      *(long *)(uVar1 + 7) = lVar2;\n    }\n  }\n  if (uVar1 == unaff_x22) {\n    lVar2 = 0;\n  }\n  else {\n    lVar2 = (long)uVar1 >> 1;\n    if ((uVar1 & 1) != 0) {\n      lVar2 = *(long *)(uVar1 + 7);\n    }\n  }\n  return *(long *)(in_x15 + -0x20) + lVar2;\n}\n\n",
+      "confidence": "observed",
+      "authority": "shipped-artifact",
+      "environment": null,
+      "limitations": [
+        "The session serves operations only after Ghidra reports default auto-analysis complete; incomplete analysis does not expose partial results.",
+        "The imported Program and temporary project are ephemeral and deleted on close. Annotation operations edit session database metadata; original executable bytes are never written.",
+        "Cancelling an active Ghidra request terminates its ephemeral database and discards session annotations. The selected target remains open; the next provider query imports the original artifact again.",
+        "Default-space addresses use lowercase 0x-prefixed hexadecimal; other address spaces use <percent-encoded-space>:0x<hex>.",
+        "Pseudocode is Ghidra decompiler output, not original source and not text-equivalent to Hopper output.",
+        "External functions and functions without an analyzable body return null; other decompiler failures remain explicit.",
+        "macOS sessions require a matching executable Ghidra native decompiler; REA checks for it but does not build native components or change Gatekeeper quarantine state.",
+        "Headerless raw-binary analysis uses the caller-supplied architecture and entry address; file offset 0 is mapped at that address. Headers are not discovered from file bytes.",
+        "Little-endian generic Ghidra languages are used for x86, x86_64, arm, arm64, and NMOS 6502. Big-endian, Thumb-only, Cortex-M, 65C02, 65816, and other processor variants are unsupported in this increment.",
+        "Static analysis does not emulate reset vectors, memory-mapped I/O, or firmware boot sequences."
+      ],
+      "relationship_coverage": null,
+      "locations": [],
+      "evidence_links": []
+    }
+  },
+  "jsonrpc": "2.0",
+  "id": 5
+}

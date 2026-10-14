@@ -1,0 +1,22 @@
+{
+  "config": {
+    "label": "official-raw-tree-rea",
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-raw-tree.bin",
+    "open_options": {
+      "format": "raw-binary",
+      "architecture": "arm64",
+      "entry_point": "0x9d3a4"
+    },
+    "procedures": [
+      {
+        "label": "tree",
+        "address": "0x9d3a4"
+      }
+    ]
+  },
+  "target_sha256": "8db2960c1db13a04fa72538da1ae36e040658a7be225957fa8e1a27580340a88",
+  "REA_version": "6.5.0",
+  "provider": "Ghidra12.1.4/JDK21.0.12.1/nativeARM64",
+  "server_exit": 0,
+  "scope": "Local static native assembly and heuristic C pseudocode; Dart custom snapshot ABI is not interpreted as recovered Dart semantics."
+}

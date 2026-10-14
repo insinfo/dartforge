@@ -1,0 +1,15 @@
+{
+  "label": "forge-color-raw-rea",
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/forge-color-raw.bin",
+  "open_options": {
+    "format": "raw-binary",
+    "architecture": "arm64",
+    "entry_point": "0x101086da4"
+  },
+  "procedures": [
+    {
+      "label": "convertFormatValue",
+      "address": "0x101086da4"
+    }
+  ]
+}

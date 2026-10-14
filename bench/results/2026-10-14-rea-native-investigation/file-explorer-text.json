@@ -1,0 +1,351 @@
+{
+  "map": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/sizes/on/program.map",
+  "sha256": "e4bc08b4b519662037a46daad294b96a5df26cbc6ba144dfe13ed498fdc6b7c4",
+  "text_bytes": 25273996,
+  "category_bytes": {
+    "package:dart_ui": 15160360,
+    "runtime-and-native-support": 3430736,
+    "package:j2k": 1647284,
+    "generated-support": 1144816,
+    "package:file_explorer": 804008,
+    "sdk:core": 616332,
+    "sdk:async": 454684,
+    "sdk:io": 437056,
+    "sdk:typed_data": 415012,
+    "sdk:_internal": 297904,
+    "sdk:convert": 295500,
+    "sdk:collection": 272624,
+    "sdk:_compact_hash": 160780,
+    "sdk:ffi": 72676,
+    "sdk:isolate": 49540,
+    "sdk:math": 8936,
+    "sdk:developer": 5628,
+    "sdk:nativewrappers": 120,
+    "unattributed-padding": 0
+  },
+  "largest_libraries": {
+    "runtime-and-native-support": 3430736,
+    "generated-support": 1144816,
+    "dart:core": 616332,
+    "dart:async": 454684,
+    "dart:io": 437056,
+    "dart:typed_data": 415012,
+    "package:j2k/src/j2k/codestream/reader/bitstream_reader_agent.dart": 359468,
+    "package:dart_ui/src/app/application.dart": 317304,
+    "dart:_internal": 297904,
+    "dart:convert": 295500,
+    "dart:collection": 272624,
+    "package:dart_ui/src/widgets/text_field.dart": 257496,
+    "package:dart_ui/src/widgets/element.dart": 246540,
+    "package:dart_ui/src/rendering/gpu/d3d11/d3d11_backend.dart": 209948,
+    "package:dart_ui/src/text/paragraph.dart": 208384,
+    "package:j2k/src/j2k/codestream/reader/header_decoder.dart": 207228,
+    "package:dart_ui/src/widgets/data_grid.dart": 200892,
+    "package:dart_ui/src/backends/wayland/wayland_connection.dart": 199904,
+    "package:dart_ui/src/rendering/gpu/gl/gl_backend.dart": 183752,
+    "package:j2k/src/j2k/entropy/decoder/std_entropy_decoder.dart": 175880,
+    "package:dart_ui/src/rendering/gpu/vulkan/vulkan_backend.dart": 165684,
+    "dart:_compact_hash": 160780,
+    "package:dart_ui/src/graphics/image/codecs/formats/webp/vp8.dart": 156416,
+    "package:dart_ui/src/text/gpos.dart": 149628,
+    "package:dart_ui/src/widgets/menu_anchor.dart": 147924,
+    "package:dart_ui/src/text/cff.dart": 144164,
+    "package:file_explorer/src/ui/explorer_window.dart": 143468,
+    "package:dart_ui/src/text/bidi.dart": 141568,
+    "package:dart_ui/src/backends/x11/x11_connection.dart": 137732,
+    "package:dart_ui/src/text/layout_common.dart": 136200,
+    "package:dart_ui/src/backends/win32/d3d12/d3d12_device.dart": 135784,
+    "package:dart_ui/src/backends/win32/win32_window.dart": 122364,
+    "package:dart_ui/src/text/gsub.dart": 120376,
+    "package:file_explorer/src/engine/explorer_model.dart": 112532,
+    "package:dart_ui/src/rendering/gpu/vulkan/vulkan_mesh_pipeline.dart": 108384,
+    "package:dart_ui/src/rendering/gpu/d3d11/d3d11_mesh_pipeline.dart": 108088,
+    "package:dart_ui/src/graphics/image/codecs/formats/webp/vp8_filter.dart": 108044,
+    "package:dart_ui/src/backends/win32/d2d/d2d_raster_sink.dart": 105468,
+    "package:dart_ui/src/layout/render_box.dart": 99200,
+    "package:dart_ui/src/backends/win32/d3d12/d3d12_mesh_pipeline.dart": 98352
+  },
+  "largest_symbols": [
+    {
+      "address": 4316431340,
+      "bytes": 199844,
+      "name": "_df.register.program",
+      "category": "generated-support",
+      "library": "generated-support"
+    },
+    {
+      "address": 4314129284,
+      "bytes": 75940,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fdraw$2fdraw_pixel$2edart..drawPixel",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/graphics/image/codecs/draw/draw_pixel.dart"
+    },
+    {
+      "address": 4311946348,
+      "bytes": 47268,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.PktDecoder.readPktHead",
+      "category": "package:j2k",
+      "library": "package:j2k/src/j2k/codestream/reader/bitstream_reader_agent.dart"
+    },
+    {
+      "address": 4312296868,
+      "bytes": 43376,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/graphics/image/codecs/color/format.dart"
+    },
+    {
+      "address": 4317151120,
+      "bytes": 43340,
+      "name": "_df.dart$3acore.Object.hash",
+      "category": "sdk:core",
+      "library": "dart:core"
+    },
+    {
+      "address": 4299293044,
+      "bytes": 39064,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fbidi$2edart._BidiResolver._resolveSequence",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/text/bidi.dart"
+    },
+    {
+      "address": 4313613608,
+      "bytes": 36572,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fentropy$2fdecoder$2fstd_entropy_decoder$2edart.StdEntropyDecoder._cleanupPass",
+      "category": "package:j2k",
+      "library": "package:j2k/src/j2k/entropy/decoder/std_entropy_decoder.dart"
+    },
+    {
+      "address": 4313520728,
+      "bytes": 35468,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fentropy$2fdecoder$2fstd_entropy_decoder$2edart.StdEntropyDecoder._sigProgPass",
+      "category": "package:j2k",
+      "library": "package:j2k/src/j2k/entropy/decoder/std_entropy_decoder.dart"
+    },
+    {
+      "address": 4316895008,
+      "bytes": 35460,
+      "name": "_df.dart$3a_internal.Sort._dualPivotQuicksortIntWith",
+      "category": "sdk:_internal",
+      "library": "dart:_internal"
+    },
+    {
+      "address": 4313312096,
+      "bytes": 34436,
+      "name": "_df.package$3aj2k$2fsrc$2ficc$2ficc_profiler$2edart.ICCProfiler.getCompData",
+      "category": "package:j2k",
+      "library": "package:j2k/src/icc/icc_profiler.dart"
+    },
+    {
+      "address": 4311789068,
+      "bytes": 33924,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.FileBitstreamReaderAgent.getCodeBlock",
+      "category": "package:j2k",
+      "library": "package:j2k/src/j2k/codestream/reader/bitstream_reader_agent.dart"
+    },
+    {
+      "address": 4296486628,
+      "bytes": 33532,
+      "name": "_df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.openWindow$async$qdbcd5e34",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/app/application.dart"
+    },
+    {
+      "address": 4299731972,
+      "bytes": 31624,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fcff$2edart._Type2Interpreter._escaped",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/text/cff.dart"
+    },
+    {
+      "address": 4310825280,
+      "bytes": 31552,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fheader_decoder$2edart.HeaderDecoder.parsePocMarker",
+      "category": "package:j2k",
+      "library": "package:j2k/src/j2k/codestream/reader/header_decoder.dart"
+    },
+    {
+      "address": 4315956696,
+      "bytes": 31132,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fexif$2fexif_tag$2edart..exifImageTags",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/graphics/image/codecs/exif/exif_tag.dart"
+    },
+    {
+      "address": 4315257876,
+      "bytes": 29232,
+      "name": "_df.package$3aj2k$2fsrc$2ficc$2flut$2fmatrix_based_transform_to_srgb$2edart.MatrixBasedTransformTosRGB.applyFloat",
+      "category": "package:j2k",
+      "library": "package:j2k/src/icc/lut/matrix_based_transform_to_srgb.dart"
+    },
+    {
+      "address": 4316830548,
+      "bytes": 29020,
+      "name": "_df.dart$3a_internal.Sort._dualPivotQuicksort",
+      "category": "sdk:_internal",
+      "library": "dart:_internal"
+    },
+    {
+      "address": 4316862872,
+      "bytes": 28324,
+      "name": "_df.dart$3a_internal.Sort._dualPivotQuicksortInt",
+      "category": "sdk:_internal",
+      "library": "dart:_internal"
+    },
+    {
+      "address": 4309404648,
+      "bytes": 28316,
+      "name": "_df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_window$2edart.Win32Window.handleMessage",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/backends/win32/win32_window.dart"
+    },
+    {
+      "address": 4316155892,
+      "bytes": 28248,
+      "name": "_df.$record.equals",
+      "category": "generated-support",
+      "library": "generated-support"
+    },
+    {
+      "address": 4310006848,
+      "bytes": 28064,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fexif$2fexif_data$2edart.ExifData.write",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/graphics/image/codecs/exif/exif_data.dart"
+    },
+    {
+      "address": 4310138744,
+      "bytes": 26900,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fimage$2fimage$2edart.Image.convert",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/graphics/image/codecs/image/image.dart"
+    },
+    {
+      "address": 4314054336,
+      "bytes": 26712,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fformats$2fjpeg$2f_jpeg_quantize_io$2edart..getImageFromJpeg",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/graphics/image/codecs/formats/jpeg/_jpeg_quantize_io.dart"
+    },
+    {
+      "address": 4300167800,
+      "bytes": 26480,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fshaper$2edart.OpenTypeShaper.shape",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/text/shaper.dart"
+    },
+    {
+      "address": 4297401840,
+      "bytes": 26328,
+      "name": "_df.package$3adart_ui$2fsrc$2fgeometry$2fpath$2edart.Path.flattenTo",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/geometry/path.dart"
+    },
+    {
+      "address": 4300106756,
+      "bytes": 25520,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fparagraph$2edart._ParagraphBuilder._buildLine",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/text/paragraph.dart"
+    },
+    {
+      "address": 4299950688,
+      "bytes": 25368,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fline_break$2edart._LineBreakScanner._decide",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/text/line_break.dart"
+    },
+    {
+      "address": 4313083024,
+      "bytes": 25308,
+      "name": "_df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fuia$2fcom_server$2edart.ComServerClass._buildVtable",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/backends/win32/uia/com_server.dart"
+    },
+    {
+      "address": 4299333724,
+      "bytes": 24596,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fbidi$2edart._BidiResolver._resolveBrackets",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/text/bidi.dart"
+    },
+    {
+      "address": 4313569212,
+      "bytes": 24244,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fentropy$2fdecoder$2fstd_entropy_decoder$2edart.StdEntropyDecoder._rawSigProgPass",
+      "category": "package:j2k",
+      "library": "package:j2k/src/j2k/entropy/decoder/std_entropy_decoder.dart"
+    },
+    {
+      "address": 4312044828,
+      "bytes": 24204,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.PktDecoder._populateHlPrecinct",
+      "category": "package:j2k",
+      "library": "package:j2k/src/j2k/codestream/reader/bitstream_reader_agent.dart"
+    },
+    {
+      "address": 4295413496,
+      "bytes": 23680,
+      "name": "__RNvMsc_NtCskXXCE4dHgWW_17dartforge_runtime4heapNtB5_4Heap9drain_arc",
+      "category": "runtime-and-native-support",
+      "library": "runtime-and-native-support"
+    },
+    {
+      "address": 4313010068,
+      "bytes": 23432,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fimage$2fimage_data_uint8$2edart.ImageDataUint8.clear",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/graphics/image/codecs/image/image_data_uint8.dart"
+    },
+    {
+      "address": 4312216360,
+      "bytes": 23392,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fexif$2fifd_directory$2edart.IfdDirectory.$5b$5d$3d",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/graphics/image/codecs/exif/ifd_directory.dart"
+    },
+    {
+      "address": 4313048968,
+      "bytes": 22996,
+      "name": "_df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fuia$2fuia_events$2edart.UiaEventTranslator.translate",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/backends/win32/uia/uia_events.dart"
+    },
+    {
+      "address": 4315234788,
+      "bytes": 22552,
+      "name": "_df.package$3aj2k$2fsrc$2ficc$2flut$2fmatrix_based_transform_to_srgb$2edart.MatrixBasedTransformTosRGB.applyInt",
+      "category": "package:j2k",
+      "library": "package:j2k/src/icc/lut/matrix_based_transform_to_srgb.dart"
+    },
+    {
+      "address": 4301348292,
+      "bytes": 22500,
+      "name": "_df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.RenderObjectElement.performRebuild",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/widgets/element.dart"
+    },
+    {
+      "address": 4299702624,
+      "bytes": 22248,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fcff$2edart._Type2Interpreter._execute",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/text/cff.dart"
+    },
+    {
+      "address": 4300602832,
+      "bytes": 22176,
+      "name": "_df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.RenderObjectElement.update",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/widgets/element.dart"
+    },
+    {
+      "address": 4310614224,
+      "bytes": 22000,
+      "name": "_df.package$3adart_ui$2fsrc$2frendering$2fgpu$2fvulkan$2fvulkan_sparse_strips$2edart..buildVulkanSparseFragmentShader",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_sparse_strips.dart"
+    }
+  ],
+  "limitations": "Symbol provenance attributes linked bytes, not reachability or execution cost. Cross-category aliases remain mixed; upstream snapshot layout needs separate REA analysis."
+}

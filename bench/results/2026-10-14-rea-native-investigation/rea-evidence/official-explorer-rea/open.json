@@ -1,0 +1,27 @@
+{
+  "result": {
+    "_meta": {
+      "provenance": {
+        "untrusted_content": true,
+        "source": "analysis_target"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"result\":{\"path\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-explorer-snapshot.elf\",\"format\":\"elf\",\"kind\":\"executable\",\"sha256\":\"db131aa6e8b76921afc777c2a6adf0b89d09514513216fe9f8048abd23c42536\",\"architecture\":\"arm64\"}}"
+      }
+    ],
+    "structuredContent": {
+      "result": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-explorer-snapshot.elf",
+        "format": "elf",
+        "kind": "executable",
+        "sha256": "db131aa6e8b76921afc777c2a6adf0b89d09514513216fe9f8048abd23c42536",
+        "architecture": "arm64"
+      }
+    }
+  },
+  "jsonrpc": "2.0",
+  "id": 2
+}

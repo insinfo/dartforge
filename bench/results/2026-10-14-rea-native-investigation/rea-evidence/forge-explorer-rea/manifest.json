@@ -1,0 +1,25 @@
+{
+  "config": {
+    "label": "forge-explorer-rea",
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/sizes/on/program",
+    "procedures": [
+      {
+        "label": "convertFormatValue",
+        "address": "0x101086da4"
+      },
+      {
+        "label": "drawPixel",
+        "address": "0x101246384"
+      },
+      {
+        "label": "register-program",
+        "address": "0x1014783ec"
+      }
+    ]
+  },
+  "target_sha256": "d40a2312da012fcc34e8e409567e4828ce3bbf6321474985c5ffdeca5b3ce740",
+  "REA_version": "6.5.0",
+  "provider": "Ghidra12.1.4/JDK21.0.12.1/nativeARM64",
+  "server_exit": 0,
+  "scope": "Local static native assembly and heuristic C pseudocode; Dart custom snapshot ABI is not interpreted as recovered Dart semantics."
+}

@@ -1,0 +1,15 @@
+{
+  "label": "official-raw-tree-rea",
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-raw-tree.bin",
+  "open_options": {
+    "format": "raw-binary",
+    "architecture": "arm64",
+    "entry_point": "0x9d3a4"
+  },
+  "procedures": [
+    {
+      "label": "tree",
+      "address": "0x9d3a4"
+    }
+  ]
+}

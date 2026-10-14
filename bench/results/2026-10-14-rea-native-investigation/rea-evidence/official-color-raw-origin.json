@@ -1,0 +1,9 @@
+{
+  "original_container": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-explorer-snapshot.elf",
+  "container_sha256": "db131aa6e8b76921afc777c2a6adf0b89d09514513216fe9f8048abd23c42536",
+  "container_offset": 3499720,
+  "original_address": "0x3566c8",
+  "symbol_bytes": 8452,
+  "raw_sha256": "a430b7e0b7b1d48611c43628b0a529204352efff72b4ece472a1587464a6894b",
+  "scope": "Exact original function bytes with original ARM64 address. No external data/targets included; decompiler body and direct instruction targets only, not complete runtime callgraph."
+}

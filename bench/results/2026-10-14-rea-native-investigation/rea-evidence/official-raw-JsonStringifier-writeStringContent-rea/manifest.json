@@ -1,0 +1,22 @@
+{
+  "config": {
+    "label": "official-raw-JsonStringifier-writeStringContent-rea",
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-raw-JsonStringifier-writeStringContent.bin",
+    "open_options": {
+      "format": "raw-binary",
+      "architecture": "arm64",
+      "entry_point": "0x79498"
+    },
+    "procedures": [
+      {
+        "label": "JsonStringifier-writeStringContent",
+        "address": "0x79498"
+      }
+    ]
+  },
+  "target_sha256": "d9a20960844489251d53636b8a66e2cbc1e93bb51dccf61782769f131f684409",
+  "REA_version": "6.5.0",
+  "provider": "Ghidra12.1.4/JDK21.0.12.1/nativeARM64",
+  "server_exit": 0,
+  "scope": "Local static native assembly and heuristic C pseudocode; Dart custom snapshot ABI is not interpreted as recovered Dart semantics."
+}

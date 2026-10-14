@@ -1,0 +1,5 @@
+{"level":30,"time":1792002029615,"application":"rea","mode":"mcp","layer":"server","tool":"open_binary","durationMs":63.35,"status":"ok","msg":"MCP tool execution completed"}
+{"level":30,"time":1792002385395,"application":"rea","mode":"mcp","layer":"server","tool":"binary_overview","durationMs":355776.34,"status":"ok","msg":"MCP tool execution completed"}
+{"level":30,"time":1792002385437,"application":"rea","mode":"mcp","layer":"server","tool":"procedure_assembly","durationMs":36.06,"status":"ok","msg":"MCP tool execution completed"}
+{"level":40,"time":1792002587187,"application":"rea","mode":"mcp","layer":"ghidra-bridge","method":"procedure_pseudo_code","status":"error","msg":"Ghidra bridge request completed"}
+{"level":40,"time":1792002587842,"application":"rea","mode":"mcp","layer":"server","tool":"procedure_pseudo_code","durationMs":202390.28,"status":"error","msg":"MCP tool execution completed"}

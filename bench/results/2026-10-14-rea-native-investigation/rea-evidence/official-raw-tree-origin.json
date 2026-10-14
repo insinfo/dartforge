@@ -1,0 +1,16 @@
+{
+  "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-bench-snapshot.elf",
+  "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/official/bench",
+  "snapshot_sha256": "3a0d568ddf5295b5dd3c279f4b37c6de8839524ab21b859567a0106bb23865d7",
+  "symbol": {
+    "name": "tree",
+    "info": 2,
+    "section": 7,
+    "address": "0x9d3a4",
+    "bytes": 108
+  },
+  "snapshot_file_offset": 644004,
+  "original_file_offset": 5084068,
+  "raw_sha256": "8db2960c1db13a04fa72538da1ae36e040658a7be225957fa8e1a27580340a88",
+  "scope": "Exact symbol-sized instruction window; original ARM64 address maintained, referenced data/callees outside window are absent and cannot be inferred from window alone."
+}

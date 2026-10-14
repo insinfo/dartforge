@@ -1,0 +1,28 @@
+{
+  "result": {
+    "_meta": {
+      "provenance": {
+        "untrusted_content": true,
+        "source": "analysis_target"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"result\":{\"path\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/forge-color-raw.bin\",\"format\":\"raw-binary\",\"kind\":\"executable\",\"sha256\":\"8eb4129e0c8b43be5ddf0d7222834fafba9cf11db4580ca003297f62632579ec\",\"architecture\":\"arm64\",\"entry_point\":\"0x101086da4\"}}"
+      }
+    ],
+    "structuredContent": {
+      "result": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/forge-color-raw.bin",
+        "format": "raw-binary",
+        "kind": "executable",
+        "sha256": "8eb4129e0c8b43be5ddf0d7222834fafba9cf11db4580ca003297f62632579ec",
+        "architecture": "arm64",
+        "entry_point": "0x101086da4"
+      }
+    }
+  },
+  "jsonrpc": "2.0",
+  "id": 2
+}

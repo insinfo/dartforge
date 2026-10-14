@@ -1,0 +1,22 @@
+{
+  "config": {
+    "label": "official-raw-json-rea",
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-raw-json.bin",
+    "open_options": {
+      "format": "raw-binary",
+      "architecture": "arm64",
+      "entry_point": "0x97e1c"
+    },
+    "procedures": [
+      {
+        "label": "json",
+        "address": "0x97e1c"
+      }
+    ]
+  },
+  "target_sha256": "0120a3e7ba0f4ccd219c18555e51294f7f015b6279c5459b7a36a7829978833f",
+  "REA_version": "6.5.0",
+  "provider": "Ghidra12.1.4/JDK21.0.12.1/nativeARM64",
+  "server_exit": 0,
+  "scope": "Local static native assembly and heuristic C pseudocode; Dart custom snapshot ABI is not interpreted as recovered Dart semantics."
+}

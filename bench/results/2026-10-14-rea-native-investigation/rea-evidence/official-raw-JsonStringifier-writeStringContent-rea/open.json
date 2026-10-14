@@ -1,0 +1,28 @@
+{
+  "result": {
+    "_meta": {
+      "provenance": {
+        "untrusted_content": true,
+        "source": "analysis_target"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"result\":{\"path\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-raw-JsonStringifier-writeStringContent.bin\",\"format\":\"raw-binary\",\"kind\":\"executable\",\"sha256\":\"d9a20960844489251d53636b8a66e2cbc1e93bb51dccf61782769f131f684409\",\"architecture\":\"arm64\",\"entry_point\":\"0x79498\"}}"
+      }
+    ],
+    "structuredContent": {
+      "result": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-raw-JsonStringifier-writeStringContent.bin",
+        "format": "raw-binary",
+        "kind": "executable",
+        "sha256": "d9a20960844489251d53636b8a66e2cbc1e93bb51dccf61782769f131f684409",
+        "architecture": "arm64",
+        "entry_point": "0x79498"
+      }
+    }
+  },
+  "jsonrpc": "2.0",
+  "id": 2
+}

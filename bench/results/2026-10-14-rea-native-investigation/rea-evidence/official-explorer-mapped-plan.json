@@ -1,0 +1,10 @@
+{
+  "label": "official-explorer-rea-mapped",
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-explorer-snapshot.elf",
+  "procedures": [
+    {
+      "label": "convertFormatValue",
+      "address": "0x4566c8"
+    }
+  ]
+}

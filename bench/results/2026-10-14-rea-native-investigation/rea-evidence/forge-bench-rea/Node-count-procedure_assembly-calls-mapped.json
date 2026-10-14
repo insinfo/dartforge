@@ -1,0 +1,82 @@
+[
+  {
+    "at": "0x1000f3f68",
+    "opcode": "bl",
+    "target": "0x1000f3ee8",
+    "symbols": [
+      "_df.bench$2edart.Node.count"
+    ]
+  },
+  {
+    "at": "0x1000f3fac",
+    "opcode": "bl",
+    "target": "0x1000f3ee8",
+    "symbols": [
+      "_df.bench$2edart.Node.count"
+    ]
+  },
+  {
+    "at": "0x1000f4054",
+    "opcode": "bl",
+    "target": "0x1000b9958",
+    "symbols": [
+      "_dartforge_unbox_int"
+    ]
+  },
+  {
+    "at": "0x1000f4068",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f40f0",
+    "opcode": "bl",
+    "target": "0x1000b9958",
+    "symbols": [
+      "_dartforge_unbox_int"
+    ]
+  },
+  {
+    "at": "0x1000f4130",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f4144",
+    "opcode": "bl",
+    "target": "0x1000f946c",
+    "symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "at": "0x1000f4154",
+    "opcode": "bl",
+    "target": "0x1000b7c08",
+    "symbols": [
+      "_dartforge_stack_overflow"
+    ]
+  },
+  {
+    "at": "0x1000f4170",
+    "opcode": "bl",
+    "target": "0x10009b470",
+    "symbols": [
+      "_dartforge_allocate"
+    ]
+  },
+  {
+    "at": "0x1000f418c",
+    "opcode": "bl",
+    "target": "0x10009b470",
+    "symbols": [
+      "_dartforge_allocate"
+    ]
+  }
+]

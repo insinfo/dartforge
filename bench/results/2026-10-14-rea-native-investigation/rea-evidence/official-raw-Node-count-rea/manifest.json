@@ -1,0 +1,22 @@
+{
+  "config": {
+    "label": "official-raw-Node-count-rea",
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-raw-Node-count.bin",
+    "open_options": {
+      "format": "raw-binary",
+      "architecture": "arm64",
+      "entry_point": "0x9d2bc"
+    },
+    "procedures": [
+      {
+        "label": "Node-count",
+        "address": "0x9d2bc"
+      }
+    ]
+  },
+  "target_sha256": "d07137b74cbf4e0ddc95022eee56614a6949eb1e83bcfcc245f2b2e788a18d60",
+  "REA_version": "6.5.0",
+  "provider": "Ghidra12.1.4/JDK21.0.12.1/nativeARM64",
+  "server_exit": 0,
+  "scope": "Local static native assembly and heuristic C pseudocode; Dart custom snapshot ABI is not interpreted as recovered Dart semantics."
+}

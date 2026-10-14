@@ -1,0 +1,27 @@
+{
+  "result": {
+    "_meta": {
+      "provenance": {
+        "untrusted_content": true,
+        "source": "analysis_target"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"result\":{\"path\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-bench-snapshot.elf\",\"format\":\"elf\",\"kind\":\"executable\",\"sha256\":\"3a0d568ddf5295b5dd3c279f4b37c6de8839524ab21b859567a0106bb23865d7\",\"architecture\":\"arm64\"}}"
+      }
+    ],
+    "structuredContent": {
+      "result": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-bench-snapshot.elf",
+        "format": "elf",
+        "kind": "executable",
+        "sha256": "3a0d568ddf5295b5dd3c279f4b37c6de8839524ab21b859567a0106bb23865d7",
+        "architecture": "arm64"
+      }
+    }
+  },
+  "jsonrpc": "2.0",
+  "id": 2
+}

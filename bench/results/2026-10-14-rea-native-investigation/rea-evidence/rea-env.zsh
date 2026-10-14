@@ -1,0 +1,10 @@
+export PATH=/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin:/Volumes/ssd_dock/tools/rea/node_modules/.bin:$PATH
+export JAVA_HOME=/Volumes/ssd_dock/tools/rea/jdk-21.0.12.1+1/Contents/Home
+export GHIDRA_INSTALL_DIR=/Volumes/ssd_dock/tools/rea/ghidra_12.1.4_PUBLIC
+export TMPDIR=/Volumes/ssd_dock/tools/rea/tmp
+export npm_config_cache=/Volumes/ssd_dock/tools/rea/npm-cache
+export XDG_CACHE_HOME=/Volumes/ssd_dock/tools/rea/cache
+export XDG_CONFIG_HOME=/Volumes/ssd_dock/tools/rea/config
+export XDG_DATA_HOME=/Volumes/ssd_dock/tools/rea/data
+export REA_GHIDRA_STARTUP_TIMEOUT_MS=900000
+export GHIDRA_HEADLESS_MAXMEM=2048M

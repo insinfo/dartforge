@@ -1,0 +1,29 @@
+{
+  "config": {
+    "label": "official-bench-rea",
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-bench-snapshot.elf",
+    "procedures": [
+      {
+        "label": "json",
+        "address": "0x97e1c"
+      },
+      {
+        "label": "tree",
+        "address": "0x9d3a4"
+      },
+      {
+        "label": "Node-count",
+        "address": "0x9d2bc"
+      },
+      {
+        "label": "JsonStringifier-writeStringContent",
+        "address": "0x79498"
+      }
+    ]
+  },
+  "target_sha256": "3a0d568ddf5295b5dd3c279f4b37c6de8839524ab21b859567a0106bb23865d7",
+  "REA_version": "6.5.0",
+  "provider": "Ghidra12.1.4/JDK21.0.12.1/nativeARM64",
+  "server_exit": 0,
+  "scope": "Local static native assembly and heuristic C pseudocode; Dart custom snapshot ABI is not interpreted as recovered Dart semantics."
+}

@@ -1,0 +1,1941 @@
+{
+  "report": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-investigation/retention/retention.tsv",
+  "limitations": "Compiler records one retention cause per symbol. This does not prove absence of additional legitimate callers.",
+  "chains": {
+    "convertFormatValue": [
+      {
+        "symbol": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue",
+        "chain": [
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2futil$2fcolor_util$2edart.._convertColor",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2futil$2fcolor_util$2edart.._convertColor",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2futil$2fcolor_util$2edart..convertColor",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2futil$2fcolor_util$2edart..convertColor",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fimage$2fpixel_uint8$2edart.PixelUint8.convert$tc",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fimage$2fpixel_uint8$2edart.PixelUint8.convert$tc",
+            "cause": "table",
+            "parent": "programa#df.mt.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fimage$2fpixel_uint8$2edart.PixelUint8$d",
+            "selector": "tc:convert",
+            "caller": "df.dart$3aconvert.AsciiCodec.encode$c"
+          },
+          {
+            "symbol": "df.dart$3aconvert.AsciiCodec.encode$c",
+            "cause": "table",
+            "parent": "df.mt.dart$3aconvert.AsciiCodec$d",
+            "selector": "c:encode",
+            "caller": "df.dart$3acore._Uri._uriEncode"
+          },
+          {
+            "symbol": "df.dart$3acore._Uri._uriEncode",
+            "cause": "ref",
+            "parent": "df.dart$3acore._Uri._makePath$clo0$ed9075bfa",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.dart$3acore._Uri._makePath$clo0$ed9075bfa",
+            "cause": "ref",
+            "parent": "df.dart$3acore._Uri._makePath",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.dart$3acore._Uri._makePath",
+            "cause": "ref",
+            "parent": "df.dart$3acore._Uri.resolveUri",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.dart$3acore._Uri.resolveUri",
+            "cause": "ref",
+            "parent": "df.dart$3acore._Uri.resolve$c",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.dart$3acore._Uri.resolve$c",
+            "cause": "table",
+            "parent": "df.mt.dart$3acore._Uri$d",
+            "selector": "c:resolve",
+            "caller": "df.dart$3aisolate.Isolate._resolvePackage"
+          },
+          {
+            "symbol": "df.dart$3aisolate.Isolate._resolvePackage",
+            "cause": "ref",
+            "parent": "df.dart$3aisolate.Isolate.resolvePackageUriSync",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.dart$3aisolate.Isolate.resolvePackageUriSync",
+            "cause": "ref",
+            "parent": "df.dart$3aisolate.Isolate.spawn$async$q23f4f0c0",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.dart$3aisolate.Isolate.spawn$async$q23f4f0c0",
+            "cause": "ref",
+            "parent": "df.dart$3aisolate.Isolate.spawn$async$q23f4f0c0$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.dart$3aisolate.Isolate.spawn$async$q23f4f0c0$ent",
+            "cause": "ref",
+            "parent": "df.dart$3aisolate.Isolate.spawn",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.dart$3aisolate.Isolate.spawn",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fbackends$2fprocess_end_io$2edart..endProcessWithLastWindow",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fprocess_end_io$2edart..endProcessWithLastWindow",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69$ent",
+            "cause": "ref",
+            "parent": "dart_main$async$q585f5c8c",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main$async$q585f5c8c",
+            "cause": "ref",
+            "parent": "dart_main$async$q585f5c8c$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main$async$q585f5c8c$ent",
+            "cause": "ref",
+            "parent": "dart_main",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main",
+            "cause": "ref",
+            "parent": "dartforge_entry",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dartforge_entry",
+            "cause": "ref",
+            "parent": "main",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "main",
+            "cause": "root",
+            "parent": "-",
+            "selector": "-",
+            "caller": "-"
+          }
+        ],
+        "stopped_at": "-"
+      }
+    ],
+    "Win32Window.handleMessage": [
+      {
+        "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_window$2edart.Win32Window.handleMessage",
+        "chain": [
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_window$2edart.Win32Window.handleMessage",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_window_class$2edart.._routeMessage",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_window_class$2edart.._routeMessage",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_window_class$2edart.._routeMessage$tear",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_window_class$2edart.._routeMessage$tear",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_window_class$2edart.Win32WindowClass.register",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_window_class$2edart.Win32WindowClass.register",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_backend$2edart.Win32WindowingBackend.initialize$async$q8356d0d3",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_backend$2edart.Win32WindowingBackend.initialize$async$q8356d0d3",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_backend$2edart.Win32WindowingBackend.initialize$async$q8356d0d3$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_backend$2edart.Win32WindowingBackend.initialize$async$q8356d0d3$ent",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.start$async$q8da4c639",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.start$async$q8da4c639",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.start$async$q8da4c639$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.start$async$q8da4c639$ent",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5$ent",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69$ent",
+            "cause": "ref",
+            "parent": "dart_main$async$q585f5c8c",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main$async$q585f5c8c",
+            "cause": "ref",
+            "parent": "dart_main$async$q585f5c8c$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main$async$q585f5c8c$ent",
+            "cause": "ref",
+            "parent": "dart_main",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main",
+            "cause": "ref",
+            "parent": "dartforge_entry",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dartforge_entry",
+            "cause": "ref",
+            "parent": "main",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "main",
+            "cause": "root",
+            "parent": "-",
+            "selector": "-",
+            "caller": "-"
+          }
+        ],
+        "stopped_at": "-"
+      }
+    ],
+    "drawPixel": [
+      {
+        "symbol": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fdraw$2fdraw_pixel$2edart..drawPixel",
+        "chain": [
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fdraw$2fdraw_pixel$2edart..drawPixel",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fdraw$2fcomposite_image$2edart.._composite",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fdraw$2fcomposite_image$2edart.._composite",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fdraw$2fcomposite_image$2edart..compositeImage",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fdraw$2fcomposite_image$2edart..compositeImage",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fformats$2fwebp_decoder$2edart.WebPDecoder.decode",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fformats$2fwebp_decoder$2edart.WebPDecoder.decode",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fformats$2fwebp_decoder$2edart.WebPDecoder.decode$c",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fformats$2fwebp_decoder$2edart.WebPDecoder.decode$c",
+            "cause": "table",
+            "parent": "programa#df.mt.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fformats$2fwebp_decoder$2edart.WebPDecoder$d",
+            "selector": "c:decode",
+            "caller": "df.dart$3acore._Uri._uriDecode"
+          },
+          {
+            "symbol": "df.dart$3acore._Uri._uriDecode",
+            "cause": "ref",
+            "parent": "df.dart$3acore.Uri.decodeComponent$tear",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.dart$3acore.Uri.decodeComponent$tear",
+            "cause": "ref",
+            "parent": "df.dart$3acore._Uri._computePathSegments",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.dart$3acore._Uri._computePathSegments",
+            "cause": "ref",
+            "parent": "df.dart$3acore._Uri._toFilePath",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.dart$3acore._Uri._toFilePath",
+            "cause": "ref",
+            "parent": "df.dart$3acore._Uri.toFilePath",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.dart$3acore._Uri.toFilePath",
+            "cause": "ref",
+            "parent": "df.dart$3acore._Uri.toFilePath$c",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.dart$3acore._Uri.toFilePath$c",
+            "cause": "table",
+            "parent": "df.mt.dart$3acore._DataUri$d",
+            "selector": "c:toFilePath",
+            "caller": "df.package$3adart_ui$2fsrc$2fbackends$2fmacos$2fhost_locator$2edart.MacosHostLocator._readPackageRoot"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fmacos$2fhost_locator$2edart.MacosHostLocator._readPackageRoot",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fbackends$2fmacos$2fhost_locator$2edart.MacosHostLocator._packageRootFromConfig",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fmacos$2fhost_locator$2edart.MacosHostLocator._packageRootFromConfig",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fbackends$2fmacos$2fhost_locator$2edart.MacosHostLocator._packageRoot",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fmacos$2fhost_locator$2edart.MacosHostLocator._packageRoot",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fbackends$2fmacos$2fhost_locator$2edart.MacosHostLocator.resolve",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fmacos$2fhost_locator$2edart.MacosHostLocator.resolve",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fbackends$2fmacos$2fmacos_backend$2edart.MacosWindowingBackend.createWindow$async$qd465e35e",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fmacos$2fmacos_backend$2edart.MacosWindowingBackend.createWindow$async$qd465e35e",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fbackends$2fmacos$2fmacos_backend$2edart.MacosWindowingBackend.createWindow$async$qd465e35e$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fmacos$2fmacos_backend$2edart.MacosWindowingBackend.createWindow$async$qd465e35e$ent",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.openWindow$async$qdbcd5e34",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.openWindow$async$qdbcd5e34",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.openWindow$async$qdbcd5e34$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.openWindow$async$qdbcd5e34$ent",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.openPopup$async$q8e6fe4d1",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.openPopup$async$q8e6fe4d1",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.openPopup$async$q8e6fe4d1$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.openPopup$async$q8e6fe4d1$ent",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fwindow_popup_host$2edart._PopupChain._launch$async$qcd1f0668",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fwindow_popup_host$2edart._PopupChain._launch$async$qcd1f0668",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fwindow_popup_host$2edart._PopupChain._launch$async$qcd1f0668$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fwindow_popup_host$2edart._PopupChain._launch$async$qcd1f0668$ent",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fwindow_popup_host$2edart.WindowPopupHost.open",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fwindow_popup_host$2edart.WindowPopupHost.open",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2fmenu_anchor$2edart._AnchoredMenu.openMenu",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2fmenu_anchor$2edart._AnchoredMenu.openMenu",
+            "cause": "ref",
+            "parent": "df.package$3afile_explorer$2fsrc$2fui$2fsidebar$2edart._SidebarState.build$clo0$e20dae294$clo0$e44ebf887",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3afile_explorer$2fsrc$2fui$2fsidebar$2edart._SidebarState.build$clo0$e20dae294$clo0$e44ebf887",
+            "cause": "ref",
+            "parent": "df.package$3afile_explorer$2fsrc$2fui$2fsidebar$2edart._SidebarState.build$clo0$e20dae294",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3afile_explorer$2fsrc$2fui$2fsidebar$2edart._SidebarState.build$clo0$e20dae294",
+            "cause": "ref",
+            "parent": "df.package$3afile_explorer$2fsrc$2fui$2fsidebar$2edart._SidebarState.build",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3afile_explorer$2fsrc$2fui$2fsidebar$2edart._SidebarState.build",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.StatefulElement.build",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.StatefulElement.build",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.ComponentElement.performRebuild",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.ComponentElement.performRebuild",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element.rebuild",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element.rebuild",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildScope",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildScope",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildDuringLayout",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildDuringLayout",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints$tearm",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints$tearm",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement.mount",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement.mount",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.updateRoot",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.updateRoot",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.ApplicationWindow._syncMediaQuery",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.ApplicationWindow._syncMediaQuery",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged$tearm",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged$tearm",
+            "cause": "ref",
+            "parent": "df.late.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.systemSettings",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.late.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.systemSettings",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fwidgets_binding$2edart.WidgetsBinding.detachApplication",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fwidgets_binding$2edart.WidgetsBinding.detachApplication",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5$ent",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69$ent",
+            "cause": "ref",
+            "parent": "dart_main$async$q585f5c8c",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main$async$q585f5c8c",
+            "cause": "ref",
+            "parent": "dart_main$async$q585f5c8c$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main$async$q585f5c8c$ent",
+            "cause": "ref",
+            "parent": "dart_main",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main",
+            "cause": "ref",
+            "parent": "dartforge_entry",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dartforge_entry",
+            "cause": "ref",
+            "parent": "main",
+            "selector": "-",
+            "caller": "-"
+          }
+        ],
+        "stopped_at": "main"
+      }
+    ],
+    "Object.hash": [
+      {
+        "symbol": "df.dart$3acore.Object.hash",
+        "chain": [
+          {
+            "symbol": "df.dart$3acore.Object.hash",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.hashCode",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.hashCode",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.hashCode$g",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.hashCode$g",
+            "cause": "table",
+            "parent": "programa#df.mt.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange$d",
+            "selector": "g:hashCode",
+            "caller": "root"
+          },
+          {
+            "symbol": "programa#df.mt.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange$d",
+            "cause": "ref",
+            "parent": "df.mt.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.mt.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange",
+            "cause": "ref",
+            "parent": "dfc.7ab81348327ad7b6.get",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dfc.7ab81348327ad7b6.get",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.empty",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.empty",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextEditingValue._validate",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextEditingValue._validate",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.TextEditingController.editingValue$3d",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.TextEditingController.editingValue$3d",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._formatUserEdit$clo0$eef034d3c",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._formatUserEdit$clo0$eef034d3c",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._userEdit",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._userEdit",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.updateComposition$clo0$e5cd847a5",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.updateComposition$clo0$e5cd847a5",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.updateComposition",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.updateComposition",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_ime$2edart.Win32TextInputConnection.cancelComposition$clo0$e6dbfc422",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_ime$2edart.Win32TextInputConnection.cancelComposition$clo0$e6dbfc422",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_ime$2edart.Win32TextInputConnection.cancelComposition",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_ime$2edart.Win32TextInputConnection.cancelComposition",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._releaseTextInput",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._releaseTextInput",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._onImeFocusChanged$tearm",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._onImeFocusChanged$tearm",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.detach",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.detach",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2flayout$2frender_box$2edart.RenderBox.dropChild",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2flayout$2frender_box$2edart.RenderBox.dropChild",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.RenderObjectElement._detachRenderObject",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.RenderObjectElement._detachRenderObject",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element._deactivate",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element._deactivate",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2fslivers$2edart.SliverMultiBoxAdaptorElement._rebuildItems",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2fslivers$2edart.SliverMultiBoxAdaptorElement._rebuildItems",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element.rebuild",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element.rebuild",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildScope",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildScope",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildDuringLayout",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildDuringLayout",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints$tearm",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints$tearm",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement.mount",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement.mount",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.updateRoot",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.updateRoot",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.ApplicationWindow._syncMediaQuery",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.ApplicationWindow._syncMediaQuery",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged$tearm",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged$tearm",
+            "cause": "ref",
+            "parent": "df.late.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.systemSettings",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.late.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.systemSettings",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fwidgets_binding$2edart.WidgetsBinding.detachApplication",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fwidgets_binding$2edart.WidgetsBinding.detachApplication",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5$ent",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69$ent",
+            "cause": "ref",
+            "parent": "dart_main$async$q585f5c8c",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main$async$q585f5c8c",
+            "cause": "ref",
+            "parent": "dart_main$async$q585f5c8c$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main$async$q585f5c8c$ent",
+            "cause": "ref",
+            "parent": "dart_main",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main",
+            "cause": "ref",
+            "parent": "dartforge_entry",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dartforge_entry",
+            "cause": "ref",
+            "parent": "main",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "main",
+            "cause": "root",
+            "parent": "-",
+            "selector": "-",
+            "caller": "-"
+          }
+        ],
+        "stopped_at": "-"
+      },
+      {
+        "symbol": "df.dart$3acore.Object.hash.padrao.10",
+        "chain": [
+          {
+            "symbol": "df.dart$3acore.Object.hash.padrao.10",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.hashCode",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.hashCode",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.hashCode$g",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.hashCode$g",
+            "cause": "table",
+            "parent": "programa#df.mt.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange$d",
+            "selector": "g:hashCode",
+            "caller": "root"
+          },
+          {
+            "symbol": "programa#df.mt.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange$d",
+            "cause": "ref",
+            "parent": "df.mt.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.mt.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange",
+            "cause": "ref",
+            "parent": "dfc.7ab81348327ad7b6.get",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dfc.7ab81348327ad7b6.get",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.empty",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.empty",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextEditingValue._validate",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextEditingValue._validate",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.TextEditingController.editingValue$3d",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.TextEditingController.editingValue$3d",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._formatUserEdit$clo0$eef034d3c",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._formatUserEdit$clo0$eef034d3c",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._userEdit",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._userEdit",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.updateComposition$clo0$e5cd847a5",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.updateComposition$clo0$e5cd847a5",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.updateComposition",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.updateComposition",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_ime$2edart.Win32TextInputConnection.cancelComposition$clo0$e6dbfc422",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_ime$2edart.Win32TextInputConnection.cancelComposition$clo0$e6dbfc422",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_ime$2edart.Win32TextInputConnection.cancelComposition",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_ime$2edart.Win32TextInputConnection.cancelComposition",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._releaseTextInput",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._releaseTextInput",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._onImeFocusChanged$tearm",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._onImeFocusChanged$tearm",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.detach",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.detach",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2flayout$2frender_box$2edart.RenderBox.dropChild",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2flayout$2frender_box$2edart.RenderBox.dropChild",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.RenderObjectElement._detachRenderObject",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.RenderObjectElement._detachRenderObject",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element._deactivate",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element._deactivate",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2fslivers$2edart.SliverMultiBoxAdaptorElement._rebuildItems",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2fslivers$2edart.SliverMultiBoxAdaptorElement._rebuildItems",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element.rebuild",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element.rebuild",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildScope",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildScope",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildDuringLayout",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildDuringLayout",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints$tearm",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints$tearm",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement.mount",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement.mount",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.updateRoot",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.updateRoot",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.ApplicationWindow._syncMediaQuery",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.ApplicationWindow._syncMediaQuery",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged$tearm",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged$tearm",
+            "cause": "ref",
+            "parent": "df.late.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.systemSettings",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.late.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.systemSettings",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fwidgets_binding$2edart.WidgetsBinding.detachApplication",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fwidgets_binding$2edart.WidgetsBinding.detachApplication",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5$ent",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69$ent",
+            "cause": "ref",
+            "parent": "dart_main$async$q585f5c8c",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main$async$q585f5c8c",
+            "cause": "ref",
+            "parent": "dart_main$async$q585f5c8c$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main$async$q585f5c8c$ent",
+            "cause": "ref",
+            "parent": "dart_main",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main",
+            "cause": "ref",
+            "parent": "dartforge_entry",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dartforge_entry",
+            "cause": "ref",
+            "parent": "main",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "main",
+            "cause": "root",
+            "parent": "-",
+            "selector": "-",
+            "caller": "-"
+          }
+        ],
+        "stopped_at": "-"
+      },
+      {
+        "symbol": "df.dart$3acore.Object.hash.padrao.11",
+        "chain": [
+          {
+            "symbol": "df.dart$3acore.Object.hash.padrao.11",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.hashCode",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.hashCode",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.hashCode$g",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.hashCode$g",
+            "cause": "table",
+            "parent": "programa#df.mt.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange$d",
+            "selector": "g:hashCode",
+            "caller": "root"
+          },
+          {
+            "symbol": "programa#df.mt.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange$d",
+            "cause": "ref",
+            "parent": "df.mt.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.mt.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange",
+            "cause": "ref",
+            "parent": "dfc.7ab81348327ad7b6.get",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dfc.7ab81348327ad7b6.get",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.empty",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextRange.empty",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextEditingValue._validate",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_editing$2edart.TextEditingValue._validate",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.TextEditingController.editingValue$3d",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.TextEditingController.editingValue$3d",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._formatUserEdit$clo0$eef034d3c",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._formatUserEdit$clo0$eef034d3c",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._userEdit",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._userEdit",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.updateComposition$clo0$e5cd847a5",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.updateComposition$clo0$e5cd847a5",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.updateComposition",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.updateComposition",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_ime$2edart.Win32TextInputConnection.cancelComposition$clo0$e6dbfc422",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_ime$2edart.Win32TextInputConnection.cancelComposition$clo0$e6dbfc422",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_ime$2edart.Win32TextInputConnection.cancelComposition",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_ime$2edart.Win32TextInputConnection.cancelComposition",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._releaseTextInput",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._releaseTextInput",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._onImeFocusChanged$tearm",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField._onImeFocusChanged$tearm",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.detach",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2ftext_field$2edart.RenderTextField.detach",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2flayout$2frender_box$2edart.RenderBox.dropChild",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2flayout$2frender_box$2edart.RenderBox.dropChild",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.RenderObjectElement._detachRenderObject",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.RenderObjectElement._detachRenderObject",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element._deactivate",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element._deactivate",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2fslivers$2edart.SliverMultiBoxAdaptorElement._rebuildItems",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2fslivers$2edart.SliverMultiBoxAdaptorElement._rebuildItems",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element.rebuild",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element.rebuild",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildScope",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildScope",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildDuringLayout",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildDuringLayout",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints$tearm",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints$tearm",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement.mount",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement.mount",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.updateRoot",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.updateRoot",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.ApplicationWindow._syncMediaQuery",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.ApplicationWindow._syncMediaQuery",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged$tearm",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged$tearm",
+            "cause": "ref",
+            "parent": "df.late.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.systemSettings",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.late.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.systemSettings",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fwidgets_binding$2edart.WidgetsBinding.detachApplication",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fwidgets_binding$2edart.WidgetsBinding.detachApplication",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5$ent",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69$ent",
+            "cause": "ref",
+            "parent": "dart_main$async$q585f5c8c",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main$async$q585f5c8c",
+            "cause": "ref",
+            "parent": "dart_main$async$q585f5c8c$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main$async$q585f5c8c$ent",
+            "cause": "ref",
+            "parent": "dart_main",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main",
+            "cause": "ref",
+            "parent": "dartforge_entry",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dartforge_entry",
+            "cause": "ref",
+            "parent": "main",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "main",
+            "cause": "root",
+            "parent": "-",
+            "selector": "-",
+            "caller": "-"
+          }
+        ],
+        "stopped_at": "-"
+      }
+    ],
+    "PktDecoder.readPktHead": [
+      {
+        "symbol": "df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.PktDecoder.readPktHead",
+        "chain": [
+          {
+            "symbol": "df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.PktDecoder.readPktHead",
+            "cause": "ref",
+            "parent": "df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.FileBitstreamReaderAgent._processPacket",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.FileBitstreamReaderAgent._processPacket",
+            "cause": "ref",
+            "parent": "df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.FileBitstreamReaderAgent._decodeCprl",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.FileBitstreamReaderAgent._decodeCprl",
+            "cause": "ref",
+            "parent": "df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.FileBitstreamReaderAgent._decodeSegment",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.FileBitstreamReaderAgent._decodeSegment",
+            "cause": "ref",
+            "parent": "df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.FileBitstreamReaderAgent._decodeTilePackets",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.FileBitstreamReaderAgent._decodeTilePackets",
+            "cause": "ref",
+            "parent": "df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.FileBitstreamReaderAgent.setTile",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.FileBitstreamReaderAgent.setTile",
+            "cause": "ref",
+            "parent": "df.package$3aj2k$2fsrc$2fj2k$2fwavelet$2fsynthesis$2fmulti_res_img_data_adapter$2edart.MultiResImgDataAdapter.setTile",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3aj2k$2fsrc$2fj2k$2fwavelet$2fsynthesis$2fmulti_res_img_data_adapter$2edart.MultiResImgDataAdapter.setTile",
+            "cause": "ref",
+            "parent": "df.package$3aj2k$2fsrc$2fj2k$2fquantization$2fdequantizer$2fdequantizer$2edart.Dequantizer.setTile",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3aj2k$2fsrc$2fj2k$2fquantization$2fdequantizer$2fdequantizer$2edart.Dequantizer.setTile",
+            "cause": "ref",
+            "parent": "df.package$3aj2k$2fsrc$2fj2k$2fwavelet$2fsynthesis$2finv_wt_full$2edart.InvWTFull.setTile",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3aj2k$2fsrc$2fj2k$2fwavelet$2fsynthesis$2finv_wt_full$2edart.InvWTFull.setTile",
+            "cause": "ref",
+            "parent": "df.package$3aj2k$2fsrc$2fapi$2fjpeg2000_codec$2edart.._collectImage",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3aj2k$2fsrc$2fapi$2fjpeg2000_codec$2edart.._collectImage",
+            "cause": "ref",
+            "parent": "df.package$3aj2k$2fsrc$2fapi$2fjpeg2000_codec$2edart..decodeJpeg2000$clo0$e6107aaa1",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3aj2k$2fsrc$2fapi$2fjpeg2000_codec$2edart..decodeJpeg2000$clo0$e6107aaa1",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fraster_formats$2edart.._decodeJp2Dart",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fraster_formats$2edart.._decodeJp2Dart",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fraster_formats$2edart..decodeImageWithCodec",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fraster_formats$2edart..decodeImageWithCodec",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2frendering$2ftext$2fcolor_glyph_cache$2edart.ColorGlyphCache._decode",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2frendering$2ftext$2fcolor_glyph_cache$2edart.ColorGlyphCache._decode",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2frendering$2ftext$2fcolor_glyph_cache$2edart.ColorGlyphCache._make",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2frendering$2ftext$2fcolor_glyph_cache$2edart.ColorGlyphCache._make",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2frendering$2ftext$2fcolor_glyph_cache$2edart.ColorGlyphCache.lookup",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2frendering$2ftext$2fcolor_glyph_cache$2edart.ColorGlyphCache.lookup",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2frendering$2ftext$2ftext_painter$2edart.TextPainter._emitPictures",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2frendering$2ftext$2ftext_painter$2edart.TextPainter._emitPictures",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2frendering$2ftext$2ftext_painter$2edart.TextPainter.emitRun",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2frendering$2ftext$2ftext_painter$2edart.TextPainter.emitRun",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2finput_decorator$2edart.RenderInputDecorator._paintRun",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2finput_decorator$2edart.RenderInputDecorator._paintRun",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2finput_decorator$2edart.RenderInputDecorator.paint",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2finput_decorator$2edart.RenderInputDecorator.paint",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2flayout$2frender_box$2edart.RenderBox.paintFromParent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2flayout$2frender_box$2edart.RenderBox.paintFromParent",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2flayout$2fpipeline$2edart.PipelineOwner.flushPaint",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2flayout$2fpipeline$2edart.PipelineOwner.flushPaint",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fscheduler$2fframe_scheduler$2edart.FrameScheduler._drawFrame",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fscheduler$2fframe_scheduler$2edart.FrameScheduler._drawFrame",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fscheduler$2fframe_scheduler$2edart.FrameScheduler._handleTimedFrame$tearm",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fscheduler$2fframe_scheduler$2edart.FrameScheduler._handleTimedFrame$tearm",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fscheduler$2fframe_scheduler$2edart.FrameScheduler.scheduleNextFrame",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fscheduler$2fframe_scheduler$2edart.FrameScheduler.scheduleNextFrame",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fanimation$2fclock$2edart.AnimationClock.attachTo",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fanimation$2fclock$2edart.AnimationClock.attachTo",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2fdart_ui_app$2edart._DartUiAppState.initState",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2fdart_ui_app$2edart._DartUiAppState.initState",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.StatefulElement.mount",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.StatefulElement.mount",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element.updateChild",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element.updateChild",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2fslivers$2edart.SliverMultiBoxAdaptorElement._buildItem$clo0$ee4866e2b",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2fslivers$2edart.SliverMultiBoxAdaptorElement._buildItem$clo0$ee4866e2b",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2fslivers$2edart.SliverMultiBoxAdaptorElement._buildItem",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2fslivers$2edart.SliverMultiBoxAdaptorElement._buildItem",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2fslivers$2edart.SliverMultiBoxAdaptorElement._rebuildItems",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2fslivers$2edart.SliverMultiBoxAdaptorElement._rebuildItems",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element.rebuild",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.Element.rebuild",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildScope",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildScope",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildDuringLayout",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.buildDuringLayout",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints$tearm",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement._rebuildWithConstraints$tearm",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement.mount",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2flayout_builder$2edart.LayoutBuilderElement.mount",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.updateRoot",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.BuildOwner.updateRoot",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.ApplicationWindow._syncMediaQuery",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.ApplicationWindow._syncMediaQuery",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged$tearm",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application._onSystemSettingsChanged$tearm",
+            "cause": "ref",
+            "parent": "df.late.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.systemSettings",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.late.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.systemSettings",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fwidgets_binding$2edart.WidgetsBinding.detachApplication",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fwidgets_binding$2edart.WidgetsBinding.detachApplication",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart..runApp$async$q47ecdcf5$ent",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69",
+            "cause": "ref",
+            "parent": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "df.package$3adart_ui$2fdart_ui$2edart..runApp$async$q2b342d69$ent",
+            "cause": "ref",
+            "parent": "dart_main$async$q585f5c8c",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main$async$q585f5c8c",
+            "cause": "ref",
+            "parent": "dart_main$async$q585f5c8c$ent",
+            "selector": "-",
+            "caller": "-"
+          },
+          {
+            "symbol": "dart_main$async$q585f5c8c$ent",
+            "cause": "ref",
+            "parent": "dart_main",
+            "selector": "-",
+            "caller": "-"
+          }
+        ],
+        "stopped_at": "dart_main"
+      }
+    ]
+  }
+}

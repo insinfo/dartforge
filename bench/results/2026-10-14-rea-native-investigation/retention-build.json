@@ -1,0 +1,63 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/candidate-platform-producer/dartforge",
+    "compile-native",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+    "--sdk",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "--packages",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+    "--optimize",
+    "--memory=tracing",
+    "--exceptions=check",
+    "--roots=shadow",
+    "--stack-trace=none",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-investigation/retention/program"
+  ],
+  "compiler_sha256": "539086b6334ac61ddbaea956ddf9218aca83d0435eb54633119f9318a88987d7",
+  "baseline_binary_sha256": "d40a2312da012fcc34e8e409567e4828ce3bbf6321474985c5ffdeca5b3ce740",
+  "environment": {
+    "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-investigation/retention",
+    "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_LINK_MAP": "1",
+    "DARTFORGE_FACTORY_RECEIVER_PROVENANCE": "1",
+    "DARTFORGE_ARC_PORT_PRUNING": "1",
+    "DARTFORGE_KEEP_IR": "1",
+    "DARTFORGE_WHY": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-investigation/retention/retention.tsv"
+  },
+  "purpose": "Correctness and retention diagnosis only, no performance measurement.",
+  "complete": true,
+  "exit": 0,
+  "binary_sha256": "d40a2312da012fcc34e8e409567e4828ce3bbf6321474985c5ffdeca5b3ce740",
+  "binary_bytes": 28475840,
+  "evidence": [
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-investigation/retention/program.map",
+      "bytes": 11130604,
+      "sha256": "21906fbe3673d41f3e07f7056e82b8f8274d6fabbda7eb49a7b824b508e2c600"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-investigation/retention/program.contracts.json",
+      "bytes": 176663,
+      "sha256": "a076de733b81a38b6c825fe39e293263743b764f20a78342840ac309c508761d"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-investigation/retention/retention.tsv",
+      "bytes": 9364520,
+      "sha256": "a3f47db10edf7191be0a36d17eea6293ff6de9a5b9c1205b1d55532ec52f45b2"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-investigation/retention/program",
+      "bytes": 28475840,
+      "sha256": "d40a2312da012fcc34e8e409567e4828ce3bbf6321474985c5ffdeca5b3ce740"
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-investigation/retention/.df_tmp/program.ll",
+      "bytes": 303356799,
+      "sha256": "c8d0224801f7aa4a43a2bca6dabcd5b667a5f8671bd33bf3a9aa916975e782af"
+    }
+  ],
+  "compiler_stable": true
+}

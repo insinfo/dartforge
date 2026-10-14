@@ -1,0 +1,29 @@
+{
+  "config": {
+    "label": "forge-bench-rea",
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/tracing/bench",
+    "procedures": [
+      {
+        "label": "json",
+        "address": "0x1000f4e64"
+      },
+      {
+        "label": "tree",
+        "address": "0x1000f4198"
+      },
+      {
+        "label": "Node-count",
+        "address": "0x1000f3ee8"
+      },
+      {
+        "label": "JsonStringifier-writeStringContent",
+        "address": "0x1001ecdc4"
+      }
+    ]
+  },
+  "target_sha256": "2ba176a6b1cb7e927b6711c0f4f7e458f13868b4ffc894dead6dc9f297b0ff77",
+  "REA_version": "6.5.0",
+  "provider": "Ghidra12.1.4/JDK21.0.12.1/nativeARM64",
+  "server_exit": 0,
+  "scope": "Local static native assembly and heuristic C pseudocode; Dart custom snapshot ABI is not interpreted as recovered Dart semantics."
+}

@@ -1,0 +1,15 @@
+{
+  "label": "official-raw-JsonStringifier-writeStringContent-rea",
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-raw-JsonStringifier-writeStringContent.bin",
+  "open_options": {
+    "format": "raw-binary",
+    "architecture": "arm64",
+    "entry_point": "0x79498"
+  },
+  "procedures": [
+    {
+      "label": "JsonStringifier-writeStringContent",
+      "address": "0x79498"
+    }
+  ]
+}

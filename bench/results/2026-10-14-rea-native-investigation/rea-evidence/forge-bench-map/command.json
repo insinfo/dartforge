@@ -1,0 +1,25 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+    "compile-native",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/bench.dart",
+    "--sdk",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "--optimize",
+    "--memory=tracing",
+    "--exceptions=check",
+    "--roots=shadow",
+    "--stack-trace=none",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/forge-bench-map/bench"
+  ],
+  "environment": {
+    "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "DARTFORGE_ARC_PORT_PRUNING": "1",
+    "DARTFORGE_FACTORY_RECEIVER_PROVENANCE": "1",
+    "DARTFORGE_ARC_CHECK": "0",
+    "DARTFORGE_ARC_PREPARED": "0",
+    "DARTFORGE_LINK_MAP": "1",
+    "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/forge-bench-map"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-bench-snapshot.elf",
+  "original": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/official/bench",
+  "snapshot_sha256": "3a0d568ddf5295b5dd3c279f4b37c6de8839524ab21b859567a0106bb23865d7",
+  "symbol": {
+    "name": "json",
+    "info": 2,
+    "section": 7,
+    "address": "0x97e1c",
+    "bytes": 1644
+  },
+  "snapshot_file_offset": 622108,
+  "original_file_offset": 5062172,
+  "raw_sha256": "0120a3e7ba0f4ccd219c18555e51294f7f015b6279c5459b7a36a7829978833f",
+  "scope": "Exact symbol-sized instruction window; original ARM64 address maintained, referenced data/callees outside window are absent and cannot be inferred from window alone."
+}

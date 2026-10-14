@@ -1,0 +1,27 @@
+{
+  "result": {
+    "_meta": {
+      "provenance": {
+        "untrusted_content": true,
+        "source": "analysis_target"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"result\":{\"path\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/tracing/bench\",\"format\":\"mach-o\",\"kind\":\"executable\",\"sha256\":\"2ba176a6b1cb7e927b6711c0f4f7e458f13868b4ffc894dead6dc9f297b0ff77\",\"architecture\":\"arm64\"}}"
+      }
+    ],
+    "structuredContent": {
+      "result": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/tracing/bench",
+        "format": "mach-o",
+        "kind": "executable",
+        "sha256": "2ba176a6b1cb7e927b6711c0f4f7e458f13868b4ffc894dead6dc9f297b0ff77",
+        "architecture": "arm64"
+      }
+    }
+  },
+  "jsonrpc": "2.0",
+  "id": 2
+}
