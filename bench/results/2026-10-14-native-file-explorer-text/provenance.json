@@ -1,0 +1,22 @@
+{
+  "compiler": "target/native-provenance/list-reserve-after-compiler/dartforge",
+  "compiler_sha256": "2919f3ffadb7e8d2b01b7766b82cd768482548edc0be8d58599bb902ac2d2c99",
+  "flags": [
+    "--optimize",
+    "--memory=arc",
+    "--exceptions=check",
+    "--roots=shadow",
+    "--stack-trace=none"
+  ],
+  "environment": {
+    "DARTFORGE_ARC_PREPARED": "1",
+    "DARTFORGE_ARC_CHECK": "1",
+    "DARTFORGE_EFFECTS": "check",
+    "DARTFORGE_LINK_MAP": "1"
+  },
+  "entry": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+  "compile_exit": 0,
+  "runtime_scope": "Frozen list-reserve-after compiler2919; predates the Latin-1 change and semantic type identity change. Map-only diagnostic; no GUI execution or timing in this artifact.",
+  "map_sha256": "53ef2fc20917695b182b398e44ecac2e1f0e114330ca6ab5a250d9f3507d7b23",
+  "map_gzip_sha256": "0425062a222852fec511aea58c88f380953bdd243a73e485d4fbff9d01cacb27"
+}
