@@ -1,0 +1,33 @@
+{
+  "source_frozen": true,
+  "changes": "Extract candidate backlink while performing the existing Collecting-state metadata transition; skip candidate queue work for absent backlinks; generation and exact queued identity checks preserved.",
+  "source_sha256": {
+    "crates/runtime/src/arc.rs": "23cd764828a37812ba5e9aeb829a58410f1d7abc997945e12cae4738d748c9a3",
+    "crates/runtime/src/arc/candidates.rs": "e935f8582b9d6c2fd1e5f751f7364e249c87dd3b1b7e4c3b4f38cfbd636e1fe0"
+  },
+  "focused": {
+    "command": "cargo test --locked -j2 -p dartforge-runtime --lib arc:: -- --test-threads=2",
+    "passed": 34,
+    "exit": 0,
+    "log": "focused-tests.log"
+  },
+  "full_runtime": {
+    "command": "cargo test --locked -j2 -p dartforge-runtime --lib -- --test-threads=2",
+    "passed": 313,
+    "ignored": 3,
+    "exit": 0,
+    "log": "runtime-tests.log"
+  },
+  "environment": {
+    "CARGO_TARGET_DIR": "target/p4",
+    "TMPDIR": "target/tmp-p8-runtime",
+    "DARTFORGE_TEST_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64"
+  },
+  "timing_measured": false,
+  "metadata_bytes": 32,
+  "actual_cli_validation_pending": true,
+  "before_compiler_sha256": "539086b6334ac61ddbaea956ddf9218aca83d0435eb54633119f9318a88987d7",
+  "scope": "Runtime correctness only. No CPU or memory improvement claim for this follow-up; prior immutable artifacts and measurement evidence preserved."
+}

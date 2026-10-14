@@ -526,17 +526,7 @@ impl ArcHeapState {
 
     /// Removes only the queued identity belonging to this registration. A moved
     /// entry gets its new backlink before any further discard or requeue.
-    fn remove_candidate(&mut self, h: Ref, local: Option<MetadataLocation>) {
-        if self.retain_dead_candidates {
-            return;
-        }
-        let m = match local {
-            Some(local) => self.objects.in_local_mut(local),
-            None => self.objects.get_mut(&h),
-        };
-        let Some(m) = m else { return };
-        let index = std::mem::replace(&mut m.candidate_index, usize::MAX);
-        let id = ArcId { handle: h, generation: m.generation };
+    fn remove_candidate(&mut self, id: ArcId, index: usize) {
         // Never let a stale generation or backlink remove another identity.
         if self.candidates.get(index) != Some(&id) {
             return;
@@ -771,13 +761,23 @@ impl ArcHeapState {
             None => item_set.contains(&v),
         };
         for &u in d {
-            self.remove_candidate(u, local);
             let m = match local {
                 Some(local) => self.objects.in_local_mut(local),
                 None => self.objects.get_mut(&u),
             };
-            if let Some(m) = m {
+            let candidate = m.and_then(|m| {
                 m.state = ArcState::Collecting;
+                // Use the state-transition lookup: an unqueued object needs no
+                // backlink mutation or candidate-vector access at all.
+                if !self.retain_dead_candidates && m.candidate_index != usize::MAX {
+                    let index = std::mem::replace(&mut m.candidate_index, usize::MAX);
+                    Some((ArcId { handle: u, generation: m.generation }, index))
+                } else {
+                    None
+                }
+            });
+            if let Some((id, index)) = candidate {
+                self.remove_candidate(id, index);
             }
         }
         // The set's exits, once per occurrence (the vector is reused between

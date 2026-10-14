@@ -97,7 +97,13 @@ fn stale_generation_and_wrong_backlink_cannot_remove_current_identity() {
     // A corrupt backlink points to a different generation: refusal preserves it.
     a.objects.get_mut(&2).unwrap().candidate_index = 0;
     let before = a.candidates.clone();
-    a.remove_candidate(2, None);
+    a.remove_candidate(
+        ArcId {
+            handle: 2,
+            generation: a.meta(2).unwrap().generation,
+        },
+        0,
+    );
     assert_eq!(a.candidates, before);
     assert!(a.alive(2) && a.alive(4));
     // The cycle snapshot repairs old links before requeueing protected identities.
@@ -271,4 +277,26 @@ fn randomized_invalid_multiplicities_abort_before_commit() {
         assert_eq!(g.0[&2].len(), multiplicity);
         backlinks(&a);
     }
+}
+
+#[test]
+fn unqueued_deaths_leave_live_candidate_backlinks_untouched() {
+    let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
+    live(&mut a, 2);
+    live(&mut a, 4);
+    let queued = a.candidates.clone();
+    // Construction owners with no positive-RC decrement never enter the queue.
+    for h in (6..=128).step_by(2) {
+        a.register(h).unwrap();
+        a.finish_construction(h);
+        a.release(h).unwrap();
+    }
+    assert_eq!(a.drain_zeros(&mut g, usize::MAX, &|_| false), Ok(62));
+    assert_eq!(a.candidates, queued);
+    backlinks(&a);
+    for h in (6..=128).step_by(2) {
+        assert_eq!(a.meta(h).unwrap().state, ArcState::Dead);
+        assert_eq!(a.meta(h).unwrap().candidate_index, usize::MAX);
+    }
+    a.audit(&g, &[2, 4]).unwrap();
 }
