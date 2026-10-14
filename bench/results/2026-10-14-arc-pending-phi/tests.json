@@ -1,0 +1,43 @@
+{
+  "native_lib": {
+    "passed": 606,
+    "failed": 0,
+    "ignored": 7,
+    "exit_code": 0
+  },
+  "focused_phis": {
+    "passed": 11,
+    "failed": 0
+  },
+  "sources": {
+    "crates/emit_native/src/optimize/arc/classification.rs": "d9e460e77112b3b4063b4a47692405f177a30bf78431fc1efcf2d6feb33efec2",
+    "crates/emit_native/src/optimize/arc/phis.rs": "76d83c85722c7bdcb6b4bbc834cf5ae8d52ebe862f1554b36c2adfa879c1a4e2",
+    "crates/emit_native/src/optimize/arc/phis/pending_tests.rs": "05a4d37ec03d20c474579a9a33d32a7d7802f2268ab699448f8a752c4b12fb51",
+    "crates/emit_native/tests/fixtures/arc_ports/pending_field_phi.dart": "5a5233931843b418b375a70e4052cd6e54f99a8896a551a25d652e6b24ecc850"
+  },
+  "logs": {
+    "pending-phi-native-lib.log": "983c4b97ff8e136cb6a1b2b84349eabd02051d299db3eb0f5743bdab2caf02e8",
+    "pending-phi-tests.log": "96e9d86559ab2001dc93523a7603c626fb7f0eb05f4a0ea1b20def0f6e0c2bd1",
+    "pending-phi-release.log": "aab430a2b65b48a1893df2362704b3c7fcdad0e39fe4f7f2815acc940d3ffadd",
+    "pending-phi-validation.log": "6e26d0c433b1d2123d0a0e9b0a36faa40e6bd7e90f3b3d5e0aeb9d98917c04b6"
+  },
+  "independent_review": {
+    "reviewer": "windows_gui",
+    "unsafe_acceptance_found": false,
+    "retained_guards": [
+      "pending-result success-edge availability",
+      "direct exceptional result rejection",
+      "landing-pad and scope-edge restrictions",
+      "full ARC classification and liveness"
+    ]
+  },
+  "release_exit_code": 0,
+  "previous_reproducer": {
+    "compiler_sha256": "69bab7f694b18c04334f9acd781023d56e82e50c0d65fd17f27d759a1e8ef7f1",
+    "compiler_path": "target/native-provenance/arc-subtype-guard-compiler/dartforge",
+    "prepared_build_exit_code": 1,
+    "stderr": "previous-pending-field-phi.build.stderr",
+    "vm_stdout": "previous-pending-field-phi.vm.stdout",
+    "fixture_sha256": "5a5233931843b418b375a70e4052cd6e54f99a8896a551a25d652e6b24ecc850"
+  }
+}

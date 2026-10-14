@@ -41,8 +41,7 @@ pub(super) fn copy_borrows(
     if super::calls::classify_without_phis(f, index, &mut classes, &mut tokens).is_err() {
         return Ok(0);
     }
-    let pending_set: HashSet<BlockId> = tokens.pendings.values().copied().collect();
-    copy(f, p, &classes, &pending_set)
+    copy(f, p, &classes, &tokens.pendings)
 }
 
 /// [`copy_borrows`] with the classes of the definitions already known (without
@@ -55,14 +54,14 @@ pub(super) fn copy_with_classes(
     p: &DartFunctionPlan,
     classes: &HashMap<ValueId, Ownership>,
 ) -> Result<usize, String> {
-    copy(f, p, classes, &HashSet::new())
+    copy(f, p, classes, &HashMap::new())
 }
 
 fn copy(
     f: &mut Function,
     p: &DartFunctionPlan,
     classes: &HashMap<ValueId, Ownership>,
-    extra_pending: &HashSet<BlockId>,
+    extra_pending: &HashMap<ValueId, BlockId>,
 ) -> Result<usize, String> {
     let phis: HashMap<ValueId, (BlockId, &Vec<(BlockId, Operand)>)> = f
         .blocks
@@ -137,6 +136,22 @@ fn copy(
     let definitions: HashMap<ValueId, (usize, bool)> = f.blocks.iter().enumerate()
         .flat_map(|(i, b)| b.instructions.iter().map(move |(v, inst, _)| (*v, (i, matches!(inst, Instruction::Phi { .. })))))
         .collect();
+    // Block dominance is insufficient for a throwing result: the successful
+    // edge publishes it. A borrowed/null join needs its own token if the error
+    // path reaches the join, while the successful input alone can be copied.
+    let borrowed_owners: HashSet<_> = roots.values().flatten().filter_map(|(contract, _)| match contract {
+        Ownership::Borrowed { owner: OwnerOrigin::Value(owner), .. } => Some(*owner),
+        _ => None,
+    }).collect();
+    let mut unavailable = HashMap::new();
+    for (&call, &error) in p.tokens.pendings.iter().chain(extra_pending) {
+        if !borrowed_owners.contains(&call) { continue; }
+        let Some(&(origin, _)) = definitions.get(&call) else { continue };
+        let Some(success) = super::classification::check_pending(&f.blocks[origin], call, error)
+            .and_then(|block| index.get(&block).copied()) else { continue };
+        let edge = (origin, success);
+        unavailable.insert(call, (edge, super::classification::reachable_without_edge(&cfg, edge)));
+    }
     let dominates = |owner: ValueId, block: BlockId| {
         let Some(&(o, owner_phi)) = definitions.get(&owner) else { return true };
         let mut b = index[&block];
@@ -161,7 +176,8 @@ fn copy(
         .filter(|(v, (_, entries))| (returned_set.contains(v) && !entries.iter().any(|(_, op)| borrowed(op)))
             || roots.get(v).is_some_and(|r| r.len() > 1)
             || roots.get(v).into_iter().flatten().any(|(c, _)| matches!(c,
-                Ownership::Borrowed { owner: OwnerOrigin::Value(o), .. } if !dominates(*o, phis[v].0)))
+                Ownership::Borrowed { owner: OwnerOrigin::Value(o), .. } if !dominates(*o, phis[v].0)
+                    || unavailable.get(o).is_some_and(|(_, blocks)| blocks.contains(&index[&phis[v].0]))))
             || entries.iter().any(|(_, op)| matches!(op, Operand::Val(of) if owned(of))))
         .map(|(v, _)| *v)
         .collect();
@@ -221,7 +237,7 @@ fn copy(
         }
         false
     };
-    let pending_set: HashSet<BlockId> = extra_pending.iter().chain(p.tokens.pendings.values()).copied().collect();
+    let pending_set: HashSet<BlockId> = extra_pending.values().chain(p.tokens.pendings.values()).copied().collect();
     let dests = |b: &BasicBlock| super::super::cfg::successors(&b.terminator);
     let blocks: HashMap<BlockId, &BasicBlock> = f.blocks.iter().map(|b| (b.id, b)).collect();
     // (predecessor, block of the Phi) → [(Phi, entry)].
@@ -245,7 +261,18 @@ fn copy(
                 _ => false,
             };
             let copy = copy || matches!(op, Operand::Val(of) if !taken.insert((*pred, *of)));
-            let admissible = !p.tables.landing_pads.contains(&block)
+            let available_borrow = |contract: &Ownership| match contract {
+                Ownership::Borrowed { owner: OwnerOrigin::Value(owner), .. } => unavailable.get(owner)
+                    .is_none_or(|(success, blocks)| !blocks.contains(&index[pred]) || (index[pred], index[&block]) == *success),
+                _ => true,
+            };
+            let input_available = match op {
+                Operand::Val(of) if phis.contains_key(of) && !need.contains(of) =>
+                    roots.get(of).into_iter().flatten().all(|(contract, _)| available_borrow(contract)),
+                Operand::Val(of) => classes.get(of).is_none_or(available_borrow),
+                _ => true,
+            };
+            let admissible = input_available && !p.tables.landing_pads.contains(&block)
                 && !pending_set.contains(&block)
                 && !p.scopes.edges.contains_key(&(*pred, block))
                 && blocks.get(pred).is_some_and(|b| {
@@ -575,3 +602,6 @@ mod tests {
             if Operand::Val(*v) == copy_inst && *value == val(5)));
     }
 }
+
+#[cfg(test)]
+mod pending_tests;

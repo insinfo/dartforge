@@ -427,7 +427,7 @@ fn check_result_uses(
     Ok(())
 }
 
-fn reachable_without_edge(cfg: &Cfg, removed: (usize, usize)) -> HashSet<usize> {
+pub(super) fn reachable_without_edge(cfg: &Cfg, removed: (usize, usize)) -> HashSet<usize> {
     let mut seen_set = HashSet::new();
     let mut queue = if cfg.successors.is_empty() {
         vec![]

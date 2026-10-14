@@ -1,0 +1,30 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.71s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 11 tests
+test optimize::arc::phis::pending_tests::pending_field_null_phi_copies_only_success_input_and_keeps_result_guard ... ok
+test optimize::arc::phis::pending_tests::pending_field_other_borrow_phi_copies_both_valid_inputs ... ok
+test optimize::arc::phis::pending_tests::pending_result_on_exceptional_input_or_direct_use_remains_rejected ... ok
+test optimize::arc::phis::pending_tests::successful_only_join_stays_borrowed_and_malformed_pending_metadata_never_promotes ... ok
+test optimize::arc::phis::tests::borrow_only_phi_or_landing_pad_edge_stays_intact ... ok
+test optimize::arc::phis::tests::loop_phi_with_owner_defined_in_body_gets_copy ... ok
+test optimize::arc::phis::tests::mixed_phi_copies_borrow_on_edge_and_producer_accepts ... ok
+test optimize::arc::phis::tests::owned_entry_read_by_later_phi_gets_copy ... ok
+test optimize::arc::phis::tests::phi_returned_from_trivials_through_other_phi_gets_copies ... ok
+test optimize::arc::phis::tests::same_owned_entry_in_two_edge_phis_copies_once ... ok
+test optimize::arc::phis::pending_tests::ordinary_inlined_field_return_and_catch_prepare_with_conditional_owned_join ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 602 filtered out; finished in 0.56s
+
