@@ -41,9 +41,6 @@ pub(crate) fn run(args: &[OsString]) -> Result<(), String> {
         index += 1;
     }
     let directory = directory.canonicalize().map_err(|e| e.to_string())?;
-    if directory.join("pubspec_overrides.yaml").exists() {
-        return Err("pub get does not yet support pubspec_overrides.yaml".into());
-    }
     let sdk = constraints::parse_version(&sdk)?;
     let host = hosted::normalize_host(
         &std::env::var("PUB_HOSTED_URL").unwrap_or_else(|_| "https://pub.dev".into()),

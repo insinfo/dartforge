@@ -1,0 +1,205 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/dartforge",
+  "compiler_sha256": "76ba2428232b1433d13a71d1f157f7d85b6125c0dc3b27cf9befdaa2a5546434",
+  "sdk_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+  "sources": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli/src/pub_get/manifest.rs": "a9901296fd80d2b8891aec05476b22feb7d82d1803728a7f2888c0a6e1b3c97d",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli/src/pub_get/hosted.rs": "d918aeaa71473d6abc5a885107a883ce73eb9411f5f57c5dec29bfd3138eaf20",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli/src/pub_get/output.rs": "2ff374329b2b275d52c8ba50fc03179ccca1c7bb94deb40b7a59698016652074",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli/src/pub_get/constraints.rs": "9b9690b8f254ecf692093ff0526050ff0b0b811e2548fea2eaa5cfdcf80f7430",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli/src/pub_get/tests.rs": "6fc8c3f5cbf3406373cd33ac574c0d4b95d3a4032fb6ef9eb7c6641ce14d66ab",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli/src/pub_get/resolver.rs": "f8829e245f3051ede3e72b30dc53c1c0c11d7ee7e43248c85d495b02031f9081",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli/src/pub_get.rs": "ff45a0e1ba03c65ddc56a373a7df5b152e3e7bc7428eceda2d1a28fdd9657e06"
+  },
+  "runs": [
+    {
+      "label": "root-map",
+      "mode": "sdk",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "pub",
+        "get",
+        "--offline",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "root-map",
+      "mode": "native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/dartforge",
+        "pub",
+        "get",
+        "--offline",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "sidecar-replaces",
+      "mode": "sdk",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "pub",
+        "get",
+        "--offline",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "sidecar-replaces",
+      "mode": "native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/dartforge",
+        "pub",
+        "get",
+        "--offline",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "future-sdk",
+      "mode": "sdk",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "pub",
+        "get",
+        "--offline",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "future-sdk",
+      "mode": "native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/dartforge",
+        "pub",
+        "get",
+        "--offline",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "legacy-sdk",
+      "mode": "sdk",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "pub",
+        "get",
+        "--offline",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "legacy-sdk",
+      "mode": "native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/dartforge",
+        "pub",
+        "get",
+        "--offline",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "unbounded-sdk",
+      "mode": "sdk",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "pub",
+        "get",
+        "--offline",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "unbounded-sdk",
+      "mode": "native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/dartforge",
+        "pub",
+        "get",
+        "--offline",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "offline-repeat",
+      "mode": "sdk",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "pub",
+        "get",
+        "--offline",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "offline-repeat",
+      "mode": "native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/dartforge",
+        "pub",
+        "get",
+        "--offline",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "root-sdk-refused",
+      "mode": "sdk",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "pub",
+        "get",
+        "--offline",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app"
+      ],
+      "exit": 1
+    },
+    {
+      "label": "root-sdk-refused",
+      "mode": "native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/dartforge",
+        "pub",
+        "get",
+        "--offline",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app"
+      ],
+      "exit": 1
+    }
+  ],
+  "complete": true,
+  "normalized_success_reports_exact": true,
+  "scope": "Actual CLI vs SDK3.6.2 Pub, local path overrides replace hosted transitive version constraints and include otherwise unused overrides; sidecar replaces whole map. Overridden SDK constraints relaxed and language versions preserved, root SDK constraint still rejected; overridden back reference to root ignored. No timing claim; git/sdk/workspaces remain unsupported.",
+  "compiler_profile": "debug",
+  "compiler_features": [],
+  "unit_tests_passed": 15,
+  "compilation_limit": "Pub command correctness only; compiler backend features do not participate in resolution. No native/JIT readiness or speed claim."
+}

@@ -1,0 +1,6 @@
+Resolving dependencies in `/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app`...
+Downloading packages...
+! b 2.0.0 from path /Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/b (overridden in /Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app/pubspec_overrides.yaml)
+These packages are no longer being depended on:
+- c 3.0.0 from path /Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/c
+Changed 1 dependency in `/Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app`!

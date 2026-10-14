@@ -136,6 +136,7 @@ impl Hosted {
                                 sdk,
                                 dependencies: std::collections::BTreeMap::new(),
                                 dev: std::collections::BTreeMap::new(),
+                                overrides: std::collections::BTreeMap::new(),
                             },
                             Some(error),
                         )

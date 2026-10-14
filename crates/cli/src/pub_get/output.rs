@@ -59,7 +59,9 @@ pub(super) fn write(
     }
     let mut packages = Vec::new();
     for (name, value) in selected {
-        let kind = if root.dependencies.contains_key(name) {
+        let kind = if root.overrides.contains_key(name) {
+            "direct overridden"
+        } else if root.dependencies.contains_key(name) {
             "direct main"
         } else if root.dev.contains_key(name) {
             "direct dev"
@@ -101,7 +103,12 @@ pub(super) fn write(
     }
     let mut lower = None;
     let mut upper = None;
-    for manifest in std::iter::once(root).chain(selected.values().map(|v| &v.candidate.manifest)) {
+    for manifest in std::iter::once(root).chain(
+        selected
+            .values()
+            .filter(|v| !root.overrides.contains_key(&v.candidate.manifest.name))
+            .map(|v| &v.candidate.manifest),
+    ) {
         let constraint = manifest.sdk.for_sdk(sdk);
         if let Some(bound) = constraint.lower {
             if lower.as_ref().is_none_or(|(v, inc): &(Version, bool)| {

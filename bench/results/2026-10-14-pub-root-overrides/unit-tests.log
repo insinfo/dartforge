@@ -1,0 +1,23 @@
+   Compiling dartforge-cli v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.82s
+     Running unittests src/main.rs (target/pub-overrides-cli-build/debug/deps/dartforge-5c176789c341b066)
+
+running 15 tests
+test pub_get::tests::dart_intervals_and_sdk_compatibility ... ok
+test pub_get::tests::explicit_lower_prerelease_allows_same_release_below_stable_upper ... ok
+test pub_get::tests::pub_build_suffixes_are_ordered_and_exact_constraints_remain_exact ... ok
+test pub_get::tests::archive_files_allowed_links_refused ... ok
+test pub_get::tests::irrelevant_unsupported_historical_versions_do_not_poison_supported_release ... ok
+test pub_get::tests::native_http_checksum_failure_does_not_publish_archive ... ok
+test pub_get::tests::cached_pubspec_must_match_the_resolved_registry_graph ... ok
+test pub_get::tests::sdk_source_identity_conflicts_are_errors ... ok
+test pub_get::tests::hosted_integrity_missing_metadata_and_source_conflict_fail ... ok
+test pub_get::tests::hosted_backtracks_transitive_constraints_and_prefers_existing_lock ... ok
+test pub_get::tests::overrides_keep_package_identity_and_root_sdk_checks ... ok
+test pub_get::tests::root_overrides_replace_transitive_sources_and_include_unused_packages ... ok
+test pub_get::tests::offline_path_transitive_cycles_and_root_dev ... ok
+test pub_get::tests::sidecar_replaces_override_map_and_dependencies_ignore_their_sidecars ... ok
+test pub_get::tests::overrides_relax_the_overridden_sdk_and_root_back_reference ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.02s
+

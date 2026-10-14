@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-pub-root-overrides/verify.py", line 43, in <module>
+    side=execute('sidecar-replaces',True)
+  File "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-pub-root-overrides/verify.py", line 30, in execute
+    assert (p.returncode==0)==expected,(label,mode,p.stderr)
+AssertionError: ('sidecar-replaces', 'native', b'error: pub get does not yet support pubspec_overrides.yaml\n')

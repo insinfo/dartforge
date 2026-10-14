@@ -31,6 +31,8 @@ pub(super) struct Resolver {
     pub sdk: Version,
     pub locked: BTreeMap<String, (Source, Version)>,
     attempts: usize,
+    overrides: BTreeMap<String, Dependency>,
+    root_name: String,
 }
 impl Resolver {
     pub fn new(hosted: Hosted, sdk: Version, locked: BTreeMap<String, (Source, Version)>) -> Self {
@@ -39,6 +41,8 @@ impl Resolver {
             sdk,
             locked,
             attempts: 0,
+            overrides: BTreeMap::new(),
+            root_name: String::new(),
         }
     }
     pub fn resolve(
@@ -47,9 +51,23 @@ impl Resolver {
         directory: &std::path::Path,
     ) -> Result<BTreeMap<String, Selected>, String> {
         check_sdk(root, &self.sdk)?;
+        self.attempts = 0;
+        self.overrides = root.overrides.clone();
+        self.root_name = root.name.clone();
         let mut requirements = BTreeMap::new();
-        add(&mut requirements, &root.dependencies, &root.name)?;
-        add(&mut requirements, &root.dev, &root.name)?;
+        add(
+            &mut requirements,
+            &root.dependencies,
+            &root.name,
+            &self.overrides,
+        )?;
+        add(&mut requirements, &root.dev, &root.name, &self.overrides)?;
+        add(
+            &mut requirements,
+            &root.overrides,
+            &root.name,
+            &self.overrides,
+        )?;
         let root_candidate = Candidate {
             manifest: root.clone(),
             manifest_error: None,
@@ -117,7 +135,7 @@ impl Resolver {
         };
         candidates.retain(|c| {
             c.manifest.name == *name
-                && check_sdk(&c.manifest, &self.sdk).is_ok()
+                && (self.overrides.contains_key(name) || check_sdk(&c.manifest, &self.sdk).is_ok())
                 && requirement
                     .constraints
                     .iter()
@@ -143,7 +161,13 @@ impl Resolver {
                 )));
             }
             let mut next = requirements.clone();
-            if let Err(e) = add(&mut next, &candidate.manifest.dependencies, name) {
+            let mut dependencies = candidate.manifest.dependencies.clone();
+            // Overridden development packages may refer back to the root with
+            // their published version range and source; Pub ignores that edge.
+            if self.overrides.contains_key(name) {
+                dependencies.remove(&self.root_name);
+            }
+            if let Err(e) = add(&mut next, &dependencies, name, &self.overrides) {
                 error = e;
                 continue;
             }
@@ -168,8 +192,11 @@ fn add(
     required: &mut BTreeMap<String, Required>,
     dependencies: &BTreeMap<String, Dependency>,
     parent: &str,
+    overrides: &BTreeMap<String, Dependency>,
 ) -> Result<(), String> {
     for (name, dependency) in dependencies {
+        // Only the root supplies overrides; dependency pubspecs cannot alter the graph.
+        let dependency = overrides.get(name).unwrap_or(dependency);
         let entry = required.entry(name.clone()).or_insert_with(|| Required {
             source: dependency.source.clone(),
             constraints: Vec::new(),

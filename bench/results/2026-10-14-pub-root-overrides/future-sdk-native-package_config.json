@@ -1,0 +1,25 @@
+{
+  "configVersion": 2,
+  "generator": "dartforge",
+  "generatorVersion": "0.1.0",
+  "packages": [
+    {
+      "languageVersion": "3.6",
+      "name": "a",
+      "packageUri": "lib/",
+      "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/a/"
+    },
+    {
+      "languageVersion": "3.6",
+      "name": "app",
+      "packageUri": "lib/",
+      "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/app/"
+    },
+    {
+      "languageVersion": "4.0",
+      "name": "b",
+      "packageUri": "lib/",
+      "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/pub-overrides-status/b/"
+    }
+  ]
+}

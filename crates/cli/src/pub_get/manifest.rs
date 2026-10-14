@@ -25,6 +25,7 @@ pub(super) struct Manifest {
     pub sdk: Constraint,
     pub dependencies: BTreeMap<String, Dependency>,
     pub dev: BTreeMap<String, Dependency>,
+    pub overrides: BTreeMap<String, Dependency>,
 }
 pub(super) fn yaml_json(text: &str) -> Result<Value, String> {
     fn convert(value: &Yaml) -> Result<Value, String> {
@@ -66,6 +67,26 @@ impl Manifest {
         let text =
             std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let mut value = yaml_json(&text)?;
+        if include_dev {
+            let overrides_path = directory.join("pubspec_overrides.yaml");
+            match std::fs::read_to_string(&overrides_path) {
+                Ok(text) => {
+                    let overrides = yaml_json(&text)?;
+                    let overrides = overrides
+                        .as_object()
+                        .ok_or("pubspec overrides must be a mapping")?;
+                    let root = value.as_object_mut().ok_or("pubspec must be a mapping")?;
+                    // Pub replaces each supported top-level attribute, not individual entries.
+                    for key in ["dependency_overrides", "workspace", "resolution"] {
+                        if let Some(value) = overrides.get(key) {
+                            root.insert(key.into(), value.clone());
+                        }
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(format!("{}: {error}", overrides_path.display())),
+            }
+        }
         if !include_dev {
             value
                 .as_object_mut()
@@ -88,7 +109,7 @@ impl Manifest {
         if !value.is_object() {
             return Err("pubspec must be a mapping".into());
         }
-        for key in ["workspace", "resolution", "dependency_overrides"] {
+        for key in ["workspace", "resolution"] {
             if value.get(key).is_some() && directory.is_some() {
                 return Err(format!("pub get does not yet support {key}"));
             }
@@ -122,12 +143,18 @@ impl Manifest {
         } else {
             BTreeMap::new()
         };
+        let overrides = if directory.is_some() {
+            parse_dependencies(&value["dependency_overrides"], directory, host)?
+        } else {
+            BTreeMap::new()
+        };
         Ok(Self {
             name,
             version,
             sdk,
             dependencies,
             dev,
+            overrides,
         })
     }
 }

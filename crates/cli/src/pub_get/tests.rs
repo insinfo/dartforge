@@ -94,7 +94,6 @@ fn sdk_source_identity_conflicts_are_errors() {
     for text in [
         "name: app\nenvironment:\n  sdk: ^3.0.0\ndependencies:\n  foo:\n    git: https://example.com/foo\n",
         "name: app\nworkspace: []\n",
-        "name: app\ndependency_overrides: {}\n",
     ] {
         assert!(
             manifest::Manifest::parse(
@@ -104,6 +103,97 @@ fn sdk_source_identity_conflicts_are_errors() {
             )
             .is_err()
         );
+    }
+}
+
+#[test]
+fn root_overrides_replace_transitive_sources_and_include_unused_packages() {
+    let f = Fixture::new();
+    let root = f.package("app", "name: app\nenvironment:\n  sdk: ^3.6.0\ndependencies:\n  a:\n    path: ../a\n  b: ^1.0.0\ndependency_overrides:\n  b:\n    path: ../b\n  extra:\n    path: ../extra\n");
+    f.package("a", "name: a\nenvironment:\n  sdk: ^3.6.0\ndependencies:\n  b: ^1.0.0\ndependency_overrides:\n  b:\n    git: ignored\n");
+    let b = f.package(
+        "b",
+        "name: b\nversion: 2.0.0\nenvironment:\n  sdk: ^3.6.0\n",
+    );
+    f.package("extra", "name: extra\nenvironment:\n  sdk: ^3.6.0\n");
+    let m = manifest::Manifest::read(&root, "https://pub.dev", true).unwrap();
+    let mut r = resolver(f.0.join("cache"));
+    let selected = r.resolve(&m, &root).unwrap();
+    assert_eq!(selected["b"].source, manifest::Source::Path(b));
+    assert_eq!(
+        selected["b"].candidate.manifest.version,
+        semver::Version::new(2, 0, 0)
+    );
+    assert!(selected.contains_key("extra"));
+    output::write(&root, &m, &selected, &r.sdk).unwrap();
+    let lock =
+        manifest::yaml_json(&std::fs::read_to_string(root.join("pubspec.lock")).unwrap()).unwrap();
+    assert_eq!(lock["packages"]["b"]["dependency"], "direct overridden");
+    assert_eq!(lock["packages"]["extra"]["dependency"], "direct overridden");
+}
+
+#[test]
+fn sidecar_replaces_override_map_and_dependencies_ignore_their_sidecars() {
+    let f = Fixture::new();
+    let root = f.package("app", "name: app\nenvironment:\n  sdk: ^3.6.0\ndependencies:\n  b:\n    path: ../b\ndependency_overrides:\n  missing:\n    path: ../not-there\n");
+    let b = f.package(
+        "b",
+        "name: b\nversion: 2.0.0\nenvironment:\n  sdk: ^3.6.0\n",
+    );
+    std::fs::write(
+        b.join("pubspec_overrides.yaml"),
+        "dependency_overrides:\n  ignored:\n    git: unsupported\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("pubspec_overrides.yaml"),
+        "dependency_overrides:\n  b:\n    path: ../b\n",
+    )
+    .unwrap();
+    let m = manifest::Manifest::read(&root, "https://pub.dev", true).unwrap();
+    assert!(!m.overrides.contains_key("missing"));
+    let selected = resolver(f.0.join("cache")).resolve(&m, &root).unwrap();
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected["b"].source, manifest::Source::Path(b));
+    // Exercise the CLI entry too: a parsed sidecar must not be refused before loading.
+    super::run(&[
+        "--offline".into(),
+        "--directory".into(),
+        root.into_os_string(),
+    ])
+    .unwrap();
+}
+
+#[test]
+fn overrides_keep_package_identity_and_root_sdk_checks() {
+    for (name, root_sdk) in [("wrong", "^3.6.0"), ("b", "^4.0.0")] {
+        let f = Fixture::new();
+        let root = f.package(
+            "app",
+            &format!("name: app\nenvironment:\n  sdk: {root_sdk}\ndependency_overrides:\n  b:\n    path: ../b\n"),
+        );
+        f.package(
+            "b",
+            &format!("name: {name}\nversion: 2.0.0\nenvironment:\n  sdk: ^3.6.0\n"),
+        );
+        let m = manifest::Manifest::read(&root, "https://pub.dev", true).unwrap();
+        assert!(resolver(f.0.join("cache")).resolve(&m, &root).is_err());
+    }
+}
+#[test]
+fn overrides_relax_the_overridden_sdk_and_root_back_reference() {
+    for sdk in ["^4.0.0", ">=2.0.0 <3.0.0", "any"] {
+        let f = Fixture::new();
+        let root = f.package("app", "name: app\nversion: 1.0.0\nenvironment:\n  sdk: ^3.6.0\ndependency_overrides:\n  b:\n    path: ../b\n");
+        f.package("b", &format!("name: b\nversion: 2.0.0\nenvironment:\n  sdk: '{sdk}'\ndependencies:\n  app: ^99.0.0\n"));
+        let m = manifest::Manifest::read(&root, "https://pub.dev", true).unwrap();
+        let mut r = resolver(f.0.join("cache"));
+        let selected = r.resolve(&m, &root).unwrap();
+        output::write(&root, &m, &selected, &r.sdk).unwrap();
+        let lock =
+            manifest::yaml_json(&std::fs::read_to_string(root.join("pubspec.lock")).unwrap())
+                .unwrap();
+        assert_eq!(lock["sdks"]["dart"], ">=3.6.0 <4.0.0");
     }
 }
 fn archive(name: &str, kind: tar::EntryType) -> Vec<u8> {

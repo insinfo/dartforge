@@ -1,0 +1,4 @@
+{
+  "sha256": "9bc2a37962c8a84bc84831c531962eae2c11e3efe26edeb6807adeb80e6eadfd",
+  "reason": "Initial CLI retained sidecar rejection; unit tests did not exercise CLI entry. Fixed entry and strengthened regression; no successful sidecar claim for this producer."
+}

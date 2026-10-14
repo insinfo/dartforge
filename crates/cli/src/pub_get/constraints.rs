@@ -129,9 +129,11 @@ impl Constraint {
         }
         result
     }
-    pub fn language(&self, sdk: &Version) -> String {
-        let version = self.lower.as_ref().map(|(v, _)| v).unwrap_or(sdk);
-        format!("{}.{}", version.major, version.minor)
+    pub fn language(&self, _sdk: &Version) -> String {
+        self.lower
+            .as_ref()
+            .map(|(version, _)| format!("{}.{}", version.major, version.minor))
+            .unwrap_or_else(|| "2.7".into())
     }
 }
 pub(super) fn parse_version(text: &str) -> Result<Version, String> {
