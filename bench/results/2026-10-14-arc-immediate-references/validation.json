@@ -1,0 +1,34 @@
+{
+  "source_sha256": {
+    "crates/emit_native/src/llvm/arc_immediates.rs": "7871e2950b7253c01b5a5fb1c9057aa11fd8e00a1bdddfce9d6bff25acce7ed2",
+    "crates/emit_native/src/llvm/mod.rs": "94f0ed2250735cd77f007ecce8b4b4d641a045fb3901c6eba4895d6a3fd9c4ef",
+    "crates/emit_native/src/llvm/arc_null_literals.rs": "e6f66e303cdb462375f63225c57cbdd9b7872b1e74afdac025e8c0f7571c726e",
+    "crates/emit_native/tests/fixtures/arc_ports/tagged_arc_references.dart": "a60846145ab3c07576f49deea2bff637e6e96f4a9b079a0f2cb287a3f61097a6"
+  },
+  "focused_tests": {
+    "passed": 9,
+    "failed": 0
+  },
+  "full_native_library_tests": {
+    "passed": 633,
+    "ignored": 8,
+    "failed": 0
+  },
+  "initial_synthetic_test_failures": "Token verification test initially omitted explicit box producer ownership and TokenEffect metadata. Both failed logs preserved; corrected test verifies same HIR/classes/plan before and after emission. No production verifier relaxation.",
+  "proof_scope": "Only earlier same-block exact Ref null and constant boxed i64 Smi values, plus ArcCopy/Move chains. Runtime owned box requires canonical ABI/no HIR homonym. Reject duplicate IDs, malformed tuple types, dynamic/non-i64/out-of-range operands, unknown/cross-block values. Logical HIR/token plans/checkers remain unchanged.",
+  "emitter_type_registry": "arc_context.rs prepares params and result_type for each tuple; no later type insertion overrides. Global uniqueness and exact producer tuple types agree with actual emitted types for every accepted producer. No type_of fallback or nominal types consulted.",
+  "runtime_boundary": "heap.rs retain_code_owner/release_code_owner return before side effects when !smi::e_handle(value). Null and tagged Smi qualify. Bool static object handles and permanent strings do not: code_owners inventory is still updated and audited, so their calls remain.",
+  "cache": "emit_native/build.rs recursively fingerprints every source .rs, including new helper, into SDK emitter cache key.",
+  "ordinary_fixture_vm": {
+    "exit": 0,
+    "stderr_empty": true,
+    "stdout_sha256": "b756407dfa9fdf10c20d616149dc24fc434609eb22caff66e36e74997d394f06"
+  },
+  "pending": "No runtime validation remains. Optional physical-size/performance comparison was not performed.",
+  "timing_measured": false,
+  "final_comment_only_change": "Added module summary required by CONTRIBUTING; no semantics or plans changed, no semantic test rerun.",
+  "native_fixture_six_runs_exact_vm": true,
+  "native_compiler_sha256": "3a7330012337805aa0e00c3cfe2a9cb2e6156507980045a7225f378dc042a1c8",
+  "native_source_hashes_unchanged": true,
+  "runtime_archives_unchanged": true
+}

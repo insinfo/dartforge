@@ -1,0 +1,10 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-immediates-compiler/dartforge",
+  "sha256": "3a7330012337805aa0e00c3cfe2a9cb2e6156507980045a7225f378dc042a1c8",
+  "features": [
+    "native"
+  ],
+  "profile": "release",
+  "source_hashes_verified": 1481,
+  "head": "426af999c848681cbfaa0db07d52060d2d53640f"
+}

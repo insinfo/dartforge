@@ -1,0 +1,27 @@
+{
+  "compiler_sha256": "3a7330012337805aa0e00c3cfe2a9cb2e6156507980045a7225f378dc042a1c8",
+  "runtime_archives": [
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_rtdll_96495ed3cb49fb7f54606cdd1b595039.a",
+      "name": "dartforge_rtdll_96495ed3cb49fb7f54606cdd1b595039.a",
+      "sha256": "7883946c1a37ce958622103fa042faec3c48c1313d40246e8b48783605df9c90",
+      "bytes": 12883208,
+      "embedded_name_in_compiler": true
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_rtprod_614fc6ab11ec579e64e1ce5da106de7b.a",
+      "name": "dartforge_rtprod_614fc6ab11ec579e64e1ce5da106de7b.a",
+      "sha256": "413b67e3721116e981215019f343b495ca32fdc91f898b79d27244f80847ca9c",
+      "bytes": 12282888,
+      "embedded_name_in_compiler": true
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_runtime_a8a250600f865914f05032ed702828ed.a",
+      "name": "dartforge_runtime_a8a250600f865914f05032ed702828ed.a",
+      "sha256": "d71706eacd31465dba681b987340bf1697381deba4dd68e761239c15f6f169a6",
+      "bytes": 12283112,
+      "embedded_name_in_compiler": true
+    }
+  ],
+  "scope": "Exact archive names embedded in immutable compiler; matched existing build output candidates and recorded content hashes. Production with source SDK uses rtprod variant."
+}

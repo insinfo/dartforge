@@ -1,0 +1,6 @@
+tracing-normal exact VM True
+tracing-stress exact VM True
+legacy-arc-normal exact VM True
+legacy-arc-stress exact VM True
+prepared-arc-normal exact VM True
+prepared-arc-stress exact VM True

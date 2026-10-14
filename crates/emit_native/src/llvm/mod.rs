@@ -28,6 +28,7 @@ const TLAB_N: i64 = layout::TLAB_N as i64;
 /// The mask of `e_objeto` (`h & (7 | i64::MIN) == 2`).
 const OBJECT_MASK: i64 = 7 | i64::MIN;
 mod selectors;
+mod arc_immediates;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -865,6 +866,9 @@ impl<'a> LlvmEmitter<'a> {
         self.cache_in_function = 0;
         self.frame_allocas = Self::escaping_ref_allocas(func);
         self.prepare_types_and_phis(func);
+        let immediate_refs = arc_immediates::ImmediateRefs::new(
+            func, !self.function_by_symbol.contains_key("dartforge_arc_box_int_owned_v1"),
+        );
 
         let ret_ty = func.return_ty.llvm_ir();
         let params: Vec<String> = func
@@ -1201,7 +1205,7 @@ impl<'a> LlvmEmitter<'a> {
             let mut phi_roots: Vec<(usize, u32)> = Vec::new();
             self.fresh_set.clear();
 
-            for (vid, inst, ty) in &block.instructions {
+            for (instruction_index, (vid, inst, ty)) in block.instructions.iter().enumerate() {
                 let v = vid.0;
                 // J05: the position of the statement, when it changes (`llvm/debug_info.rs`);
                 // that of an instruction copied by HIR inlining, with its
@@ -1244,18 +1248,18 @@ impl<'a> LlvmEmitter<'a> {
                 let instruction_start = self.out.len();
                 match inst {
                     Instruction::ArcCopy { value } | Instruction::ArcMove { value } => {
-                        // Null has no physical owner. Keep its logical SSA token;
+                        // A proven non-handle has no physical owner. Keep its SSA token;
                         // the verified HIR and ownership plan remain unchanged.
                         let val_ref = self.arc_reference(value);
                         if matches!(inst, Instruction::ArcCopy { .. })
-                            && !matches!(value, Operand::Constant(Constant::Null)) {
+                            && !immediate_refs.contains(value, block.id, instruction_index) {
                             writeln!(self.out, "  call void @dartforge_arc_retain(i64 {val_ref})").unwrap();
                         }
                         writeln!(self.out, "  %v{v} = add i64 {val_ref}, 0").unwrap();
                     }
                     Instruction::ArcDrop { value } => {
                         let val_ref = self.arc_reference(value);
-                        if !matches!(value, Operand::Constant(Constant::Null)) {
+                        if !immediate_refs.contains(value, block.id, instruction_index) {
                             writeln!(self.out, "  call void @dartforge_arc_release(i64 {val_ref})").unwrap();
                         }
                     }
