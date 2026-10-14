@@ -732,6 +732,28 @@ impl Project {
                 _ => Err(format!("'{text}' is not resolved.")),
             };
         }
+        // Explicit object-pattern labels are member reads without an ExprId.
+        // A shorthand name belongs to its local binding instead; its inferred
+        // getter name shares that span and must not intercept the local cursor.
+        for pattern in &ast.patterns {
+            let ast::PatternKind::Object { fields, .. } = &pattern.kind else { continue };
+            for field in fields.iter() {
+                if !field.name.is_some_and(|name| name.span == name_)
+                    || u.source.as_bytes().get(field.span.start) == Some(&b':')
+                {
+                    continue;
+                }
+                return match bodies.field_elements.get(&field.pattern) {
+                    Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => {
+                        denoted(self.function_member(*f), None, Some(self.function_concrete(*f)))
+                    }
+                    Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => {
+                        denoted(self.variable_member(*v), None, Some(Concrete::Variable(*v)))
+                    }
+                    _ => Err(format!("'{text}' is not resolved.")),
+                };
+            }
+        }
         // Declaration of a local or parameter.
         if bodies.local_type(name_.start).is_some() {
             let (target_, concrete) = self.local_or_field(unit, name_.start);

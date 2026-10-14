@@ -1,0 +1,561 @@
+{
+  "baseline": {
+    "binary_sha256": "1fe71b5061221e405060277bceaf92ce8bfd50bccc3299a79e86c2a36bdceb5d",
+    "rows": [
+      {
+        "case": "getter",
+        "source": "import 'model.dart';\nint read(C c) { if (c case C(value:final captured)) { return captured; } return 0; }\n",
+        "model": "class C { int get value => 1; }\n",
+        "source_sha256": "57d9c236b86943e28f3c7572b44e730016c95b525ddb4233c03ca544441843bd",
+        "model_sha256": "906c71a08429ef15dd46905c114820f8230cb2b4955f0a2e65f209475f3334a9",
+        "cursor": {
+          "line": 1,
+          "character": 31
+        },
+        "definition": null,
+        "normalized_definition": null,
+        "rename_from_selector": null,
+        "applied_rename_model": "class C { int get value => 1; }\n",
+        "applied_rename_source": "import 'model.dart';\nint read(C c) { if (c case C(value:final captured)) { return captured; } return 0; }\n"
+      },
+      {
+        "case": "inherited",
+        "source": "import 'model.dart' as m;\nint read(m.Outer o) { if (o case m.Outer(inner:m.C(value /* colon: keep */ :final captured))) { return captured; } return 0; }\n",
+        "model": "class Base { int value = 1; }\nclass C extends Base {}\nclass Outer { C get inner => C(); }\n",
+        "source_sha256": "36d23cd8be0859990b62d44b436fedb1571592cd202ff974377101f182a9e1d7",
+        "model_sha256": "0b4932e12ac97aefcd021d4fd3ac370ca53cf05fba0c34d179a02e4033767f8a",
+        "cursor": {
+          "line": 1,
+          "character": 53
+        },
+        "definition": null,
+        "normalized_definition": null
+      },
+      {
+        "case": "extension",
+        "source": "import 'model.dart';\nint read(C c) { if (c case C(value:final captured)) { return captured; } return 0; }\n",
+        "model": "class C {}\nextension E on C { int get value => 1; }\n",
+        "source_sha256": "57d9c236b86943e28f3c7572b44e730016c95b525ddb4233c03ca544441843bd",
+        "model_sha256": "cefd9d18d329069579fe8604f1d149e0608c65aa2598c60f2103aebadf1beee3",
+        "cursor": {
+          "line": 1,
+          "character": 31
+        },
+        "definition": null,
+        "normalized_definition": null
+      },
+      {
+        "case": "shorthand",
+        "source": "import 'model.dart';\nint read(C c) { if (c case C(:final value)) { return value; } return 0; }\n",
+        "model": "class C { int get value => 1; }\n",
+        "source_sha256": "fc6917a3bfe78175b31b8ce0df640774a84f8d96cee2c69dff7dfcb7f93f3700",
+        "model_sha256": "906c71a08429ef15dd46905c114820f8230cb2b4955f0a2e65f209475f3334a9",
+        "cursor": {
+          "line": 1,
+          "character": 38
+        },
+        "definition": {
+          "range": {
+            "end": {
+              "character": 41,
+              "line": 1
+            },
+            "start": {
+              "character": 36,
+              "line": 1
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/shorthand/main.dart"
+        },
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 41,
+              "line": 1
+            },
+            "start": {
+              "character": 36,
+              "line": 1
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/shorthand/main.dart"
+        }
+      },
+      {
+        "case": "record",
+        "source": "int read(({int value}) r) { final (value:final captured) = r; return captured; }\n",
+        "model": "",
+        "source_sha256": "bdabe690ed7ff1435e7a4ee580e04e3606a13a83e75554c4494da9d7832da990",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 0,
+          "character": 37
+        },
+        "definition": null,
+        "normalized_definition": null
+      },
+      {
+        "case": "unresolved",
+        "source": "import 'model.dart';\nint value = 7;\nint read(C c) { if (c case C(value:final captured)) { return captured; } return 0; }\n",
+        "model": "class C {}\n",
+        "source_sha256": "fda9d41d4fa1d233c267af44438b89f399adb8c6c15e1880dc93837f93f38c31",
+        "model_sha256": "8a7eaee3a2ed1ded2f10c111143f7629820f78b4e63210aebe6b9986850db4ac",
+        "cursor": {
+          "line": 2,
+          "character": 31
+        },
+        "definition": null,
+        "normalized_definition": null
+      }
+    ]
+  },
+  "fixed": {
+    "binary_sha256": "7e1b716d1720ad7cd053b0eb4f834ff945730f0bacfec6ed3b877183a0857b55",
+    "rows": [
+      {
+        "case": "getter",
+        "source": "import 'model.dart';\nint read(C c) { if (c case C(value:final captured)) { return captured; } return 0; }\n",
+        "model": "class C { int get value => 1; }\n",
+        "source_sha256": "57d9c236b86943e28f3c7572b44e730016c95b525ddb4233c03ca544441843bd",
+        "model_sha256": "906c71a08429ef15dd46905c114820f8230cb2b4955f0a2e65f209475f3334a9",
+        "cursor": {
+          "line": 1,
+          "character": 31
+        },
+        "definition": {
+          "range": {
+            "end": {
+              "character": 23,
+              "line": 0
+            },
+            "start": {
+              "character": 18,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/getter/model.dart"
+        },
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 23,
+              "line": 0
+            },
+            "start": {
+              "character": 18,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/getter/model.dart"
+        },
+        "rename_from_selector": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/getter/model.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 23,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 18,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied_rename_model": "class C { int get item => 1; }\n",
+        "applied_rename_source": "import 'model.dart';\nint read(C c) { if (c case C(value:final captured)) { return captured; } return 0; }\n"
+      },
+      {
+        "case": "inherited",
+        "source": "import 'model.dart' as m;\nint read(m.Outer o) { if (o case m.Outer(inner:m.C(value /* colon: keep */ :final captured))) { return captured; } return 0; }\n",
+        "model": "class Base { int value = 1; }\nclass C extends Base {}\nclass Outer { C get inner => C(); }\n",
+        "source_sha256": "36d23cd8be0859990b62d44b436fedb1571592cd202ff974377101f182a9e1d7",
+        "model_sha256": "0b4932e12ac97aefcd021d4fd3ac370ca53cf05fba0c34d179a02e4033767f8a",
+        "cursor": {
+          "line": 1,
+          "character": 53
+        },
+        "definition": {
+          "range": {
+            "end": {
+              "character": 22,
+              "line": 0
+            },
+            "start": {
+              "character": 17,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/inherited/model.dart"
+        },
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 22,
+              "line": 0
+            },
+            "start": {
+              "character": 17,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/inherited/model.dart"
+        }
+      },
+      {
+        "case": "extension",
+        "source": "import 'model.dart';\nint read(C c) { if (c case C(value:final captured)) { return captured; } return 0; }\n",
+        "model": "class C {}\nextension E on C { int get value => 1; }\n",
+        "source_sha256": "57d9c236b86943e28f3c7572b44e730016c95b525ddb4233c03ca544441843bd",
+        "model_sha256": "cefd9d18d329069579fe8604f1d149e0608c65aa2598c60f2103aebadf1beee3",
+        "cursor": {
+          "line": 1,
+          "character": 31
+        },
+        "definition": {
+          "range": {
+            "end": {
+              "character": 32,
+              "line": 1
+            },
+            "start": {
+              "character": 27,
+              "line": 1
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/extension/model.dart"
+        },
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 32,
+              "line": 1
+            },
+            "start": {
+              "character": 27,
+              "line": 1
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/extension/model.dart"
+        }
+      },
+      {
+        "case": "shorthand",
+        "source": "import 'model.dart';\nint read(C c) { if (c case C(:final value)) { return value; } return 0; }\n",
+        "model": "class C { int get value => 1; }\n",
+        "source_sha256": "fc6917a3bfe78175b31b8ce0df640774a84f8d96cee2c69dff7dfcb7f93f3700",
+        "model_sha256": "906c71a08429ef15dd46905c114820f8230cb2b4955f0a2e65f209475f3334a9",
+        "cursor": {
+          "line": 1,
+          "character": 38
+        },
+        "definition": {
+          "range": {
+            "end": {
+              "character": 41,
+              "line": 1
+            },
+            "start": {
+              "character": 36,
+              "line": 1
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/shorthand/main.dart"
+        },
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 41,
+              "line": 1
+            },
+            "start": {
+              "character": 36,
+              "line": 1
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/shorthand/main.dart"
+        }
+      },
+      {
+        "case": "record",
+        "source": "int read(({int value}) r) { final (value:final captured) = r; return captured; }\n",
+        "model": "",
+        "source_sha256": "bdabe690ed7ff1435e7a4ee580e04e3606a13a83e75554c4494da9d7832da990",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 0,
+          "character": 37
+        },
+        "definition": null,
+        "normalized_definition": null
+      },
+      {
+        "case": "unresolved",
+        "source": "import 'model.dart';\nint value = 7;\nint read(C c) { if (c case C(value:final captured)) { return captured; } return 0; }\n",
+        "model": "class C {}\n",
+        "source_sha256": "fda9d41d4fa1d233c267af44438b89f399adb8c6c15e1880dc93837f93f38c31",
+        "model_sha256": "8a7eaee3a2ed1ded2f10c111143f7629820f78b4e63210aebe6b9986850db4ac",
+        "cursor": {
+          "line": 2,
+          "character": 31
+        },
+        "definition": null,
+        "normalized_definition": null
+      }
+    ]
+  },
+  "official": {
+    "binary_sha256": "12d14da7bbbcacffd1f0f860a8c999a85fd180a3e865f72676e570ae1e1de1f9",
+    "rows": [
+      {
+        "case": "getter",
+        "source": "import 'model.dart';\nint read(C c) { if (c case C(value:final captured)) { return captured; } return 0; }\n",
+        "model": "class C { int get value => 1; }\n",
+        "source_sha256": "57d9c236b86943e28f3c7572b44e730016c95b525ddb4233c03ca544441843bd",
+        "model_sha256": "906c71a08429ef15dd46905c114820f8230cb2b4955f0a2e65f209475f3334a9",
+        "cursor": {
+          "line": 1,
+          "character": 31
+        },
+        "definition": [
+          {
+            "range": {
+              "end": {
+                "character": 23,
+                "line": 0
+              },
+              "start": {
+                "character": 18,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/getter/model.dart"
+          }
+        ],
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 23,
+              "line": 0
+            },
+            "start": {
+              "character": 18,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/getter/model.dart"
+        },
+        "rename_from_selector": null,
+        "rename_from_declaration": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/getter/model.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 23,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 18,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied_rename_model": "class C { int get item => 1; }\n",
+        "applied_rename_source": "import 'model.dart';\nint read(C c) { if (c case C(value:final captured)) { return captured; } return 0; }\n"
+      },
+      {
+        "case": "inherited",
+        "source": "import 'model.dart' as m;\nint read(m.Outer o) { if (o case m.Outer(inner:m.C(value /* colon: keep */ :final captured))) { return captured; } return 0; }\n",
+        "model": "class Base { int value = 1; }\nclass C extends Base {}\nclass Outer { C get inner => C(); }\n",
+        "source_sha256": "36d23cd8be0859990b62d44b436fedb1571592cd202ff974377101f182a9e1d7",
+        "model_sha256": "0b4932e12ac97aefcd021d4fd3ac370ca53cf05fba0c34d179a02e4033767f8a",
+        "cursor": {
+          "line": 1,
+          "character": 53
+        },
+        "definition": [
+          {
+            "range": {
+              "end": {
+                "character": 22,
+                "line": 0
+              },
+              "start": {
+                "character": 17,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/inherited/model.dart"
+          }
+        ],
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 22,
+              "line": 0
+            },
+            "start": {
+              "character": 17,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/inherited/model.dart"
+        }
+      },
+      {
+        "case": "extension",
+        "source": "import 'model.dart';\nint read(C c) { if (c case C(value:final captured)) { return captured; } return 0; }\n",
+        "model": "class C {}\nextension E on C { int get value => 1; }\n",
+        "source_sha256": "57d9c236b86943e28f3c7572b44e730016c95b525ddb4233c03ca544441843bd",
+        "model_sha256": "cefd9d18d329069579fe8604f1d149e0608c65aa2598c60f2103aebadf1beee3",
+        "cursor": {
+          "line": 1,
+          "character": 31
+        },
+        "definition": [
+          {
+            "range": {
+              "end": {
+                "character": 32,
+                "line": 1
+              },
+              "start": {
+                "character": 27,
+                "line": 1
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/extension/model.dart"
+          }
+        ],
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 32,
+              "line": 1
+            },
+            "start": {
+              "character": 27,
+              "line": 1
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/extension/model.dart"
+        }
+      },
+      {
+        "case": "shorthand",
+        "source": "import 'model.dart';\nint read(C c) { if (c case C(:final value)) { return value; } return 0; }\n",
+        "model": "class C { int get value => 1; }\n",
+        "source_sha256": "fc6917a3bfe78175b31b8ce0df640774a84f8d96cee2c69dff7dfcb7f93f3700",
+        "model_sha256": "906c71a08429ef15dd46905c114820f8230cb2b4955f0a2e65f209475f3334a9",
+        "cursor": {
+          "line": 1,
+          "character": 38
+        },
+        "definition": [
+          {
+            "range": {
+              "end": {
+                "character": 41,
+                "line": 1
+              },
+              "start": {
+                "character": 36,
+                "line": 1
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/shorthand/main.dart"
+          }
+        ],
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 41,
+              "line": 1
+            },
+            "start": {
+              "character": 36,
+              "line": 1
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/final/shorthand/main.dart"
+        }
+      },
+      {
+        "case": "record",
+        "source": "int read(({int value}) r) { final (value:final captured) = r; return captured; }\n",
+        "model": "",
+        "source_sha256": "bdabe690ed7ff1435e7a4ee580e04e3606a13a83e75554c4494da9d7832da990",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 0,
+          "character": 37
+        },
+        "definition": [],
+        "normalized_definition": null
+      },
+      {
+        "case": "unresolved",
+        "source": "import 'model.dart';\nint value = 7;\nint read(C c) { if (c case C(value:final captured)) { return captured; } return 0; }\n",
+        "model": "class C {}\n",
+        "source_sha256": "fda9d41d4fa1d233c267af44438b89f399adb8c6c15e1880dc93837f93f38c31",
+        "model_sha256": "8a7eaee3a2ed1ded2f10c111143f7629820f78b4e63210aebe6b9986850db4ac",
+        "cursor": {
+          "line": 2,
+          "character": 31
+        },
+        "definition": [],
+        "normalized_definition": null
+      }
+    ]
+  },
+  "sdk_version": "3.6.2",
+  "sdk_binary_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+  "source_sha256": {
+    "crates/lsp/src/project.rs": "0bc1685aed0395a0f5c142c603a18641dfb84b737f3f5d086824031c034a4002",
+    "crates/lsp/tests/pattern_selector_navigation.rs": "e6e7be1e547b9c26590733cae9c3e1b446c27fa30b2bbfbc58937209751aae09"
+  },
+  "definitions_fixed_exact_sdk": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "definitions_baseline_exact_sdk": [
+    false,
+    false,
+    false,
+    true,
+    true,
+    true
+  ],
+  "forge_selector_rename_matches_sdk_declaration_rename": true,
+  "rename_scope_note": "SDK3.6.2 direct rename from pattern selector returns null. Forge now supports it through resolved member identity; its applied edit is compared with SDK rename from the member declaration, not asserted equal for the same cursor.",
+  "gates": {
+    "command": "source /Volumes/ssd_dock/tools/env.zsh; CARGO_TARGET_DIR=target/p4 TMPDIR=target/tmp-p8-runtime cargo test --locked -p dartforge-lsp --lib --test pattern_selector_navigation --test semantic_navigation --test rename --test rename_patterns --test rename_pattern_fields -j2",
+    "exit_code": 0,
+    "total_passed": 89,
+    "counts": {
+      "library": 42,
+      "new_selector_navigation": 5,
+      "semantic_navigation": 13,
+      "rename": 22,
+      "binding_patterns": 4,
+      "field_patterns": 3
+    },
+    "log_sha256": "cc9c0dea7200e1b4be137eb0cd517731eb5756a9bb48ab064167e22a9d8f7663"
+  },
+  "scope": "Explicit object-pattern selector identity. No analyzer filter/type changes or broad LSP readiness claim.",
+  "source_inputs_unchanged": true
+}

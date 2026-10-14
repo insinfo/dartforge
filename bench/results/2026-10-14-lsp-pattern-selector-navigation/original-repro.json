@@ -1,0 +1,30 @@
+{
+  "forge": {
+    "binary_sha256": "1fe71b5061221e405060277bceaf92ce8bfd50bccc3299a79e86c2a36bdceb5d",
+    "results": {
+      "textDocument/definition": null,
+      "textDocument/rename": null
+    }
+  },
+  "official": {
+    "binary_sha256": "12d14da7bbbcacffd1f0f860a8c999a85fd180a3e865f72676e570ae1e1de1f9",
+    "results": {
+      "textDocument/definition": [
+        {
+          "range": {
+            "end": {
+              "character": 23,
+              "line": 0
+            },
+            "start": {
+              "character": 18,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-pattern-selector/main.dart"
+        }
+      ],
+      "textDocument/rename": null
+    }
+  }
+}
