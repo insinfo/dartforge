@@ -1,0 +1,28 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.50s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 9 tests
+test hir::declared_field_tests::identity_is_not_an_incidental_slot_or_subclass ... ok
+test hir::declared_field_tests::attachment_preserves_checked_arguments_and_unknown_operations ... ok
+test hir::declared_field_tests::cloned_field_call_keeps_identity_and_remaps_all_arguments ... ok
+test hir::declared_field_tests::declaration_attachment_refuses_incompatible_abi_and_slot ... ok
+test optimize::effects::declared_field_effect_tests::declaration_metadata_preserves_runtime_exception_effects ... ok
+test pruning::declared_field_summary_tests::persistent_field_facts_refuse_corruption_and_old_schema ... ok
+test hir::declared_field_tests::llvm_keeps_exact_checked_field_emission ... ok
+test pruning::declared_field_summary_tests::hir_field_observation_survives_disk_summary_roundtrip ... ok
+test pruning::declared_field_summary_tests::actual_sdk_base64_declarations_survive_summary_roundtrip ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 684 filtered out; finished in 2.36s
+

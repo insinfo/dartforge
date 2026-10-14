@@ -1,0 +1,36 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.97s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 1 test
+test pruning::receiver_provenance::selector_returns::source_tests::actual_sdk_dynamic_codec_getter_results_have_body_proved_classes ... FAILED
+
+failures:
+
+---- pruning::receiver_provenance::selector_returns::source_tests::actual_sdk_dynamic_codec_getter_results_have_body_proved_classes stdout ----
+
+thread '<unnamed>' (1767690) panicked at crates/emit_native/src/pruning/receiver_provenance/selector_returns/source_tests.rs:57:63:
+unproved getter result ValueId(16): {ValueId(42): {10}}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'pruning::receiver_provenance::selector_returns::source_tests::actual_sdk_dynamic_codec_getter_results_have_body_proved_classes' (1767689) panicked at crates/emit_native/src/pruning/receiver_provenance/selector_returns/source_tests.rs:73:24:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+
+
+failures:
+    pruning::receiver_provenance::selector_returns::source_tests::actual_sdk_dynamic_codec_getter_results_have_body_proved_classes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 697 filtered out; finished in 8.37s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

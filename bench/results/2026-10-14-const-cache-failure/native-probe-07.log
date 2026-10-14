@@ -1,0 +1,442 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.35s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 1 test
+
+thread '<unnamed>' (1770802) panicked at crates/emit_native/src/lower/constants/cache_failure_tests.rs:44:13:
+failed child must not publish value or ready flag: Function {
+    symbol: "dfc.c1ac273980e12938.get",
+    name: "const",
+    params: [],
+    return_ty: Ref,
+    blocks: [
+        BasicBlock {
+            id: BlockId(
+                0,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        0,
+                    ),
+                    LoadGlobal {
+                        symbol: "dfc.c1ac273980e12938$ok",
+                        ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        1,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                0,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        1,
+                    ),
+                ),
+                then_block: BlockId(
+                    1,
+                ),
+                else_block: BlockId(
+                    2,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                1,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        2,
+                    ),
+                    LoadGlobal {
+                        symbol: "dfc.c1ac273980e12938",
+                        ty: Ref,
+                    },
+                    Ref,
+                ),
+            ],
+            terminator: Return(
+                Some(
+                    Val(
+                        ValueId(
+                            2,
+                        ),
+                    ),
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                2,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        3,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_object_new",
+                        args: [
+                            (
+                                Constant(
+                                    Int(
+                                        717,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                        ],
+                        ret_ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        11,
+                    ),
+                    CallStatic {
+                        symbol: "dfc.e58fd95a432b9d0a.get",
+                        args: [],
+                        ret_ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        12,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        13,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                12,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        13,
+                    ),
+                ),
+                then_block: BlockId(
+                    7,
+                ),
+                else_block: BlockId(
+                    6,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                6,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        14,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-const-cache-failure/.tmpliwgfh/main.dart",
+                            owner: "Parent",
+                            name: "child",
+                            is_final: true,
+                            is_late: false,
+                            layout_index: 0,
+                            storage_type: Ref,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        3,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        11,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+            ],
+            terminator: Branch(
+                BlockId(
+                    8,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                7,
+            ),
+            instructions: [],
+            terminator: Branch(
+                BlockId(
+                    8,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                8,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        5,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        6,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                5,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        6,
+                    ),
+                ),
+                then_block: BlockId(
+                    4,
+                ),
+                else_block: BlockId(
+                    3,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                3,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        7,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_canonical_constant",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        3,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                        ],
+                        ret_ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        8,
+                    ),
+                    StoreGlobal {
+                        symbol: "dfc.c1ac273980e12938",
+                        val: Val(
+                            ValueId(
+                                7,
+                            ),
+                        ),
+                        ty: Ref,
+                        root: Some(
+                            1088497976,
+                        ),
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        9,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_mark_constant",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        7,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Function(
+                                        "dfc.c1ac273980e12938.get",
+                                    ),
+                                ),
+                                I64,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        10,
+                    ),
+                    StoreGlobal {
+                        symbol: "dfc.c1ac273980e12938$ok",
+                        val: Constant(
+                            Int(
+                                1,
+                            ),
+                        ),
+                        ty: I8,
+                        root: None,
+                    },
+                    Void,
+                ),
+            ],
+            terminator: Return(
+                Some(
+                    Val(
+                        ValueId(
+                            7,
+                        ),
+                    ),
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                4,
+            ),
+            instructions: [],
+            terminator: Return(
+                Some(
+                    Constant(
+                        Null,
+                    ),
+                ),
+            ),
+        },
+    ],
+    debug_info: None,
+}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'lower::constants::cache_failure_tests::nested_constant_failure_cannot_reach_parent_publication_after_optimization' (1770801) panicked at crates/emit_native/src/lower/constants/cache_failure_tests.rs:24:24:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+test lower::constants::cache_failure_tests::nested_constant_failure_cannot_reach_parent_publication_after_optimization ... FAILED
+
+failures:
+
+failures:
+    lower::constants::cache_failure_tests::nested_constant_failure_cannot_reach_parent_publication_after_optimization
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 697 filtered out; finished in 0.44s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`
