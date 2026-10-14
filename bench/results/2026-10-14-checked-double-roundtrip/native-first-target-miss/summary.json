@@ -1,0 +1,19 @@
+{
+  "result": "CODEGEN_TARGET_MISS",
+  "native_semantics": "All8actualexecutions exited0 and matched VM/official output, includingGCstress.",
+  "edge_rebox_removed": 1,
+  "real_format_rebox_removed": 0,
+  "expected_real_format_rebox_removed": 8,
+  "producer_sha256": "dbafa5e6f5f90f3ae172623a3af5cfc19a2fcb950c7cde679c126990be1702d7",
+  "original_failure_preserved": true,
+  "source_sha256": {
+    "crates/emit_native/src/hir.rs": "fad617115a85b81b7c1b2b1124910e12b895eb547f20c57a57463e8f37a7dd77",
+    "crates/emit_native/src/lower/mod.rs": "034673fdcd8bb470967d8a5a51d00bcf3cfda1b65e781ce5b5e34ce889877b02",
+    "crates/emit_native/src/lower/double_identity.rs": "b4c05b7f90775b341929c0756e09bed908fad91657cf2ae59b365ddb71f0902f",
+    "crates/emit_native/src/lower/double_identity/tests.rs": "d81a42c21c70c2f3f021ce304c8563d2f41d00ff8338438967c5ff4b8746d553",
+    "crates/emit_native/src/optimize/mod.rs": "5c3a0d932dd338fb513d4229f820615fef93029b501d154a0915bc428023e9ac",
+    "crates/emit_native/src/optimize/checked_double_roundtrip.rs": "a0f5d08941f0da02bc1f2ee11b5dd6ddc477faf78418ca3d72b176c0f735d0e7",
+    "crates/emit_native/src/optimize/checked_double_roundtrip/tests.rs": "1c3d49c85099892173729ab66345234e1eb2ceb25d562b485d18f50d97d30cc6",
+    "crates/emit_native/tests/fixtures/checked_double_roundtrip/main.dart": "df94435661750a7b99208abef2c1344956c620ac0cbe77b493758c66e741b686"
+  }
+}

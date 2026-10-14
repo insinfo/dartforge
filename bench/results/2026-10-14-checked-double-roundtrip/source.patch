@@ -1,0 +1,711 @@
+diff --git a/crates/emit_native/src/hir.rs b/crates/emit_native/src/hir.rs
+index 41d49df6..cbfab933 100644
+--- a/crates/emit_native/src/hir.rs
++++ b/crates/emit_native/src/hir.rs
+@@ -1106,6 +1106,8 @@ pub struct Module {
+     /// AOT registration keeps this image's ancestry facts fixed.
+     /// Reloadable images leave this false: older generations may add edges.
+     pub arc_fixed_ancestry: bool,
++    /// Selected canonical SDK double identity/hash overlays were independently verified.
++    pub checked_double_identity: bool,
+     /// Registration facts from the same compiled SDK summaries used at link time.
+     pub arc_external_ancestry: ArcExternalAncestry,
+     /// The ARC preparation accepts direct calls to Dart functions of another
+diff --git a/crates/emit_native/src/lower/double_identity.rs b/crates/emit_native/src/lower/double_identity.rs
+new file mode 100644
+index 00000000..584459d7
+--- /dev/null
++++ b/crates/emit_native/src/lower/double_identity.rs
+@@ -0,0 +1,90 @@
++//! Conservative certificate for reusing a checked primitive double box.
++use crate::context::Context;
++use dartforge_elements::model::{Element, FunctionElementId, FunctionKind, FunctionRef};
++use std::collections::HashSet;
++
++const DOUBLE: &str = include_str!("../../../../native_sdk/core/double.dart");
++const IDENTICAL: &str = include_str!("../../../../native_sdk/core/identical_patch.dart");
++
++pub(super) fn certified(ctx: &Context) -> bool {
++    let Some(core) = ctx.program.core else {
++        return false;
++    };
++    let library = ctx.program.library(core);
++    if library.uri != "dart:core" || !library.is_sdk {
++        return false;
++    }
++    let selected = |id: FunctionElementId, owner, name, kind, expected: &str| {
++        let mut id = id;
++        let mut seen = HashSet::new();
++        loop {
++            if !seen.insert(id) {
++                return false;
++            }
++            let f = ctx.program.function(id);
++            if f.library != core
++                || f.class != owner
++                || f.name != name
++                || f.kind != kind
++                || f.variable.is_some()
++            {
++                return false;
++            }
++            if let Some(patch) = f.patched_by {
++                id = patch;
++                continue;
++            }
++            let FunctionRef::Function { unit, .. } = f.node else {
++                return false;
++            };
++            let unit = ctx.program.unit(unit);
++            return unit.library == core && unit.source == expected;
++        }
++    };
++    let Some(name) = ctx.interner.lookup("_Double") else {
++        return false;
++    };
++    let Some(Element::Class(cid)) = ctx.program.lookup(core, name).and_then(|e| e.getter) else {
++        return false;
++    };
++    let class = ctx.program.class(cid);
++    let Some(decl) = class.decl else {
++        return false;
++    };
++    if class.library != core
++        || ctx.program.unit(decl.unit).source != DOUBLE
++        || !class.mixins.is_empty()
++        || !class.mixin_classes.is_empty()
++        || !class.shadowed_instance_members.is_empty()
++    {
++        return false;
++    }
++    for name in ["hashCode", "_identityHashCode"] {
++        let Some(symbol) = ctx.interner.lookup(name) else {
++            return false;
++        };
++        let Some(&f) = class.instance_members.get(&symbol) else {
++            return false;
++        };
++        if !selected(f, Some(cid), symbol, FunctionKind::Getter, DOUBLE) {
++            return false;
++        }
++    }
++    for name in ["identical", "identityHashCode"] {
++        let Some(symbol) = ctx.interner.lookup(name) else {
++            return false;
++        };
++        let Some(Element::Function(f)) = ctx.program.lookup(core, symbol).and_then(|e| e.getter)
++        else {
++            return false;
++        };
++        if !selected(f, None, symbol, FunctionKind::Function, IDENTICAL) {
++            return false;
++        }
++    }
++    crate::natives::native("Identical_comparison")
++        .is_some_and(|n| n.state == crate::natives::State::Runtime)
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/crates/emit_native/src/lower/double_identity/tests.rs b/crates/emit_native/src/lower/double_identity/tests.rs
+new file mode 100644
+index 00000000..5a49e5ab
+--- /dev/null
++++ b/crates/emit_native/src/lower/double_identity/tests.rs
+@@ -0,0 +1,136 @@
++use super::*;
++use std::path::{Path, PathBuf};
++fn fixture() -> PathBuf {
++    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/checked_double_roundtrip/main.dart")
++}
++fn with_context(edit: Option<(&str, &str, &str)>, action: impl FnOnce(&mut Context)) {
++    let temporary = tempfile::tempdir().unwrap();
++    let mut sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
++    if let Some((file, old, new)) = edit {
++        let original = sdk.root.join(file);
++        let selected = sdk.replacements.get(&original).unwrap_or(&original);
++        let source = std::fs::read_to_string(selected).unwrap();
++        assert!(
++            source.contains(old),
++            "SDK test replacement must actually apply: {file}"
++        );
++        let modified = temporary.path().join("sdk-edit.dart");
++        std::fs::write(&modified, source.replace(old, new)).unwrap();
++        sdk.replacements.insert(original, modified);
++    }
++    let mut interner = dartforge_intern::Interner::new();
++    let (program, diagnostics) =
++        dartforge_elements::load::load_lenient(&fixture(), &sdk, None, &mut interner);
++    assert!(diagnostics.is_empty(), "{diagnostics:?}");
++    let mut table = dartforge_types::TypeTable::new();
++    let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
++    let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
++    let libraries: Vec<_> = program
++        .libraries
++        .iter()
++        .enumerate()
++        .filter(|(_, l)| !l.is_sdk)
++        .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32))
++        .collect();
++    let (bodies, _) = dartforge_types::infer_library_bodies_with_locals(
++        &program,
++        &interner,
++        &mut table,
++        &core,
++        &mut outline,
++        &libraries,
++    );
++    let mut context =
++        Context::new(&program, &interner, &table, &core, &outline, &bodies).with_source_sdk();
++    action(&mut context);
++}
++
++#[test]
++fn canonical_selected_sdk_certifies_and_modified_identity_hash_fails_closed() {
++    std::thread::Builder::new()
++        .stack_size(64 << 20)
++        .spawn(|| {
++            with_context(None, |ctx| {
++                assert!(
++                    certified(ctx),
++                    "actual canonical SDK declarations must certify"
++                );
++                let mut module = crate::lower::lower_program(ctx);
++                assert!(module.checked_double_identity);
++                assert!(module.errors.is_empty(), "{:?}", module.errors);
++                let boxes = |m: &crate::hir::Module| {
++                    m.functions
++                        .iter()
++                        .filter(|f| f.name == "roundTrip")
++                        .flat_map(|f| &f.blocks)
++                        .flat_map(|b| &b.instructions)
++                        .filter(|(_, i, _)| {
++                            matches!(
++                                i,
++                                crate::hir::Instruction::Box {
++                                    from: crate::hir::Type::F64,
++                                    ..
++                                }
++                            )
++                        })
++                        .count()
++                };
++                assert!(
++                    boxes(&module) > 0,
++                    "ordinary lowering must contain the actual roundtrip"
++                );
++                module.arc_fixed_ancestry = true;
++                crate::optimize::optimize(&mut module);
++                assert_eq!(
++                    boxes(&module),
++                    0,
++                    "canonical ordinary program must actually exercise the fast path: {:#?}",
++                    module.functions.iter().find(|f| f.name == "roundTrip")
++                );
++                assert!(
++                    module
++                        .functions
++                        .iter()
++                        .filter(|f| f.name == "roundTrip")
++                        .flat_map(|f| &f.blocks)
++                        .flat_map(|b| &b.instructions)
++                        .any(|(_, i, _)| matches!(
++                            i,
++                            crate::hir::Instruction::Unbox {
++                                to: crate::hir::Type::F64,
++                                ..
++                            }
++                        )),
++                    "validation must remain"
++                );
++            });
++            for edit in [
++                (
++                    "_internal/vm/lib/double.dart",
++                    "int get _identityHashCode => hashCode;",
++                    "int get _identityHashCode => 17;",
++                ),
++                (
++                    "_internal/vm/lib/identical_patch.dart",
++                    "Identical_comparison",
++                    "Object_getHash",
++                ),
++                (
++                    "_internal/vm/lib/identical_patch.dart",
++                    "object._identityHashCode",
++                    "17",
++                ),
++            ] {
++                with_context(Some(edit), |ctx| {
++                    assert!(
++                        !certified(ctx),
++                        "actual SDK replacement must invalidate proof: {edit:?}"
++                    );
++                    assert!(!crate::lower::lower_program(ctx).checked_double_identity);
++                });
++            }
++        })
++        .unwrap()
++        .join()
++        .unwrap();
++}
+diff --git a/crates/emit_native/src/lower/mod.rs b/crates/emit_native/src/lower/mod.rs
+index 846cce00..a347e82a 100644
+--- a/crates/emit_native/src/lower/mod.rs
++++ b/crates/emit_native/src/lower/mod.rs
+@@ -15,6 +15,7 @@ pub mod statements;
+ pub mod primitive_const;
+ pub mod constants;
+ mod environment;
++mod double_identity;
+ mod platform;
+ mod native_pump;
+ mod sync_native_callable;
+@@ -188,6 +189,7 @@ pub fn late_field_getter_symbol(ctx: &Context, vid: VariableId) -> String {
+ pub fn lower_program(ctx: &Context) -> Module {
+     let mut module = Module::new();
+     module.arc_memory = ctx.arc_memory;
++    module.checked_double_identity = double_identity::certified(ctx);
+ 
+     // 1. Registers known classes
+     // Default Object class as id 0
+diff --git a/crates/emit_native/src/optimize/checked_double_roundtrip.rs b/crates/emit_native/src/optimize/checked_double_roundtrip.rs
+new file mode 100644
+index 00000000..caaad862
+--- /dev/null
++++ b/crates/emit_native/src/optimize/checked_double_roundtrip.rs
+@@ -0,0 +1,212 @@
++//! Reuse canonical double boxes only after their original checked unbox succeeds.
++use super::{
++    cfg::Cfg,
++    operands::{operands, operands_mut, terminator_operands, terminator_operands_mut},
++};
++use crate::hir::*;
++use std::collections::{HashMap, HashSet};
++
++pub(super) fn rewrite(module: &mut Module) -> usize {
++    if std::env::var("DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP").as_deref() == Ok("1")
++        || !module.checked_double_identity
++        || !module.arc_fixed_ancestry
++        || module.arc_memory
++        || module.arc_prepared
++        || module.arc_aot_ports.is_some()
++        || module.sdk_library
++        || module.functions.iter().any(|f| {
++            matches!(
++                f.symbol.as_str(),
++                "dartforge_unbox_double"
++                    | "dartforge_box_double"
++                    | "dartforge_native_Identical_comparison"
++                    | "dartforge_native_DartForge_double_hashCode"
++            )
++        })
++    {
++        return 0;
++    }
++    module.functions.iter_mut().map(rewrite_function).sum()
++}
++
++fn rewrite_function(f: &mut Function) -> usize {
++    if f.blocks.first().is_none_or(|b| b.id != BlockId(0)) {
++        return 0;
++    }
++    let mut ids = HashSet::new();
++    let mut types = HashMap::new();
++    let mut locations = HashMap::new();
++    for (v, _, t) in &f.params {
++        if types.insert(*v, *t).is_some() {
++            return 0;
++        }
++    }
++    for (bi, b) in f.blocks.iter().enumerate() {
++        if !ids.insert(b.id) {
++            return 0;
++        }
++        for (ii, (v, i, t)) in b.instructions.iter().enumerate() {
++            locations.insert(*v, (bi, ii));
++            if types.insert(*v, *t).is_some() || crate::llvm::LlvmEmitter::result_type(i, *t) != *t
++            {
++                return 0;
++            }
++        }
++    }
++    if f.blocks.iter().any(|b| {
++        super::cfg::successors(&b.terminator)
++            .iter()
++            .any(|id| !ids.contains(id))
++    }) {
++        return 0;
++    }
++    let cfg = Cfg::new(f);
++    let dominates = |a: usize, mut b: usize| {
++        if cfg.idom[b] == usize::MAX {
++            return false;
++        }
++        while a != b {
++            let next = cfg.idom[b];
++            if next == b {
++                return false;
++            }
++            b = next;
++        }
++        true
++    };
++    let mut replacements = HashMap::new();
++    for (bi, b) in f.blocks.iter().enumerate() {
++        if cfg.idom[bi] == usize::MAX || cfg.predecessors[bi].len() != 1 {
++            continue;
++        }
++        let Some((
++            boxed,
++            Instruction::Box {
++                op: Operand::Val(scalar),
++                from: Type::F64,
++            },
++            Type::Ref,
++        )) = b.instructions.first()
++        else {
++            continue;
++        };
++        if !b.instructions[1..].iter().all(|(_, i, t)| matches!(i, Instruction::CallRuntime { name, args, ret_ty: Type::Void } if name == "dartforge_exception_clear" && args.is_empty()) && *t == Type::Void)
++            || !matches!(b.terminator, Terminator::Return(Some(Operand::Val(v))) if v == *boxed)
++        {
++            continue;
++        }
++        let mut other_use = false;
++        for (ui, user) in f.blocks.iter().enumerate() {
++            for (_, inst, _) in &user.instructions {
++                operands(inst, &mut |op| {
++                    other_use |= matches!(op, Operand::Val(v) if v == boxed);
++                });
++            }
++            if ui != bi {
++                terminator_operands(&user.terminator, &mut |op| {
++                    other_use |= matches!(op, Operand::Val(v) if v == boxed);
++                });
++            }
++        }
++        if other_use {
++            continue;
++        }
++        let pi = cfg.predecessors[bi][0];
++        let predecessor = &f.blocks[pi];
++        let n = predecessor.instructions.len();
++        if n < 3 {
++            continue;
++        }
++        let tail = &predecessor.instructions[n - 3..];
++        let (
++            unboxed,
++            Instruction::Unbox {
++                op: Operand::Val(original),
++                to: Type::F64,
++            },
++            Type::F64,
++        ) = &tail[0]
++        else {
++            continue;
++        };
++        if scalar != unboxed || types.get(original) != Some(&Type::Ref) {
++            continue;
++        }
++        if let Some(&(definition_block, definition_position)) = locations.get(original) {
++            if !dominates(definition_block, pi)
++                || (definition_block == pi && definition_position >= n - 3)
++            {
++                continue;
++            }
++        } else if !f
++            .params
++            .iter()
++            .any(|(v, _, t)| v == original && *t == Type::Ref)
++        {
++            continue;
++        }
++        let (
++            pending,
++            Instruction::CallRuntime {
++                name,
++                args,
++                ret_ty: Type::I8,
++            },
++            Type::I8,
++        ) = &tail[1]
++        else {
++            continue;
++        };
++        if name != "dartforge_exception_pending" || !args.is_empty() {
++            continue;
++        }
++        let (
++            condition,
++            Instruction::ICmp(ICmpOp::Ne, Operand::Val(read), Operand::Constant(Constant::Int(0))),
++            Type::I1,
++        ) = &tail[2]
++        else {
++            continue;
++        };
++        if pending != read {
++            continue;
++        }
++        let Terminator::CondBranch {
++            cond: Operand::Val(test),
++            then_block,
++            else_block,
++        } = predecessor.terminator
++        else {
++            continue;
++        };
++        if test != *condition || else_block != b.id || then_block == b.id {
++            continue;
++        }
++        // The checked-success edge is the sole entrance. There is no intervening
++        // call, allocation, mutation, join, or backedge between the load and reuse.
++        replacements.insert(*boxed, Operand::Val(*original));
++    }
++    let count = replacements.len();
++    if count == 0 {
++        return 0;
++    }
++    let replace = &mut |op: &mut Operand| {
++        if let Operand::Val(v) = op
++            && let Some(value) = replacements.get(v)
++        {
++            *op = value.clone();
++        }
++    };
++    for b in &mut f.blocks {
++        for (_, i, _) in &mut b.instructions {
++            operands_mut(i, replace);
++        }
++        terminator_operands_mut(&mut b.terminator, replace);
++        b.instructions
++            .retain(|(v, _, _)| !replacements.contains_key(v));
++    }
++    count
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/crates/emit_native/src/optimize/checked_double_roundtrip/tests.rs b/crates/emit_native/src/optimize/checked_double_roundtrip/tests.rs
+new file mode 100644
+index 00000000..9c530fa3
+--- /dev/null
++++ b/crates/emit_native/src/optimize/checked_double_roundtrip/tests.rs
+@@ -0,0 +1,168 @@
++use super::*;
++
++fn fixture() -> Function {
++    Function {
++        symbol: "checked".into(),
++        name: "checked".into(),
++        params: vec![(ValueId(0), "value".into(), Type::Ref)],
++        return_ty: Type::Ref,
++        debug_info: None,
++        blocks: vec![
++            BasicBlock {
++                id: BlockId(0),
++                instructions: vec![
++                    (
++                        ValueId(1),
++                        Instruction::Unbox {
++                            op: Operand::Val(ValueId(0)),
++                            to: Type::F64,
++                        },
++                        Type::F64,
++                    ),
++                    (
++                        ValueId(2),
++                        Instruction::CallRuntime {
++                            name: "dartforge_exception_pending".into(),
++                            args: vec![],
++                            ret_ty: Type::I8,
++                        },
++                        Type::I8,
++                    ),
++                    (
++                        ValueId(3),
++                        Instruction::ICmp(
++                            ICmpOp::Ne,
++                            Operand::Val(ValueId(2)),
++                            Operand::Constant(Constant::Int(0)),
++                        ),
++                        Type::I1,
++                    ),
++                ],
++                terminator: Terminator::CondBranch {
++                    cond: Operand::Val(ValueId(3)),
++                    then_block: BlockId(2),
++                    else_block: BlockId(1),
++                },
++            },
++            BasicBlock {
++                id: BlockId(1),
++                instructions: vec![(
++                    ValueId(4),
++                    Instruction::Box {
++                        op: Operand::Val(ValueId(1)),
++                        from: Type::F64,
++                    },
++                    Type::Ref,
++                )],
++                terminator: Terminator::Return(Some(Operand::Val(ValueId(4)))),
++            },
++            BasicBlock {
++                id: BlockId(2),
++                instructions: vec![],
++                terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
++            },
++        ],
++    }
++}
++
++#[test]
++fn keeps_validation_error_edge_and_returns_original_on_success() {
++    let mut f = fixture();
++    assert_eq!(rewrite_function(&mut f), 1);
++    assert!(matches!(
++        f.blocks[0].instructions[0].1,
++        Instruction::Unbox { to: Type::F64, .. }
++    ));
++    assert_eq!(f.blocks[1].instructions.len(), 0);
++    assert!(matches!(
++        f.blocks[1].terminator,
++        Terminator::Return(Some(Operand::Val(ValueId(0))))
++    ));
++    assert!(matches!(
++        f.blocks[2].terminator,
++        Terminator::Return(Some(Operand::Constant(Constant::Null)))
++    ));
++}
++
++#[test]
++fn refuses_mutation_calls_ambiguous_entry_wrong_scalar_and_invalid_types() {
++    for variant in 0..5 {
++        let mut f = fixture();
++        match variant {
++            0 => f.blocks[1].instructions.insert(
++                0,
++                (
++                    ValueId(5),
++                    Instruction::CallRuntime {
++                        name: "mutate".into(),
++                        args: vec![],
++                        ret_ty: Type::I64,
++                    },
++                    Type::I64,
++                ),
++            ),
++            1 => f.blocks[2].terminator = Terminator::Branch(BlockId(1)),
++            2 => f.blocks[0].instructions.insert(
++                1,
++                (
++                    ValueId(5),
++                    Instruction::CallRuntime {
++                        name: "mutate".into(),
++                        args: vec![],
++                        ret_ty: Type::I64,
++                    },
++                    Type::I64,
++                ),
++            ),
++            3 => {
++                f.blocks[1].instructions[0].1 = Instruction::Box {
++                    op: Operand::Val(ValueId(2)),
++                    from: Type::F64,
++                }
++            }
++            _ => f.params[0].2 = Type::I64,
++        }
++        assert_eq!(rewrite_function(&mut f), 0, "variant {variant}");
++    }
++}
++
++#[test]
++fn rejects_missing_targets_duplicate_blocks_and_non_dominating_refs() {
++    for variant in 0..3 {
++        let mut f = fixture();
++        match variant {
++            0 => f.blocks[2].terminator = Terminator::Branch(BlockId(99)),
++            1 => f.blocks[2].id = BlockId(1),
++            _ => {
++                f.blocks[2].instructions.push((
++                    ValueId(5),
++                    Instruction::Const(Constant::Null),
++                    Type::Ref,
++                ));
++                f.blocks[0].instructions[0].1 = Instruction::Unbox {
++                    op: Operand::Val(ValueId(5)),
++                    to: Type::F64,
++                };
++            }
++        }
++        assert_eq!(rewrite_function(&mut f), 0, "variant {variant}");
++    }
++}
++
++#[test]
++fn refuses_unknown_sdk_and_arc_or_reloadable_images() {
++    for variant in 0..5 {
++        let mut module = Module::new();
++        module.checked_double_identity = true;
++        module.arc_fixed_ancestry = true;
++        module.functions.push(fixture());
++        match variant {
++            0 => module.checked_double_identity = false,
++            1 => module.arc_memory = true,
++            2 => module.arc_prepared = true,
++            3 => module.arc_fixed_ancestry = false,
++            _ => module.functions[0].symbol = "dartforge_unbox_double".into(),
++        }
++        assert_eq!(rewrite(&mut module), 0, "variant {variant}");
++    }
++}
+diff --git a/crates/emit_native/src/optimize/mod.rs b/crates/emit_native/src/optimize/mod.rs
+index dfec432c..05badab4 100644
+--- a/crates/emit_native/src/optimize/mod.rs
++++ b/crates/emit_native/src/optimize/mod.rs
+@@ -33,6 +33,7 @@ mod tests;
+ #[cfg(test)]
+ mod pre_prune_tests;
+ mod physical_devirtualize;
++mod checked_double_roundtrip;
+ 
+ use crate::hir::*;
+ use std::collections::HashMap;
+@@ -230,6 +231,7 @@ pub fn optimize(module: &mut Module) {
+         }
+         false
+     });
++    checked_double_roundtrip::rewrite(module);
+     // Inlining and representation folding can expose literal class queries.
+     // Fixed registration facts prove only the negative cases; the usual cleanup
+     // removes their unreachable branches before tables or ownership plans exist.
+diff --git a/crates/emit_native/tests/fixtures/checked_double_roundtrip/main.dart b/crates/emit_native/tests/fixtures/checked_double_roundtrip/main.dart
+new file mode 100644
+index 00000000..0a8df8ad
+--- /dev/null
++++ b/crates/emit_native/tests/fixtures/checked_double_roundtrip/main.dart
+@@ -0,0 +1,22 @@
++import 'dart:typed_data';
++@pragma('vm:never-inline')
++Object roundTrip(dynamic value) {
++  final double scalar = value;
++  return scalar;
++}
++String bits(double value) {
++  final data = ByteData(8)..setFloat64(0, value, Endian.little);
++  return data.buffer.asUint8List().join(',');
++}
++void main() {
++  final data = ByteData(8)..setUint64(0, 0x7ff8000000000042, Endian.little);
++  for (final value in <double>[0.0, -0.0, 1.25, double.infinity,
++      double.negativeInfinity, double.nan, data.getFloat64(0, Endian.little)]) {
++    final result = roundTrip(value) as double;
++    print('${bits(result)}:${identical(value, result)}:${identityHashCode(value) == identityHashCode(result)}');
++  }
++  for (final value in <dynamic>[null, '1', true, Object()]) {
++    try { roundTrip(value); print('unexpected'); }
++    on TypeError { print('TypeError'); }
++  }
++}

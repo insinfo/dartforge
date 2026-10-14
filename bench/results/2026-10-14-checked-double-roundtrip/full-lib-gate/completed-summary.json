@@ -1,0 +1,11 @@
+{
+  "exit_code": 0,
+  "passed": 671,
+  "failed": 0,
+  "ignored": 0,
+  "sources_unchanged": true,
+  "test_binary": "target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881",
+  "test_binary_sha256": "a57942c5e495bc1038f9ee3df345549cbf2bf0c265c10df6f071c9cf98f44b75",
+  "gate_ledger_sha256": "6d162ab46d765f416a98c15a41fa0f823a6feb158558b6f91eb7e463bcb30f0f",
+  "limit": "Semantic gate passed. First native codegen-target check failed: real Format still had eight reboxes. No performance claim; further correction required."
+}

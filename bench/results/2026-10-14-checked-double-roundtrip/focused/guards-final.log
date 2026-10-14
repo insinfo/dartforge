@@ -1,0 +1,9 @@
+
+running 4 tests
+test optimize::checked_double_roundtrip::tests::keeps_validation_error_edge_and_returns_original_on_success ... ok
+test optimize::checked_double_roundtrip::tests::refuses_mutation_calls_ambiguous_entry_wrong_scalar_and_invalid_types ... ok
+test optimize::checked_double_roundtrip::tests::refuses_unknown_sdk_and_arc_or_reloadable_images ... ok
+test optimize::checked_double_roundtrip::tests::rejects_missing_targets_duplicate_blocks_and_non_dominating_refs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 667 filtered out; finished in 0.00s
+

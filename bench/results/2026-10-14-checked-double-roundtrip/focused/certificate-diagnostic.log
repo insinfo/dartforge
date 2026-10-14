@@ -1,0 +1,569 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.84s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 1 test
+test lower::double_identity::tests::canonical_selected_sdk_certifies_and_modified_identity_hash_fails_closed ... FAILED
+
+failures:
+
+---- lower::double_identity::tests::canonical_selected_sdk_certifies_and_modified_identity_hash_fails_closed stdout ----
+
+thread '<unnamed>' (1680300) panicked at crates/emit_native/src/lower/double_identity/tests.rs:84:17:
+assertion `left == right` failed: canonical ordinary program must actually exercise the fast path: Some(
+    Function {
+        symbol: "df.main$2edart..roundTrip",
+        name: "roundTrip",
+        params: [
+            (
+                ValueId(
+                    0,
+                ),
+                "value",
+                Ref,
+            ),
+        ],
+        return_ty: Ref,
+        blocks: [
+            BasicBlock {
+                id: BlockId(
+                    0,
+                ),
+                instructions: [
+                    (
+                        ValueId(
+                            4,
+                        ),
+                        ICmp(
+                            Eq,
+                            Val(
+                                ValueId(
+                                    0,
+                                ),
+                            ),
+                            Constant(
+                                Null,
+                            ),
+                        ),
+                        I1,
+                    ),
+                    (
+                        ValueId(
+                            5,
+                        ),
+                        CallRuntime {
+                            name: "dartforge_value_class",
+                            args: [
+                                (
+                                    Val(
+                                        ValueId(
+                                            0,
+                                        ),
+                                    ),
+                                    Ref,
+                                ),
+                            ],
+                            ret_ty: I64,
+                        },
+                        I64,
+                    ),
+                    (
+                        ValueId(
+                            6,
+                        ),
+                        CallRuntime {
+                            name: "dartforge_is_subclass",
+                            args: [
+                                (
+                                    Val(
+                                        ValueId(
+                                            5,
+                                        ),
+                                    ),
+                                    I64,
+                                ),
+                                (
+                                    Constant(
+                                        Int(
+                                            576,
+                                        ),
+                                    ),
+                                    I64,
+                                ),
+                            ],
+                            ret_ty: I8,
+                        },
+                        I8,
+                    ),
+                    (
+                        ValueId(
+                            7,
+                        ),
+                        ICmp(
+                            Ne,
+                            Val(
+                                ValueId(
+                                    6,
+                                ),
+                            ),
+                            Constant(
+                                Int(
+                                    0,
+                                ),
+                            ),
+                        ),
+                        I1,
+                    ),
+                    (
+                        ValueId(
+                            8,
+                        ),
+                        LNot(
+                            Val(
+                                ValueId(
+                                    4,
+                                ),
+                            ),
+                        ),
+                        I1,
+                    ),
+                    (
+                        ValueId(
+                            9,
+                        ),
+                        And(
+                            Val(
+                                ValueId(
+                                    7,
+                                ),
+                            ),
+                            Val(
+                                ValueId(
+                                    8,
+                                ),
+                            ),
+                        ),
+                        I64,
+                    ),
+                    (
+                        ValueId(
+                            10,
+                        ),
+                        ICmp(
+                            Ne,
+                            Val(
+                                ValueId(
+                                    9,
+                                ),
+                            ),
+                            Constant(
+                                Int(
+                                    0,
+                                ),
+                            ),
+                        ),
+                        I1,
+                    ),
+                ],
+                terminator: CondBranch {
+                    cond: Val(
+                        ValueId(
+                            10,
+                        ),
+                    ),
+                    then_block: BlockId(
+                        2,
+                    ),
+                    else_block: BlockId(
+                        1,
+                    ),
+                },
+            },
+            BasicBlock {
+                id: BlockId(
+                    1,
+                ),
+                instructions: [
+                    (
+                        ValueId(
+                            11,
+                        ),
+                        LoadGlobal {
+                            symbol: "dfr.a24af39de8fc6b40.main$2edart$ok",
+                            ty: I8,
+                        },
+                        I8,
+                    ),
+                    (
+                        ValueId(
+                            12,
+                        ),
+                        ICmp(
+                            Ne,
+                            Val(
+                                ValueId(
+                                    11,
+                                ),
+                            ),
+                            Constant(
+                                Int(
+                                    0,
+                                ),
+                            ),
+                        ),
+                        I1,
+                    ),
+                ],
+                terminator: CondBranch {
+                    cond: Val(
+                        ValueId(
+                            12,
+                        ),
+                    ),
+                    then_block: BlockId(
+                        3,
+                    ),
+                    else_block: BlockId(
+                        4,
+                    ),
+                },
+            },
+            BasicBlock {
+                id: BlockId(
+                    2,
+                ),
+                instructions: [
+                    (
+                        ValueId(
+                            20,
+                        ),
+                        Unbox {
+                            op: Val(
+                                ValueId(
+                                    0,
+                                ),
+                            ),
+                            to: F64,
+                        },
+                        F64,
+                    ),
+                    (
+                        ValueId(
+                            21,
+                        ),
+                        CallRuntime {
+                            name: "dartforge_exception_pending",
+                            args: [],
+                            ret_ty: I8,
+                        },
+                        I8,
+                    ),
+                    (
+                        ValueId(
+                            22,
+                        ),
+                        ICmp(
+                            Ne,
+                            Val(
+                                ValueId(
+                                    21,
+                                ),
+                            ),
+                            Constant(
+                                Int(
+                                    0,
+                                ),
+                            ),
+                        ),
+                        I1,
+                    ),
+                ],
+                terminator: CondBranch {
+                    cond: Val(
+                        ValueId(
+                            22,
+                        ),
+                    ),
+                    then_block: BlockId(
+                        9,
+                    ),
+                    else_block: BlockId(
+                        8,
+                    ),
+                },
+            },
+            BasicBlock {
+                id: BlockId(
+                    3,
+                ),
+                instructions: [
+                    (
+                        ValueId(
+                            13,
+                        ),
+                        LoadGlobal {
+                            symbol: "dfr.a24af39de8fc6b40.main$2edart",
+                            ty: I64,
+                        },
+                        I64,
+                    ),
+                ],
+                terminator: Branch(
+                    BlockId(
+                        5,
+                    ),
+                ),
+            },
+            BasicBlock {
+                id: BlockId(
+                    4,
+                ),
+                instructions: [
+                    (
+                        ValueId(
+                            14,
+                        ),
+                        CallStatic {
+                            symbol: "df.rti.a24af39de8fc6b40.main$2edart",
+                            args: [],
+                            ret_ty: I64,
+                        },
+                        I64,
+                    ),
+                ],
+                terminator: Branch(
+                    BlockId(
+                        5,
+                    ),
+                ),
+            },
+            BasicBlock {
+                id: BlockId(
+                    5,
+                ),
+                instructions: [
+                    (
+                        ValueId(
+                            15,
+                        ),
+                        Phi {
+                            incoming: [
+                                (
+                                    BlockId(
+                                        3,
+                                    ),
+                                    Val(
+                                        ValueId(
+                                            13,
+                                        ),
+                                    ),
+                                ),
+                                (
+                                    BlockId(
+                                        4,
+                                    ),
+                                    Val(
+                                        ValueId(
+                                            14,
+                                        ),
+                                    ),
+                                ),
+                            ],
+                            ty: I64,
+                        },
+                        I64,
+                    ),
+                    (
+                        ValueId(
+                            16,
+                        ),
+                        CallRuntime {
+                            name: "dartforge_rti_as_with_context",
+                            args: [
+                                (
+                                    Val(
+                                        ValueId(
+                                            0,
+                                        ),
+                                    ),
+                                    Ref,
+                                ),
+                                (
+                                    Val(
+                                        ValueId(
+                                            15,
+                                        ),
+                                    ),
+                                    I64,
+                                ),
+                                (
+                                    Constant(
+                                        Int(
+                                            1,
+                                        ),
+                                    ),
+                                    I64,
+                                ),
+                                (
+                                    Constant(
+                                        Null,
+                                    ),
+                                    Ref,
+                                ),
+                            ],
+                            ret_ty: Void,
+                        },
+                        Void,
+                    ),
+                    (
+                        ValueId(
+                            17,
+                        ),
+                        CallRuntime {
+                            name: "dartforge_exception_pending",
+                            args: [],
+                            ret_ty: I8,
+                        },
+                        I8,
+                    ),
+                    (
+                        ValueId(
+                            18,
+                        ),
+                        ICmp(
+                            Ne,
+                            Val(
+                                ValueId(
+                                    17,
+                                ),
+                            ),
+                            Constant(
+                                Int(
+                                    0,
+                                ),
+                            ),
+                        ),
+                        I1,
+                    ),
+                ],
+                terminator: CondBranch {
+                    cond: Val(
+                        ValueId(
+                            18,
+                        ),
+                    ),
+                    then_block: BlockId(
+                        7,
+                    ),
+                    else_block: BlockId(
+                        6,
+                    ),
+                },
+            },
+            BasicBlock {
+                id: BlockId(
+                    6,
+                ),
+                instructions: [],
+                terminator: Branch(
+                    BlockId(
+                        2,
+                    ),
+                ),
+            },
+            BasicBlock {
+                id: BlockId(
+                    7,
+                ),
+                instructions: [],
+                terminator: Return(
+                    Some(
+                        Constant(
+                            Null,
+                        ),
+                    ),
+                ),
+            },
+            BasicBlock {
+                id: BlockId(
+                    8,
+                ),
+                instructions: [
+                    (
+                        ValueId(
+                            25,
+                        ),
+                        Box {
+                            op: Val(
+                                ValueId(
+                                    20,
+                                ),
+                            ),
+                            from: F64,
+                        },
+                        Ref,
+                    ),
+                    (
+                        ValueId(
+                            26,
+                        ),
+                        CallRuntime {
+                            name: "dartforge_exception_clear",
+                            args: [],
+                            ret_ty: Void,
+                        },
+                        Void,
+                    ),
+                ],
+                terminator: Return(
+                    Some(
+                        Val(
+                            ValueId(
+                                25,
+                            ),
+                        ),
+                    ),
+                ),
+            },
+            BasicBlock {
+                id: BlockId(
+                    9,
+                ),
+                instructions: [],
+                terminator: Return(
+                    Some(
+                        Constant(
+                            Null,
+                        ),
+                    ),
+                ),
+            },
+        ],
+        debug_info: None,
+    },
+)
+  left: 1
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'lower::double_identity::tests::canonical_selected_sdk_certifies_and_modified_identity_hash_fails_closed' (1680299) panicked at crates/emit_native/src/lower/double_identity/tests.rs:134:10:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+
+
+failures:
+    lower::double_identity::tests::canonical_selected_sdk_certifies_and_modified_identity_hash_fails_closed
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 670 filtered out; finished in 0.45s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`
