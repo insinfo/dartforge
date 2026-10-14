@@ -1,0 +1,34 @@
+{
+  "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-size/tracing/program",
+  "artifact_sha256": "a172f9398becab9148a5443ba5cd8b7826f772cd7a8df48f0765717fe66edef3",
+  "cwd": "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+  "arguments": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+    "--lang=en"
+  ],
+  "entry_source_sha256": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+  "actions": [
+    {
+      "action": "capture",
+      "command": [
+        "python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/window_control.py",
+        "--pid",
+        "55017",
+        "--output",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/ui",
+        "--action",
+        "capture"
+      ],
+      "started_unix": 1791998645.532244,
+      "ended_unix": 1791998645.946663,
+      "exit_code": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/window_control.py\", line 9, in <module>\n    w=windows[0];record={'all_cg_window':w};c.focus(w)\n  File \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer/ordinary_window_control.py\", line 175, in focus\n    raise RuntimeError('Actual host application did not become frontmost')\nRuntimeError: Actual host application did not become frontmost\n",
+      "application_poll": null
+    }
+  ],
+  "visual_review_complete": false,
+  "performance_claim": false,
+  "pid": 55017
+}

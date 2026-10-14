@@ -1,0 +1,5 @@
+capture 1
+Traceback (most recent call last):
+  File "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/verify.py", line 12, in <module>
+    if r.returncode:raise RuntimeError('Actual UI action failed: '+action)
+RuntimeError: Actual UI action failed: capture

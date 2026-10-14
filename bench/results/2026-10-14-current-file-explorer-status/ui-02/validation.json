@@ -1,0 +1,121 @@
+{
+  "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-size/tracing/program",
+  "artifact_sha256": "a172f9398becab9148a5443ba5cd8b7826f772cd7a8df48f0765717fe66edef3",
+  "cwd": "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+  "arguments": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+    "--lang=en"
+  ],
+  "entry_source_sha256": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+  "actions": [
+    {
+      "action": "capture",
+      "command": [
+        "python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/window_control.py",
+        "--pid",
+        "55202",
+        "--output",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/ui-02",
+        "--action",
+        "capture"
+      ],
+      "started_unix": 1791998770.461494,
+      "ended_unix": 1791998774.615414,
+      "exit_code": 0,
+      "stdout": "{\"action\": \"capture\", \"window_id\": 1900, \"host_pid\": 55203, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/ui-02\", \"application_alive\": true}\nPNG_DIMENSIONS=1326x846\n",
+      "stderr": "",
+      "application_poll": null
+    },
+    {
+      "action": "navigate",
+      "command": [
+        "python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/window_control.py",
+        "--pid",
+        "55202",
+        "--output",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/ui-02",
+        "--action",
+        "navigate",
+        "--folder",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture/dartforge-child"
+      ],
+      "started_unix": 1791998774.615723,
+      "ended_unix": 1791998779.495312,
+      "exit_code": 0,
+      "stdout": "{\"action\": \"navigate\", \"window_id\": 1900, \"host_pid\": 55203, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/ui-02\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": "",
+      "application_poll": null
+    },
+    {
+      "action": "back-button",
+      "command": [
+        "python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/window_control.py",
+        "--pid",
+        "55202",
+        "--output",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/ui-02",
+        "--action",
+        "back-button"
+      ],
+      "started_unix": 1791998779.4956129,
+      "ended_unix": 1791998784.045869,
+      "exit_code": 0,
+      "stdout": "{\"action\": \"back-button\", \"window_id\": 1900, \"host_pid\": 55203, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/ui-02\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": "",
+      "application_poll": null
+    },
+    {
+      "action": "close-button",
+      "command": [
+        "python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/window_control.py",
+        "--pid",
+        "55202",
+        "--output",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/ui-02",
+        "--action",
+        "close-button"
+      ],
+      "started_unix": 1791998784.046161,
+      "ended_unix": 1791998785.4707808,
+      "exit_code": 0,
+      "stdout": "{\"action\": \"close-button\", \"window_id\": 1900, \"host_pid\": 55203, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-file-explorer-validation/ui-02\", \"application_alive\": true}\n",
+      "stderr": "",
+      "application_poll": 0
+    }
+  ],
+  "visual_review_complete": true,
+  "performance_claim": false,
+  "pid": 55202,
+  "exit_code": 0,
+  "entry_source_unchanged": true,
+  "artifact_unchanged": true,
+  "stdout_bytes": 0,
+  "stderr_bytes": 0,
+  "screenshots_sha256": {
+    "navigate.png": "4ddcb5fa3b0b892e1daf5de8f45793c8b6d859df4b3bec4158f88d695e4a2791",
+    "capture.png": "54d854d9bdc2148d51ad4d385aab21d0e2d51cd8146a309cb782a10ac61cb1ab",
+    "back-button.png": "1be02722d300a5fa79a0f115cbc06305c9000aa1b9ac0548551b52dfda5aedde"
+  },
+  "visually_verified": {
+    "capture.png": [
+      "dartforge-child",
+      "dartforge-fixture.txt",
+      "2 items"
+    ],
+    "navigate.png": [
+      "dartforge-child tab",
+      "child-content.txt",
+      "1 item"
+    ],
+    "back-button.png": [
+      "file-explorer-fixture tab",
+      "dartforge-child",
+      "dartforge-fixture.txt",
+      "2 items"
+    ]
+  }
+}

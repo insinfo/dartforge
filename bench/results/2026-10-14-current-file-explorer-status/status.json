@@ -1,0 +1,61 @@
+{
+  "status": "actual tracing native explorer validated on macOS; no production source changes required this round",
+  "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-size/tracing/program",
+  "artifact_sha256": "a172f9398becab9148a5443ba5cd8b7826f772cd7a8df48f0765717fe66edef3",
+  "compiler_sha256": "50c1a7a7ff7cc1b4e79ab0181c479f03c897d553913723cfdb1109d9589edfc4",
+  "cwd": "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+  "entry_sha256": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+  "entry_unchanged": true,
+  "artifact_unchanged": true,
+  "actual_UI": {
+    "app_pid": 55202,
+    "host_pid": 55203,
+    "window_id": 1900,
+    "root_items": 2,
+    "child_items": 1,
+    "back_items": 2,
+    "native_chrome_close_exit": 0,
+    "stdout_bytes": 0,
+    "stderr_bytes": 0,
+    "visual_review_completed": true
+  },
+  "first_attempt": {
+    "controller_exit": 1,
+    "observations": "A real window existed and app poll was null; AXFrontmost activation verification failed. No navigation/natural close claimed. Controller requested bounded SIGTERM cleanup of its own process group. Native cleanup exit was not persisted by that initial controller.",
+    "ledger": "ui/validation.json"
+  },
+  "external_automation_change": "Raise the observed native window before checking AXFrontmost; retain optional public NSRunningApplication activation fallback. No app/framework/compiler/runtime changes.",
+  "limits": [
+    "Original ordinary entrypoint/default native-host backend; not a minimal substitute or mandatory DartForge integration.",
+    "Only rendered fixture content, directory navigation, Back and native close validated. No destructive file operations or all-feature readiness claim.",
+    "No startup/frame/input performance measurement or comparison.",
+    "Existing dirty dart_ui application/embedded files and tests preserved."
+  ],
+  "evidence_sha256": {
+    "run.log": "c361f02449e090224d27fb7217056ca46357f38841ec54954efa5c71c5d48a32",
+    "program.contracts.json": "96dbe01c66f7fa18aac979031d50b297b71c5aa7676cef8c031add62f9118eb5",
+    "compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "window_control.py": "fb87c8d957c6ceb0e96c3ef5fe2374ea6d18f41b4f611dc1b778c66af56a99dc",
+    "run-02.log": "056204faced0561a81b56fe4bd57cab34cb52a1076c1c0f64c08ad9be7ed58fc",
+    "verify.py": "8e3310ec5620bd3866c2af74c450c4610188e2b4386ca8c5f01106d8da917f1e",
+    "verify_02.py": "3c11c65b946a8bc07b358d221e73e2aec10b3915f996dc8b3bcd11236ee4b222",
+    "compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ui/stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ui/stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ui/validation.json": "8770c33ff867dc17dd38ee00657eb3a51597642351a970b38bdef644c54ff6a9",
+    "ui-02/navigate.png": "4ddcb5fa3b0b892e1daf5de8f45793c8b6d859df4b3bec4158f88d695e4a2791",
+    "ui-02/stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ui-02/back-button.json": "d046b52a4073583201dbdedc0dd4a8fc9c7f072431806395b6ce26a3d150681c",
+    "ui-02/stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "ui-02/back-button-raise.json": "bddddebc59291517831a62c2674dcb17a74aa3308afe71624257a9566f70fe94",
+    "ui-02/capture.json": "4ada1fefe7a4b4e2b888daabf277022b6585e831556887286da29c7c8eaf1fe4",
+    "ui-02/navigate.json": "0fecaead8520ab824ed3c2ebc68c42aa334885b3cffd69e96b99ba0208b8f0ef",
+    "ui-02/validation.json": "d6a99f0c9f7ed5945d11551d9f68532862537ac6ad19b6cbbf25d8132428bb00",
+    "ui-02/close-button-raise.json": "44e5f5605f28ea850aaac485f07fa42eaae65df7ef6b72584a2f0c5b1de18e24",
+    "ui-02/capture-raise.json": "44e5f5605f28ea850aaac485f07fa42eaae65df7ef6b72584a2f0c5b1de18e24",
+    "ui-02/close-button.json": "c570b5876bb9fb2e42efa4f6897338f19490550f32c0b21ccbc0b1ddd4a335fd",
+    "ui-02/capture.png": "54d854d9bdc2148d51ad4d385aab21d0e2d51cd8146a309cb782a10ac61cb1ab",
+    "ui-02/back-button.png": "1be02722d300a5fa79a0f115cbc06305c9000aa1b9ac0548551b52dfda5aedde",
+    "ui-02/navigate-raise.json": "bddddebc59291517831a62c2674dcb17a74aa3308afe71624257a9566f70fe94"
+  }
+}
