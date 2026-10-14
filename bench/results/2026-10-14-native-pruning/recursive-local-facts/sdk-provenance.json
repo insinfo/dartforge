@@ -1,0 +1,29 @@
+{
+  "body_proved_factories": 647,
+  "factory_classes": [
+    1,
+    8,
+    10
+  ],
+  "json_body_structural_witness": true,
+  "json_length_calls": [
+    {
+      "classes": null,
+      "origin": "None",
+      "receiver": 1,
+      "selector": "g:length"
+    },
+    {
+      "classes": [
+        1,
+        8,
+        10
+      ],
+      "origin": "Some(CallStatic { symbol: \"df.dart$3acore.List.new$3afilled\", args: [Val(ValueId(33)), Constant(Null), Constant(Bool(false)), Val(ValueId(40))], ret_ty: Ref })",
+      "receiver": 41,
+      "selector": "g:length"
+    }
+  ],
+  "json_structural_rejection": null,
+  "known_selector_receivers": 203
+}

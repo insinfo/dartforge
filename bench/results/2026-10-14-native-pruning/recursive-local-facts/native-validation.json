@@ -1,0 +1,76 @@
+{
+  "complete": true,
+  "compiler_sha256": "3442175eef9b61b53e7952d0d727956746daaedd9994e341f5892254db292904",
+  "fixture_sha256": "19b692f7744b9d1f84abf8d33bc82b994894e83de3f09c82f180da16b2edac17",
+  "runs": [
+    {
+      "label": "vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/factory_return_classes.dart"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "756371c5902935b90a632ec72ea1fcaae1f347c5529fd3682896574f86efdf99"
+    },
+    {
+      "label": "disabled-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/factory_return_classes.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/recursive-local-binaries/disabled-fixed-name/program"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "disabled-run",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/recursive-local-binaries/disabled-fixed-name/program"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "756371c5902935b90a632ec72ea1fcaae1f347c5529fd3682896574f86efdf99",
+      "binary_bytes": 3285360,
+      "binary_sha256": "a667d8e931f15253f532d57a0cc42127e14d2ef321871b02e8d5087272adb1f8",
+      "vm_exact": true
+    },
+    {
+      "label": "enabled-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/factory_return_classes.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/recursive-local-binaries/enabled-fixed-name/program"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "enabled-run",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/recursive-local-binaries/enabled-fixed-name/program"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "756371c5902935b90a632ec72ea1fcaae1f347c5529fd3682896574f86efdf99",
+      "binary_bytes": 3252288,
+      "binary_sha256": "8e30d4934a0d128ba8face4bfb21f38a46fd8f65e47ff022188cfb9c64360311",
+      "vm_exact": true
+    }
+  ]
+}

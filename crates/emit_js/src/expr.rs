@@ -2720,7 +2720,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let is_double = ctx.is_double(&lt.non_null()) || ctx.is_double(&rt.non_null());
             let arith_ty = if is_int { ctx.t_int() } else if is_double { ctx.t_double() } else { ctx.t_num() };
             let dyn_r = matches!(rt, Ty::Dynamic);
-            let rn = if dyn_r { Js::prim(format!("dart.notNull({})", rn.code)) } else { rn };
+            let rn = if dyn_r && !ctx.filter.is_some_and(|f| f.omit_implicit_checks()) {
+                // Numeric operators have a checked argument even when their
+                // receiver is statically known. A null check alone permits JS
+                // coercion of strings, booleans and arbitrary user objects.
+                let argument_ty = if matches!(op, BinaryOp::Shl | BinaryOp::Shr | BinaryOp::UShr | BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor) {
+                    ctx.t_int()
+                } else {
+                    ctx.t_num()
+                };
+                self.as_cast(&r, &argument_ty)
+            } else if dyn_r {
+                Js::prim(format!("dart.notNull({})", rn.code))
+            } else { rn };
             return match op {
                 BinaryOp::Add => (Js::new(format!("{} + {}", ln.at(P_ADD), rn.at(P_ADD + 1)), P_ADD), arith_ty),
                 BinaryOp::Sub => (Js::new(format!("{} - {}", ln.at(P_ADD), rn.at(P_ADD + 1)), P_ADD), arith_ty),

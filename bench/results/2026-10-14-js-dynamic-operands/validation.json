@@ -1,0 +1,107 @@
+{
+  "source": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/numeric_dynamic_operands.dart",
+    "sha256": "513a467bddb2d167ba3e7314382c32107a8e50af46eac269957c76026183079c"
+  },
+  "compiler": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+    "sha256": "6c980cfbed2da61d519a2fb679f8acadfc53f2899efa99cfc0e9f56c38b7c30f"
+  },
+  "sdk_version": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\"",
+  "node_version": "v24.21.0",
+  "runs": {
+    "vm": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "run",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/numeric_dynamic_operands.dart"
+      ],
+      "compile_or_vm_exit": 0,
+      "exit_code": 0,
+      "stdout": "+:int=8.00:[left, right]\n+:double=8.50:[left, right]\n+:string=error:true:[left, right]\n+:bool=error:true:[left, right]\n+:bigint=error:true:[left, right]\n+:custom=error:true:[left, right]\n+:null=error:true:[left, right]\n-:int=4.00:[left, right]\n-:double=3.50:[left, right]\n-:string=error:true:[left, right]\n-:bool=error:true:[left, right]\n-:bigint=error:true:[left, right]\n-:custom=error:true:[left, right]\n-:null=error:true:[left, right]\n*:int=12.00:[left, right]\n*:double=15.00:[left, right]\n*:string=error:true:[left, right]\n*:bool=error:true:[left, right]\n*:bigint=error:true:[left, right]\n*:custom=error:true:[left, right]\n*:null=error:true:[left, right]\n/:int=3.00:[left, right]\n/:double=2.40:[left, right]\n/:string=error:true:[left, right]\n/:bool=error:true:[left, right]\n/:bigint=error:true:[left, right]\n/:custom=error:true:[left, right]\n/:null=error:true:[left, right]\n~/:int=3.00:[left, right]\n~/:double=2.00:[left, right]\n~/:string=error:true:[left, right]\n~/:bool=error:true:[left, right]\n~/:bigint=error:true:[left, right]\n~/:custom=error:true:[left, right]\n~/:null=error:true:[left, right]\n%:int=0.00:[left, right]\n%:double=1.00:[left, right]\n%:string=error:true:[left, right]\n%:bool=error:true:[left, right]\n%:bigint=error:true:[left, right]\n%:custom=error:true:[left, right]\n%:null=error:true:[left, right]\n<:int=false:[left, right]\n<:double=false:[left, right]\n<:string=error:true:[left, right]\n<:bool=error:true:[left, right]\n<:bigint=error:true:[left, right]\n<:custom=error:true:[left, right]\n<:null=error:true:[left, right]\n>:int=true:[left, right]\n>:double=true:[left, right]\n>:string=error:true:[left, right]\n>:bool=error:true:[left, right]\n>:bigint=error:true:[left, right]\n>:custom=error:true:[left, right]\n>:null=error:true:[left, right]\n<=:int=false:[left, right]\n<=:double=false:[left, right]\n<=:string=error:true:[left, right]\n<=:bool=error:true:[left, right]\n<=:bigint=error:true:[left, right]\n<=:custom=error:true:[left, right]\n<=:null=error:true:[left, right]\n>=:int=true:[left, right]\n>=:double=true:[left, right]\n>=:string=error:true:[left, right]\n>=:bool=error:true:[left, right]\n>=:bigint=error:true:[left, right]\n>=:custom=error:true:[left, right]\n>=:null=error:true:[left, right]\n&:int=2.00:[left, right]\n&:double=error:true:[left, right]\n&:string=error:true:[left, right]\n&:bool=error:true:[left, right]\n&:bigint=error:true:[left, right]\n&:custom=error:true:[left, right]\n&:null=error:true:[left, right]\n|:int=6.00:[left, right]\n|:double=error:true:[left, right]\n|:string=error:true:[left, right]\n|:bool=error:true:[left, right]\n|:bigint=error:true:[left, right]\n|:custom=error:true:[left, right]\n|:null=error:true:[left, right]\n^:int=4.00:[left, right]\n^:double=error:true:[left, right]\n^:string=error:true:[left, right]\n^:bool=error:true:[left, right]\n^:bigint=error:true:[left, right]\n^:custom=error:true:[left, right]\n^:null=error:true:[left, right]\n<<:int=24.00:[left, right]\n<<:double=error:true:[left, right]\n<<:string=error:true:[left, right]\n<<:bool=error:true:[left, right]\n<<:bigint=error:true:[left, right]\n<<:custom=error:true:[left, right]\n<<:null=error:true:[left, right]\n>>:int=1.00:[left, right]\n>>:double=error:true:[left, right]\n>>:string=error:true:[left, right]\n>>:bool=error:true:[left, right]\n>>:bigint=error:true:[left, right]\n>>:custom=error:true:[left, right]\n>>:null=error:true:[left, right]\n>>>:int=1.00:[left, right]\n>>>:double=error:true:[left, right]\n>>>:string=error:true:[left, right]\n>>>:bool=error:true:[left, right]\n>>>:bigint=error:true:[left, right]\n>>>:custom=error:true:[left, right]\n>>>:null=error:true:[left, right]\ncompound=8.00:[get, right, set]\ncompound=error:true:6.00:[get, right]\ncompound=error:true:6.00:[get, right]\ncompound=error:true:6.00:[get, right]\nleft-throw=true:[left-throw]\nright-throw=true:[left, right-throw]\n",
+      "stderr": ""
+    },
+    "official-O2-current": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "js",
+        "-O2",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/numeric_dynamic_operands.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/dynamic-operands/official-O2-current.js"
+      ],
+      "compile_or_vm_exit": 0,
+      "artifact_sha256": "8ef210c762b1d06f3d316cbed2baa581d650c61513eec4e7b09dd11ea68210fc",
+      "exit_code": 0,
+      "stdout": "+:int=8.00:[left, right]\n+:double=8.50:[left, right]\n+:string=error:true:[left, right]\n+:bool=error:true:[left, right]\n+:bigint=error:true:[left, right]\n+:custom=error:true:[left, right]\n+:null=error:true:[left, right]\n-:int=4.00:[left, right]\n-:double=3.50:[left, right]\n-:string=error:true:[left, right]\n-:bool=error:true:[left, right]\n-:bigint=error:true:[left, right]\n-:custom=error:true:[left, right]\n-:null=error:true:[left, right]\n*:int=12.00:[left, right]\n*:double=15.00:[left, right]\n*:string=error:true:[left, right]\n*:bool=error:true:[left, right]\n*:bigint=error:true:[left, right]\n*:custom=error:true:[left, right]\n*:null=error:true:[left, right]\n/:int=3.00:[left, right]\n/:double=2.40:[left, right]\n/:string=error:true:[left, right]\n/:bool=error:true:[left, right]\n/:bigint=error:true:[left, right]\n/:custom=error:true:[left, right]\n/:null=error:true:[left, right]\n~/:int=3.00:[left, right]\n~/:double=2.00:[left, right]\n~/:string=error:true:[left, right]\n~/:bool=error:true:[left, right]\n~/:bigint=error:true:[left, right]\n~/:custom=error:true:[left, right]\n~/:null=error:true:[left, right]\n%:int=0.00:[left, right]\n%:double=1.00:[left, right]\n%:string=error:true:[left, right]\n%:bool=error:true:[left, right]\n%:bigint=error:true:[left, right]\n%:custom=error:true:[left, right]\n%:null=error:true:[left, right]\n<:int=false:[left, right]\n<:double=false:[left, right]\n<:string=error:true:[left, right]\n<:bool=error:true:[left, right]\n<:bigint=error:true:[left, right]\n<:custom=error:true:[left, right]\n<:null=error:true:[left, right]\n>:int=true:[left, right]\n>:double=true:[left, right]\n>:string=error:true:[left, right]\n>:bool=error:true:[left, right]\n>:bigint=error:true:[left, right]\n>:custom=error:true:[left, right]\n>:null=error:true:[left, right]\n<=:int=false:[left, right]\n<=:double=false:[left, right]\n<=:string=error:true:[left, right]\n<=:bool=error:true:[left, right]\n<=:bigint=error:true:[left, right]\n<=:custom=error:true:[left, right]\n<=:null=error:true:[left, right]\n>=:int=true:[left, right]\n>=:double=true:[left, right]\n>=:string=error:true:[left, right]\n>=:bool=error:true:[left, right]\n>=:bigint=error:true:[left, right]\n>=:custom=error:true:[left, right]\n>=:null=error:true:[left, right]\n&:int=2.00:[left, right]\n&:double=error:true:[left, right]\n&:string=error:true:[left, right]\n&:bool=error:true:[left, right]\n&:bigint=error:true:[left, right]\n&:custom=error:true:[left, right]\n&:null=error:true:[left, right]\n|:int=6.00:[left, right]\n|:double=error:true:[left, right]\n|:string=error:true:[left, right]\n|:bool=error:true:[left, right]\n|:bigint=error:true:[left, right]\n|:custom=error:true:[left, right]\n|:null=error:true:[left, right]\n^:int=4.00:[left, right]\n^:double=error:true:[left, right]\n^:string=error:true:[left, right]\n^:bool=error:true:[left, right]\n^:bigint=error:true:[left, right]\n^:custom=error:true:[left, right]\n^:null=error:true:[left, right]\n<<:int=24.00:[left, right]\n<<:double=error:true:[left, right]\n<<:string=error:true:[left, right]\n<<:bool=error:true:[left, right]\n<<:bigint=error:true:[left, right]\n<<:custom=error:true:[left, right]\n<<:null=error:true:[left, right]\n>>:int=1.00:[left, right]\n>>:double=error:true:[left, right]\n>>:string=error:true:[left, right]\n>>:bool=error:true:[left, right]\n>>:bigint=error:true:[left, right]\n>>:custom=error:true:[left, right]\n>>:null=error:true:[left, right]\n>>>:int=1.00:[left, right]\n>>>:double=error:true:[left, right]\n>>>:string=error:true:[left, right]\n>>>:bool=error:true:[left, right]\n>>>:bigint=error:true:[left, right]\n>>>:custom=error:true:[left, right]\n>>>:null=error:true:[left, right]\ncompound=8.00:[get, right, set]\ncompound=error:true:6.00:[get, right]\ncompound=error:true:6.00:[get, right]\ncompound=error:true:6.00:[get, right]\nleft-throw=true:[left-throw]\nright-throw=true:[left, right-throw]\n",
+      "stderr": ""
+    },
+    "raw-current": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/numeric_dynamic_operands.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/dynamic-operands/raw-current.js"
+      ],
+      "compile_or_vm_exit": 0,
+      "artifact_sha256": "7b09743ca2ede217a0fa201b3902a7f60622f938cc6c74795d6315c27dd12085",
+      "exit_code": 0,
+      "stdout": "+:int=8.00:[left, right]\n+:double=8.50:[left, right]\n+:string=error:true:[left, right]\n+:bool=error:true:[left, right]\n+:bigint=error:true:[left, right]\n+:custom=error:true:[left, right]\n+:null=error:true:[left, right]\n-:int=4.00:[left, right]\n-:double=3.50:[left, right]\n-:string=error:true:[left, right]\n-:bool=error:true:[left, right]\n-:bigint=error:true:[left, right]\n-:custom=error:true:[left, right]\n-:null=error:true:[left, right]\n*:int=12.00:[left, right]\n*:double=15.00:[left, right]\n*:string=error:true:[left, right]\n*:bool=error:true:[left, right]\n*:bigint=error:true:[left, right]\n*:custom=error:true:[left, right]\n*:null=error:true:[left, right]\n/:int=3.00:[left, right]\n/:double=2.40:[left, right]\n/:string=error:true:[left, right]\n/:bool=error:true:[left, right]\n/:bigint=error:true:[left, right]\n/:custom=error:true:[left, right]\n/:null=error:true:[left, right]\n~/:int=3.00:[left, right]\n~/:double=2.00:[left, right]\n~/:string=error:true:[left, right]\n~/:bool=error:true:[left, right]\n~/:bigint=error:true:[left, right]\n~/:custom=error:true:[left, right]\n~/:null=error:true:[left, right]\n%:int=0.00:[left, right]\n%:double=1.00:[left, right]\n%:string=error:true:[left, right]\n%:bool=error:true:[left, right]\n%:bigint=error:true:[left, right]\n%:custom=error:true:[left, right]\n%:null=error:true:[left, right]\n<:int=false:[left, right]\n<:double=false:[left, right]\n<:string=error:true:[left, right]\n<:bool=error:true:[left, right]\n<:bigint=error:true:[left, right]\n<:custom=error:true:[left, right]\n<:null=error:true:[left, right]\n>:int=true:[left, right]\n>:double=true:[left, right]\n>:string=error:true:[left, right]\n>:bool=error:true:[left, right]\n>:bigint=error:true:[left, right]\n>:custom=error:true:[left, right]\n>:null=error:true:[left, right]\n<=:int=false:[left, right]\n<=:double=false:[left, right]\n<=:string=error:true:[left, right]\n<=:bool=error:true:[left, right]\n<=:bigint=error:true:[left, right]\n<=:custom=error:true:[left, right]\n<=:null=error:true:[left, right]\n>=:int=true:[left, right]\n>=:double=true:[left, right]\n>=:string=error:true:[left, right]\n>=:bool=error:true:[left, right]\n>=:bigint=error:true:[left, right]\n>=:custom=error:true:[left, right]\n>=:null=error:true:[left, right]\n&:int=2.00:[left, right]\n&:double=error:true:[left, right]\n&:string=error:true:[left, right]\n&:bool=error:true:[left, right]\n&:bigint=error:true:[left, right]\n&:custom=error:true:[left, right]\n&:null=error:true:[left, right]\n|:int=6.00:[left, right]\n|:double=error:true:[left, right]\n|:string=error:true:[left, right]\n|:bool=error:true:[left, right]\n|:bigint=error:true:[left, right]\n|:custom=error:true:[left, right]\n|:null=error:true:[left, right]\n^:int=4.00:[left, right]\n^:double=error:true:[left, right]\n^:string=error:true:[left, right]\n^:bool=error:true:[left, right]\n^:bigint=error:true:[left, right]\n^:custom=error:true:[left, right]\n^:null=error:true:[left, right]\n<<:int=24.00:[left, right]\n<<:double=error:true:[left, right]\n<<:string=error:true:[left, right]\n<<:bool=error:true:[left, right]\n<<:bigint=error:true:[left, right]\n<<:custom=error:true:[left, right]\n<<:null=error:true:[left, right]\n>>:int=1.00:[left, right]\n>>:double=error:true:[left, right]\n>>:string=error:true:[left, right]\n>>:bool=error:true:[left, right]\n>>:bigint=error:true:[left, right]\n>>:custom=error:true:[left, right]\n>>:null=error:true:[left, right]\n>>>:int=1.00:[left, right]\n>>>:double=error:true:[left, right]\n>>>:string=error:true:[left, right]\n>>>:bool=error:true:[left, right]\n>>>:bigint=error:true:[left, right]\n>>>:custom=error:true:[left, right]\n>>>:null=error:true:[left, right]\ncompound=8.00:[get, right, set]\ncompound=error:true:6.00:[get, right]\ncompound=error:true:6.00:[get, right]\ncompound=error:true:6.00:[get, right]\nleft-throw=true:[left-throw]\nright-throw=true:[left, right-throw]\n",
+      "stderr": ""
+    },
+    "min-current": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/numeric_dynamic_operands.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/dynamic-operands/min-current.js"
+      ],
+      "compile_or_vm_exit": 0,
+      "artifact_sha256": "bb5bbbc90b8304b63e818f2b64e4ecdc0805523fdca43fbfe913cd3176471624",
+      "exit_code": 0,
+      "stdout": "+:int=8.00:[left, right]\n+:double=8.50:[left, right]\n+:string=error:true:[left, right]\n+:bool=error:true:[left, right]\n+:bigint=error:true:[left, right]\n+:custom=error:true:[left, right]\n+:null=error:true:[left, right]\n-:int=4.00:[left, right]\n-:double=3.50:[left, right]\n-:string=error:true:[left, right]\n-:bool=error:true:[left, right]\n-:bigint=error:true:[left, right]\n-:custom=error:true:[left, right]\n-:null=error:true:[left, right]\n*:int=12.00:[left, right]\n*:double=15.00:[left, right]\n*:string=error:true:[left, right]\n*:bool=error:true:[left, right]\n*:bigint=error:true:[left, right]\n*:custom=error:true:[left, right]\n*:null=error:true:[left, right]\n/:int=3.00:[left, right]\n/:double=2.40:[left, right]\n/:string=error:true:[left, right]\n/:bool=error:true:[left, right]\n/:bigint=error:true:[left, right]\n/:custom=error:true:[left, right]\n/:null=error:true:[left, right]\n~/:int=3.00:[left, right]\n~/:double=2.00:[left, right]\n~/:string=error:true:[left, right]\n~/:bool=error:true:[left, right]\n~/:bigint=error:true:[left, right]\n~/:custom=error:true:[left, right]\n~/:null=error:true:[left, right]\n%:int=0.00:[left, right]\n%:double=1.00:[left, right]\n%:string=error:true:[left, right]\n%:bool=error:true:[left, right]\n%:bigint=error:true:[left, right]\n%:custom=error:true:[left, right]\n%:null=error:true:[left, right]\n<:int=false:[left, right]\n<:double=false:[left, right]\n<:string=error:true:[left, right]\n<:bool=error:true:[left, right]\n<:bigint=error:true:[left, right]\n<:custom=error:true:[left, right]\n<:null=error:true:[left, right]\n>:int=true:[left, right]\n>:double=true:[left, right]\n>:string=error:true:[left, right]\n>:bool=error:true:[left, right]\n>:bigint=error:true:[left, right]\n>:custom=error:true:[left, right]\n>:null=error:true:[left, right]\n<=:int=false:[left, right]\n<=:double=false:[left, right]\n<=:string=error:true:[left, right]\n<=:bool=error:true:[left, right]\n<=:bigint=error:true:[left, right]\n<=:custom=error:true:[left, right]\n<=:null=error:true:[left, right]\n>=:int=true:[left, right]\n>=:double=true:[left, right]\n>=:string=error:true:[left, right]\n>=:bool=error:true:[left, right]\n>=:bigint=error:true:[left, right]\n>=:custom=error:true:[left, right]\n>=:null=error:true:[left, right]\n&:int=2.00:[left, right]\n&:double=error:true:[left, right]\n&:string=error:true:[left, right]\n&:bool=error:true:[left, right]\n&:bigint=error:true:[left, right]\n&:custom=error:true:[left, right]\n&:null=error:true:[left, right]\n|:int=6.00:[left, right]\n|:double=error:true:[left, right]\n|:string=error:true:[left, right]\n|:bool=error:true:[left, right]\n|:bigint=error:true:[left, right]\n|:custom=error:true:[left, right]\n|:null=error:true:[left, right]\n^:int=4.00:[left, right]\n^:double=error:true:[left, right]\n^:string=error:true:[left, right]\n^:bool=error:true:[left, right]\n^:bigint=error:true:[left, right]\n^:custom=error:true:[left, right]\n^:null=error:true:[left, right]\n<<:int=24.00:[left, right]\n<<:double=error:true:[left, right]\n<<:string=error:true:[left, right]\n<<:bool=error:true:[left, right]\n<<:bigint=error:true:[left, right]\n<<:custom=error:true:[left, right]\n<<:null=error:true:[left, right]\n>>:int=1.00:[left, right]\n>>:double=error:true:[left, right]\n>>:string=error:true:[left, right]\n>>:bool=error:true:[left, right]\n>>:bigint=error:true:[left, right]\n>>:custom=error:true:[left, right]\n>>:null=error:true:[left, right]\n>>>:int=1.00:[left, right]\n>>>:double=error:true:[left, right]\n>>>:string=error:true:[left, right]\n>>>:bool=error:true:[left, right]\n>>>:bigint=error:true:[left, right]\n>>>:custom=error:true:[left, right]\n>>>:null=error:true:[left, right]\ncompound=8.00:[get, right, set]\ncompound=error:true:6.00:[get, right]\ncompound=error:true:6.00:[get, right]\ncompound=error:true:6.00:[get, right]\nleft-throw=true:[left-throw]\nright-throw=true:[left, right-throw]\n",
+      "stderr": ""
+    }
+  },
+  "scope": "Compatibility, not performance; default checked policies. Error classes and operand event traces are not normalized away.",
+  "oracle_exact": true,
+  "baseline_112_rows": {
+    "compiler_sha256": "e5321a1ee3c91552a782fae5f40ec49868d654dff7472204102213d74ff14550",
+    "artifact_sha256": "ed4a00c73f562db91c1eebac08416add41ac087cf148128068ee06cdbde2db05",
+    "vm_stdout_file": "vm.txt",
+    "official_stdout_file": "official-O2.txt",
+    "forge_stdout_file": "baseline.txt",
+    "vm_official_exact": true,
+    "forge_mismatching_rows": 86,
+    "note": "Historical initial fixture had 112 rows, before adding six compound/throw ordering regressions."
+  },
+  "inputs_stable": true,
+  "source_changes": {
+    "crates/emit_js/src/expr.rs": "cad020d1f1a2c65cd9b25e1ebedf965e321cd2de06158a11636025fb27402c62",
+    "crates/emit_js/tests/programs/numeric_dynamic_operands.dart": "513a467bddb2d167ba3e7314382c32107a8e50af46eac269957c76026183079c",
+    "crates/emit_js_production/tests/numeric_dynamic_operands.rs": "22ddc8d3633ba1751962d3fde5fbd1683a1cb8015101acddf2bc52242ee409a2"
+  },
+  "gates": {
+    "analyzer": {
+      "exit_code": 0,
+      "result": "No issues found"
+    },
+    "focused": {
+      "exit_code": 0,
+      "passed": 1,
+      "log": "target/tmp-js-production-audit/dynamic-operands/focused-test.log"
+    },
+    "full": {
+      "exit_code": 0,
+      "passed": 73,
+      "log": "target/tmp-js-production-audit/dynamic-operands/full-gate.log",
+      "coverage": "emitter+production library include-ignored and native_number_ranges, numeric_dynamic_operands, typed_loop_ranges, typed_native_length"
+    }
+  }
+}

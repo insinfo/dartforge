@@ -1,0 +1,52 @@
+{
+  "complete": true,
+  "compiler_sha256": "3442175eef9b61b53e7952d0d727956746daaedd9994e341f5892254db292904",
+  "fixture_sha256": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+  "runs": [
+    {
+      "label": "disabled-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/recursive-file-explorer-binaries/disabled-fixed-name/program"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "binary_bytes": 28824624,
+      "binary_sha256": "aef1596e6831840d6d02e05429edb35cc0a3ba73b823ca9cd4fe292fb158e9c3",
+      "gui_execution_validated": false
+    },
+    {
+      "label": "enabled-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/recursive-file-explorer-binaries/enabled-fixed-name/program"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "binary_bytes": 28808128,
+      "binary_sha256": "966c5001e02909044099028373ebf1fd7f54c3e02e23fa3150000d675115244c",
+      "gui_execution_validated": true,
+      "gui_validation": "ui-validation.json"
+    }
+  ]
+}

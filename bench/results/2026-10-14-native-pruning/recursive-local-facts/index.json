@@ -1,0 +1,10 @@
+{
+  "source_sha256": "7d96ce671a0d5cab9e3e834542da9fa6686b7514e5d18340123ee9d4a54518a0",
+  "recursive_return_summaries": "unknown",
+  "recursive_local_allocation_facts": "enabled",
+  "sdk_known_selector_receivers_before": 185,
+  "sdk_known_selector_receivers_after": 203,
+  "fixture_size_reduction_bytes": 33072,
+  "file_explorer_size_reduction_bytes": 16496,
+  "claim": "Small measured size reduction; overall native size goal remains incomplete."
+}

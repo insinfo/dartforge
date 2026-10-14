@@ -1,7 +1,7 @@
 //! Physical list-class provenance from allocation bodies, independent of Dart types.
 //!
 //! Facts concern only normal returns and remain unknown across loads, parameters,
-//! dynamic calls, and recursive call graphs. They are not ownership/effect proofs.
+//! dynamic calls, and recursive return summaries. They are not ownership/effect proofs.
 
 use crate::hir::{
     BlockId, Constant, Function, Instruction as I, Module, Operand, Terminator, Type, ValueId,
@@ -50,7 +50,7 @@ impl<'a> Provenance<'a> {
     }
 }
 
-/// Audits bodies jointly. Duplicate symbols and recursive bodies stay unknown.
+/// Audits bodies jointly. Duplicate symbols and recursive return summaries stay unknown.
 /// No external summary or nominal return declaration is trusted by this entry.
 pub(crate) fn analyze<'a>(modules: &[&'a Module]) -> Provenance<'a> {
     let mut functions = HashMap::new();
@@ -109,42 +109,44 @@ pub(crate) fn analyze<'a>(modules: &[&'a Module]) -> Provenance<'a> {
     let mut result = Provenance::default();
     // SCCs are emitted after their dependencies. Recursive components have no
     // body-return summary, even if a particular recursive path happens to throw.
+    // Their local allocations and calls to independently proved factories still
+    // have physical class facts; intra-component calls remain unknown.
     for component in crate::optimize::scc::components(&edges) {
-        if component.len() != 1 || edges[component[0]].contains(&component[0]) {
-            continue;
-        }
-        let symbol = &symbols[component[0]];
-        if duplicates.contains(symbol) {
-            continue;
-        }
-        let f = functions[symbol];
-        let Some(shape) = shapes.get(symbol) else {
-            continue;
-        };
-        let values = value_classes(f, shape, &functions, &result.returns);
-        if f.return_ty == Type::Ref {
-            let mut classes = Classes::new();
-            let mut normal_returns = 0;
-            let mut known = true;
-            for &b in &shape.reachable {
-                if let Terminator::Return(value) = &f.blocks[b].terminator {
-                    normal_returns += 1;
-                    match value.as_ref().and_then(|v| operand_classes(v, &values)) {
-                        Some(c) => classes.extend(c),
-                        None => {
-                            known = false;
-                            break;
+        let recursive = component.len() != 1 || edges[component[0]].contains(&component[0]);
+        for index in component {
+            let symbol = &symbols[index];
+            if duplicates.contains(symbol) {
+                continue;
+            }
+            let f = functions[symbol];
+            let Some(shape) = shapes.get(symbol) else {
+                continue;
+            };
+            let values = value_classes(f, shape, &functions, &result.returns);
+            if !recursive && f.return_ty == Type::Ref {
+                let mut classes = Classes::new();
+                let mut normal_returns = 0;
+                let mut known = true;
+                for &b in &shape.reachable {
+                    if let Terminator::Return(value) = &f.blocks[b].terminator {
+                        normal_returns += 1;
+                        match value.as_ref().and_then(|v| operand_classes(v, &values)) {
+                            Some(c) => classes.extend(c),
+                            None => {
+                                known = false;
+                                break;
+                            }
                         }
                     }
                 }
+                // Throw-only bodies are not allocation factories.
+                if known && normal_returns > 0 && !classes.is_empty() {
+                    result.returns.insert(symbol.clone(), classes);
+                }
             }
-            // Throw-only bodies are not allocation factories.
-            if known && normal_returns > 0 && !classes.is_empty() {
-                result.returns.insert(symbol.clone(), classes);
-            }
+            result.values.insert(symbol.clone(), values);
+            result.bodies.insert(symbol.clone(), f);
         }
-        result.values.insert(symbol.clone(), values);
-        result.bodies.insert(symbol.clone(), f);
     }
     result
 }
@@ -652,7 +654,27 @@ mod tests {
                 Terminator::Return(Some(value(1))),
             )],
         );
-        assert!(run(vec![recursive]).returns.is_empty());
+        let recursive_facts = run(vec![recursive.clone()]);
+        assert!(recursive_facts.returns.is_empty());
+        assert_eq!(
+            recursive_facts.values["recursive"][&ValueId(1)],
+            BTreeSet::from([8])
+        );
+        assert!(!recursive_facts.values["recursive"].contains_key(&ValueId(0)));
+        let mut peer = recursive.clone();
+        peer.symbol = "peer".into();
+        let mut recursive = recursive;
+        recursive.blocks[0].instructions[0].1 = I::CallStatic {
+            symbol: "peer".into(),
+            args: vec![],
+            ret_ty: Type::Ref,
+        };
+        let mutual = run(vec![recursive, peer]);
+        assert!(mutual.returns.is_empty());
+        for symbol in ["recursive", "peer"] {
+            assert_eq!(mutual.values[symbol][&ValueId(1)], BTreeSet::from([8]));
+            assert!(!mutual.values[symbol].contains_key(&ValueId(0)));
+        }
         let f = function(
             "same",
             vec![block(
@@ -953,9 +975,10 @@ mod tests {
                         })
                     }).filter(|(f, v)| proof.values_for(f).is_some_and(|values| values.contains_key(v))).count(),
                 })).unwrap()).unwrap();
-                // A capture load is not an identity proof. The diagnostic retains
-                // this actual SDK gap for future, separately audited cell analysis.
+                // The Map parameter stays unknown. The local factory result is
+                // known even though this JSON writer belongs to a recursive SCC.
                 assert!(calls.iter().any(|call| call["classes"].is_null()));
+                assert!(calls.iter().any(|call| call["classes"] == serde_json::json!([1, 8, 10])));
             })
             .unwrap()
             .join()
