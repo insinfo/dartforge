@@ -1,0 +1,31 @@
+{
+  "artifact": "target/current-native-status/prepared-arc/bench",
+  "artifact_sha256": "cf8eaa480021bf3b88ed367d9c55e173b5f789f6b68d76934bdfb1bd7d0cf9c3",
+  "producer_evidence": "../2026-10-14-current-native-status/prepared.json",
+  "command": [
+    "target/current-native-status/prepared-arc/bench"
+  ],
+  "environment": {
+    "DARTFORGE_GC_TRACE": "1",
+    "DARTFORGE_ARC_CHECK": "0"
+  },
+  "exit": 0,
+  "drains": 421,
+  "trace_total_us": 1262756,
+  "phases_us": {
+    "roots": 387,
+    "snapshots": 169434,
+    "root_young": 37269,
+    "ephemerons": 12,
+    "young_decision": 74613,
+    "young_release": 13,
+    "root_candidates": 106,
+    "zeros_cycles": 861557,
+    "memory": 119273
+  },
+  "runtime_sources": {
+    "crates/runtime/src/arc.rs": "c8123ae55e52c7ae340b99642bd2284342c3c2502257eed29e125dd1a38c3cbe",
+    "crates/runtime/src/heap.rs": "5fdccee1e348e6a20f45344f6e1d273aeb9a12a920e7509aadd8b1b2852d5bec"
+  },
+  "scope": "Diagnostic trace with concurrent correctness builds allowed; instrumentation and no isolated timing make this unsuitable for before/after or upstream performance claims. Zero/cycle draining dominates observed internal phase totals; next work should profile metadata/edge release paths before changing ownership policy."
+}
