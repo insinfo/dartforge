@@ -4,6 +4,14 @@ use super::LlvmEmitter;
 use std::fmt::Write;
 
 impl LlvmEmitter<'_> {
+    pub(super) fn arc_ports_registration_symbol(&self) -> String {
+        if self.arc_ports_at_link {
+            format!("df.arc.ports.{}", self.module.record.as_deref().unwrap_or("program"))
+        } else {
+            "df.arc.register_ports".into()
+        }
+    }
+
     pub(super) fn emit_arc_aot_ports(&mut self) {
         let Some(certificate) = &self.module.arc_aot_ports else {
             return;
@@ -15,6 +23,20 @@ impl LlvmEmitter<'_> {
             !self.maps_in_jit,
             "AOT ARC ports require a fixed image; the JIT needs pins and retirement"
         );
+        if self.arc_ports_at_link {
+            let registration = self.arc_ports_registration_symbol();
+            writeln!(self.out, "declare void @{registration}()\n; df.arc-ports {registration}").unwrap();
+            let mut port = |symbol: &str, kind: &str, contract: i64| {
+                let function = self.module.functions.iter().find(|f| f.symbol == symbol)
+                    .expect("certified ARC port has a body");
+                let params = function.params.iter().map(|(_, _, ty)| ty.llvm_ir()).collect::<Vec<_>>().join(", ");
+                writeln!(self.out, "; df.arc-port {registration}\t{kind}\t{contract}\tdeclare {} @{symbol}({params})", function.return_ty.llvm_ir()).unwrap();
+            };
+            for symbol in certificate.uniforms() { port(symbol, "uniform", 0); }
+            for (symbol, arity) in certificate.callbacks() { port(symbol, "word", *arity as i64); }
+            for (symbol, abi) in certificate.typed_set() { port(symbol, "typed", *abi); }
+            return;
+        }
         self.out
             .push_str("define private void @df.arc.register_ports() {\n");
         for (i, s) in certificate.uniforms().iter().enumerate() {
@@ -46,8 +68,7 @@ impl LlvmEmitter<'_> {
 
     pub(super) fn register_arc_aot_ports(&mut self) {
         if self.module.arc_aot_ports.is_some() {
-            self.out
-                .push_str("  call void @df.arc.register_ports()\n");
+            writeln!(self.out, "  call void @{}()", self.arc_ports_registration_symbol()).unwrap();
         }
     }
 }

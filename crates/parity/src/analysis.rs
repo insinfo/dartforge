@@ -392,8 +392,10 @@ impl Engine {
         // analyze` declares none — the main URI always applies. Without a
         // "supported" library, loading also keeps the main one
         // (`import 'fake.dart' if (dart.library.js_interop) 'real.dart'`
-        // resolves to `fake.dart`, as in the analyzer). Known exception: a
-        // `== 'false'` condition would be chosen here and not in the analyzer.
+        // resolves to `fake.dart`, as in the analyzer). An explicit empty
+        // declared-variable context also keeps `== 'false'` from treating an
+        // absent variable as a declared false value.
+        sdk.conditional_import_variables = Some(HashMap::new());
         for lib in sdk.libraries.values_mut() {
             lib.supported = false;
         }
@@ -1771,6 +1773,31 @@ mod tests {
         let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
         let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn conditional_false_uses_absent_analyzer_context_and_private_branch_types() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/tmp-agent/engine-conditional-context-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("sdk/lib/core")).unwrap();
+        std::fs::write(root.join("sdk/lib/libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#).unwrap();
+        std::fs::write(root.join("sdk/lib/core/core.dart"), "class Object {} class bool {} class num {} class int extends num {} class Null {}").unwrap();
+        std::fs::write(root.join("primary.dart"), "class PublicApi { _Private get value => _Private(); } class _Private { bool get flag => true; }").unwrap();
+        std::fs::write(root.join("alternative.dart"), "class PublicApi { _Private get value => _Private(); } class _Private { int get flag => 1; }").unwrap();
+        let entry = root.join("consumer.dart");
+        let engine = Engine::new(&root.join("sdk/lib")).unwrap();
+        for condition in ["dart.library.core", "dart.library.core == 'false'", "dart.library.missing == 'false'", "missing.flag == 'false'"] {
+            std::fs::write(&entry, format!("import 'primary.dart' if ({condition}) 'alternative.dart'; void consume() {{ if (PublicApi().value.flag) {{}} }}")).unwrap();
+            let result = engine.analyze(&root, std::slice::from_ref(&entry), None);
+            assert!(result.files[&key(&entry)].diags.is_empty(), "{condition}: {:?}", result.files[&key(&entry)].diags);
+        }
+        // A conditional export must use the same declared-variable context.
+        std::fs::write(root.join("api.dart"), "export 'primary.dart' if (dart.library.core == 'false') 'alternative.dart';").unwrap();
+        std::fs::write(&entry, "import 'api.dart'; void consume() { if (PublicApi().value.flag) {} }").unwrap();
+        let result = engine.analyze(&root, std::slice::from_ref(&entry), None);
+        assert!(result.files[&key(&entry)].diags.is_empty(), "{:?}", result.files[&key(&entry)].diags);
+        let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&engine.sdk, "dartdevc"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

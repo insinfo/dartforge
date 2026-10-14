@@ -30,6 +30,10 @@ pub struct SdkLayout {
     /// The SDK's `lib/` directory.
     pub root: PathBuf,
     pub libraries: HashMap<String, SdkLibrary>,
+    /// Explicit declared variables for conditional imports/exports. `None`
+    /// retains compiler-profile library support; `Some(empty)` declares none,
+    /// as the analyzer does. An absent variable never equals the string false.
+    pub conditional_import_variables: Option<HashMap<String, String>>,
     /// The tool's **current** language version: that of a library without a
     /// marker and outside a package, and the ceiling of the markers
     /// (`docs/VERSOES-LINGUAGEM.md`, D2). Default 3.13; the CLI changes it with
@@ -127,6 +131,7 @@ impl SdkLayout {
         Ok(SdkLayout {
             root: lib_dir.to_path_buf(),
             libraries,
+            conditional_import_variables: None,
             current_version: LanguageVersion::CURRENT,
             experiments: Vec::new(),
             replacements: HashMap::new(),
@@ -198,6 +203,7 @@ impl SdkLayout {
         Ok(SdkLayout {
             root: lib_dir.to_path_buf(),
             libraries,
+            conditional_import_variables: None,
             current_version: LanguageVersion::CURRENT,
             experiments: Vec::new(),
             replacements: HashMap::new(),

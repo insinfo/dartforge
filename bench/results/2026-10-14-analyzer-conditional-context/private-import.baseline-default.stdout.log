@@ -1,0 +1,6 @@
+Analyzing private-import...
+
+  error - lib/consumer_known.dart:2:22 - Conditions must have a static type of 'bool'. Try changing the condition. - non_bool_condition
+  error - lib/consumer_unknown.dart:2:22 - Conditions must have a static type of 'bool'. Try changing the condition. - non_bool_condition
+
+2 issues found.

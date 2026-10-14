@@ -19,9 +19,10 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 pub(crate) mod receiver_provenance;
+pub(crate) mod arc_ports;
 
 /// First line of a summary; the number changes with the format.
-const HEADER: &str = "dartforge-poda\t4";
+const HEADER: &str = "dartforge-poda\t5";
 
 /// Selectors that live in every live class, without a call in the IR (§3.6):
 /// `c:call` the runtime looks up by text (`dartforge_closure_entry`, the
@@ -276,6 +277,7 @@ pub struct Summary {
     pub ambiguous_classes: Vec<i64>,
     /// Runtime subtype edges, including interfaces and mixins.
     pub parent_edges: Vec<(i64, i64)>,
+    pub(crate) arc_ports: Vec<arc_ports::Inventory>,
     index: HashMap<String, u32>,
 }
 
@@ -337,6 +339,12 @@ impl Summary {
         }
         for (child, parent) in &self.parent_edges {
             writeln!(s, "P\t{child}\t{parent}").unwrap();
+        }
+        for inventory in &self.arc_ports {
+            writeln!(s, "V\t{}", inventory.registration).unwrap();
+            for port in &inventory.ports {
+                writeln!(s, "B\t{}\t{}\t{}:{}:{}", inventory.registration, port.target, port.kind, port.contract, port.declaration).unwrap();
+            }
         }
         s
     }
@@ -415,6 +423,20 @@ impl Summary {
                     let parent = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
                     r.parent_edges.push((child, parent));
                 }
+                Some("V") => {
+                    let registration = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    r.arc_ports.push(arc_ports::Inventory { registration, ports: vec![] });
+                }
+                Some("B") => {
+                    let registration: u32 = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let target = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let mut data = c.next().ok_or_else(|| bad(l))?.splitn(3, ':');
+                    let kind = data.next().ok_or_else(|| bad(l))?.to_string();
+                    let contract = data.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let declaration = data.next().ok_or_else(|| bad(l))?.to_string();
+                    r.arc_ports.iter_mut().find(|i| i.registration == registration).ok_or_else(|| bad(l))?
+                        .ports.push(arc_ports::Port { target, kind, contract, declaration });
+                }
                 _ if l.is_empty() => {}
                 _ => return Err(bad(l)),
             }
@@ -433,6 +455,7 @@ impl Summary {
         {
             return Err("pruning summary with an invalid nominal class identity".to_string());
         }
+        arc_ports::validate(&r)?;
         Ok(r)
     }
 }
@@ -627,6 +650,7 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
         let node = r.id(&key(n));
         r.recipes.push((node, t));
     }
+    arc_ports::read_ir(&mut r, ir);
     r
 }
 
@@ -1117,6 +1141,8 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
     // The functions of the tables the program defines.
     let externals: HashSet<&str> =
         summaries.iter().flat_map(|r| r.externals.iter().map(move |&e| r.names[e as usize].as_str())).collect();
+    let arc_registrations: HashSet<&str> = all.iter().flat_map(|r| r.arc_ports.iter()
+        .map(|inventory| r.names[inventory.registration as usize].as_str())).collect();
     let mut declared_set: HashSet<String> = HashSet::new();
     let mut exit = String::with_capacity(ir.len() + ir.len() / 4);
     // With pruning, the program definitions the fixpoint did not reach
@@ -1142,7 +1168,7 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
         }
         if let Some(d) = without_end.strip_prefix("declare ") {
             if let Some(n) = d.find('@').and_then(|i| cited(&d[i..]).next()) {
-                if externals.contains(n) {
+                if externals.contains(n) || arc_registrations.contains(n) {
                     continue;
                 }
                 declared_set.insert(n.to_string());
@@ -1203,6 +1229,7 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
     for d in declare {
         exit.push_str(&d);
     }
+    arc_ports::assemble(&mut exit, &all, &reachability, prune, &mut declared_set)?;
     st.time = t0.elapsed();
     Ok(Assembly { ir: exit, statistics: st, reachability })
 }

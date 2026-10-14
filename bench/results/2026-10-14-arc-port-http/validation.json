@@ -1,0 +1,569 @@
+{
+  "complete": true,
+  "scope": "Actual ordinary HTTP/JSON server under prepared ARC; functional requests and clean shutdown, no throughput/latency claim. Same compiler/SDK/flags port-pruning ablation.",
+  "compiler_sha256": "a1f31fa940956decf6ab2999a3d7b645b89b57c7f9e958a6b31319627ad6385b",
+  "fixture_sha256": "ef6c3c5aab0b66dad432d027077ffe6ea3159c1c426100aeb68e32e97ef27896",
+  "runs": [
+    {
+      "label": "vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/server_utf8.dart"
+      ],
+      "pid": 3328,
+      "requests": [
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":1,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":2,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":3,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":4,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":5,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":6,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":7,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":8,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":9,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":10,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":11,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":12,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":13,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":14,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":15,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":16,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/",
+          "status": 200,
+          "body": "hello"
+        },
+        {
+          "path": "/quit",
+          "status": 200,
+          "body": "bye"
+        }
+      ],
+      "port": 51973,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "stdout_extra_bytes": 0,
+      "responses_exact_vm": true
+    },
+    {
+      "label": "disabled-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/server_utf8.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-port-http-binaries/disabled/program"
+      ],
+      "exit_code": 0,
+      "binary_bytes": 19800304,
+      "binary_sha256": "8c63962aeae61b8e41550f19663546f90c20559628b89a94affadb49bfeb0582"
+    },
+    {
+      "label": "disabled-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-port-http-binaries/disabled/program"
+      ],
+      "pid": 3392,
+      "requests": [
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":1,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":2,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":3,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":4,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":5,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":6,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":7,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":8,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":9,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":10,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":11,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":12,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":13,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":14,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":15,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":16,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/",
+          "status": 200,
+          "body": "hello"
+        },
+        {
+          "path": "/quit",
+          "status": 200,
+          "body": "bye"
+        }
+      ],
+      "port": 52019,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "stdout_extra_bytes": 0,
+      "responses_exact_vm": true
+    },
+    {
+      "label": "disabled-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-port-http-binaries/disabled/program"
+      ],
+      "pid": 3394,
+      "requests": [
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":1,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":2,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":3,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":4,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":5,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":6,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":7,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":8,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":9,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":10,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":11,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":12,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":13,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":14,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":15,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":16,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/",
+          "status": 200,
+          "body": "hello"
+        },
+        {
+          "path": "/quit",
+          "status": 200,
+          "body": "bye"
+        }
+      ],
+      "port": 52022,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "stdout_extra_bytes": 0,
+      "responses_exact_vm": true
+    },
+    {
+      "label": "enabled-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/server_utf8.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-port-http-binaries/enabled/program"
+      ],
+      "exit_code": 0,
+      "binary_bytes": 5651488,
+      "binary_sha256": "760b4505f259d9bbd45a95d5dcb6eec71ced8c4105397b174e5446a24c876e6b"
+    },
+    {
+      "label": "enabled-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-port-http-binaries/enabled/program"
+      ],
+      "pid": 3487,
+      "requests": [
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":1,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":2,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":3,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":4,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":5,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":6,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":7,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":8,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":9,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":10,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":11,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":12,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":13,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":14,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":15,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":16,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/",
+          "status": 200,
+          "body": "hello"
+        },
+        {
+          "path": "/quit",
+          "status": 200,
+          "body": "bye"
+        }
+      ],
+      "port": 52035,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "stdout_extra_bytes": 0,
+      "responses_exact_vm": true
+    },
+    {
+      "label": "enabled-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-port-http-binaries/enabled/program"
+      ],
+      "pid": 3489,
+      "requests": [
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":1,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":2,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":3,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":4,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":5,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":6,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":7,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":8,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":9,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":10,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":11,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":12,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":13,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":14,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":15,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/json",
+          "status": 200,
+          "body": "{\"message\":\"Hello, World!\",\"id\":16,\"active\":true,\"items\":[1,2,3]}"
+        },
+        {
+          "path": "/",
+          "status": 200,
+          "body": "hello"
+        },
+        {
+          "path": "/quit",
+          "status": 200,
+          "body": "bye"
+        }
+      ],
+      "port": 52037,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "stdout_extra_bytes": 0,
+      "responses_exact_vm": true
+    }
+  ]
+}

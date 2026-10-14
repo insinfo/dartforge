@@ -1,0 +1,66 @@
+{
+  "complete": true,
+  "compiler_sha256": "a1f31fa940956decf6ab2999a3d7b645b89b57c7f9e958a6b31319627ad6385b",
+  "fixture_sha256": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+  "input_snapshot_file": "input-snapshot.json",
+  "input_files": 9784,
+  "runs": [
+    {
+      "mode": "eager",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=arc",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-port-file-explorer-binaries/eager/program"
+      ],
+      "environment": {
+        "DARTFORGE_ARC_PORT_PRUNING": "0",
+        "DARTFORGE_ARC_PREPARED": "1",
+        "DARTFORGE_ARC_CHECK": "1",
+        "DARTFORGE_EFFECTS": "check"
+      },
+      "exit_code": 1,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "987a617fdf5d6b3e6c363fe211ed596954fcdf39838190c9c196e5305e448685"
+    },
+    {
+      "mode": "deferred",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=arc",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-port-file-explorer-binaries/deferred/program"
+      ],
+      "environment": {
+        "DARTFORGE_ARC_PORT_PRUNING": "1",
+        "DARTFORGE_ARC_PREPARED": "1",
+        "DARTFORGE_ARC_CHECK": "1",
+        "DARTFORGE_EFFECTS": "check"
+      },
+      "exit_code": 1,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "987a617fdf5d6b3e6c363fe211ed596954fcdf39838190c9c196e5305e448685"
+    }
+  ],
+  "gui_execution_validated": false,
+  "timing_measured": false,
+  "inputs_unchanged": true,
+  "compiler_unchanged": true,
+  "builds_succeeded": false
+}

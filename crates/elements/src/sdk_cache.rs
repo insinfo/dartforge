@@ -103,6 +103,18 @@ impl SdkCache {
         };
         mix(&FORMAT.to_le_bytes());
         mix(target.as_bytes());
+        // Preserve the historical compiler key for the implicit profile. The
+        // analyzer's explicit empty context is distinct from a declared false
+        // variable and cannot reuse cached conditional SDK dependencies.
+        if let Some(variables) = &sdk.conditional_import_variables {
+            mix(b"conditional-import-variables");
+            let mut entries: Vec<_> = variables.iter().collect();
+            entries.sort();
+            for (name, value) in entries {
+                mix(name.as_bytes());
+                mix(value.as_bytes());
+            }
+        }
         // The root goes into the key: the stored units carry each file's absolute
         // path, and two SDKs with the same `libraries.json` in different
         // directories (a simulated test SDK, for example) would produce the same

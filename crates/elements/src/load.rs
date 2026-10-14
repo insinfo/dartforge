@@ -1273,6 +1273,15 @@ fn evaluate_configuration(
     sdk: &SdkLayout,
     interner: &Interner,
 ) -> bool {
+    if let Some(variables) = &sdk.conditional_import_variables {
+        let name = config.test.iter().map(|part| interner.resolve(part.sym)).collect::<Vec<_>>().join(".");
+        let Some(value) = variables.get(&name) else { return false };
+        let expected = match &config.value {
+            Some(literal) => { let Some(value) = string_lit_value(literal) else { return false }; value },
+            None => "true".to_string(),
+        };
+        return *value == expected;
+    }
     // Evaluates expressions like: dart.library.io == 'true' or dart.library.io
     if config.test.len() == 3
         && interner.resolve(config.test[0].sym) == "dart"
@@ -1428,5 +1437,54 @@ fn verify_part_of(
             ),
             Span { start: 0, end: 0 },
         ));
+    }
+}
+
+#[cfg(test)]
+mod conditional_import_context_tests {
+    use super::*;
+
+    fn selected(condition: &str, sdk: &SdkLayout) -> String {
+        let mut names = Interner::new();
+        let source = format!("import 'primary.dart' if ({condition}) 'alternative.dart';");
+        let parsed = dartforge_frontend::parser::parse(&source, &mut names);
+        let ast::DirectiveKind::Import { uri, configurations, .. } = &parsed.unit.directives[0].kind else { panic!("import") };
+        select_conditional_uri(uri, configurations, sdk, &names).unwrap()
+    }
+
+    #[test]
+    fn compiler_profile_support_remains_unchanged() {
+        let mut sdk = SdkLayout::default();
+        sdk.libraries.insert("io".into(), crate::sdk::SdkLibrary { name: "io".into(), path: PathBuf::new(), patches: Vec::new(), supported: true });
+        sdk.libraries.insert("html".into(), crate::sdk::SdkLibrary { name: "html".into(), path: PathBuf::new(), patches: Vec::new(), supported: false });
+        assert_eq!(selected("dart.library.io", &sdk), "alternative.dart");
+        assert_eq!(selected("dart.library.io == 'true'", &sdk), "alternative.dart");
+        assert_eq!(selected("dart.library.html", &sdk), "primary.dart");
+        assert_eq!(selected("dart.library.html == 'false'", &sdk), "alternative.dart");
+    }
+
+    #[test]
+    fn absent_analyzer_variables_never_equal_false() {
+        let sdk = SdkLayout { conditional_import_variables: Some(HashMap::new()), ..Default::default() };
+        for condition in ["dart.library.io", "dart.library.io == 'true'", "dart.library.io == 'false'", "dart.library.missing == 'false'", "missing.flag == 'false'"] {
+            assert_eq!(selected(condition, &sdk), "primary.dart", "{condition}");
+        }
+        let declared = SdkLayout { conditional_import_variables: Some(HashMap::from([("dart.library.io".into(), "false".into())])), ..Default::default() };
+        assert_eq!(selected("dart.library.io == 'false'", &declared), "alternative.dart");
+        assert_eq!(selected("dart.library.io", &declared), "primary.dart");
+    }
+
+    #[test]
+    fn sdk_cache_keys_separate_context_and_ignore_map_insertion_order() {
+        let sdk = SdkLayout::default();
+        let compiler = crate::SdkCache::hash(&sdk, "dartdevc");
+        let empty = SdkLayout { conditional_import_variables: Some(HashMap::new()), ..sdk.clone() };
+        assert_ne!(compiler, crate::SdkCache::hash(&empty, "dartdevc"));
+        let mut first = empty.clone();
+        first.conditional_import_variables = Some(HashMap::from([("a".into(), "false".into()), ("b".into(), "true".into())]));
+        let mut second = empty.clone();
+        second.conditional_import_variables = Some(HashMap::from([("b".into(), "true".into()), ("a".into(), "false".into())]));
+        assert_eq!(crate::SdkCache::hash(&first, "dartdevc"), crate::SdkCache::hash(&second, "dartdevc"));
+        assert_ne!(crate::SdkCache::hash(&empty, "dartdevc"), crate::SdkCache::hash(&first, "dartdevc"));
     }
 }

@@ -1,0 +1,5 @@
+Analyzing consumer.dart...
+
+  error - consumer.dart:2:22 - Conditions must have a static type of 'bool'. Try changing the condition. - non_bool_condition
+
+1 issue found.

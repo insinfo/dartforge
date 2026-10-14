@@ -208,7 +208,7 @@ impl LlvmEmitter<'_> {
         let module = self.module;
         let mut body = String::new();
         if module.arc_aot_ports.is_some() {
-            body.push_str("  call void @df.arc.register_ports()\n");
+            writeln!(body, "  call void @{}()", self.arc_ports_registration_symbol()).unwrap();
         }
         for class in &module.classes {
             let idx = self.string_const_index(class.name.as_bytes()).unwrap_or(0);

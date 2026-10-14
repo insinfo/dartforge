@@ -1,0 +1,27 @@
+   Compiling dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)
+   Compiling dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+   Compiling dartforge-analysis v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/analysis)
+   Compiling dartforge-parity v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/parity)
+   Compiling dartforge-lsp v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/lsp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.78s
+     Running tests/analyzer_conditional_context.rs (target/p4/debug/deps/analyzer_conditional_context-a290b5bd9104ae4e)
+
+running 1 test
+test missing_false_conditional_import_clears_verified_false_positive_in_editor ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/typed.rs (target/p4/debug/deps/typed-f951ed1b59c3678b)
+
+running 8 tests
+test close_discards_pending_result ... ok
+test pulled_diagnostics_instead_of_pushed ... ok
+test quick_edits_become_one_analysis ... ok
+test published_typed_code_reaches_editor ... ok
+test only_published_codes_and_ignore_respected ... ok
+test stale_version_result_is_discarded ... ok
+test editing_imported_updates_importer ... ok
+test child_process_publishes_like_the_thread ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.91s
+

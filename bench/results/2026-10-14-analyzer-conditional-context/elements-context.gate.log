@@ -1,0 +1,11 @@
+   Compiling dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.77s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_elements-8dda9e2aa2620821)
+
+running 3 tests
+test load::conditional_import_context_tests::absent_analyzer_variables_never_equal_false ... ok
+test load::conditional_import_context_tests::compiler_profile_support_remains_unchanged ... ok
+test load::conditional_import_context_tests::sdk_cache_keys_separate_context_and_ignore_map_insertion_order ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.01s
+

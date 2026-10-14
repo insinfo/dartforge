@@ -1,0 +1,258 @@
+{
+  "scope": "Analyzer declared-variable compatibility for absent variables, including private-class inferred types and conditional exports. No performance measurement.",
+  "sdk_version": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\"",
+  "compilers": {
+    "baseline": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/baseline-dartforge",
+      "sha256": "8d300cb9bb6456e5a3db27530fd8824a7f465883ac8123aa8a43fec033cd8a46"
+    },
+    "fixed": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+      "sha256": "a1f31fa940956decf6ab2999a3d7b645b89b57c7f9e958a6b31319627ad6385b"
+    }
+  },
+  "source_hashes": {
+    "crates/elements/src/sdk.rs": "dac991d06573b72baa5fdaed39eda2c9f78462dfea70daa4655298fa2055853b",
+    "crates/elements/src/load.rs": "c30d1dde42eea7ca634e7157f88aaa883179898432f4fb5c9d4a81b7e9108e92",
+    "crates/elements/src/sdk_cache.rs": "37184a33ff4eea5715ee12f0b6b41973a46120cf44003e10abf02702b2ab9f21",
+    "crates/parity/src/analysis.rs": "41efb51ccd9920bfdc6acac2187b7d9039d27cc3ef03ed0e793ce5ff732e934a",
+    "crates/lsp/tests/analyzer_conditional_context.rs": "5b87498badeb1c10b276f84b3775e5fe6c8cdaae476567e3d96310712a4d9b16"
+  },
+  "fixtures": {
+    "simple-import": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/lib/consumer.dart",
+      "file_hashes": {
+        "alternative.dart": "20627fef074b837e02c06f4b40e0b05154dc68148b9f1d44e5e4663282baf7e7",
+        "consumer.dart": "3d29aebb3525c6c5ae3135ded72d5dac20de667b4819959dffcbb03afe0cd3e2",
+        "primary.dart": "60c33138b16cc152a48323eb9ce297c5b8026b2eb608189fd02fe19c50a0b669"
+      }
+    },
+    "private-import": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/private-import",
+      "file_hashes": {
+        "lib/alternative.dart": "cbef88b35abc1c58b41d789e708671e6c8897acb6ce03958e26133600e1f4c14",
+        "lib/consumer_known.dart": "304b3fa326f33a143d3fa975d4368fa74f05358bb2d24a2b7a74f311c345c63b",
+        "lib/consumer_unknown.dart": "85b406e1d3cd2a43806093c724f2e336ea520882819fb0e46c477759d78c029a",
+        "lib/primary.dart": "b4edae5a7de4d64314623ca6a4cbd4aa2c8f29345b67f7ff807d2b51f6595361",
+        "pubspec.yaml": "1010095b9dd6a07b8a87b51d452ccacdca01d6df3296dffb8634ee15378f35f0"
+      }
+    },
+    "private-export": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/private-export",
+      "file_hashes": {
+        "lib/alternative.dart": "cbef88b35abc1c58b41d789e708671e6c8897acb6ce03958e26133600e1f4c14",
+        "lib/api_known.dart": "b952d7bc9c48197ea91278839926166ff66a3253278e8a9b389764465c1aa164",
+        "lib/api_unknown.dart": "a12414ce78a88823c3e8c93f905933d087128f347a75ab26427e94b54fa46c4f",
+        "lib/consumer_known.dart": "fee215928552bbb33a143493976780df76293804bb59523085990b64224d0e0e",
+        "lib/consumer_unknown.dart": "00775e396dbffda0a2b47bfce29317c38b5b91d802e8e55992dd75263591cb65",
+        "lib/primary.dart": "b4edae5a7de4d64314623ca6a4cbd4aa2c8f29345b67f7ff807d2b51f6595361",
+        "pubspec.yaml": "887914c53da51dd8f3fb5991d242ba2508edaf5fa1d5377720e955aa207cc367"
+      }
+    }
+  },
+  "runs": {
+    "simple-import.official": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "analyze",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/lib/consumer.dart"
+      ],
+      "exit_code": 0,
+      "stdout": "Analyzing consumer.dart...\nNo issues found!\n",
+      "stderr": ""
+    },
+    "simple-import.baseline-default": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/baseline-dartforge",
+        "analyze",
+        "--sdk-path",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/lib/consumer.dart"
+      ],
+      "exit_code": 3,
+      "stdout": "Analyzing consumer.dart...\n\n  error - consumer.dart:2:22 - Conditions must have a static type of 'bool'. Try changing the condition. - non_bool_condition\n\n1 issue found.\n",
+      "stderr": ""
+    },
+    "simple-import.baseline-all": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/baseline-dartforge",
+        "analyze",
+        "--all",
+        "--sdk-path",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/lib/consumer.dart"
+      ],
+      "exit_code": 3,
+      "stdout": "Analyzing consumer.dart...\n\n  error - consumer.dart:2:22 - Conditions must have a static type of 'bool'. Try changing the condition. - non_bool_condition\n\n1 issue found.\n",
+      "stderr": ""
+    },
+    "simple-import.fixed-default": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "analyze",
+        "--sdk-path",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/lib/consumer.dart"
+      ],
+      "exit_code": 0,
+      "stdout": "Analyzing consumer.dart...\nNo issues found!\n",
+      "stderr": ""
+    },
+    "simple-import.fixed-all": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "analyze",
+        "--all",
+        "--sdk-path",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/lib/consumer.dart"
+      ],
+      "exit_code": 0,
+      "stdout": "Analyzing consumer.dart...\nNo issues found!\n",
+      "stderr": ""
+    },
+    "private-import.official": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "analyze",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/private-import"
+      ],
+      "exit_code": 0,
+      "stdout": "Analyzing private-import...\nNo issues found!\n",
+      "stderr": ""
+    },
+    "private-import.baseline-default": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/baseline-dartforge",
+        "analyze",
+        "--sdk-path",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/private-import"
+      ],
+      "exit_code": 3,
+      "stdout": "Analyzing private-import...\n\n  error - lib/consumer_known.dart:2:22 - Conditions must have a static type of 'bool'. Try changing the condition. - non_bool_condition\n  error - lib/consumer_unknown.dart:2:22 - Conditions must have a static type of 'bool'. Try changing the condition. - non_bool_condition\n\n2 issues found.\n",
+      "stderr": ""
+    },
+    "private-import.baseline-all": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/baseline-dartforge",
+        "analyze",
+        "--all",
+        "--sdk-path",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/private-import"
+      ],
+      "exit_code": 3,
+      "stdout": "Analyzing private-import...\n\n  error - lib/consumer_known.dart:2:22 - Conditions must have a static type of 'bool'. Try changing the condition. - non_bool_condition\n  error - lib/consumer_unknown.dart:2:22 - Conditions must have a static type of 'bool'. Try changing the condition. - non_bool_condition\n\n2 issues found.\n",
+      "stderr": ""
+    },
+    "private-import.fixed-default": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "analyze",
+        "--sdk-path",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/private-import"
+      ],
+      "exit_code": 0,
+      "stdout": "Analyzing private-import...\nNo issues found!\n",
+      "stderr": ""
+    },
+    "private-import.fixed-all": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "analyze",
+        "--all",
+        "--sdk-path",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/private-import"
+      ],
+      "exit_code": 0,
+      "stdout": "Analyzing private-import...\nNo issues found!\n",
+      "stderr": ""
+    },
+    "private-export.official": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "analyze",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/private-export"
+      ],
+      "exit_code": 0,
+      "stdout": "Analyzing private-export...\nNo issues found!\n",
+      "stderr": ""
+    },
+    "private-export.baseline-default": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/baseline-dartforge",
+        "analyze",
+        "--sdk-path",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/private-export"
+      ],
+      "exit_code": 3,
+      "stdout": "Analyzing private-export...\n\n  error - lib/consumer_known.dart:2:22 - Conditions must have a static type of 'bool'. Try changing the condition. - non_bool_condition\n  error - lib/consumer_unknown.dart:2:22 - Conditions must have a static type of 'bool'. Try changing the condition. - non_bool_condition\n\n2 issues found.\n",
+      "stderr": ""
+    },
+    "private-export.baseline-all": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/baseline-dartforge",
+        "analyze",
+        "--all",
+        "--sdk-path",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/private-export"
+      ],
+      "exit_code": 3,
+      "stdout": "Analyzing private-export...\n\n  error - lib/consumer_known.dart:2:22 - Conditions must have a static type of 'bool'. Try changing the condition. - non_bool_condition\n  error - lib/consumer_unknown.dart:2:22 - Conditions must have a static type of 'bool'. Try changing the condition. - non_bool_condition\n\n2 issues found.\n",
+      "stderr": ""
+    },
+    "private-export.fixed-default": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "analyze",
+        "--sdk-path",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/private-export"
+      ],
+      "exit_code": 0,
+      "stdout": "Analyzing private-export...\nNo issues found!\n",
+      "stderr": ""
+    },
+    "private-export.fixed-all": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "analyze",
+        "--all",
+        "--sdk-path",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-conditional-context-probe/private-export"
+      ],
+      "exit_code": 0,
+      "stdout": "Analyzing private-export...\nNo issues found!\n",
+      "stderr": ""
+    }
+  },
+  "policy": "Default and --all are recorded independently; verified.txt unchanged. Compiler profile None retains existing selection and SDK cache key. Analyzer uses explicit empty context; cache key separates it from declared false.",
+  "inputs_stable": true,
+  "gates": {
+    "elements-context": {
+      "exit_code": 0,
+      "passed": 3,
+      "raw_log": "elements-context.gate.log",
+      "sha256": "034be8081bfea43ba3587b46bf8f0e19500483aaa40f6f3c4b431ab81ab425ba"
+    },
+    "private-class-engine": {
+      "exit_code": 0,
+      "passed": 1,
+      "raw_log": "private-class-engine.gate.log",
+      "sha256": "3c75636d9299a65ee0a7beb17536411ef05dabd642f3c91f03ac2351f0a5b449"
+    },
+    "typed-editor": {
+      "exit_code": 0,
+      "passed": 9,
+      "raw_log": "typed-editor.gate.log",
+      "sha256": "e5ad470a13d8ea356e6f8669778a54e5eb1dc5afb1baf3bb3acee84963bb3728"
+    }
+  },
+  "result": "All three scenarios: official0, baseline default/all3 false non_bool_condition, fixed default/all0 no issues. Focused13tests passed; no verified publication policy changes."
+}

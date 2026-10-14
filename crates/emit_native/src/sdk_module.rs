@@ -370,6 +370,7 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
             // also serves the JIT, which migrates objects on reload.
             .with_body_without_outside(production)
             .with_tables_at_link(production)
+            .with_arc_ports_at_link(production)
             .with_roots_by_maps(roots_by_maps)
             .with_stack_trace(symbolic_stack_trace)
             .emit_all();
@@ -481,6 +482,9 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     h.update(b"\0");
     if !crate::pruning::receiver_provenance::enabled() {
         h.update(b"factory_receiver_provenance=disabled\0");
+    }
+    if !crate::pruning::arc_ports::enabled() {
+        h.update(b"arc_port_pruning=disabled\0");
     }
     // The debug trace changes the code (`llvm/mod.rs`).
     h.update(std::env::var("DARTFORGE_CALL_TRACE").unwrap_or_default().as_bytes());

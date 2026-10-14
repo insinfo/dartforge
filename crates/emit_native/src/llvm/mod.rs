@@ -188,6 +188,7 @@ pub struct LlvmEmitter<'a> {
     /// of each table, and the content goes into the summary (`pruning.rs`). It is the production
     /// SDK.
     tables_at_link: bool,
+    arc_ports_at_link: bool,
     /// The state of each package of the emission (§4.2, step 4); the packages use it
     /// as they migrate.
     #[allow(dead_code)]
@@ -319,6 +320,7 @@ impl<'a> LlvmEmitter<'a> {
             this_object: None,
             compact_selector: false,
             tables_at_link: false,
+            arc_ports_at_link: false,
             strings: Default::default(),
             boxes: Default::default(),
             lists: Default::default(),
@@ -465,6 +467,11 @@ impl<'a> LlvmEmitter<'a> {
 
     pub fn with_tables_at_link(mut self, yes: bool) -> Self {
         self.tables_at_link = yes;
+        self
+    }
+
+    pub(crate) fn with_arc_ports_at_link(mut self, yes: bool) -> Self {
+        self.arc_ports_at_link = yes && crate::pruning::arc_ports::enabled();
         self
     }
 

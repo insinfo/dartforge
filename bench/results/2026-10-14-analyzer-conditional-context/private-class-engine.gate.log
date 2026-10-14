@@ -1,0 +1,12 @@
+   Compiling dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)
+   Compiling dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+   Compiling dartforge-analysis v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/analysis)
+   Compiling dartforge-parity v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/parity)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.05s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_parity-5df974ad283d1bef)
+
+running 1 test
+test analysis::tests::conditional_false_uses_absent_analyzer_context_and_private_branch_types ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.03s
+

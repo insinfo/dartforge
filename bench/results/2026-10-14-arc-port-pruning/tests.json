@@ -1,0 +1,14 @@
+{
+  "focused_passed": 10,
+  "native_library_passed": 581,
+  "native_library_ignored": 7,
+  "native_library_failed": 0,
+  "release_build_exit": 0,
+  "logs": [
+    "arc-port-final-tests.log",
+    "arc-port-native-final-lib.log",
+    "arc-port-release.log"
+  ],
+  "native_source_aggregate_sha256": "da9926b63c6ffec7b71a569916561217d61e1fbd6364808885d7c67bd12495f2",
+  "scope": "Fresh final binary test gate and same-source release build; no doctests."
+}

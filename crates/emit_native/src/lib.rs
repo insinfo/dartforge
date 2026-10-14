@@ -553,6 +553,7 @@ fn emit_ir_internal(
         // `DARTFORGE_OPTSIZE_PROGRAM=0` turns it off.
         .with_optimize_size(large && !std::env::var("DARTFORGE_OPTSIZE_PROGRAM").is_ok_and(|v| v == "0"))
         .with_production(options.optimize)
+        .with_arc_ports_at_link(options.optimize && prune && !hir_module.sdk_records.is_empty())
         // Without optimization there is no inlining: one roots frame per native
         // frame, and the runtime checks the order (the dead frame).
         .with_ordered_frames(!options.optimize)
