@@ -749,7 +749,9 @@ mod literal_owned_tests {
     fn json_close_list_copies_nested_ranges_and_keeps_references_alive() {
         for arc in [false, true] {
             let previous = HEAP.with(|h| h.replace(Heap::new(true)));
-            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
+            let previous_mode = ARC_MEMORY.with(|mode| mode.replace(false));
+            // Raw native writes use the runtime's TLS mode as well as Heap ARC.
+            if arc { dartforge_memory_arc_v1(); }
             for count in [0, 1, 257] {
                 let stack = HEAP.with(|h| h.borrow_mut().new_growable(0, count + 3, crate::lists::Element::General));
                 dartforge_arc_retain(stack);
@@ -789,6 +791,7 @@ mod literal_owned_tests {
                 assert_eq!(dartforge_arc_observe_heap_v1(child), 0);
             }
             HEAP.with(|h| { h.replace(previous); });
+            ARC_MEMORY.with(|mode| mode.set(previous_mode));
         }
     }
 

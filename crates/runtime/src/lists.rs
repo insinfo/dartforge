@@ -300,9 +300,18 @@ impl Heap {
         let new = self.list_with_roots(&[h], |heap| heap.new_list(cid::LIST, capacity, shape));
         let n = self.list_len(h);
         let old_gen = self.list_data(h);
-        // The new one is young and nobody else sees it: raw copy, no barrier.
-        let copy: Vec<i64> = self.words(old_gen)[1..1 + n].to_vec();
-        self.words_mut(new)[1..1 + n].copy_from_slice(&copy);
+        // Obtain the destination after its ARC snapshot, then check both ranges.
+        // The new storage is unpublished; publication below supplies the barrier.
+        assert_ne!(old_gen, new, "runtime bug: reserve reused live storage");
+        let destination = self.words_mut(new)[1..1 + n].as_mut_ptr();
+        let source = self.words(old_gen)[1..1 + n].as_ptr();
+        // SAFETY: these checked ranges belong to distinct live allocations of
+        // the same shape. No allocation or collection occurs while the pointers
+        // are used, and the source storage remains owned by the growable list.
+        #[allow(unsafe_code)]
+        unsafe {
+            std::ptr::copy_nonoverlapping(source, destination, n);
+        }
         self.list_set_data(h, new);
     }
 
@@ -546,6 +555,144 @@ impl Heap {
 #[cfg(test)]
 mod tests_lists {
     use super::*;
+
+    #[test]
+    fn reserve_preserves_shared_reference_edges_and_old_storage() {
+        for arc in [false, true] {
+            let mut heap = Heap::new(true);
+            if arc {
+                heap.enable_arc();
+            }
+            let roots = heap.push_owning_frame(3);
+            let list = heap.new_growable(257, 259, Element::General);
+            heap.set_root(roots, 0, list);
+            let child = heap.allocate_str("repeated element owned by both storages");
+            heap.set_root(roots, 1, child);
+            let metadata = 37;
+            heap.set_metadata(list, metadata);
+            let expected: Vec<_> = (0..257)
+                .map(|i| match i % 3 {
+                    0 => child,
+                    1 => 0,
+                    _ => layout::smi::of(i as i64).unwrap(),
+                })
+                .collect();
+            for (i, &value) in expected.iter().enumerate() {
+                heap.list_set(list, i, Value::Ref(value));
+            }
+            let old = heap.list_data(list);
+            heap.set_root(roots, 2, old);
+            heap.set_root(roots, 1, 0);
+            heap.collect();
+            heap.list_reserve(list, 777);
+            let new = heap.list_data(list);
+            assert_ne!(old, new);
+            heap.collect();
+            assert_eq!(heap.list_len(list), 257);
+            assert_eq!(heap.list_capacity(list), 777);
+            assert_eq!(heap.list_shape(list), Element::General);
+            assert_eq!(heap.metadata(list), metadata);
+            assert_eq!(&heap.words(old)[1..258], expected.as_slice());
+            assert_eq!(&heap.words(new)[1..258], expected.as_slice());
+            assert!(heap.words(new)[258..778].iter().all(|&v| v == 0));
+            assert!(heap.is_live_object(child));
+
+            for i in 0..257 {
+                heap.list_set(list, i, Value::Ref(0));
+            }
+            heap.collect();
+            assert!(
+                heap.is_live_object(child),
+                "old storage must still own every occurrence"
+            );
+            heap.write_refs(old, 1, &[0; 257]);
+            heap.collect();
+            assert!(
+                !heap.is_live_object(child),
+                "last storage edges must be released"
+            );
+            heap.pop_frame(roots);
+            heap.collect();
+            assert!(!heap.is_live_object(list));
+            assert!(!heap.is_live_object(old));
+            assert!(!heap.is_live_object(new));
+        }
+    }
+
+    #[test]
+    fn reserve_preserves_compact_bits_zero_tail_and_noop_storage() {
+        for arc in [false, true] {
+            for (shape, bits) in [
+                (Element::Int, vec![i64::MIN, -1, 0, i64::MAX]),
+                (
+                    Element::Double,
+                    vec![
+                        0x7ff8_1234_5678_9abc,
+                        0xfff0_0000_0000_0001_u64 as i64,
+                        i64::MIN,
+                        0,
+                    ],
+                ),
+                (Element::Bool, vec![1, 0, 1, 0]),
+            ] {
+                let mut heap = Heap::new(true);
+                if arc {
+                    heap.enable_arc();
+                }
+                let roots = heap.push_owning_frame(2);
+                let list = heap.new_growable(bits.len(), bits.len() + 1, shape);
+                heap.set_root(roots, 0, list);
+                let old = heap.list_data(list);
+                heap.set_root(roots, 1, old);
+                heap.words_mut(old)[1..1 + bits.len()].copy_from_slice(&bits);
+                heap.collect();
+                heap.list_reserve(list, 0);
+                heap.list_reserve(list, bits.len() + 1);
+                assert_eq!(heap.list_data(list), old);
+                heap.list_reserve(list, 513);
+                heap.collect();
+                let new = heap.list_data(list);
+                assert_ne!(new, old);
+                assert_eq!(heap.list_len(list), bits.len());
+                assert_eq!(heap.list_shape(list), shape);
+                assert_eq!(&heap.words(old)[1..1 + bits.len()], bits.as_slice());
+                assert_eq!(&heap.words(new)[1..1 + bits.len()], bits.as_slice());
+                assert!(heap.words(new)[1 + bits.len()..514].iter().all(|&v| v == 0));
+                heap.pop_frame(roots);
+                heap.collect();
+                assert!(!heap.is_live_object(list));
+                assert!(!heap.is_live_object(old));
+                assert!(!heap.is_live_object(new));
+            }
+        }
+    }
+
+    #[test]
+    fn reserve_empty_storage_preserves_shape_and_rejects_invalid_length() {
+        for shape in [
+            Element::General,
+            Element::Int,
+            Element::Double,
+            Element::Bool,
+        ] {
+            let mut heap = Heap::new(true);
+            let roots = heap.push_owning_frame(1);
+            let list = heap.new_growable(0, 0, shape);
+            heap.set_root(roots, 0, list);
+            heap.list_reserve(list, 3);
+            assert_eq!(heap.list_len(list), 0);
+            assert_eq!(heap.list_shape(list), shape);
+            assert_eq!(&heap.words(heap.list_data(list))[1..4], &[0; 3]);
+            // Malformed callers must fail the checked source range before copying.
+            heap.set_field(list, 0, 4, false);
+            assert!(
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                    || heap.list_reserve(list, 5)
+                ))
+                .is_err()
+            );
+        }
+    }
 
     #[test]
     fn lists_flags_and_codes_round_trip() {

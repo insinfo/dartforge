@@ -1,0 +1,13 @@
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.76s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_runtime-439dcf0178efcb43)
+
+running 5 tests
+test lists::tests_lists::lists_bits_of_each_shape ... ok
+test lists::tests_lists::lists_flags_and_codes_round_trip ... ok
+test lists::tests_lists::reserve_empty_storage_preserves_shape_and_rejects_invalid_length ... ok
+test lists::tests_lists::reserve_preserves_compact_bits_zero_tail_and_noop_storage ... ok
+test lists::tests_lists::reserve_preserves_shared_reference_edges_and_old_storage ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 298 filtered out; finished in 0.00s
+

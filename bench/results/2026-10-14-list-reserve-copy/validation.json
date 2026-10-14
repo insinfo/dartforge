@@ -1,0 +1,44 @@
+{
+  "change": "Growable list reserve copies checked disjoint same-shape word ranges directly without a temporary Rust Vec; retain ARC snapshot and source rooting and publish through unchanged storage barrier.",
+  "gates": {
+    "focused_lists": {
+      "passed": 5,
+      "failed": 0,
+      "ARC_CHECK": "1",
+      "heap_stress": true,
+      "modes": [
+        "tracing",
+        "ARC"
+      ]
+    },
+    "full_runtime": {
+      "passed": 300,
+      "failed": 0,
+      "ignored": 3,
+      "ARC_CHECK": "1"
+    },
+    "json_close_tls": {
+      "passed": 1,
+      "failed": 0,
+      "ARC_CHECK": "1"
+    }
+  },
+  "prior_full_gate_failure": "The JSON test enabled Heap ARC directly but left raw-write TLS mode disabled; ARC_CHECK exposed inconsistent test setup. Test now uses dartforge_memory_arc_v1 and restores TLS between modes. No production change needed for that failure. Raw failure is retained.",
+  "coverage": [
+    "Shared reference occurrences survive collection through old and new storage independently",
+    "Integer extrema, floating NaN payload and signed zero, booleans preserve raw bits",
+    "Capacity tail is zero; metadata and length preserved",
+    "No-op and empty reserves; invalid source ranges refused"
+  ],
+  "source_sha256": {
+    "crates/runtime/src/lists.rs": "1cf5b1f5b2959db966e82c46da6f4c02510e8104f30b65b3a0a8aaf6e759efa0",
+    "crates/runtime/src/natives_lists.rs": "43075efde032f3a2e4e442e45f07220d7c3c286c0be258b8580f0b3fd9769e0d"
+  },
+  "log_sha256": {
+    "list-reserve-tests.log": "4ce411924ff6702affbb79b1547756b4373186f2cd0674610e3b459be9dd5dab",
+    "list-reserve-runtime-lib-final.log": "d0945f1e0158310a4479bb224510d238f6200adbf107e970968d2b99a66b4147",
+    "list-reserve-runtime-lib.log": "1f9facde345e03272e3e01764802dd5b31d6d5d9403751b9e44d8d9536e4b521",
+    "json-close-arc-audit.log": "864db9f0637eefad8096230757082f72523fe1addb0d4d5e83129d8d62ed732c"
+  },
+  "performance_claim": "Eliminates one temporary allocation and extra element copy on reserve growth; no throughput benchmark or latest FileExplorer inclusion claim."
+}

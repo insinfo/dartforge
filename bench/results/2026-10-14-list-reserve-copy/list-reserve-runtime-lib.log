@@ -1,0 +1,154 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_runtime-439dcf0178efcb43)
+
+running 303 tests
+test abi::adaptive_accumulator_tests::latin1_storage_promotes_once_and_preserves_utf16_code_units ... ok
+test abi::adaptive_accumulator_tests::capacity_growth_exhausts_deferral_without_collecting_borrowed_inputs ... ok
+test abi::adaptive_accumulator_tests::isolate_copy_preserves_units_and_has_independent_native_storage ... ok
+test abi::adaptive_accumulator_tests::rooted_stress_snapshots_are_independent_of_further_writes_and_clear ... ok
+test abi::adaptive_accumulator_tests::native_growth_and_promotion_update_capacity_accounting_without_collection ... ok
+test abi::arc_port_tests::all_ports_transfer_one_token_without_retaining_twice ... ok
+test abi::arc_port_tests::image_registration_is_global_but_owners_and_scopes_are_per_thread ... ok
+test abi::arc_port_tests::typed_target_checks_abi_map_and_version_without_mistaking_word_record ... ok
+test abi::arc_port_tests::checked_typed_port_returns_independent_owner_in_both_modes ... ok
+test abi::arc_port_tests::owned_datagram_escapes_scope_and_pending_creates_no_owner ... ok
+test abi::arc_port_tests::owned_no_such_method_survives_legacy_frame_pop_without_leaking ... ok
+test abi::callback_code_owner_tests::generations_cannot_redirect_old_adapters_and_cancel_preserves_order ... ok
+test abi::arc_port_tests::owned_return_ignored_by_void_port_is_released_immediately ... ok
+test abi::callback_code_owner_tests::metadata_can_retire_but_published_adapter_cannot ... ok
+test abi::callback_code_owner_tests::publication_leases_closure_producing_owners_as_well_as_adapter_owner ... ok
+test abi::callback_code_owner_tests::retirement_restores_an_unowned_adapter_without_reusing_owner_ids ... ok
+test abi::double_modulo_tests::follows_vm_signs_and_zero ... ok
+test abi::arc_port_tests::pending_exit_neither_publishes_result_nor_clears_exception ... ok
+test abi::arc_port_tests::records_and_scopes_reject_stale_version_wrong_abi_and_active_mutation ... ok
+test abi::field_ref_tests::checked_write_initializes_ref_and_rejects_layout_without_changing_edge ... ok
+test abi::field_ref_tests::layouts_in_order_for_binary_search ... ok
+test abi::field_ref_tests::positional_record_reads_scalar_count_and_ref_fields ... ok
+test abi::field_ref_tests::read_borrows_edge_and_owned_copy_survives_replacement ... ok
+test abi::arc_port_tests::reentrant_scopes_and_observational_frames_stay_distinct ... ok
+test abi::finalizer_callback_tests::finalizer_rejects_sync_trampolines_before_creating_attachment ... ok
+test abi::function_apply_tests::function_apply_forwards_named_descriptor_to_uniform_entry ... ok
+test abi::isolate_registration_tests::delayed_worker_keeps_validated_registration_after_replacement_and_disable ... ok
+test abi::arc_port_tests::uniform_adapts_native_fallback_to_single_owned ... ok
+test abi::late_callback_tests::close_inside_active_callback_releases_root_without_freeing_context ... ok
+test abi::late_callback_tests::closed_local_returns_retained_bits_on_foreign_threads ... ok
+test abi::arc_port_tests::uniform_closes_callbacks_without_consuming_return_token ... ok
+test abi::arc_port_tests::uniform_does_not_infer_generic_callback_contract_and_rejects_upgrade ... ok
+test abi::late_callback_tests::isolate_retirement_tombstones_persistent_callbacks_and_releases_roots ... ok
+test abi::arc_port_tests::uniform_pending_closes_internal_owners_and_preserves_exception ... ok
+test abi::late_callback_tests::listener_close_between_enter_and_post_drops_without_decoding_arguments ... ok
+test abi::late_callback_tests::owner_callback_depth_refuses_turns_and_balances_exceptional_and_normal_exit ... ok
+test abi::sync_callback_tests::claimed_work_survives_close_and_expired_deadline_until_completion ... ok
+test abi::sync_callback_tests::close_cancels_pending_and_owner_shutdown_also_cancels_running ... ok
+test abi::literal_owned_tests::empty_and_compact_literal_preserves_bits_until_owner_release ... ok
+test abi::sync_callback_tests::logical_deadline_cancels_only_pending_and_prevents_late_claim ... ok
+test abi::sync_callback_tests::completion_wakes_foreign_waiter_and_only_first_result_wins ... ok
+test abi::sync_callback_tests::foreign_compound_encoding_uses_owner_metadata_not_foreign_rti_or_heap ... ok
+test abi::sync_callback_tests::owner_native_identity_enters_directly_foreign_identity_marshals_without_heap ... ok
+test abi::literal_owned_tests::mixed_literal_roots_refs_counts_edges_and_preserves_boxes ... ok
+
+thread 'abi::literal_owned_tests::json_close_list_copies_nested_ranges_and_keeps_references_alive' (1201457) panicked at crates/runtime/src/heap.rs:6422:17:
+ARC bug: Audit { handle: 4404937794, rc: 1, recounted: 2 } (cid 6)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'abi::literal_owned_tests::json_close_list_copies_nested_ranges_and_keeps_references_alive' (1201457) panicked at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/panicking.rs:225:5:
+panic in a function that cannot unwind
+stack backtrace:
+   0:        0x1013665e8 - std[5d97c59e5e5fafcc]::backtrace_rs::backtrace::libunwind::trace
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1:        0x1013665e8 - std[5d97c59e5e5fafcc]::backtrace_rs::backtrace::trace_unsynchronized::<std[5d97c59e5e5fafcc]::sys::backtrace::_print_fmt::{closure#1}>
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2:        0x1013665e8 - std[5d97c59e5e5fafcc]::sys::backtrace::_print_fmt
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/sys/backtrace.rs:74:9
+   3:        0x1013665e8 - <<std[5d97c59e5e5fafcc]::sys::backtrace::BacktraceLock>::print::DisplayBacktrace as core[663bb9e1522ba5ef]::fmt::Display>::fmt
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/sys/backtrace.rs:44:26
+   4:        0x10137a47c - <core[663bb9e1522ba5ef]::fmt::rt::Argument>::fmt
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/fmt/rt.rs:152:76
+   5:        0x10137a47c - core[663bb9e1522ba5ef]::fmt::write
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/fmt/mod.rs:1687:22
+   6:        0x10136b82c - std[5d97c59e5e5fafcc]::io::default_write_fmt::<std[5d97c59e5e5fafcc]::sys::stdio::unix::Stderr>
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/io/mod.rs:626:11
+   7:        0x10136b82c - <std[5d97c59e5e5fafcc]::sys::stdio::unix::Stderr as std[5d97c59e5e5fafcc]::io::Write>::write_fmt
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/io/mod.rs:1730:13
+   8:        0x10134a33c - <std[5d97c59e5e5fafcc]::sys::backtrace::BacktraceLock>::print
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/sys/backtrace.rs:47:25
+   9:        0x10134a33c - std[5d97c59e5e5fafcc]::panicking::default_hook::{closure#0}
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/panicking.rs:292:27
+  10:        0x10135ebf8 - std[5d97c59e5e5fafcc]::panicking::default_hook
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/panicking.rs:319:9
+  11:        0x101310b6c - <alloc[cc4db322bb1ac55d]::boxed::Box<dyn for<'a, 'b> core[663bb9e1522ba5ef]::ops::function::Fn<(&'a std[5d97c59e5e5fafcc]::panic::PanicHookInfo<'b>,), Output = ()> + core[663bb9e1522ba5ef]::marker::Sync + core[663bb9e1522ba5ef]::marker::Send> as core[663bb9e1522ba5ef]::ops::function::Fn<(&std[5d97c59e5e5fafcc]::panic::PanicHookInfo,)>>::call
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/alloc/src/boxed.rs:2333:9
+  12:        0x101310b6c - test[4aa3eea2f4983582]::test_main_inner::<test[4aa3eea2f4983582]::test_main_static::{closure#0}>::{closure#0}
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/test/src/lib.rs:155:21
+  13:        0x10135ef5c - <alloc[cc4db322bb1ac55d]::boxed::Box<dyn for<'a, 'b> core[663bb9e1522ba5ef]::ops::function::Fn<(&'a std[5d97c59e5e5fafcc]::panic::PanicHookInfo<'b>,), Output = ()> + core[663bb9e1522ba5ef]::marker::Sync + core[663bb9e1522ba5ef]::marker::Send> as core[663bb9e1522ba5ef]::ops::function::Fn<(&std[5d97c59e5e5fafcc]::panic::PanicHookInfo,)>>::call
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/alloc/src/boxed.rs:2333:9
+  14:        0x10135ef5c - std[5d97c59e5e5fafcc]::panicking::panic_with_hook
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/panicking.rs:823:13
+  15:        0x10134a3f0 - std[5d97c59e5e5fafcc]::panicking::panic_handler::{closure#0}
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/panicking.rs:681:13
+  16:        0x10134171c - std[5d97c59e5e5fafcc]::sys::backtrace::__rust_end_short_backtrace::<std[5d97c59e5e5fafcc]::panicking::panic_handler::{closure#0}, !>
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/sys/backtrace.rs:182:18
+  17:        0x10134ada8 - __rustc[100742bb89c490cb]::rust_begin_unwind
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/panicking.rs:679:5
+  18:        0x10139c6d4 - core[663bb9e1522ba5ef]::panicking::panic_nounwind_fmt::runtime
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/panicking.rs:122:22
+  19:        0x10139c6d4 - core[663bb9e1522ba5ef]::panicking::panic_nounwind_fmt
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/intrinsics/mod.rs:2458:9
+  20:        0x10139c65c - core[663bb9e1522ba5ef]::panicking::panic_nounwind
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/panicking.rs:225:5
+  21:        0x10139c7b0 - core[663bb9e1522ba5ef]::panicking::panic_cannot_unwind
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/panicking.rs:337:5
+  22:        0x101045e28 - dartforge_native_DartForge_json_close_list
+                               at /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/natives_lists.rs:206:1
+  23:        0x100f27ac8 - dartforge_runtime[2a7d0a6371c7fc44]::abi::literal_owned_tests::json_close_list_copies_nested_ranges_and_keeps_references_alive
+                               at /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/natives_lists.rs:768:28
+  24:        0x100f9b010 - dartforge_runtime[2a7d0a6371c7fc44]::abi::literal_owned_tests::json_close_list_copies_nested_ranges_and_keeps_references_alive::{closure#0}
+                               at /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/natives_lists.rs:749:73
+  25:        0x100f9b010 - <dartforge_runtime[2a7d0a6371c7fc44]::abi::literal_owned_tests::json_close_list_copies_nested_ranges_and_keeps_references_alive::{closure#0} as core[663bb9e1522ba5ef]::ops::function::FnOnce<()>>::call_once
+                               at /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/ops/function.rs:250:5
+  26:        0x101305e18 - <fn() -> core[663bb9e1522ba5ef]::result::Result<(), alloc[cc4db322bb1ac55d]::string::String> as core[663bb9e1522ba5ef]::ops::function::FnOnce<()>>::call_once
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/ops/function.rs:250:5
+  27:        0x101305e18 - test[4aa3eea2f4983582]::__rust_begin_short_backtrace::<core[663bb9e1522ba5ef]::result::Result<(), alloc[cc4db322bb1ac55d]::string::String>, fn() -> core[663bb9e1522ba5ef]::result::Result<(), alloc[cc4db322bb1ac55d]::string::String>>
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/test/src/lib.rs:724:18
+  28:        0x10131114c - test[4aa3eea2f4983582]::run_test_in_process::{closure#0}
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/test/src/lib.rs:747:74
+  29:        0x10131114c - <core[663bb9e1522ba5ef]::panic::unwind_safe::AssertUnwindSafe<test[4aa3eea2f4983582]::run_test_in_process::{closure#0}> as core[663bb9e1522ba5ef]::ops::function::FnOnce<()>>::call_once
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/panic/unwind_safe.rs:275:9
+  30:        0x10131114c - std[5d97c59e5e5fafcc]::panicking::catch_unwind::do_call::<core[663bb9e1522ba5ef]::panic::unwind_safe::AssertUnwindSafe<test[4aa3eea2f4983582]::run_test_in_process::{closure#0}>, core[663bb9e1522ba5ef]::result::Result<(), alloc[cc4db322bb1ac55d]::string::String>>
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/panicking.rs:576:43
+  31:        0x10131114c - std[5d97c59e5e5fafcc]::panicking::catch_unwind::<core[663bb9e1522ba5ef]::result::Result<(), alloc[cc4db322bb1ac55d]::string::String>, core[663bb9e1522ba5ef]::panic::unwind_safe::AssertUnwindSafe<test[4aa3eea2f4983582]::run_test_in_process::{closure#0}>>
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/panicking.rs:544:19
+  32:        0x10131114c - std[5d97c59e5e5fafcc]::panic::catch_unwind::<core[663bb9e1522ba5ef]::panic::unwind_safe::AssertUnwindSafe<test[4aa3eea2f4983582]::run_test_in_process::{closure#0}>, core[663bb9e1522ba5ef]::result::Result<(), alloc[cc4db322bb1ac55d]::string::String>>
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/panic.rs:359:14
+  33:        0x10131114c - test[4aa3eea2f4983582]::run_test_in_process
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/test/src/lib.rs:747:27
+  34:        0x10131114c - test[4aa3eea2f4983582]::run_test::{closure#0}
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/test/src/lib.rs:668:43
+  35:        0x10130c02c - test[4aa3eea2f4983582]::run_test::{closure#1}
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/test/src/lib.rs:698:41
+  36:        0x10130c02c - std[5d97c59e5e5fafcc]::sys::backtrace::__rust_begin_short_backtrace::<test[4aa3eea2f4983582]::run_test::{closure#1}, ()>
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/sys/backtrace.rs:166:18
+  37:        0x101313614 - std[5d97c59e5e5fafcc]::thread::lifecycle::spawn_unchecked::<test[4aa3eea2f4983582]::run_test::{closure#1}, ()>::{closure#1}::{closure#0}
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/thread/lifecycle.rs:70:13
+  38:        0x101313614 - <core[663bb9e1522ba5ef]::panic::unwind_safe::AssertUnwindSafe<std[5d97c59e5e5fafcc]::thread::lifecycle::spawn_unchecked<test[4aa3eea2f4983582]::run_test::{closure#1}, ()>::{closure#1}::{closure#0}> as core[663bb9e1522ba5ef]::ops::function::FnOnce<()>>::call_once
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/panic/unwind_safe.rs:275:9
+  39:        0x101313614 - std[5d97c59e5e5fafcc]::panicking::catch_unwind::do_call::<core[663bb9e1522ba5ef]::panic::unwind_safe::AssertUnwindSafe<std[5d97c59e5e5fafcc]::thread::lifecycle::spawn_unchecked<test[4aa3eea2f4983582]::run_test::{closure#1}, ()>::{closure#1}::{closure#0}>, ()>
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/panicking.rs:576:43
+  40:        0x101313614 - std[5d97c59e5e5fafcc]::panicking::catch_unwind::<(), core[663bb9e1522ba5ef]::panic::unwind_safe::AssertUnwindSafe<std[5d97c59e5e5fafcc]::thread::lifecycle::spawn_unchecked<test[4aa3eea2f4983582]::run_test::{closure#1}, ()>::{closure#1}::{closure#0}>>
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/panicking.rs:544:19
+  41:        0x101313614 - std[5d97c59e5e5fafcc]::panic::catch_unwind::<core[663bb9e1522ba5ef]::panic::unwind_safe::AssertUnwindSafe<std[5d97c59e5e5fafcc]::thread::lifecycle::spawn_unchecked<test[4aa3eea2f4983582]::run_test::{closure#1}, ()>::{closure#1}::{closure#0}>, ()>
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/panic.rs:359:14
+  42:        0x101313614 - std[5d97c59e5e5fafcc]::thread::lifecycle::spawn_unchecked::<test[4aa3eea2f4983582]::run_test::{closure#1}, ()>::{closure#1}
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/thread/lifecycle.rs:68:26
+  43:        0x101313614 - <std[5d97c59e5e5fafcc]::thread::lifecycle::spawn_unchecked<test[4aa3eea2f4983582]::run_test::{closure#1}, ()>::{closure#1} as core[663bb9e1522ba5ef]::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/ops/function.rs:250:5
+  44:        0x101365654 - <alloc[cc4db322bb1ac55d]::boxed::Box<dyn core[663bb9e1522ba5ef]::ops::function::FnOnce<(), Output = ()> + core[663bb9e1522ba5ef]::marker::Send> as core[663bb9e1522ba5ef]::ops::function::FnOnce<()>>::call_once
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/alloc/src/boxed.rs:2319:9
+  45:        0x101365654 - <std[5d97c59e5e5fafcc]::sys::thread::unix::Thread>::new::thread_start
+                               at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/sys/thread/unix.rs:123:17
+  46:        0x18e748ce4 - __pthread_exit
+thread caused non-unwinding panic. aborting.
+error: test failed, to rerun pass `-p dartforge-runtime --lib`
+
+Caused by:
+  process didn't exit successfully: `/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/debug/deps/dartforge_runtime-439dcf0178efcb43` (signal: 6, SIGABRT: process abort signal)
