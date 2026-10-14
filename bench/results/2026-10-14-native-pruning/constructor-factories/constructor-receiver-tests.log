@@ -1,0 +1,37 @@
+Command: cargo test --locked -p dartforge-emit-native --lib pruning::receiver_ -- --test-threads=2
+Environment: SSD tools/env.zsh; CARGO_TARGET_DIR=target/p4; TMPDIR=target/tmp-p8-runtime; Dart SDK 3.6.2; LLVM 22.1.8.
+Binary: target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881
+Captured terminal output (combined Cargo/test stdout and stderr):
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+warning: `dartforge-emit-native` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.23s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 22 tests
+test pruning::receiver_cone_tests::actual_hir_and_llvm_use_the_same_allocation_receiver_classes ... ok
+test pruning::receiver_cone_tests::assembled_table_does_not_reference_an_excluded_adapter ... ok
+test pruning::receiver_cone_tests::exact_classes_do_not_expand_to_subclasses_or_unknown_identities ... ok
+test pruning::receiver_cone_tests::incomplete_ancestry_and_legacy_summaries_are_conservative ... ok
+test pruning::receiver_cone_tests::ir_comment_scopes_only_the_immediately_following_dispatch ... ok
+test pruning::receiver_cone_tests::malformed_or_detached_exact_ir_annotations_remain_unrestricted ... ok
+test pruning::receiver_cone_tests::receiver_metadata_round_trips_and_rejects_invalid_definition_indices ... ok
+test pruning::receiver_cone_tests::unknown_receiver_call_overrides_restricted_calls_without_order_dependence ... ok
+test pruning::receiver_cone_tests::unrelated_nominal_receiver_is_removed_but_subclasses_and_interfaces_stay ... ok
+test pruning::receiver_provenance::tests::actual_sdk_list_filled_returns_are_proved_without_trusting_captured_receivers ... ok
+test pruning::receiver_provenance::tests::allocation_call_and_cfg_phi_union_are_body_proved ... ok
+test pruning::receiver_provenance::tests::borrowed_witness_rejects_same_symbol_body_replacement ... ok
+test pruning::receiver_provenance::tests::cycles_duplicates_wrong_call_abi_and_bad_cfg_are_unknown ... ok
+test pruning::receiver_provenance::tests::instance_allocation_cids_and_factory_returns_are_physical ... ok
+test pruning::receiver_provenance::tests::instance_runtime_allocations_reject_unproved_abi_ranges_and_homonyms ... ok
+test pruning::receiver_provenance::tests::mutations_keep_physical_class_but_loaded_alias_does_not_gain_fact ... ok
+test pruning::receiver_provenance::tests::native_homonym_or_substituted_factory_body_is_not_a_certificate ... ok
+test pruning::receiver_provenance::tests::parameter_load_capture_and_opaque_returns_stay_unknown ... ok
+test pruning::receiver_provenance::tests::phi_unknown_arm_and_non_dominating_definition_do_not_narrow ... ok
+test pruning::receiver_provenance::tests::throws_do_not_pollute_normal_returns_and_dead_returns_are_not_evidence ... ok
+test pruning::receiver_provenance::tests::unreviewed_prepared_arc_allocation_abi_stays_unknown ... ok
+test pruning::receiver_cone_tests::actual_sdk_getter_adapter_keeps_its_formal_receiver_cone ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 556 filtered out; finished in 46.48s
+
+Terminal exit code: 0
