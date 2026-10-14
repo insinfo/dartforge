@@ -1,0 +1,24 @@
+{
+  "scope": "Program-local getter-result facts only; cached SDK propagation is separate.",
+  "positive": [
+    {
+      "source": "owner.encoder.convert('owner')",
+      "getter_receiver": "Owner physical allocation",
+      "getter_result": "EncoderA physical class",
+      "downstream_selector": "convert",
+      "requirement": "ON retains/proves the local EncoderA receiver fact; OFF has no selector-result provenance fact at this edge."
+    },
+    {
+      "source": "factoryOwner(first).encoder.convert('phi')",
+      "getter_receiver": "Owner/OtherOwner factory union when the optimized HIR retains the phi",
+      "getter_result": "EncoderA/EncoderB union",
+      "requirement": "If the source loop is unrolled or factory branches specialize, compare the resulting separate source edges rather than claiming a surviving phi."
+    }
+  ],
+  "negative": [
+    "convertUnknown formal receiver must preserve dynamic fallback until an independently proved physical callsite context exists.",
+    "MissingGetter has no g:encoder table member; noSuchMethod side effect and returned EncoderA must execute exactly once.",
+    "Actual ASCII/UTF8/Base64 semantic outputs must match both official oracles. Their cached SDK getter-return propagation is not a required local-fact proof."
+  ],
+  "inspection": "After producer validation, extract main/convertUnknown LLVM bodies and WHY rows, compare physical/direct convert callsites. Unrestricted convertUnknown can legitimately retain all convert table pairs, so whole-artifact method disappearance is not required. No net size claim from this fixture."
+}

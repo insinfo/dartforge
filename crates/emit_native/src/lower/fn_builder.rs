@@ -1119,7 +1119,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // read of the pending flag itself is the standalone check (the end of a
         // statement inside `try`) and stays.
         // `DARTFORGE_NO_EFFECTS_IN_CHECK=1` goes back to checking everything (measurement).
-        if let Instruction::CallRuntime { name, .. } = &inst
+        if let Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } = &inst
             && name != "dartforge_exception_pending"
             && !Self::check_every_extern()
         {

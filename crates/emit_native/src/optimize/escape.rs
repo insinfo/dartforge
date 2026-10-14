@@ -45,7 +45,7 @@ pub fn replace_objects(func: &mut Function) -> bool {
         for (v, inst, _) in &b.instructions {
             // Only program objects (cid ≥ 128): runtime classes have a
             // layout and identity known to the runtime (§2.4).
-            if let Instruction::CallRuntime { name, args, .. } = inst
+            if let Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } = inst
                 && name == "dartforge_object_new"
                 && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
                     if *c >= dartforge_runtime::layout::FIRST_FREE_CID)
@@ -62,13 +62,13 @@ pub fn replace_objects(func: &mut Function) -> bool {
         for (_, inst, ty) in &b.instructions {
             // The recognized access: the object and the field, not in another position.
             let recognized = match inst {
-                Instruction::CallRuntime { name, args, .. } if name == "dartforge_object_get" && args.len() == 2 => {
+                Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_object_get" && args.len() == 2 => {
                     match (&args[0].0, const_index(&args[1].0)) {
                         (Operand::Val(o), Some(i)) if candidates.contains_key(o) => Some((*o, i, Access::Le(*ty), None)),
                         _ => None,
                     }
                 }
-                Instruction::CallRuntime { name, args, .. } if name == "dartforge_object_set" && args.len() == 4 => {
+                Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_object_set" && args.len() == 4 => {
                     match (&args[0].0, const_index(&args[1].0), flag(&args[3].0)) {
                         (Operand::Val(o), Some(i), Some(r)) if candidates.contains_key(o) => {
                             let t = operand_type(&args[2].0, &types).unwrap_or(Type::Void);
@@ -99,7 +99,7 @@ pub fn replace_objects(func: &mut Function) -> bool {
                 None => operands(inst, &mut |op| {
                     if let Operand::Val(x) = op
                         && candidates.contains_key(x)
-                        && !matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_object_new")
+                        && !matches!(inst, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_object_new")
                     {
                         escaped.insert(*x);
                     }
@@ -177,7 +177,7 @@ pub fn replace_objects(func: &mut Function) -> bool {
         }).collect();
         for (_, inst, ty) in &mut b.instructions {
             let new = match inst {
-                Instruction::CallRuntime { name, args, .. } if name == "dartforge_object_get" && args.len() == 2 => {
+                Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_object_get" && args.len() == 2 => {
                     match (&args[0].0, const_index(&args[1].0)) {
                         (Operand::Val(o), Some(i)) if accepted.contains(o) => {
                             Some(Instruction::Load { ptr: Operand::Val(addresses[&(*o, i)]), ty: *ty })
@@ -185,7 +185,7 @@ pub fn replace_objects(func: &mut Function) -> bool {
                         _ => None,
                     }
                 }
-                Instruction::CallRuntime { name, args, .. } if name == "dartforge_object_set" && args.len() == 4 => {
+                Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_object_set" && args.len() == 4 => {
                     match (&args[0].0, const_index(&args[1].0)) {
                         (Operand::Val(o), Some(i)) if accepted.contains(o) => {
                             Some(Instruction::Store { ptr: Operand::Val(addresses[&(*o, i)]), val: args[2].0.clone() })

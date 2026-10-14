@@ -1,0 +1,23 @@
+{
+  "artifact": {
+    "blake3": "e6f72753ff1018c1a361c7175803d1cbf9472ed9d39fc6bf525b2207bb184593",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "c6f84e48f5f3cd29b988018c929017046e0f35169e22e96700c8da35fc20f83d",
+    "optimized": true,
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-validation/off/program"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "d574fab6cc9b76ab422f0ebab8c64c568da013242b6ccc82ada8ed261ac13d5d",
+      "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/devirtualization/getter_return_provenance.dart"
+    }
+  ],
+  "verification_implemented": false
+}

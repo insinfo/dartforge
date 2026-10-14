@@ -517,7 +517,7 @@ enum Effect {
 
 fn effect(inst: &Instruction, nl: &HashSet<String>) -> Effect {
     match inst {
-        Instruction::CallRuntime { name, .. } => match name.as_str() {
+        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } => match name.as_str() {
             // The emitter unwinds right after a clear that did not clear (the
             // isolate's unwinding): on the normal path, it is clear.
             "dartforge_exception_clear" => Effect::Cleans,

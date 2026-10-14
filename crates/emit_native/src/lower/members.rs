@@ -69,6 +69,25 @@ pub fn layout(ctx: &Context, cid: ClassId) -> Vec<VariableId> {
     fields
 }
 
+/// Declaration and layout premises of one resolved managed field, independent of its values.
+pub(super) fn declared_field_metadata(ctx: &Context, vid: VariableId, layout_index: usize) -> Option<FieldDeclaration> {
+    let variable = ctx.program.variable(vid);
+    let owner = variable.class?;
+    let class = ctx.program.class(owner);
+    if variable.static_ || variable.external || class.library != variable.library
+        || ctx.program.class_with_homonym(owner) || ctx.program.library_has_augmentations(variable.library)
+        || !class.fields.contains(&vid)
+        || class.fields.iter().filter(|&&field| ctx.program.variable(field).name == variable.name).count() != 1
+    { return None; }
+    let storage_type = super::layouts_arc::representation(ctx, vid);
+    if matches!(storage_type, Type::Void | Type::Ptr) || storage_type.is_vector() { return None; }
+    Some(FieldDeclaration {
+        library_uri: ctx.program.library(variable.library).uri.clone(), owner: ctx.symbol_name(class.name).to_owned(),
+        name: ctx.symbol_name(variable.name).to_owned(), is_final: variable.final_, is_late: variable.late,
+        layout_index, storage_type,
+    })
+}
+
 /// Declared (or inferred) type of a variable/field.
 pub fn variable_type(ctx: &Context, vid: VariableId) -> TypeId {
     let data = &ctx.outline.variables[vid.0 as usize];
@@ -124,6 +143,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::I1 | Type::I8 => Operand::Constant(Constant::Bool(false)),
             _ => Operand::Constant(Constant::Null),
         }
+    }
+
+    /// Uses the resolved declaration, including inherited fields, rather than the receiver type.
+    fn tracing_field_declaration(&self, vid: VariableId, object: &Operand) -> Option<FieldDeclaration> {
+        if self.ctx.arc_memory || self.operand_type(object) != Type::Ref { return None; }
+        let owner = self.ctx.program.variable(vid).class?;
+        if is_mixin(self.ctx, owner) { return None; }
+        declared_field_metadata(self.ctx, vid, self.field_index(vid)?)
     }
 
     /// Position of the field in the layout of the class that declares it (R7). The layout of
@@ -346,12 +373,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         } else {
             Type::I64
         };
+        let declaration = self.tracing_field_declaration(vid, &obj);
         let bits = self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_object_get".to_string(),
                 args: vec![(obj, Type::Ref), (idx, Type::I64)],
                 ret_ty: ret,
-            },
+            }.with_field_declaration(declaration),
             ret,
         );
         self.bits_to(bits, repr)
@@ -419,6 +447,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.emit(Instruction::SetField { object: obj.clone(), index, value: val }, Type::Void);
         } else {
             let (bits, is_ref) = self.to_bits(val);
+            let declaration = self.tracing_field_declaration(vid, &obj).filter(|field| {
+                self.operand_type(&bits) == if field.storage_type == Type::Ref { Type::Ref } else { Type::I64 }
+            });
             self.emit(
                 Instruction::CallRuntime {
                     name: "dartforge_object_set".to_string(),
@@ -432,7 +463,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         ),
                     ],
                     ret_ty: Type::Void,
-                },
+                }.with_field_declaration(declaration),
                 Type::Void,
             );
         }
@@ -2355,25 +2386,25 @@ mod arc_mixin_field_tests {
                 let reads: Vec<_> = m.functions.iter().filter(|f| f.name == "ler" || f.symbol.contains("preparado"))
                     .flat_map(|f| &f.blocks).flat_map(|b| &b.instructions).collect();
                 let probes = reads.iter().filter(|(_, i, ty)| matches!(i,
-                    Instruction::CallRuntime { name, ret_ty: Type::Ref, .. }
+                    Instruction::CallRuntime { name, ret_ty: Type::Ref, .. } | Instruction::DeclaredFieldCall { name, ret_ty: Type::Ref, .. }
                         if name == "dartforge_arc_read_field_late_ref_v1") && *ty == Type::Ref).count();
                 if arc {
                     assert_eq!(probes, 2, "late Ref and scalar late with an initializer use the Ref probe");
                     assert!(!reads.iter().any(|(_, i, _)| matches!(i,
-                        Instruction::CallRuntime { name, .. } if name == "dartforge_object_get")));
+                        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_object_get")));
                     assert!(reads.iter().any(|(_, i, _)| matches!(i,
-                        Instruction::CallRuntime { name, .. } if name == "dartforge_late_field_initialized")));
+                        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_late_field_initialized")));
                 } else {
                     assert_eq!(probes, 0);
                     assert!(reads.iter().any(|(_, i, _)| matches!(i,
-                        Instruction::CallRuntime { name, .. } if name == "dartforge_object_get")));
+                        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_object_get")));
                 }
                 let mut types = std::collections::HashSet::new();
                 let mut marks = 0;
                 let mut guards = 0;
                 for b in &f.blocks {
                     for (pos, (_, i, _)) in b.instructions.iter().enumerate() {
-                        if let Instruction::CallRuntime { name, args, .. } = i {
+                        if let Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } = i {
                             if name == "dartforge_late_field_initialized" { guards += 1; }
                             if name == "dartforge_late_field_mark_initialized" {
                                 marks += 1;
@@ -2396,7 +2427,7 @@ mod arc_mixin_field_tests {
                                     };
                                     types.insert(ty);
                                 } else {
-                                    assert!(matches!(&previous_ones.last().unwrap().1, Instruction::CallRuntime { name, .. }
+                                    assert!(matches!(&previous_ones.last().unwrap().1, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. }
                                         if name == "dartforge_object_set"));
                                 }
                             }
@@ -2408,7 +2439,7 @@ mod arc_mixin_field_tests {
                 if arc {
                     assert_eq!(types, std::collections::HashSet::from([Type::Ref, Type::I64, Type::I1, Type::F64]));
                     assert!(!f.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
-                        matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_object_set")));
+                        matches!(i, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_object_set")));
                 } else {
                     assert!(!f.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)| matches!(i, Instruction::SetField { .. })));
                 }
@@ -2449,7 +2480,7 @@ mod arc_mixin_field_tests {
                     match inst {
                         Instruction::GetField { index, .. } if *ty == Type::Ref => { reads.insert(*index); }
                         Instruction::SetField { index, .. } => { writes.insert(*index); }
-                        Instruction::CallRuntime { name, .. } if matches!(name.as_str(), "dartforge_object_get" | "dartforge_object_set") => raw_items += 1,
+                        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if matches!(name.as_str(), "dartforge_object_get" | "dartforge_object_set") => raw_items += 1,
                         _ => {}
                     }
                 }

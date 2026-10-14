@@ -1,0 +1,9 @@
+
+running 4 tests
+test pruning::receiver_provenance::field_provenance::tests::incomplete_source_corpus_never_certifies_even_with_layout_and_all_local_writers ... ok
+test pruning::receiver_provenance::field_provenance::tests::refuses_other_births_unknown_alias_writers_and_conflicting_layouts ... ok
+test pruning::receiver_provenance::field_provenance::tests::refuses_missing_guard_failure_publication_and_partial_or_raw_initialization ... ok
+test pruning::receiver_provenance::field_provenance::tests::requires_physical_receiver_and_guarded_complete_constant_initialization ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 698 filtered out; finished in 0.01s
+

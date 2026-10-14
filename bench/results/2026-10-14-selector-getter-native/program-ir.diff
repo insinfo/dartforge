@@ -1,0 +1,26 @@
+--- off/program.ll
++++ on/program.ll
+@@ -768,6 +768,7 @@
+   %sat11 = getelementptr [2 x i64], ptr %sargs11, i64 0, i64 1
+   store i64 0, ptr %sat11
+   %sic11 = getelementptr i64, ptr %area, i64 32
++  ; df.selector-exact 1,1025
+   %sf11 = call ptr @df.selector(ptr %sic11, i64 %v7, i64 -1047269154501687337, ptr @df.seln.2, i64 9)
+   %v11 = call i64 %sf11(i64 %v7, ptr %sargs11, ptr @df.const.i64.2.5add879d03074d0745fe088492026a7fe5e24eae5505fb5feeaa2dea820028da)
+   store i64 %v11, ptr %gcs0
+@@ -1120,6 +1121,7 @@
+   %sat88 = getelementptr [2 x i64], ptr %sargs88, i64 0, i64 1
+   store i64 0, ptr %sat88
+   %sic88 = getelementptr i64, ptr %area, i64 40
++  ; df.selector-exact 1,1025,1026
+   %sf88 = call ptr @df.selector(ptr %sic88, i64 %v84, i64 -1047269154501687337, ptr @df.seln.2, i64 9)
+   %v88 = call i64 %sf88(i64 %v84, ptr %sargs88, ptr @df.const.i64.2.5add879d03074d0745fe088492026a7fe5e24eae5505fb5feeaa2dea820028da)
+   store i64 %v88, ptr %gcs1
+@@ -1326,6 +1328,7 @@
+   %sat135 = getelementptr [2 x i64], ptr %sargs135, i64 0, i64 1
+   store i64 0, ptr %sat135
+   %sic135 = getelementptr i64, ptr %area, i64 48
++  ; df.selector-exact 1,1025,1026
+   %sf135 = call ptr @df.selector(ptr %sic135, i64 %v131, i64 -1047269154501687337, ptr @df.seln.2, i64 9)
+   %v135 = call i64 %sf135(i64 %v131, ptr %sargs135, ptr @df.const.i64.2.5add879d03074d0745fe088492026a7fe5e24eae5505fb5feeaa2dea820028da)
+   store i64 %v135, ptr %gcs1

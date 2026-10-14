@@ -17,6 +17,9 @@ use dartforge_frontend::ast::{self, CollectionElement, CreationKeyword, ExprId, 
 use dartforge_types::table::{Type as DartType, TypeId};
 use dartforge_types::resolved::{MemberRef, Resolved};
 
+#[cfg(test)]
+mod cache_failure_tests;
+
 impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Name of a `#x` literal; private names carry the identity of the
     /// library and use a hexadecimal suffix, like the VM's mangled name.

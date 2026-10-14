@@ -341,6 +341,20 @@ fn register_program_classes(ctx: &Context, module: &mut Module) {
         let fields = members::layout(ctx, cid);
         let base = enums::layout_base(ctx, cid);
         layouts_arc::register(ctx, module, class_id, &fields, base);
+        if class_id >= dartforge_runtime::layout::FIRST_FREE_CID as u32
+            && !module.pruning_ambiguous_class_ids.contains(&class_id)
+            && !ctx.program.class_with_homonym(cid)
+        {
+            let mut slots = vec![None; base];
+            slots.extend(fields.iter().enumerate().map(|(index, &field)|
+                members::declared_field_metadata(ctx, field, base + index)));
+            if module.declared_field_layouts.contains_key(&class_id) {
+                module.declared_field_layouts.remove(&class_id);
+                module.pruning_ambiguous_class_ids.insert(class_id);
+            } else {
+                module.declared_field_layouts.insert(class_id, slots);
+            }
+        }
         module.classes.push(ClassDef {
             id: class_id,
             name,

@@ -1,0 +1,55 @@
+{
+  "result": "PASS",
+  "gates": {
+    "ordinary_nested_const_optimized_IR_and_native_mock": {
+      "session": 30332,
+      "passed": 1,
+      "failed": 0,
+      "log": "native-probe-final.log"
+    },
+    "canonical": {
+      "session": 89852,
+      "passed": 13,
+      "failed": 0,
+      "log": "canonical.log"
+    },
+    "existing_effects": {
+      "passed": 2,
+      "failed": 0,
+      "log": "effects.log"
+    }
+  },
+  "test_binary": {
+    "path": "target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881",
+    "sha256": "5495f52a49b4187d39f8d04c7e0c65daeb0158c44321975abbf53d41173c3289"
+  },
+  "owned_source_hashes": {
+    "crates/emit_native/src/optimize/effects.rs": "1d0f666c77b9e6b25716b8341623e2dae14655c412f384de1c2f3d7839108bab",
+    "crates/emit_native/src/lower/constants.rs": "33d736cccb0fea8ccbaa43cdf9a1b331867707f94ee9dbab734b6b15839dce42",
+    "crates/emit_native/src/lower/constants/cache_failure_tests.rs": "49db3e4f6e21fb74e77abed3c078b7ad60f6db88509c013c26588aa3e166cdc8"
+  },
+  "shared_source_note": "effects.rs includes separately-owned DeclaredFieldCall handling; that existing diff is preserved, not attributed to the cache fix. Test-only constants.rs module registration; the only new production behavior is the reserved canonical-getter fallibility seed.",
+  "VM_oracle": {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-const-cache-failure/main.dart"
+    ],
+    "exit": 0,
+    "stdout": "7\n",
+    "stderr_bytes": 0,
+    "sdk_executable_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa"
+  },
+  "native_scope": "Actual optimized getter LLVM bodies and emitted child stack guard compiled with LLVM22 -O0 plus exported test wrapper and native C mock on macOS. Parent allocator arms stack_limit=UINTPTR_MAX before child entry. Mock validates error propagation, no cache/global-ready publication, unchanged root-chain top, valid retry child value7, and warm cache identity/no additional allocations. It does not validate production allocator/GC/error-object construction or full Dart executable failure/retry.",
+  "native_compile_flags": [
+    "-O0",
+    "-Wno-override-module",
+    "-isysroot",
+    "xcrun --sdk macosx --show-sdk-path"
+  ],
+  "limitations": [
+    "Other generated context/roots-frame stack guards are not yet included in the general no-throw summary; this patch deliberately covers generated dfc.*.get only.",
+    "Harness attempts01\u201308 are preserved: include/link/body extraction issues and initially wrong source allocation order / raw scalar expected value / infeasible CFG traversal assumptions. They are not relabeled compiler correctness failures.",
+    "No performance measurements. No production runtime changes."
+  ],
+  "immutable_prior_IR_witness": "target/native_cache/sdk/c4e12e680cf2306d3c0645ee1e6beda3/convert.ll, dfc.3fcc3763a4fbed30.get child-check removal before Base64Codec publication."
+}

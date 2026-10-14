@@ -1,0 +1,177 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-producer/dartforge",
+  "compiler_sha256": "0a876b5adb34707a38fc75d4a5f74da90d22fb26fc77cf9520c403b7d5e79d2f",
+  "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/devirtualization/getter_return_provenance.dart",
+  "source_sha256": "b66791b34bb267dad7a24333d85b89239e14f978562e48aa4b03c1d0e3031123",
+  "SDK_binary_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+  "expected_stdout": "A:owner\nA:phi\nB:phi\nB:custom\nA:missing\ngetters:2\n[65]\n[195, 169]\nQUI=\n",
+  "environment": {
+    "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-validation",
+    "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_NO_PHYSICAL_GETTER_DEVIRTUALIZATION": "1",
+    "DARTFORGE_KEEP_IR": "1",
+    "DARTFORGE_LINK_MAP": "1"
+  },
+  "removed_environment": [
+    "DARTFORGE_NO_SELECTOR_RETURN_PROVENANCE",
+    "DARTFORGE_ARC_PREPARED",
+    "DARTFORGE_ARC_PREPARE",
+    "DARTFORGE_ARC_CHECK",
+    "DARTFORGE_EFFECTS",
+    "DARTFORGE_GC_STRESS",
+    "DARTFORGE_NO_CANONICAL_CACHE_PROVENANCE",
+    "DARTFORGE_NO_PRE_PRUNE_CFG",
+    "DARTFORGE_NO_PLATFORM_SPECIALIZATION",
+    "DARTFORGE_NO_ENUM_PATTERN_IDENTITY"
+  ],
+  "oracles": {
+    "vm": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "run",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/devirtualization/getter_return_provenance.dart"
+      ],
+      "exit": 0,
+      "stdout": "A:owner\nA:phi\nB:phi\nB:custom\nA:missing\ngetters:2\n[65]\n[195, 169]\nQUI=\n",
+      "stderr": ""
+    },
+    "official_aot_compile": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "exe",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/devirtualization/getter_return_provenance.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-validation/official"
+      ],
+      "exit": 0,
+      "stdout": "Generated: /Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-validation/official\n",
+      "stderr": ""
+    },
+    "official_aot_run": {
+      "exit": 0,
+      "stdout": "A:owner\nA:phi\nB:phi\nB:custom\nA:missing\ngetters:2\n[65]\n[195, 169]\nQUI=\n",
+      "stderr": "",
+      "binary_sha256": "dfd34c7d730c960efe73626fbe9b4aed9e1475ceab40e23dbcb8f6e4eff4c297"
+    }
+  },
+  "profiles": {
+    "off": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/devirtualization/getter_return_provenance.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-validation/off/program"
+      ],
+      "compile_exit": 0,
+      "opt_out": "1",
+      "effective_environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-validation",
+        "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+        "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+        "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "DARTFORGE_NO_PHYSICAL_GETTER_DEVIRTUALIZATION": "1",
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1",
+        "DARTFORGE_WHY": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-validation/off/retention.tsv",
+        "DARTFORGE_NO_SELECTOR_RETURN_PROVENANCE": "1"
+      },
+      "binary_sha256": "a04b0e9480da23b2387f358f0e5e6ff72794627a3134b0cd937a7ea7e08dbdc8",
+      "binary_bytes": 3186192,
+      "normal": {
+        "exit": 0,
+        "stdout": "A:owner\nA:phi\nB:phi\nB:custom\nA:missing\ngetters:2\n[65]\n[195, 169]\nQUI=\n",
+        "stderr": "",
+        "exact": true
+      },
+      "stress": {
+        "exit": 0,
+        "stdout": "A:owner\nA:phi\nB:phi\nB:custom\nA:missing\ngetters:2\n[65]\n[195, 169]\nQUI=\n",
+        "stderr": "",
+        "exact": true
+      },
+      "artifacts": {
+        "off/program.map": {
+          "sha256": "177a0cde798f7269a5a53fc40f76ab62edadaacb45cf0f0a6c75d72828417bb6",
+          "bytes": 1486631
+        },
+        "off/retention.tsv": {
+          "sha256": "e612448bf98f47295c4d1765178f5672d223db6de1c9cd48f2fccdebf650e3ba",
+          "bytes": 474274
+        },
+        "off/.df_tmp/program.ll": {
+          "sha256": "20cbbd4bf8e19c1dd125e1d646e9b29ecced9251f30feb68c8ce4b34fcb6e8e9",
+          "bytes": 648749
+        }
+      }
+    },
+    "on": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/devirtualization/getter_return_provenance.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-validation/on/program"
+      ],
+      "compile_exit": 0,
+      "opt_out": null,
+      "effective_environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-validation",
+        "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+        "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+        "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "DARTFORGE_NO_PHYSICAL_GETTER_DEVIRTUALIZATION": "1",
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1",
+        "DARTFORGE_WHY": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-validation/on/retention.tsv"
+      },
+      "binary_sha256": "a04b0e9480da23b2387f358f0e5e6ff72794627a3134b0cd937a7ea7e08dbdc8",
+      "binary_bytes": 3186192,
+      "normal": {
+        "exit": 0,
+        "stdout": "A:owner\nA:phi\nB:phi\nB:custom\nA:missing\ngetters:2\n[65]\n[195, 169]\nQUI=\n",
+        "stderr": "",
+        "exact": true
+      },
+      "stress": {
+        "exit": 0,
+        "stdout": "A:owner\nA:phi\nB:phi\nB:custom\nA:missing\ngetters:2\n[65]\n[195, 169]\nQUI=\n",
+        "stderr": "",
+        "exact": true
+      },
+      "artifacts": {
+        "on/program.map": {
+          "sha256": "09c2e68acd6dcb3b9b420c54baa3a2191409bf2e449ac98fd9e0bcbb848bbbfc",
+          "bytes": 1486630
+        },
+        "on/retention.tsv": {
+          "sha256": "e612448bf98f47295c4d1765178f5672d223db6de1c9cd48f2fccdebf650e3ba",
+          "bytes": 474274
+        },
+        "on/.df_tmp/program.ll": {
+          "sha256": "8253a4912004537804d4df115f70d6846cdca569c9a5b9c5dbfd4d8843cd7628",
+          "bytes": 648846
+        }
+      }
+    }
+  },
+  "scope": "Four native executions (OFF/ON \u00d7 normal/GCstress). No timing, GUI, broad parity or cached SDK getter propagation claim.",
+  "inputs_stable": true
+}

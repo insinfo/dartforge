@@ -1296,7 +1296,7 @@ pub(crate) fn uses_of(inst: &Instruction) -> Vec<ValueId> {
             args.iter().for_each(&mut op);
             op(tuple_types);
         }
-        Instruction::CallRuntime { args, .. } => args.iter().for_each(|(a, _)| op(a)),
+        Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } => args.iter().for_each(|(a, _)| op(a)),
         Instruction::IsClass { object, .. } => op(object),
         Instruction::StoreGlobal { val, .. } => op(val),
         Instruction::Phi { .. } => {}
@@ -1442,7 +1442,7 @@ fn replace_uses(inst: &mut Instruction, swap: &dyn Fn(ValueId) -> Option<ValueId
             args.iter_mut().for_each(t);
             t(tuple_types);
         }
-        Instruction::CallRuntime { args, .. } => args.iter_mut().for_each(|(a, _)| t(a)),
+        Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } => args.iter_mut().for_each(|(a, _)| t(a)),
         Instruction::IsClass { object, .. } => t(object),
         Instruction::StoreGlobal { val, .. } => t(val),
         Instruction::LoadIndexed { base, index } => {

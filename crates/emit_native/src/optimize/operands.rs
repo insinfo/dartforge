@@ -103,7 +103,7 @@ macro_rules! visit {
                     args.$name_t().for_each(|a| f(a));
                     f(tuple_types);
                 }
-                Instruction::CallRuntime { args, .. } => args.$name_t().for_each(|(a, _)| f(a)),
+                Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } => args.$name_t().for_each(|(a, _)| f(a)),
                 Instruction::IsClass { object, .. } => f(object),
                 Instruction::StoreGlobal { val, .. } => f(val),
                 Instruction::Phi { incoming, .. } => incoming.$name_t().for_each(|(_, a)| f(a)),

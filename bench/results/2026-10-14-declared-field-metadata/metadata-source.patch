@@ -1,0 +1,1145 @@
+diff --git a/crates/emit_native/src/hir.rs b/crates/emit_native/src/hir.rs
+index cbfab933..724090e8 100644
+--- a/crates/emit_native/src/hir.rs
++++ b/crates/emit_native/src/hir.rs
+@@ -236,6 +236,28 @@ pub enum StrongStoreMode {
+     Move,
+ }
+ 
++/// Identity of the resolved instance-field declaration, independent of receiver layout.
++/// This is a declaration fact, not a physical class or stored-value certificate.
++#[derive(Debug, Clone, PartialEq, Eq, Hash)]
++pub struct FieldDeclaration {
++    pub library_uri: String,
++    pub owner: String,
++    pub name: String,
++    pub is_final: bool,
++    pub is_late: bool,
++    /// Position from the declaring class layout; not a receiver-class certificate.
++    pub layout_index: usize,
++    /// Declared storage representation before conversion to the runtime bits ABI.
++    pub storage_type: Type,
++}
++
++impl FieldDeclaration {
++    /// Semantic identity excludes flags and layout premises, which a proof must reconcile.
++    pub(crate) fn identity(&self) -> (&str, &str, &str) {
++        (&self.library_uri, &self.owner, &self.name)
++    }
++}
++
+ /// Instructions that produce a value (or perform a write effect).
+ #[derive(Debug, Clone)]
+ pub enum Instruction {
+@@ -467,6 +489,15 @@ pub enum Instruction {
+         args: Vec<(Operand, Type)>,
+         ret_ty: Type,
+     },
++    /// Checked tracing field operation with its resolved declaration attached.
++    /// Runtime ABI, exceptions, rooting and side effects remain identical to CallRuntime.
++    /// Unannotated operations are unknown to any declaration writer certificate.
++    DeclaredFieldCall {
++        declaration: FieldDeclaration,
++        name: String,
++        args: Vec<(Operand, Type)>,
++        ret_ty: Type,
++    },
+ 
+     // Type check and cast
+     CheckNotNull(Operand),
+@@ -1137,6 +1168,9 @@ pub struct Module {
+     /// open stores and reads of the program prepared alone
+     /// (`arc_external_callees`); they do not declare classes of this module.
+     pub arc_external_layouts: std::collections::HashMap<u32, Vec<Type>>,
++    /// Producer-declared managed slots by physical CID; None covers synthetic/unknown slots.
++    /// This does not infer stored values or close writers. Missing/ambiguous maps are unknown.
++    pub declared_field_layouts: std::collections::HashMap<u32, Vec<Option<FieldDeclaration>>>,
+     pub classes: Vec<ClassDef>,
+     pub selectors: Vec<SelectorDef>,
+     pub subtyping_edges: Vec<(u32, u32)>,
+@@ -1252,3 +1286,150 @@ impl Module {
+         id
+     }
+ }
++
++impl Instruction {
++    /// Attaches declaration metadata only when the complete checked field ABI agrees.
++    /// This checks a producer layout fact; it does not certify receiver identity or writers.
++    pub(crate) fn with_field_declaration(self, declaration: Option<FieldDeclaration>) -> Self {
++        match (self, declaration) {
++            (Self::CallRuntime { name, args, ret_ty }, Some(declaration))
++                if declaration.storage_type != Type::Void
++                    && declaration.storage_type != Type::Ptr
++                    && !declaration.storage_type.is_vector()
++                    && args.get(0).is_some_and(|(_, ty)| *ty == Type::Ref)
++                    && args.get(1).is_some_and(|(index, ty)| *ty == Type::I64
++                        && matches!(index, Operand::Constant(Constant::Int(i))
++                            if usize::try_from(*i).ok() == Some(declaration.layout_index)))
++                    && ((name == "dartforge_object_get" && args.len() == 2
++                        && ret_ty == if declaration.storage_type == Type::Ref { Type::Ref } else { Type::I64 })
++                        || (name == "dartforge_object_set" && args.len() == 4
++                            && ret_ty == Type::Void && args[2].1 == Type::I64 && args[3].1 == Type::I8
++                            && matches!(&args[3].0, Operand::Constant(Constant::Int(tag))
++                                if *tag == i64::from(declaration.storage_type == Type::Ref)))) =>
++            {
++                Self::DeclaredFieldCall { declaration, name, args, ret_ty }
++            }
++            (instruction, _) => instruction,
++        }
++    }
++}
++
++#[cfg(test)]
++mod declared_field_tests {
++    use super::*;
++
++    fn declaration(owner: &str) -> FieldDeclaration {
++        FieldDeclaration { library_uri: "package:fixture/base.dart".into(), owner: owner.into(),
++            name: "_encoder".into(), is_final: true, is_late: false,
++            layout_index: 0, storage_type: Type::Ref }
++    }
++
++    #[test]
++    fn identity_is_not_an_incidental_slot_or_subclass() {
++        assert_ne!(declaration("Base"), declaration("Unrelated"));
++        let mut other_library = declaration("Base");
++        other_library.library_uri = "package:other/base.dart".into();
++        assert_ne!(declaration("Base"), other_library);
++        assert_eq!(declaration("Base"), declaration("Base").clone());
++        let original = declaration("Base");
++        let mut contradictory_schema = original.clone();
++        contradictory_schema.layout_index = 3;
++        assert_eq!(original.identity(), contradictory_schema.identity());
++        assert_ne!(original, contradictory_schema);
++    }
++
++    #[test]
++    fn attachment_preserves_checked_arguments_and_unknown_operations() {
++        let call = Instruction::CallRuntime { name: "dartforge_object_get".into(),
++            args: vec![(Operand::Val(ValueId(1)), Type::Ref),
++                (Operand::Constant(Constant::Int(0)), Type::I64)], ret_ty: Type::Ref };
++        let annotated = call.clone().with_field_declaration(Some(declaration("Base")));
++        assert!(matches!(annotated, Instruction::DeclaredFieldCall { ref name, ref args,
++            ret_ty: Type::Ref, .. } if name == "dartforge_object_get" && args.len() == 2));
++        assert!(matches!(call.with_field_declaration(None), Instruction::CallRuntime { .. }));
++        let unrelated = Instruction::CallRuntime { name: "untrusted_getter".into(),
++            args: vec![], ret_ty: Type::Ref };
++        assert!(matches!(unrelated.with_field_declaration(Some(declaration("Base"))),
++            Instruction::CallRuntime { .. }));
++    }
++
++    #[test]
++    fn declaration_attachment_refuses_incompatible_abi_and_slot() {
++        let get = Instruction::CallRuntime { name: "dartforge_object_get".into(),
++            args: vec![(Operand::Val(ValueId(1)), Type::Ref),
++                (Operand::Constant(Constant::Int(0)), Type::I64)], ret_ty: Type::Ref };
++        let mut invalid = Vec::new();
++        for index in [-1, 1] {
++            let mut call = get.clone();
++            if let Instruction::CallRuntime { args, .. } = &mut call {
++                args[1].0 = Operand::Constant(Constant::Int(index));
++            }
++            invalid.push(call);
++        }
++        let mut wrong_receiver = get.clone();
++        if let Instruction::CallRuntime { args, .. } = &mut wrong_receiver { args[0].1 = Type::I64; }
++        invalid.push(wrong_receiver);
++        let mut wrong_result = get.clone();
++        if let Instruction::CallRuntime { ret_ty, .. } = &mut wrong_result { *ret_ty = Type::I64; }
++        invalid.push(wrong_result);
++        for tag in [0, 2] {
++            invalid.push(Instruction::CallRuntime { name: "dartforge_object_set".into(),
++                args: vec![(Operand::Val(ValueId(1)), Type::Ref),
++                    (Operand::Constant(Constant::Int(0)), Type::I64),
++                    (Operand::Val(ValueId(2)), Type::I64),
++                    (Operand::Constant(Constant::Int(tag)), Type::I8)], ret_ty: Type::Void });
++        }
++        for call in invalid {
++            assert!(matches!(call.with_field_declaration(Some(declaration("Base"))),
++                Instruction::CallRuntime { .. }));
++        }
++    }
++
++    #[test]
++    fn cloned_field_call_keeps_identity_and_remaps_all_arguments() {
++        let call = Instruction::CallRuntime { name: "dartforge_object_set".into(),
++            args: vec![(Operand::Val(ValueId(1)), Type::Ref),
++                (Operand::Constant(Constant::Int(0)), Type::I64),
++                (Operand::Val(ValueId(3)), Type::I64),
++                (Operand::Constant(Constant::Int(1)), Type::I8)], ret_ty: Type::Void };
++        let annotated = call.clone().with_field_declaration(Some(declaration("Base")));
++        let mut cloned = annotated.clone();
++        crate::optimize::operands::operands_mut(&mut cloned, &mut |operand| {
++            if let Operand::Val(value) = operand { value.0 += 10; }
++        });
++        let mut arguments = Vec::new();
++        crate::optimize::operands::operands(&cloned, &mut |operand| {
++            if let Operand::Val(value) = operand { arguments.push(value.0); }
++        });
++        assert_eq!(arguments, vec![11, 13]);
++        assert!(matches!(cloned, Instruction::DeclaredFieldCall { declaration: identity, .. }
++            if identity == declaration("Base")));
++        assert!(matches!(annotated, Instruction::DeclaredFieldCall { ref args, .. }
++            if matches!(args[0].0, Operand::Val(ValueId(1)))));
++    }
++
++    #[test]
++    fn llvm_keeps_exact_checked_field_emission() {
++        for (name, args, ret_ty) in [
++            ("dartforge_object_get", vec![(Operand::Constant(Constant::Null), Type::Ref),
++                (Operand::Constant(Constant::Int(0)), Type::I64)], Type::Ref),
++            ("dartforge_object_set", vec![(Operand::Constant(Constant::Null), Type::Ref),
++                (Operand::Constant(Constant::Int(0)), Type::I64),
++                (Operand::Constant(Constant::Int(0)), Type::I64),
++                (Operand::Constant(Constant::Int(1)), Type::I8)], Type::Void),
++        ] {
++            let call = Instruction::CallRuntime { name: name.into(), args, ret_ty };
++            let module = |instruction| Module { functions: vec![Function {
++                symbol: "field_witness".into(), name: "field_witness".into(), params: vec![],
++                return_ty: ret_ty, debug_info: None, blocks: vec![BasicBlock {
++                    id: BlockId(0), instructions: vec![(ValueId(0), instruction, ret_ty)],
++                    terminator: Terminator::Return((ret_ty != Type::Void).then_some(Operand::Val(ValueId(0)))),
++                }],
++            }], ..Module::default() };
++            let plain = module(call.clone());
++            let annotated = module(call.with_field_declaration(Some(declaration("Base"))));
++            assert_eq!(crate::llvm::LlvmEmitter::new(&plain).emit_all(),
++                crate::llvm::LlvmEmitter::new(&annotated).emit_all());
++        }
++    }
++}
+diff --git a/crates/emit_native/src/llvm/mod.rs b/crates/emit_native/src/llvm/mod.rs
+index fc70a035..43b15a87 100644
+--- a/crates/emit_native/src/llvm/mod.rs
++++ b/crates/emit_native/src/llvm/mod.rs
+@@ -1026,7 +1026,7 @@ impl<'a> LlvmEmitter<'a> {
+                         // cache of the use site (`ir_strings`), which splits the
+                         // block; with them, it is a constant (§2.11).
+                         Some((b.id.0, format!("ls{v}.fim")))
+-                    } else if matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear") {
++                    } else if matches!(i, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_exception_clear") {
+                         Some((b.id.0, format!("xc{v}.fim")))
+                     } else if Self::rti_evaluate_cached(i) {
+                         Some((b.id.0, format!("ra{v}.fim")))
+@@ -1553,7 +1553,7 @@ impl<'a> LlvmEmitter<'a> {
+                         }
+                     }
+                     // Field with a constant index: inline, like `GetField`.
+-                    Instruction::CallRuntime { name, args, .. }
++                    Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }
+                         if name == "dartforge_object_get"
+                             && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)) =>
+                     {
+@@ -1564,7 +1564,7 @@ impl<'a> LlvmEmitter<'a> {
+                         writeln!(self.out, "  %fg{v} = getelementptr inbounds i64, ptr %fp{v}, i64 {i}").unwrap();
+                         writeln!(self.out, "  %v{v} = load i64, ptr %fg{v}, align 8").unwrap();
+                     }
+-                    Instruction::CallRuntime { name, args, .. }
++                    Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }
+                         if name == "dartforge_object_set"
+                             && !self.module.arc_memory
+                             && args.len() == 4
+@@ -1597,11 +1597,11 @@ impl<'a> LlvmEmitter<'a> {
+                             }
+                         }
+                     }
+-                    Instruction::CallRuntime { .. } if Self::inline_allocation(inst).is_some() => {
++                    Instruction::CallRuntime { .. } | Instruction::DeclaredFieldCall { .. } if Self::inline_allocation(inst).is_some() => {
+                         let (c, n) = Self::inline_allocation(inst).expect("checked at the guard");
+                         self.emit_inline_allocation(v, c, n);
+                     }
+-                    Instruction::CallRuntime { name, args, ret_ty }
++                    Instruction::CallRuntime { name, args, ret_ty } | Instruction::DeclaredFieldCall { name, args, ret_ty, .. }
+                         if (name == "dartforge_object_new" || name == "dartforge_arc_object_owned_v1")
+                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
+                                 if self.module.table_functions.contains_key(&(*c as u32))) =>
+@@ -1618,7 +1618,7 @@ impl<'a> LlvmEmitter<'a> {
+                         writeln!(self.out, "  %v{v} = call i64 @{factory}(i64 {c}, i64 {n}, ptr @{f})").unwrap();
+                         let _ = ret_ty;
+                     }
+-                    Instruction::CallRuntime { name, args, ret_ty }
++                    Instruction::CallRuntime { name, args, ret_ty } | Instruction::DeclaredFieldCall { name, args, ret_ty, .. }
+                         if (name == "dartforge_typed_new" || name == "dartforge_view_new" || name == "dartforge_typed_external")
+                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
+                                 if self.module.table_functions.contains_key(&(*c as u32))) =>
+@@ -1635,7 +1635,7 @@ impl<'a> LlvmEmitter<'a> {
+                     }
+                     // The same through the generic Owned thunk (`optimize::arc::natives`):
+                     // the thunk of the `_t` variant, which registers the table.
+-                    Instruction::CallRuntime { name, args, ret_ty }
++                    Instruction::CallRuntime { name, args, ret_ty } | Instruction::DeclaredFieldCall { name, args, ret_ty, .. }
+                         if name.strip_prefix(crate::optimize::arc::GENERIC_OWNED_PREFIX).is_some_and(|b|
+                             matches!(b, "dartforge_typed_new" | "dartforge_view_new" | "dartforge_typed_external"))
+                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
+@@ -1654,7 +1654,7 @@ impl<'a> LlvmEmitter<'a> {
+                         let _ = ret_ty;
+                     }
+                     // The pending exception: the mirror in the thread context.
+-                    Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending" && self.has_ctx => {
++                    Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_exception_pending" && self.has_ctx => {
+                         writeln!(self.out, "  %v{v} = load i8, ptr %ctx, align 8").unwrap();
+                     }
+                     // The `dartforge_exception_clear` of each `return` and jump:
+@@ -1662,7 +1662,7 @@ impl<'a> LlvmEmitter<'a> {
+                     // to clear — the entry of the `catch` and the `finally` already
+                     // cleared the stack trace together with the exception. Only a pending one
+                     // (the `finally` that leaves through `return`) calls the runtime.
+-                    Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear" && self.has_ctx => {
++                    Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_exception_clear" && self.has_ctx => {
+                         writeln!(self.out, "  %xcp{v} = load i8, ptr %ctx, align 8").unwrap();
+                         writeln!(self.out, "  %xcn{v} = icmp ne i8 %xcp{v}, 0").unwrap();
+                         writeln!(self.out, "  %xce{v} = call i1 @llvm.expect.i1(i1 %xcn{v}, i1 false)").unwrap();
+@@ -1691,33 +1691,33 @@ impl<'a> LlvmEmitter<'a> {
+                     // The interrupt request (J01): the byte in the context
+                     // (offset 32), read atomically — another thread sets it, and
+                     // the load cannot leave the loop.
+-                    Instruction::CallRuntime { name, .. } if name == "dartforge_pending_interrupt" && self.has_ctx => {
++                    Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_pending_interrupt" && self.has_ctx => {
+                         writeln!(self.out, "  %ip{v} = getelementptr inbounds i8, ptr %ctx, i64 32").unwrap();
+                         writeln!(self.out, "  %iv{v} = load atomic i8, ptr %ip{v} monotonic, align 8").unwrap();
+                         // The request is rare: the slow path stays outside the body
+                         // of the loop.
+                         writeln!(self.out, "  %v{v} = call i8 @llvm.expect.i8(i8 %iv{v}, i8 0)").unwrap();
+                     }
+-                    Instruction::CallRuntime { args, .. } if Self::rti_evaluate_cached(inst) => {
++                    Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } if Self::rti_evaluate_cached(inst) => {
+                         self.emit_rti_evaluate_cached(v, args);
+                     }
+-                    Instruction::CallRuntime { args, .. } if Self::rti_test_cached(inst) => {
++                    Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } if Self::rti_test_cached(inst) => {
+                         self.emit_rti_test_cached(v, args);
+                     }
+                     // The class of the receiver: that of the object of the space read from the
+                     // header, inline (`df.class`); the rest, the runtime.
+-                    Instruction::CallRuntime { name, args, .. } if name == "dartforge_value_class" && args.len() == 1 => {
++                    Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_value_class" && args.len() == 1 => {
+                         let h = self.coerce(&args[0].0, Type::I64);
+                         writeln!(self.out, "  %v{v} = call i64 @df.class(i64 {h})").unwrap();
+                     }
+                     // `cid <: C` through the bitmap of the target (`df.subclass`),
+                     // without a call after the first query.
+-                    Instruction::CallRuntime { name, args, .. } if name == "dartforge_is_subclass" && args.len() == 2 => {
++                    Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_is_subclass" && args.len() == 2 => {
+                         let a = self.coerce(&args[0].0, Type::I64);
+                         let b = self.coerce(&args[1].0, Type::I64);
+                         writeln!(self.out, "  %v{v} = call i8 @df.subclass(i64 {a}, i64 {b})").unwrap();
+                     }
+-                    Instruction::CallRuntime { name, args, ret_ty } => {
++                    Instruction::CallRuntime { name, args, ret_ty } | Instruction::DeclaredFieldCall { name, args, ret_ty, .. } => {
+                         if name.starts_with("dartforge_native_") {
+                             let types: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
+                             self.annotate_external(name, *ret_ty, &types);
+@@ -1992,7 +1992,7 @@ impl<'a> LlvmEmitter<'a> {
+                 }
+                 if !self.module.arc_memory
+                     && (matches!(inst, Instruction::AllocObject { .. }) || Self::inline_allocation(inst).is_some()
+-                        || matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_object_new"))
++                        || matches!(inst, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_object_new"))
+                 {
+                     self.fresh_set.insert(v);
+                 }
+@@ -2680,7 +2680,7 @@ impl<'a> LlvmEmitter<'a> {
+     /// `DARTFORGE_NO_RTI_CACHE=1` at compile time turns it off (measurement).
+     fn rti_evaluate_cached(i: &Instruction) -> bool {
+         static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+-        matches!(i, Instruction::CallRuntime { name, args, .. }
++        matches!(i, Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }
+             if name == "dartforge_rti_eval"
+                 && args.len() == 4
+                 && matches!(args[3].0, Operand::Constant(Constant::Int(0)))
+@@ -2692,7 +2692,7 @@ impl<'a> LlvmEmitter<'a> {
+     /// ([`Self::emit_rti_test_cached`]). Not under `DARTFORGE_EFFECTS=check`,
+     /// which watches the extern itself; `DARTFORGE_NO_RTI_CACHE=1` turns it off too.
+     fn rti_test_cached(i: &Instruction) -> bool {
+-        matches!(i, Instruction::CallRuntime { name, args, .. }
++        matches!(i, Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }
+             if name == "dartforge_rti_e" && args.len() == 2 && !matches!(args[0].0, Operand::Constant(_)))
+             && !externs::check_effects()
+             && std::env::var_os("DARTFORGE_NO_RTI_CACHE").is_none_or(|v| v.is_empty() || v == "0")
+@@ -3704,7 +3704,7 @@ impl<'a> LlvmEmitter<'a> {
+             Instruction::ICmp(..) | Instruction::FCmp(..) | Instruction::LNot(..) => Type::I1,
+             Instruction::ZExt { to, .. } | Instruction::Trunc { to, .. } | Instruction::Bitcast { to, .. } => *to,
+             Instruction::LoadGlobal { ty, .. } => *ty,
+-            Instruction::CallStatic { ret_ty, .. } | Instruction::CallRuntime { ret_ty, .. } => *ret_ty,
++            Instruction::CallStatic { ret_ty, .. } | Instruction::CallRuntime { ret_ty, .. } | Instruction::DeclaredFieldCall { ret_ty, .. } => *ret_ty,
+             Instruction::Load { ty, .. } => *ty,
+             Instruction::Phi { ty, .. } => *ty,
+             _ => registered,
+@@ -3861,7 +3861,7 @@ impl<'a> LlvmEmitter<'a> {
+     /// and `n ≤ TLAB_N`: the allocation comes out inline
+     /// ([`LlvmEmitter::emit_inline_allocation`]). Returns `(c, n)`.
+     fn inline_allocation(inst: &Instruction) -> Option<(i64, i64)> {
+-        let Instruction::CallRuntime { name, args, .. } = inst else { return None };
++        let (Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }) = inst else { return None };
+         if name != "dartforge_object_new" || args.len() != 2 {
+             return None;
+         }
+@@ -3972,7 +3972,7 @@ impl<'a> LlvmEmitter<'a> {
+             Instruction::SetField { index, value, .. } => {
+                 *index < INLINE_FIELDS && self.type_of(value) == Type::Ref && may_be_ref(value)
+             }
+-            Instruction::CallRuntime { name, args, .. }
++            Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }
+                 if name == "dartforge_object_set"
+                     && args.len() == 4
+                     && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)) =>
+@@ -4023,7 +4023,7 @@ impl<'a> LlvmEmitter<'a> {
+     pub(crate) fn requires_explicit_context(func: &Function, tab: Option<&FunctionTables>) -> bool {
+         func.blocks.iter().any(|b| {
+             b.instructions.iter().any(|(_, i, _)| {
+-                matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending")
++                matches!(i, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_exception_pending")
+                     || Self::uses_context(i)
+             })
+         }) || tab.is_some_and(|t| {
+@@ -4038,7 +4038,7 @@ impl<'a> LlvmEmitter<'a> {
+         match inst {
+             Instruction::GetField { index, .. } | Instruction::SetField { index, .. } => *index < INLINE_FIELDS,
+             Instruction::AllocObject { fields, .. } => !fields.is_empty(),
+-            Instruction::CallRuntime { name, args, .. } => {
++            Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } => {
+                 Self::inline_allocation(inst).is_some()
+                     || name == "dartforge_exception_clear"
+                     || ((name == "dartforge_object_get" || (name == "dartforge_object_set" && args.len() == 4))
+@@ -4113,7 +4113,7 @@ impl<'a> LlvmEmitter<'a> {
+             // barrier; the operands go through `coerce`, which never boxes):
+             // the object freshly allocated before them stays fresh — direct
+             // body, no barrier — and no root is kept across them.
+-            Instruction::CallRuntime { name, args, .. }
++            Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }
+                 if !self.module.arc_memory
+                     && (name == "dartforge_object_get" || (name == "dartforge_object_set" && args.len() == 4))
+                     && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)) =>
+@@ -4124,7 +4124,7 @@ impl<'a> LlvmEmitter<'a> {
+             Instruction::NativeWrite { address, index: idx_value, value: val_ref, .. } => {
+                 !(scalar(address) && scalar(idx_value) && scalar(val_ref))
+             }
+-            Instruction::CallRuntime { name, args, .. } => {
++            Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } => {
+                 let e = externs::effects_of(name);
+                 let does_not_allocate = !e.allocates && !e.calls_dart;
+                 !(does_not_allocate && args.iter().all(|(a, t)| exact(a, *t)))
+diff --git a/crates/emit_native/src/lower/async_sm.rs b/crates/emit_native/src/lower/async_sm.rs
+index e2198060..e72a2972 100644
+--- a/crates/emit_native/src/lower/async_sm.rs
++++ b/crates/emit_native/src/lower/async_sm.rs
+@@ -1296,7 +1296,7 @@ pub(crate) fn uses_of(inst: &Instruction) -> Vec<ValueId> {
+             args.iter().for_each(&mut op);
+             op(tuple_types);
+         }
+-        Instruction::CallRuntime { args, .. } => args.iter().for_each(|(a, _)| op(a)),
++        Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } => args.iter().for_each(|(a, _)| op(a)),
+         Instruction::IsClass { object, .. } => op(object),
+         Instruction::StoreGlobal { val, .. } => op(val),
+         Instruction::Phi { .. } => {}
+@@ -1442,7 +1442,7 @@ fn replace_uses(inst: &mut Instruction, swap: &dyn Fn(ValueId) -> Option<ValueId
+             args.iter_mut().for_each(t);
+             t(tuple_types);
+         }
+-        Instruction::CallRuntime { args, .. } => args.iter_mut().for_each(|(a, _)| t(a)),
++        Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } => args.iter_mut().for_each(|(a, _)| t(a)),
+         Instruction::IsClass { object, .. } => t(object),
+         Instruction::StoreGlobal { val, .. } => t(val),
+         Instruction::LoadIndexed { base, index } => {
+diff --git a/crates/emit_native/src/lower/fn_builder.rs b/crates/emit_native/src/lower/fn_builder.rs
+index 9d779a26..11b87a2c 100644
+--- a/crates/emit_native/src/lower/fn_builder.rs
++++ b/crates/emit_native/src/lower/fn_builder.rs
+@@ -1119,7 +1119,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
+         // read of the pending flag itself is the standalone check (the end of a
+         // statement inside `try`) and stays.
+         // `DARTFORGE_NO_EFFECTS_IN_CHECK=1` goes back to checking everything (measurement).
+-        if let Instruction::CallRuntime { name, .. } = &inst
++        if let Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } = &inst
+             && name != "dartforge_exception_pending"
+             && !Self::check_every_extern()
+         {
+diff --git a/crates/emit_native/src/lower/members.rs b/crates/emit_native/src/lower/members.rs
+index 1ba785b6..03695fd0 100644
+--- a/crates/emit_native/src/lower/members.rs
++++ b/crates/emit_native/src/lower/members.rs
+@@ -69,6 +69,25 @@ pub fn layout(ctx: &Context, cid: ClassId) -> Vec<VariableId> {
+     fields
+ }
+ 
++/// Declaration and layout premises of one resolved managed field, independent of its values.
++pub(super) fn declared_field_metadata(ctx: &Context, vid: VariableId, layout_index: usize) -> Option<FieldDeclaration> {
++    let variable = ctx.program.variable(vid);
++    let owner = variable.class?;
++    let class = ctx.program.class(owner);
++    if variable.static_ || variable.external || class.library != variable.library
++        || ctx.program.class_with_homonym(owner) || ctx.program.library_has_augmentations(variable.library)
++        || !class.fields.contains(&vid)
++        || class.fields.iter().filter(|&&field| ctx.program.variable(field).name == variable.name).count() != 1
++    { return None; }
++    let storage_type = super::layouts_arc::representation(ctx, vid);
++    if matches!(storage_type, Type::Void | Type::Ptr) || storage_type.is_vector() { return None; }
++    Some(FieldDeclaration {
++        library_uri: ctx.program.library(variable.library).uri.clone(), owner: ctx.symbol_name(class.name).to_owned(),
++        name: ctx.symbol_name(variable.name).to_owned(), is_final: variable.final_, is_late: variable.late,
++        layout_index, storage_type,
++    })
++}
++
+ /// Declared (or inferred) type of a variable/field.
+ pub fn variable_type(ctx: &Context, vid: VariableId) -> TypeId {
+     let data = &ctx.outline.variables[vid.0 as usize];
+@@ -126,6 +145,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
+         }
+     }
+ 
++    /// Uses the resolved declaration, including inherited fields, rather than the receiver type.
++    fn tracing_field_declaration(&self, vid: VariableId, object: &Operand) -> Option<FieldDeclaration> {
++        if self.ctx.arc_memory || self.operand_type(object) != Type::Ref { return None; }
++        let owner = self.ctx.program.variable(vid).class?;
++        if is_mixin(self.ctx, owner) { return None; }
++        declared_field_metadata(self.ctx, vid, self.field_index(vid)?)
++    }
++
+     /// Position of the field in the layout of the class that declares it (R7). The layout of
+     /// a subclass extends that of the superclass, so the index holds for
+     /// any receiver whose static class is a subtype of the declaring one.
+@@ -346,12 +373,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
+         } else {
+             Type::I64
+         };
++        let declaration = self.tracing_field_declaration(vid, &obj);
+         let bits = self.emit(
+             Instruction::CallRuntime {
+                 name: "dartforge_object_get".to_string(),
+                 args: vec![(obj, Type::Ref), (idx, Type::I64)],
+                 ret_ty: ret,
+-            },
++            }.with_field_declaration(declaration),
+             ret,
+         );
+         self.bits_to(bits, repr)
+@@ -419,6 +447,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
+             self.emit(Instruction::SetField { object: obj.clone(), index, value: val }, Type::Void);
+         } else {
+             let (bits, is_ref) = self.to_bits(val);
++            let declaration = self.tracing_field_declaration(vid, &obj).filter(|field| {
++                self.operand_type(&bits) == if field.storage_type == Type::Ref { Type::Ref } else { Type::I64 }
++            });
+             self.emit(
+                 Instruction::CallRuntime {
+                     name: "dartforge_object_set".to_string(),
+@@ -432,7 +463,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
+                         ),
+                     ],
+                     ret_ty: Type::Void,
+-                },
++                }.with_field_declaration(declaration),
+                 Type::Void,
+             );
+         }
+@@ -2355,25 +2386,25 @@ mod arc_mixin_field_tests {
+                 let reads: Vec<_> = m.functions.iter().filter(|f| f.name == "ler" || f.symbol.contains("preparado"))
+                     .flat_map(|f| &f.blocks).flat_map(|b| &b.instructions).collect();
+                 let probes = reads.iter().filter(|(_, i, ty)| matches!(i,
+-                    Instruction::CallRuntime { name, ret_ty: Type::Ref, .. }
++                    Instruction::CallRuntime { name, ret_ty: Type::Ref, .. } | Instruction::DeclaredFieldCall { name, ret_ty: Type::Ref, .. }
+                         if name == "dartforge_arc_read_field_late_ref_v1") && *ty == Type::Ref).count();
+                 if arc {
+                     assert_eq!(probes, 2, "late Ref and scalar late with an initializer use the Ref probe");
+                     assert!(!reads.iter().any(|(_, i, _)| matches!(i,
+-                        Instruction::CallRuntime { name, .. } if name == "dartforge_object_get")));
++                        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_object_get")));
+                     assert!(reads.iter().any(|(_, i, _)| matches!(i,
+-                        Instruction::CallRuntime { name, .. } if name == "dartforge_late_field_initialized")));
++                        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_late_field_initialized")));
+                 } else {
+                     assert_eq!(probes, 0);
+                     assert!(reads.iter().any(|(_, i, _)| matches!(i,
+-                        Instruction::CallRuntime { name, .. } if name == "dartforge_object_get")));
++                        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_object_get")));
+                 }
+                 let mut types = std::collections::HashSet::new();
+                 let mut marks = 0;
+                 let mut guards = 0;
+                 for b in &f.blocks {
+                     for (pos, (_, i, _)) in b.instructions.iter().enumerate() {
+-                        if let Instruction::CallRuntime { name, args, .. } = i {
++                        if let Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } = i {
+                             if name == "dartforge_late_field_initialized" { guards += 1; }
+                             if name == "dartforge_late_field_mark_initialized" {
+                                 marks += 1;
+@@ -2396,7 +2427,7 @@ mod arc_mixin_field_tests {
+                                     };
+                                     types.insert(ty);
+                                 } else {
+-                                    assert!(matches!(&previous_ones.last().unwrap().1, Instruction::CallRuntime { name, .. }
++                                    assert!(matches!(&previous_ones.last().unwrap().1, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. }
+                                         if name == "dartforge_object_set"));
+                                 }
+                             }
+@@ -2408,7 +2439,7 @@ mod arc_mixin_field_tests {
+                 if arc {
+                     assert_eq!(types, std::collections::HashSet::from([Type::Ref, Type::I64, Type::I1, Type::F64]));
+                     assert!(!f.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
+-                        matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_object_set")));
++                        matches!(i, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_object_set")));
+                 } else {
+                     assert!(!f.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)| matches!(i, Instruction::SetField { .. })));
+                 }
+@@ -2449,7 +2480,7 @@ mod arc_mixin_field_tests {
+                     match inst {
+                         Instruction::GetField { index, .. } if *ty == Type::Ref => { reads.insert(*index); }
+                         Instruction::SetField { index, .. } => { writes.insert(*index); }
+-                        Instruction::CallRuntime { name, .. } if matches!(name.as_str(), "dartforge_object_get" | "dartforge_object_set") => raw_items += 1,
++                        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if matches!(name.as_str(), "dartforge_object_get" | "dartforge_object_set") => raw_items += 1,
+                         _ => {}
+                     }
+                 }
+diff --git a/crates/emit_native/src/lower/mod.rs b/crates/emit_native/src/lower/mod.rs
+index a347e82a..7b37c604 100644
+--- a/crates/emit_native/src/lower/mod.rs
++++ b/crates/emit_native/src/lower/mod.rs
+@@ -341,6 +341,20 @@ fn register_program_classes(ctx: &Context, module: &mut Module) {
+         let fields = members::layout(ctx, cid);
+         let base = enums::layout_base(ctx, cid);
+         layouts_arc::register(ctx, module, class_id, &fields, base);
++        if class_id >= dartforge_runtime::layout::FIRST_FREE_CID as u32
++            && !module.pruning_ambiguous_class_ids.contains(&class_id)
++            && !ctx.program.class_with_homonym(cid)
++        {
++            let mut slots = vec![None; base];
++            slots.extend(fields.iter().enumerate().map(|(index, &field)|
++                members::declared_field_metadata(ctx, field, base + index)));
++            if module.declared_field_layouts.contains_key(&class_id) {
++                module.declared_field_layouts.remove(&class_id);
++                module.pruning_ambiguous_class_ids.insert(class_id);
++            } else {
++                module.declared_field_layouts.insert(class_id, slots);
++            }
++        }
+         module.classes.push(ClassDef {
+             id: class_id,
+             name,
+diff --git a/crates/emit_native/src/lower/verifier.rs b/crates/emit_native/src/lower/verifier.rs
+index 3a298c07..96b64aca 100644
+--- a/crates/emit_native/src/lower/verifier.rs
++++ b/crates/emit_native/src/lower/verifier.rs
+@@ -347,7 +347,7 @@ fn verify_instruction(c: &mut Context, inst: &Instruction, ty: Type) {
+                 c.error(format!("ARC operation requires an already evaluated reference: {value:?}"));
+             }
+         }
+-        Instruction::CallRuntime { name, args, .. } => {
++        Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } => {
+             for &(b, t) in pairs_with_tag(name) {
+                 if let (Some((bits, _)), Some((tag, _))) = (args.get(b), args.get(t)) {
+                     c.check_tag(name, bits, tag);
+diff --git a/crates/emit_native/src/optimize/effects.rs b/crates/emit_native/src/optimize/effects.rs
+index af935678..ce406831 100644
+--- a/crates/emit_native/src/optimize/effects.rs
++++ b/crates/emit_native/src/optimize/effects.rs
+@@ -22,7 +22,7 @@ use std::collections::HashSet;
+ pub fn instruction_throws(inst: &Instruction, do_not_throw: &HashSet<String>) -> bool {
+     match inst {
+         Instruction::CallStatic { symbol, .. } => !do_not_throw.contains(symbol),
+-        Instruction::CallRuntime { name, .. } => effects_of(name).throws,
++        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } => effects_of(name).throws,
+         Instruction::CallInterface { .. }
+         | Instruction::CallDynamic { .. }
+         | Instruction::CallClosure { .. }
+@@ -136,7 +136,7 @@ pub fn checks_all(func: &Function, do_not_throw: &HashSet<String>) -> bool {
+ }
+ 
+ pub fn is_check(inst: &Instruction) -> bool {
+-    matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending")
++    matches!(inst, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_exception_pending")
+ }
+ 
+ #[cfg(test)]
+@@ -169,3 +169,29 @@ mod scc_tests {
+         assert_eq!(do_not_throw(&m), HashSet::from(["folha".into()]));
+     }
+ }
++
++#[cfg(test)]
++mod declared_field_effect_tests {
++    use super::*;
++
++    #[test]
++    fn declaration_metadata_preserves_runtime_exception_effects() {
++        for (name, args, ret_ty) in [
++            ("dartforge_object_get", vec![(Operand::Constant(Constant::Null), Type::Ref),
++                (Operand::Constant(Constant::Int(0)), Type::I64)], Type::Ref),
++            ("dartforge_object_set", vec![(Operand::Constant(Constant::Null), Type::Ref),
++                (Operand::Constant(Constant::Int(0)), Type::I64),
++                (Operand::Constant(Constant::Null), Type::I64),
++                (Operand::Constant(Constant::Int(1)), Type::I8)], Type::Void),
++        ] {
++            let call = Instruction::CallRuntime { name: name.into(), args, ret_ty };
++            let field = FieldDeclaration { library_uri: "package:fixture/base.dart".into(),
++                owner: "Base".into(), name: "_encoder".into(), is_final: true, is_late: false,
++                layout_index: 0, storage_type: Type::Ref };
++            let annotated = call.clone().with_field_declaration(Some(field));
++            assert!(matches!(annotated, Instruction::DeclaredFieldCall { .. }));
++            assert_eq!(instruction_throws(&call, &HashSet::new()),
++                instruction_throws(&annotated, &HashSet::new()));
++        }
++    }
++}
+diff --git a/crates/emit_native/src/optimize/escape.rs b/crates/emit_native/src/optimize/escape.rs
+index d2b8b236..beaf1401 100644
+--- a/crates/emit_native/src/optimize/escape.rs
++++ b/crates/emit_native/src/optimize/escape.rs
+@@ -45,7 +45,7 @@ pub fn replace_objects(func: &mut Function) -> bool {
+         for (v, inst, _) in &b.instructions {
+             // Only program objects (cid ≥ 128): runtime classes have a
+             // layout and identity known to the runtime (§2.4).
+-            if let Instruction::CallRuntime { name, args, .. } = inst
++            if let Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } = inst
+                 && name == "dartforge_object_new"
+                 && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
+                     if *c >= dartforge_runtime::layout::FIRST_FREE_CID)
+@@ -62,13 +62,13 @@ pub fn replace_objects(func: &mut Function) -> bool {
+         for (_, inst, ty) in &b.instructions {
+             // The recognized access: the object and the field, not in another position.
+             let recognized = match inst {
+-                Instruction::CallRuntime { name, args, .. } if name == "dartforge_object_get" && args.len() == 2 => {
++                Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_object_get" && args.len() == 2 => {
+                     match (&args[0].0, const_index(&args[1].0)) {
+                         (Operand::Val(o), Some(i)) if candidates.contains_key(o) => Some((*o, i, Access::Le(*ty), None)),
+                         _ => None,
+                     }
+                 }
+-                Instruction::CallRuntime { name, args, .. } if name == "dartforge_object_set" && args.len() == 4 => {
++                Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_object_set" && args.len() == 4 => {
+                     match (&args[0].0, const_index(&args[1].0), flag(&args[3].0)) {
+                         (Operand::Val(o), Some(i), Some(r)) if candidates.contains_key(o) => {
+                             let t = operand_type(&args[2].0, &types).unwrap_or(Type::Void);
+@@ -99,7 +99,7 @@ pub fn replace_objects(func: &mut Function) -> bool {
+                 None => operands(inst, &mut |op| {
+                     if let Operand::Val(x) = op
+                         && candidates.contains_key(x)
+-                        && !matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_object_new")
++                        && !matches!(inst, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_object_new")
+                     {
+                         escaped.insert(*x);
+                     }
+@@ -177,7 +177,7 @@ pub fn replace_objects(func: &mut Function) -> bool {
+         }).collect();
+         for (_, inst, ty) in &mut b.instructions {
+             let new = match inst {
+-                Instruction::CallRuntime { name, args, .. } if name == "dartforge_object_get" && args.len() == 2 => {
++                Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_object_get" && args.len() == 2 => {
+                     match (&args[0].0, const_index(&args[1].0)) {
+                         (Operand::Val(o), Some(i)) if accepted.contains(o) => {
+                             Some(Instruction::Load { ptr: Operand::Val(addresses[&(*o, i)]), ty: *ty })
+@@ -185,7 +185,7 @@ pub fn replace_objects(func: &mut Function) -> bool {
+                         _ => None,
+                     }
+                 }
+-                Instruction::CallRuntime { name, args, .. } if name == "dartforge_object_set" && args.len() == 4 => {
++                Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_object_set" && args.len() == 4 => {
+                     match (&args[0].0, const_index(&args[1].0)) {
+                         (Operand::Val(o), Some(i)) if accepted.contains(o) => {
+                             Some(Instruction::Store { ptr: Operand::Val(addresses[&(*o, i)]), val: args[2].0.clone() })
+diff --git a/crates/emit_native/src/optimize/operands.rs b/crates/emit_native/src/optimize/operands.rs
+index 11a40957..fa43f7b7 100644
+--- a/crates/emit_native/src/optimize/operands.rs
++++ b/crates/emit_native/src/optimize/operands.rs
+@@ -103,7 +103,7 @@ macro_rules! visit {
+                     args.$name_t().for_each(|a| f(a));
+                     f(tuple_types);
+                 }
+-                Instruction::CallRuntime { args, .. } => args.$name_t().for_each(|(a, _)| f(a)),
++                Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } => args.$name_t().for_each(|(a, _)| f(a)),
+                 Instruction::IsClass { object, .. } => f(object),
+                 Instruction::StoreGlobal { val, .. } => f(val),
+                 Instruction::Phi { incoming, .. } => incoming.$name_t().for_each(|(_, a)| f(a)),
+diff --git a/crates/emit_native/src/optimize/simplify.rs b/crates/emit_native/src/optimize/simplify.rs
+index 92e946c7..560cb662 100644
+--- a/crates/emit_native/src/optimize/simplify.rs
++++ b/crates/emit_native/src/optimize/simplify.rs
+@@ -64,7 +64,7 @@ pub fn fold_constants(func: &mut Function) -> bool {
+             if *ty != Type::Ref { return None; }
+             let cid = match inst {
+                 Instruction::AllocObject { class_id, .. } => i64::from(*class_id),
+-                Instruction::CallRuntime { name, args, ret_ty: Type::Ref }
++                Instruction::CallRuntime { name, args, ret_ty: Type::Ref } | Instruction::DeclaredFieldCall { name, args, ret_ty: Type::Ref, .. }
+                     if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_object_owned_v1") => match args.as_slice() {
+                         [(Operand::Constant(Constant::Int(cid)), Type::I64), (_, Type::I64)] => *cid,
+                         _ => return None,
+@@ -114,7 +114,7 @@ pub fn fold_constants(func: &mut Function) -> bool {
+                     _ => false,
+                 };
+                 let r = match inst {
+-                    Instruction::CallRuntime { name, args, ret_ty: Type::I64 }
++                    Instruction::CallRuntime { name, args, ret_ty: Type::I64 } | Instruction::DeclaredFieldCall { name, args, ret_ty: Type::I64, .. }
+                         if name == "dartforge_value_class" => match args.as_slice() {
+                             [(Operand::Val(obj), Type::Ref)] => classes.get(obj).map(|&cid| Operand::Constant(Constant::Int(cid))),
+                             _ => None,
+@@ -343,7 +343,7 @@ fn pure(inst: &Instruction) -> bool {
+         | Instruction::CellGet { .. } => true,
+         Instruction::Unbox { to, .. } => to.is_vector(),
+         Instruction::Simd { op, .. } => *op != OpSimd::Writes,
+-        Instruction::CallRuntime { name, .. } => {
++        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } => {
+             matches!(name.as_str(), "dartforge_object_new" | "dartforge_exception_pending" | "dartforge_value_class")
+                 || pure_helper(name)
+         }
+diff --git a/crates/emit_native/src/optimize/tables.rs b/crates/emit_native/src/optimize/tables.rs
+index 5e174b5d..ce933ba0 100644
+--- a/crates/emit_native/src/optimize/tables.rs
++++ b/crates/emit_native/src/optimize/tables.rs
+@@ -517,7 +517,7 @@ enum Effect {
+ 
+ fn effect(inst: &Instruction, nl: &HashSet<String>) -> Effect {
+     match inst {
+-        Instruction::CallRuntime { name, .. } => match name.as_str() {
++        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } => match name.as_str() {
+             // The emitter unwinds right after a clear that did not clear (the
+             // isolate's unwinding): on the normal path, it is clear.
+             "dartforge_exception_clear" => Effect::Cleans,
+diff --git a/crates/emit_native/src/pruning.rs b/crates/emit_native/src/pruning.rs
+index ac929c48..2cb0423b 100644
+--- a/crates/emit_native/src/pruning.rs
++++ b/crates/emit_native/src/pruning.rs
+@@ -22,7 +22,7 @@ pub(crate) mod receiver_provenance;
+ pub(crate) mod arc_ports;
+ 
+ /// First line of a summary; the number changes with the format.
+-const HEADER: &str = "dartforge-poda\t5";
++const HEADER: &str = "dartforge-poda\t6";
+ 
+ /// Selectors that live in every live class, without a call in the IR (§3.6):
+ /// `c:call` the runtime looks up by text (`dartforge_closure_entry`, the
+@@ -248,6 +248,51 @@ pub struct SummarizedTable {
+ ///
+ /// Local names (`private`/`internal`) carry the `<module>#` prefix,
+ /// because they repeat in every module (`@df.seln.0`, `@df.class`).
++/// A declaration access observed in one definition's original HIR.
++/// Layout premises are metadata, never a proof of physical receivers or stored values.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct DeclaredFieldAccess {
++    pub definition: u32,
++    pub value_id: u32,
++    pub write: bool,
++    pub declaration: crate::hir::FieldDeclaration,
++}
++
++impl DeclaredFieldAccess {
++    fn payload(&self) -> String {
++        let field = &self.declaration;
++        serde_json::json!({"uri": field.library_uri, "owner": field.owner, "field": field.name,
++            "final": field.is_final, "late": field.is_late, "slot": field.layout_index,
++            "storage": match field.storage_type {
++                crate::hir::Type::Ref => "ref", crate::hir::Type::I64 => "i64",
++                crate::hir::Type::I8 => "i8", crate::hir::Type::I1 => "i1",
++                crate::hir::Type::F64 => "f64", _ => "unsupported",
++            }}).to_string()
++    }
++
++    fn parse(definition: u32, value_id: u32, write: bool, payload: &str) -> Result<Self, String> {
++        let bad = || "malformed pruning field declaration".to_string();
++        let value: serde_json::Value = serde_json::from_str(payload).map_err(|_| bad())?;
++        let object = value.as_object().filter(|object| object.len() == 7).ok_or_else(bad)?;
++        let string = |key| object.get(key).and_then(|value| value.as_str())
++            .filter(|value| !value.is_empty()).ok_or_else(bad);
++        let storage_type = match string("storage")? {
++            "ref" => crate::hir::Type::Ref, "i64" => crate::hir::Type::I64,
++            "i8" => crate::hir::Type::I8, "i1" => crate::hir::Type::I1,
++            "f64" => crate::hir::Type::F64, _ => return Err(bad()),
++        };
++        Ok(Self { definition, value_id, write, declaration: crate::hir::FieldDeclaration {
++            library_uri: string("uri")?.to_string(), owner: string("owner")?.to_string(),
++            name: string("field")?.to_string(),
++            is_final: object.get("final").and_then(|value| value.as_bool()).ok_or_else(bad)?,
++            is_late: object.get("late").and_then(|value| value.as_bool()).ok_or_else(bad)?,
++            layout_index: object.get("slot").and_then(|value| value.as_u64())
++                .and_then(|index| usize::try_from(index).ok()).ok_or_else(bad)?,
++            storage_type,
++        } })
++    }
++}
++
+ #[derive(Debug, Clone, Default, PartialEq, Eq)]
+ pub struct Summary {
+     pub module: String,
+@@ -270,6 +315,10 @@ pub struct Summary {
+     /// Allocation-proved physical identities (caller, selector, one possible CID).
+     /// Multiple entries for one call denote a union, never a subtype cone.
+     pub exact_receiver_calls: Vec<(u32, i64, i64)>,
++    /// Persistent declaration observations; absence does not imply a closed writer census.
++    pub declared_field_accesses: Vec<DeclaredFieldAccess>,
++    /// Physical slot declaration premises, independently of stored-value certificates.
++    pub declared_field_layouts: HashMap<u32, Vec<Option<crate::hir::FieldDeclaration>>>,
+     /// Nominal identities with complete emitted parent edges. Other identities
+     /// cannot be excluded from a receiver cone.
+     pub nominal_classes: Vec<i64>,
+@@ -331,6 +380,18 @@ impl Summary {
+         for (node, selector, cid) in &self.exact_receiver_calls {
+             writeln!(s, "E\t{node}\t{selector}\t{cid}").unwrap();
+         }
++        for field in &self.declared_field_accesses {
++            writeln!(s, "F\t{}\t{}:{}\t{}", field.definition, field.value_id,
++                if field.write { "w" } else { "r" }, field.payload()).unwrap();
++        }
++        let mut layouts: Vec<_> = self.declared_field_layouts.iter().collect();
++        layouts.sort_by_key(|(cid, _)| **cid);
++        for (cid, slots) in layouts {
++            let payload: Vec<_> = slots.iter().map(|field| field.as_ref().map_or(serde_json::Value::Null, |field|
++                serde_json::from_str(&DeclaredFieldAccess { definition: 0, value_id: 0, write: false,
++                    declaration: field.clone() }.payload()).expect("field payload is JSON"))).collect();
++            writeln!(s, "L\t{cid}\t{}", serde_json::Value::Array(payload)).unwrap();
++        }
+         for cid in &self.nominal_classes {
+             writeln!(s, "K\t{cid}").unwrap();
+         }
+@@ -416,6 +477,30 @@ impl Summary {
+                     let cid = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                     r.exact_receiver_calls.push((node, selector, cid));
+                 }
++                Some("F") => {
++                    let definition = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
++                    let (value_id, operation) = c.next().and_then(|value| value.split_once(':')).ok_or_else(|| bad(l))?;
++                    let value_id = value_id.parse().map_err(|_| bad(l))?;
++                    let write = match operation { "w" => true, "r" => false, _ => return Err(bad(l)) };
++                    let payload = c.next().ok_or_else(|| bad(l))?;
++                    if c.next().is_some() { return Err(bad(l)); }
++                    r.declared_field_accesses.push(DeclaredFieldAccess::parse(definition, value_id, write, payload)?);
++                }
++                Some("L") => {
++                    let cid: u32 = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
++                    let payload: serde_json::Value = serde_json::from_str(c.next().ok_or_else(|| bad(l))?)
++                        .map_err(|_| bad(l))?;
++                    if c.next().is_some() || cid < dartforge_runtime::layout::FIRST_FREE_CID as u32
++                        || r.declared_field_layouts.contains_key(&cid) { return Err(bad(l)); }
++                    let array = payload.as_array().ok_or_else(|| bad(l))?;
++                    let slots = array.iter().enumerate().map(|(index, field)| {
++                        if field.is_null() { return Ok(None); }
++                        let field = DeclaredFieldAccess::parse(0, 0, false, &field.to_string())?.declaration;
++                        if field.layout_index != index { return Err(bad(l)); }
++                        Ok(Some(field))
++                    }).collect::<Result<Vec<_>, String>>()?;
++                    r.declared_field_layouts.insert(cid, slots);
++                }
+                 Some("K") => r.nominal_classes.push(c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?),
+                 Some("A") => r.ambiguous_classes.push(c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?),
+                 Some("P") => {
+@@ -445,7 +530,8 @@ impl Summary {
+         let outside = r.definitions.iter().any(|d| d.name >= n || d.refs.iter().any(|&x| x >= n))
+             || r.tables.iter().any(|t| t.node >= n || t.pairs.iter().any(|&(_, f)| f >= n))
+             || r.externals.iter().any(|&e| e >= n);
+-        let outside = outside || r.receiver_calls.iter().chain(&r.exact_receiver_calls).any(|&(node, _, _)| node >= n);
++        let outside = outside || r.receiver_calls.iter().chain(&r.exact_receiver_calls).any(|&(node, _, _)| node >= n)
++            || r.declared_field_accesses.iter().any(|field| field.definition >= n);
+         if outside {
+             return Err("pruning summary with an index outside the names table".to_string());
+         }
+@@ -455,6 +541,15 @@ impl Summary {
+         {
+             return Err("pruning summary with an invalid nominal class identity".to_string());
+         }
++        let mut accesses = HashSet::new();
++        if r.declared_field_accesses.iter().any(|field|
++            !r.definitions.iter().any(|definition| definition.name == field.definition)
++                || !accesses.insert((field.definition, field.value_id))) {
++            return Err("pruning field access without a unique definition/SSA identity".to_string());
++        }
++        if r.declared_field_layouts.keys().any(|&cid| r.ambiguous_classes.contains(&i64::from(cid))) {
++            return Err("pruning declared layout uses an ambiguous physical CID".to_string());
++        }
+         arc_ports::validate(&r)?;
+         Ok(r)
+     }
+@@ -1334,6 +1429,9 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
+     use crate::hir::{Constant, Instruction, Operand};
+     let provenance = if receiver_provenance::enabled() { receiver_provenance::analyze(&[m]) } else { receiver_provenance::Provenance::default() };
+     let mut r = Summary::new("programa");
++    r.declared_field_layouts = m.declared_field_layouts.iter()
++        .filter(|(cid, _)| !m.pruning_ambiguous_class_ids.contains(cid))
++        .map(|(cid, fields)| (*cid, fields.clone())).collect();
+     r.nominal_classes = m.pruning_class_ids.iter().map(|&cid| i64::from(cid)).collect();
+     r.nominal_classes.sort_unstable();
+     r.ambiguous_classes = m.pruning_ambiguous_class_ids.iter().map(|&cid| i64::from(cid)).collect();
+@@ -1377,7 +1475,13 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
+         let mut functions: Vec<String> = Vec::new();
+         let mut recipes: Vec<String> = Vec::new();
+         for b in &f.blocks {
+-            for (_, inst, _) in &b.instructions {
++            for (value_id, inst, _) in &b.instructions {
++                if let Instruction::DeclaredFieldCall { declaration, name, .. } = inst {
++                    r.declared_field_accesses.push(DeclaredFieldAccess {
++                        definition: d.name, value_id: value_id.0,
++                        write: name == "dartforge_object_set", declaration: declaration.clone(),
++                    });
++                }
+                 match inst {
+                     // The RTI recipes with a function type (§3.14).
+                     Instruction::Const(Constant::String(t)) if t.contains("F<") => recipes.push(t.clone()),
+@@ -1387,7 +1491,7 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
+                         names.push(code_symbol);
+                         names.push(typed);
+                     }
+-                    Instruction::CallRuntime { name, args, .. } => {
++                    Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } => {
+                         names.push(name);
+                         // The allocation cites the method table of the class
+                         // (`dartforge_object_new_t`, `llvm/mod.rs`).
+@@ -2098,3 +2202,105 @@ mod receiver_cone_tests {
+         }).unwrap().join().unwrap();
+     }
+ }
++
++#[cfg(test)]
++mod declared_field_summary_tests {
++    use super::*;
++    use crate::hir::*;
++
++    fn module() -> Module {
++        let declaration = FieldDeclaration { library_uri: "dart:convert".into(), owner: "Base64Codec".into(),
++            name: "_encoder".into(), is_final: true, is_late: false, layout_index: 0, storage_type: Type::Ref };
++        let field = Instruction::CallRuntime { name: "dartforge_object_get".into(),
++            args: vec![(Operand::Val(ValueId(0)), Type::Ref),
++                (Operand::Constant(Constant::Int(0)), Type::I64)], ret_ty: Type::Ref }
++            .with_field_declaration(Some(declaration.clone()));
++        Module { functions: vec![Function { symbol: "getter".into(), name: "getter".into(),
++            params: vec![(ValueId(0), "this".into(), Type::Ref)], return_ty: Type::Ref, debug_info: None,
++            blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![(ValueId(1), field, Type::Ref)],
++                terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }],
++        }], declared_field_layouts: HashMap::from([(128, vec![Some(declaration)])]),
++            classes: vec![ClassDef { id: 128, name: "Base64Codec".into(), field_count: 1,
++                vtable: vec![], to_string_symbol: None }], ..Module::default() }
++    }
++
++    #[test]
++    fn hir_field_observation_survives_disk_summary_roundtrip() {
++        let module = module();
++        let before_ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
++        let summary = hir_summary(&module);
++        assert_eq!(summary.declared_field_accesses.len(), 1);
++        let directory = tempfile::tempdir().unwrap();
++        let path = directory.path().join("convert.poda");
++        std::fs::write(&path, summary.to_text()).unwrap();
++        let parsed = Summary::from_string(&std::fs::read_to_string(&path).unwrap()).unwrap();
++        assert_eq!(summary, parsed);
++        let access = &parsed.declared_field_accesses[0];
++        assert_eq!(parsed.names[access.definition as usize], "getter");
++        assert_eq!(access.value_id, 1);
++        assert_eq!(access.declaration.identity(), ("dart:convert", "Base64Codec", "_encoder"));
++        assert_eq!(access.declaration.storage_type, Type::Ref);
++        assert_eq!(before_ir, crate::llvm::LlvmEmitter::new(&module).emit_all());
++    }
++
++    #[test]
++    fn persistent_field_facts_refuse_corruption_and_old_schema() {
++        let summary = hir_summary(&module()).to_text();
++        assert!(Summary::from_string(&summary.replace("dartforge-poda\t6", "dartforge-poda\t5")).is_err());
++        assert!(Summary::from_string(&summary.replace("\"storage\":\"ref\"", "\"storage\":\"ptr\"")).is_err());
++        let record = summary.lines().find(|line| line.starts_with("F\t")).unwrap();
++        assert!(Summary::from_string(&format!("{summary}{record}\n")).is_err());
++        let layout = summary.lines().find(|line| line.starts_with("L\t")).unwrap();
++        assert!(Summary::from_string(&format!("{summary}{layout}\n")).is_err());
++        assert!(Summary::from_string(&summary.replace("L\t128\t", "L\t0\t")).is_err());
++        assert!(Summary::from_string(&summary.replace("\"slot\":0", "\"slot\":1")).is_err());
++        let mut ambiguous = hir_summary(&module());
++        ambiguous.ambiguous_classes.push(128);
++        assert!(Summary::from_string(&ambiguous.to_text()).is_err());
++    }
++    #[test]
++    fn actual_sdk_base64_declarations_survive_summary_roundtrip() {
++        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
++            use dartforge_types::table::{CoreTypes, TypeTable};
++            let directory = tempfile::tempdir().unwrap();
++            let entry = directory.path().join("main.dart");
++            std::fs::write(&entry, "import 'dart:convert'; void main() { print(base64.encode([65])); }").unwrap();
++            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
++            let mut interner = dartforge_intern::Interner::new();
++            let (program, diagnostics) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
++            assert!(diagnostics.is_empty());
++            let mut table = TypeTable::new();
++            let core = CoreTypes::init(&mut table, &program, &interner);
++            let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
++            let libraries: Vec<_> = program.libraries.iter().enumerate()
++                .filter(|(_, library)| matches!(library.uri.as_str(), "dart:core" | "dart:convert"))
++                .map(|(index, _)| dartforge_elements::model::LibraryId(index as u32)).collect();
++            let (bodies, _) = dartforge_types::infer_library_bodies(&program, &interner, &mut table,
++                &core, &mut outline, &libraries);
++            let convert = libraries.iter().copied().find(|id| program.library(*id).uri == "dart:convert").unwrap();
++            let context = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies)
++                .with_source_sdk().only_the_library(convert);
++            let module = crate::lower::lower_program(&context);
++            assert!(module.errors.is_empty(), "{:?}", module.errors);
++            let summary = hir_summary(&module);
++            let fields: Vec<_> = summary.declared_field_accesses.iter()
++                .filter(|field| field.declaration.identity() == ("dart:convert", "Base64Codec", "_encoder"))
++                .collect();
++            assert!(fields.iter().any(|field| field.write));
++            assert!(fields.iter().any(|field| !field.write));
++            assert!(fields.iter().all(|field| field.declaration.is_final
++                && !field.declaration.is_late && field.declaration.layout_index == 0
++                && field.declaration.storage_type == Type::Ref));
++            let path = directory.path().join("convert.poda");
++            std::fs::write(&path, summary.to_text()).unwrap();
++            let parsed = Summary::from_string(&std::fs::read_to_string(&path).unwrap()).unwrap();
++            assert_eq!(summary.declared_field_accesses, parsed.declared_field_accesses);
++            assert_eq!(summary.declared_field_layouts, parsed.declared_field_layouts);
++            let class = module.classes.iter().find(|class| class.name == "Base64Codec").unwrap();
++            let layout = parsed.declared_field_layouts.get(&class.id).unwrap();
++            assert_eq!(layout.len(), class.field_count);
++            assert_eq!(layout[0].as_ref().unwrap().identity(), ("dart:convert", "Base64Codec", "_encoder"));
++        }).unwrap().join().unwrap();
++    }
++
++}
+diff --git a/crates/emit_native/src/pruning/arc_ports/tests.rs b/crates/emit_native/src/pruning/arc_ports/tests.rs
+index d70f97de..6339c18d 100644
+--- a/crates/emit_native/src/pruning/arc_ports/tests.rs
++++ b/crates/emit_native/src/pruning/arc_ports/tests.rs
+@@ -277,8 +277,8 @@ fn malformed_serialized_inventory_records_and_stale_headers_are_rejected() {
+             "accepted {record}"
+         );
+     }
+-    assert!(Summary::from_string(&text.replace("dartforge-poda\t5", "dartforge-poda\t4")).is_err());
+-    assert!(Summary::from_string("dartforge-poda\t5\tsdk\nN\tdf.arc.ports.sdk\nN\ttarget\nB\t0\t1\tword:0:declare i64 @target()\n").is_err());
++    assert!(Summary::from_string(&text.replace("dartforge-poda\t6", "dartforge-poda\t5")).is_err());
++    assert!(Summary::from_string("dartforge-poda\t6\tsdk\nN\tdf.arc.ports.sdk\nN\ttarget\nB\t0\t1\tword:0:declare i64 @target()\n").is_err());
+ }
+ 
+ #[test]
+diff --git a/crates/emit_native/src/pruning/receiver_provenance/canonical_cache.rs b/crates/emit_native/src/pruning/receiver_provenance/canonical_cache.rs
+index a925d099..4ae0605f 100644
+--- a/crates/emit_native/src/pruning/receiver_provenance/canonical_cache.rs
++++ b/crates/emit_native/src/pruning/receiver_provenance/canonical_cache.rs
+@@ -46,7 +46,7 @@ impl<'a> Inventory<'a> {
+                 let owner = f as *const Function as usize;
+                 for (_, instruction, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
+                     match instruction {
+-                        I::CallRuntime { name, .. } | I::CallStatic { symbol: name, .. }
++                        I::CallRuntime { name, .. } | I::DeclaredFieldCall { name, .. } | I::CallStatic { symbol: name, .. }
+                             if exposes_area(name) =>
+                         {
+                             inventory.area_exposed = true
+@@ -200,11 +200,14 @@ pub(super) fn classes(
+     let (object, allocation, Type::Ref) = &instructions[0] else {
+         return None;
+     };
+-    let I::CallRuntime {
++    let (I::CallRuntime {
+         name,
+         args,
+         ret_ty: Type::Ref,
+-    } = allocation
++    } | I::DeclaredFieldCall {
++        name,
++        args,
++        ret_ty: Type::Ref, .. }) = allocation
+     else {
+         return None;
+     };
+@@ -238,7 +241,10 @@ pub(super) fn classes(
+                     name,
+                     args,
+                     ret_ty: Type::Void,
+-                },
++                } | I::DeclaredFieldCall {
++                    name,
++                    args,
++                    ret_ty: Type::Void, .. },
+                 Type::Void,
+             ) if name == "dartforge_object_set" && !functions.contains_key(name) => {
+                 let [

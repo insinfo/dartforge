@@ -1,0 +1,49 @@
+{
+  "producer": "0a876b5adb34707a38fc75d4a5f74da90d22fb26fc77cf9520c403b7d5e79d2f",
+  "IR_inputs": {
+    "off": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-validation/off/.df_tmp/program.ll",
+      "sha256": "20cbbd4bf8e19c1dd125e1d646e9b29ecced9251f30feb68c8ce4b34fcb6e8e9",
+      "bytes": 648749
+    },
+    "on": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-validation/on/.df_tmp/program.ll",
+      "sha256": "8253a4912004537804d4df115f70d6846cdca569c9a5b9c5dbfd4d8843cd7628",
+      "bytes": 648846
+    }
+  },
+  "physical_classes": {
+    "1026": "df.mt.getter_return_provenance$2edart.EncoderB",
+    "1025": "df.mt.getter_return_provenance$2edart.EncoderA",
+    "1029": "df.mt.getter_return_provenance$2edart.Owner",
+    "1028": "df.mt.getter_return_provenance$2edart.OtherOwner"
+  },
+  "new_downstream_convert_facts": [
+    [
+      "1,1025",
+      "%sf11 = call ptr @df.selector(ptr %sic11, i64 %v7, i64 -1047269154501687337, ptr @df.seln.2, i64 9)"
+    ],
+    [
+      "1,1025,1026",
+      "%sf88 = call ptr @df.selector(ptr %sic88, i64 %v84, i64 -1047269154501687337, ptr @df.seln.2, i64 9)"
+    ],
+    [
+      "1,1025,1026",
+      "%sf135 = call ptr @df.selector(ptr %sic135, i64 %v131, i64 -1047269154501687337, ptr @df.seln.2, i64 9)"
+    ]
+  ],
+  "surviving_factory_phis": [
+    "%v233",
+    "%v238"
+  ],
+  "unknown_formal": {
+    "function": "df.getter_return_provenance$2edart..convertUnknown",
+    "body_equal": true,
+    "dynamic_selector_calls": 2,
+    "physical_comments": 0
+  },
+  "WHY_equal": true,
+  "WHY_sha256": "e612448bf98f47295c4d1765178f5672d223db6de1c9cd48f2fccdebf650e3ba",
+  "binary_equal": true,
+  "scope": "Actual CLI adds sound local convert receiver sets. Comments feed pruning; this mixed positive/negative fixture retains unrestricted convert calls, producing no final-size reduction. No cached SDK getter propagation or runtime-speed claim."
+}

@@ -1,0 +1,10 @@
+{
+  "status": "Prepared only; no compilation or execution",
+  "source": "crates/emit_native/tests/fixtures/devirtualization/getter_return_provenance.dart",
+  "source_sha256": "b66791b34bb267dad7a24333d85b89239e14f978562e48aa4b03c1d0e3031123",
+  "validator_sha256": "9edb1ad8c6cfc4ed8b409aa76de1d91188c33870dfc62883bb1863c1fa5d5fb3",
+  "command": "python3 bench/results/2026-10-14-selector-getter-native/validate.py IMMUTABLE_CLI EXPECTED_CLI_SHA",
+  "runtime_runs": 4,
+  "IR_expectations": "ir-expectations.json",
+  "no_timing": true
+}

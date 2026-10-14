@@ -1,0 +1,93 @@
+diff --git a/crates/emit_native/src/lower/constants.rs b/crates/emit_native/src/lower/constants.rs
+index e6085eca..f886e36c 100644
+--- a/crates/emit_native/src/lower/constants.rs
++++ b/crates/emit_native/src/lower/constants.rs
+@@ -17,6 +17,9 @@ use dartforge_frontend::ast::{self, CollectionElement, CreationKeyword, ExprId,
+ use dartforge_types::table::{Type as DartType, TypeId};
+ use dartforge_types::resolved::{MemberRef, Resolved};
+ 
++#[cfg(test)]
++mod cache_failure_tests;
++
+ impl<'a, 'c> FnBuilder<'a, 'c> {
+     /// Name of a `#x` literal; private names carry the identity of the
+     /// library and use a hexadecimal suffix, like the VM's mangled name.
+diff --git a/crates/emit_native/src/optimize/effects.rs b/crates/emit_native/src/optimize/effects.rs
+index af935678..b7823606 100644
+--- a/crates/emit_native/src/optimize/effects.rs
++++ b/crates/emit_native/src/optimize/effects.rs
+@@ -22,7 +22,7 @@ use std::collections::HashSet;
+ pub fn instruction_throws(inst: &Instruction, do_not_throw: &HashSet<String>) -> bool {
+     match inst {
+         Instruction::CallStatic { symbol, .. } => !do_not_throw.contains(symbol),
+-        Instruction::CallRuntime { name, .. } => effects_of(name).throws,
++        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } => effects_of(name).throws,
+         Instruction::CallInterface { .. }
+         | Instruction::CallDynamic { .. }
+         | Instruction::CallClosure { .. }
+@@ -74,7 +74,7 @@ pub fn do_not_throw(module: &Module) -> HashSet<String> {
+         .functions
+         .iter()
+         .enumerate()
+-        .filter(|(k, f)| recursive[*k] || function_throws(f, &all))
++        .filter(|(k, f)| recursive[*k] || canonical_cache_getter(f) || function_throws(f, &all))
+         .map(|(k, _)| k)
+         .collect();
+     while let Some(k) = queue.pop() {
+@@ -89,6 +89,17 @@ pub fn do_not_throw(module: &Module) -> HashSet<String> {
+     all.into_iter().filter(|s| !throws.contains(s.as_str())).collect()
+ }
+ 
++/// Generated constant getters can fail their emitted stack guard even without
++/// recursion in their own bodies. Their callers must not publish a parent cache
++/// after an unsuccessful child read. Other context-bearing functions require a
++/// separate, general stack-guard effect inventory.
++fn canonical_cache_getter(function: &Function) -> bool {
++    function.symbol.starts_with("dfc.")
++        && function.symbol.ends_with(".get")
++        && function.params.is_empty()
++        && function.return_ty == Type::Ref
++}
++
+ /// The functions of the module that are in a cycle of direct calls
+ /// (`CallStatic`): the strongly connected components with more than one function,
+ /// or the function that calls itself (Tarjan, iterative).
+@@ -136,7 +147,7 @@ pub fn checks_all(func: &Function, do_not_throw: &HashSet<String>) -> bool {
+ }
+ 
+ pub fn is_check(inst: &Instruction) -> bool {
+-    matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending")
++    matches!(inst, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_exception_pending")
+ }
+ 
+ #[cfg(test)]
+@@ -169,3 +180,29 @@ mod scc_tests {
+         assert_eq!(do_not_throw(&m), HashSet::from(["folha".into()]));
+     }
+ }
++
++#[cfg(test)]
++mod declared_field_effect_tests {
++    use super::*;
++
++    #[test]
++    fn declaration_metadata_preserves_runtime_exception_effects() {
++        for (name, args, ret_ty) in [
++            ("dartforge_object_get", vec![(Operand::Constant(Constant::Null), Type::Ref),
++                (Operand::Constant(Constant::Int(0)), Type::I64)], Type::Ref),
++            ("dartforge_object_set", vec![(Operand::Constant(Constant::Null), Type::Ref),
++                (Operand::Constant(Constant::Int(0)), Type::I64),
++                (Operand::Constant(Constant::Null), Type::I64),
++                (Operand::Constant(Constant::Int(1)), Type::I8)], Type::Void),
++        ] {
++            let call = Instruction::CallRuntime { name: name.into(), args, ret_ty };
++            let field = FieldDeclaration { library_uri: "package:fixture/base.dart".into(),
++                owner: "Base".into(), name: "_encoder".into(), is_final: true, is_late: false,
++                layout_index: 0, storage_type: Type::Ref };
++            let annotated = call.clone().with_field_declaration(Some(field));
++            assert!(matches!(annotated, Instruction::DeclaredFieldCall { .. }));
++            assert_eq!(instruction_throws(&call, &HashSet::new()),
++                instruction_throws(&annotated, &HashSet::new()));
++        }
++    }
++}

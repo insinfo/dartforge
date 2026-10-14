@@ -1,0 +1,10 @@
+{
+  "artifact_sha256": "c3f1c6e90bde7f440c03cf1f542d5a934e4d3f99d98ed5e5430c01763d6abad1",
+  "scope": "Process launched; GUI navigation NOT validated in this wave. CUA rejected the exact host executable path and display name as Invalid app. Prior producer GUI evidence does not certify current artifact.",
+  "cua_errors": [
+    "Invalid app: /Volumes/ssd_dock/MyProjectsDart/dart_ui/lib/src/backends/macos/native/build/dart_ui_macos_host",
+    "Invalid app: dart_ui_macos_host"
+  ],
+  "exit_code": -15,
+  "termination": "Owned test process terminated after CUA could not bind the host. This is not a successful GUI exit."
+}

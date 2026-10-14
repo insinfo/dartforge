@@ -64,7 +64,7 @@ pub fn fold_constants(func: &mut Function) -> bool {
             if *ty != Type::Ref { return None; }
             let cid = match inst {
                 Instruction::AllocObject { class_id, .. } => i64::from(*class_id),
-                Instruction::CallRuntime { name, args, ret_ty: Type::Ref }
+                Instruction::CallRuntime { name, args, ret_ty: Type::Ref } | Instruction::DeclaredFieldCall { name, args, ret_ty: Type::Ref, .. }
                     if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_object_owned_v1") => match args.as_slice() {
                         [(Operand::Constant(Constant::Int(cid)), Type::I64), (_, Type::I64)] => *cid,
                         _ => return None,
@@ -114,7 +114,7 @@ pub fn fold_constants(func: &mut Function) -> bool {
                     _ => false,
                 };
                 let r = match inst {
-                    Instruction::CallRuntime { name, args, ret_ty: Type::I64 }
+                    Instruction::CallRuntime { name, args, ret_ty: Type::I64 } | Instruction::DeclaredFieldCall { name, args, ret_ty: Type::I64, .. }
                         if name == "dartforge_value_class" => match args.as_slice() {
                             [(Operand::Val(obj), Type::Ref)] => classes.get(obj).map(|&cid| Operand::Constant(Constant::Int(cid))),
                             _ => None,
@@ -343,7 +343,7 @@ fn pure(inst: &Instruction) -> bool {
         | Instruction::CellGet { .. } => true,
         Instruction::Unbox { to, .. } => to.is_vector(),
         Instruction::Simd { op, .. } => *op != OpSimd::Writes,
-        Instruction::CallRuntime { name, .. } => {
+        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } => {
             matches!(name.as_str(), "dartforge_object_new" | "dartforge_exception_pending" | "dartforge_value_class")
                 || pure_helper(name)
         }

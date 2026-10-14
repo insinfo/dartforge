@@ -4,6 +4,9 @@
 //! dynamic calls, and recursive return summaries. They are not ownership/effect proofs.
 
 mod canonical_cache;
+mod selector_returns;
+#[cfg(test)]
+mod field_provenance;
 
 use crate::hir::{
     BlockId, Constant, Function, Instruction as I, Module, Operand, Terminator, Type, ValueId,
@@ -68,6 +71,7 @@ pub(crate) fn analyze<'a>(modules: &[&'a Module]) -> Provenance<'a> {
         .iter()
         .filter_map(|(symbol, f)| Shape::new(f).ok().map(|shape| (symbol.clone(), shape)))
         .collect();
+    let getters = selector_returns::Inventory::new(modules, &functions, &duplicates, &shapes);
     let dependencies: HashMap<_, Vec<String>> = functions
         .iter()
         .map(|(symbol, f)| {
@@ -81,9 +85,12 @@ pub(crate) fn analyze<'a>(modules: &[&'a Module]) -> Provenance<'a> {
                             f.blocks[b]
                                 .instructions
                                 .iter()
-                                .filter_map(|(_, i, _)| match i {
-                                    I::CallStatic { symbol, .. } => Some(symbol.clone()),
-                                    _ => None,
+                                .flat_map(|(_, instruction, _)| {
+                                    if let I::CallStatic { symbol, .. } = instruction {
+                                        vec![symbol.clone()]
+                                    } else if let Some((selector, _)) = selector_returns::getter(instruction) {
+                                        getters.dependencies(selector).cloned().collect::<Vec<_>>()
+                                    } else { Vec::new() }
                                 })
                         })
                         .collect()
@@ -133,7 +140,7 @@ pub(crate) fn analyze<'a>(modules: &[&'a Module]) -> Provenance<'a> {
             let Some(shape) = shapes.get(symbol) else {
                 continue;
             };
-            let values = value_classes(f, shape, &functions, &result.returns);
+            let values = value_classes(f, shape, &functions, &result.returns, &getters);
             if !recursive && f.return_ty == Type::Ref {
                 let mut classes = Classes::new();
                 let mut normal_returns = 0;
@@ -175,6 +182,7 @@ fn value_classes(
     shape: &Shape,
     functions: &HashMap<String, &Function>,
     returns: &HashMap<String, Classes>,
+    getters: &selector_returns::Inventory,
 ) -> HashMap<ValueId, Classes> {
     let mut values = HashMap::new();
     loop {
@@ -195,7 +203,10 @@ fn value_classes(
                         name,
                         args,
                         ret_ty: Type::Ref,
-                    } if matches!(
+                    } | I::DeclaredFieldCall {
+                        name,
+                        args,
+                        ret_ty: Type::Ref, .. } if matches!(
                         name.as_str(),
                         "dartforge_object_new" | "dartforge_arc_object_owned_v1"
                     ) && !functions.contains_key(name) =>
@@ -242,7 +253,10 @@ fn value_classes(
                         name,
                         args,
                         ret_ty: Type::Ref,
-                    } if matches!(
+                    } | I::DeclaredFieldCall {
+                        name,
+                        args,
+                        ret_ty: Type::Ref, .. } if matches!(
                         name.as_str(),
                         "dartforge_native_List_allocate" | "dartforge_native_GrowableList_allocate"
                     ) && !functions.contains_key(name)
@@ -276,6 +290,13 @@ fn value_classes(
                             })
                             .and_then(|_| returns.get(symbol))
                             .cloned()
+                    }
+                    instruction if selector_returns::getter(instruction).is_some() => {
+                        let (selector, receiver) = selector_returns::getter(instruction).unwrap();
+                        (shape.operand_type(receiver) == Some(Type::Ref))
+                            .then(|| operand_classes(receiver, &values))
+                            .flatten()
+                            .and_then(|classes| getters.returns(selector, &classes, returns))
                     }
                     _ => None,
                 };
@@ -528,6 +549,77 @@ mod tests {
         returns: HashMap<String, Classes>,
         values: HashMap<String, HashMap<ValueId, Classes>>,
     }
+
+    fn getter_module() -> Module {
+        let mut module = Module::new();
+        module.arc_fixed_ancestry = true;
+        for (cid, target, returned) in [(300, "getter_a", 400), (301, "getter_b", 401)] {
+            module.classes.push(crate::hir::ClassDef {
+                id: cid, name: target.into(), field_count: 0, vtable: vec![], to_string_symbol: None,
+            });
+            let table = format!("table_{cid}");
+            module.table_functions.insert(cid, table.clone());
+            module.method_tables.push((cid, table, vec![("g:encoder".into(), target.into())]));
+            let mut getter = function(target, vec![block(0, vec![allocated(3, returned)], Terminator::Return(Some(value(3))))]);
+            getter.params = vec![(ValueId(0), "this".into(), Type::Ref), (ValueId(1), "args".into(), Type::Ptr), (ValueId(2), "descriptor".into(), Type::Ptr)];
+            module.functions.push(getter);
+        }
+        module.functions.push(function("caller", vec![block(0, vec![allocated(0, 300),
+            (ValueId(1), I::CallSelector { selector: "g:encoder".into(), recv: value(0), args: vec![], names: vec![], tuple_types: Operand::Constant(Constant::Int(0)) }, Type::Ref)], Terminator::Return(Some(value(1))))]));
+        module
+    }
+
+    #[test]
+    fn physical_getter_result_requires_complete_registered_body_and_abi() {
+        let baseline = getter_module();
+        assert_eq!(analyze(&[&baseline]).returns["caller"], BTreeSet::from([400]));
+        for variant in 0..7 {
+            let mut module = getter_module();
+            match variant {
+                0 => module.method_tables[0].2.clear(),
+                1 => module.method_tables.push(module.method_tables[0].clone()),
+                2 => module.functions.push(module.functions[0].clone()),
+                3 => module.functions[0].params[1].2 = Type::Ref,
+                4 => module.arc_fixed_ancestry = false,
+                5 => { module.arc_external_ancestry.nominal_classes.insert(300); }
+                _ => { let pair = module.method_tables[0].2[0].clone(); module.method_tables[0].2.push(pair); }
+            };
+            assert!(!analyze(&[&module]).returns.contains_key("caller"), "variant {variant}");
+        }
+    }
+
+    #[test]
+    fn getter_result_never_bootstraps_recursive_getter_cycle() {
+        let mut module = getter_module();
+        module.functions[0].blocks[0].instructions[0] = allocated(3, 300);
+        module.functions[0].blocks[0].instructions.push((ValueId(4), I::CallSelector {
+            selector: "g:encoder".into(), recv: value(3), args: vec![], names: vec![], tuple_types: Operand::Constant(Constant::Int(0)),
+        }, Type::Ref));
+        module.functions[0].blocks[0].terminator = Terminator::Return(Some(value(4)));
+        assert!(!analyze(&[&module]).returns.contains_key("getter_a"));
+        assert!(!analyze(&[&module]).returns.contains_key("caller"));
+    }
+
+    #[test]
+    fn getter_union_requires_every_receiver_and_preserves_unknown_formals() {
+        let mut module = getter_module();
+        let mut caller = function("caller", vec![
+            block(0, vec![], Terminator::CondBranch { cond: value(0), then_block: BlockId(1), else_block: BlockId(2) }),
+            block(1, vec![allocated(1, 300)], Terminator::Branch(BlockId(3))),
+            block(2, vec![allocated(2, 301)], Terminator::Branch(BlockId(3))),
+            block(3, vec![(ValueId(3), I::Phi { incoming: vec![(BlockId(1), value(1)), (BlockId(2), value(2))], ty: Type::Ref }, Type::Ref),
+                (ValueId(4), I::CallSelector { selector: "g:encoder".into(), recv: value(3), args: vec![], names: vec![], tuple_types: Operand::Constant(Constant::Int(0)) }, Type::Ref)], Terminator::Return(Some(value(4)))),
+        ]);
+        caller.params = vec![(ValueId(0), "choose".into(), Type::I1)];
+        module.functions[2] = caller;
+        assert_eq!(analyze(&[&module]).returns["caller"], BTreeSet::from([400, 401]));
+        module.functions[1].blocks[0].terminator = Terminator::Return(Some(value(0)));
+        assert!(!analyze(&[&module]).returns.contains_key("caller"), "unknown candidate cannot be dropped from the union");
+        let mut unknown = getter_module();
+        unknown.functions[2].params = vec![(ValueId(0), "unknown".into(), Type::Ref)];
+        unknown.functions[2].blocks[0].instructions.remove(0);
+        assert!(!analyze(&[&unknown]).returns.contains_key("caller"), "a formal receiver is not its declared class");
+    }
     fn run(functions: Vec<Function>) -> TestFacts {
         let module = Module {
             functions,
@@ -616,32 +708,32 @@ mod tests {
             ];
             for position in 0..2 {
                 let mut declared = instance_call(name, 123, 0);
-                let I::CallRuntime { args, .. } = &mut declared else {
+                let (I::CallRuntime { args, .. } | I::DeclaredFieldCall { args, .. }) = &mut declared else {
                     unreachable!()
                 };
                 args[position].1 = Type::Ref;
                 invalid.push(declared);
                 let mut actual = instance_call(name, 123, 0);
-                let I::CallRuntime { args, .. } = &mut actual else {
+                let (I::CallRuntime { args, .. } | I::DeclaredFieldCall { args, .. }) = &mut actual else {
                     unreachable!()
                 };
                 args[position].0 = Operand::Constant(Constant::Null);
                 invalid.push(actual);
             }
             let mut arity = instance_call(name, 123, 0);
-            let I::CallRuntime { args, .. } = &mut arity else {
+            let (I::CallRuntime { args, .. } | I::DeclaredFieldCall { args, .. }) = &mut arity else {
                 unreachable!()
             };
             args.pop();
             invalid.push(arity);
             let mut arity = instance_call(name, 123, 0);
-            let I::CallRuntime { args, .. } = &mut arity else {
+            let (I::CallRuntime { args, .. } | I::DeclaredFieldCall { args, .. }) = &mut arity else {
                 unreachable!()
             };
             args.push((Operand::Constant(Constant::Int(0)), Type::I64));
             invalid.push(arity);
             let mut result = instance_call(name, 123, 0);
-            let I::CallRuntime { ret_ty, .. } = &mut result else {
+            let (I::CallRuntime { ret_ty, .. } | I::DeclaredFieldCall { ret_ty, .. }) = &mut result else {
                 unreachable!()
             };
             *ret_ty = Type::I64;
@@ -680,7 +772,7 @@ mod tests {
             assert!(!run(vec![factory, homonym]).returns.contains_key("shadowed"));
             for position in 0..2 {
                 let mut instruction = instance_call(name, 123, 0);
-                let I::CallRuntime { args, .. } = &mut instruction else {
+                let (I::CallRuntime { args, .. } | I::DeclaredFieldCall { args, .. }) = &mut instruction else {
                     unreachable!()
                 };
                 args[position].0 = value(1);
@@ -1152,10 +1244,14 @@ mod tests {
                 let proof = analyze(&modules.iter().collect::<Vec<_>>());
                 let encoder = modules.iter().flat_map(|m| &m.functions)
                     .find(|f| f.symbol == "df.dart$3aconvert.AsciiCodec.encode$c").unwrap();
-                let encoder_classes: Classes = modules.iter().flat_map(|m| &m.method_tables)
+                let mut encoder_classes: Classes = modules.iter().flat_map(|m| &m.method_tables)
                     .filter(|(_, symbol, _)| symbol.ends_with(".AsciiEncoder"))
                     .map(|(cid, _, _)| *cid).collect();
                 assert_eq!(encoder_classes.len(), 1);
+                // The retained constant-child failure guard has an explicit
+                // error return of null. This analysis conservatively includes
+                // it instead of mistaking an error path for a non-null value.
+                encoder_classes.insert(1);
                 let encoder_calls: Vec<_> = encoder.blocks.iter().flat_map(|b| &b.instructions)
                     .filter_map(|(_, instruction, _)| match instruction {
                         I::CallSelector { selector, recv: Operand::Val(receiver), .. } if selector == "tc:convert" =>

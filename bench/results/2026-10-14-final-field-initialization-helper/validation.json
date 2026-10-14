@@ -1,0 +1,28 @@
+{
+  "scope": "Test-only staged constant-object field initialization query. No production consumer, getter-return summaries, nominal receiver facts, or Base64 eligibility claim. Complete source-body coverage remains an independent producer obligation; partial callers must pass false.",
+  "gate": {
+    "session": 97976,
+    "exit": 0,
+    "passed": 4,
+    "failed": 0,
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "dartforge-emit-native",
+      "-j2",
+      "--lib",
+      "pruning::receiver_provenance::field_provenance",
+      "--",
+      "--test-threads=2"
+    ]
+  },
+  "source_frozen": true,
+  "source_hashes": {
+    "crates/emit_native/src/pruning/receiver_provenance/field_provenance.rs": "3bc05d4ddbe4e024daa023b0c107b7cd2b6070c8297e783d7c8e46697d2931b1",
+    "crates/emit_native/src/pruning/receiver_provenance/field_provenance/tests.rs": "cefdc805ccdab432da7cc1e03f6ae2eb5a454b8e6809ef97b3f2549b966f5cfc"
+  },
+  "performance_measured": false,
+  "generic_stack_failure_probe": "target/const-cache-failure-probe; VM/native both healthy, did not reproduce actual cache corruption. Actual SDK missing pending check is separate retained IR evidence handled by another agent."
+}

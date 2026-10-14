@@ -1,0 +1,11 @@
+df.getter_return_provenance$2edart..convertUnknown	ref	dart_main	-	-
+df.getter_return_provenance$2edart.EncoderA.convert$c	table	programa#df.mt.getter_return_provenance$2edart.EncoderA$d	c:convert	dart_main
+df.getter_return_provenance$2edart.EncoderA.convert$tc	table	programa#df.mt.getter_return_provenance$2edart.EncoderA$d	tc:convert	df.dart$3aconvert.Codec.encode$c
+df.getter_return_provenance$2edart.EncoderB.convert$c	table	programa#df.mt.getter_return_provenance$2edart.EncoderB$d	c:convert	dart_main
+df.getter_return_provenance$2edart.EncoderB.convert$tc	table	programa#df.mt.getter_return_provenance$2edart.EncoderB$d	tc:convert	df.dart$3aconvert.Codec.encode$c
+df.getter_return_provenance$2edart.OtherOwner.encoder$g	table	programa#df.mt.getter_return_provenance$2edart.OtherOwner$d	g:encoder	dart_main
+df.getter_return_provenance$2edart.Owner.encoder$g	table	programa#df.mt.getter_return_provenance$2edart.Owner$d	g:encoder	dart_main
+df.mt.getter_return_provenance$2edart.EncoderB	ref	df.getter_return_provenance$2edart.OtherOwner.encoder$g	-	-
+df.rti.8782f99dd997d310.getter_return_provenance$2edart	ref	df.getter_return_provenance$2edart.EncoderA.convert$c	-	-
+df.s.1f23f8cf808d07820162c49c8f41f858	ref	df.getter_return_provenance$2edart.EncoderB.convert$c	-	-
+df.s.e4578b8370a02506905cb2b065000815	ref	df.getter_return_provenance$2edart.EncoderA.convert$c	-	-

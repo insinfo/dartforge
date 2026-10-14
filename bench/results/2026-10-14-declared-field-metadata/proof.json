@@ -1,0 +1,77 @@
+{
+  "status": "metadata and persistence gates pass; physical field provenance implementation separate",
+  "final_gate": {
+    "command": "TMPDIR=$PWD/target/tmp-rea-build cargo test -p dartforge-emit-native --lib declared_field -j2 --target-dir target/p4",
+    "result": "9 passed, 0 failed, 684 filtered out",
+    "log": "layout-validation-focused.log"
+  },
+  "source_sha256": {
+    "crates/emit_native/src/hir.rs": "be11a1699d6f933227e5bef23707dee1e101e5190bfc9bc4c43606116c8f10a0",
+    "crates/emit_native/src/lower/members.rs": "fbc974f9458a575d038b426593d893c612a86c5428b9998d322cab51844c2742",
+    "crates/emit_native/src/lower/mod.rs": "35fde83a0e551793698b3b124f2acb7d2c9c72ca02e420576dce96eb4f4df327",
+    "crates/emit_native/src/lower/async_sm.rs": "4c067c8ebae38e009d8ec9619b18e4de28ac0f1c53361a215ca18c364aad17e8",
+    "crates/emit_native/src/lower/fn_builder.rs": "fed7d0318d9a5e386e00752962fddbe9261e91e8b7f4925d13b7428de6c4a220",
+    "crates/emit_native/src/lower/verifier.rs": "b23cdb3b5495991d35822164da7e6b6491d96c601dd5278f110854a6e1cd80a3",
+    "crates/emit_native/src/optimize/operands.rs": "57b231b8318f1dd1d2f7babbf60e3f9b227d05f03d132d68a84d87795cf2de69",
+    "crates/emit_native/src/optimize/effects.rs": "1b5b1196b807097a5e624f080d95a8a7dd8f7c44d64c9470aaed948190e7a377",
+    "crates/emit_native/src/optimize/escape.rs": "dbb87eb07e359208bff78b6a3fe4f2b09945239c127924d046009405686670ab",
+    "crates/emit_native/src/optimize/simplify.rs": "7e27e522ca32b3d46acb5d1e1bd7a5c6203df0c8a7e242cf6e616fdbc6865add",
+    "crates/emit_native/src/optimize/tables.rs": "df9e56f9893dca785161ac0f7450fe99621cdd347b9b90dff72eb161e1369d1d",
+    "crates/emit_native/src/llvm/mod.rs": "4ff0c5ecb2aa7d9c16d81218b7518f29a6f40ee3362d44a2227d965339b7a89a",
+    "crates/emit_native/src/pruning.rs": "ac0fdd329dab89c25595989b519bb3e49e55f4fa39e3e9c4e8db6f1e7cf3d063",
+    "crates/emit_native/src/pruning/arc_ports/tests.rs": "e5a65e00485ff258bf2b62955a404c80ae17122a77b0f0e8bbf274a2a21282d0",
+    "crates/emit_native/src/pruning/receiver_provenance/canonical_cache.rs": "3bbac69183b94ca58c4726b008682aa14ac7a34b29ba78a386bb4fbdd4fabc6f"
+  },
+  "receiver_provenance_ownership": "Initial transparent OR patterns applied; root owns further edits. Excluded from this source patch.",
+  "format": "dartforge-poda v6; F definition value_id:operation JSON; L physicalCID optional-declaration-arrayJSON",
+  "real_sdk_assertions": [
+    "Base64Codec._encoder read and write observations from actual SDK convert lowering",
+    "final/nonlate Ref slot0 metadata",
+    "persisted layout slot0 identity matches declaration",
+    "layout length equals actual ClassDef.field_count",
+    "F/L records identical after disk write/read"
+  ],
+  "negative_cases": [
+    "incompatible call ABI/slot/tag attachment falls back",
+    "unknown runtime operation attachment falls back",
+    "old summary version refused",
+    "unsupported storage payload refused",
+    "duplicate field observation refused",
+    "duplicate layout CID refused",
+    "runtime primitive layout CID refused",
+    "wrong per-slot declaration index refused",
+    "ambiguous physical CID layout refused"
+  ],
+  "semantic_equivalence": [
+    "checked get/set LLVM text equal with and without declaration metadata",
+    "same effects catalog lookup",
+    "same SSA argument traversal and cloning",
+    "same actual field lookup/set runtime operations"
+  ],
+  "remaining": [
+    "closed writer/value proof owned by allocation agent",
+    "contextual selector-result proof owned by root",
+    "combined full gate/native differential and app size pending"
+  ],
+  "no_claims": [
+    "No physical receiver proof solely from declaration",
+    "No final-size or speed gain claimed for metadata"
+  ],
+  "source_scope": [
+    "crates/emit_native/src/hir.rs",
+    "crates/emit_native/src/lower/members.rs",
+    "crates/emit_native/src/lower/mod.rs",
+    "crates/emit_native/src/lower/async_sm.rs",
+    "crates/emit_native/src/lower/fn_builder.rs",
+    "crates/emit_native/src/lower/verifier.rs",
+    "crates/emit_native/src/optimize/operands.rs",
+    "crates/emit_native/src/optimize/effects.rs",
+    "crates/emit_native/src/optimize/escape.rs",
+    "crates/emit_native/src/optimize/simplify.rs",
+    "crates/emit_native/src/optimize/tables.rs",
+    "crates/emit_native/src/llvm/mod.rs",
+    "crates/emit_native/src/pruning.rs",
+    "crates/emit_native/src/pruning/arc_ports/tests.rs",
+    "crates/emit_native/src/pruning/receiver_provenance/canonical_cache.rs"
+  ]
+}

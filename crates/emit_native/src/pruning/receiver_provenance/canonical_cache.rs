@@ -46,7 +46,7 @@ impl<'a> Inventory<'a> {
                 let owner = f as *const Function as usize;
                 for (_, instruction, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
                     match instruction {
-                        I::CallRuntime { name, .. } | I::CallStatic { symbol: name, .. }
+                        I::CallRuntime { name, .. } | I::DeclaredFieldCall { name, .. } | I::CallStatic { symbol: name, .. }
                             if exposes_area(name) =>
                         {
                             inventory.area_exposed = true
@@ -200,11 +200,14 @@ pub(super) fn classes(
     let (object, allocation, Type::Ref) = &instructions[0] else {
         return None;
     };
-    let I::CallRuntime {
+    let (I::CallRuntime {
         name,
         args,
         ret_ty: Type::Ref,
-    } = allocation
+    } | I::DeclaredFieldCall {
+        name,
+        args,
+        ret_ty: Type::Ref, .. }) = allocation
     else {
         return None;
     };
@@ -238,7 +241,10 @@ pub(super) fn classes(
                     name,
                     args,
                     ret_ty: Type::Void,
-                },
+                } | I::DeclaredFieldCall {
+                    name,
+                    args,
+                    ret_ty: Type::Void, .. },
                 Type::Void,
             ) if name == "dartforge_object_set" && !functions.contains_key(name) => {
                 let [

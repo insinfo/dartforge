@@ -1026,7 +1026,7 @@ impl<'a> LlvmEmitter<'a> {
                         // cache of the use site (`ir_strings`), which splits the
                         // block; with them, it is a constant (§2.11).
                         Some((b.id.0, format!("ls{v}.fim")))
-                    } else if matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear") {
+                    } else if matches!(i, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_exception_clear") {
                         Some((b.id.0, format!("xc{v}.fim")))
                     } else if Self::rti_evaluate_cached(i) {
                         Some((b.id.0, format!("ra{v}.fim")))
@@ -1553,7 +1553,7 @@ impl<'a> LlvmEmitter<'a> {
                         }
                     }
                     // Field with a constant index: inline, like `GetField`.
-                    Instruction::CallRuntime { name, args, .. }
+                    Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }
                         if name == "dartforge_object_get"
                             && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)) =>
                     {
@@ -1564,7 +1564,7 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %fg{v} = getelementptr inbounds i64, ptr %fp{v}, i64 {i}").unwrap();
                         writeln!(self.out, "  %v{v} = load i64, ptr %fg{v}, align 8").unwrap();
                     }
-                    Instruction::CallRuntime { name, args, .. }
+                    Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }
                         if name == "dartforge_object_set"
                             && !self.module.arc_memory
                             && args.len() == 4
@@ -1597,11 +1597,11 @@ impl<'a> LlvmEmitter<'a> {
                             }
                         }
                     }
-                    Instruction::CallRuntime { .. } if Self::inline_allocation(inst).is_some() => {
+                    Instruction::CallRuntime { .. } | Instruction::DeclaredFieldCall { .. } if Self::inline_allocation(inst).is_some() => {
                         let (c, n) = Self::inline_allocation(inst).expect("checked at the guard");
                         self.emit_inline_allocation(v, c, n);
                     }
-                    Instruction::CallRuntime { name, args, ret_ty }
+                    Instruction::CallRuntime { name, args, ret_ty } | Instruction::DeclaredFieldCall { name, args, ret_ty, .. }
                         if (name == "dartforge_object_new" || name == "dartforge_arc_object_owned_v1")
                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
                                 if self.module.table_functions.contains_key(&(*c as u32))) =>
@@ -1618,7 +1618,7 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %v{v} = call i64 @{factory}(i64 {c}, i64 {n}, ptr @{f})").unwrap();
                         let _ = ret_ty;
                     }
-                    Instruction::CallRuntime { name, args, ret_ty }
+                    Instruction::CallRuntime { name, args, ret_ty } | Instruction::DeclaredFieldCall { name, args, ret_ty, .. }
                         if (name == "dartforge_typed_new" || name == "dartforge_view_new" || name == "dartforge_typed_external")
                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
                                 if self.module.table_functions.contains_key(&(*c as u32))) =>
@@ -1635,7 +1635,7 @@ impl<'a> LlvmEmitter<'a> {
                     }
                     // The same through the generic Owned thunk (`optimize::arc::natives`):
                     // the thunk of the `_t` variant, which registers the table.
-                    Instruction::CallRuntime { name, args, ret_ty }
+                    Instruction::CallRuntime { name, args, ret_ty } | Instruction::DeclaredFieldCall { name, args, ret_ty, .. }
                         if name.strip_prefix(crate::optimize::arc::GENERIC_OWNED_PREFIX).is_some_and(|b|
                             matches!(b, "dartforge_typed_new" | "dartforge_view_new" | "dartforge_typed_external"))
                             && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
@@ -1654,7 +1654,7 @@ impl<'a> LlvmEmitter<'a> {
                         let _ = ret_ty;
                     }
                     // The pending exception: the mirror in the thread context.
-                    Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending" && self.has_ctx => {
+                    Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_exception_pending" && self.has_ctx => {
                         writeln!(self.out, "  %v{v} = load i8, ptr %ctx, align 8").unwrap();
                     }
                     // The `dartforge_exception_clear` of each `return` and jump:
@@ -1662,7 +1662,7 @@ impl<'a> LlvmEmitter<'a> {
                     // to clear — the entry of the `catch` and the `finally` already
                     // cleared the stack trace together with the exception. Only a pending one
                     // (the `finally` that leaves through `return`) calls the runtime.
-                    Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear" && self.has_ctx => {
+                    Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_exception_clear" && self.has_ctx => {
                         writeln!(self.out, "  %xcp{v} = load i8, ptr %ctx, align 8").unwrap();
                         writeln!(self.out, "  %xcn{v} = icmp ne i8 %xcp{v}, 0").unwrap();
                         writeln!(self.out, "  %xce{v} = call i1 @llvm.expect.i1(i1 %xcn{v}, i1 false)").unwrap();
@@ -1691,33 +1691,33 @@ impl<'a> LlvmEmitter<'a> {
                     // The interrupt request (J01): the byte in the context
                     // (offset 32), read atomically — another thread sets it, and
                     // the load cannot leave the loop.
-                    Instruction::CallRuntime { name, .. } if name == "dartforge_pending_interrupt" && self.has_ctx => {
+                    Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_pending_interrupt" && self.has_ctx => {
                         writeln!(self.out, "  %ip{v} = getelementptr inbounds i8, ptr %ctx, i64 32").unwrap();
                         writeln!(self.out, "  %iv{v} = load atomic i8, ptr %ip{v} monotonic, align 8").unwrap();
                         // The request is rare: the slow path stays outside the body
                         // of the loop.
                         writeln!(self.out, "  %v{v} = call i8 @llvm.expect.i8(i8 %iv{v}, i8 0)").unwrap();
                     }
-                    Instruction::CallRuntime { args, .. } if Self::rti_evaluate_cached(inst) => {
+                    Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } if Self::rti_evaluate_cached(inst) => {
                         self.emit_rti_evaluate_cached(v, args);
                     }
-                    Instruction::CallRuntime { args, .. } if Self::rti_test_cached(inst) => {
+                    Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } if Self::rti_test_cached(inst) => {
                         self.emit_rti_test_cached(v, args);
                     }
                     // The class of the receiver: that of the object of the space read from the
                     // header, inline (`df.class`); the rest, the runtime.
-                    Instruction::CallRuntime { name, args, .. } if name == "dartforge_value_class" && args.len() == 1 => {
+                    Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_value_class" && args.len() == 1 => {
                         let h = self.coerce(&args[0].0, Type::I64);
                         writeln!(self.out, "  %v{v} = call i64 @df.class(i64 {h})").unwrap();
                     }
                     // `cid <: C` through the bitmap of the target (`df.subclass`),
                     // without a call after the first query.
-                    Instruction::CallRuntime { name, args, .. } if name == "dartforge_is_subclass" && args.len() == 2 => {
+                    Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_is_subclass" && args.len() == 2 => {
                         let a = self.coerce(&args[0].0, Type::I64);
                         let b = self.coerce(&args[1].0, Type::I64);
                         writeln!(self.out, "  %v{v} = call i8 @df.subclass(i64 {a}, i64 {b})").unwrap();
                     }
-                    Instruction::CallRuntime { name, args, ret_ty } => {
+                    Instruction::CallRuntime { name, args, ret_ty } | Instruction::DeclaredFieldCall { name, args, ret_ty, .. } => {
                         if name.starts_with("dartforge_native_") {
                             let types: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
                             self.annotate_external(name, *ret_ty, &types);
@@ -1992,7 +1992,7 @@ impl<'a> LlvmEmitter<'a> {
                 }
                 if !self.module.arc_memory
                     && (matches!(inst, Instruction::AllocObject { .. }) || Self::inline_allocation(inst).is_some()
-                        || matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_object_new"))
+                        || matches!(inst, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_object_new"))
                 {
                     self.fresh_set.insert(v);
                 }
@@ -2680,7 +2680,7 @@ impl<'a> LlvmEmitter<'a> {
     /// `DARTFORGE_NO_RTI_CACHE=1` at compile time turns it off (measurement).
     fn rti_evaluate_cached(i: &Instruction) -> bool {
         static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        matches!(i, Instruction::CallRuntime { name, args, .. }
+        matches!(i, Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }
             if name == "dartforge_rti_eval"
                 && args.len() == 4
                 && matches!(args[3].0, Operand::Constant(Constant::Int(0)))
@@ -2692,7 +2692,7 @@ impl<'a> LlvmEmitter<'a> {
     /// ([`Self::emit_rti_test_cached`]). Not under `DARTFORGE_EFFECTS=check`,
     /// which watches the extern itself; `DARTFORGE_NO_RTI_CACHE=1` turns it off too.
     fn rti_test_cached(i: &Instruction) -> bool {
-        matches!(i, Instruction::CallRuntime { name, args, .. }
+        matches!(i, Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }
             if name == "dartforge_rti_e" && args.len() == 2 && !matches!(args[0].0, Operand::Constant(_)))
             && !externs::check_effects()
             && std::env::var_os("DARTFORGE_NO_RTI_CACHE").is_none_or(|v| v.is_empty() || v == "0")
@@ -3704,7 +3704,7 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::ICmp(..) | Instruction::FCmp(..) | Instruction::LNot(..) => Type::I1,
             Instruction::ZExt { to, .. } | Instruction::Trunc { to, .. } | Instruction::Bitcast { to, .. } => *to,
             Instruction::LoadGlobal { ty, .. } => *ty,
-            Instruction::CallStatic { ret_ty, .. } | Instruction::CallRuntime { ret_ty, .. } => *ret_ty,
+            Instruction::CallStatic { ret_ty, .. } | Instruction::CallRuntime { ret_ty, .. } | Instruction::DeclaredFieldCall { ret_ty, .. } => *ret_ty,
             Instruction::Load { ty, .. } => *ty,
             Instruction::Phi { ty, .. } => *ty,
             _ => registered,
@@ -3861,7 +3861,7 @@ impl<'a> LlvmEmitter<'a> {
     /// and `n ≤ TLAB_N`: the allocation comes out inline
     /// ([`LlvmEmitter::emit_inline_allocation`]). Returns `(c, n)`.
     fn inline_allocation(inst: &Instruction) -> Option<(i64, i64)> {
-        let Instruction::CallRuntime { name, args, .. } = inst else { return None };
+        let (Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }) = inst else { return None };
         if name != "dartforge_object_new" || args.len() != 2 {
             return None;
         }
@@ -3972,7 +3972,7 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::SetField { index, value, .. } => {
                 *index < INLINE_FIELDS && self.type_of(value) == Type::Ref && may_be_ref(value)
             }
-            Instruction::CallRuntime { name, args, .. }
+            Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }
                 if name == "dartforge_object_set"
                     && args.len() == 4
                     && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)) =>
@@ -4023,7 +4023,7 @@ impl<'a> LlvmEmitter<'a> {
     pub(crate) fn requires_explicit_context(func: &Function, tab: Option<&FunctionTables>) -> bool {
         func.blocks.iter().any(|b| {
             b.instructions.iter().any(|(_, i, _)| {
-                matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending")
+                matches!(i, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_exception_pending")
                     || Self::uses_context(i)
             })
         }) || tab.is_some_and(|t| {
@@ -4038,7 +4038,7 @@ impl<'a> LlvmEmitter<'a> {
         match inst {
             Instruction::GetField { index, .. } | Instruction::SetField { index, .. } => *index < INLINE_FIELDS,
             Instruction::AllocObject { fields, .. } => !fields.is_empty(),
-            Instruction::CallRuntime { name, args, .. } => {
+            Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } => {
                 Self::inline_allocation(inst).is_some()
                     || name == "dartforge_exception_clear"
                     || ((name == "dartforge_object_get" || (name == "dartforge_object_set" && args.len() == 4))
@@ -4113,7 +4113,7 @@ impl<'a> LlvmEmitter<'a> {
             // barrier; the operands go through `coerce`, which never boxes):
             // the object freshly allocated before them stays fresh — direct
             // body, no barrier — and no root is kept across them.
-            Instruction::CallRuntime { name, args, .. }
+            Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }
                 if !self.module.arc_memory
                     && (name == "dartforge_object_get" || (name == "dartforge_object_set" && args.len() == 4))
                     && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)) =>
@@ -4124,7 +4124,7 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::NativeWrite { address, index: idx_value, value: val_ref, .. } => {
                 !(scalar(address) && scalar(idx_value) && scalar(val_ref))
             }
-            Instruction::CallRuntime { name, args, .. } => {
+            Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } => {
                 let e = externs::effects_of(name);
                 let does_not_allocate = !e.allocates && !e.calls_dart;
                 !(does_not_allocate && args.iter().all(|(a, t)| exact(a, *t)))

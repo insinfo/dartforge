@@ -1,0 +1,24 @@
+{
+  "final_gate": "1 passed, 0 failed, 697 filtered out, 27.72s",
+  "command": "TMPDIR=$PWD/target/tmp-rea-build cargo test -p dartforge-emit-native --lib actual_sdk_dynamic_codec_getter_results -j2 --target-dir target/p4",
+  "source": "crates/emit_native/src/pruning/receiver_provenance/selector_returns/source_tests.rs",
+  "source_sha256": "6b35b948e02021dd0633ae7131dd129d597e35545f7d3aa7ac2b898f0588f14c",
+  "pipeline": "Single unified HIR body-availability witness: inferred native source SDK and app libraries explicitly in Context.in_module; each body lowered once. No independent-module COMDAT duplicate census.",
+  "positive": [
+    "ordinary dynamic const AsciiCodec().encoder result includes physical AsciiEncoder CID",
+    "ordinary dynamic const Utf8Codec().encoder result includes physical Utf8Encoder CID",
+    "only additional class allowed is runtime null CID1 from retained error-return paths",
+    "downstream convert receivers carry corresponding physical encoder facts"
+  ],
+  "negative": "const Base64Codec().encoder result remains unknown without independent contextual closed-field proof",
+  "preserved_rejections": [
+    "getter-source-integration.log and getter-source-diagnostic.log: separately lowered SDK/app modules introduce duplicate const getter definitions, causing conservative unknown receiver",
+    "getter-source-single-module.log: Context.with_source_sdk alone leaves SDK bodies outside app in_module; missing SDK ClassDef harness failure"
+  ],
+  "limits": [
+    "No claim that cached .poda app/SDK pipeline already imports these getter return facts",
+    "No native execution, final-size or timing improvement claim",
+    "Null CID is 1; extra null fact is conservative, not a physical encoder class"
+  ],
+  "source_freeze": true
+}

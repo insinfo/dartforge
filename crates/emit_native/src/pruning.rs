@@ -22,7 +22,7 @@ pub(crate) mod receiver_provenance;
 pub(crate) mod arc_ports;
 
 /// First line of a summary; the number changes with the format.
-const HEADER: &str = "dartforge-poda\t5";
+const HEADER: &str = "dartforge-poda\t6";
 
 /// Selectors that live in every live class, without a call in the IR (§3.6):
 /// `c:call` the runtime looks up by text (`dartforge_closure_entry`, the
@@ -248,6 +248,51 @@ pub struct SummarizedTable {
 ///
 /// Local names (`private`/`internal`) carry the `<module>#` prefix,
 /// because they repeat in every module (`@df.seln.0`, `@df.class`).
+/// A declaration access observed in one definition's original HIR.
+/// Layout premises are metadata, never a proof of physical receivers or stored values.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclaredFieldAccess {
+    pub definition: u32,
+    pub value_id: u32,
+    pub write: bool,
+    pub declaration: crate::hir::FieldDeclaration,
+}
+
+impl DeclaredFieldAccess {
+    fn payload(&self) -> String {
+        let field = &self.declaration;
+        serde_json::json!({"uri": field.library_uri, "owner": field.owner, "field": field.name,
+            "final": field.is_final, "late": field.is_late, "slot": field.layout_index,
+            "storage": match field.storage_type {
+                crate::hir::Type::Ref => "ref", crate::hir::Type::I64 => "i64",
+                crate::hir::Type::I8 => "i8", crate::hir::Type::I1 => "i1",
+                crate::hir::Type::F64 => "f64", _ => "unsupported",
+            }}).to_string()
+    }
+
+    fn parse(definition: u32, value_id: u32, write: bool, payload: &str) -> Result<Self, String> {
+        let bad = || "malformed pruning field declaration".to_string();
+        let value: serde_json::Value = serde_json::from_str(payload).map_err(|_| bad())?;
+        let object = value.as_object().filter(|object| object.len() == 7).ok_or_else(bad)?;
+        let string = |key| object.get(key).and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty()).ok_or_else(bad);
+        let storage_type = match string("storage")? {
+            "ref" => crate::hir::Type::Ref, "i64" => crate::hir::Type::I64,
+            "i8" => crate::hir::Type::I8, "i1" => crate::hir::Type::I1,
+            "f64" => crate::hir::Type::F64, _ => return Err(bad()),
+        };
+        Ok(Self { definition, value_id, write, declaration: crate::hir::FieldDeclaration {
+            library_uri: string("uri")?.to_string(), owner: string("owner")?.to_string(),
+            name: string("field")?.to_string(),
+            is_final: object.get("final").and_then(|value| value.as_bool()).ok_or_else(bad)?,
+            is_late: object.get("late").and_then(|value| value.as_bool()).ok_or_else(bad)?,
+            layout_index: object.get("slot").and_then(|value| value.as_u64())
+                .and_then(|index| usize::try_from(index).ok()).ok_or_else(bad)?,
+            storage_type,
+        } })
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Summary {
     pub module: String,
@@ -270,6 +315,10 @@ pub struct Summary {
     /// Allocation-proved physical identities (caller, selector, one possible CID).
     /// Multiple entries for one call denote a union, never a subtype cone.
     pub exact_receiver_calls: Vec<(u32, i64, i64)>,
+    /// Persistent declaration observations; absence does not imply a closed writer census.
+    pub declared_field_accesses: Vec<DeclaredFieldAccess>,
+    /// Physical slot declaration premises, independently of stored-value certificates.
+    pub declared_field_layouts: HashMap<u32, Vec<Option<crate::hir::FieldDeclaration>>>,
     /// Nominal identities with complete emitted parent edges. Other identities
     /// cannot be excluded from a receiver cone.
     pub nominal_classes: Vec<i64>,
@@ -330,6 +379,18 @@ impl Summary {
         }
         for (node, selector, cid) in &self.exact_receiver_calls {
             writeln!(s, "E\t{node}\t{selector}\t{cid}").unwrap();
+        }
+        for field in &self.declared_field_accesses {
+            writeln!(s, "F\t{}\t{}:{}\t{}", field.definition, field.value_id,
+                if field.write { "w" } else { "r" }, field.payload()).unwrap();
+        }
+        let mut layouts: Vec<_> = self.declared_field_layouts.iter().collect();
+        layouts.sort_by_key(|(cid, _)| **cid);
+        for (cid, slots) in layouts {
+            let payload: Vec<_> = slots.iter().map(|field| field.as_ref().map_or(serde_json::Value::Null, |field|
+                serde_json::from_str(&DeclaredFieldAccess { definition: 0, value_id: 0, write: false,
+                    declaration: field.clone() }.payload()).expect("field payload is JSON"))).collect();
+            writeln!(s, "L\t{cid}\t{}", serde_json::Value::Array(payload)).unwrap();
         }
         for cid in &self.nominal_classes {
             writeln!(s, "K\t{cid}").unwrap();
@@ -416,6 +477,30 @@ impl Summary {
                     let cid = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
                     r.exact_receiver_calls.push((node, selector, cid));
                 }
+                Some("F") => {
+                    let definition = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let (value_id, operation) = c.next().and_then(|value| value.split_once(':')).ok_or_else(|| bad(l))?;
+                    let value_id = value_id.parse().map_err(|_| bad(l))?;
+                    let write = match operation { "w" => true, "r" => false, _ => return Err(bad(l)) };
+                    let payload = c.next().ok_or_else(|| bad(l))?;
+                    if c.next().is_some() { return Err(bad(l)); }
+                    r.declared_field_accesses.push(DeclaredFieldAccess::parse(definition, value_id, write, payload)?);
+                }
+                Some("L") => {
+                    let cid: u32 = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let payload: serde_json::Value = serde_json::from_str(c.next().ok_or_else(|| bad(l))?)
+                        .map_err(|_| bad(l))?;
+                    if c.next().is_some() || cid < dartforge_runtime::layout::FIRST_FREE_CID as u32
+                        || r.declared_field_layouts.contains_key(&cid) { return Err(bad(l)); }
+                    let array = payload.as_array().ok_or_else(|| bad(l))?;
+                    let slots = array.iter().enumerate().map(|(index, field)| {
+                        if field.is_null() { return Ok(None); }
+                        let field = DeclaredFieldAccess::parse(0, 0, false, &field.to_string())?.declaration;
+                        if field.layout_index != index { return Err(bad(l)); }
+                        Ok(Some(field))
+                    }).collect::<Result<Vec<_>, String>>()?;
+                    r.declared_field_layouts.insert(cid, slots);
+                }
                 Some("K") => r.nominal_classes.push(c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?),
                 Some("A") => r.ambiguous_classes.push(c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?),
                 Some("P") => {
@@ -445,7 +530,8 @@ impl Summary {
         let outside = r.definitions.iter().any(|d| d.name >= n || d.refs.iter().any(|&x| x >= n))
             || r.tables.iter().any(|t| t.node >= n || t.pairs.iter().any(|&(_, f)| f >= n))
             || r.externals.iter().any(|&e| e >= n);
-        let outside = outside || r.receiver_calls.iter().chain(&r.exact_receiver_calls).any(|&(node, _, _)| node >= n);
+        let outside = outside || r.receiver_calls.iter().chain(&r.exact_receiver_calls).any(|&(node, _, _)| node >= n)
+            || r.declared_field_accesses.iter().any(|field| field.definition >= n);
         if outside {
             return Err("pruning summary with an index outside the names table".to_string());
         }
@@ -454,6 +540,15 @@ impl Summary {
             || r.receiver_calls.iter().chain(&r.exact_receiver_calls).any(|&(_, _, cone)| u32::try_from(cone).is_err())
         {
             return Err("pruning summary with an invalid nominal class identity".to_string());
+        }
+        let mut accesses = HashSet::new();
+        if r.declared_field_accesses.iter().any(|field|
+            !r.definitions.iter().any(|definition| definition.name == field.definition)
+                || !accesses.insert((field.definition, field.value_id))) {
+            return Err("pruning field access without a unique definition/SSA identity".to_string());
+        }
+        if r.declared_field_layouts.keys().any(|&cid| r.ambiguous_classes.contains(&i64::from(cid))) {
+            return Err("pruning declared layout uses an ambiguous physical CID".to_string());
         }
         arc_ports::validate(&r)?;
         Ok(r)
@@ -1334,6 +1429,9 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
     use crate::hir::{Constant, Instruction, Operand};
     let provenance = if receiver_provenance::enabled() { receiver_provenance::analyze(&[m]) } else { receiver_provenance::Provenance::default() };
     let mut r = Summary::new("programa");
+    r.declared_field_layouts = m.declared_field_layouts.iter()
+        .filter(|(cid, _)| !m.pruning_ambiguous_class_ids.contains(cid))
+        .map(|(cid, fields)| (*cid, fields.clone())).collect();
     r.nominal_classes = m.pruning_class_ids.iter().map(|&cid| i64::from(cid)).collect();
     r.nominal_classes.sort_unstable();
     r.ambiguous_classes = m.pruning_ambiguous_class_ids.iter().map(|&cid| i64::from(cid)).collect();
@@ -1377,7 +1475,13 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
         let mut functions: Vec<String> = Vec::new();
         let mut recipes: Vec<String> = Vec::new();
         for b in &f.blocks {
-            for (_, inst, _) in &b.instructions {
+            for (value_id, inst, _) in &b.instructions {
+                if let Instruction::DeclaredFieldCall { declaration, name, .. } = inst {
+                    r.declared_field_accesses.push(DeclaredFieldAccess {
+                        definition: d.name, value_id: value_id.0,
+                        write: name == "dartforge_object_set", declaration: declaration.clone(),
+                    });
+                }
                 match inst {
                     // The RTI recipes with a function type (§3.14).
                     Instruction::Const(Constant::String(t)) if t.contains("F<") => recipes.push(t.clone()),
@@ -1387,7 +1491,7 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
                         names.push(code_symbol);
                         names.push(typed);
                     }
-                    Instruction::CallRuntime { name, args, .. } => {
+                    Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } => {
                         names.push(name);
                         // The allocation cites the method table of the class
                         // (`dartforge_object_new_t`, `llvm/mod.rs`).
@@ -2097,4 +2201,106 @@ mod receiver_cone_tests {
             }
         }).unwrap().join().unwrap();
     }
+}
+
+#[cfg(test)]
+mod declared_field_summary_tests {
+    use super::*;
+    use crate::hir::*;
+
+    fn module() -> Module {
+        let declaration = FieldDeclaration { library_uri: "dart:convert".into(), owner: "Base64Codec".into(),
+            name: "_encoder".into(), is_final: true, is_late: false, layout_index: 0, storage_type: Type::Ref };
+        let field = Instruction::CallRuntime { name: "dartforge_object_get".into(),
+            args: vec![(Operand::Val(ValueId(0)), Type::Ref),
+                (Operand::Constant(Constant::Int(0)), Type::I64)], ret_ty: Type::Ref }
+            .with_field_declaration(Some(declaration.clone()));
+        Module { functions: vec![Function { symbol: "getter".into(), name: "getter".into(),
+            params: vec![(ValueId(0), "this".into(), Type::Ref)], return_ty: Type::Ref, debug_info: None,
+            blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![(ValueId(1), field, Type::Ref)],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }],
+        }], declared_field_layouts: HashMap::from([(128, vec![Some(declaration)])]),
+            classes: vec![ClassDef { id: 128, name: "Base64Codec".into(), field_count: 1,
+                vtable: vec![], to_string_symbol: None }], ..Module::default() }
+    }
+
+    #[test]
+    fn hir_field_observation_survives_disk_summary_roundtrip() {
+        let module = module();
+        let before_ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
+        let summary = hir_summary(&module);
+        assert_eq!(summary.declared_field_accesses.len(), 1);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("convert.poda");
+        std::fs::write(&path, summary.to_text()).unwrap();
+        let parsed = Summary::from_string(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(summary, parsed);
+        let access = &parsed.declared_field_accesses[0];
+        assert_eq!(parsed.names[access.definition as usize], "getter");
+        assert_eq!(access.value_id, 1);
+        assert_eq!(access.declaration.identity(), ("dart:convert", "Base64Codec", "_encoder"));
+        assert_eq!(access.declaration.storage_type, Type::Ref);
+        assert_eq!(before_ir, crate::llvm::LlvmEmitter::new(&module).emit_all());
+    }
+
+    #[test]
+    fn persistent_field_facts_refuse_corruption_and_old_schema() {
+        let summary = hir_summary(&module()).to_text();
+        assert!(Summary::from_string(&summary.replace("dartforge-poda\t6", "dartforge-poda\t5")).is_err());
+        assert!(Summary::from_string(&summary.replace("\"storage\":\"ref\"", "\"storage\":\"ptr\"")).is_err());
+        let record = summary.lines().find(|line| line.starts_with("F\t")).unwrap();
+        assert!(Summary::from_string(&format!("{summary}{record}\n")).is_err());
+        let layout = summary.lines().find(|line| line.starts_with("L\t")).unwrap();
+        assert!(Summary::from_string(&format!("{summary}{layout}\n")).is_err());
+        assert!(Summary::from_string(&summary.replace("L\t128\t", "L\t0\t")).is_err());
+        assert!(Summary::from_string(&summary.replace("\"slot\":0", "\"slot\":1")).is_err());
+        let mut ambiguous = hir_summary(&module());
+        ambiguous.ambiguous_classes.push(128);
+        assert!(Summary::from_string(&ambiguous.to_text()).is_err());
+    }
+    #[test]
+    fn actual_sdk_base64_declarations_survive_summary_roundtrip() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            use dartforge_types::table::{CoreTypes, TypeTable};
+            let directory = tempfile::tempdir().unwrap();
+            let entry = directory.path().join("main.dart");
+            std::fs::write(&entry, "import 'dart:convert'; void main() { print(base64.encode([65])); }").unwrap();
+            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
+            let mut interner = dartforge_intern::Interner::new();
+            let (program, diagnostics) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
+            assert!(diagnostics.is_empty());
+            let mut table = TypeTable::new();
+            let core = CoreTypes::init(&mut table, &program, &interner);
+            let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+            let libraries: Vec<_> = program.libraries.iter().enumerate()
+                .filter(|(_, library)| matches!(library.uri.as_str(), "dart:core" | "dart:convert"))
+                .map(|(index, _)| dartforge_elements::model::LibraryId(index as u32)).collect();
+            let (bodies, _) = dartforge_types::infer_library_bodies(&program, &interner, &mut table,
+                &core, &mut outline, &libraries);
+            let convert = libraries.iter().copied().find(|id| program.library(*id).uri == "dart:convert").unwrap();
+            let context = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies)
+                .with_source_sdk().only_the_library(convert);
+            let module = crate::lower::lower_program(&context);
+            assert!(module.errors.is_empty(), "{:?}", module.errors);
+            let summary = hir_summary(&module);
+            let fields: Vec<_> = summary.declared_field_accesses.iter()
+                .filter(|field| field.declaration.identity() == ("dart:convert", "Base64Codec", "_encoder"))
+                .collect();
+            assert!(fields.iter().any(|field| field.write));
+            assert!(fields.iter().any(|field| !field.write));
+            assert!(fields.iter().all(|field| field.declaration.is_final
+                && !field.declaration.is_late && field.declaration.layout_index == 0
+                && field.declaration.storage_type == Type::Ref));
+            let path = directory.path().join("convert.poda");
+            std::fs::write(&path, summary.to_text()).unwrap();
+            let parsed = Summary::from_string(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            assert_eq!(summary.declared_field_accesses, parsed.declared_field_accesses);
+            assert_eq!(summary.declared_field_layouts, parsed.declared_field_layouts);
+            let class = module.classes.iter().find(|class| class.name == "Base64Codec").unwrap();
+            let layout = parsed.declared_field_layouts.get(&class.id).unwrap();
+            assert_eq!(layout.len(), class.field_count);
+            assert_eq!(layout[0].as_ref().unwrap().identity(), ("dart:convert", "Base64Codec", "_encoder"));
+        }).unwrap().join().unwrap();
+    }
+
 }

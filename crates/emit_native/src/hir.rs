@@ -236,6 +236,28 @@ pub enum StrongStoreMode {
     Move,
 }
 
+/// Identity of the resolved instance-field declaration, independent of receiver layout.
+/// This is a declaration fact, not a physical class or stored-value certificate.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FieldDeclaration {
+    pub library_uri: String,
+    pub owner: String,
+    pub name: String,
+    pub is_final: bool,
+    pub is_late: bool,
+    /// Position from the declaring class layout; not a receiver-class certificate.
+    pub layout_index: usize,
+    /// Declared storage representation before conversion to the runtime bits ABI.
+    pub storage_type: Type,
+}
+
+impl FieldDeclaration {
+    /// Semantic identity excludes flags and layout premises, which a proof must reconcile.
+    pub(crate) fn identity(&self) -> (&str, &str, &str) {
+        (&self.library_uri, &self.owner, &self.name)
+    }
+}
+
 /// Instructions that produce a value (or perform a write effect).
 #[derive(Debug, Clone)]
 pub enum Instruction {
@@ -463,6 +485,15 @@ pub enum Instruction {
         tuple_types: Operand,
     },
     CallRuntime {
+        name: String,
+        args: Vec<(Operand, Type)>,
+        ret_ty: Type,
+    },
+    /// Checked tracing field operation with its resolved declaration attached.
+    /// Runtime ABI, exceptions, rooting and side effects remain identical to CallRuntime.
+    /// Unannotated operations are unknown to any declaration writer certificate.
+    DeclaredFieldCall {
+        declaration: FieldDeclaration,
         name: String,
         args: Vec<(Operand, Type)>,
         ret_ty: Type,
@@ -1137,6 +1168,9 @@ pub struct Module {
     /// open stores and reads of the program prepared alone
     /// (`arc_external_callees`); they do not declare classes of this module.
     pub arc_external_layouts: std::collections::HashMap<u32, Vec<Type>>,
+    /// Producer-declared managed slots by physical CID; None covers synthetic/unknown slots.
+    /// This does not infer stored values or close writers. Missing/ambiguous maps are unknown.
+    pub declared_field_layouts: std::collections::HashMap<u32, Vec<Option<FieldDeclaration>>>,
     pub classes: Vec<ClassDef>,
     pub selectors: Vec<SelectorDef>,
     pub subtyping_edges: Vec<(u32, u32)>,
@@ -1250,5 +1284,152 @@ impl Module {
             arity,
         });
         id
+    }
+}
+
+impl Instruction {
+    /// Attaches declaration metadata only when the complete checked field ABI agrees.
+    /// This checks a producer layout fact; it does not certify receiver identity or writers.
+    pub(crate) fn with_field_declaration(self, declaration: Option<FieldDeclaration>) -> Self {
+        match (self, declaration) {
+            (Self::CallRuntime { name, args, ret_ty }, Some(declaration))
+                if declaration.storage_type != Type::Void
+                    && declaration.storage_type != Type::Ptr
+                    && !declaration.storage_type.is_vector()
+                    && args.get(0).is_some_and(|(_, ty)| *ty == Type::Ref)
+                    && args.get(1).is_some_and(|(index, ty)| *ty == Type::I64
+                        && matches!(index, Operand::Constant(Constant::Int(i))
+                            if usize::try_from(*i).ok() == Some(declaration.layout_index)))
+                    && ((name == "dartforge_object_get" && args.len() == 2
+                        && ret_ty == if declaration.storage_type == Type::Ref { Type::Ref } else { Type::I64 })
+                        || (name == "dartforge_object_set" && args.len() == 4
+                            && ret_ty == Type::Void && args[2].1 == Type::I64 && args[3].1 == Type::I8
+                            && matches!(&args[3].0, Operand::Constant(Constant::Int(tag))
+                                if *tag == i64::from(declaration.storage_type == Type::Ref)))) =>
+            {
+                Self::DeclaredFieldCall { declaration, name, args, ret_ty }
+            }
+            (instruction, _) => instruction,
+        }
+    }
+}
+
+#[cfg(test)]
+mod declared_field_tests {
+    use super::*;
+
+    fn declaration(owner: &str) -> FieldDeclaration {
+        FieldDeclaration { library_uri: "package:fixture/base.dart".into(), owner: owner.into(),
+            name: "_encoder".into(), is_final: true, is_late: false,
+            layout_index: 0, storage_type: Type::Ref }
+    }
+
+    #[test]
+    fn identity_is_not_an_incidental_slot_or_subclass() {
+        assert_ne!(declaration("Base"), declaration("Unrelated"));
+        let mut other_library = declaration("Base");
+        other_library.library_uri = "package:other/base.dart".into();
+        assert_ne!(declaration("Base"), other_library);
+        assert_eq!(declaration("Base"), declaration("Base").clone());
+        let original = declaration("Base");
+        let mut contradictory_schema = original.clone();
+        contradictory_schema.layout_index = 3;
+        assert_eq!(original.identity(), contradictory_schema.identity());
+        assert_ne!(original, contradictory_schema);
+    }
+
+    #[test]
+    fn attachment_preserves_checked_arguments_and_unknown_operations() {
+        let call = Instruction::CallRuntime { name: "dartforge_object_get".into(),
+            args: vec![(Operand::Val(ValueId(1)), Type::Ref),
+                (Operand::Constant(Constant::Int(0)), Type::I64)], ret_ty: Type::Ref };
+        let annotated = call.clone().with_field_declaration(Some(declaration("Base")));
+        assert!(matches!(annotated, Instruction::DeclaredFieldCall { ref name, ref args,
+            ret_ty: Type::Ref, .. } if name == "dartforge_object_get" && args.len() == 2));
+        assert!(matches!(call.with_field_declaration(None), Instruction::CallRuntime { .. }));
+        let unrelated = Instruction::CallRuntime { name: "untrusted_getter".into(),
+            args: vec![], ret_ty: Type::Ref };
+        assert!(matches!(unrelated.with_field_declaration(Some(declaration("Base"))),
+            Instruction::CallRuntime { .. }));
+    }
+
+    #[test]
+    fn declaration_attachment_refuses_incompatible_abi_and_slot() {
+        let get = Instruction::CallRuntime { name: "dartforge_object_get".into(),
+            args: vec![(Operand::Val(ValueId(1)), Type::Ref),
+                (Operand::Constant(Constant::Int(0)), Type::I64)], ret_ty: Type::Ref };
+        let mut invalid = Vec::new();
+        for index in [-1, 1] {
+            let mut call = get.clone();
+            if let Instruction::CallRuntime { args, .. } = &mut call {
+                args[1].0 = Operand::Constant(Constant::Int(index));
+            }
+            invalid.push(call);
+        }
+        let mut wrong_receiver = get.clone();
+        if let Instruction::CallRuntime { args, .. } = &mut wrong_receiver { args[0].1 = Type::I64; }
+        invalid.push(wrong_receiver);
+        let mut wrong_result = get.clone();
+        if let Instruction::CallRuntime { ret_ty, .. } = &mut wrong_result { *ret_ty = Type::I64; }
+        invalid.push(wrong_result);
+        for tag in [0, 2] {
+            invalid.push(Instruction::CallRuntime { name: "dartforge_object_set".into(),
+                args: vec![(Operand::Val(ValueId(1)), Type::Ref),
+                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                    (Operand::Val(ValueId(2)), Type::I64),
+                    (Operand::Constant(Constant::Int(tag)), Type::I8)], ret_ty: Type::Void });
+        }
+        for call in invalid {
+            assert!(matches!(call.with_field_declaration(Some(declaration("Base"))),
+                Instruction::CallRuntime { .. }));
+        }
+    }
+
+    #[test]
+    fn cloned_field_call_keeps_identity_and_remaps_all_arguments() {
+        let call = Instruction::CallRuntime { name: "dartforge_object_set".into(),
+            args: vec![(Operand::Val(ValueId(1)), Type::Ref),
+                (Operand::Constant(Constant::Int(0)), Type::I64),
+                (Operand::Val(ValueId(3)), Type::I64),
+                (Operand::Constant(Constant::Int(1)), Type::I8)], ret_ty: Type::Void };
+        let annotated = call.clone().with_field_declaration(Some(declaration("Base")));
+        let mut cloned = annotated.clone();
+        crate::optimize::operands::operands_mut(&mut cloned, &mut |operand| {
+            if let Operand::Val(value) = operand { value.0 += 10; }
+        });
+        let mut arguments = Vec::new();
+        crate::optimize::operands::operands(&cloned, &mut |operand| {
+            if let Operand::Val(value) = operand { arguments.push(value.0); }
+        });
+        assert_eq!(arguments, vec![11, 13]);
+        assert!(matches!(cloned, Instruction::DeclaredFieldCall { declaration: identity, .. }
+            if identity == declaration("Base")));
+        assert!(matches!(annotated, Instruction::DeclaredFieldCall { ref args, .. }
+            if matches!(args[0].0, Operand::Val(ValueId(1)))));
+    }
+
+    #[test]
+    fn llvm_keeps_exact_checked_field_emission() {
+        for (name, args, ret_ty) in [
+            ("dartforge_object_get", vec![(Operand::Constant(Constant::Null), Type::Ref),
+                (Operand::Constant(Constant::Int(0)), Type::I64)], Type::Ref),
+            ("dartforge_object_set", vec![(Operand::Constant(Constant::Null), Type::Ref),
+                (Operand::Constant(Constant::Int(0)), Type::I64),
+                (Operand::Constant(Constant::Int(0)), Type::I64),
+                (Operand::Constant(Constant::Int(1)), Type::I8)], Type::Void),
+        ] {
+            let call = Instruction::CallRuntime { name: name.into(), args, ret_ty };
+            let module = |instruction| Module { functions: vec![Function {
+                symbol: "field_witness".into(), name: "field_witness".into(), params: vec![],
+                return_ty: ret_ty, debug_info: None, blocks: vec![BasicBlock {
+                    id: BlockId(0), instructions: vec![(ValueId(0), instruction, ret_ty)],
+                    terminator: Terminator::Return((ret_ty != Type::Void).then_some(Operand::Val(ValueId(0)))),
+                }],
+            }], ..Module::default() };
+            let plain = module(call.clone());
+            let annotated = module(call.with_field_declaration(Some(declaration("Base"))));
+            assert_eq!(crate::llvm::LlvmEmitter::new(&plain).emit_all(),
+                crate::llvm::LlvmEmitter::new(&annotated).emit_all());
+        }
     }
 }

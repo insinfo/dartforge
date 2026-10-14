@@ -1,0 +1,9 @@
+{
+  "pid": 78989,
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-production/file-explorer/program",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+    "--lang=en"
+  ],
+  "binary_sha256": "c3f1c6e90bde7f440c03cf1f542d5a934e4d3f99d98ed5e5430c01763d6abad1"
+}

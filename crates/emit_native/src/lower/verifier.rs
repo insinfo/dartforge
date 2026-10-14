@@ -347,7 +347,7 @@ fn verify_instruction(c: &mut Context, inst: &Instruction, ty: Type) {
                 c.error(format!("ARC operation requires an already evaluated reference: {value:?}"));
             }
         }
-        Instruction::CallRuntime { name, args, .. } => {
+        Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } => {
             for &(b, t) in pairs_with_tag(name) {
                 if let (Some((bits, _)), Some((tag, _))) = (args.get(b), args.get(t)) {
                     c.check_tag(name, bits, tag);
