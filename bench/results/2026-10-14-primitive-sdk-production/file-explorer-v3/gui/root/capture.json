@@ -1,0 +1,648 @@
+{
+  "application_pid": 85639,
+  "action": "capture",
+  "window": {
+    "kCGWindowName": "File Explorer",
+    "kCGWindowLayer": 0,
+    "kCGWindowMemoryUsage": 2432,
+    "kCGWindowIsOnscreen": true,
+    "kCGWindowSharingState": 1,
+    "kCGWindowOwnerPID": 85640,
+    "kCGWindowOwnerName": "dart_ui_macos_host",
+    "kCGWindowNumber": 2273,
+    "kCGWindowStoreType": 1,
+    "kCGWindowBounds": {
+      "X": 320.0,
+      "Height": 800.0,
+      "Y": 78.0,
+      "Width": 1280.0
+    },
+    "kCGWindowAlpha": 1.0
+  },
+  "accessibility": {
+    "tree": {
+      "AXRole": "AXApplication",
+      "AXTitle": "dart_ui_macos_host",
+      "children": [
+        {
+          "AXRole": "AXWindow",
+          "AXTitle": "File Explorer",
+          "children": [
+            {
+              "AXRole": "AXButton"
+            },
+            {
+              "AXRole": "AXButton",
+              "children": [
+                {
+                  "AXRole": "AXGroup",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "AXRole": "AXButton"
+            }
+          ]
+        },
+        {
+          "AXRole": "AXMenuBar",
+          "children": [
+            {
+              "AXRole": "AXMenuBarItem",
+              "AXTitle": "Apple",
+              "children": [
+                {
+                  "AXRole": "AXMenu",
+                  "children": [
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Sobre Este Mac",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Informa\u00e7\u00f5es do Sistema",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Ajustes do Sistema\u2026",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "App Store",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Itens Recentes",
+                      "children": [
+                        {
+                          "AXRole": "AXMenu",
+                          "children": [
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Aplicativos",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Ajustes.app",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201cAjustes.app\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Antigravity IDE.app",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201cAntigravity IDE.app\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Brave Browser.app",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201cBrave Browser.app\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Editor de Texto.app",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201cEditor de Texto.app\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Google Chrome.app",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201cGoogle Chrome.app\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "qBittorrent.app",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201cqBittorrent.app\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "QuickTime Player.app",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201cQuickTime Player.app\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Terminal.app",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201cTerminal.app\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Visual Studio Code.app",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201cVisual Studio Code.app\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "VLC.app",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201cVLC.app\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Documentos",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "6EX6JW2k_720p.mp4",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201c6EX6JW2k_720p.mp4\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "7xHl3wSH_720p.mp4",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201c7xHl3wSH_720p.mp4\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "1080p.h264 (1).mp4",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201c1080p.h264 (1).mp4\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "1080p.h264 (2).mp4",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201c1080p.h264 (2).mp4\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "1751840630812.mp4",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201c1751840630812.mp4\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "chave_antrortf.rtf",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201cchave_antrortf.rtf\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "dart_ui",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201cdart_ui\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "dartforge-fixture.txt",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201cdartforge-fixture.txt\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Microsoft Office LTSC Standard for Mac 2024 v16.110 VL.torrent",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201cMicrosoft Office LTSC Standard for Mac 2024 v16.110 VL.torrent\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "qbittorrent-5.2.3.dmg",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Mostrar \u201cqbittorrent-5.2.3.dmg\u201d no Finder",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Servidores",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Limpar Menu",
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "For\u00e7ar Encerrar\u2026",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "For\u00e7ar Encerrar dart_ui_macos_host",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Repousar",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Reiniciar\u2026",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Reiniciar",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Desligar\u2026",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Desligar",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Bloquear Tela",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Finalizar Sess\u00e3o de Isaque Neves\u2026",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Finalizar Sess\u00e3o de Isaque Neves",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "",
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "AXRole": "AXMenuBarItem",
+              "AXTitle": "dart_ui_macos_host",
+              "children": [
+                {
+                  "AXRole": "AXMenu",
+                  "children": [
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Hide dart_ui_macos_host",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Hide Others",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Show All",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Quit dart_ui_macos_host",
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "AXRole": "AXMenuBarItem",
+              "AXTitle": "Window",
+              "children": [
+                {
+                  "AXRole": "AXMenu",
+                  "children": [
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Fill",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Center",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Enter Full Screen",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Move & Resize",
+                      "children": [
+                        {
+                          "AXRole": "AXMenu",
+                          "children": [
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Halves",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Left",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Right",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Top",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Bottom",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Quarters",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Top Left",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Top Right",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Bottom Left",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Bottom Right",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Arrange",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Left & Right",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Left & Quarters",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Right & Left",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Right & Quarters",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Top & Bottom",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Top & Quarters",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Bottom & Top",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Bottom & Quarters",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Quarters",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "",
+                              "children": []
+                            },
+                            {
+                              "AXRole": "AXMenuItem",
+                              "AXTitle": "Return to Previous Size",
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Full Screen Tile",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Remove Window from Set",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Minimize",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "Close",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "",
+                      "children": []
+                    },
+                    {
+                      "AXRole": "AXMenuItem",
+                      "AXTitle": "File Explorer",
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "errors": []
+  },
+  "recorded_at_epoch": 1792020345.905649
+}

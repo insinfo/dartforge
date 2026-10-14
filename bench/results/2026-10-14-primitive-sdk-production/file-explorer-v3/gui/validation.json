@@ -1,0 +1,11 @@
+{
+  "binary_sha256": "c3f1c6e90bde7f440c03cf1f542d5a934e4d3f99d98ed5e5430c01763d6abad1",
+  "observations": [
+    "Root screenshot shows dartforge-child and dartforge-fixture.txt, 2 items.",
+    "Navigation screenshot shows dartforge-child and child-content.txt, 1 item.",
+    "Back-button screenshot shows original root and 2 items.",
+    "Native close-button action followed by owned child wait exit0."
+  ],
+  "exit_code": 0,
+  "scope": "Ordinary original entrypoint, existing macOS host backend, no app edits or optimization-specific source changes. Root/child/back/close GUI behavior only; no frame/input performance or other-platform validation claim."
+}

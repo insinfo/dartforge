@@ -1,0 +1,16 @@
+{
+  "exit.json": "e89df0eae5ec7db81135aed16463968955c578bcc4f2ec43172eff351f080c17",
+  "stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "run_gui.py": "14455a5428eda320edb12992535865eeac247dd037be89ae4e546e92ab60c239",
+  "validation.json": "0f43fb6e45ff6a74e30fd995bad108dadb97fd5788a1a9f7435453dfbb14f4b9",
+  "ordinary_window_control.py": "ad31f92c6ae142d8c5ba61ee2255282f2d2c4d0353ff185e146bf2b68679ead8",
+  "launch.json": "21492feef9a4c67776dea13e23372f8d39e3d1d4eaf9167125ed3f3065a35691",
+  "close/close-button.json": "aa3597645d25e94131ed534d3af3864c3611deab8351e7e55617d121b0787f8e",
+  "back/back-button.json": "140ce608e226ffa1e5d98a8ca1f9da1819c9de66d28865e568b5a7650490d190",
+  "back/back-button.png": "349c87f4e0f8a061e5b6aa14b7f7916ad5577aba5daf913b2b20a36dd22bbd2d",
+  "root/capture.json": "8a92ed66057824929df6c1ce4f08b48b938a1a0d14d51ea782b8824fcac5d3f5",
+  "root/capture.png": "003bc08caf878bc89f35f1b6d7b18c738192f8a018ff7fb0181653b83dc26a10",
+  "child/navigate.png": "1d77ebc097986a8e66993a2bc9068a60a27fd12b8102691aced0f42dddf19484",
+  "child/navigate.json": "39b0325158c8809df28522ccc2d6eb300fa00c9b3344f19d657e5190708e3a6d"
+}
