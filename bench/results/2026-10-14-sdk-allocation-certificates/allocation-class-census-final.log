@@ -1,0 +1,23 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.02s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 4 tests
+test pruning::receiver_provenance::allocation_certificates::tests::imported_static_and_physical_getter_results_require_abi_and_symbol_reconciliation ... ok
+test pruning::receiver_provenance::allocation_certificates::tests::exact_artifact_profile_and_cache_closure_binding ... ok
+test pruning::receiver_provenance::allocation_certificates::tests::edited_proof_and_non_strong_final_definitions_are_not_certificates ... ok
+test pruning::receiver_provenance::allocation_certificates::tests::malformed_duplicate_stale_signature_and_table_records_fail_closed ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 709 filtered out; finished in 0.03s
+

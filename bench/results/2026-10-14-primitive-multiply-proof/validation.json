@@ -1,0 +1,41 @@
+{
+  "scope": "Production guarded primitive multiplication, tracing only. No performance or binary size claim; no frozen producer/native execution yet.",
+  "focused_test": {
+    "command": "CARGO_BUILD_JOBS=2 cargo test --lib -p dartforge-emit-native lower::primitive_multiply -- --nocapture",
+    "exit_code": 0,
+    "passed": 1,
+    "final_duration_seconds": 2.13,
+    "log": "focused-final-test.log",
+    "compiler_warning": "Existing llvm/roots.rs unused_mut."
+  },
+  "proof_cases": [
+    "Actual canonical selected SDK certifies and actual lowered dynamic multiply contains physical guards/runtime multiply plus generic selector fallback.",
+    "Modified IntegerImplementation multiplication body fails closed and emits no direct runtime multiply.",
+    "Changed Double_mul native alias fails closed.",
+    "Program external declaration sharing Double_mul native alias fails closed.",
+    "ARC excludes optimization even when immutable source certificate cached."
+  ],
+  "source_hashes": {
+    "crates/emit_native/src/context.rs": "8e11853370c16c8e1c7398c7945717ae1194e7a705efb1975dcc25b9138baff1",
+    "crates/emit_native/src/lower/mod.rs": "10badcf4ee290c3932302998d06ccec11d1ba9e9da6760deb266b4c988ad5096",
+    "crates/emit_native/src/lower/operators.rs": "dae6aed6965efcfb39d5b0f91b588c8614262c13b070d721fa940d1055ddf1df",
+    "crates/emit_native/src/lower/double_identity.rs": "af85d0aa256c1d171d2f4b67d0cdc7f1bfbc0f9f4d19ad026f36764a108a3639",
+    "crates/emit_native/src/lower/primitive_multiply.rs": "60c2a93d4f977fe7cbf8024d4dff3869e1f96e5b583019dda6f1490103ecf7c5",
+    "crates/emit_native/src/lower/primitive_multiply/tests.rs": "d5e1d8c7ab26d5336dc85caab6122099fefaed2d035be1041a410226d2535fcd",
+    "crates/emit_native/tests/fixtures/primitive_multiply.dart": "0b0f6ba12550f0bfbeebcd708726575ac1f80154fbe3a7fb3b195b733ac279fe"
+  },
+  "ordinary_fixture": {
+    "path": "crates/emit_native/tests/fixtures/primitive_multiply.dart",
+    "vm_exit": 0,
+    "oracle_lines": 230,
+    "oracle": "official.stdout",
+    "cases": "Smi/Mint bounds and wrapping products, mixed integer/double, NaN/infinity/signedzero bit patterns, dynamic custom operator side effects, String repetition and invalid receiver errors."
+  },
+  "production_contract": {
+    "source_proof": "All selected SDK unit content hashes and core part topology + canonical actual numeric methods/classes + unique whole-program multiplication/conversion native alias census.",
+    "guard": "Both runtime physical CIDs must be Smi2/Mint3/Double4, otherwise original selector path.",
+    "fast_smi": "Original inlined Smi path retained before this slow edge.",
+    "ablation": "DARTFORGE_NO_PRIMITIVE_MULTIPLY=1",
+    "operation": "Only BinaryOp::Mul. Other operators unchanged."
+  }
+}

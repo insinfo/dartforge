@@ -1,0 +1,2697 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.90s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 22 tests
+test optimize::tests::typed_fields_reinitialize_at_allocation_point_and_reject_mixed_bits ... ok
+test optimize::tests::allocation_class_removes_impossible_access_from_other_mixin ... ok
+test optimize::arc::fields::class_cases::ancestry_tests::external_registered_ancestry_is_not_an_allocation_or_nominal_hint_proof ... ok
+test optimize::arc::objects::tests::invalid_allocation_or_later_failure_does_not_publish_transformation ... ok
+test pruning::receiver_cone_tests::actual_hir_and_llvm_use_the_same_allocation_receiver_classes ... ok
+test optimize::arc::objects::tests::borrowed_field_gets_owner_before_allocation_safepoint ... ok
+test optimize::arc::edges::tests::loop_allocation_releases_token_on_backedge_and_exit ... ok
+test pruning::receiver_provenance::allocation_only_exports::tests::complete_immutable_factory_closure_and_nullable_union ... ok
+test optimize::arc::objects::tests::allocation_initializes_ref_and_bits_without_numeric_double_conversion ... ok
+test pruning::receiver_provenance::allocation_only_exports::tests::policy_abi_duplicates_and_stale_dependency_bodies_are_unknown ... ok
+test pruning::receiver_provenance::allocation_only_exports::tests::rejected_operations_in_unreachable_blocks_are_not_exportable ... ok
+test pruning::receiver_provenance::canonical_cache::tests::cache_allocation_propagates_to_callers_without_using_getter_name ... ok
+test pruning::receiver_provenance::tests::allocation_call_and_cfg_phi_union_are_body_proved ... ok
+test pruning::receiver_provenance::allocation_only_exports::tests::complete_dependency_census_rejects_cache_global_address_and_opaque_operations ... ok
+test pruning::receiver_provenance::tests::unreviewed_prepared_arc_allocation_abi_stays_unknown ... ok
+test pruning::receiver_provenance::tests::instance_allocation_cids_and_factory_returns_are_physical ... ok
+test pruning::receiver_provenance::allocation_certificates::tests::imported_static_and_physical_getter_results_require_abi_and_symbol_reconciliation ... ok
+test optimize::arc::fields::tests::block_allocation_proves_prefix_without_reviving_old_or_exposed_alias ... ok
+test pruning::receiver_provenance::allocation_certificates::tests::exact_artifact_profile_and_cache_closure_binding ... ok
+test pruning::receiver_provenance::allocation_certificates::tests::malformed_duplicate_stale_signature_and_table_records_fail_closed ... ok
+test pruning::receiver_provenance::allocation_only_exports::tests::ordinary_native_registry_alias_disables_getter_tables_without_erasing_allocations ... ok
+actual factory HIR: Function {
+    symbol: "df.main$2edart..factory",
+    name: "factory",
+    params: [],
+    return_ty: Ref,
+    blocks: [
+        BasicBlock {
+            id: BlockId(
+                0,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        0,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_object_new",
+                        args: [
+                            (
+                                Constant(
+                                    Int(
+                                        716,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                        ],
+                        ret_ty: Ref,
+                    },
+                    Ref,
+                ),
+            ],
+            terminator: Return(
+                Some(
+                    Val(
+                        ValueId(
+                            0,
+                        ),
+                    ),
+                ),
+            ),
+        },
+    ],
+    debug_info: None,
+}
+actual factory HIR: Function {
+    symbol: "df.main$2edart..listFactory",
+    name: "listFactory",
+    params: [],
+    return_ty: Ref,
+    blocks: [
+        BasicBlock {
+            id: BlockId(
+                0,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        0,
+                    ),
+                    AllocList {
+                        elements: [],
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        1,
+                    ),
+                    LoadGlobal {
+                        symbol: "dfr.b7c91de048a0a911.main$2edart$ok",
+                        ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        2,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                1,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        2,
+                    ),
+                ),
+                then_block: BlockId(
+                    1,
+                ),
+                else_block: BlockId(
+                    2,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                1,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        3,
+                    ),
+                    LoadGlobal {
+                        symbol: "dfr.b7c91de048a0a911.main$2edart",
+                        ty: I64,
+                    },
+                    I64,
+                ),
+            ],
+            terminator: Branch(
+                BlockId(
+                    3,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                2,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        4,
+                    ),
+                    CallStatic {
+                        symbol: "df.rti.b7c91de048a0a911.main$2edart",
+                        args: [],
+                        ret_ty: I64,
+                    },
+                    I64,
+                ),
+            ],
+            terminator: Branch(
+                BlockId(
+                    3,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                3,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        5,
+                    ),
+                    Phi {
+                        incoming: [
+                            (
+                                BlockId(
+                                    1,
+                                ),
+                                Val(
+                                    ValueId(
+                                        3,
+                                    ),
+                                ),
+                            ),
+                            (
+                                BlockId(
+                                    2,
+                                ),
+                                Val(
+                                    ValueId(
+                                        4,
+                                    ),
+                                ),
+                            ),
+                        ],
+                        ty: I64,
+                    },
+                    I64,
+                ),
+                (
+                    ValueId(
+                        6,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_rti_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        5,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+            ],
+            terminator: Return(
+                Some(
+                    Val(
+                        ValueId(
+                            0,
+                        ),
+                    ),
+                ),
+            ),
+        },
+    ],
+    debug_info: None,
+}
+actual factory HIR: Function {
+    symbol: "df.dart$3aconvert.AsciiEncoder.new",
+    name: "",
+    params: [
+        (
+            ValueId(
+                0,
+            ),
+            "this",
+            Ref,
+        ),
+    ],
+    return_ty: Void,
+    blocks: [
+        BasicBlock {
+            id: BlockId(
+                0,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        1,
+                    ),
+                    Const(
+                        Int(
+                            127,
+                        ),
+                    ),
+                    I64,
+                ),
+                (
+                    ValueId(
+                        3,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "_UnicodeSubsetEncoder",
+                            name: "_subsetMask",
+                            is_final: true,
+                            is_late: false,
+                            layout_index: 0,
+                            storage_type: I64,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+            ],
+            terminator: Return(
+                None,
+            ),
+        },
+    ],
+    debug_info: None,
+}
+actual factory HIR: Function {
+    symbol: "df.dart$3aconvert.JsonUtf8Encoder.new",
+    name: "",
+    params: [
+        (
+            ValueId(
+                0,
+            ),
+            "this",
+            Ref,
+        ),
+        (
+            ValueId(
+                1,
+            ),
+            "indent",
+            Ref,
+        ),
+        (
+            ValueId(
+                4,
+            ),
+            "toEncodable",
+            Ref,
+        ),
+        (
+            ValueId(
+                7,
+            ),
+            "bufferSize",
+            Ref,
+        ),
+    ],
+    return_ty: Void,
+    blocks: [
+        BasicBlock {
+            id: BlockId(
+                0,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        11,
+                    ),
+                    CallStatic {
+                        symbol: "df.dart$3aconvert.JsonUtf8Encoder._utf8Encode",
+                        args: [
+                            Val(
+                                ValueId(
+                                    1,
+                                ),
+                            ),
+                        ],
+                        ret_ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        12,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        13,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                12,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        13,
+                    ),
+                ),
+                then_block: BlockId(
+                    2,
+                ),
+                else_block: BlockId(
+                    1,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                1,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        14,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "JsonUtf8Encoder",
+                            name: "_indent",
+                            is_final: true,
+                            is_late: false,
+                            layout_index: 0,
+                            storage_type: Ref,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        11,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        16,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "JsonUtf8Encoder",
+                            name: "_toEncodable",
+                            is_final: true,
+                            is_late: false,
+                            layout_index: 1,
+                            storage_type: Ref,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        4,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        18,
+                    ),
+                    ICmp(
+                        Eq,
+                        Val(
+                            ValueId(
+                                7,
+                            ),
+                        ),
+                        Constant(
+                            Null,
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        18,
+                    ),
+                ),
+                then_block: BlockId(
+                    3,
+                ),
+                else_block: BlockId(
+                    4,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                2,
+            ),
+            instructions: [],
+            terminator: Return(
+                None,
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                3,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        22,
+                    ),
+                    Const(
+                        Int(
+                            256,
+                        ),
+                    ),
+                    I64,
+                ),
+            ],
+            terminator: Branch(
+                BlockId(
+                    5,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                4,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        19,
+                    ),
+                    Unbox {
+                        op: Val(
+                            ValueId(
+                                7,
+                            ),
+                        ),
+                        to: I64,
+                    },
+                    I64,
+                ),
+                (
+                    ValueId(
+                        20,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        21,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                20,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        21,
+                    ),
+                ),
+                then_block: BlockId(
+                    7,
+                ),
+                else_block: BlockId(
+                    6,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                5,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        23,
+                    ),
+                    Phi {
+                        incoming: [
+                            (
+                                BlockId(
+                                    6,
+                                ),
+                                Val(
+                                    ValueId(
+                                        19,
+                                    ),
+                                ),
+                            ),
+                            (
+                                BlockId(
+                                    3,
+                                ),
+                                Val(
+                                    ValueId(
+                                        22,
+                                    ),
+                                ),
+                            ),
+                        ],
+                        ty: I64,
+                    },
+                    I64,
+                ),
+                (
+                    ValueId(
+                        24,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "JsonUtf8Encoder",
+                            name: "_bufferSize",
+                            is_final: true,
+                            is_late: false,
+                            layout_index: 2,
+                            storage_type: I64,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        2,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        23,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+            ],
+            terminator: Return(
+                None,
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                6,
+            ),
+            instructions: [],
+            terminator: Branch(
+                BlockId(
+                    5,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                7,
+            ),
+            instructions: [],
+            terminator: Return(
+                None,
+            ),
+        },
+    ],
+    debug_info: None,
+}
+actual factory HIR: Function {
+    symbol: "df.dart$3aconvert._JsonUtf8EncoderSink.new",
+    name: "",
+    params: [
+        (
+            ValueId(
+                0,
+            ),
+            "this",
+            Ref,
+        ),
+        (
+            ValueId(
+                1,
+            ),
+            "_sink",
+            Ref,
+        ),
+        (
+            ValueId(
+                4,
+            ),
+            "_toEncodable",
+            Ref,
+        ),
+        (
+            ValueId(
+                7,
+            ),
+            "_indent",
+            Ref,
+        ),
+        (
+            ValueId(
+                10,
+            ),
+            "_bufferSize",
+            I64,
+        ),
+    ],
+    return_ty: Void,
+    blocks: [
+        BasicBlock {
+            id: BlockId(
+                0,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        15,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "_JsonUtf8EncoderSink",
+                            name: "_isDone",
+                            is_final: false,
+                            is_late: false,
+                            layout_index: 4,
+                            storage_type: I1,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        4,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        17,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "_JsonUtf8EncoderSink",
+                            name: "_sink",
+                            is_final: true,
+                            is_late: false,
+                            layout_index: 0,
+                            storage_type: Ref,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        19,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "_JsonUtf8EncoderSink",
+                            name: "_toEncodable",
+                            is_final: true,
+                            is_late: false,
+                            layout_index: 2,
+                            storage_type: Ref,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        2,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        4,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        21,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "_JsonUtf8EncoderSink",
+                            name: "_indent",
+                            is_final: true,
+                            is_late: false,
+                            layout_index: 1,
+                            storage_type: Ref,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        7,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        23,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "_JsonUtf8EncoderSink",
+                            name: "_bufferSize",
+                            is_final: true,
+                            is_late: false,
+                            layout_index: 3,
+                            storage_type: I64,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        3,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        10,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+            ],
+            terminator: Return(
+                None,
+            ),
+        },
+    ],
+    debug_info: None,
+}
+actual factory HIR: Function {
+    symbol: "df.dart$3aconvert.Utf8Encoder.new",
+    name: "",
+    params: [
+        (
+            ValueId(
+                0,
+            ),
+            "this",
+            Ref,
+        ),
+    ],
+    return_ty: Void,
+    blocks: [
+        BasicBlock {
+            id: BlockId(
+                0,
+            ),
+            instructions: [],
+            terminator: Return(
+                None,
+            ),
+        },
+    ],
+    debug_info: None,
+}
+actual factory HIR: Function {
+    symbol: "df.dart$3aconvert._Utf8Encoder.new",
+    name: "",
+    params: [
+        (
+            ValueId(
+                0,
+            ),
+            "this",
+            Ref,
+        ),
+    ],
+    return_ty: Void,
+    blocks: [
+        BasicBlock {
+            id: BlockId(
+                0,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        1,
+                    ),
+                    Const(
+                        Int(
+                            1024,
+                        ),
+                    ),
+                    I64,
+                ),
+                (
+                    ValueId(
+                        5,
+                    ),
+                    Const(
+                        Int(
+                            0,
+                        ),
+                    ),
+                    I64,
+                ),
+                (
+                    ValueId(
+                        6,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "_Utf8Encoder",
+                            name: "_carry",
+                            is_final: false,
+                            is_late: false,
+                            layout_index: 0,
+                            storage_type: I64,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        5,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        7,
+                    ),
+                    Const(
+                        Int(
+                            0,
+                        ),
+                    ),
+                    I64,
+                ),
+                (
+                    ValueId(
+                        8,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "_Utf8Encoder",
+                            name: "_bufferIndex",
+                            is_final: false,
+                            is_late: false,
+                            layout_index: 1,
+                            storage_type: I64,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        7,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        13,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_typed_new",
+                        args: [
+                            (
+                                Constant(
+                                    Int(
+                                        23,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                        ],
+                        ret_ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        14,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        15,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                14,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        15,
+                    ),
+                ),
+                then_block: BlockId(
+                    9,
+                ),
+                else_block: BlockId(
+                    8,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                8,
+            ),
+            instructions: [],
+            terminator: Branch(
+                BlockId(
+                    10,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                9,
+            ),
+            instructions: [],
+            terminator: Branch(
+                BlockId(
+                    10,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                10,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        16,
+                    ),
+                    Phi {
+                        incoming: [
+                            (
+                                BlockId(
+                                    8,
+                                ),
+                                Val(
+                                    ValueId(
+                                        13,
+                                    ),
+                                ),
+                            ),
+                            (
+                                BlockId(
+                                    9,
+                                ),
+                                Constant(
+                                    Null,
+                                ),
+                            ),
+                        ],
+                        ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        10,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        11,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                10,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        11,
+                    ),
+                ),
+                then_block: BlockId(
+                    5,
+                ),
+                else_block: BlockId(
+                    4,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                4,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        12,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "_Utf8Encoder",
+                            name: "_buffer",
+                            is_final: true,
+                            is_late: false,
+                            layout_index: 2,
+                            storage_type: Ref,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        2,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        16,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+            ],
+            terminator: Branch(
+                BlockId(
+                    6,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                5,
+            ),
+            instructions: [],
+            terminator: Branch(
+                BlockId(
+                    6,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                6,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        3,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        4,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                3,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        4,
+                    ),
+                ),
+                then_block: BlockId(
+                    2,
+                ),
+                else_block: BlockId(
+                    1,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                1,
+            ),
+            instructions: [],
+            terminator: Return(
+                None,
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                2,
+            ),
+            instructions: [],
+            terminator: Return(
+                None,
+            ),
+        },
+    ],
+    debug_info: None,
+}
+actual factory HIR: Function {
+    symbol: "df.dart$3aconvert._Utf8Encoder.new$3awithBufferSize",
+    name: "withBufferSize",
+    params: [
+        (
+            ValueId(
+                0,
+            ),
+            "this",
+            Ref,
+        ),
+        (
+            ValueId(
+                1,
+            ),
+            "bufferSize",
+            I64,
+        ),
+    ],
+    return_ty: Void,
+    blocks: [
+        BasicBlock {
+            id: BlockId(
+                0,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        4,
+                    ),
+                    Const(
+                        Int(
+                            0,
+                        ),
+                    ),
+                    I64,
+                ),
+                (
+                    ValueId(
+                        5,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "_Utf8Encoder",
+                            name: "_carry",
+                            is_final: false,
+                            is_late: false,
+                            layout_index: 0,
+                            storage_type: I64,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        4,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        6,
+                    ),
+                    Const(
+                        Int(
+                            0,
+                        ),
+                    ),
+                    I64,
+                ),
+                (
+                    ValueId(
+                        7,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "_Utf8Encoder",
+                            name: "_bufferIndex",
+                            is_final: false,
+                            is_late: false,
+                            layout_index: 1,
+                            storage_type: I64,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        6,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        13,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_typed_new",
+                        args: [
+                            (
+                                Constant(
+                                    Int(
+                                        23,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                        ],
+                        ret_ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        14,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        15,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                14,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        15,
+                    ),
+                ),
+                then_block: BlockId(
+                    5,
+                ),
+                else_block: BlockId(
+                    4,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                4,
+            ),
+            instructions: [],
+            terminator: Branch(
+                BlockId(
+                    6,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                5,
+            ),
+            instructions: [],
+            terminator: Branch(
+                BlockId(
+                    6,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                6,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        16,
+                    ),
+                    Phi {
+                        incoming: [
+                            (
+                                BlockId(
+                                    4,
+                                ),
+                                Val(
+                                    ValueId(
+                                        13,
+                                    ),
+                                ),
+                            ),
+                            (
+                                BlockId(
+                                    5,
+                                ),
+                                Constant(
+                                    Null,
+                                ),
+                            ),
+                        ],
+                        ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        10,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        11,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                10,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        11,
+                    ),
+                ),
+                then_block: BlockId(
+                    2,
+                ),
+                else_block: BlockId(
+                    1,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                1,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        12,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "_Utf8Encoder",
+                            name: "_buffer",
+                            is_final: true,
+                            is_late: false,
+                            layout_index: 2,
+                            storage_type: Ref,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        2,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        16,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+            ],
+            terminator: Return(
+                None,
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                2,
+            ),
+            instructions: [],
+            terminator: Return(
+                None,
+            ),
+        },
+    ],
+    debug_info: None,
+}
+actual factory HIR: Function {
+    symbol: "df.dart$3aconvert._Utf8EncoderSink.new",
+    name: "",
+    params: [
+        (
+            ValueId(
+                0,
+            ),
+            "this",
+            Ref,
+        ),
+        (
+            ValueId(
+                1,
+            ),
+            "_sink",
+            Ref,
+        ),
+    ],
+    return_ty: Void,
+    blocks: [
+        BasicBlock {
+            id: BlockId(
+                0,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        5,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "_Utf8EncoderSink",
+                            name: "_sink",
+                            is_final: true,
+                            is_late: false,
+                            layout_index: 3,
+                            storage_type: Ref,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        3,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        9,
+                    ),
+                    Const(
+                        Int(
+                            1024,
+                        ),
+                    ),
+                    I64,
+                ),
+                (
+                    ValueId(
+                        13,
+                    ),
+                    Const(
+                        Int(
+                            0,
+                        ),
+                    ),
+                    I64,
+                ),
+                (
+                    ValueId(
+                        14,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "_Utf8Encoder",
+                            name: "_carry",
+                            is_final: false,
+                            is_late: false,
+                            layout_index: 0,
+                            storage_type: I64,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        13,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        15,
+                    ),
+                    Const(
+                        Int(
+                            0,
+                        ),
+                    ),
+                    I64,
+                ),
+                (
+                    ValueId(
+                        16,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "_Utf8Encoder",
+                            name: "_bufferIndex",
+                            is_final: false,
+                            is_late: false,
+                            layout_index: 1,
+                            storage_type: I64,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        15,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        21,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_typed_new",
+                        args: [
+                            (
+                                Constant(
+                                    Int(
+                                        23,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        9,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                        ],
+                        ret_ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        22,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        23,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                22,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        23,
+                    ),
+                ),
+                then_block: BlockId(
+                    13,
+                ),
+                else_block: BlockId(
+                    12,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                12,
+            ),
+            instructions: [],
+            terminator: Branch(
+                BlockId(
+                    14,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                13,
+            ),
+            instructions: [],
+            terminator: Branch(
+                BlockId(
+                    14,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                14,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        24,
+                    ),
+                    Phi {
+                        incoming: [
+                            (
+                                BlockId(
+                                    12,
+                                ),
+                                Val(
+                                    ValueId(
+                                        21,
+                                    ),
+                                ),
+                            ),
+                            (
+                                BlockId(
+                                    13,
+                                ),
+                                Constant(
+                                    Null,
+                                ),
+                            ),
+                        ],
+                        ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        18,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        19,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                18,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        19,
+                    ),
+                ),
+                then_block: BlockId(
+                    9,
+                ),
+                else_block: BlockId(
+                    8,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                8,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        20,
+                    ),
+                    DeclaredFieldCall {
+                        declaration: FieldDeclaration {
+                            library_uri: "dart:convert",
+                            owner: "_Utf8Encoder",
+                            name: "_buffer",
+                            is_final: true,
+                            is_late: false,
+                            layout_index: 2,
+                            storage_type: Ref,
+                        },
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        2,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        24,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+            ],
+            terminator: Branch(
+                BlockId(
+                    10,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                9,
+            ),
+            instructions: [],
+            terminator: Branch(
+                BlockId(
+                    10,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                10,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        11,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        12,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                11,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        12,
+                    ),
+                ),
+                then_block: BlockId(
+                    5,
+                ),
+                else_block: BlockId(
+                    4,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                4,
+            ),
+            instructions: [],
+            terminator: Branch(
+                BlockId(
+                    6,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                5,
+            ),
+            instructions: [],
+            terminator: Branch(
+                BlockId(
+                    6,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                6,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        7,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        8,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                7,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        8,
+                    ),
+                ),
+                then_block: BlockId(
+                    2,
+                ),
+                else_block: BlockId(
+                    1,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                1,
+            ),
+            instructions: [],
+            terminator: Return(
+                None,
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                2,
+            ),
+            instructions: [],
+            terminator: Return(
+                None,
+            ),
+        },
+    ],
+    debug_info: None,
+}
+allocation-only source census: 3 candidates / 21202 functions
+allocation-only candidate: df.dart$3acore._Uri._createList {10}
+allocation-only candidate: df.main$2edart..factory {716}
+allocation-only candidate: df.main$2edart..listFactory {10}
+test pruning::receiver_provenance::allocation_only_exports::tests::actual_lowered_sdk_candidate_census_keeps_codec_caches_unknown ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 690 filtered out; finished in 29.07s
+

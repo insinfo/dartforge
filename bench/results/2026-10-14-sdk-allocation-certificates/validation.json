@@ -1,0 +1,97 @@
+{
+  "source_freeze": true,
+  "sources": {
+    "crates/emit_native/src/hir.rs": "e2b6834dc3ab24aa3c5f5d2ad57716d3d9469225704ef7f1236ebb84fc9ee259",
+    "crates/emit_native/src/lib.rs": "2af5d24f4f6319efc000c9f5f675f36ce4203c5ac5136f640afc01975b885963",
+    "crates/emit_native/src/sdk_module.rs": "23fec42097c68fb3572963f2ebdf064debd912793caf1987d96df4b385bb768d",
+    "crates/emit_native/src/pruning.rs": "e1c425995b323a4046c7d632a60604926aed4492566f35a3c0f23d2b851156ff",
+    "crates/emit_native/src/llvm/mod.rs": "7b5185a17a22a15a4ebe61ce94cc72966fe2c52b8fbebf88b2aa32e9dd8de3c8",
+    "crates/emit_native/src/optimize/physical_devirtualize.rs": "35f35e4af6824da8cec3db703324646196969f37bb158257a8978f508f9ad12a",
+    "crates/emit_native/src/pruning/receiver_provenance.rs": "01735107c05761ec5f5fa49789f0f12ccfaa3bf8e89b6e16ec93c143b906ae95",
+    "crates/emit_native/src/pruning/receiver_provenance/selector_returns.rs": "6f8d1db0ca14a8e090702ccb6a7bb5e4fd82173618fc0dc85e56f786312065ec",
+    "crates/emit_native/src/pruning/receiver_provenance/registry.rs": "00a401434ea3cc8db15a6fe0466f7a675c0fe541c82ea1e9cefbc1957d0130ce",
+    "crates/emit_native/src/pruning/receiver_provenance/allocation_only_exports.rs": "0621874080f62adda383a3594892dcf63686e9baf6b180a50384fc27ec3df76d",
+    "crates/emit_native/src/pruning/receiver_provenance/allocation_only_exports/rti.rs": "72bf0e3eb48b25464ab92e86a1a62423ecd13884204c521550ee2a8c992e83a6",
+    "crates/emit_native/src/pruning/receiver_provenance/allocation_only_exports/tests.rs": "d23ee8e2c6db06ca1cbf88523c14e1a028aea36e0e45b81ae5b9c3029887774d",
+    "crates/emit_native/src/pruning/receiver_provenance/allocation_certificates.rs": "005115721ebf6820272049f12258c6064f2240a324ddac49dc49c56f3b12361f",
+    "crates/emit_native/src/pruning/receiver_provenance/allocation_certificates/tests.rs": "82d316b9ae526d67b76760be669dddee43454451956f0fdc51f6021a1c2a4e09"
+  },
+  "source_patch_sha256": "76db9122c68fc8ef760dc1d6ba99f6b549766872216d41f06b5efd1637ae9e3b",
+  "raw_logs": [
+    {
+      "path": "actual-factory-diagnostic.log",
+      "sha256": "cbe913234118693fc42a0bd4e6c0bcada27b1175f4e5c93a9b70532c1f9aa3aa"
+    },
+    {
+      "path": "allocation-class-census-final.log",
+      "sha256": "0e1c024ac6a8fd3c306a83266e11c05af1e4ca0f084b0b7f66ea9b14cba5f367"
+    },
+    {
+      "path": "allocation-dispatch-guard.log",
+      "sha256": "08ab2de545f0a05ca0a2d2f3ee581d8c1a776fa652045fff81e87c69f717bafa"
+    },
+    {
+      "path": "allocation-final-candidate.log",
+      "sha256": "76b0f7dfadfc251fa6bd3c5281212d1ae769e44dc135640c7ebd465ebb21a791"
+    },
+    {
+      "path": "allocation-integrated-first.log",
+      "sha256": "629e854581de30445c70e69c4992367dce5042cc4c4f4792228ee7d9c781ed9c"
+    },
+    {
+      "path": "allocation-only-tests.log",
+      "sha256": "b2e6263e62aaf535b82c8ee0569494a7d46349fce1d13338a01e965d43f7dc30"
+    },
+    {
+      "path": "allocation-only-with-source.log",
+      "sha256": "88d013dae06ce710966655bd4191ce35d7bedc1136a0c4721a42a7dc05b6b421"
+    },
+    {
+      "path": "allocation-registry-memoized.log",
+      "sha256": "d36f3eaba0630a0d23d0b3689e3c8b0d16675d82a2f3d273a1153c8d0c71920b"
+    },
+    {
+      "path": "allocation-rti-native-alias-corrected.log",
+      "sha256": "6ddff1a0eb1e6786ef74d4281b05dd138d428f8df14537fef006a2d856e09611"
+    },
+    {
+      "path": "allocation-rti-native-alias.log",
+      "sha256": "fb4b51b667bd633e02dbabf3c2a2b97fd328e7f5097bcdede9ff9decb301ec40"
+    }
+  ],
+  "latest_gates": [
+    {
+      "log": "allocation-final-candidate.log",
+      "result": "23 passed, 0 failed, 29.33s; before final class census guard"
+    },
+    {
+      "log": "allocation-class-census-final.log",
+      "result": "4 passed, 0 failed, 0.03s; final certificate class census guard"
+    }
+  ],
+  "earlier_failures": [
+    "allocation-rti-native-alias.log: test harness used wrong body inference API; corrected",
+    "allocation-rti-native-alias-corrected.log: source-negative expected indirect getter after optimizer already rewrote getter; added actual registry guard to optimizer and both dispatch consumers, then retained indirect path verified"
+  ],
+  "actual_source_census": {
+    "functions": 21202,
+    "eligible": 3,
+    "standard_sdk_eligible": [
+      "df.dart$3acore._Uri._createList: physical runtime growable list CID10"
+    ],
+    "app_eligible": [
+      "Fresh factory()",
+      "List<Object?> listFactory()"
+    ],
+    "fresh_codec_constructors": "SDK AsciiEncoder.new is initializer, not allocated-return factory; no external return certificate claimed for it",
+    "cached_ascii_utf8_base64_getters": "Excluded. Constant-object caches and field reads remain unknown."
+  },
+  "scope": [
+    "Production SDK publication and imported static/getter provenance consumers wired; exact finalized strong LLVM definitions/ABI, selected SDK cache epoch v5, object and actual .poda content binding, ready marker proof digest, class/table/namespace reconciliation.",
+    "Scalar RTI caches and runtime metadata-only RTI set/recipe effects are audited, preserved, and not eliminated. ARC/reload/shared/opaque/global-reference/field-load/write closures remain excluded.",
+    "Explicit reserved Native registry aliases disable getter devirtualization and all exact/nominal dispatch receiver facts in HIR pruning and LLVM; independent physical allocation facts remain available.",
+    "Trusted compiler-cache contract matches existing object/.poda cache: editing proof alone, objects or summaries fails closed. Arbitrary coordinated malicious rewriting of compiler-owned marker plus proof plus artifacts is outside that contract.",
+    "No current CLI cold/warm/copy/custom SDK proof validation, final native size or runtime performance gain is claimed. Root will validate frozen producer and end-to-end native paths."
+  ],
+  "ablation": "DARTFORGE_NO_SDK_ALLOCATION_PROOFS=1"
+}

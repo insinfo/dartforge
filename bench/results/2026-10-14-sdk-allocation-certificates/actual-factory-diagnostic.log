@@ -1,0 +1,261 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.49s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 1 test
+actual factory HIR: Function {
+    symbol: "df.main$2edart..factory",
+    name: "factory",
+    params: [],
+    return_ty: Ref,
+    blocks: [
+        BasicBlock {
+            id: BlockId(
+                0,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        0,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_object_new",
+                        args: [
+                            (
+                                Constant(
+                                    Int(
+                                        716,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                        ],
+                        ret_ty: Ref,
+                    },
+                    Ref,
+                ),
+            ],
+            terminator: Return(
+                Some(
+                    Val(
+                        ValueId(
+                            0,
+                        ),
+                    ),
+                ),
+            ),
+        },
+    ],
+    debug_info: None,
+}
+actual factory HIR: Function {
+    symbol: "df.main$2edart..listFactory",
+    name: "listFactory",
+    params: [],
+    return_ty: Ref,
+    blocks: [
+        BasicBlock {
+            id: BlockId(
+                0,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        0,
+                    ),
+                    AllocList {
+                        elements: [],
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        1,
+                    ),
+                    LoadGlobal {
+                        symbol: "dfr.b7c91de048a0a911.main$2edart$ok",
+                        ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        2,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                1,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        2,
+                    ),
+                ),
+                then_block: BlockId(
+                    1,
+                ),
+                else_block: BlockId(
+                    2,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                1,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        3,
+                    ),
+                    LoadGlobal {
+                        symbol: "dfr.b7c91de048a0a911.main$2edart",
+                        ty: I64,
+                    },
+                    I64,
+                ),
+            ],
+            terminator: Branch(
+                BlockId(
+                    3,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                2,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        4,
+                    ),
+                    CallStatic {
+                        symbol: "df.rti.b7c91de048a0a911.main$2edart",
+                        args: [],
+                        ret_ty: I64,
+                    },
+                    I64,
+                ),
+            ],
+            terminator: Branch(
+                BlockId(
+                    3,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                3,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        5,
+                    ),
+                    Phi {
+                        incoming: [
+                            (
+                                BlockId(
+                                    1,
+                                ),
+                                Val(
+                                    ValueId(
+                                        3,
+                                    ),
+                                ),
+                            ),
+                            (
+                                BlockId(
+                                    2,
+                                ),
+                                Val(
+                                    ValueId(
+                                        4,
+                                    ),
+                                ),
+                            ),
+                        ],
+                        ty: I64,
+                    },
+                    I64,
+                ),
+                (
+                    ValueId(
+                        6,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_rti_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        5,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+            ],
+            terminator: Return(
+                Some(
+                    Val(
+                        ValueId(
+                            0,
+                        ),
+                    ),
+                ),
+            ),
+        },
+    ],
+    debug_info: None,
+}
+allocation-only source census: 0 candidates / 21202 functions
+test pruning::receiver_provenance::allocation_only_exports::tests::actual_lowered_sdk_candidate_census_keeps_codec_caches_unknown ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 706 filtered out; finished in 30.72s
+

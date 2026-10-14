@@ -1,0 +1,74 @@
+  %gcs1 = getelementptr inbounds { ptr, i64, [2 x i64] }, ptr %gcq, i64 0, i32 2, i64 1
+  %gcant = load ptr, ptr %ctxtopo, align 8
+  store ptr %gcant, ptr %gcq, align 8
+  store ptr %gcq, ptr %ctxtopo, align 8
+  %v0 = call i64 @df.dart$3aconvert..dartforgeFreshList()
+  store i64 %v0, ptr %gcs0
+  %v1 = load i8, ptr %ctx, align 8
+  %c0 = zext i8 %v1 to i64
+  %v2 = icmp ne i64 %c0, 0
+  br i1 %v2, label %b2, label %b1
+b1:
+  %v6 = ptrtoint ptr getelementptr inbounds (i8, ptr @"df.s.9c589500711b89f8a7abea1d72d8180a", i64 2) to i64
+  store i64 %v6, ptr %gcs1
+  %sa7_0 = getelementptr [2 x i64], ptr %sargs7, i64 0, i64 0
+  store i64 %v6, ptr %sa7_0
+  %sat7 = getelementptr [2 x i64], ptr %sargs7, i64 0, i64 1
+  store i64 0, ptr %sat7
+  %sic7 = getelementptr i64, ptr %area, i64 6
+  %sf7 = call ptr @df.selector(ptr %sic7, i64 %v0, i64 4270166662586539371, ptr @df.seln.1, i64 5)
+  %v7 = call i64 %sf7(i64 %v0, ptr %sargs7, ptr @df.const.i64.2.5add879d03074d0745fe088492026a7fe5e24eae5505fb5feeaa2dea820028da)
+  %v8 = load i8, ptr %ctx, align 8
+  %c1 = zext i8 %v8 to i64
+  %v9 = icmp ne i64 %c1, 0
+  br i1 %v9, label %b5, label %b6
+b2:
+  %gcvolta2 = load ptr, ptr %gcq, align 8
+  store ptr %gcvolta2, ptr %ctxtopo, align 8
+  ret void
+b4:
+  store i64 0, ptr %gcs1
+  call void @df.dart$3acore..print(i64 %v0)
+  %v30 = load i8, ptr %ctx, align 8
+  %c2 = zext i8 %v30 to i64
+  %v31 = icmp ne i64 %c2, 0
+  br i1 %v31, label %b15, label %b14
+b5:
+  store i64 0, ptr %gcs1
+  %v13 = call i64 @dartforge_exception_peek_ref()
+  store i64 %v13, ptr %gcs1
+  %v14 = call i8 @dartforge_exception_catchable()
+  %c3 = zext i8 %v14 to i64
+  %v15 = icmp ne i64 %c3, 0
+  br i1 %v15, label %b8, label %b9
+b6:
+  %v11 = load i8, ptr %ctx, align 8
+  %c4 = zext i8 %v11 to i64
+  %v12 = icmp ne i64 %c4, 0
+  br i1 %v12, label %b5, label %b7
+b7:
+  br label %b4
+b8:
+  %v16 = icmp eq i64 %v13, 0
+  %v17 = call i64 @df.class(i64 %v13)
+  %v18 = call i8 @df.subclass(i64 %v17, i64 624)
+  %c5 = zext i8 %v18 to i64
+  %v19 = icmp ne i64 %c5, 0
+  %v20 = xor i1 %v16, true
+  %c6 = zext i1 %v19 to i64
+  %c7 = zext i1 %v20 to i64
+  %v21 = and i64 %c6, %c7
+  %v22 = icmp ne i64 %v21, 0
+  br i1 %v22, label %b10, label %b11
+b9:
+  br label %b11
+b10:
+  %xcp23 = load i8, ptr %ctx, align 8
+  %xcn23 = icmp ne i8 %xcp23, 0
+  %xce23 = call i1 @llvm.expect.i1(i1 %xcn23, i1 false)
+  br i1 %xce23, label %xc23.limpar, label %xc23.fim
+xc23.limpar:
+  call void @dartforge_exception_clear()
+  br label %xc23.fim
+xc23.fim:
+  %v24 = ptrtoint ptr getelementptr inbounds (i8, ptr @"df.s.cc9814f51071414adab80bfa8916eab3", i64 2) to i64

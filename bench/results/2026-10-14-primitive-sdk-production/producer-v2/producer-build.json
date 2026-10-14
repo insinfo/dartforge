@@ -1,0 +1,21 @@
+{
+  "head": "d8a8a1e8f31e99068e63b722bd91ddfd27ccab74",
+  "command": [
+    "cargo",
+    "build",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-cli",
+    "--release",
+    "--features",
+    "native"
+  ],
+  "exit": 0,
+  "source_scope": "Cargo manifests and Rust/Dart/C/header/JSON sources under crates and native_sdk, including tests.",
+  "source_stable": true,
+  "changed_during_build": [],
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-producer-v2/dartforge",
+  "compiler_sha256": "fd1ae54e585fe7567b13ca57ef77d382eda24395d4a62a5f445e748ba8f4ab6c",
+  "compiler_bytes": 25554384
+}

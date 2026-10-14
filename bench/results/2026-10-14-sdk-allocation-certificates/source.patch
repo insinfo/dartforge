@@ -1,0 +1,1929 @@
+diff --git a/crates/emit_native/src/hir.rs b/crates/emit_native/src/hir.rs
+index 724090e8..bbb417b4 100644
+--- a/crates/emit_native/src/hir.rs
++++ b/crates/emit_native/src/hir.rs
+@@ -1141,6 +1141,8 @@ pub struct Module {
+     pub checked_double_identity: bool,
+     /// Registration facts from the same compiled SDK summaries used at link time.
+     pub arc_external_ancestry: ArcExternalAncestry,
++    /// Artifact-bound allocation return facts from the exact selected linked SDK.
++    pub(crate) imported_allocation_returns: Option<crate::pruning::receiver_provenance::allocation_certificates::Imports>,
+     /// The ARC preparation accepts direct calls to Dart functions of another
+     /// already prepared image (the prepared source SDK), with the summary taken
+     /// from the call itself: arguments by the representation of the operands,
+diff --git a/crates/emit_native/src/lib.rs b/crates/emit_native/src/lib.rs
+index ece45c81..b5a5dddd 100644
+--- a/crates/emit_native/src/lib.rs
++++ b/crates/emit_native/src/lib.rs
+@@ -130,6 +130,12 @@ fn prune_program_hir(module: &mut hir::Module, production: bool, sdk_lib: &Path)
+     let summaries = pruning::read_summaries(&sdk.summaries)?;
+     let refs: Vec<&pruning::Summary> = summaries.iter().map(|r| r.as_ref()).collect();
+     module.arc_external_ancestry = hir::ArcExternalAncestry::from_summaries(&refs);
++    let artifacts: Vec<_> = sdk.objects.iter().zip(&sdk.summaries).flat_map(|(object, summary)| [
++        object.file_name().unwrap().to_string_lossy().to_string(), summary.file_name().unwrap().to_string_lossy().to_string()]).collect();
++    if let Some(directory) = sdk.objects.first().and_then(|path| path.parent()) {
++        module.imported_allocation_returns = Some(pruning::receiver_provenance::allocation_certificates::load(
++            directory, &sdk.key, production, &artifacts));
++    }
+     Ok(Some(pruning::prune_hir(module, &refs)))
+ }
+ 
+diff --git a/crates/emit_native/src/llvm/mod.rs b/crates/emit_native/src/llvm/mod.rs
+index 43b15a87..32ca3eb1 100644
+--- a/crates/emit_native/src/llvm/mod.rs
++++ b/crates/emit_native/src/llvm/mod.rs
+@@ -103,6 +103,7 @@ pub struct LlvmEmitter<'a> {
+     current_function: String,
+     /// Lowered SDK `this`, revalidated against the current formal parameters.
+     current_receiver_cone: Option<(ValueId, u32)>,
++    registry_closed: bool,
+     /// Allocation facts retain witnesses to the exact immutable HIR bodies.
+     receiver_provenance: Option<crate::pruning::receiver_provenance::Provenance<'a>>,
+     current_exact_receivers: std::collections::HashMap<ValueId, crate::pruning::receiver_provenance::Classes>,
+@@ -303,6 +304,7 @@ impl<'a> LlvmEmitter<'a> {
+             selector_caches: 0,
+             current_function: String::new(),
+             current_receiver_cone: None,
++            registry_closed: crate::pruning::receiver_provenance::registry::closed(&[module]),
+             receiver_provenance: None,
+             current_exact_receivers: std::collections::HashMap::new(),
+             cache_in_function: 0,
+@@ -530,6 +532,9 @@ impl<'a> LlvmEmitter<'a> {
+     /// A module with diagnostics or incoherent exceptional metadata.
+     /// Resume still requires Itanium without statepoints; Windows needs funclets.
+     pub fn emit_all(mut self) -> String {
++        if !self.registry_closed {
++            self.receiver_provenance = Some(crate::pruning::receiver_provenance::Provenance::default());
++        }
+         if self.receiver_provenance.is_none() {
+             self.receiver_provenance = Some(if crate::pruning::receiver_provenance::enabled() {
+                 crate::pruning::receiver_provenance::analyze(&[self.module])
+@@ -876,6 +881,7 @@ impl<'a> LlvmEmitter<'a> {
+         self.current_exact_receivers = self.receiver_provenance.as_ref()
+             .and_then(|proof| proof.values_for(func)).cloned().unwrap_or_default();
+         self.current_receiver_cone = self.module.pruning_this_receivers.get(&func.symbol)
++            .filter(|_| self.registry_closed)
+             .copied().filter(|(id, _)| func.params.iter().any(|(parameter, _, ty)| parameter == id && *ty == Type::Ref));
+         self.cache_in_function = 0;
+         self.frame_allocas = Self::escaping_ref_allocas(func);
+diff --git a/crates/emit_native/src/optimize/physical_devirtualize.rs b/crates/emit_native/src/optimize/physical_devirtualize.rs
+index 61270a8b..9d0fbc78 100644
+--- a/crates/emit_native/src/optimize/physical_devirtualize.rs
++++ b/crates/emit_native/src/optimize/physical_devirtualize.rs
+@@ -16,6 +16,7 @@ pub(crate) fn rewrite_getters(module: &mut Module) -> usize {
+         || module.arc_aot_ports.is_some()
+         || module.sdk_library
+         || !receiver_provenance::enabled()
++        || !receiver_provenance::registry::closed(&[module])
+         || module.functions.iter().any(|function| {
+             matches!(
+                 function.symbol.as_str(),
+diff --git a/crates/emit_native/src/pruning.rs b/crates/emit_native/src/pruning.rs
+index 2cb0423b..6cb8a3ee 100644
+--- a/crates/emit_native/src/pruning.rs
++++ b/crates/emit_native/src/pruning.rs
+@@ -1427,7 +1427,8 @@ pub fn hir_summary(m: &crate::hir::Module) -> Summary {
+ /// for the keys of `live_ffis` (`None`: all of them, §3.14).
+ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>) -> Summary {
+     use crate::hir::{Constant, Instruction, Operand};
+-    let provenance = if receiver_provenance::enabled() { receiver_provenance::analyze(&[m]) } else { receiver_provenance::Provenance::default() };
++    let registry_closed = receiver_provenance::registry::closed(&[m]);
++    let provenance = if receiver_provenance::enabled() && registry_closed { receiver_provenance::analyze(&[m]) } else { receiver_provenance::Provenance::default() };
+     let mut r = Summary::new("programa");
+     r.declared_field_layouts = m.declared_field_layouts.iter()
+         .filter(|(cid, _)| !m.pruning_ambiguous_class_ids.contains(cid))
+@@ -1503,7 +1504,7 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
+                         }
+                     }
+                     Instruction::CallSelector { selector: s, recv, .. } | Instruction::CallSelectorForward { selector: s, recv, .. } => {
+-                        let cone = m.pruning_this_receivers.get(&f.symbol)
++                        let cone = m.pruning_this_receivers.get(&f.symbol).filter(|_| registry_closed)
+                             .filter(|(parameter, _)| f.params.iter().any(|(id, _, ty)| id == parameter && *ty == crate::hir::Type::Ref))
+                             .filter(|(parameter, _)| recv == &Operand::Val(*parameter))
+                             .map(|(_, cid)| i64::from(*cid));
+diff --git a/crates/emit_native/src/pruning/receiver_provenance.rs b/crates/emit_native/src/pruning/receiver_provenance.rs
+index 9407b404..2b97061d 100644
+--- a/crates/emit_native/src/pruning/receiver_provenance.rs
++++ b/crates/emit_native/src/pruning/receiver_provenance.rs
+@@ -4,7 +4,10 @@
+ //! dynamic calls, and recursive return summaries. They are not ownership/effect proofs.
+ 
+ mod canonical_cache;
++pub(crate) mod allocation_only_exports;
++pub(crate) mod allocation_certificates;
+ mod selector_returns;
++pub(crate) mod registry;
+ #[cfg(test)]
+ mod field_provenance;
+ 
+@@ -71,7 +74,9 @@ pub(crate) fn analyze<'a>(modules: &[&'a Module]) -> Provenance<'a> {
+         .iter()
+         .filter_map(|(symbol, f)| Shape::new(f).ok().map(|shape| (symbol.clone(), shape)))
+         .collect();
+-    let getters = selector_returns::Inventory::new(modules, &functions, &duplicates, &shapes);
++    let imported = if modules.len() == 1 { modules[0].imported_allocation_returns.as_ref()
++        .map(|imports| imports.reconcile(modules)).unwrap_or_default() } else { allocation_certificates::Imports::default() };
++    let getters = selector_returns::Inventory::new(modules, &functions, &duplicates, &shapes, &imported);
+     let dependencies: HashMap<_, Vec<String>> = functions
+         .iter()
+         .map(|(symbol, f)| {
+@@ -116,6 +121,7 @@ pub(crate) fn analyze<'a>(modules: &[&'a Module]) -> Provenance<'a> {
+         })
+         .collect();
+     let mut result = Provenance::default();
++    result.returns.extend(imported.exports.iter().map(|(symbol, export)| (symbol.clone(), export.classes.clone())));
+     if std::env::var("DARTFORGE_NO_CANONICAL_CACHE_PROVENANCE").as_deref() != Ok("1") {
+         let caches = canonical_cache::Inventory::new(modules);
+         for (symbol, function) in &functions {
+@@ -140,7 +146,7 @@ pub(crate) fn analyze<'a>(modules: &[&'a Module]) -> Provenance<'a> {
+             let Some(shape) = shapes.get(symbol) else {
+                 continue;
+             };
+-            let values = value_classes(f, shape, &functions, &result.returns, &getters);
++            let values = value_classes(f, shape, &functions, &result.returns, &getters, &imported);
+             if !recursive && f.return_ty == Type::Ref {
+                 let mut classes = Classes::new();
+                 let mut normal_returns = 0;
+@@ -183,6 +189,7 @@ fn value_classes(
+     functions: &HashMap<String, &Function>,
+     returns: &HashMap<String, Classes>,
+     getters: &selector_returns::Inventory,
++    imported: &allocation_certificates::Imports,
+ ) -> HashMap<ValueId, Classes> {
+     let mut values = HashMap::new();
+     loop {
+@@ -279,7 +286,11 @@ fn value_classes(
+                         args,
+                         ret_ty: Type::Ref,
+                     } => {
+-                        functions
++                        if let Some(export) = imported.exports.get(symbol) {
++                            (export.parameters.len() == args.len()
++                                && export.parameters.iter().zip(args).all(|(ty, arg)| shape.operand_type(arg) == Some(*ty)))
++                                .then(|| export.classes.clone())
++                        } else { functions
+                             .get(symbol)
+                             .filter(|callee| {
+                                 callee.return_ty == Type::Ref
+@@ -289,7 +300,7 @@ fn value_classes(
+                                     })
+                             })
+                             .and_then(|_| returns.get(symbol))
+-                            .cloned()
++                            .cloned() }
+                     }
+                     instruction if selector_returns::getter(instruction).is_some() => {
+                         let (selector, receiver) = selector_returns::getter(instruction).unwrap();
+diff --git a/crates/emit_native/src/pruning/receiver_provenance/allocation_certificates.rs b/crates/emit_native/src/pruning/receiver_provenance/allocation_certificates.rs
+new file mode 100644
+index 00000000..a366cff3
+--- /dev/null
++++ b/crates/emit_native/src/pruning/receiver_provenance/allocation_certificates.rs
+@@ -0,0 +1,533 @@
++//! Artifact-bound transport for allocation-only SDK body return witnesses.
++//!
++//! This is a separate proof schema from declaration/reachability summaries. The
++//! published producer audits immutable HIR, then binds records to every finalized
++//! SDK object and pruning summary in the exact selected compilation cache.
++use super::*;
++use std::path::Path;
++
++const SCHEMA: u64 = 1;
++const FILE: &str = "allocation-returns.json";
++
++#[derive(Clone, Debug)]
++pub(crate) struct Signature {
++    pub(crate) symbol: String,
++    pub(crate) parameters: Vec<Type>,
++    pub(crate) result: Type,
++    body_digest: String,
++}
++#[derive(Clone, Debug)]
++pub(crate) struct Export {
++    pub(crate) symbol: String,
++    pub(crate) parameters: Vec<Type>,
++    pub(crate) classes: Classes,
++    pub(crate) closure: Vec<Signature>,
++}
++#[derive(Clone, Debug, Default)]
++pub(crate) struct Imports {
++    pub(crate) exports: HashMap<String, Export>,
++    pub(crate) tables: HashMap<u32, Vec<(String, String)>>,
++}
++
++pub(crate) fn export(modules: &[&Module], proof: &Provenance<'_>) -> Vec<Export> {
++    super::allocation_only_exports::candidates(modules, proof)
++        .into_iter()
++        .filter_map(|candidate| {
++            if candidate.classes.contains(&0) || candidate.closure.iter().any(|f| shared(&f.symbol))
++            {
++                return None;
++            }
++            Some(Export {
++                symbol: candidate.symbol.into(),
++                parameters: candidate.parameters,
++                classes: candidate.classes,
++                closure: candidate
++                    .closure
++                    .into_iter()
++                    .map(|f| Signature {
++                        symbol: f.symbol.clone(),
++                        parameters: f.params.iter().map(|(_, _, ty)| *ty).collect(),
++                        result: f.return_ty,
++                        // Function HIR has no unordered instruction collections. The
++                        // digest records the exact producer snapshot, not a nominal type.
++                        body_digest: blake3::hash(format!("{f:?}").as_bytes())
++                            .to_hex()
++                            .to_string(),
++                    })
++                    .collect(),
++            })
++        })
++        .collect()
++}
++/// Bind every closure member to one actual final emitted strong definition.
++/// The cache trusts compiler-owned artifacts, as `.poda` already does. This
++/// validates producer linkage/body identity before publication, rather than
++/// interpreting declaration-only names as runtime body certificates.
++pub(crate) fn bind_final_ir(
++    exports: Vec<Export>,
++    libraries: &[crate::sdk_module::SdkLibrary],
++) -> Vec<Export> {
++    let mut definitions: HashMap<String, Vec<(String, String)>> = HashMap::new();
++    for library in libraries {
++        let mut lines = library.ir.lines();
++        while let Some(header) = lines.next() {
++            if !header.starts_with("define ") {
++                continue;
++            }
++            let Some((prefix, rest)) = header.split_once('@') else {
++                continue;
++            };
++            let Some((symbol, _)) = rest.split_once('(') else {
++                continue;
++            };
++            let symbol = symbol.trim_matches('"').to_string();
++            let mut body = String::from(header);
++            body.push('\n');
++            if !header.ends_with('}') {
++                for line in lines.by_ref() {
++                    body.push_str(line);
++                    body.push('\n');
++                    if line == "}" {
++                        break;
++                    }
++                }
++            }
++            definitions
++                .entry(symbol)
++                .or_default()
++                .push((prefix.to_string(), body));
++        }
++    }
++    exports
++        .into_iter()
++        .filter_map(|mut export| {
++            for dependency in &mut export.closure {
++                let rows = definitions.get(&dependency.symbol)?;
++                if rows.len() != 1 {
++                    return None;
++                }
++                let (prefix, body) = &rows[0];
++                if [
++                    "linkonce",
++                    "weak",
++                    "available_externally",
++                    "internal",
++                    "private",
++                ]
++                .iter()
++                .any(|word| {
++                    prefix
++                        .split_whitespace()
++                        .any(|token| token.starts_with(word))
++                }) || !prefix
++                    .split_whitespace()
++                    .any(|token| token == dependency.result.llvm_ir())
++                {
++                    return None;
++                }
++                let header = body.lines().next()?;
++                let arguments = header.split_once('(')?.1.split_once(')')?.0;
++                let observed: Vec<_> = if arguments.trim().is_empty() {
++                    Vec::new()
++                } else {
++                    arguments
++                        .split(',')
++                        .map(|argument| argument.trim().split_whitespace().next())
++                        .collect::<Option<Vec<_>>>()?
++                };
++                if observed
++                    != dependency
++                        .parameters
++                        .iter()
++                        .map(|ty| ty.llvm_ir())
++                        .collect::<Vec<_>>()
++                {
++                    return None;
++                }
++                dependency.body_digest = blake3::hash(body.as_bytes()).to_hex().to_string();
++            }
++            Some(export)
++        })
++        .collect()
++}
++
++fn shared(symbol: &str) -> bool {
++    symbol.starts_with("dfc.") || symbol.ends_with("$tear") || symbol.ends_with("$tearm")
++}
++fn code(ty: Type) -> Option<&'static str> {
++    Some(match ty {
++        Type::Ref => "ref",
++        Type::Ptr => "ptr",
++        Type::Void => "void",
++        Type::I1 => "i1",
++        Type::I8 => "i8",
++        Type::I64 => "i64",
++        Type::F64 => "f64",
++        _ => return None,
++    })
++}
++fn ty(value: &serde_json::Value) -> Option<Type> {
++    Some(match value.as_str()? {
++        "ref" => Type::Ref,
++        "ptr" => Type::Ptr,
++        "void" => Type::Void,
++        "i1" => Type::I1,
++        "i8" => Type::I8,
++        "i64" => Type::I64,
++        "f64" => Type::F64,
++        _ => return None,
++    })
++}
++fn parameters(values: &[Type]) -> Option<Vec<&'static str>> {
++    values.iter().map(|t| code(*t)).collect()
++}
++fn parse_parameters(value: &serde_json::Value) -> Option<Vec<Type>> {
++    let result: Vec<Type> = value.as_array()?.iter().map(ty).collect::<Option<_>>()?;
++    (!result.contains(&Type::Void)).then_some(result)
++}
++fn digest(path: &Path) -> Option<String> {
++    Some(
++        blake3::hash(&std::fs::read(path).ok()?)
++            .to_hex()
++            .to_string(),
++    )
++}
++fn fields(value: &serde_json::Value, expected: &[&str]) -> bool {
++    value.as_object().is_some_and(|object| {
++        object.len() == expected.len() && expected.iter().all(|k| object.contains_key(*k))
++    })
++}
++fn valid_digest(value: &str) -> bool {
++    value.len() == 64
++        && value
++            .bytes()
++            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
++}
++
++pub(crate) fn publish(
++    directory: &Path,
++    key: &str,
++    production: bool,
++    artifacts: &[String],
++    exports: &[Export],
++    tables: &[crate::pruning::ModuleTable],
++) -> Result<String, String> {
++    let artifact_records = artifacts
++        .iter()
++        .map(|name| {
++            let hash = digest(&directory.join(name))
++                .ok_or_else(|| format!("cannot hash SDK proof artifact {name}"))?;
++            Ok(serde_json::json!({"name":name,"digest":hash}))
++        })
++        .collect::<Result<Vec<_>, String>>()?;
++    let records = exports.iter().filter_map(|export| {
++        let closure = export.closure.iter().map(|f| Some(serde_json::json!({
++            "symbol":f.symbol,"parameters":parameters(&f.parameters)?,"result":code(f.result)?,"body":f.body_digest
++        }))).collect::<Option<Vec<_>>>()?;
++        Some(serde_json::json!({"symbol":export.symbol,"parameters":parameters(&export.parameters)?,
++            "classes":export.classes.iter().copied().collect::<Vec<_>>(),"closure":closure}))
++    }).collect::<Vec<_>>();
++    let mut cid_counts = HashMap::new();
++    for (cid, _, _) in tables {
++        *cid_counts.entry(*cid).or_insert(0usize) += 1;
++    }
++    let table_records: Vec<_> = tables
++        .iter()
++        .filter(|(cid, _, pairs)| {
++            *cid >= dartforge_runtime::layout::FIRST_FREE_CID as u32
++                && cid_counts.get(cid) == Some(&1)
++                && pairs.iter().any(|(selector, symbol)| {
++                    selector.starts_with("g:") && exports.iter().any(|e| e.symbol == *symbol)
++                })
++        })
++        .map(|(cid, table, pairs)| serde_json::json!({"cid":cid,"table":table,"pairs":pairs}))
++        .collect();
++    let value = serde_json::json!({"schema":SCHEMA,"cache_key":key,"production":production,
++        "artifacts":artifact_records,"exports":records,"tables":table_records});
++    let text = format!(
++        "{}\n",
++        serde_json::to_string(&value).map_err(|e| e.to_string())?
++    );
++    std::fs::write(directory.join(FILE), &text)
++        .map_err(|e| format!("cannot publish SDK allocation proof: {e}"))?;
++    Ok(blake3::hash(text.as_bytes()).to_hex().to_string())
++}
++
++/// Missing, old, altered or malformed bundles conservatively expose no facts.
++pub(crate) fn load(directory: &Path, key: &str, production: bool, artifacts: &[String]) -> Imports {
++    load_checked(directory, key, production, artifacts).unwrap_or_default()
++}
++fn load_checked(
++    directory: &Path,
++    key: &str,
++    production: bool,
++    artifacts: &[String],
++) -> Option<Imports> {
++    if !production || std::env::var("DARTFORGE_NO_SDK_ALLOCATION_PROOFS").as_deref() == Ok("1") {
++        return None;
++    }
++    let text = std::fs::read_to_string(directory.join(FILE)).ok()?;
++    let marker: serde_json::Value =
++        serde_json::from_slice(&std::fs::read(directory.join("pronto")).ok()?).ok()?;
++    if !fields(&marker, &["cache_key", "allocation_proof"])
++        || marker["cache_key"].as_str()? != key
++        || marker["allocation_proof"].as_str()? != blake3::hash(text.as_bytes()).to_hex().as_str()
++    {
++        return None;
++    }
++    if text.len() > 16 << 20 {
++        return None;
++    }
++    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
++    // Reject duplicate JSON keys and alternative encodings by requiring the
++    // exact canonical form emitted by this producer schema.
++    if text != format!("{}\n", serde_json::to_string(&value).ok()?)
++        || !fields(
++            &value,
++            &[
++                "schema",
++                "cache_key",
++                "production",
++                "artifacts",
++                "exports",
++                "tables",
++            ],
++        )
++        || value["schema"].as_u64()? != SCHEMA
++        || value["cache_key"].as_str()? != key
++        || value["production"].as_bool()? != production
++    {
++        return None;
++    }
++    let observed = value["artifacts"].as_array()?;
++    if observed.len() != artifacts.len() {
++        return None;
++    }
++    for (record, expected) in observed.iter().zip(artifacts) {
++        if !fields(record, &["name", "digest"])
++            || record["name"].as_str()? != expected
++            || record["digest"].as_str()? != digest(&directory.join(expected))?
++        {
++            return None;
++        }
++    }
++    let mut defined = HashMap::new();
++    let mut actual_tables = HashMap::new();
++    let mut ambiguous_cids = HashSet::new();
++    let mut class_counts = HashMap::new();
++    for name in artifacts.iter().filter(|name| name.ends_with(".poda")) {
++        let summary = crate::pruning::Summary::from_string(
++            &std::fs::read_to_string(directory.join(name)).ok()?,
++        )
++        .ok()?;
++        ambiguous_cids.extend(summary.ambiguous_classes.iter().copied());
++        for cid in &summary.nominal_classes {
++            *class_counts.entry(*cid).or_insert(0usize) += 1;
++        }
++        for definition in &summary.definitions {
++            *defined
++                .entry(summary.names[definition.name as usize].clone())
++                .or_insert(0usize) += 1;
++        }
++        for table in &summary.tables {
++            let table_name = summary.names[table.node as usize]
++                .strip_suffix("$d")?
++                .to_string();
++            let pairs: BTreeSet<_> = table
++                .pairs
++                .iter()
++                .map(|(selector, function)| (*selector, summary.names[*function as usize].clone()))
++                .collect();
++            if actual_tables
++                .insert(table.cid, (table_name, pairs))
++                .is_some()
++            {
++                ambiguous_cids.insert(table.cid);
++            }
++        }
++    }
++    let mut result = Imports::default();
++    let mut signatures: HashMap<String, (Vec<Type>, Type, String)> = HashMap::new();
++    for record in value["exports"].as_array()? {
++        if !fields(record, &["symbol", "parameters", "classes", "closure"]) {
++            return None;
++        }
++        let symbol = record["symbol"].as_str()?.to_string();
++        if symbol.is_empty() || shared(&symbol) {
++            return None;
++        }
++        let parameters = parse_parameters(&record["parameters"])?;
++        let mut classes = Classes::new();
++        for cid in record["classes"].as_array()? {
++            let cid = u32::try_from(cid.as_u64()?).ok()?;
++            if cid == 0
++                || cid > i32::MAX as u32
++                || (cid >= dartforge_runtime::layout::FIRST_FREE_CID as u32
++                    && (class_counts.get(&i64::from(cid)) != Some(&1)
++                        || ambiguous_cids.contains(&i64::from(cid))))
++                || !classes.insert(cid)
++            {
++                return None;
++            }
++        }
++        if classes.is_empty() || classes.iter().all(|c| *c == 1) {
++            return None;
++        }
++        let mut closure = Vec::new();
++        let mut seen = HashSet::new();
++        for dependency in record["closure"].as_array()? {
++            if !fields(dependency, &["symbol", "parameters", "result", "body"]) {
++                return None;
++            }
++            let name = dependency["symbol"].as_str()?.to_string();
++            let signature = Signature {
++                symbol: name.clone(),
++                parameters: parse_parameters(&dependency["parameters"])?,
++                result: ty(&dependency["result"])?,
++                body_digest: dependency["body"].as_str()?.to_string(),
++            };
++            if name.is_empty()
++                || defined.get(&name) != Some(&1)
++                || shared(&name)
++                || !seen.insert(name.clone())
++                || !valid_digest(&signature.body_digest)
++            {
++                return None;
++            }
++            let identity = (
++                signature.parameters.clone(),
++                signature.result,
++                signature.body_digest.clone(),
++            );
++            if signatures
++                .insert(name, identity.clone())
++                .is_some_and(|old| old != identity)
++            {
++                return None;
++            }
++            closure.push(signature);
++        }
++        if !closure
++            .iter()
++            .any(|f| f.symbol == symbol && f.parameters == parameters && f.result == Type::Ref)
++            || result
++                .exports
++                .insert(
++                    symbol.clone(),
++                    Export {
++                        symbol,
++                        parameters,
++                        classes,
++                        closure,
++                    },
++                )
++                .is_some()
++        {
++            return None;
++        }
++    }
++    let mut table_symbols = HashSet::new();
++    for record in value["tables"].as_array()? {
++        if !fields(record, &["cid", "table", "pairs"]) {
++            return None;
++        }
++        let cid = u32::try_from(record["cid"].as_u64()?).ok()?;
++        let table = record["table"].as_str()?;
++        if cid < dartforge_runtime::layout::FIRST_FREE_CID as u32
++            || !table_symbols.insert(table.to_string())
++        {
++            return None;
++        }
++        let mut pairs = Vec::new();
++        let mut hashes = HashSet::new();
++        for pair in record["pairs"].as_array()? {
++            let pair = pair.as_array()?;
++            if pair.len() != 2 {
++                return None;
++            }
++            let selector = pair[0].as_str()?.to_string();
++            let symbol = pair[1].as_str()?.to_string();
++            if selector.is_empty()
++                || symbol.is_empty()
++                || !hashes.insert(crate::lower::closures::hash_name(&selector))
++            {
++                return None;
++            }
++            pairs.push((selector, symbol));
++        }
++        let actual = actual_tables.get(&i64::from(cid))?;
++        let observed: BTreeSet<_> = pairs
++            .iter()
++            .map(|(selector, function)| {
++                (
++                    crate::lower::closures::hash_name(selector),
++                    function.clone(),
++                )
++            })
++            .collect();
++        if class_counts.get(&i64::from(cid)) != Some(&1)
++            || ambiguous_cids.contains(&i64::from(cid))
++            || actual.0 != table
++            || actual.1 != observed
++        {
++            return None;
++        }
++        if result.tables.insert(cid, pairs).is_some() {
++            return None;
++        }
++    }
++    Some(result)
++}
++
++impl Imports {
++    /// Program definitions cannot replace any linked SDK dependency, even when
++    /// their nominal signatures or return class sets happen to match.
++    pub(crate) fn reconcile(&self, modules: &[&Module]) -> Self {
++        if modules.iter().any(|m| {
++            !m.arc_fixed_ancestry || m.arc_memory || m.arc_prepared || m.arc_aot_ports.is_some()
++        }) {
++            return Self::default();
++        }
++        let local: HashSet<_> = modules
++            .iter()
++            .flat_map(|m| &m.functions)
++            .map(|f| f.symbol.as_str())
++            .collect();
++        if [
++            "dartforge_object_new",
++            "dartforge_selector",
++            "dartforge_register_methods",
++        ]
++        .iter()
++        .any(|name| local.contains(name))
++        {
++            return Self::default();
++        }
++        let exports: HashMap<_, _> = self
++            .exports
++            .iter()
++            .filter(|(_, e)| e.closure.iter().all(|f| !local.contains(f.symbol.as_str())))
++            .map(|(symbol, export)| (symbol.clone(), export.clone()))
++            .collect();
++        let registry_closed = registry::closed(modules);
++        let tables = self
++            .tables
++            .iter()
++            .filter(|(cid, _)| {
++                modules.iter().all(|m| {
++                    registry_closed
++                        && !m.pruning_ambiguous_class_ids.contains(cid)
++                        && !m.arc_external_ancestry.ambiguous_classes.contains(cid)
++                        && !m.classes.iter().any(|class| class.id == **cid)
++                        && !m.table_functions.contains_key(cid)
++                        && !m.method_tables.iter().any(|(id, _, _)| id == *cid)
++                })
++            })
++            .map(|(cid, pairs)| (*cid, pairs.clone()))
++            .collect();
++        Self { exports, tables }
++    }
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/crates/emit_native/src/pruning/receiver_provenance/allocation_certificates/tests.rs b/crates/emit_native/src/pruning/receiver_provenance/allocation_certificates/tests.rs
+new file mode 100644
+index 00000000..53dcf91d
+--- /dev/null
++++ b/crates/emit_native/src/pruning/receiver_provenance/allocation_certificates/tests.rs
+@@ -0,0 +1,314 @@
++use super::*;
++use crate::hir::BasicBlock;
++
++fn function(symbol: &str, instructions: Vec<(ValueId, I, Type)>) -> Function {
++    Function {
++        symbol: symbol.into(),
++        name: symbol.into(),
++        params: vec![],
++        return_ty: Type::Ref,
++        blocks: vec![BasicBlock {
++            id: BlockId(0),
++            instructions,
++            terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
++        }],
++        debug_info: None,
++    }
++}
++fn producer() -> Module {
++    let mut module = Module::new();
++    module.arc_fixed_ancestry = true;
++    for cid in [500, 600] {
++        module.classes.push(crate::hir::ClassDef {
++            id: cid,
++            name: format!("SDK{cid}"),
++            field_count: 0,
++            vtable: vec![],
++            to_string_symbol: None,
++        });
++        module.pruning_class_ids.insert(cid);
++    }
++    module.functions.push(function(
++        "sdk_factory",
++        vec![(
++            ValueId(0),
++            I::CallRuntime {
++                name: "dartforge_object_new".into(),
++                args: vec![
++                    (Operand::Constant(Constant::Int(600)), Type::I64),
++                    (Operand::Constant(Constant::Int(0)), Type::I64),
++                ],
++                ret_ty: Type::Ref,
++            },
++            Type::Ref,
++        )],
++    ));
++    let mut getter = module.functions[0].clone();
++    getter.symbol = "sdk_getter".into();
++    getter.params = vec![
++        (ValueId(1), "this".into(), Type::Ref),
++        (ValueId(2), "args".into(), Type::Ptr),
++        (ValueId(3), "descriptor".into(), Type::Ptr),
++    ];
++    module.functions.push(getter);
++    module
++}
++fn fixture() -> (
++    tempfile::TempDir,
++    Vec<String>,
++    Module,
++    Vec<crate::pruning::ModuleTable>,
++) {
++    let dir = tempfile::tempdir().unwrap();
++    let artifacts = vec!["convert.o".into(), "convert.poda".into()];
++    std::fs::write(dir.path().join(&artifacts[0]), "actual producer object").unwrap();
++
++    let module = producer();
++    let tables = vec![(
++        500,
++        "sdk_table".into(),
++        vec![
++            ("g:encoder".into(), "sdk_getter".into()),
++            ("c:unknown".into(), "opaque".into()),
++        ],
++    )];
++    let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
++    let summary = crate::pruning::summarize(&ir, "dart:convert", &tables);
++    std::fs::write(dir.path().join(&artifacts[1]), summary.to_text()).unwrap();
++    let exports = export(&[&module], &analyze(&[&module]));
++    let libraries = vec![crate::sdk_module::SdkLibrary {
++        uri: "dart:convert".into(),
++        ir,
++        rejected: vec![],
++        tables: tables.clone(),
++        allocation_exports: exports.clone(),
++    }];
++    let exports = bind_final_ir(exports, &libraries);
++    assert_eq!(exports.len(), 2);
++    let marker = publish(dir.path(), "exact-key", true, &artifacts, &exports, &tables).unwrap();
++    std::fs::write(
++        dir.path().join("pronto"),
++        serde_json::to_vec(&serde_json::json!({"cache_key":"exact-key","allocation_proof":marker}))
++            .unwrap(),
++    )
++    .unwrap();
++    (dir, artifacts, module, tables)
++}
++
++#[test]
++fn exact_artifact_profile_and_cache_closure_binding() {
++    let (dir, artifacts, _, _) = fixture();
++    let imported = load(dir.path(), "exact-key", true, &artifacts);
++    assert_eq!(
++        imported.exports["sdk_factory"].classes,
++        BTreeSet::from([600])
++    );
++    assert_eq!(imported.tables[&500].len(), 2);
++    assert!(
++        load(dir.path(), "wrong-key", true, &artifacts)
++            .exports
++            .is_empty()
++    );
++    assert!(
++        load(dir.path(), "exact-key", false, &artifacts)
++            .exports
++            .is_empty()
++    );
++    for artifact in &artifacts {
++        let path = dir.path().join(artifact);
++        let original = std::fs::read(&path).unwrap();
++        std::fs::write(&path, b"changed selected object or pruning summary").unwrap();
++        assert!(
++            load(dir.path(), "exact-key", true, &artifacts)
++                .exports
++                .is_empty()
++        );
++        std::fs::write(&path, original).unwrap();
++    }
++    assert_eq!(
++        load(dir.path(), "exact-key", true, &artifacts)
++            .exports
++            .len(),
++        2
++    );
++    assert!(
++        load(dir.path(), "exact-key", true, &artifacts[..1])
++            .exports
++            .is_empty()
++    );
++}
++
++#[test]
++fn malformed_duplicate_stale_signature_and_table_records_fail_closed() {
++    let (dir, artifacts, _, _) = fixture();
++    let path = dir.path().join(FILE);
++    let original = std::fs::read_to_string(&path).unwrap();
++    for variant in 0..9 {
++        let mut value: serde_json::Value = serde_json::from_str(&original).unwrap();
++        match variant {
++            0 => value["schema"] = serde_json::json!(0),
++            1 => {
++                let record = value["exports"][0].clone();
++                value["exports"].as_array_mut().unwrap().push(record);
++            }
++            2 => value["exports"][0]["classes"] = serde_json::json!([600, 600]),
++            3 => value["exports"][0]["closure"][0]["result"] = serde_json::json!("void"),
++            4 => value["exports"][0]["closure"][0]["symbol"] = serde_json::json!("dfc.shared.get"),
++            5 => value["exports"][0]["closure"][0]["body"] = serde_json::json!("unbound"),
++            6 => {
++                let row = value["tables"][0].clone();
++                value["tables"].as_array_mut().unwrap().push(row);
++            }
++            7 => {
++                let pair = value["tables"][0]["pairs"][0].clone();
++                value["tables"][0]["pairs"]
++                    .as_array_mut()
++                    .unwrap()
++                    .push(pair);
++            }
++            _ => value["unknown"] = serde_json::json!(true),
++        }
++        std::fs::write(
++            &path,
++            format!("{}\n", serde_json::to_string(&value).unwrap()),
++        )
++        .unwrap();
++        let text = std::fs::read(&path).unwrap();
++        std::fs::write(dir.path().join("pronto"), serde_json::to_vec(&serde_json::json!({"cache_key":"exact-key","allocation_proof":blake3::hash(&text).to_hex().to_string()})).unwrap()).unwrap();
++        assert!(
++            load(dir.path(), "exact-key", true, &artifacts)
++                .exports
++                .is_empty(),
++            "variant {variant}"
++        );
++    }
++    std::fs::write(
++        &path,
++        original.replace("\"schema\":1", "\"schema\":1,\"schema\":1"),
++    )
++    .unwrap();
++    assert!(
++        load(dir.path(), "exact-key", true, &artifacts)
++            .exports
++            .is_empty()
++    );
++}
++
++#[test]
++fn imported_static_and_physical_getter_results_require_abi_and_symbol_reconciliation() {
++    let (dir, artifacts, _, _) = fixture();
++    let imports = load(dir.path(), "exact-key", true, &artifacts);
++    let mut app = Module::new();
++    app.arc_fixed_ancestry = true;
++    app.imported_allocation_returns = Some(imports);
++    app.functions.push(function(
++        "caller",
++        vec![(
++            ValueId(0),
++            I::CallStatic {
++                symbol: "sdk_factory".into(),
++                args: vec![],
++                ret_ty: Type::Ref,
++            },
++            Type::Ref,
++        )],
++    ));
++    let getter_caller = function(
++        "getter_caller",
++        vec![
++            (
++                ValueId(1),
++                I::AllocObject {
++                    class_id: 500,
++                    fields: vec![],
++                },
++                Type::Ref,
++            ),
++            (
++                ValueId(0),
++                I::CallSelector {
++                    selector: "g:encoder".into(),
++                    recv: Operand::Val(ValueId(1)),
++                    args: vec![],
++                    names: vec![],
++                    tuple_types: Operand::Constant(Constant::Int(0)),
++                },
++                Type::Ref,
++            ),
++        ],
++    );
++    app.functions.push(getter_caller.clone());
++    let proof = analyze(&[&app]);
++    assert_eq!(proof.returns["caller"], BTreeSet::from([600]));
++    assert_eq!(proof.returns["getter_caller"], BTreeSet::from([600]));
++    if let I::CallStatic { args, .. } = &mut app.functions[0].blocks[0].instructions[0].1 {
++        args.push(Operand::Constant(Constant::Null));
++    }
++    assert!(!analyze(&[&app]).returns.contains_key("caller"));
++    if let I::CallStatic { args, .. } = &mut app.functions[0].blocks[0].instructions[0].1 {
++        args.clear();
++    }
++    app.functions.push(function(
++        "sdk_factory",
++        vec![(ValueId(0), I::Const(Constant::Null), Type::Ref)],
++    ));
++    assert_eq!(analyze(&[&app]).returns["caller"], BTreeSet::from([1]));
++    app.functions.pop();
++    app.functions.push(function(
++        "sdk_getter",
++        vec![(ValueId(0), I::Const(Constant::Null), Type::Ref)],
++    ));
++    assert!(!analyze(&[&app]).returns.contains_key("getter_caller"));
++    app.functions.pop();
++    app.method_tables.push((500, "conflicting".into(), vec![]));
++    assert!(!analyze(&[&app]).returns.contains_key("getter_caller"));
++    app.method_tables.clear();
++    app.pruning_ambiguous_class_ids.insert(500);
++    assert!(!analyze(&[&app]).returns.contains_key("getter_caller"));
++}
++
++#[test]
++fn edited_proof_and_non_strong_final_definitions_are_not_certificates() {
++    let (dir, artifacts, producer, tables) = fixture();
++    let path = dir.path().join(FILE);
++    let text = std::fs::read_to_string(&path).unwrap();
++    let mut value: serde_json::Value = serde_json::from_str(&text).unwrap();
++    value["exports"][0]["classes"] = serde_json::json!([601]);
++    std::fs::write(
++        &path,
++        format!("{}\n", serde_json::to_string(&value).unwrap()),
++    )
++    .unwrap();
++    assert!(
++        load(dir.path(), "exact-key", true, &artifacts)
++            .exports
++            .is_empty()
++    );
++    let exports = export(&[&producer], &analyze(&[&producer]));
++    let original = crate::llvm::LlvmEmitter::new(&producer).emit_all();
++    for linkage in [
++        "linkonce_odr",
++        "weak",
++        "internal",
++        "private",
++        "available_externally",
++    ] {
++        let ir = original.replace(
++            "define i64 @sdk_factory(",
++            &format!("define {linkage} i64 @sdk_factory("),
++        );
++        let libraries = vec![crate::sdk_module::SdkLibrary {
++            uri: "dart:convert".into(),
++            ir,
++            rejected: vec![],
++            tables: tables.clone(),
++            allocation_exports: exports.clone(),
++        }];
++        assert!(
++            bind_final_ir(exports.clone(), &libraries)
++                .iter()
++                .all(|export| export.symbol != "sdk_factory"),
++            "linkage {linkage}"
++        );
++    }
++}
+diff --git a/crates/emit_native/src/pruning/receiver_provenance/allocation_only_exports.rs b/crates/emit_native/src/pruning/receiver_provenance/allocation_only_exports.rs
+new file mode 100644
+index 00000000..05e328b8
+--- /dev/null
++++ b/crates/emit_native/src/pruning/receiver_provenance/allocation_only_exports.rs
+@@ -0,0 +1,191 @@
++//! Allocation-only export gate; publication and imported consumption are separate.
++//!
++//! The producer must bind this borrowed closure to the exact selected SDK cache
++//! key and emitted object hashes before serializing it. Consumers additionally
++//! reconcile every symbol, ABI and table against the actual linked app/SDK.
++use super::*;
++mod rti;
++
++pub(super) struct AllocationExport<'a> {
++    pub(super) symbol: &'a str,
++    pub(super) parameters: Vec<Type>,
++    pub(super) classes: Classes,
++    /// Actual immutable bodies; serializers must preserve their artifact binding.
++    pub(super) closure: Vec<&'a Function>,
++}
++
++pub(super) fn candidates<'a>(
++    modules: &[&'a Module],
++    proof: &Provenance<'a>,
++) -> Vec<AllocationExport<'a>> {
++    if modules.iter().any(|m| {
++        !m.arc_fixed_ancestry || m.arc_memory || m.arc_prepared || m.arc_aot_ports.is_some()
++    }) {
++        return Vec::new();
++    }
++    let mut bodies = HashMap::new();
++    let mut duplicates = HashSet::new();
++    for f in modules.iter().flat_map(|m| &m.functions) {
++        if bodies.insert(f.symbol.as_str(), f).is_some() {
++            duplicates.insert(f.symbol.as_str());
++        }
++    }
++    let rti = rti::Inventory::new(modules);
++    let mut exports = Vec::new();
++    for (&symbol, &body) in &bodies {
++        let Some(classes) = proof.returns.get(symbol) else {
++            continue;
++        };
++        if body.return_ty != Type::Ref
++            || classes.iter().all(|cid| *cid == 1)
++            || proof.values_for(body).is_none()
++        {
++            continue;
++        }
++        let mut visiting = HashSet::new();
++        let mut completed = HashSet::new();
++        let mut closure = Vec::new();
++        if audit(
++            body,
++            proof,
++            &bodies,
++            &duplicates,
++            &mut visiting,
++            &mut completed,
++            &mut closure,
++            &rti,
++        ) {
++            exports.push(AllocationExport {
++                symbol,
++                parameters: body.params.iter().map(|(_, _, ty)| *ty).collect(),
++                classes: classes.clone(),
++                closure,
++            });
++        }
++    }
++    exports.sort_by_key(|export| export.symbol);
++    exports
++}
++
++fn audit<'a>(
++    body: &'a Function,
++    proof: &Provenance<'a>,
++    bodies: &HashMap<&'a str, &'a Function>,
++    duplicates: &HashSet<&'a str>,
++    visiting: &mut HashSet<&'a str>,
++    completed: &mut HashSet<&'a str>,
++    closure: &mut Vec<&'a Function>,
++    rti: &rti::Inventory,
++) -> bool {
++    let symbol = body.symbol.as_str();
++    if duplicates.contains(symbol) || symbol.starts_with("dfc.") || proof.values_for(body).is_none()
++    {
++        return false;
++    }
++    if completed.contains(symbol) {
++        return true;
++    }
++    if !visiting.insert(symbol) {
++        return false;
++    }
++    let Ok(shape) = Shape::new(body) else {
++        return false;
++    };
++    let rti_helper = rti.helper(symbol);
++    // Audit all blocks, including dead ones: a new optimization pass must not
++    // resurrect excluded cache/address/global behavior behind this certificate.
++    for (_, instruction, _) in body.blocks.iter().flat_map(|block| &block.instructions) {
++        match instruction {
++            I::Const(
++                Constant::Null | Constant::Int(_) | Constant::Bool(_) | Constant::Double(_),
++            )
++            | I::AllocObject { .. }
++            | I::AllocList { .. }
++            | I::Phi { .. }
++            | I::ICmp(..)
++            | I::LNot(_) => {}
++            I::CallStatic {
++                symbol,
++                args,
++                ret_ty,
++            } => {
++                let Some(&callee) = bodies.get(symbol.as_str()) else {
++                    return false;
++                };
++                if callee.return_ty != *ret_ty
++                    || callee.params.len() != args.len()
++                    || !callee
++                        .params
++                        .iter()
++                        .zip(args)
++                        .all(|((_, _, ty), arg)| shape.operand_type(arg) == Some(*ty))
++                    || !audit(
++                        callee, proof, bodies, duplicates, visiting, completed, closure, rti,
++                    )
++                {
++                    return false;
++                }
++            }
++            // This exact runtime ABI is already the allocation premise of the
++            // body analysis. A user definition of the reserved symbol invalidates it.
++            I::CallRuntime {
++                name,
++                args,
++                ret_ty: Type::Ref,
++            } if name == "dartforge_object_new" && !bodies.contains_key(name.as_str()) => {
++                if !matches!(args.as_slice(), [
++                    (Operand::Constant(Constant::Int(cid)), Type::I64),
++                    (Operand::Constant(Constant::Int(count)), Type::I64),
++                ] if (0..=i64::from(i32::MAX)).contains(cid) && usize::try_from(*count).is_ok())
++                {
++                    return false;
++                }
++            }
++            I::Const(Constant::String(_) | Constant::StringWtf8(_)) if rti_helper => {}
++            instruction
++                if rti.scalar_access(instruction, &shape)
++                    || rti.runtime_effect(instruction, &shape, rti_helper) => {}
++            _ => return false,
++        }
++    }
++    // No function pointers or symbol/address operands may hide in Phi/allocations.
++    let mut forbidden_operand = false;
++    for block in &body.blocks {
++        for (_, instruction, _) in &block.instructions {
++            operands(instruction, &mut |operand| {
++                forbidden_operand |= matches!(operand, Operand::Constant(Constant::Function(_)));
++            });
++        }
++        terminator_operands(&block.terminator, &mut |operand| {
++            forbidden_operand |= matches!(operand, Operand::Constant(Constant::Function(_)));
++        });
++    }
++    if !rti_helper {
++        for block in &body.blocks {
++            for (_, instruction, _) in &block.instructions {
++                operands(instruction, &mut |operand| {
++                    forbidden_operand |= matches!(
++                        operand,
++                        Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))
++                    );
++                });
++            }
++            terminator_operands(&block.terminator, &mut |operand| {
++                forbidden_operand |= matches!(
++                    operand,
++                    Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))
++                );
++            });
++        }
++    }
++    if forbidden_operand {
++        return false;
++    }
++    visiting.remove(symbol);
++    completed.insert(symbol);
++    closure.push(body);
++    true
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/crates/emit_native/src/pruning/receiver_provenance/allocation_only_exports/rti.rs b/crates/emit_native/src/pruning/receiver_provenance/allocation_only_exports/rti.rs
+new file mode 100644
+index 00000000..307fb158
+--- /dev/null
++++ b/crates/emit_native/src/pruning/receiver_provenance/allocation_only_exports/rti.rs
+@@ -0,0 +1,147 @@
++//! Scalar RTI caches and metadata-only runtime effects for allocation witnesses.
++//!
++//! `runtime/types.rs` stores only Header.metadata in rti_set. rti_recipe interns
++//! an RTI integer in the thread-local type universe; neither writes a physical
++//! object CID or invokes Dart. These facts permit provenance propagation, never
++//! removal or reordering of RTI operations, stores, or exception checks.
++use super::*;
++
++pub(super) struct Inventory {
++    globals: HashMap<String, Type>,
++    helpers: HashSet<String>,
++    enabled: bool,
++}
++impl Inventory {
++    pub(super) fn new(modules: &[&Module]) -> Self {
++        let mut result = Self {
++            globals: HashMap::new(),
++            helpers: HashSet::new(),
++            enabled: true,
++        };
++        let mut duplicates = HashSet::new();
++        let mut declarations = HashMap::new();
++        for (_, ty, symbol) in modules.iter().flat_map(|module| &module.globals) {
++            declarations
++                .entry(symbol.clone())
++                .or_insert_with(Vec::new)
++                .push(*ty);
++        }
++        for module in modules {
++            for (_, ty, symbol) in &module.globals {
++                if symbol.starts_with("dfr.") && *ty == Type::I64 {
++                    if result.globals.insert(symbol.clone(), Type::I64).is_some() {
++                        duplicates.insert(symbol.clone());
++                    }
++                    let flag = format!("{symbol}$ok");
++                    if result.globals.insert(flag.clone(), Type::I8).is_some() {
++                        duplicates.insert(flag);
++                    }
++                }
++            }
++            for function in &module.functions {
++                if matches!(
++                    function.symbol.as_str(),
++                    "dartforge_rti_set"
++                        | "dartforge_rti_recipe"
++                        | "dartforge_globals_area"
++                        | "dartforge_globals_area_id"
++                ) {
++                    result.enabled = false;
++                }
++                for (_, instruction, _) in function.blocks.iter().flat_map(|b| &b.instructions) {
++                    if matches!(instruction, I::CallRuntime { name, .. } | I::CallStatic { symbol: name, .. }
++                        if matches!(name.as_str(), "dartforge_globals_area" | "dartforge_globals_area_id"))
++                    {
++                        result.enabled = false;
++                    }
++                }
++            }
++        }
++        for name in duplicates {
++            result.globals.remove(&name);
++        }
++        result
++            .globals
++            .retain(|symbol, ty| match declarations.get(symbol) {
++                Some(types) => types.as_slice() == [*ty],
++                None => symbol.ends_with("$ok") && *ty == Type::I8,
++            });
++        if !result.enabled {
++            return result;
++        }
++        for function in modules.iter().flat_map(|m| &m.functions) {
++            if !function.symbol.starts_with("df.rti.")
++                || function.return_ty != Type::I64
++                || !function.params.is_empty()
++            {
++                continue;
++            }
++            let Ok(shape) = Shape::new(function) else {
++                continue;
++            };
++            let mut recipes = 0;
++            let allowed = function.blocks.iter().all(|block| {
++                if let Terminator::Return(value) = &block.terminator {
++                    if value.as_ref().and_then(|value| shape.operand_type(value)) != Some(Type::I64) { return false; }
++                }
++                block.instructions.iter().all(|(_, instruction, _)| match instruction {
++                    I::Const(Constant::String(_) | Constant::StringWtf8(_)) | I::ICmp(..) | I::Phi { .. } => true,
++                    I::CallRuntime { name, args, ret_ty: Type::I64 } if name == "dartforge_rti_recipe" => {
++                        recipes += 1;
++                        matches!(args.as_slice(), [(arg, Type::Ref)] if shape.operand_type(arg) == Some(Type::Ref))
++                    },
++                    instruction => result.scalar_access(instruction, &shape),
++                })
++            });
++            if allowed && recipes == 1 {
++                result.helpers.insert(function.symbol.clone());
++            }
++        }
++        result
++    }
++    pub(super) fn helper(&self, symbol: &str) -> bool {
++        self.enabled && self.helpers.contains(symbol)
++    }
++    pub(super) fn scalar_access(&self, instruction: &I, shape: &Shape) -> bool {
++        if !self.enabled {
++            return false;
++        }
++        match instruction {
++            I::LoadGlobal { symbol, ty } => self.globals.get(symbol) == Some(ty),
++            I::StoreGlobal {
++                symbol,
++                val,
++                ty,
++                root: None,
++            } => {
++                self.globals.get(symbol) == Some(ty)
++                    && shape.operand_type(val).is_some_and(|actual| {
++                        actual == *ty || (*ty == Type::I8 && actual == Type::I64)
++                    })
++            }
++            _ => false,
++        }
++    }
++    pub(super) fn runtime_effect(&self, instruction: &I, shape: &Shape, helper: bool) -> bool {
++        if !self.enabled {
++            return false;
++        }
++        match instruction {
++            I::CallRuntime {
++                name,
++                args,
++                ret_ty: Type::Void,
++            } if name == "dartforge_rti_set" => {
++                matches!(args.as_slice(), [(object, Type::Ref), (rti, Type::I64)] if shape.operand_type(object) == Some(Type::Ref) && shape.operand_type(rti) == Some(Type::I64))
++            }
++            I::CallRuntime {
++                name,
++                args,
++                ret_ty: Type::I64,
++            } if helper && name == "dartforge_rti_recipe" => {
++                matches!(args.as_slice(), [(text, Type::Ref)] if shape.operand_type(text) == Some(Type::Ref))
++            }
++            _ => false,
++        }
++    }
++}
+diff --git a/crates/emit_native/src/pruning/receiver_provenance/allocation_only_exports/tests.rs b/crates/emit_native/src/pruning/receiver_provenance/allocation_only_exports/tests.rs
+new file mode 100644
+index 00000000..9d01935a
+--- /dev/null
++++ b/crates/emit_native/src/pruning/receiver_provenance/allocation_only_exports/tests.rs
+@@ -0,0 +1,350 @@
++use super::*;
++use crate::hir::{BasicBlock, ICmpOp};
++
++fn block(id: u32, instructions: Vec<(ValueId, I, Type)>, terminator: Terminator) -> BasicBlock {
++    BasicBlock {
++        id: BlockId(id),
++        instructions,
++        terminator,
++    }
++}
++fn function(symbol: &str, instructions: Vec<(ValueId, I, Type)>) -> Function {
++    Function {
++        symbol: symbol.into(),
++        name: symbol.into(),
++        params: vec![],
++        return_ty: Type::Ref,
++        blocks: vec![block(
++            0,
++            instructions,
++            Terminator::Return(Some(Operand::Val(ValueId(0)))),
++        )],
++        debug_info: None,
++    }
++}
++fn fresh() -> Module {
++    let mut module = Module::new();
++    module.arc_fixed_ancestry = true;
++    module.functions.push(function(
++        "fresh",
++        vec![(
++            ValueId(0),
++            I::AllocObject {
++                class_id: 300,
++                fields: vec![],
++            },
++            Type::Ref,
++        )],
++    ));
++    module.functions.push(function(
++        "factory",
++        vec![(
++            ValueId(0),
++            I::CallStatic {
++                symbol: "fresh".into(),
++                args: vec![],
++                ret_ty: Type::Ref,
++            },
++            Type::Ref,
++        )],
++    ));
++    module
++}
++fn exported(module: &Module, symbol: &str) -> bool {
++    candidates(&[module], &analyze(&[module]))
++        .iter()
++        .any(|e| e.symbol == symbol)
++}
++
++#[test]
++fn complete_immutable_factory_closure_and_nullable_union() {
++    let mut module = fresh();
++    let mut nullable = function("nullable", vec![]);
++    nullable.params = vec![(ValueId(10), "condition".into(), Type::I1)];
++    nullable.blocks = vec![
++        block(
++            0,
++            vec![],
++            Terminator::CondBranch {
++                cond: Operand::Val(ValueId(10)),
++                then_block: BlockId(1),
++                else_block: BlockId(2),
++            },
++        ),
++        block(
++            1,
++            vec![(
++                ValueId(1),
++                I::AllocObject {
++                    class_id: 301,
++                    fields: vec![],
++                },
++                Type::Ref,
++            )],
++            Terminator::Branch(BlockId(3)),
++        ),
++        block(2, vec![], Terminator::Branch(BlockId(3))),
++        block(
++            3,
++            vec![(
++                ValueId(0),
++                I::Phi {
++                    incoming: vec![
++                        (BlockId(1), Operand::Val(ValueId(1))),
++                        (BlockId(2), Operand::Constant(Constant::Null)),
++                    ],
++                    ty: Type::Ref,
++                },
++                Type::Ref,
++            )],
++            Terminator::Return(Some(Operand::Val(ValueId(0)))),
++        ),
++    ];
++    module.functions.push(nullable);
++    let proof = analyze(&[&module]);
++    let exports = candidates(&[&module], &proof);
++    let factory = exports.iter().find(|e| e.symbol == "factory").unwrap();
++    assert_eq!(factory.classes, BTreeSet::from([300]));
++    assert_eq!(factory.parameters, Vec::<Type>::new());
++    assert_eq!(
++        factory
++            .closure
++            .iter()
++            .map(|f| f.symbol.as_str())
++            .collect::<Vec<_>>(),
++        ["fresh", "factory"]
++    );
++    assert!(std::ptr::eq(factory.closure[0], &module.functions[0]));
++    let nullable = exports.iter().find(|e| e.symbol == "nullable").unwrap();
++    assert_eq!(nullable.classes, BTreeSet::from([1, 301]));
++    assert_eq!(nullable.parameters, [Type::I1]);
++}
++
++#[test]
++fn complete_dependency_census_rejects_cache_global_address_and_opaque_operations() {
++    for variant in 0..10 {
++        let mut module = fresh();
++        let forbidden = match variant {
++            0 => I::LoadGlobal {
++                symbol: "cache".into(),
++                ty: Type::Ref,
++            },
++            1 => I::StoreGlobal {
++                symbol: "cache".into(),
++                val: Operand::Constant(Constant::Null),
++                ty: Type::Ref,
++                root: Some(0),
++            },
++            2 => I::Const(Constant::Function("hidden".into())),
++            3 => I::Const(Constant::String("dartforge_globals_area".into())),
++            4 => I::CallRuntime {
++                name: "dartforge_object_new".into(),
++                args: vec![],
++                ret_ty: Type::Ref,
++            },
++            5 => I::CallStatic {
++                symbol: "unknown".into(),
++                args: vec![],
++                ret_ty: Type::Ref,
++            },
++            6 => I::CallSelector {
++                selector: "g:encoder".into(),
++                recv: Operand::Val(ValueId(0)),
++                args: vec![],
++                names: vec![],
++                tuple_types: Operand::Constant(Constant::Int(0)),
++            },
++            7 => I::ArcCopy {
++                value: Operand::Val(ValueId(0)),
++            },
++            8 => I::CallStatic {
++                symbol: "factory".into(),
++                args: vec![],
++                ret_ty: Type::Ref,
++            },
++            _ => I::Phi {
++                incoming: vec![],
++                ty: Type::Ref,
++            },
++        };
++        module.functions[0].blocks[0]
++            .instructions
++            .push((ValueId(1), forbidden, Type::Ref));
++        assert!(!exported(&module, "factory"), "variant {variant}");
++    }
++    let mut module = fresh();
++    module.functions[0].symbol = "dfc.hidden.get".into();
++    if let I::CallStatic { symbol, .. } = &mut module.functions[1].blocks[0].instructions[0].1 {
++        *symbol = "dfc.hidden.get".into();
++    }
++    assert!(!exported(&module, "factory"));
++}
++
++#[test]
++fn policy_abi_duplicates_and_stale_dependency_bodies_are_unknown() {
++    for variant in 0..7 {
++        let mut module = fresh();
++        match variant {
++            0 => module.arc_fixed_ancestry = false,
++            1 => module.arc_memory = true,
++            2 => module.arc_prepared = true,
++            3 => module.functions.push(module.functions[0].clone()),
++            4 => module.functions[0]
++                .params
++                .push((ValueId(9), "extra".into(), Type::Ref)),
++            5 => module.functions[0].return_ty = Type::I64,
++            _ => module.functions[0].blocks[0].instructions.push((
++                ValueId(0),
++                I::Const(Constant::Null),
++                Type::Ref,
++            )),
++        }
++        assert!(!exported(&module, "factory"), "variant {variant}");
++    }
++    // A root body may retain its address while an independently supplied callee
++    // is replaced by another same-name body. All closure members need witnesses.
++    let mut root = fresh();
++    let dependency = root.functions.remove(0);
++    let mut original = Module::new();
++    original.arc_fixed_ancestry = true;
++    original.functions.push(dependency.clone());
++    let proof = analyze(&[&root, &original]);
++    let mut replacement = Module::new();
++    replacement.arc_fixed_ancestry = true;
++    replacement.functions.push(dependency);
++    assert!(
++        candidates(&[&root, &replacement], &proof)
++            .iter()
++            .all(|e| e.symbol != "factory")
++    );
++    assert!(
++        candidates(&[&root, &original], &proof)
++            .iter()
++            .any(|e| e.symbol == "factory")
++    );
++}
++
++#[test]
++fn rejected_operations_in_unreachable_blocks_are_not_exportable() {
++    let mut module = fresh();
++    module.functions[0].blocks.push(block(
++        1,
++        vec![(
++            ValueId(4),
++            I::StoreGlobal {
++                symbol: "cache".into(),
++                val: Operand::Constant(Constant::Null),
++                ty: Type::Ref,
++                root: Some(0),
++            },
++            Type::Void,
++        )],
++        Terminator::Unreachable,
++    ));
++    assert!(!exported(&module, "factory"));
++    // Harmless scalar comparisons do not erase the body return proof.
++    module.functions[0].blocks.pop();
++    module.functions[0].blocks[0].instructions.push((
++        ValueId(4),
++        I::ICmp(
++            ICmpOp::Eq,
++            Operand::Constant(Constant::Int(1)),
++            Operand::Constant(Constant::Int(1)),
++        ),
++        Type::I1,
++    ));
++    assert!(exported(&module, "factory"));
++}
++
++#[test]
++fn actual_lowered_sdk_candidate_census_keeps_codec_caches_unknown() {
++    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
++        use dartforge_types::table::{CoreTypes, TypeTable};
++        let directory = tempfile::tempdir().unwrap();
++        let entry = directory.path().join("main.dart");
++        std::fs::write(&entry, "import 'dart:convert';\nclass Fresh {}\nFresh factory() => Fresh();\nList<Object?> listFactory() => [];\nvoid main() { print(factory()); print(listFactory()); print(const AsciiCodec().encoder); print(const Utf8Codec().encoder); print(const Base64Codec().encoder); }\n").unwrap();
++        let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
++        let mut interner = dartforge_intern::Interner::new();
++        let (program, diagnostics) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
++        assert!(diagnostics.is_empty());
++        let mut table = TypeTable::new();
++        let core = CoreTypes::init(&mut table, &program, &interner);
++        let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
++        let libraries: Vec<_> = program.libraries.iter().enumerate()
++            .filter(|(_, library)| !library.is_sdk || library.uri.strip_prefix("dart:").is_some_and(|name| crate::sdk_module::SOURCE_LIBRARIES.contains(&name)))
++            .map(|(index, _)| dartforge_elements::model::LibraryId(index as u32)).collect();
++        let (bodies, _) = dartforge_types::infer_library_bodies(&program, &interner, &mut table, &core, &mut outline, &libraries);
++        let mut context = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies).with_source_sdk();
++        for library in &libraries { context.in_module[library.0 as usize] = true; }
++        let mut module = crate::lower::lower_program(&context);
++        assert!(module.errors.is_empty(), "{:?}", module.errors);
++        module.arc_fixed_ancestry = true;
++        crate::optimize::prepare_for_emission(&mut module, false, false);
++        let proof = analyze(&[&module]);
++        let exports = candidates(&[&module], &proof);
++        let source_factory = module.functions.iter().find(|f| f.name == "factory").unwrap();
++        assert!(exports.iter().any(|export| export.symbol == source_factory.symbol), "ordinary fresh factory must be eligible");
++        for function in module.functions.iter().filter(|f| f.symbol.contains("AsciiEncoder") || f.symbol.contains("Utf8Encoder")) {
++            let calls: Vec<_> = function.blocks.iter().flat_map(|b| &b.instructions).filter_map(|(_, instruction, _)| match instruction {
++                I::CallStatic { symbol, .. } | I::CallRuntime { name: symbol, .. } => Some(symbol.as_str()), _ => None,
++            }).collect();
++            eprintln!("codec body diagnostic: {} name={} calls={calls:?}", function.symbol, function.name);
++        }
++        eprintln!("allocation-only source census: {} candidates / {} functions", exports.len(), module.functions.len());
++        for export in &exports { eprintln!("allocation-only candidate: {} {:?}", export.symbol, export.classes); }
++        for name in ["AsciiCodec", "Utf8Codec", "Base64Codec"] {
++            let cid = module.classes.iter().find(|class| class.name == name).unwrap().id;
++            let getter = module.method_tables.iter().find(|(class, _, _)| *class == cid)
++                .and_then(|(_, _, pairs)| pairs.iter().find(|(selector, _)| selector == "g:encoder")).unwrap();
++            assert!(!exports.iter().any(|export| export.symbol == getter.1), "cache/field getter incorrectly exported: {name}");
++        }
++        // This census supplies SDK bodies once. It does not claim that existing
++        // cached SDK objects or app/SDK COMDAT boundaries transport these facts.
++    }).unwrap().join().unwrap();
++}
++
++#[test]
++fn ordinary_native_registry_alias_disables_getter_tables_without_erasing_allocations() {
++    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
++        use dartforge_types::table::{CoreTypes, TypeTable};
++        let directory = tempfile::tempdir().unwrap();
++        for native in [false, true] {
++            let entry = directory.path().join("main.dart");
++            let binding = if native { "@Native<Void Function(Int64, Pointer<Int64>, Int64)>(symbol: 'dartforge_register_methods')\nexternal void overwrite(int cid, Pointer<Int64> pairs, int count);\n" } else { "" };
++            let call = if native { "overwrite(300, nullptr, 0);" } else { "" };
++            let source = format!("import 'dart:ffi';\n{binding}class Fresh {{}}\nclass Owner {{ Fresh get child => Fresh(); }}\nFresh factory() => Fresh();\nvoid main() {{ dynamic owner = Owner(); print(owner.child); print(factory()); {call} }}\n");
++            std::fs::write(&entry, source).unwrap();
++            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
++            let mut interner = dartforge_intern::Interner::new();
++            let (program, diagnostics) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
++            assert!(diagnostics.is_empty());
++            let mut table = TypeTable::new(); let core = CoreTypes::init(&mut table, &program, &interner);
++            let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
++            let libraries: Vec<_> = program.libraries.iter().enumerate().filter(|(_, library)| !library.is_sdk)
++                .map(|(index, _)| dartforge_elements::model::LibraryId(index as u32)).collect();
++            let (bodies, _) = dartforge_types::infer_library_bodies(&program, &interner, &mut table, &core, &mut outline, &libraries);
++            let context = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies).with_source_sdk();
++            let mut module = crate::lower::lower_program(&context);
++            assert!(module.errors.is_empty(), "{:?}", module.errors);
++            module.arc_fixed_ancestry = true;
++            crate::optimize::prepare_for_emission(&mut module, false, false);
++            assert_eq!(registry::closed(&[&module]), !native);
++            let proof = analyze(&[&module]);
++            let main = module.functions.iter().find(|f| f.symbol == "dart_main").unwrap();
++            if native {
++                let child = main.blocks.iter().flat_map(|b| &b.instructions).find_map(|(value, instruction, _)| match instruction {
++                    I::CallSelector { selector, .. } if selector == "g:child" => Some(*value), _ => None,
++                }).unwrap_or_else(|| panic!("native mutator must retain dynamic getter: {main:#?}"));
++                assert!(!proof.values_for(main).unwrap().contains_key(&child));
++                let summary = crate::pruning::hir_summary(&module);
++                assert!(summary.exact_receiver_calls.is_empty());
++                assert!(summary.receiver_calls.is_empty());
++                let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
++                assert!(!ir.contains("; df.selector-exact "));
++                assert!(!ir.contains("; df.selector-cone "));
++            }
++            let factory = module.functions.iter().find(|f| f.name == "factory").unwrap();
++            assert!(proof.returns.contains_key(&factory.symbol));
++        }
++    }).unwrap().join().unwrap();
++}
+diff --git a/crates/emit_native/src/pruning/receiver_provenance/registry.rs b/crates/emit_native/src/pruning/receiver_provenance/registry.rs
+new file mode 100644
+index 00000000..1999745d
+--- /dev/null
++++ b/crates/emit_native/src/pruning/receiver_provenance/registry.rs
+@@ -0,0 +1,70 @@
++//! Detect explicit runtime registry mutation through lowered native aliases.
++use super::*;
++
++fn mutates_registry(name: &str) -> bool {
++    matches!(
++        name,
++        "dartforge_register_methods"
++            | "dartforge_register_table"
++            | "dartforge_register_cids"
++            | "dartforge_register_subclass"
++            | "dartforge_set_migration"
++    )
++}
++
++pub(crate) fn closed(modules: &[&Module]) -> bool {
++    for function in modules.iter().flat_map(|m| &m.functions) {
++        if mutates_registry(&function.symbol) {
++            return false;
++        }
++        let arrays: HashMap<_, _> = function
++            .blocks
++            .iter()
++            .flat_map(|b| &b.instructions)
++            .filter_map(|(value, instruction, _)| match instruction {
++                I::ConstArray(words) => Some((
++                    *value,
++                    words
++                        .iter()
++                        .flat_map(|word| word.to_le_bytes())
++                        .collect::<Vec<_>>(),
++                )),
++                _ => None,
++            })
++            .collect();
++        for (_, instruction, _) in function.blocks.iter().flat_map(|b| &b.instructions) {
++            match instruction {
++                I::CallRuntime { name, .. } | I::CallStatic { symbol: name, .. }
++                    if mutates_registry(name) =>
++                {
++                    return false;
++                }
++                I::Const(Constant::String(name)) if mutates_registry(name) => return false,
++                I::CallRuntime { name, args, .. } if name == "dartforge_ffi_native_symbol" => {
++                    let [
++                        (Operand::Val(pointer), Type::Ptr),
++                        (Operand::Constant(Constant::Int(length)), Type::I64),
++                    ] = args.as_slice()
++                    else {
++                        return false;
++                    };
++                    let Some(bytes) = arrays.get(pointer) else {
++                        return false;
++                    };
++                    let Some(length) = usize::try_from(*length).ok().filter(|n| *n <= bytes.len())
++                    else {
++                        return false;
++                    };
++                    let Ok(symbol) = std::str::from_utf8(&bytes[..length]) else {
++                        return false;
++                    };
++                    if mutates_registry(symbol) {
++                        return false;
++                    }
++                }
++                _ => {}
++            }
++        }
++    }
++    true
++}
+diff --git a/crates/emit_native/src/pruning/receiver_provenance/selector_returns.rs b/crates/emit_native/src/pruning/receiver_provenance/selector_returns.rs
+index 756edb2f..7c162d72 100644
+--- a/crates/emit_native/src/pruning/receiver_provenance/selector_returns.rs
++++ b/crates/emit_native/src/pruning/receiver_provenance/selector_returns.rs
+@@ -12,9 +12,10 @@ impl Inventory {
+         functions: &HashMap<String, &Function>,
+         duplicates: &HashSet<String>,
+         shapes: &HashMap<String, Shape>,
++        imported: &allocation_certificates::Imports,
+     ) -> Self {
+         let mut result = Self { tables: HashMap::new(), dependencies: HashMap::new() };
+-        if std::env::var("DARTFORGE_NO_SELECTOR_RETURN_PROVENANCE").as_deref() == Ok("1")
++        if !registry::closed(modules) || std::env::var("DARTFORGE_NO_SELECTOR_RETURN_PROVENANCE").as_deref() == Ok("1")
+             || modules.iter().any(|m| !m.arc_fixed_ancestry || m.arc_memory || m.arc_prepared || m.arc_aot_ports.is_some())
+             || functions.keys().any(|name| matches!(name.as_str(), "dartforge_selector" | "dartforge_register_methods"))
+         { return result; }
+@@ -53,6 +54,15 @@ impl Inventory {
+                 result.tables.insert(*cid, getters);
+             }
+         }
++        for (cid, pairs) in &imported.tables {
++            if result.tables.contains_key(cid) { continue; }
++            let getters: HashMap<_, _> = pairs.iter().filter(|(selector, symbol)|
++                selector.starts_with("g:") && imported.exports.get(symbol).is_some_and(|export|
++                    export.parameters == [Type::Ref, Type::Ptr, Type::Ptr]))
++                .cloned().collect();
++            for (selector, symbol) in &getters { result.dependencies.entry(selector.clone()).or_default().insert(symbol.clone()); }
++            result.tables.insert(*cid, getters);
++        }
+         result
+     }
+ 
+diff --git a/crates/emit_native/src/sdk_module.rs b/crates/emit_native/src/sdk_module.rs
+index 53c2ac1f..eec0cde3 100644
+--- a/crates/emit_native/src/sdk_module.rs
++++ b/crates/emit_native/src/sdk_module.rs
+@@ -272,6 +272,7 @@ pub struct SdkLibrary {
+     /// production profile, docs/NATIVO-PODA-DE-TABELAS.md §3.2): they go into the summary of the
+     /// library. Empty in development.
+     pub tables: Vec<crate::pruning::ModuleTable>,
++    pub(crate) allocation_exports: Vec<crate::pruning::receiver_provenance::allocation_certificates::Export>,
+ }
+ 
+ /// Lowers and emits each of the [`SOURCE_LIBRARIES`] in its own module (P5c):
+@@ -360,6 +361,9 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
+     let provenance = if crate::pruning::receiver_provenance::enabled() {
+         crate::pruning::receiver_provenance::analyze(&modules.iter().map(|(_, m)| m).collect::<Vec<_>>())
+     } else { crate::pruning::receiver_provenance::Provenance::default() };
++    let allocation_exports = if production {
++        crate::pruning::receiver_provenance::allocation_certificates::export(&modules.iter().map(|(_, module)| module).collect::<Vec<_>>(), &provenance)
++    } else { Vec::new() };
+     let mut exit = Vec::new();
+     for (uri, module) in &modules {
+         // The SDK DLL stays loaded for the whole process: the literals are
+@@ -393,7 +397,9 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
+             ir
+         };
+         let tables = if production { module.method_tables.clone() } else { Vec::new() };
+-        exit.push(SdkLibrary { uri: uri.clone(), ir, rejected: module.rejected.clone(), tables });
++        let owned: std::collections::HashSet<_> = module.functions.iter().map(|f| f.symbol.as_str()).collect();
++        let allocation_exports = allocation_exports.iter().filter(|export| owned.contains(export.symbol.as_str())).cloned().collect();
++        exit.push(SdkLibrary { uri: uri.clone(), ir, rejected: module.rejected.clone(), tables, allocation_exports });
+     }
+     Ok(exit)
+ }
+@@ -421,6 +427,7 @@ pub struct CompiledSdk {
+     /// How long it took to compile (the cold cost); `None` when it came from the
+     /// cache.
+     pub cold: Option<std::time::Duration>,
++    pub(crate) key: String,
+ }
+ 
+ /// The symbols that an IR defines with external linkage (what the DLL exports).
+@@ -494,7 +501,7 @@ fn sdk_key_with_overlay(lib_dir: &Path, overlay: &Path, clang_id: &str, args: &[
+     files.sort();
+     files.dedup();
+     let mut h = blake3::Hasher::new();
+-    h.update(b"dartforge-sdk-selected-source-v4\0");
++    h.update(b"dartforge-sdk-selected-source-v5\0");
+     h.update(env!("CARGO_PKG_VERSION").as_bytes());
+     h.update(b"\0");
+     h.update(env!("DARTFORGE_EMITTER_HASH").as_bytes());
+@@ -671,6 +678,7 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
+             d.join(&dll_file)
+         },
+         cold,
++        key: key.clone(),
+     };
+     if dir.join("pronto").is_file() {
+         // The mark records the last use (the cache pruning respects it).
+@@ -742,6 +750,12 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
+     if let Some(e) = errors.into_inner().unwrap().into_iter().next() {
+         return Err(e);
+     }
++    let allocation_exports: Vec<_> = libs.iter().flat_map(|lib| lib.allocation_exports.iter().cloned()).collect();
++    let allocation_exports = crate::pruning::receiver_provenance::allocation_certificates::bind_final_ir(allocation_exports, &libs);
++    let allocation_tables: Vec<_> = libs.iter().flat_map(|lib| lib.tables.iter().cloned()).collect();
++    let allocation_artifacts: Vec<_> = SOURCE_LIBRARIES.iter().flat_map(|b| [format!("{b}.{ext_obj}"), format!("{b}.poda")]).collect();
++    let allocation_proof = crate::pruning::receiver_provenance::allocation_certificates::publish(&tmp, &key,
++        profile == SdkProfile::Production, &allocation_artifacts, &allocation_exports, &allocation_tables)?;
+     // The DLL (development): the SDK objects and the runtime (the variant without
+     // `main`). In production, the objects (bitcode) go directly into the
+     // executable.
+@@ -834,7 +848,7 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
+         )
+         .map_err(|e| format!("linking the source SDK DLL failed: {e}"))?;
+     }
+-    std::fs::write(tmp.join("pronto"), b"").map_err(|e| e.to_string())?;
++    std::fs::write(tmp.join("pronto"), serde_json::to_vec(&serde_json::json!({"cache_key":key,"allocation_proof":allocation_proof})).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+     if std::fs::rename(&tmp, &dir).is_err() {
+         // Another process finished first: its result stays.
+         let _ = std::fs::remove_dir_all(&tmp);

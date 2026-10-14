@@ -1,0 +1,19 @@
+{
+  "command": [
+    "target/primitive-sdk-producer-v2/dartforge",
+    "compile-native",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-allocation-copied-v2/main.dart",
+    "--sdk",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-allocation-copied-v2/sdk/lib",
+    "--optimize",
+    "--memory=tracing",
+    "--exceptions=check",
+    "--roots=shadow",
+    "--stack-trace=none",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-allocation-copied-v2/modified-on-warm/program"
+  ],
+  "exit_code": 0,
+  "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

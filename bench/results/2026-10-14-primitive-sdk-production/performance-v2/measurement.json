@@ -1,0 +1,457 @@
+{
+  "complete": true,
+  "iterations": 1000000,
+  "orders": [
+    [
+      "off",
+      "on",
+      "official"
+    ],
+    [
+      "official",
+      "on",
+      "off"
+    ],
+    [
+      "off",
+      "on",
+      "official"
+    ]
+  ],
+  "rows": [
+    {
+      "round": 0,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-performance-fd1ae54e585f/off/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 765.0835,
+      "stdout_sha256": "64c70da19f3789d7be77402223a80f78023cdd40aae35a55874a772f2671f29b",
+      "stderr_sha256": "21c593e457fbb242f7947a4b994df2ec650aed1975653953193fafda766ac4bf",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        80770,
+        77116,
+        76257,
+        75165,
+        75883
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 11124736,
+      "retained_kernel_median_microseconds": 76070.0
+    },
+    {
+      "round": 0,
+      "profile": "on",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-performance-fd1ae54e585f/on/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 673.693291,
+      "stdout_sha256": "9de8b5e8abce9b9bbd2c76cd6d1a0113a2515192accbe418224d74279d06891e",
+      "stderr_sha256": "658a4852c2321f9706081739f788b58bc0b3f77521097b6641afdd31e1da41f0",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        107265,
+        86564,
+        85833,
+        85840,
+        86941
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 12419072,
+      "retained_kernel_median_microseconds": 86202.0
+    },
+    {
+      "round": 0,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-performance-fd1ae54e585f/official/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 298.825625,
+      "stdout_sha256": "67992d383375a39e660a497faec6fba8a4b8cf1502c6909aa2d654e0649d83cc",
+      "stderr_sha256": "a93ca92e76328fcaaae92b7d6b2b156bad62e059f965d6bda2efcd5e2d2ac9b3",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        11108,
+        8217,
+        7554,
+        6809,
+        6148
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 16646144,
+      "retained_kernel_median_microseconds": 7181.5
+    },
+    {
+      "round": 1,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-performance-fd1ae54e585f/official/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 39.787959,
+      "stdout_sha256": "8f4a0e4510be0efe994d6894f417b052941d3f10d2095876106a3395f468cd5e",
+      "stderr_sha256": "d0e3cbf496c726e36fa443f74d6eca9111daef7317168fcb574429e1ac1330f1",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        5825,
+        5350,
+        5362,
+        5362,
+        5357
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 16465920,
+      "retained_kernel_median_microseconds": 5359.5
+    },
+    {
+      "round": 1,
+      "profile": "on",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-performance-fd1ae54e585f/on/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 441.257292,
+      "stdout_sha256": "9130061a99ff5b49c7ee94ef85d33826953cc05a4672501e4edeb37b57343f97",
+      "stderr_sha256": "81c86c7690aafec488877d447dec25dc776180ab973b9924bf2c51d620d3f650",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        86821,
+        86361,
+        86313,
+        86862,
+        87359
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 12353536,
+      "retained_kernel_median_microseconds": 86611.5
+    },
+    {
+      "round": 1,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-performance-fd1ae54e585f/off/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 383.90225,
+      "stdout_sha256": "3387d240c3e96dda43a75ff82dc1c239bad0fefb5d993cb42ebe7e36ec7feb77",
+      "stderr_sha256": "4746305512ca22d3abf400841203f318c9905dbdd94551f772f3d0470f0f8b21",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        75708,
+        75241,
+        75177,
+        74915,
+        74817
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 11059200,
+      "retained_kernel_median_microseconds": 75046.0
+    },
+    {
+      "round": 2,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-performance-fd1ae54e585f/off/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 388.309125,
+      "stdout_sha256": "3b0a34f3ee8025274206018e62107f32a38ce078efe24005b3fb067c79698938",
+      "stderr_sha256": "25f7128a8eb87e22aad156c2a9707c302c93b115dd0016259e8d42641347c0ab",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        76109,
+        75823,
+        76471,
+        75981,
+        76023
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 11059200,
+      "retained_kernel_median_microseconds": 76002.0
+    },
+    {
+      "round": 2,
+      "profile": "on",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-performance-fd1ae54e585f/on/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 442.643666,
+      "stdout_sha256": "b3a7f4762716fd4840723dbc33a9d0e956c3ad86970e3894af70fcefb9855fef",
+      "stderr_sha256": "df132d2b37de3e713d2d58f7d2f9c7db4f5454ee26f5e10103b69cb2ed272bf3",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        86328,
+        86383,
+        86915,
+        87818,
+        87786
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 12353536,
+      "retained_kernel_median_microseconds": 87350.5
+    },
+    {
+      "round": 2,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-performance-fd1ae54e585f/official/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 41.792959,
+      "stdout_sha256": "43a7bf24e28aab63923f3637117403f2c37d338c77623a7903d86f719d0dd07a",
+      "stderr_sha256": "deead3621b6752cbca53e01fcfcc8f15f5618667e074641ddcc930e439a4430c",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        6034,
+        5867,
+        5847,
+        5816,
+        5832
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 16416768,
+      "retained_kernel_median_microseconds": 5839.5
+    }
+  ],
+  "prepared_sha256": "c0b7f371abc73bfc141e77596b3fd9c300f42277bc9768be8045a689837cb600",
+  "artifacts": {
+    "official": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-performance-fd1ae54e585f/official/program",
+      "sha256": "5000f4afa15e64928f64968b3ed04c75709bec303ec6314d5e74127355c05ad1",
+      "bytes": 5329888
+    },
+    "off": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-performance-fd1ae54e585f/off/program",
+      "sha256": "f22b2327742bbea5ea829d3e63b009123bfe51a6f79002b022bdba82f8d3849a",
+      "bytes": 3268880,
+      "ir": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-performance-fd1ae54e585f/off/.df_tmp/program.ll",
+        "sha256": "d79dbdd6f07e01f9eebb72b2c531f0666c1fcb9da58e681b9b0c193f4e9c83a8",
+        "bytes": 1017379,
+        "all_defined_bodies": {
+          "selector_calls": 98,
+          "indirect_selector_calls": 97,
+          "runtime_dynamic_operator_calls": 0,
+          "primitive_class_guards": 69,
+          "box_int_calls": 224,
+          "box_double_calls": 3,
+          "exception_clear_calls": 93,
+          "conditional_branches": 946
+        },
+        "focused_functions": {
+          "define i64 @df.color_numeric_performance$2edart..convertPixels(i64 %v0, i64 %v3) noinline nounwind {": {
+            "selector_calls": 3,
+            "indirect_selector_calls": 3,
+            "runtime_dynamic_operator_calls": 0,
+            "primitive_class_guards": 1,
+            "box_int_calls": 3,
+            "box_double_calls": 1,
+            "exception_clear_calls": 1,
+            "conditional_branches": 16
+          },
+          "define i64 @df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue(i64 %v0, i64 %v3, i64 %v6) nounwind {": {
+            "selector_calls": 88,
+            "indirect_selector_calls": 88,
+            "runtime_dynamic_operator_calls": 0,
+            "primitive_class_guards": 65,
+            "box_int_calls": 218,
+            "box_double_calls": 0,
+            "exception_clear_calls": 92,
+            "conditional_branches": 778
+          }
+        },
+        "scope": "Pre-LTO static IR sites, including guarded slow branches; these are not executed call counts."
+      }
+    },
+    "on": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-performance-fd1ae54e585f/on/program",
+      "sha256": "2cceb57b8b5bce30b8ec6a1b87de8e2d148939465cfc4cae6c08869349737ad2",
+      "bytes": 3285392,
+      "ir": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-performance-fd1ae54e585f/on/.df_tmp/program.ll",
+        "sha256": "f8721e934071198fc44df8e677b8a46798dadd74f8cb678c7550a360b7e689ec",
+        "bytes": 1052048,
+        "all_defined_bodies": {
+          "selector_calls": 98,
+          "indirect_selector_calls": 97,
+          "runtime_dynamic_operator_calls": 31,
+          "primitive_class_guards": 131,
+          "box_int_calls": 224,
+          "box_double_calls": 3,
+          "exception_clear_calls": 93,
+          "conditional_branches": 1008
+        },
+        "focused_functions": {
+          "define i64 @df.color_numeric_performance$2edart..convertPixels(i64 %v0, i64 %v3) noinline nounwind {": {
+            "selector_calls": 3,
+            "indirect_selector_calls": 3,
+            "runtime_dynamic_operator_calls": 0,
+            "primitive_class_guards": 1,
+            "box_int_calls": 3,
+            "box_double_calls": 1,
+            "exception_clear_calls": 1,
+            "conditional_branches": 16
+          },
+          "define i64 @df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue(i64 %v0, i64 %v3, i64 %v6) nounwind {": {
+            "selector_calls": 88,
+            "indirect_selector_calls": 88,
+            "runtime_dynamic_operator_calls": 31,
+            "primitive_class_guards": 127,
+            "box_int_calls": 218,
+            "box_double_calls": 0,
+            "exception_clear_calls": 92,
+            "conditional_branches": 840
+          }
+        },
+        "scope": "Pre-LTO static IR sites, including guarded slow branches; these are not executed call counts."
+      }
+    }
+  },
+  "scope": "Three alternating fresh processes per profile. First of five kernel samples discarded; process wall/RSS includes all five. No other builds or timing workloads should run during this command.",
+  "oracle": {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric_performance.dart",
+      "1000000"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "6330dd4025f0b81c5cdbfb2bee3208d408efa1854fd63ffbcd64184b1dd41180",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "expected_checksum": 126625349,
+  "medians": {
+    "off": {
+      "kernel_microseconds": 75853.0,
+      "process_kernel_medians_microseconds": [
+        76070.0,
+        75046.0,
+        76002.0
+      ],
+      "wall_ms": 388.309125,
+      "max_rss_bytes": 11059200
+    },
+    "on": {
+      "kernel_microseconds": 86713.0,
+      "process_kernel_medians_microseconds": [
+        86202.0,
+        86611.5,
+        87350.5
+      ],
+      "wall_ms": 442.643666,
+      "max_rss_bytes": 12353536
+    },
+    "official": {
+      "kernel_microseconds": 5839.5,
+      "process_kernel_medians_microseconds": [
+        7181.5,
+        5359.5,
+        5839.5
+      ],
+      "wall_ms": 41.792959,
+      "max_rss_bytes": 16465920
+    }
+  },
+  "paired_on_over_off_kernel_ratios": [
+    1.1331931116077296,
+    1.1541121445513418,
+    1.1493184389884477
+  ],
+  "inputs_unchanged": true,
+  "artifacts_unchanged": true
+}

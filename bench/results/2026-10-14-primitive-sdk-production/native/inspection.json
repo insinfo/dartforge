@@ -1,0 +1,34 @@
+{
+  "color": {
+    "off": {
+      "signature": "define i64 @df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue(i64 %v0, i64 %v3, i64 %v6) nounwind {",
+      "dyn_op_calls": 0,
+      "selector_sites": 88,
+      "box_int_sites": 218,
+      "scope": "Static LLVM sites; generic fallback remains. Not executed call counts."
+    },
+    "on": {
+      "signature": "define i64 @df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue(i64 %v0, i64 %v3, i64 %v6) nounwind {",
+      "dyn_op_calls": 31,
+      "selector_sites": 88,
+      "box_int_sites": 218,
+      "scope": "Static LLVM sites; generic fallback remains. Not executed call counts."
+    }
+  },
+  "multiply": {
+    "off": {
+      "signature": "define i64 @df.primitive_multiply$2edart..multiply(i64 %v0, i64 %v3) noinline nounwind {",
+      "dyn_op_calls": 0,
+      "selector_sites": 1,
+      "box_int_sites": 1,
+      "scope": "Static LLVM sites; generic fallback remains. Not executed call counts."
+    },
+    "on": {
+      "signature": "define i64 @df.primitive_multiply$2edart..multiply(i64 %v0, i64 %v3) noinline nounwind {",
+      "dyn_op_calls": 1,
+      "selector_sites": 1,
+      "box_int_sites": 1,
+      "scope": "Static LLVM sites; generic fallback remains. Not executed call counts."
+    }
+  }
+}

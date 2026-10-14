@@ -1,0 +1,30 @@
+{
+  "source": "crates/emit_native/src/lower/primitive_multiply.rs",
+  "source_sha256": "bf4609bec786faec9eadd5ec63b45c894fdf8d31a1c153ab70cc57a37e6d6e65",
+  "result": "Two requested focused tests passed serially using target/p4; sources frozen again.",
+  "original_failed_gate": "../../2026-10-14-primitive-sdk-production/full-lib-gate/validation.json",
+  "failure_cause": "New primitive guard emitted62redundant Or(false,comparison) instructions in actual color kernel. Boolean folding removed them; unchanged existing widened-Or preservation regression observed197before versus135after. All eight double box return rewrites were already preserved.",
+  "fix": "Initialize each physical-class predicate with its Smi comparison, then OR the Mint and Double comparisons. No identity Or nodes introduced. Original regression assertions remain unchanged.",
+  "focused": [
+    {
+      "filter": "actual_format_widened_booleans_preserve_all_eight_checked_return_rewrites",
+      "log": "format-rewrites-p4-v2.log",
+      "exit_code": 0,
+      "passed": 1,
+      "duration_seconds": 0.73
+    },
+    {
+      "filter": "lower::primitive_multiply",
+      "log": "primitive-multiply-p4-v2.log",
+      "exit_code": 0,
+      "passed": 1,
+      "duration_seconds": 2.11
+    }
+  ],
+  "extra_run": "Same format test also passed first in default target/debug; rawlog retained as format-rewrites-v2.log.",
+  "not_claimed": [
+    "Replacement frozen producer built.",
+    "Full native library gate passed after this fix.",
+    "Native size or performance benefit."
+  ]
+}

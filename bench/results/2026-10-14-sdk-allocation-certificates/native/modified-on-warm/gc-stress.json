@@ -1,0 +1,8 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-allocation-copied-v2/modified-on-warm/program"
+  ],
+  "exit_code": 0,
+  "stdout_sha256": "e3cb7e19829d9a900a9c3bf0bc2ac9ca28890a244ab779bfc9f0920b47280872",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

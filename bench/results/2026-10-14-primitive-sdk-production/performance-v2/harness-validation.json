@@ -1,0 +1,13 @@
+{
+  "script_sha256": "e42a5006406eb5ab063779804c3c022c78b6b1315d182b432385aff208026474",
+  "checks": [
+    "Python syntax parses.",
+    "Repository root resolves to current workspace.",
+    "Five consumed samples parse; short and malformed output rejected.",
+    "--help exits successfully."
+  ],
+  "execution_status": "No artifact compilations, benchmark executions, or performance measurements performed by this task.",
+  "compile_command": "python3 -B run.py --compile --producer /absolute/frozen/dartforge --sha256 SHA256",
+  "measure_command": "python3 -B run.py --measure --producer /absolute/frozen/dartforge --sha256 SHA256",
+  "measurement_requirement": "All builds and other timing workloads finished before --measure. Preserve the same optional --work directory across both commands."
+}

@@ -1,0 +1,18 @@
+--- off-cold
++++ on-cold
+@@ -36,6 +36,7 @@
+   %sat7 = getelementptr [2 x i64], ptr %sargs7, i64 0, i64 1
+   store i64 0, ptr %sat7
+   %sic7 = getelementptr i64, ptr %area, i64 6
++  ; df.selector-exact 10
+   %sf7 = call ptr @df.selector(ptr %sic7, i64 %v0, i64 4270166662586539371, ptr @df.seln.1, i64 5)
+   %v7 = call i64 %sf7(i64 %v0, ptr %sargs7, ptr @df.const.i64.2.5add879d03074d0745fe088492026a7fe5e24eae5505fb5feeaa2dea820028da)
+   %v8 = load i8, ptr %ctx, align 8
+@@ -112,6 +113,7 @@
+   %sat33 = getelementptr [1 x i64], ptr %sargs33, i64 0, i64 0
+   store i64 0, ptr %sat33
+   %sic33 = getelementptr i64, ptr %area, i64 8
++  ; df.selector-exact 10
+   %sf33 = call ptr @df.selector(ptr %sic33, i64 %v0, i64 -6565620648322651272, ptr @df.seln.0, i64 8)
+   %v33 = call i64 %sf33(i64 %v0, ptr %sargs33, ptr @df.const.i64.2.c314eb35009b14025e5ef5c352349ffcb0ff36f19602db3b02250d0153c9f892)
+   store i64 %v33, ptr %gcs0
