@@ -1,0 +1,18 @@
+{
+  "change": "Copy JSON array entries directly between checked, distinct object-space blocks instead of allocating a temporary Rust Vec. Roots, metadata, stack clearing and ARC accounting are unchanged.",
+  "performance_claim": "One temporary allocation and one extra full element copy removed per nonempty decoded JSON array. No throughput or latency benchmark claim.",
+  "checks": {
+    "json-close-test.log": {
+      "passed": 1,
+      "failed": 0,
+      "scope": "JSON array close: tracing and ARC, stress collection, empty/single/257 entries, null/Smi/shared references, nested stack prefix and clearing, exact capacity and metadata, release and collection",
+      "sha256": "dab608b04fe5ed9cd19cf7c38cdfe2fd4fcc6b364645d4481b90662aeaba3918"
+    },
+    "json-close-contracts.log": {
+      "passed": 11,
+      "failed": 0,
+      "scope": "Ownership contracts (7) and single runtime source/symbol table (4)",
+      "sha256": "4e1ae8cf24feb91b1deb6858964cc1c9858b6d769faa416f7228682e242dd521"
+    }
+  }
+}

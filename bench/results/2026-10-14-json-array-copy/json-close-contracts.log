@@ -1,0 +1,25 @@
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.67s
+     Running tests/ownership.rs (target/p4/debug/deps/ownership-342a9bfb0f51f008)
+
+running 7 tests
+test callback_code_owners_use_native_metadata_without_managed_ownership ... ok
+test copied_borrowed_capture_survives_env_and_preserves_pending ... ok
+test owned_closure_keeps_context_cell_and_repeated_edges_until_drop ... ok
+test borrowed_context_needs_owner_after_closure_release ... ok
+test nsm_publishes_error_until_clear_without_owner_in_caller ... ok
+test arc_contracts_cover_exports_without_inventing_contracts_for_other_externs ... ok
+test generator::ownership_tests::table_rejects_incomplete_duplicate_and_invalid_contracts ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/single_source.rs (target/p4/debug/deps/single_source-867ec3d96c098408)
+
+running 4 tests
+test overflow_wraps_as_in_aot ... ok
+test native_resolver_and_its_cache_keep_this_runtimes_addresses ... ok
+test aot_compiles_the_same_files ... ok
+test the_table_covers_runtime_symbols ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+

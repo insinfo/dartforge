@@ -225,8 +225,12 @@ pub extern "C" fn dartforge_native_DartForge_json_close_list(stack: i64, start: 
             // The collector does not move: `p` stays valid. The storage is new and
             // nobody else sees it: raw copy, no barrier (like `list_reserve`).
             let a = heap.list_data(list);
-            let copy: Vec<i64> = (i0..p.len).map(|i| p.do_read(i)).collect();
-            heap.words_mut(a)[1..1 + n].copy_from_slice(&copy);
+            // SAFETY: `stack_mark` checked the source range; the freshly
+            // allocated storage has `n` elements and cannot alias the stack.
+            // No allocation or collection occurs while the pointers are used.
+            unsafe {
+                std::ptr::copy_nonoverlapping(p.p.add(i0), heap.words_mut(a).as_mut_ptr().add(1), n);
+            }
         }
         list
     });
@@ -740,6 +744,53 @@ pub extern "C" fn dartforge_list_append(list: i64, v: i64) -> i64 {
 #[cfg(test)]
 mod literal_owned_tests {
     use super::*;
+
+    #[test]
+    fn json_close_list_copies_nested_ranges_and_keeps_references_alive() {
+        for arc in [false, true] {
+            let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
+            for count in [0, 1, 257] {
+                let stack = HEAP.with(|h| h.borrow_mut().new_growable(0, count + 3, crate::lists::Element::General));
+                dartforge_arc_retain(stack);
+                let model = HEAP.with(|h| h.borrow_mut().new_growable(0, 0, crate::lists::Element::General));
+                dartforge_arc_retain(model);
+                let child = HEAP.with(|h| h.borrow_mut().allocate_str("JSON child shared across array entries"));
+                dartforge_arc_retain(child);
+                let prefix = crate::layout::smi::of(17).unwrap();
+                let mark = crate::layout::smi::of(37).unwrap();
+                assert_eq!(dartforge_native_DartForge_json_push(stack, prefix), 1);
+                assert_eq!(dartforge_native_DartForge_json_push(stack, mark), 2);
+                let expected: Vec<i64> = (0..count).map(|i| match i % 3 {
+                    0 => child, 1 => 0, _ => crate::layout::smi::of(i as i64).unwrap(),
+                }).collect();
+                for &value in &expected { dartforge_native_DartForge_json_push(stack, value); }
+                let list = dartforge_native_DartForge_json_close_list(stack, 2, model);
+                assert_ne!(list, 0);
+                dartforge_arc_retain(list);
+                dartforge_arc_release(child);
+                dartforge_arc_collect();
+                HEAP.with(|h| {
+                    let heap = h.borrow();
+                    assert_eq!(heap.list_len(stack), 1);
+                    let storage = heap.list_data(stack);
+                    assert_eq!(heap.words(storage)[1], prefix);
+                    assert!(heap.words(storage)[2..2 + count + 1].iter().all(|&v| v == 0));
+                    assert_eq!(heap.list_len(list), count);
+                    assert_eq!(heap.list_capacity(list), count);
+                    assert_eq!(heap.metadata(list), heap.metadata(model));
+                    let storage = heap.list_data(list);
+                    assert_eq!(&heap.words(storage)[1..1 + count], expected.as_slice());
+                    if count != 0 { assert!(heap.is_live_object(child)); }
+                });
+                for value in [list, stack, model] { dartforge_arc_release(value); }
+                dartforge_arc_collect();
+                assert_eq!(dartforge_arc_observe_heap_v1(list), 0);
+                assert_eq!(dartforge_arc_observe_heap_v1(child), 0);
+            }
+            HEAP.with(|h| { h.replace(previous); });
+        }
+    }
 
     #[test]
     fn mixed_literal_roots_refs_counts_edges_and_preserves_boxes() {
