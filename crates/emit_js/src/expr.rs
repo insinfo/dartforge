@@ -653,14 +653,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let common = if type_args.is_empty() { self.common_type(e) } else { None };
                 self.emit_set_or_map(*const_, type_args, elements, expected, common.as_ref())
             }
-            ExprKind::Record { positional, named, const_ } if *const_ && positional.len() == 1 && named.is_empty() => {
+            ExprKind::Record { positional, named, const_ } => {
                 let saved = self.in_const;
-                self.in_const = true;
-                let r = self.emit_expr(positional[0], expected);
+                self.in_const |= *const_;
+                let record = self.emit_record(positional, named);
                 self.in_const = saved;
-                r
+                record
             }
-            ExprKind::Record { positional, named, .. } => self.emit_record(positional, named),
             ExprKind::InstanceCreation { keyword, ty, constructor, arguments } => {
                 self.emit_instance_creation(*keyword, *ty, constructor.as_ref(), arguments, expected)
             }
@@ -1523,6 +1522,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         String::new()
     }
 
+    // A textual key cannot represent a lexical value: separate functions can
+    // have the same emitted binding name with different constant values.
+    // Records do not require persistent identity, so leave other constants
+    // uncached while retaining their constant context for nested collections.
+    fn literal_record_cache_value(&self, value: ExprId) -> bool {
+        match &self.expr(value).kind {
+            ExprKind::Int(_) | ExprKind::Double(_) | ExprKind::Bool(_) | ExprKind::Null | ExprKind::Symbol(_) => true,
+            ExprKind::String(literal) => literal.parts.iter().all(|part| matches!(part, ast::StringPart::Text(_))),
+            ExprKind::Parenthesized(inner) => self.literal_record_cache_value(*inner),
+            ExprKind::Record { positional, named, .. } => positional.iter().all(|value| self.literal_record_cache_value(*value))
+                && named.iter().all(|(_, value)| self.literal_record_cache_value(*value)),
+            _ => false,
+        }
+    }
+
     fn emit_record(&mut self, positional: &[ExprId], named: &[(ast::Name, ExprId)]) -> (Js, Ty) {
         let mut pos_js = Vec::new();
         let mut pos_ty = Vec::new();
@@ -1596,7 +1610,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mut values = pos_js.clone();
         values.extend(sorted_vals);
         let mut code = format!("dart.recordLiteral({}, {}, {named_js}, [{}])", js::string_literal(&shape), pos_js.len(), values.join(", "));
-        if self.in_const && prefix.is_empty() {
+        if self.in_const && prefix.is_empty()
+            && positional.iter().all(|value| self.literal_record_cache_value(*value))
+            && named.iter().all(|(_, value)| self.literal_record_cache_value(*value))
+        {
+            self.m.note_const_record(self.lib);
             let lv = self.lib_var(self.lib);
             code = format!("{lv}.$C({}, () => {code})", js::string_literal(&code));
         }

@@ -1,0 +1,21 @@
+   Compiling dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.83s
+     Running tests/basic.rs (target/js/debug/deps/basic-475ff2481c5c47e4)
+
+running 13 tests
+test p7_dynamic ... ok
+test p2_functions ... ok
+test p10_reified_types ... ok
+test p3_generics ... ok
+test p1_basic ... ok
+test p6_async ... ok
+test p4_collections ... ok
+test p5_exceptions ... ok
+test p7_libraries ... ok
+test p3_classes ... ok
+test p8_nosuchmethod_order ... ok
+test p7_patterns ... ok
+test p9_lexical_scope ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.61s
+

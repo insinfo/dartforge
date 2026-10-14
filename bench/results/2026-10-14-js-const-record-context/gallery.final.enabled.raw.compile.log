@@ -1,0 +1,64 @@
+/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/gallery.final.enabled.raw.js (13357 KB; 791 modules; user 13527 KB; runtime 1088 -> 1088 KB, 0/0 live units)
+world: classes 1623/3220 instantiated + 193 type only; functions 38637/57599; 1837 selectors; 6 round(s); world 180 ms, emission 2753 ms, verifier 829 ms
+warning: The type cast is unnecessary because the value already has this type. at bytes 11918..12003
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 3554..3561
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 5265..5272
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 18451..18458
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 11194..11201
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 61857..61864
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 62616..62623
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 64378..64385
+warning: Unreachable code (dead code). at bytes 93447..93467
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 105165..105172
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 166389..166396
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1869..1882
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4037..4044
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 18107..18114
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4952..4959
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 16105..16112
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'false'. at bytes 1300..1317
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 35052..35059
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 986..993
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 2123..2130
+(581 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: verifier: 949 gap(s) fixed; DARTFORGE_JSPROD_FIXES=N shows more
+warning: verifier: class _internal.LateError cited in the text and pruned
+warning: verifier: _internal.Symbol.new cited in the text and pruned
+warning: verifier: _js_helper.IdentityMap.from cited in the text and pruned
+warning: verifier: _js_helper.LinkedMap.from cited in the text and pruned
+warning: verifier: _native_typed_data.NativeTypedData.new cited in the text and pruned
+warning: verifier: class async._IterationMarker cited in the text and pruned
+warning: verifier: function async._asyncAwait cited in the text and pruned
+warning: verifier: function async._asyncRethrow cited in the text and pruned
+warning: verifier: function async._asyncReturn cited in the text and pruned
+warning: verifier: function async._asyncStartSync cited in the text and pruned
+warning: verifier: function async._makeAsyncAwaitCompleter cited in the text and pruned
+warning: verifier: function async._makeSyncStarIterable cited in the text and pruned
+warning: verifier: function async._wrapJsFunctionForAsync cited in the text and pruned
+warning: verifier: core._Enum.new cited in the text and pruned
+warning: verifier: variable dart.JsIterator cited in the text and pruned
+warning: verifier: variable dart._functionRti cited in the text and pruned
+warning: verifier: function dart._installIdentityEquals cited in the text and pruned
+warning: verifier: function dart.addRtiResources cited in the text and pruned
+warning: verifier: function dart.applyMixin cited in the text and pruned
+warning: verifier: function dart.argumentError cited in the text and pruned
+warning: pending reference with no element: L$built_collection__src__internal__copy_on_write_list.CopyOnWriteList.__proto__
+warning: pending reference with no element: L$built_collection__src__internal__copy_on_write_map.CopyOnWriteMap.__proto__
+warning: pending reference with no element: L$built_collection__src__internal__copy_on_write_set.CopyOnWriteSet.__proto__
+warning: pending reference with no element: L$built_collection__src__list.BuiltList.__proto__
+warning: pending reference with no element: L$built_collection__src__map.BuiltMap.__proto__
+warning: pending reference with no element: L$built_collection__src__set.BuiltSet.__proto__
+warning: pending reference with no element: L$collection__src__equality.DefaultEquality.__proto__
+warning: pending reference with no element: L$collection__src__equality.MapEquality.__proto__
+warning: pending reference with no element: L$collection__src__equality._MapEntry.__proto__
+warning: pending reference with no element: L$collection__src__list_extensions.ListSlice.__proto__
+warning: pending reference with no element: L$essential_core__src__models__data_frame.DataFrame.__proto__
+warning: pending reference with no element: L$essential_core__src__models__filter_search_field.FilterSearchField.__proto__
+warning: pending reference with no element: L$essential_core__src__models__filters.FilterOrderField.__proto__
+warning: pending reference with no element: L$essential_core__src__models__filters.Filters.__proto__
+warning: pending reference with no element: L$intl__src__intl__date_builder.DateBuilder.__proto__
+warning: pending reference with no element: L$intl__src__intl__date_format.DateFormat.__proto__
+warning: pending reference with no element: L$intl__src__intl__number_parser_base.NumberParserBase.__proto__
+warning: pending reference with no element: L$intl__src__intl__string_stack.StringStack.__proto__
+warning: pending reference with no element: L$intl__src__intl_helpers.UninitializedLocaleData.__proto__
+warning: pending reference with no element: L$limitless_ui__src__components__accordion__accordion_button_directive.LiAccordionButtonDirective.__proto__

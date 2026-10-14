@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running tests/const_record_cache.rs (target/js/debug/deps/const_record_cache-663d0aca9b363b7b)
+
+running 2 tests
+test development_warm_fragments_keep_the_existing_cache_prelude ... ok
+test live_records_keep_canonical_identity_without_unused_library_caches ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.51s
+

@@ -1413,10 +1413,7 @@ pub fn emit_sdk_module(ctx: &Ctx) -> (String, BTreeSet<String>) {
         let lv = &ctx.libs[*l as usize].js_var;
         out.push_str(&format!("var {var} = dart.privateName({lv}, {});\n", js::string_literal(name)));
     }
-    for &l in &libs {
-        let lvar = &ctx.libs[l.0 as usize].js_var;
-        out.push_str(&format!("{lvar}.$constCache = new Map();\n{lvar}.$C = function(k, f) {{ let v = {lvar}.$constCache.get(k); if (v === void 0) {{ v = f(); {lvar}.$constCache.set(k, v); }} return v; }};\n"));
-    }
+    crate::module::emit_const_caches(ctx, &m, &libs, &mut out);
     out.push_str(&body.out);
     let object_recipe = ctx.recipe_of("dart:core", "Object", "core|Object");
     out.push_str(&format!("dart_rti.findType(\"{object_recipe}*\");\ndart_rti.findType(\"{object_recipe}?\");\ndart_rti.findType(\"0&*\");\n"));

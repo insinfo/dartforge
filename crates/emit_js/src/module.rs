@@ -22,6 +22,8 @@ pub struct ModState {
     pub dartx_used: RefCell<BTreeMap<String, String>>,
     pub private_syms: RefCell<BTreeMap<String, (u32, String)>>,
     pub noted_classes: RefCell<BTreeSet<u32>>,
+    /// Libraries whose emitted constant records call their canonical cache.
+    pub const_record_libraries: RefCell<BTreeSet<u32>>,
 }
 
 impl ModState {
@@ -34,6 +36,7 @@ impl ModState {
             dartx_used: RefCell::new(BTreeMap::new()),
             private_syms: RefCell::new(BTreeMap::new()),
             noted_classes: RefCell::new(BTreeSet::new()),
+            const_record_libraries: RefCell::new(BTreeSet::new()),
         }
     }
     pub fn use_sdk(&self, name: &str) {
@@ -68,6 +71,9 @@ impl ModState {
         self.private_syms.borrow_mut().insert(var.clone(), (lib.0, name.to_string()));
         var
     }
+    pub(crate) fn note_const_record(&self, lib: LibraryId) {
+        self.const_record_libraries.borrow_mut().insert(lib.0);
+    }
     pub fn note_class(&self, c: ClassId) {
         self.noted_classes.borrow_mut().insert(c.0);
     }
@@ -90,6 +96,7 @@ impl ModState {
         self.dartx_used.borrow_mut().extend(other.dartx_used.borrow().iter().map(|(k, v)| (k.clone(), v.clone())));
         self.private_syms.borrow_mut().extend(other.private_syms.borrow().iter().map(|(k, v)| (k.clone(), v.clone())));
         self.noted_classes.borrow_mut().extend(other.noted_classes.borrow().iter().copied());
+        self.const_record_libraries.borrow_mut().extend(other.const_record_libraries.borrow().iter().copied());
     }
 }
 
@@ -103,6 +110,7 @@ pub struct Fragment {
     pub dartx_used: BTreeMap<String, String>,
     pub private_syms: BTreeMap<String, (u32, String)>,
     pub noted_classes: BTreeSet<u32>,
+    pub const_record_libraries: BTreeSet<u32>,
 }
 
 impl Fragment {
@@ -114,6 +122,7 @@ impl Fragment {
             dartx_used: m.dartx_used.borrow().clone(),
             private_syms: m.private_syms.borrow().clone(),
             noted_classes: m.noted_classes.borrow().clone(),
+            const_record_libraries: m.const_record_libraries.borrow().clone(),
         }
     }
     fn apply_to(&self, m: &ModState) {
@@ -122,6 +131,7 @@ impl Fragment {
         m.dartx_used.borrow_mut().extend(self.dartx_used.iter().map(|(k, v)| (k.clone(), v.clone())));
         m.private_syms.borrow_mut().extend(self.private_syms.iter().map(|(k, v)| (k.clone(), v.clone())));
         m.noted_classes.borrow_mut().extend(self.noted_classes.iter().copied());
+        m.const_record_libraries.borrow_mut().extend(self.const_record_libraries.iter().copied());
     }
 }
 
@@ -414,10 +424,7 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<FragmentCac
         out.push_str(&format!("var {var} = dart.privateName({lv}, {});\n", js::string_literal(name)));
     }
     out.push_str("dart._checkModuleNullSafetyMode(true);\n");
-    for &glib in group {
-        let lvar = &ctx.libs[glib.0 as usize].js_var;
-        out.push_str(&format!("{lvar}.$constCache = new Map();\n{lvar}.$C = function(k, f) {{ let v = {lvar}.$constCache.get(k); if (v === void 0) {{ v = f(); {lvar}.$constCache.set(k, v); }} return v; }};\n"));
-    }
+    emit_const_caches(ctx, &m, group, &mut out);
     out.push_str(&body.out);
     out.push_str(&rules);
     let tracked: Vec<String> = group
@@ -430,6 +437,19 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<FragmentCac
         tracked.join(",\n")
     ));
     out
+}
+
+/// Keep the development prelude stable; production caches only serve emitted
+/// constant records. In particular, an unused cache must not allocate a Map in
+/// every imported library. Uses accumulated by cached fragments are included.
+pub(crate) fn emit_const_caches(ctx: &Ctx, m: &ModState, libraries: &[LibraryId], out: &mut String) {
+    let prune = ctx.production() && std::env::var("DARTFORGE_JSPROD_CONST_CACHES").map_or(true, |v| v != "0");
+    let used = m.const_record_libraries.borrow();
+    for &lib in libraries {
+        if prune && !used.contains(&lib.0) { continue; }
+        let lvar = &ctx.libs[lib.0 as usize].js_var;
+        out.push_str(&format!("{lvar}.$constCache = new Map();\n{lvar}.$C = function(k, f) {{ let v = {lvar}.$constCache.get(k); if (v === void 0) {{ v = f(); {lvar}.$constCache.set(k, v); }} return v; }};\n"));
+    }
 }
 
 /// Top-level functions and variables and extension statics of a library.
@@ -2817,4 +2837,29 @@ fn emit_factory(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &ast::C
 #[allow(dead_code)]
 fn _unused(_: Js, _: HashMap<u32, u32>, _: BTreeMap<u32, u32>, _: u8) {
     let _ = P_ASSIGN;
+}
+
+#[cfg(test)]
+mod const_record_cache_tests {
+    use super::*;
+
+    #[test]
+    fn derived_and_reused_fragments_preserve_per_library_const_record_uses() {
+        let mut module = ModState::new(LibraryId(1));
+        module.group = vec![LibraryId(1), LibraryId(2)];
+        let fragment_state = module.derived();
+        assert!(fragment_state.const_record_libraries.borrow().is_empty());
+        fragment_state.note_const_record(LibraryId(2));
+        module.merge(&fragment_state);
+        assert_eq!(*module.const_record_libraries.borrow(), BTreeSet::from([2]));
+        let fragment = Fragment::new("cached record body".into(), &fragment_state);
+        let fresh_module = module.derived();
+        fragment.apply_to(&fresh_module);
+        fragment.apply_to(&fresh_module);
+        assert_eq!(*fresh_module.const_record_libraries.borrow(), BTreeSet::from([2]));
+        let second = fresh_module.derived();
+        second.note_const_record(LibraryId(1));
+        fresh_module.merge(&second);
+        assert_eq!(*fresh_module.const_record_libraries.borrow(), BTreeSet::from([1, 2]));
+    }
 }

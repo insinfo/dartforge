@@ -1,0 +1,3 @@
+   Compiling dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running `target/js/debug/examples/emit_corpus target/tmp-js-production-audit/const-cache-use/development crates/emit_js/tests/programs/const_record_cache.dart`

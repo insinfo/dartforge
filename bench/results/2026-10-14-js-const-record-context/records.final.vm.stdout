@@ -1,0 +1,15 @@
+single=6
+locals=1:2:1
+implicitLocals=1:2:1
+collections=1:2:1:2:1:2:same=true,true,true:blocked=3
+explicitNested=2:same=true
+explicitDeep=1:same=true
+contexts=2:blocked=true
+evaluation=abc:1:2:3
+entry=true
+runtime=false
+other=true
+sameLibrary=true
+nested=true
+plain=7:same=true
+cycle=11:same=true

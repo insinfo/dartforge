@@ -1,0 +1,349 @@
+{
+  "compiler": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+    "sha256": "96a34ad807a15943ba5ab041653e7d64b84ff76e99a7331cf32278592eedfa7a"
+  },
+  "source_hashes": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/src/module.rs": "3f74fe90ccd7cd7fca65a3aaf6dbc5d1b22508ddf0a580a032ac3bbaefcb5268",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/src/expr.rs": "39644fcf1fab15bb37eb4b2d61947565bb737651d5c4a741fb9b038b55a3d8fe",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/src/own_sdk.rs": "6ea73f342dc42846339b9da7167611a82b39977996ad3ccd47fc6b7386761836",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js_production/tests/const_record_cache.rs": "4d981a0e301cbb56957ffeaae7e71f16a479b6f3343b5f8e20277851a6ac124f",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/const_record_cache.dart": "2e0cc61661b9258ae933a5941ea6d5f7d5999885664e1eaa1b9f8cf3918c2c5a",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/const_record_cache/records.dart": "1568f0e3482d72f09ba56698d28a9e0543fad761cd190430b4f7e47a13103914",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/const_record_cache/cycle_a.dart": "c44600795cf4965b41f2677080a2e001714e7782aaa050e28eb5043f010af46c",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/const_record_cache/cycle_b.dart": "ddf40f341a375307cd910b63fe9124cb8cd022e3fbe62d615f663fa7c7ec5c86",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/const_record_cache/plain.dart": "99a5dc2de8d2392f93682baf689ae77d9a74f37570b47c34de3374c437e7ff1a"
+  },
+  "app_inputs_count": 2871,
+  "all_inputs_stable": true,
+  "artifacts": {
+    "gallery.disabled.raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/gallery.final.disabled.raw.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_CONST_CACHES": "0"
+      },
+      "compile_exit": 0,
+      "bytes": 14014158,
+      "sha256": "5d5b972ad6495b1ede20f54fb5137a74f9aa48fa18c80b8ccce8a324347af58f",
+      "gzip9_bytes": 1667845,
+      "const_cache_helpers": 974,
+      "const_cache_calls": 0
+    },
+    "gallery.disabled.minified": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/gallery.final.disabled.minified.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_CONST_CACHES": "0"
+      },
+      "compile_exit": 0,
+      "bytes": 3533442,
+      "sha256": "b27c4e1988d5eaeac957797a279972cf47c75ca99c44ceb8ffb78aa7726ae817",
+      "gzip9_bytes": 1019065
+    },
+    "gallery.enabled.raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/gallery.final.enabled.raw.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_CONST_CACHES": "1"
+      },
+      "compile_exit": 0,
+      "bytes": 13677426,
+      "sha256": "769fad403320cd13388c2af41199ddea886a70f56eb9f39bfbeafa242429d0f2",
+      "gzip9_bytes": 1637918,
+      "const_cache_helpers": 0,
+      "const_cache_calls": 0
+    },
+    "gallery.enabled.minified": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/gallery.final.enabled.minified.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_CONST_CACHES": "1"
+      },
+      "compile_exit": 0,
+      "bytes": 3533442,
+      "sha256": "b27c4e1988d5eaeac957797a279972cf47c75ca99c44ceb8ffb78aa7726ae817",
+      "gzip9_bytes": 1019065
+    },
+    "records.disabled.raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/const_record_cache.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/records.final.disabled.raw.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_CONST_CACHES": "0"
+      },
+      "compile_exit": 0,
+      "bytes": 249517,
+      "sha256": "fa5dee6a627802ccbda116f58063dae7e7fd723b5d587bc15bc1d74e3b474967",
+      "gzip9_bytes": 40372,
+      "const_cache_helpers": 25,
+      "const_cache_calls": 8,
+      "run_exit": 0,
+      "exact_vm": true,
+      "stderr_empty": true
+    },
+    "records.disabled.minified": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/const_record_cache.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/records.final.disabled.minified.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_CONST_CACHES": "0"
+      },
+      "compile_exit": 0,
+      "bytes": 71251,
+      "sha256": "3b0501a29cab093fc4073877d24c4201677b86a1d0cdf66f13fcc000722a0977",
+      "gzip9_bytes": 23196,
+      "run_exit": 0,
+      "exact_vm": true,
+      "stderr_empty": true
+    },
+    "records.enabled.raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/const_record_cache.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/records.final.enabled.raw.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_CONST_CACHES": "1"
+      },
+      "compile_exit": 0,
+      "bytes": 245193,
+      "sha256": "971a05a70ba712610bd9a4e54834536b4711fa9165481a7af85603ee45b5bebf",
+      "gzip9_bytes": 39937,
+      "const_cache_helpers": 3,
+      "const_cache_calls": 8,
+      "run_exit": 0,
+      "exact_vm": true,
+      "stderr_empty": true
+    },
+    "records.enabled.minified": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/const_record_cache.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/records.final.enabled.minified.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_CONST_CACHES": "1"
+      },
+      "compile_exit": 0,
+      "bytes": 71251,
+      "sha256": "3b0501a29cab093fc4073877d24c4201677b86a1d0cdf66f13fcc000722a0977",
+      "gzip9_bytes": 23196,
+      "run_exit": 0,
+      "exact_vm": true,
+      "stderr_empty": true
+    }
+  },
+  "size_scope": "Unused const-cache removal reduces raw output only. Minified gallery unchanged; no production bundle-size or performance improvement claimed.",
+  "tests": [
+    {
+      "command": "cargo test --locked -p dartforge-emit-js --lib",
+      "passed": 2,
+      "log": "final-emitter-lib.log"
+    },
+    {
+      "command": "cargo test --locked -p dartforge-emit-js-production --lib",
+      "passed": 66,
+      "ignored": 1,
+      "log": "final-production-lib.log"
+    },
+    {
+      "command": "cargo test --locked -p dartforge-emit-js-production --test const_record_cache -- --ignored",
+      "passed": 2,
+      "log": "final-const-record-test.log"
+    },
+    {
+      "command": "cargo test --locked -p dartforge-emit-js --test basic",
+      "passed": 13,
+      "log": "final-development-basic.log"
+    }
+  ],
+  "sdk_source_cache_validation": {
+    "cold_source": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/const_record_cache.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/records.final.cold_source.raw.js"
+      ],
+      "environment": {
+        "DARTFORGE_SDK_CACHE": "0"
+      },
+      "artifact_sha256": "971a05a70ba712610bd9a4e54834536b4711fa9165481a7af85603ee45b5bebf",
+      "exit": 0,
+      "exact_vm": true,
+      "stderr_empty": true
+    },
+    "cache_enabled": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/const_record_cache.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/records.final.cache_enabled.raw.js"
+      ],
+      "environment": {
+        "DARTFORGE_SDK_CACHE": "1"
+      },
+      "artifact_sha256": "971a05a70ba712610bd9a4e54834536b4711fa9165481a7af85603ee45b5bebf",
+      "exit": 0,
+      "exact_vm": true,
+      "stderr_empty": true
+    }
+  },
+  "development_execution": {
+    "command": [
+      "node",
+      "target/tmp-js-production-audit/const-cache-use/development/const_record_cache/main.mjs"
+    ],
+    "build_log": "final-development-build.log",
+    "stdout": "final-development.stdout",
+    "stderr": "final-development.stderr",
+    "run_exit": 0,
+    "exact_vm": true,
+    "stderr_empty": true,
+    "runtime_sdk_sha256": "28dc6b642e1b3736dda5a7c46f5cbfab056f5b3560f31f802ef7ef94744218ea"
+  },
+  "baseline": {
+    "compiler_sha256": "a19db1c3add6446d1f103a5510cf47f7651a7a0594624533b83ca66dd8890a69",
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+    "config": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json",
+    "inputs_stable": true,
+    "inputs_count": 2871,
+    "artifacts": {
+      "raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/current-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "--packages",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json",
+          "--no-minify",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/gallery.baseline.raw.js"
+        ],
+        "bytes": 14014158,
+        "sha256": "5d5b972ad6495b1ede20f54fb5137a74f9aa48fa18c80b8ccce8a324347af58f",
+        "gzip9_bytes": 1667845
+      },
+      "minified": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/current-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "--packages",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/gallery.baseline.minified.js"
+        ],
+        "bytes": 3533442,
+        "sha256": "b27c4e1988d5eaeac957797a279972cf47c75ca99c44ceb8ffb78aa7726ae817",
+        "gzip9_bytes": 1019065
+      },
+      "official-O2": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "js",
+          "-O2",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/gallery.official-O2.js",
+          "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json"
+        ],
+        "bytes": 3870242,
+        "sha256": "0ae0a7fe5d99031bb6c60c9a17cbb86efc5c6d1db91a0bd83682789ac94c33ad",
+        "gzip9_bytes": 1020824
+      }
+    }
+  },
+  "raw_only_reduction_bytes": 336732,
+  "minified_gallery_unchanged": true,
+  "regression_witnesses": {
+    "original_compiler_sha256": "a19db1c3add6446d1f103a5510cf47f7651a7a0594624533b83ca66dd8890a69",
+    "original_explicit_context_stdout": "records.baseline.stdout",
+    "original_local_collision_stdout": "collision.original.stdout",
+    "context_fixed_before_literal_guard_compiler_sha256": "aee299e5949005cf5854909dc67aa68caf83a86838b598137b57eabbd2e92822",
+    "context_fixed_before_literal_guard_collision_stdout": "collision.before.stdout",
+    "collision_probe_source_sha256": "b77ebd77a9a7dad9bf7991d5203507b1e8cff9677d12c16619ce4ead89c2a95d",
+    "expected_collision_values": "explicit=1:2:1\nimplicit=1:2:1\n",
+    "original_explicit_context_witness_scope": "Historical diagnostic stdout from an earlier const_record_cache.dart fixture version, before single-positional and const-local collision additions. That earlier source was not archived. This witness is not used as a same-input before/after comparison; final nested const semantics are proved by the final frozen fixture against VM and dart2js O2.",
+    "original_explicit_context_same_input_before_after": false,
+    "original_explicit_context_source_hash": null
+  },
+  "browser": {
+    "file": "gallery.final.enabled.browser.json",
+    "screenshot": "gallery.final.enabled.png",
+    "visual_review": true,
+    "actual_loaded_bytes": 3533442,
+    "actual_loaded_sha256": "b27c4e1988d5eaeac957797a279972cf47c75ca99c44ceb8ffb78aa7726ae817",
+    "expected_sha256": "b27c4e1988d5eaeac957797a279972cf47c75ca99c44ceb8ffb78aa7726ae817",
+    "mounts": 2,
+    "uncaught_console_log_http_errors": 0,
+    "caught_pauses": 10,
+    "caught_pause_classification": "Five existing caught Quill Symbol.toStringTag feature probes and five caught ReferenceErrors generated by debugger introspection in this smoke script. Startup only; not a full component interaction suite."
+  },
+  "record_identity_scope": "Dart records have no persistent identity; record identity differences alone are not classified as semantic errors. Required semantic corrections are nested const collection immutability/value canonicalization, const-local record value isolation, and single-positional record shape.",
+  "identity_reference": "https://api.dart.dev/dart-core/identical.html",
+  "app_input_hashes_file_sha256": "5f751cb93c425d5c9834f2df4fdb20f97c64267a3ba0e925674567926153cb90",
+  "app_input_hashes_stable": true
+}
