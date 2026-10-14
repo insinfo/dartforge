@@ -1,0 +1,32 @@
+{
+  "status": "FOCUSED_PASS_NATIVE_PENDING",
+  "tests": {
+    "guard_tests": 5,
+    "source_sdk_tests": 2,
+    "source_sdk_replacements": 3
+  },
+  "source_sha256": {
+    "crates/emit_native/src/hir.rs": "fad617115a85b81b7c1b2b1124910e12b895eb547f20c57a57463e8f37a7dd77",
+    "crates/emit_native/src/lower/mod.rs": "034673fdcd8bb470967d8a5a51d00bcf3cfda1b65e781ce5b5e34ce889877b02",
+    "crates/emit_native/src/lower/double_identity.rs": "b4c05b7f90775b341929c0756e09bed908fad91657cf2ae59b365ddb71f0902f",
+    "crates/emit_native/src/lower/double_identity/tests.rs": "dffd11bfec0af789adde32e53c02c6d6a6ea0d38326065a6f9b68ac70d2fabe0",
+    "crates/emit_native/src/optimize/mod.rs": "5c3a0d932dd338fb513d4229f820615fef93029b501d154a0915bc428023e9ac",
+    "crates/emit_native/src/optimize/checked_double_roundtrip.rs": "d27e30692ca0bb6b073f873e2984b437ae92e119142fd6f602a079230e89ec28",
+    "crates/emit_native/src/optimize/checked_double_roundtrip/tests.rs": "846b542b1c0d4206e09c9cb741c051aff0abf789dadd3f5338dd920d3aef2e11",
+    "crates/emit_native/tests/fixtures/checked_double_roundtrip/main.dart": "df94435661750a7b99208abef2c1344956c620ac0cbe77b493758c66e741b686",
+    "crates/emit_native/tests/fixtures/checked_double_roundtrip/format.dart": "c7750e025311ea78a05c0ec73cec464a8845ac99599b61be9c089afee97c62db"
+  },
+  "test_binary_sha256": "1269d2659b6ce7a01e2500db32176cb6758a23b1a807f34fac754e30784f9ce7",
+  "actual_format_lowering": {
+    "removed_double_boxes": 8,
+    "unbox_preserved": true,
+    "unrelated_widened_Or_preserved": true,
+    "SDKlibrary_mode": false
+  },
+  "limits": [
+    "Native ON/OFF remains pending a new immutableproducer.",
+    "No timing measured.",
+    "Previous dbafa actual8semanticpass +codegentargetmiss remainsunchanged.",
+    "SDKlibrary/ARC/reload guards retained."
+  ]
+}

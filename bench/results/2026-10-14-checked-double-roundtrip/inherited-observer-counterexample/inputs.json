@@ -1,0 +1,11 @@
+{
+  "entry_sha256": "34593e4a6da62018d1c6d144258fecea6b6582e923c16e5b971f1626cb900af1",
+  "SDK_original_Object_patch_sha256": "22a1563ecb6d002d5ecf9a060c7657fc9a30c34918d3edb48688f311155c967d",
+  "SDK_selected_Object_patch_sha256": "dbbac66155fe51bbddda251f3779f2f756822192a672974e72c32ca891f81431",
+  "SDK_version": "3.6.2",
+  "replacement": {
+    "old": "throw new NoSuchMethodError.withInvocation(this, invocation);",
+    "new": "return _getHash(this);"
+  },
+  "purpose": "Modified selected Object inherited noSuchMethod can observe numeric box identity via native Object_getHash. Default VM SDK is not a modified-SDK execution oracle."
+}

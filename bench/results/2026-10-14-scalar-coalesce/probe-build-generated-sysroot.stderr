@@ -1,0 +1,189 @@
+warning: unused import: `collections::HashMap`
+ --> target/scalar-coalesce-probe/probe.rs:2:23
+  |
+2 | use std::{path::Path, collections::HashMap};
+  |                       ^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error: linking with `/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang` failed: exit status: 1
+  |
+  = note:  "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang" "/Volumes/ssd_dock/MyRustProjects/dartforge/target/scalar-coalesce-probe/rustcKLVxX5/symbols.o" "<7 object files omitted>" "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/deps/libdartforge_emit_native-db0b18b1ad688210.rlib" "target/p4/release/deps/{libdartforge_instrument-9df4bdb773e25600,libtempfile-611d96481c6182ef,libgetrandom-7350346ea8664ca9,libfastrand-6fe5dea059754e5b,libonce_cell-3a586313ca10f5a0,librustix-1aa8bd916872919d,liberrno-2dd86024477b4a09,libblake3-cdd1a3cd60210c2c,libconstant_time_eq-dd74da6eee80ad3a,libarrayvec-26e4f79432a6a0b1,libdartforge_world-1e81983832ca0486,libdartforge_runtime-96e399971d866258,librc2-0a383673b5093030,libdes-992314e82323a514,libaes-eb1c0b5591d047a6,libwebpki_roots-b23ed560e4aeda80,librustls_native_certs-989f382d850eafae,libsecurity_framework-b94d813d849172ce,libbitflags-4d4108a3624a39fe,libcore_foundation-78525169c1936447,libsecurity_framework_sys-85716d682317473f,libcore_foundation_sys-320b8bc7849e0c7d,libflate2-11c28d34717f60ed,liblibz_sys-a25fe987cf3f8476,libcrc32fast-76ed8c41e4e11948,libmd5-bd53545747b58131,libdigest-be88fcaa812f1487,libblock_buffer-f2ae06aca31b9047,libcbc-91022dfed09c496b,libcipher-f80fdce06eb56c47,libinout-abe7a3bebdbd387e,libblock_padding-b2ffe87bae0032b8,libcrypto_common-1d921d77414c8a43,libgeneric_array-85c4b4704a3ee4ff,libtypenum-aac8823fab3b6410,librustls-52c32025bf846c93,libsubtle-30a43afb3033d7fc,libwebpki-30d84443b88fb31d,libring-c12dae4b13c5a08a,libgetrandom-739f739548cebc0d,libuntrusted-2990b2211fbef12c,libcfg_if-809ed502a39946cc,liblibc-d9c41f5302fdc5ea,librustls_pki_types-ca279d63ee617ec1,libzeroize-1e8317a3f1687871,liblog-3b12569803ee25e3,libdartforge_types-3ef21b013f3986b7,librustc_hash-653680b4edd649d4,libdartforge_elements-fb9176c519e227ac,libpostcard-00b23c2cddc96654,libcobs-32a5f4cfe7f8dcb8,libthiserror-7baf8ed3703bf3c7,libserde_json-88bdac4e23acff84,libmemchr-b8f93b259b9446cd,libitoa-cb43f4f988e23070,libzmij-e60322d6bf840209,liburl-9517fc5f871951b0,libidna-16a8b8ca22f068a3,libidna_adapter-9067b23f33aa36b4,libicu_properties-f2a747d4a6ddf759,libicu_properties_data-978db4f65c9b1ab0,libicu_normalizer-a92f251eca312a4a,libsmallvec-06728e53a206153d,libicu_normalizer_data-d33ea63a0ed807fc,libicu_collections-82939ed73a9bc416,libutf8_iter-c8e021f822e8bb50,libpotential_utf-a68467ff59f30eb3,libicu_provider-41acbb6f5c59bfdb,libicu_locale_core-1b31044c48d0c468,libtinystr-29a6313b48b2e7e8,liblitemap-17d95c1865d9fc2a,libwriteable-e32491291566874f,libzerovec-49fa934d78fcdf74,libzerotrie-b75bab82f504c8f3,libyoke-3a97144ceba0a328,libstable_deref_trait-1011de4e6af15e80,libzerofrom-30114630d67d6bae,libform_urlencoded-f676c7aa8260c1f1,libpercent_encoding-4cfb0111e8d35d2d,libdartforge_frontend-f5ca3096b9b63e2d,libdartforge_intern-87b43925d9d67828,libdartforge_diagnostics-4c054077f30638e2,libserde-71fa33fd44b2693c,libserde_core-81ae2ae276febe12}.rlib" "<sysroot>/lib/rustlib/aarch64-apple-darwin/lib/{libstd-*,libpanic_unwind-*,libobject-*,libmemchr-*,libaddr2line-*,libgimli-*,libcfg_if-*,librustc_demangle-*,libstd_detect-*,libhashbrown-*,librustc_std_workspace_alloc-*,libminiz_oxide-*,libadler2-*,libunwind-*,liblibc-*,librustc_std_workspace_core-*,liballoc-*,libcore-*,libcompiler_builtins-*}.rlib" "-framework" "CoreFoundation" "-framework" "Security" "-framework" "CoreFoundation" "-liconv" "-lSystem" "-lc" "-lm" "-arch" "arm64" "-mmacosx-version-min=11.0.0" "-L" "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/lib" "-o" "target/scalar-coalesce-probe/probe" "-Wl,-dead_strip" "-nodefaultlibs" "-fuse-ld=lld" "-Wl,-syslibroot,/Volumes/ssd_dock/MyRustProjects/dartforge/target/native_cache/ligacao-macos/arm64-22e8d12ffe7c344b"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: ld64.lld: warning: directory not found for option -L/usr/local/lib
+          ld64.lld: warning: target/p4/release/deps/libblake3-cdd1a3cd60210c2c.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/liblibz_sys-a25fe987cf3f8476.rlib(f0389296f42960e9-deflate.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/liblibz_sys-a25fe987cf3f8476.rlib(f0389296f42960e9-adler32.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/liblibz_sys-a25fe987cf3f8476.rlib(f0389296f42960e9-crc32.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/liblibz_sys-a25fe987cf3f8476.rlib(f0389296f42960e9-inflate.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/liblibz_sys-a25fe987cf3f8476.rlib(f0389296f42960e9-inffast.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/liblibz_sys-a25fe987cf3f8476.rlib(f0389296f42960e9-inftrees.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/liblibz_sys-a25fe987cf3f8476.rlib(f0389296f42960e9-trees.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/liblibz_sys-a25fe987cf3f8476.rlib(f0389296f42960e9-zutil.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(25ac62e5b3c53843-curve25519.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(0bbbd18bda93c05b-aes_nohw.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(00c879ee3285a50d-montgomery.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(00c879ee3285a50d-montgomery_inv.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(a0330e891e733f4e-gfp_p384.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(a0330e891e733f4e-ecp_nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(aaa1ba3e455ee2e1-limbs.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(a4019cc0736b0423-mem.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(d5a9841f3dc6e253-poly1305.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(a0330e891e733f4e-p256-nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(c322a0bcc369f531-chacha-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(c322a0bcc369f531-chacha20_poly1305_armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(c322a0bcc369f531-aesv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(c322a0bcc369f531-aesv8-gcm-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(c322a0bcc369f531-ghash-neon-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(c322a0bcc369f531-ghashv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(c322a0bcc369f531-vpaes-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(c322a0bcc369f531-armv8-mont-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(c322a0bcc369f531-p256-armv8-asm-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(c322a0bcc369f531-sha512-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: warning: target/p4/release/deps/libring-c12dae4b13c5a08a.rlib(c322a0bcc369f531-sha256-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+          ld64.lld: error: could not load TAPI file at /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd: malformed file
+          /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd:4:54: error: unknown architecture
+                             arm64e-macos, arm64e-maccatalyst, arm64e.x1-macos, arm64e.x1-maccatalyst ]
+                                                               ^~~~~~~~~~~~~~~
+          
+          
+          ld64.lld: error: could not load TAPI file at /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Security.framework/Security.tbd: malformed file
+          /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Security.framework/Security.tbd:4:20: error: unknown architecture
+                             arm64e.x1-macos, arm64e.x1-maccatalyst ]
+                             ^~~~~~~~~~~~~~~
+          
+          
+          ld64.lld: error: could not load TAPI file at /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd: malformed file
+          /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd:4:54: error: unknown architecture
+                             arm64e-macos, arm64e-maccatalyst, arm64e.x1-macos, arm64e.x1-maccatalyst ]
+                                                               ^~~~~~~~~~~~~~~
+          
+          
+          ld64.lld: error: could not load TAPI file at /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/libiconv.tbd: malformed file
+          /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/libiconv.tbd:4:20: error: unknown architecture
+                             arm64e.x1-macos, arm64e.x1-maccatalyst ]
+                             ^~~~~~~~~~~~~~~
+          
+          
+          ld64.lld: error: could not load TAPI file at /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/libSystem.tbd: malformed file
+          /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/libSystem.tbd:4:20: error: unknown architecture
+                             arm64e.x1-macos, arm64e.x1-maccatalyst ]
+                             ^~~~~~~~~~~~~~~
+          
+          
+          ld64.lld: error: could not load TAPI file at /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/libc.tbd: malformed file
+          /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/libc.tbd:4:20: error: unknown architecture
+                             arm64e.x1-macos, arm64e.x1-maccatalyst ]
+                             ^~~~~~~~~~~~~~~
+          
+          
+          ld64.lld: error: could not load TAPI file at /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/libm.tbd: malformed file
+          /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib/libm.tbd:4:20: error: unknown architecture
+                             arm64e.x1-macos, arm64e.x1-maccatalyst ]
+                             ^~~~~~~~~~~~~~~
+          
+          
+          ld64.lld: error: undefined symbol: _Unwind_Resume
+          >>> referenced by target/scalar-coalesce-probe/probe.probe.398198688652ece0-cgu.0.rcgu.o:(symbol <hashbrown::raw::RawTable<(dartforge_elements::model::LibraryId, ())>>::find_or_find_insert_index::<hashbrown::map::equivalent_key<dartforge_elements::model::LibraryId, dartforge_elements::model::LibraryId, ()>::{closure#0}, hashbrown::map::make_hasher<dartforge_elements::model::LibraryId, (), std::hash::random::RandomState>::{closure#0}>+0x34)
+          >>> referenced by target/scalar-coalesce-probe/probe.probe.398198688652ece0-cgu.0.rcgu.o:(symbol <hashbrown::raw::RawTable<(dartforge_elements::model::LibraryId, ())>>::reserve::<hashbrown::map::make_hasher<dartforge_elements::model::LibraryId, (), std::hash::random::RandomState>::{closure#0}>+0x70)
+          >>> referenced by target/scalar-coalesce-probe/probe.probe.398198688652ece0-cgu.1.rcgu.o:(symbol core::ptr::drop_glue::<alloc::vec::Vec<alloc::vec::Vec<dartforge_elements::model::VariableId>>>+0x50)
+          >>> referenced 2774 more times
+          
+          ld64.lld: error: undefined symbol: memcpy
+          >>> referenced by target/scalar-coalesce-probe/probe.probe.398198688652ece0-cgu.0.rcgu.o:(symbol <hashbrown::raw::RawTableInner>::drop_elements::<(alloc::boxed::Box<str>, dartforge_intern::SymbolId)>+0x98)
+          >>> referenced by target/scalar-coalesce-probe/probe.probe.398198688652ece0-cgu.0.rcgu.o:(symbol <hashbrown::raw::RawTableInner>::drop_elements::<(dartforge_intern::SymbolId, std::collections::hash::map::HashMap<dartforge_intern::SymbolId, dartforge_elements::model::Binding>)>+0x98)
+          >>> referenced by target/scalar-coalesce-probe/probe.probe.398198688652ece0-cgu.0.rcgu.o:(symbol <hashbrown::raw::RawTableInner>::drop_elements::<(std::path::PathBuf, std::path::PathBuf)>+0x98)
+          >>> referenced 2022 more times
+          
+          ld64.lld: error: undefined symbol: __stack_chk_fail
+          >>> referenced by target/p4/release/deps/libblake3-cdd1a3cd60210c2c.rlib(a1edd97dd51cd48d-blake3_neon.o):(symbol blake3_hash_many_neon+0x12f0)
+          >>> referenced by target/p4/release/deps/liblibz_sys-a25fe987cf3f8476.rlib(f0389296f42960e9-trees.o):(symbol build_tree+0x7e4)
+          
+          ld64.lld: error: undefined symbol: __stack_chk_guard
+          >>> referenced by target/p4/release/deps/libblake3-cdd1a3cd60210c2c.rlib(a1edd97dd51cd48d-blake3_neon.o):(symbol blake3_hash_many_neon+0x12b0)
+          >>> referenced by target/p4/release/deps/libblake3-cdd1a3cd60210c2c.rlib(a1edd97dd51cd48d-blake3_neon.o):(symbol blake3_hash_many_neon+0x12ac)
+          >>> referenced by target/p4/release/deps/libblake3-cdd1a3cd60210c2c.rlib(a1edd97dd51cd48d-blake3_neon.o):(symbol blake3_hash_many_neon+0x50)
+          >>> referenced 5 more times
+          
+          ld64.lld: error: undefined symbol: bzero
+          >>> referenced by target/p4/release/deps/liblibz_sys-a25fe987cf3f8476.rlib(f0389296f42960e9-deflate.o):(symbol deflateInit2_+0x184)
+          >>> referenced by target/p4/release/deps/liblibz_sys-a25fe987cf3f8476.rlib(f0389296f42960e9-deflate.o):(symbol deflateReset+0x50)
+          >>> referenced by target/p4/release/deps/liblibz_sys-a25fe987cf3f8476.rlib(f0389296f42960e9-deflate.o):(symbol fill_window+0x44c)
+          >>> referenced 16 more times
+          
+          ld64.lld: error: undefined symbol: malloc
+          >>> referenced by target/p4/release/deps/liblibz_sys-a25fe987cf3f8476.rlib(f0389296f42960e9-zutil.o):(symbol zcalloc+0x4)
+          >>> referenced by unix.rs:14 (library/std/src/sys/alloc/unix.rs:14)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol __rustc::__rdl_alloc+0x18)
+          >>> referenced by unix.rs:14 (library/std/src/sys/alloc/unix.rs:14)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol <alloc::raw_vec::RawVecInner<std::alloc::System>>::finish_grow+0x54)
+          >>> referenced 1 more times
+          
+          ld64.lld: error: undefined symbol: free
+          >>> referenced by target/p4/release/deps/liblibz_sys-a25fe987cf3f8476.rlib(f0389296f42960e9-zutil.o):(symbol zcfree+0x4)
+          >>> referenced by unix.rs:48 (library/std/src/sys/alloc/unix.rs:48)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol __rustc::__rdl_dealloc+0x0)
+          >>> referenced by unix.rs:48 (library/std/src/sys/alloc/unix.rs:48)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol __rustc::__rdl_realloc+0x94)
+          >>> referenced 4 more times
+          
+          ld64.lld: error: undefined symbol: pthread_mutex_destroy
+          >>> referenced by mutex.rs:113 (library/std/src/sys/pal/unix/sync/mutex.rs:113)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol <std::sys::sync::once_box::OnceBox<std::sys::pal::unix::sync::mutex::Mutex>>::initialize::<<std::sys::sync::mutex::pthread::Mutex>::get::{closure#0}>+0xd8)
+          >>> referenced by mutex.rs:113 (library/std/src/sys/pal/unix/sync/mutex.rs:113)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol <std::sys::sync::once_box::OnceBox<std::sys::pal::unix::sync::mutex::Mutex>>::initialize::<<std::sys::sync::mutex::pthread::Mutex>::get::{closure#0}>+0x7c)
+          >>> referenced by mutex.rs:113 (library/std/src/sys/pal/unix/sync/mutex.rs:113)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol core::ptr::drop_glue::<core::pin::Pin<alloc::boxed::Box<std::sys::pal::unix::sync::mutex::Mutex>>>+0x10)
+          >>> referenced 3 more times
+          
+          ld64.lld: error: undefined symbol: memmove
+          >>> referenced by mod.rs:640 (library/core/src/ptr/mod.rs:640)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol <alloc::collections::btree::node::BalancingContext<usize, std::sys::pal::unix::stack_overflow::thread_info::ThreadInfo>>::merge_tracking_child_edge::<alloc::alloc::Global>+0x12c)
+          >>> referenced by mod.rs:640 (library/core/src/ptr/mod.rs:640)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol <alloc::collections::btree::node::BalancingContext<usize, std::sys::pal::unix::stack_overflow::thread_info::ThreadInfo>>::merge_tracking_child_edge::<alloc::alloc::Global>+0xe0)
+          >>> referenced by mod.rs:640 (library/core/src/ptr/mod.rs:640)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol <alloc::collections::btree::node::BalancingContext<usize, std::sys::pal::unix::stack_overflow::thread_info::ThreadInfo>>::merge_tracking_child_edge::<alloc::alloc::Global>+0x98)
+          >>> referenced 349 more times
+          
+          ld64.lld: error: undefined symbol: read
+          >>> referenced by unix.rs:181 (library/std/src/sys/fd/unix.rs:181)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol std::io::default_read_to_end::<std::fs::File>+0x1e0)
+          >>> referenced by unix.rs:181 (library/std/src/sys/fd/unix.rs:181)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol std::io::default_read_to_end::<std::fs::File>+0x160)
+          >>> referenced by unix.rs:114 (library/std/src/sys/fd/unix.rs:114)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol std::io::default_read_to_end::small_probe_read::<std::fs::File>+0x110)
+          >>> referenced 1 more times
+          
+          ld64.lld: error: undefined symbol: __error
+          >>> referenced by mod.rs:0 (library/std/src/io/mod.rs:0)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol std::io::default_read_to_end::<std::fs::File>+0x18c)
+          >>> referenced by mod.rs:0 (library/std/src/io/mod.rs:0)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol std::io::default_read_to_end::small_probe_read::<std::fs::File>+0xb8)
+          >>> referenced by unix.rs:43 (library/std/src/sys/io/error/unix.rs:43)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol std::sys::fs::rename::{closure#0}::{closure#0}+0x24)
+          >>> referenced 45 more times
+          
+          ld64.lld: error: undefined symbol: munmap
+          >>> referenced by mmap_unix.rs:47 (library/std/src/../../backtrace/src/symbolize/gimli/mmap_unix.rs:47)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol core::ptr::drop_glue::<core::option::Option<std::backtrace_rs::symbolize::gimli::Mapping>>+0x54)
+          >>> referenced by mmap_unix.rs:47 (library/std/src/../../backtrace/src/symbolize/gimli/mmap_unix.rs:47)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol core::ptr::drop_glue::<core::option::Option<std::backtrace_rs::symbolize::gimli::Mapping>>+0x28)
+          >>> referenced by mmap_unix.rs:47 (library/std/src/../../backtrace/src/symbolize/gimli/mmap_unix.rs:47)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol core::ptr::drop_glue::<std::backtrace_rs::symbolize::gimli::stash::Stash>+0x74)
+          >>> referenced 18 more times
+          
+          ld64.lld: error: undefined symbol: pthread_mutex_unlock
+          >>> referenced by mod.rs:823 (library/core/src/ptr/mod.rs:823)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol core::ptr::drop_glue::<core::result::Result<std::sync::poison::mutex::MutexGuard<()>, std::sync::poison::PoisonError<std::sync::poison::mutex::MutexGuard<()>>>>+0x34)
+          >>> referenced by mutex.rs:96 (library/std/src/sys/pal/unix/sync/mutex.rs:96)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol core::ptr::drop_glue::<std::sync::poison::mutex::MutexGuard<alloc::vec::Vec<u8>>>+0x50)
+          >>> referenced by mutex.rs:96 (library/std/src/sys/pal/unix/sync/mutex.rs:96)
+          >>>               /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/libstd-3f21d70fba8f3088.rlib(std-3f21d70fba8f3088.std.5d97c59e5e5fafcc-cgu.0.rcgu.o):(symbol core::ptr::drop_glue::<std::sync::poison::mutex::MutexGuard<alloc::vec::Vec<u8>>>+0x18)
+          >>> referenced 12 more times
+          
+          ld64.lld: error: too many errors emitted, stopping now (use --error-limit=0 to see all errors)
+          clang: error: linker command failed with exit code 1 (use -v to see invocation)
+          
+
+error: aborting due to 1 previous error; 1 warning emitted
+

@@ -1,0 +1,21 @@
+{
+  "head": "bc3cdf14631a484cc04c9d6b005eb1dbb1a42042",
+  "command": [
+    "cargo",
+    "build",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-cli",
+    "--release",
+    "--features",
+    "native"
+  ],
+  "exit": 0,
+  "source_scope": "Cargo manifests and Rust/Dart/C/header sources under crates and native_sdk, including tests.",
+  "source_stable": true,
+  "changed_during_build": [],
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-producer/dartforge",
+  "compiler_sha256": "1d2dadbc030f9da15f4672900ad1f9aab1ea736edb0acff6be82174b8d620655",
+  "compiler_bytes": 25198736
+}

@@ -1,0 +1,9 @@
+
+running 4 tests
+test optimize::scalar_coalesce::tests::local_proof_allows_sdk_and_refuses_arc_and_runtime_homonyms ... ok
+test optimize::scalar_coalesce::tests::preserves_pending_edges_and_full_width_integer_values ... ok
+test optimize::scalar_coalesce::tests::refuses_shared_values_loops_wrong_types_and_unavailable_definitions ... ok
+test optimize::scalar_coalesce::tests::ordinary_recursive_nullable_count_removes_both_box_unbox_pairs ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 673 filtered out; finished in 0.43s
+

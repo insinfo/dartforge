@@ -1,0 +1,872 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.30s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 1 test
+MODE sdk_library=false fixed=true cert=true arc=false prepared=false
+TYPE_MISMATCH blockBlockId(0) ValueId(13) I1->I64 Or(Val(ValueId(11)), Val(ValueId(12)))
+TYPE_MISMATCH blockBlockId(28) ValueId(79) I1->I64 Or(Val(ValueId(77)), Val(ValueId(78)))
+TYPE_MISMATCH blockBlockId(122) ValueId(172) I1->I64 Or(Val(ValueId(170)), Val(ValueId(171)))
+BOXBLOCK BasicBlock {
+    id: BlockId(
+        236,
+    ),
+    instructions: [
+        (
+            ValueId(
+                301,
+            ),
+            Box {
+                op: Val(
+                    ValueId(
+                        298,
+                    ),
+                ),
+                from: F64,
+            },
+            Ref,
+        ),
+        (
+            ValueId(
+                302,
+            ),
+            CallRuntime {
+                name: "dartforge_exception_clear",
+                args: [],
+                ret_ty: Void,
+            },
+            Void,
+        ),
+    ],
+    terminator: Return(
+        Some(
+            Val(
+                ValueId(
+                    301,
+                ),
+            ),
+        ),
+    ),
+}
+PREDECESSOR BasicBlock {
+    id: BlockId(
+        234,
+    ),
+    instructions: [
+        (
+            ValueId(
+                298,
+            ),
+            Unbox {
+                op: Val(
+                    ValueId(
+                        295,
+                    ),
+                ),
+                to: F64,
+            },
+            F64,
+        ),
+        (
+            ValueId(
+                299,
+            ),
+            CallRuntime {
+                name: "dartforge_exception_pending",
+                args: [],
+                ret_ty: I8,
+            },
+            I8,
+        ),
+        (
+            ValueId(
+                300,
+            ),
+            ICmp(
+                Ne,
+                Val(
+                    ValueId(
+                        299,
+                    ),
+                ),
+                Constant(
+                    Int(
+                        0,
+                    ),
+                ),
+            ),
+            I1,
+        ),
+    ],
+    terminator: CondBranch {
+        cond: Val(
+            ValueId(
+                300,
+            ),
+        ),
+        then_block: BlockId(
+            237,
+        ),
+        else_block: BlockId(
+            236,
+        ),
+    },
+}
+TYPE_MISMATCH blockBlockId(255) ValueId(357) I1->I64 Or(Val(ValueId(355)), Val(ValueId(356)))
+BOXBLOCK BasicBlock {
+    id: BlockId(
+        373,
+    ),
+    instructions: [
+        (
+            ValueId(
+                496,
+            ),
+            Box {
+                op: Val(
+                    ValueId(
+                        493,
+                    ),
+                ),
+                from: F64,
+            },
+            Ref,
+        ),
+        (
+            ValueId(
+                497,
+            ),
+            CallRuntime {
+                name: "dartforge_exception_clear",
+                args: [],
+                ret_ty: Void,
+            },
+            Void,
+        ),
+    ],
+    terminator: Return(
+        Some(
+            Val(
+                ValueId(
+                    496,
+                ),
+            ),
+        ),
+    ),
+}
+PREDECESSOR BasicBlock {
+    id: BlockId(
+        371,
+    ),
+    instructions: [
+        (
+            ValueId(
+                493,
+            ),
+            Unbox {
+                op: Val(
+                    ValueId(
+                        490,
+                    ),
+                ),
+                to: F64,
+            },
+            F64,
+        ),
+        (
+            ValueId(
+                494,
+            ),
+            CallRuntime {
+                name: "dartforge_exception_pending",
+                args: [],
+                ret_ty: I8,
+            },
+            I8,
+        ),
+        (
+            ValueId(
+                495,
+            ),
+            ICmp(
+                Ne,
+                Val(
+                    ValueId(
+                        494,
+                    ),
+                ),
+                Constant(
+                    Int(
+                        0,
+                    ),
+                ),
+            ),
+            I1,
+        ),
+    ],
+    terminator: CondBranch {
+        cond: Val(
+            ValueId(
+                495,
+            ),
+        ),
+        then_block: BlockId(
+            374,
+        ),
+        else_block: BlockId(
+            373,
+        ),
+    },
+}
+TYPE_MISMATCH blockBlockId(392) ValueId(552) I1->I64 Or(Val(ValueId(550)), Val(ValueId(551)))
+BOXBLOCK BasicBlock {
+    id: BlockId(
+        518,
+    ),
+    instructions: [
+        (
+            ValueId(
+                711,
+            ),
+            Box {
+                op: Val(
+                    ValueId(
+                        708,
+                    ),
+                ),
+                from: F64,
+            },
+            Ref,
+        ),
+        (
+            ValueId(
+                712,
+            ),
+            CallRuntime {
+                name: "dartforge_exception_clear",
+                args: [],
+                ret_ty: Void,
+            },
+            Void,
+        ),
+    ],
+    terminator: Return(
+        Some(
+            Val(
+                ValueId(
+                    711,
+                ),
+            ),
+        ),
+    ),
+}
+PREDECESSOR BasicBlock {
+    id: BlockId(
+        516,
+    ),
+    instructions: [
+        (
+            ValueId(
+                708,
+            ),
+            Unbox {
+                op: Val(
+                    ValueId(
+                        705,
+                    ),
+                ),
+                to: F64,
+            },
+            F64,
+        ),
+        (
+            ValueId(
+                709,
+            ),
+            CallRuntime {
+                name: "dartforge_exception_pending",
+                args: [],
+                ret_ty: I8,
+            },
+            I8,
+        ),
+        (
+            ValueId(
+                710,
+            ),
+            ICmp(
+                Ne,
+                Val(
+                    ValueId(
+                        709,
+                    ),
+                ),
+                Constant(
+                    Int(
+                        0,
+                    ),
+                ),
+            ),
+            I1,
+        ),
+    ],
+    terminator: CondBranch {
+        cond: Val(
+            ValueId(
+                710,
+            ),
+        ),
+        then_block: BlockId(
+            519,
+        ),
+        else_block: BlockId(
+            518,
+        ),
+    },
+}
+TYPE_MISMATCH blockBlockId(537) ValueId(767) I1->I64 Or(Val(ValueId(765)), Val(ValueId(766)))
+BOXBLOCK BasicBlock {
+    id: BlockId(
+        675,
+    ),
+    instructions: [
+        (
+            ValueId(
+                956,
+            ),
+            Box {
+                op: Val(
+                    ValueId(
+                        953,
+                    ),
+                ),
+                from: F64,
+            },
+            Ref,
+        ),
+        (
+            ValueId(
+                957,
+            ),
+            CallRuntime {
+                name: "dartforge_exception_clear",
+                args: [],
+                ret_ty: Void,
+            },
+            Void,
+        ),
+    ],
+    terminator: Return(
+        Some(
+            Val(
+                ValueId(
+                    956,
+                ),
+            ),
+        ),
+    ),
+}
+PREDECESSOR BasicBlock {
+    id: BlockId(
+        673,
+    ),
+    instructions: [
+        (
+            ValueId(
+                953,
+            ),
+            Unbox {
+                op: Val(
+                    ValueId(
+                        950,
+                    ),
+                ),
+                to: F64,
+            },
+            F64,
+        ),
+        (
+            ValueId(
+                954,
+            ),
+            CallRuntime {
+                name: "dartforge_exception_pending",
+                args: [],
+                ret_ty: I8,
+            },
+            I8,
+        ),
+        (
+            ValueId(
+                955,
+            ),
+            ICmp(
+                Ne,
+                Val(
+                    ValueId(
+                        954,
+                    ),
+                ),
+                Constant(
+                    Int(
+                        0,
+                    ),
+                ),
+            ),
+            I1,
+        ),
+    ],
+    terminator: CondBranch {
+        cond: Val(
+            ValueId(
+                955,
+            ),
+        ),
+        then_block: BlockId(
+            676,
+        ),
+        else_block: BlockId(
+            675,
+        ),
+    },
+}
+TYPE_MISMATCH blockBlockId(694) ValueId(1012) I1->I64 Or(Val(ValueId(1010)), Val(ValueId(1011)))
+BOXBLOCK BasicBlock {
+    id: BlockId(
+        836,
+    ),
+    instructions: [
+        (
+            ValueId(
+                1211,
+            ),
+            Box {
+                op: Val(
+                    ValueId(
+                        1208,
+                    ),
+                ),
+                from: F64,
+            },
+            Ref,
+        ),
+        (
+            ValueId(
+                1212,
+            ),
+            CallRuntime {
+                name: "dartforge_exception_clear",
+                args: [],
+                ret_ty: Void,
+            },
+            Void,
+        ),
+    ],
+    terminator: Return(
+        Some(
+            Val(
+                ValueId(
+                    1211,
+                ),
+            ),
+        ),
+    ),
+}
+PREDECESSOR BasicBlock {
+    id: BlockId(
+        834,
+    ),
+    instructions: [
+        (
+            ValueId(
+                1208,
+            ),
+            Unbox {
+                op: Val(
+                    ValueId(
+                        1205,
+                    ),
+                ),
+                to: F64,
+            },
+            F64,
+        ),
+        (
+            ValueId(
+                1209,
+            ),
+            CallRuntime {
+                name: "dartforge_exception_pending",
+                args: [],
+                ret_ty: I8,
+            },
+            I8,
+        ),
+        (
+            ValueId(
+                1210,
+            ),
+            ICmp(
+                Ne,
+                Val(
+                    ValueId(
+                        1209,
+                    ),
+                ),
+                Constant(
+                    Int(
+                        0,
+                    ),
+                ),
+            ),
+            I1,
+        ),
+    ],
+    terminator: CondBranch {
+        cond: Val(
+            ValueId(
+                1210,
+            ),
+        ),
+        then_block: BlockId(
+            837,
+        ),
+        else_block: BlockId(
+            836,
+        ),
+    },
+}
+TYPE_MISMATCH blockBlockId(855) ValueId(1267) I1->I64 Or(Val(ValueId(1265)), Val(ValueId(1266)))
+BOXBLOCK BasicBlock {
+    id: BlockId(
+        1039,
+    ),
+    instructions: [
+        (
+            ValueId(
+                1526,
+            ),
+            Box {
+                op: Val(
+                    ValueId(
+                        1523,
+                    ),
+                ),
+                from: F64,
+            },
+            Ref,
+        ),
+        (
+            ValueId(
+                1527,
+            ),
+            CallRuntime {
+                name: "dartforge_exception_clear",
+                args: [],
+                ret_ty: Void,
+            },
+            Void,
+        ),
+    ],
+    terminator: Return(
+        Some(
+            Val(
+                ValueId(
+                    1526,
+                ),
+            ),
+        ),
+    ),
+}
+PREDECESSOR BasicBlock {
+    id: BlockId(
+        1037,
+    ),
+    instructions: [
+        (
+            ValueId(
+                1523,
+            ),
+            Unbox {
+                op: Val(
+                    ValueId(
+                        1520,
+                    ),
+                ),
+                to: F64,
+            },
+            F64,
+        ),
+        (
+            ValueId(
+                1524,
+            ),
+            CallRuntime {
+                name: "dartforge_exception_pending",
+                args: [],
+                ret_ty: I8,
+            },
+            I8,
+        ),
+        (
+            ValueId(
+                1525,
+            ),
+            ICmp(
+                Ne,
+                Val(
+                    ValueId(
+                        1524,
+                    ),
+                ),
+                Constant(
+                    Int(
+                        0,
+                    ),
+                ),
+            ),
+            I1,
+        ),
+    ],
+    terminator: CondBranch {
+        cond: Val(
+            ValueId(
+                1525,
+            ),
+        ),
+        then_block: BlockId(
+            1040,
+        ),
+        else_block: BlockId(
+            1039,
+        ),
+    },
+}
+TYPE_MISMATCH blockBlockId(1058) ValueId(1582) I1->I64 Or(Val(ValueId(1580)), Val(ValueId(1581)))
+BOXBLOCK BasicBlock {
+    id: BlockId(
+        1250,
+    ),
+    instructions: [
+        (
+            ValueId(
+                1861,
+            ),
+            Box {
+                op: Val(
+                    ValueId(
+                        1858,
+                    ),
+                ),
+                from: F64,
+            },
+            Ref,
+        ),
+        (
+            ValueId(
+                1862,
+            ),
+            CallRuntime {
+                name: "dartforge_exception_clear",
+                args: [],
+                ret_ty: Void,
+            },
+            Void,
+        ),
+    ],
+    terminator: Return(
+        Some(
+            Val(
+                ValueId(
+                    1861,
+                ),
+            ),
+        ),
+    ),
+}
+PREDECESSOR BasicBlock {
+    id: BlockId(
+        1248,
+    ),
+    instructions: [
+        (
+            ValueId(
+                1858,
+            ),
+            Unbox {
+                op: Val(
+                    ValueId(
+                        1855,
+                    ),
+                ),
+                to: F64,
+            },
+            F64,
+        ),
+        (
+            ValueId(
+                1859,
+            ),
+            CallRuntime {
+                name: "dartforge_exception_pending",
+                args: [],
+                ret_ty: I8,
+            },
+            I8,
+        ),
+        (
+            ValueId(
+                1860,
+            ),
+            ICmp(
+                Ne,
+                Val(
+                    ValueId(
+                        1859,
+                    ),
+                ),
+                Constant(
+                    Int(
+                        0,
+                    ),
+                ),
+            ),
+            I1,
+        ),
+    ],
+    terminator: CondBranch {
+        cond: Val(
+            ValueId(
+                1860,
+            ),
+        ),
+        then_block: BlockId(
+            1251,
+        ),
+        else_block: BlockId(
+            1250,
+        ),
+    },
+}
+TYPE_MISMATCH blockBlockId(1269) ValueId(1917) I1->I64 Or(Val(ValueId(1915)), Val(ValueId(1916)))
+BOXBLOCK BasicBlock {
+    id: BlockId(
+        1461,
+    ),
+    instructions: [
+        (
+            ValueId(
+                2196,
+            ),
+            Box {
+                op: Val(
+                    ValueId(
+                        2193,
+                    ),
+                ),
+                from: F64,
+            },
+            Ref,
+        ),
+        (
+            ValueId(
+                2197,
+            ),
+            CallRuntime {
+                name: "dartforge_exception_clear",
+                args: [],
+                ret_ty: Void,
+            },
+            Void,
+        ),
+    ],
+    terminator: Return(
+        Some(
+            Val(
+                ValueId(
+                    2196,
+                ),
+            ),
+        ),
+    ),
+}
+PREDECESSOR BasicBlock {
+    id: BlockId(
+        1459,
+    ),
+    instructions: [
+        (
+            ValueId(
+                2193,
+            ),
+            Unbox {
+                op: Val(
+                    ValueId(
+                        2190,
+                    ),
+                ),
+                to: F64,
+            },
+            F64,
+        ),
+        (
+            ValueId(
+                2194,
+            ),
+            CallRuntime {
+                name: "dartforge_exception_pending",
+                args: [],
+                ret_ty: I8,
+            },
+            I8,
+        ),
+        (
+            ValueId(
+                2195,
+            ),
+            ICmp(
+                Ne,
+                Val(
+                    ValueId(
+                        2194,
+                    ),
+                ),
+                Constant(
+                    Int(
+                        0,
+                    ),
+                ),
+            ),
+            I1,
+        ),
+    ],
+    terminator: CondBranch {
+        cond: Val(
+            ValueId(
+                2195,
+            ),
+        ),
+        then_block: BlockId(
+            1462,
+        ),
+        else_block: BlockId(
+            1461,
+        ),
+    },
+}
+TYPE_MISMATCH blockBlockId(1480) ValueId(2252) I1->I64 Or(Val(ValueId(2250)), Val(ValueId(2251)))
+test lower::double_identity::tests::actual_format_roundtrip_diagnostic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 671 filtered out; finished in 0.60s
+

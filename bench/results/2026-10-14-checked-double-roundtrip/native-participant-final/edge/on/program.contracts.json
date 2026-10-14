@@ -1,0 +1,23 @@
+{
+  "artifact": {
+    "blake3": "53b4cc6fc1994262969d97c34566f46dc1acaabec1c9e0a99aac15c112b6eefc",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "fbc6db12992c6a418d4e6a600a2fd4bd773ac6e84e919bd4e3b663990826504d",
+    "optimized": true,
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/checked-double-roundtrip/native-participant-final/edge/on/program"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "b9c0956cd8792bcabcf2a982161cb3f8671df2d2be5f07ed729d0af2c5468947",
+      "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/checked-double-roundtrip/native-participant-final/edge/main.dart"
+    }
+  ],
+  "verification_implemented": false
+}

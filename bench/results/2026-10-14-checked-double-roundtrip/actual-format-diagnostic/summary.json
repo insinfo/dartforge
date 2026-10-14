@@ -1,0 +1,13 @@
+{
+  "result": "PASS_DIAGNOSTIC",
+  "mode": {
+    "sdk_library": false,
+    "arc_fixed_ancestry": true,
+    "checked_double_identity": true,
+    "arc_memory": false,
+    "arc_prepared": false
+  },
+  "input": "Exact copied actual dart_ui color/format.dart imported from temporary standalone ordinarymain. This emulates wholeprogram lowering, not an independently cached library.",
+  "refusal": "Wholefunction physical/registeredtypecheck rejects11 unrelated canonical widened Or nodes (recordedI1, emittedI64), before reaching8matching checked-double returnpairs.",
+  "production_unchanged": true
+}

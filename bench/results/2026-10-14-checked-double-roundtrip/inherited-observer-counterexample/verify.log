@@ -1,0 +1,5 @@
+off-compile 0
+off 0 false BOX 1
+on-compile 0
+on 0 true BOX 0
+OBSERVED_DIVERGENCE

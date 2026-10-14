@@ -1,0 +1,11 @@
+{
+  "exit_code": 0,
+  "input_count": 11652,
+  "inputs_unchanged": true,
+  "producer_unchanged": true,
+  "program": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-production/file-explorer-off/program",
+    "bytes": 28310160,
+    "sha256": "ed101cc8d4d0c544feb14ce736a82cbd3a9ff1914fa16f5ca9e5230c8c71eb83"
+  }
+}

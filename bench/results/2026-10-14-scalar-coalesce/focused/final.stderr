@@ -1,0 +1,23 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+error[E0308]: mismatched types
+   --> crates/emit_native/src/optimize/scalar_coalesce/tests.rs:205:32
+    |
+205 |                     args: vec![value(1)],
+    |                                ^^^^^^^^ expected `(Operand, Type)`, found `Operand`
+    |
+    = note: expected tuple `(hir::Operand, hir::Type)`
+                found enum `hir::Operand`
+
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+For more information about this error, try `rustc --explain E0308`.
+warning: `dartforge-emit-native` (lib test) generated 1 warning
+error: could not compile `dartforge-emit-native` (lib test) due to 1 previous error; 1 warning emitted

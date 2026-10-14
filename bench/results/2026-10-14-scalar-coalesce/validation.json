@@ -1,0 +1,41 @@
+{
+  "source_frozen": true,
+  "source_hashes": {
+    "crates/emit_native/src/optimize/scalar_coalesce.rs": "491bea45e407a0ad87e72fe2a6dbd1a578e716cd47a001a838dbad3f33b4eb2f",
+    "crates/emit_native/src/optimize/scalar_coalesce/tests.rs": "006d4f6e9512e8992e0aebea8823ed70cabf00abc33f390fdfb020d8214d27b5",
+    "crates/emit_native/src/optimize/mod.rs": "123a84ec599bae9fc4858824869d11ddaef73d2f35362c2de2f5ed2317f97691",
+    "crates/emit_native/tests/fixtures/devirtualization/scalar_nullable_count.dart": "495ab9ce5ae8639a729eb9b22554d53773bfee06810f0f9c1663d094f3d6515a"
+  },
+  "gate": {
+    "session": 17386,
+    "exit": 0,
+    "passed": 4,
+    "failed": 0,
+    "negative_variants": 16,
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "dartforge-emit-native",
+      "-j2",
+      "--lib",
+      "optimize::scalar_coalesce",
+      "--",
+      "--test-threads=2"
+    ],
+    "stdout": "focused/passed.stdout",
+    "stderr": "focused/passed.stderr",
+    "binary": "target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881"
+  },
+  "scope": "Tracing-only local representation proof; SDK bodies accepted; no whole-program ancestry requirement. ARC excluded. Existing recursive calls, pending calls and every terminator preserved.",
+  "actual_ordinary_gate": "Production Node.count retains2recursive calls and removes2Box/2Unbox pairs. Fresh immutable1d2dad... VM/AOT oracle and4native tracingON/OFF normal+GCstress executions exact; pendingcalls and branchinstructions unchanged.",
+  "performance_measured": false,
+  "failed_compile_logs_retained": [
+    "focused/first.stderr",
+    "focused/final.stderr"
+  ],
+  "sdk_optout_fingerprint": "sdk_module.rs filters every DARTFORGE_NO_* environment entry; DARTFORGE_NO_SCALAR_COALESCE=1 opts out.",
+  "native_evidence": "bench/results/2026-10-14-numeric-scalar-production/scalar/validation.json",
+  "source_hashes_unchanged_after_native_validation": true
+}

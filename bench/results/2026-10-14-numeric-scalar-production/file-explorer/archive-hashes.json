@@ -1,0 +1,23 @@
+{
+  "comparison.json": "fc136dae8adda0964b764dfef33ff6c786e3a31f96a0447a9e07d18a0077bd8f",
+  "scripts/compile_off.py": "fdde12ee40a7a36f6b2e41cb82736da148674e70437359af6b10f066831f4551",
+  "scripts/compile.py": "95b4a41c1681f3cb2faad81a2f074f896bc5f18a9acc0849ffdfc7cec6187601",
+  "on/otool.stdout": "b249bd2cebe5455e1e756c75e6747465a03cfffeaf5df85291d8d430823587f6",
+  "on/runner.log": "d8164f9474bc6f94d3a504b826262726894a5fccc13fa9677466e496158b7b90",
+  "on/program.contracts.json": "9cc4209d28071eb34d4677f4e3f0e9fedbe5d3e4d2565f4bbce3e4365605f831",
+  "on/otool.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "on/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "on/inputs.json": "cb9bdc8c2495d25e3154c4ca8cd841506fd4ed57725331c5180be2d07f901995",
+  "on/validation.json": "5d31b68c0584b52bb0aa471fb34a1b3ea1098f1071aba1da38efe607d49d04c1",
+  "on/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "on/retained-IR.json": "eab81841b0705aa604c35bd39717e14a8aca473275f7368f6dd76de8f377645c",
+  "off/otool.stdout": "306a14643b36508271abab0dae5b74da65d2cc9874c266dde4f50effcfd81d85",
+  "off/runner.log": "7dd347330dfa8309d090ca6d77b6ee491214357350d1a54dd76875be9839dfcd",
+  "off/program.contracts.json": "c5a7dc56d677efb28cd3d267b7639400e25b9020d4194ca82e41ec91c1cd658f",
+  "off/otool.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "off/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "off/inputs.json": "cb9bdc8c2495d25e3154c4ca8cd841506fd4ed57725331c5180be2d07f901995",
+  "off/validation.json": "11d744deb0a289a236418c54e0764243c3e1a253f061e8c63b334f682e759f0d",
+  "off/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "off/retained-IR.json": "e97dfc647b08e967a1c1d61b57027a36316f687776289e0da27b383e0118cc86"
+}

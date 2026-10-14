@@ -1,0 +1,846 @@
+Function {
+    symbol: "df.bench$2edart.Node.count",
+    name: "count",
+    params: [
+        (
+            ValueId(
+                0,
+            ),
+            "this",
+            Ref,
+        ),
+    ],
+    return_ty: I64,
+    blocks: [
+        BasicBlock {
+            id: BlockId(
+                0,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        1,
+                    ),
+                    Const(
+                        Int(
+                            1,
+                        ),
+                    ),
+                    I64,
+                ),
+                (
+                    ValueId(
+                        2,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_object_get",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                        ],
+                        ret_ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        3,
+                    ),
+                    ICmp(
+                        Eq,
+                        Val(
+                            ValueId(
+                                2,
+                            ),
+                        ),
+                        Constant(
+                            Null,
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        3,
+                    ),
+                ),
+                then_block: BlockId(
+                    1,
+                ),
+                else_block: BlockId(
+                    2,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                1,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        8,
+                    ),
+                    Phi {
+                        incoming: [
+                            (
+                                BlockId(
+                                    0,
+                                ),
+                                Constant(
+                                    Null,
+                                ),
+                            ),
+                            (
+                                BlockId(
+                                    3,
+                                ),
+                                Val(
+                                    ValueId(
+                                        7,
+                                    ),
+                                ),
+                            ),
+                        ],
+                        ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        9,
+                    ),
+                    ICmp(
+                        Eq,
+                        Val(
+                            ValueId(
+                                8,
+                            ),
+                        ),
+                        Constant(
+                            Null,
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        9,
+                    ),
+                ),
+                then_block: BlockId(
+                    5,
+                ),
+                else_block: BlockId(
+                    6,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                2,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        4,
+                    ),
+                    CallStatic {
+                        symbol: "df.bench$2edart.Node.count",
+                        args: [
+                            Val(
+                                ValueId(
+                                    2,
+                                ),
+                            ),
+                        ],
+                        ret_ty: I64,
+                    },
+                    I64,
+                ),
+                (
+                    ValueId(
+                        5,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        6,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                5,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        6,
+                    ),
+                ),
+                then_block: BlockId(
+                    4,
+                ),
+                else_block: BlockId(
+                    3,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                3,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        7,
+                    ),
+                    Box {
+                        op: Val(
+                            ValueId(
+                                4,
+                            ),
+                        ),
+                        from: I64,
+                    },
+                    Ref,
+                ),
+            ],
+            terminator: Branch(
+                BlockId(
+                    1,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                4,
+            ),
+            instructions: [],
+            terminator: Return(
+                Some(
+                    Constant(
+                        Int(
+                            0,
+                        ),
+                    ),
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                5,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        13,
+                    ),
+                    Const(
+                        Int(
+                            0,
+                        ),
+                    ),
+                    I64,
+                ),
+            ],
+            terminator: Branch(
+                BlockId(
+                    7,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                6,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        10,
+                    ),
+                    Unbox {
+                        op: Val(
+                            ValueId(
+                                8,
+                            ),
+                        ),
+                        to: I64,
+                    },
+                    I64,
+                ),
+                (
+                    ValueId(
+                        11,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        12,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                11,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        12,
+                    ),
+                ),
+                then_block: BlockId(
+                    9,
+                ),
+                else_block: BlockId(
+                    8,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                7,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        14,
+                    ),
+                    Phi {
+                        incoming: [
+                            (
+                                BlockId(
+                                    8,
+                                ),
+                                Val(
+                                    ValueId(
+                                        10,
+                                    ),
+                                ),
+                            ),
+                            (
+                                BlockId(
+                                    5,
+                                ),
+                                Val(
+                                    ValueId(
+                                        13,
+                                    ),
+                                ),
+                            ),
+                        ],
+                        ty: I64,
+                    },
+                    I64,
+                ),
+                (
+                    ValueId(
+                        15,
+                    ),
+                    Add(
+                        Val(
+                            ValueId(
+                                1,
+                            ),
+                        ),
+                        Val(
+                            ValueId(
+                                14,
+                            ),
+                        ),
+                    ),
+                    I64,
+                ),
+                (
+                    ValueId(
+                        16,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_object_get",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        0,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                        ],
+                        ret_ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        17,
+                    ),
+                    ICmp(
+                        Eq,
+                        Val(
+                            ValueId(
+                                16,
+                            ),
+                        ),
+                        Constant(
+                            Null,
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        17,
+                    ),
+                ),
+                then_block: BlockId(
+                    10,
+                ),
+                else_block: BlockId(
+                    11,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                8,
+            ),
+            instructions: [],
+            terminator: Branch(
+                BlockId(
+                    7,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                9,
+            ),
+            instructions: [],
+            terminator: Return(
+                Some(
+                    Constant(
+                        Int(
+                            0,
+                        ),
+                    ),
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                10,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        22,
+                    ),
+                    Phi {
+                        incoming: [
+                            (
+                                BlockId(
+                                    7,
+                                ),
+                                Constant(
+                                    Null,
+                                ),
+                            ),
+                            (
+                                BlockId(
+                                    12,
+                                ),
+                                Val(
+                                    ValueId(
+                                        21,
+                                    ),
+                                ),
+                            ),
+                        ],
+                        ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        23,
+                    ),
+                    ICmp(
+                        Eq,
+                        Val(
+                            ValueId(
+                                22,
+                            ),
+                        ),
+                        Constant(
+                            Null,
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        23,
+                    ),
+                ),
+                then_block: BlockId(
+                    14,
+                ),
+                else_block: BlockId(
+                    15,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                11,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        18,
+                    ),
+                    CallStatic {
+                        symbol: "df.bench$2edart.Node.count",
+                        args: [
+                            Val(
+                                ValueId(
+                                    16,
+                                ),
+                            ),
+                        ],
+                        ret_ty: I64,
+                    },
+                    I64,
+                ),
+                (
+                    ValueId(
+                        19,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        20,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                19,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        20,
+                    ),
+                ),
+                then_block: BlockId(
+                    13,
+                ),
+                else_block: BlockId(
+                    12,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                12,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        21,
+                    ),
+                    Box {
+                        op: Val(
+                            ValueId(
+                                18,
+                            ),
+                        ),
+                        from: I64,
+                    },
+                    Ref,
+                ),
+            ],
+            terminator: Branch(
+                BlockId(
+                    10,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                13,
+            ),
+            instructions: [],
+            terminator: Return(
+                Some(
+                    Constant(
+                        Int(
+                            0,
+                        ),
+                    ),
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                14,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        27,
+                    ),
+                    Const(
+                        Int(
+                            0,
+                        ),
+                    ),
+                    I64,
+                ),
+            ],
+            terminator: Branch(
+                BlockId(
+                    16,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                15,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        24,
+                    ),
+                    Unbox {
+                        op: Val(
+                            ValueId(
+                                22,
+                            ),
+                        ),
+                        to: I64,
+                    },
+                    I64,
+                ),
+                (
+                    ValueId(
+                        25,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_exception_pending",
+                        args: [],
+                        ret_ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        26,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                25,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        26,
+                    ),
+                ),
+                then_block: BlockId(
+                    18,
+                ),
+                else_block: BlockId(
+                    17,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                16,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        28,
+                    ),
+                    Phi {
+                        incoming: [
+                            (
+                                BlockId(
+                                    17,
+                                ),
+                                Val(
+                                    ValueId(
+                                        24,
+                                    ),
+                                ),
+                            ),
+                            (
+                                BlockId(
+                                    14,
+                                ),
+                                Val(
+                                    ValueId(
+                                        27,
+                                    ),
+                                ),
+                            ),
+                        ],
+                        ty: I64,
+                    },
+                    I64,
+                ),
+                (
+                    ValueId(
+                        29,
+                    ),
+                    Add(
+                        Val(
+                            ValueId(
+                                15,
+                            ),
+                        ),
+                        Val(
+                            ValueId(
+                                28,
+                            ),
+                        ),
+                    ),
+                    I64,
+                ),
+            ],
+            terminator: Return(
+                Some(
+                    Val(
+                        ValueId(
+                            29,
+                        ),
+                    ),
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                17,
+            ),
+            instructions: [],
+            terminator: Branch(
+                BlockId(
+                    16,
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                18,
+            ),
+            instructions: [],
+            terminator: Return(
+                Some(
+                    Constant(
+                        Int(
+                            0,
+                        ),
+                    ),
+                ),
+            ),
+        },
+    ],
+    debug_info: None,
+}

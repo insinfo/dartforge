@@ -1,0 +1,24 @@
+sdk-version starting
+sdk-version terminal 0
+vm starting
+vm terminal 0
+sdk-aot-build starting
+sdk-aot-build terminal 0
+sdk-aot starting
+sdk-aot terminal 0
+off-build starting
+off-build terminal 0
+off-normal starting
+off-normal terminal 0
+off-normal exact VM True
+off-stress starting
+off-stress terminal 0
+off-stress exact VM True
+on-build starting
+on-build terminal 0
+on-normal starting
+on-normal terminal 0
+on-normal exact VM True
+on-stress starting
+on-stress terminal 0
+on-stress exact VM True

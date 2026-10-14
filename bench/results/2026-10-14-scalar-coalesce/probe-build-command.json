@@ -1,0 +1,23 @@
+[
+  "rustc",
+  "--edition=2024",
+  "target/scalar-coalesce-probe/probe.rs",
+  "-L",
+  "dependency=target/p4/release/deps",
+  "-L",
+  "native=/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/lib",
+  "-C",
+  "linker=/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+  "-C",
+  "link-arg=-fuse-ld=lld",
+  "-o",
+  "target/scalar-coalesce-probe/probe",
+  "--extern",
+  "dartforge_emit_native=target/p4/release/deps/libdartforge_emit_native-db0b18b1ad688210.rlib",
+  "--extern",
+  "dartforge_elements=target/p4/release/deps/libdartforge_elements-fb9176c519e227ac.rlib",
+  "--extern",
+  "dartforge_types=target/p4/release/deps/libdartforge_types-3ef21b013f3986b7.rlib",
+  "--extern",
+  "dartforge_intern=target/p4/release/deps/libdartforge_intern-87b43925d9d67828.rlib"
+]

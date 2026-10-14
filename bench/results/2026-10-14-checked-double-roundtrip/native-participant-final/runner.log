@@ -1,0 +1,19 @@
+edge-vm 0
+edge-official-compile 0
+edge-official 0
+edge-off-compile 0
+edge-off-normal 0
+edge-off-stress 0
+edge-on-compile 0
+edge-on-normal 0
+edge-on-stress 0
+format-vm 0
+format-official-compile 0
+format-official 0
+format-off-compile 0
+format-off-normal 0
+format-off-stress 0
+format-on-compile 0
+format-on-normal 0
+format-on-stress 0
+PASS 8 native runs

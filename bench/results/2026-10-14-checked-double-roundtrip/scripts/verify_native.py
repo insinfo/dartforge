@@ -16,8 +16,10 @@ actual_format = Path('/Volumes/ssd_dock/MyProjectsDart/dart_ui/lib/src/graphics/
 sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 assert sha(producer) == args.producer_sha256
 source_files = [root/'crates/emit_native/tests/fixtures/checked_double_roundtrip/main.dart', root/'target/enum-pattern-identity/format_probe.dart']
-inputs = {str(p): sha(p) for p in [producer, package, actual_format, *source_files]}
-ledger = {'producer_sha256': sha(producer), 'inputs_before': inputs, 'commands': [], 'cases': [], 'scope': 'Canonical checked-double return reuse, tracing fixed AOT only. Runtime execution/oracle and static IR counts; no timing or allocation claim.'}
+metadata_files = [p for p in [producer.parent/'source.json', producer.parent/'source.patch'] if p.is_file()]
+inputs = {str(p): sha(p) for p in [producer, package, actual_format, *source_files, *metadata_files]}
+
+ledger = {'validator_sha256': sha(Path(__file__).resolve()), 'producer_source_metadata': {str(p):sha(p) for p in metadata_files}, 'sdk_executable_sha256':sha(sdk/'bin/dart'), 'producer_sha256': sha(producer), 'inputs_before': inputs, 'commands': [], 'cases': [], 'scope': 'Canonical checked-double return reuse, tracing fixed AOT only. Runtime execution/oracle and static IR counts; no timing or allocation claim.'}
 base = dict(os.environ, TMPDIR=str(out), DARTFORGE_CLANG='/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang')
 for key in ['DARTFORGE_MEMORY', 'DARTFORGE_GC_STRESS', 'DARTFORGE_ARC_PREPARED', 'DARTFORGE_ARC_PREPARE', 'DARTFORGE_ARC_CHECK', 'DARTFORGE_EFFECTS', 'DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP', 'DARTFORGE_NO_ENUM_PATTERN_IDENTITY', 'DARTFORGE_KEEP_IR', 'DARTFORGE_LINK_MAP']:
     base.pop(key, None)

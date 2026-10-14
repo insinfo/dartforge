@@ -1,0 +1,213 @@
+{
+  "rows": [
+    {
+      "order": 0,
+      "warmup": true,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-format-performance/off",
+        "100000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 2271.011167,
+      "max_rss_bytes": 11747328,
+      "stdout": "57600000:175,63,189,134,255,87,120,67\n"
+    },
+    {
+      "order": 0,
+      "warmup": true,
+      "profile": "on",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-format-performance/on",
+        "100000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 2174.037,
+      "max_rss_bytes": 11780096,
+      "stdout": "57600000:175,63,189,134,255,87,120,67\n"
+    },
+    {
+      "order": 0,
+      "warmup": true,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/official",
+        "100000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 437.907042,
+      "max_rss_bytes": 17137664,
+      "stdout": "57600000:175,63,189,134,255,87,120,67\n"
+    },
+    {
+      "order": 1,
+      "warmup": false,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-format-performance/off",
+        "100000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 2216.368459,
+      "max_rss_bytes": 11747328,
+      "stdout": "57600000:175,63,189,134,255,87,120,67\n"
+    },
+    {
+      "order": 1,
+      "warmup": false,
+      "profile": "on",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-format-performance/on",
+        "100000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 2228.9995,
+      "max_rss_bytes": 11747328,
+      "stdout": "57600000:175,63,189,134,255,87,120,67\n"
+    },
+    {
+      "order": 1,
+      "warmup": false,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/official",
+        "100000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 442.239959,
+      "max_rss_bytes": 17072128,
+      "stdout": "57600000:175,63,189,134,255,87,120,67\n"
+    },
+    {
+      "order": 2,
+      "warmup": false,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/official",
+        "100000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 456.986833,
+      "max_rss_bytes": 17416192,
+      "stdout": "57600000:175,63,189,134,255,87,120,67\n"
+    },
+    {
+      "order": 2,
+      "warmup": false,
+      "profile": "on",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-format-performance/on",
+        "100000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 2190.080083,
+      "max_rss_bytes": 11845632,
+      "stdout": "57600000:175,63,189,134,255,87,120,67\n"
+    },
+    {
+      "order": 2,
+      "warmup": false,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-format-performance/off",
+        "100000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 2272.215458,
+      "max_rss_bytes": 11747328,
+      "stdout": "57600000:175,63,189,134,255,87,120,67\n"
+    },
+    {
+      "order": 3,
+      "warmup": false,
+      "profile": "on",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-format-performance/on",
+        "100000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 2222.480542,
+      "max_rss_bytes": 11730944,
+      "stdout": "57600000:175,63,189,134,255,87,120,67\n"
+    },
+    {
+      "order": 3,
+      "warmup": false,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-format-performance/off",
+        "100000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 2229.800833,
+      "max_rss_bytes": 11812864,
+      "stdout": "57600000:175,63,189,134,255,87,120,67\n"
+    },
+    {
+      "order": 3,
+      "warmup": false,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/official",
+        "100000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 445.032125,
+      "max_rss_bytes": 17022976,
+      "stdout": "57600000:175,63,189,134,255,87,120,67\n"
+    }
+  ],
+  "rounds": 100000,
+  "calls_per_run": 57600000,
+  "prepared_sha256": "3298f8ed994b2bb74c442846c4ef98fe9e2c74e9e63898d21ade3763d7b3a03a",
+  "prepared": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-numeric-scalar-production/performance-preparation/prepared.json",
+  "artifacts": {
+    "off": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-format-performance/off",
+      "sha256": "847d3c1f133c5ed1b99fccdb795e0d80c29c8ec05bfbf97d28b31308e44028ca",
+      "bytes": 3335024
+    },
+    "on": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-format-performance/on",
+      "sha256": "2614b311499fa67d899941a97fb29ed865f2cc7f94920382d52720cb818b8222",
+      "bytes": 3335024
+    },
+    "official": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/official",
+      "sha256": "d9f08755507e8c4a94638271c00d0e087d0a8686658463a42f109c8423758cb8"
+    }
+  },
+  "median_wall_ms": {
+    "off": 2229.800833,
+    "on": 2222.480542,
+    "official": 445.032125
+  },
+  "on_vs_off_speedup": 1.0032937480718784,
+  "on_vs_official_wall_ratio": 4.99397777632345,
+  "inputs_unchanged": true,
+  "scope": "Wall time includes process startup. One warmup per profile excluded; three alternating measured runs. Identical consumed checksums."
+}

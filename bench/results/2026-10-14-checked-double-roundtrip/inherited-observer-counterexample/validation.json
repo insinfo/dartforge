@@ -1,0 +1,59 @@
+{
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-producer/dartforge": "1d2dadbc030f9da15f4672900ad1f9aab1ea736edb0acff6be82174b8d620655",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/checked-double-roundtrip/inherited-observer/main.dart": "34593e4a6da62018d1c6d144258fecea6b6582e923c16e5b971f1626cb900af1",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/checked-double-roundtrip/inherited-observer/sdk/lib/_internal/vm/lib/object_patch.dart": "dbbac66155fe51bbddda251f3779f2f756822192a672974e72c32ca891f81431"
+  },
+  "commands": [],
+  "cases": [
+    {
+      "enabled": false,
+      "compile_exit": 0,
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/checked-double-roundtrip/inherited-observer/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/checked-double-roundtrip/inherited-observer/sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/checked-double-roundtrip/inherited-observer/off/program"
+      ],
+      "run_exit": 0,
+      "stdout": "false\n",
+      "stderr": "",
+      "artifact_sha256": "c0dbdccf8e2091a8e73c431579177890635434521ea12fc966486677c848281e",
+      "double_boxes": 1
+    },
+    {
+      "enabled": true,
+      "compile_exit": 0,
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/checked-double-roundtrip/inherited-observer/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/checked-double-roundtrip/inherited-observer/sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/checked-double-roundtrip/inherited-observer/on/program"
+      ],
+      "run_exit": 0,
+      "stdout": "true\n",
+      "stderr": "",
+      "artifact_sha256": "ee910bc7550734a26cab93a0374ff41a87cc3d90ebe501fd23ef00c4321f007c",
+      "double_boxes": 0
+    }
+  ],
+  "scope": "Selected modified SDK inheritance observer witness; Forgebefore/after only, no upstream modifiedSDKexecutionclaim.",
+  "inputs_unchanged": true,
+  "result": "OBSERVED_DIVERGENCE"
+}

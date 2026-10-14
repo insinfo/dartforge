@@ -1,0 +1,19 @@
+{
+  "same_producer_sha256": "1d2dadbc030f9da15f4672900ad1f9aab1ea736edb0acff6be82174b8d620655",
+  "linked_function": {
+    "off": {
+      "address": "0x1000F92A8",
+      "bytes": 37092,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue",
+      "map_sha256": "bffd2d6e73100b6bfed8d4ab67065d68cdb9221745ccef129e39c2eed5453f3c"
+    },
+    "on": {
+      "address": "0x1000F92A8",
+      "bytes": 36668,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue",
+      "map_sha256": "e717954176ce4f55bf6ee2ae605825c9eb633d02cf74722f605c7b07b3e83dfb"
+    }
+  },
+  "bytes_removed": 424,
+  "scope": "Focused actual imported edge-case probe profile; not full File Explorer size or throughput."
+}

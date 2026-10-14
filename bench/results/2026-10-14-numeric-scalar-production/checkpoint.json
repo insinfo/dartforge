@@ -1,0 +1,69 @@
+{
+  "producer_sha256": "1d2dadbc030f9da15f4672900ad1f9aab1ea736edb0acff6be82174b8d620655",
+  "native_lib_gate": {
+    "passed": 677,
+    "failed": 0,
+    "sources_unchanged": true
+  },
+  "native_differential_executions": 12,
+  "format": {
+    "median_wall_ms": {
+      "off": 2229.800833,
+      "on": 2222.480542,
+      "official": 445.032125
+    },
+    "speedup": 1.0032937480718784,
+    "interpretation": "About0.3% wall difference is within observed run variation; no material speed gain claimed. Reported allocation counters approximately halved; collections22\u219211. Outstanding unused TLAB reservations are included in counters."
+  },
+  "bench": {
+    "medians": {
+      "official": {
+        "wall_ms": 953.018791,
+        "max_rss_bytes": 197722112,
+        "kernel_ms": {
+          "fib": 9,
+          "trees": 11,
+          "numeric": 95,
+          "strings": 44,
+          "json": 71
+        }
+      },
+      "off": {
+        "wall_ms": 1223.399833,
+        "max_rss_bytes": 73646080,
+        "kernel_ms": {
+          "fib": 7,
+          "trees": 23,
+          "numeric": 96,
+          "strings": 72,
+          "json": 101
+        }
+      },
+      "on": {
+        "wall_ms": 1214.470292,
+        "max_rss_bytes": 73629696,
+        "kernel_ms": {
+          "fib": 7,
+          "trees": 21,
+          "numeric": 96,
+          "strings": 71,
+          "json": 101
+        }
+      }
+    },
+    "trees_wall_reduction_percent": 8.695652173913048,
+    "node_count_text_bytes": {
+      "off": 688,
+      "on": 244
+    },
+    "interpretation": "Trees23\u219221ms, about8.7% lower median in this workload; millisecond resolution. Overall process wall about0.7% lower. JSON remains101vs71ms upstream, strings71vs44ms. ARC excluded."
+  },
+  "file_explorer": {
+    "off_bytes": 28310160,
+    "on_bytes": 28293616,
+    "bytes_removed": 16544,
+    "gui": "render,navigate,Back,close PASS exit0"
+  },
+  "commit_readiness": "NOT_READY: inherited modified-SDK observer counterexample confirmed for checked-double reuse; stronger SDK certificate required before committing production source.",
+  "counterexample": "../2026-10-14-checked-double-roundtrip/inherited-observer-counterexample/summary.json"
+}

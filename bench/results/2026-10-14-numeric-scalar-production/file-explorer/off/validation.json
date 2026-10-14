@@ -1,0 +1,71 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-producer/dartforge",
+    "compile-native",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+    "--sdk",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "--packages",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+    "--optimize",
+    "--memory=tracing",
+    "--exceptions=check",
+    "--roots=shadow",
+    "--stack-trace=none",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-production/file-explorer-off/program"
+  ],
+  "producer_sha256": "1d2dadbc030f9da15f4672900ad1f9aab1ea736edb0acff6be82174b8d620655",
+  "entry_sha256": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+  "package_config_sha256": "c5c1c22ad085905aa6341ddf11b3999b001cb6ac128a61f117a1fb8d532ec934",
+  "input_count": 11652,
+  "input_manifest_sha256": "cb9bdc8c2495d25e3154c4ca8cd841506fd4ed57725331c5180be2d07f901995",
+  "differences_from_historical_input_manifest": [],
+  "environment": {
+    "DARTFORGE_ARC_CHECK": null,
+    "DARTFORGE_ARC_PORT_PRUNING": "1",
+    "DARTFORGE_ARC_PREPARE": null,
+    "DARTFORGE_ARC_PREPARED": null,
+    "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "DARTFORGE_EFFECTS": null,
+    "DARTFORGE_FACTORY_RECEIVER_PROVENANCE": "1",
+    "DARTFORGE_GC_STRESS": null,
+    "DARTFORGE_KEEP_IR": "1",
+    "DARTFORGE_LINK_MAP": "1",
+    "DARTFORGE_MEMORY": null,
+    "DARTFORGE_NO_CANONICAL_CACHE_PROVENANCE": null,
+    "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": "1",
+    "DARTFORGE_NO_ENUM_PATTERN_IDENTITY": null,
+    "DARTFORGE_NO_FFI_PRUNING": null,
+    "DARTFORGE_NO_HIR_PRUNING": null,
+    "DARTFORGE_NO_PHYSICAL_GETTER_DEVIRTUALIZATION": null,
+    "DARTFORGE_NO_PLATFORM_SPECIALIZATION": null,
+    "DARTFORGE_NO_PRE_PRUNE_CFG": null,
+    "DARTFORGE_NO_PROGRAM_PRUNING": null,
+    "DARTFORGE_NO_SCALAR_COALESCE": "1",
+    "DARTFORGE_NO_TABLE_PRUNING": null,
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+    "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-production/file-explorer-off"
+  },
+  "scope": "New paired numeric-OFF ordinary original-entry FileExplorer compile; both scalar coalesce and checked-double roundtrip disabled, other optimizations defaultON. No throughput/startup/fullfeatureclaim; GUI pending. Historical artifact has different producer and is not samecompiler ablation.",
+  "exit_code": 0,
+  "inputs_unchanged": true,
+  "producer_unchanged": true,
+  "program": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-production/file-explorer-off/program",
+    "bytes": 28310160,
+    "sha256": "ed101cc8d4d0c544feb14ce736a82cbd3a9ff1914fa16f5ca9e5230c8c71eb83"
+  },
+  "program.map": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-production/file-explorer-off/program.map",
+    "bytes": 11094749,
+    "sha256": "03925493e48efa5e896c51ba577068b6b848daf2877a11ea014acbc8ecb3a49a"
+  },
+  "program.contracts.json": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-production/file-explorer-off/program.contracts.json",
+    "bytes": 176672,
+    "sha256": "c5a7dc56d677efb28cd3d267b7639400e25b9020d4194ca82e41ec91c1cd658f"
+  },
+  "otool_exit": 0
+}

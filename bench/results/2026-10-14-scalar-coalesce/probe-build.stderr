@@ -1,0 +1,276 @@
+warning: unused import: `collections::HashMap`
+ --> target/scalar-coalesce-probe/probe.rs:2:23
+  |
+2 | use std::{path::Path, collections::HashMap};
+  |                       ^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0308]: mismatched types
+  --> target/scalar-coalesce-probe/probe.rs:8:80
+   |
+ 8 |     let (program, diagnostics) = dartforge_elements::load::load_lenient(entry, &sdk, None, &mut interner);
+   |                                  --------------------------------------        ^^^^ expected `SdkLayout`, found `dartforge_elements::sdk::SdkLayout`
+   |                                  |
+   |                                  arguments to this function are incorrect
+   |
+note: there are multiple different versions of crate `dartforge_elements` in the dependency graph
+  --> crates/elements/src/sdk.rs:29:1
+   |
+29 | pub struct SdkLayout {
+   | -------------------- this is the found type
+   |
+  ::: crates/elements/src/sdk.rs:29:1
+   |
+29 | pub struct SdkLayout {
+   | ^^^^^^^^^^^^^^^^^^^^ this is the expected type
+   = help: you can use `cargo tree` to explore your dependency tree
+note: function defined here
+  --> crates/elements/src/load.rs:64:8
+   |
+64 | pub fn load_lenient(
+   |        ^^^^^^^^^^^^
+
+error[E0308]: arguments to this function are incorrect
+   --> target/scalar-coalesce-probe/probe.rs:18:14
+    |
+ 18 |     let te = native::erasure::compute(&program, &outline, &mut table);
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^ --------  --------  ---------- expected `dartforge_types::table::TypeTable`, found `TypeTable`
+    |                                       |         |
+    |                                       |         expected `dartforge_types::resolve::OutlineTypes`, found `OutlineTypes`
+    |                                       expected `dartforge_elements::model::Program`, found `Program`
+    |
+note: there are multiple different versions of crate `dartforge_elements` in the dependency graph
+   --> crates/elements/src/model.rs:76:1
+    |
+ 76 | pub struct Program {
+    | ------------------ this is the found type
+    |
+   ::: crates/elements/src/model.rs:76:1
+    |
+ 76 | pub struct Program {
+    | ^^^^^^^^^^^^^^^^^^ this is the expected type
+    = help: you can use `cargo tree` to explore your dependency tree
+note: there are multiple different versions of crate `dartforge_types` in the dependency graph
+   --> crates/types/src/resolve.rs:107:1
+    |
+107 | pub struct OutlineTypes {
+    | ----------------------- this is the found type
+    |
+   ::: crates/types/src/resolve.rs:107:1
+    |
+107 | pub struct OutlineTypes {
+    | ^^^^^^^^^^^^^^^^^^^^^^^ this is the expected type
+    = help: you can use `cargo tree` to explore your dependency tree
+note: there are multiple different versions of crate `dartforge_types` in the dependency graph
+   --> crates/types/src/table.rs:127:1
+    |
+127 | pub struct TypeTable {
+    | -------------------- this is the found type
+    |
+   ::: crates/types/src/table.rs:127:1
+    |
+127 | pub struct TypeTable {
+    | ^^^^^^^^^^^^^^^^^^^^ this is the expected type
+    = help: you can use `cargo tree` to explore your dependency tree
+note: function defined here
+   --> crates/emit_native/src/erasure.rs:53:8
+    |
+ 53 | pub fn compute(program: &Program, outline: &OutlineTypes, table: &mut TypeTable) -> ExtensionTypes {
+    |        ^^^^^^^
+
+error[E0308]: arguments to this function are incorrect
+   --> target/scalar-coalesce-probe/probe.rs:19:19
+    |
+ 19 |     let mut ctx = native::context::Context::new(&program, &interner, &table, &core, &outline, &bodies);
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ --------  ---------  ------  -----  --------  ------- expected `dartforge_types::resolved::BodyTypes`, found `BodyTypes`
+    |                                                 |         |          |       |      |
+    |                                                 |         |          |       |      expected `dartforge_types::resolve::OutlineTypes`, found `OutlineTypes`
+    |                                                 |         |          |       expected `dartforge_types::table::CoreTypes`, found `CoreTypes`
+    |                                                 |         |          expected `dartforge_types::table::TypeTable`, found `TypeTable`
+    |                                                 |         expected `dartforge_intern::Interner`, found `Interner`
+    |                                                 expected `dartforge_elements::model::Program`, found `Program`
+    |
+note: there are multiple different versions of crate `dartforge_elements` in the dependency graph
+   --> crates/elements/src/model.rs:76:1
+    |
+ 76 | pub struct Program {
+    | ------------------ this is the found type
+    |
+   ::: crates/elements/src/model.rs:76:1
+    |
+ 76 | pub struct Program {
+    | ^^^^^^^^^^^^^^^^^^ this is the expected type
+    = help: you can use `cargo tree` to explore your dependency tree
+note: there are multiple different versions of crate `dartforge_intern` in the dependency graph
+   --> crates/intern/src/lib.rs:67:1
+    |
+ 67 | pub struct Interner {
+    | ------------------- this is the found type
+    |
+   ::: crates/intern/src/lib.rs:67:1
+    |
+ 67 | pub struct Interner {
+    | ^^^^^^^^^^^^^^^^^^^ this is the expected type
+    = help: you can use `cargo tree` to explore your dependency tree
+note: there are multiple different versions of crate `dartforge_types` in the dependency graph
+   --> crates/types/src/table.rs:127:1
+    |
+127 | pub struct TypeTable {
+    | -------------------- this is the found type
+    |
+   ::: crates/types/src/table.rs:127:1
+    |
+127 | pub struct TypeTable {
+    | ^^^^^^^^^^^^^^^^^^^^ this is the expected type
+    = help: you can use `cargo tree` to explore your dependency tree
+note: there are multiple different versions of crate `dartforge_types` in the dependency graph
+   --> crates/types/src/table.rs:641:1
+    |
+641 | pub struct CoreTypes {
+    | -------------------- this is the found type
+    |
+   ::: crates/types/src/table.rs:641:1
+    |
+641 | pub struct CoreTypes {
+    | ^^^^^^^^^^^^^^^^^^^^ this is the expected type
+    = help: you can use `cargo tree` to explore your dependency tree
+note: there are multiple different versions of crate `dartforge_types` in the dependency graph
+   --> crates/types/src/resolve.rs:107:1
+    |
+107 | pub struct OutlineTypes {
+    | ----------------------- this is the found type
+    |
+   ::: crates/types/src/resolve.rs:107:1
+    |
+107 | pub struct OutlineTypes {
+    | ^^^^^^^^^^^^^^^^^^^^^^^ this is the expected type
+    = help: you can use `cargo tree` to explore your dependency tree
+note: there are multiple different versions of crate `dartforge_types` in the dependency graph
+   --> crates/types/src/resolved.rs:308:1
+    |
+308 | pub struct BodyTypes {
+    | -------------------- this is the found type
+    |
+   ::: crates/types/src/resolved.rs:308:1
+    |
+308 | pub struct BodyTypes {
+    | ^^^^^^^^^^^^^^^^^^^^ this is the expected type
+    = help: you can use `cargo tree` to explore your dependency tree
+note: associated function defined here
+   --> crates/emit_native/src/context.rs:282:12
+    |
+282 |     pub fn new(
+    |            ^^^
+
+error[E0308]: arguments to this function are incorrect
+  --> target/scalar-coalesce-probe/probe.rs:22:28
+   |
+22 |     ctx.uses_dart_async = !native::source::source_libraries(&program, &interner).is_empty();
+   |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ --------  --------- expected `dartforge_intern::Interner`, found `Interner`
+   |                                                             |
+   |                                                             expected `dartforge_elements::model::Program`, found `Program`
+   |
+note: there are multiple different versions of crate `dartforge_elements` in the dependency graph
+  --> crates/elements/src/model.rs:76:1
+   |
+76 | pub struct Program {
+   | ------------------ this is the found type
+   |
+  ::: crates/elements/src/model.rs:76:1
+   |
+76 | pub struct Program {
+   | ^^^^^^^^^^^^^^^^^^ this is the expected type
+   = help: you can use `cargo tree` to explore your dependency tree
+note: there are multiple different versions of crate `dartforge_intern` in the dependency graph
+  --> crates/intern/src/lib.rs:67:1
+   |
+67 | pub struct Interner {
+   | ------------------- this is the found type
+   |
+  ::: crates/intern/src/lib.rs:67:1
+   |
+67 | pub struct Interner {
+   | ^^^^^^^^^^^^^^^^^^^ this is the expected type
+   = help: you can use `cargo tree` to explore your dependency tree
+note: function defined here
+  --> crates/emit_native/src/source.rs:40:8
+   |
+40 | pub fn source_libraries(program: &Program, interner: &Interner) -> Vec<LibraryId> {
+   |        ^^^^^^^^^^^^^^^^
+
+error[E0308]: arguments to this function are incorrect
+   --> target/scalar-coalesce-probe/probe.rs:23:17
+    |
+ 23 |     ctx.world = native::native_world::compute(&program, &interner, &table, &outline, &bodies);
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ --------  ---------  ------  --------  ------- expected `dartforge_types::resolved::BodyTypes`, found `BodyTypes`
+    |                                               |         |          |       |
+    |                                               |         |          |       expected `dartforge_types::resolve::OutlineTypes`, found `OutlineTypes`
+    |                                               |         |          expected `dartforge_types::table::TypeTable`, found `TypeTable`
+    |                                               |         expected `dartforge_intern::Interner`, found `Interner`
+    |                                               expected `dartforge_elements::model::Program`, found `Program`
+    |
+note: there are multiple different versions of crate `dartforge_elements` in the dependency graph
+   --> crates/elements/src/model.rs:76:1
+    |
+ 76 | pub struct Program {
+    | ------------------ this is the found type
+    |
+   ::: crates/elements/src/model.rs:76:1
+    |
+ 76 | pub struct Program {
+    | ^^^^^^^^^^^^^^^^^^ this is the expected type
+    = help: you can use `cargo tree` to explore your dependency tree
+note: there are multiple different versions of crate `dartforge_intern` in the dependency graph
+   --> crates/intern/src/lib.rs:67:1
+    |
+ 67 | pub struct Interner {
+    | ------------------- this is the found type
+    |
+   ::: crates/intern/src/lib.rs:67:1
+    |
+ 67 | pub struct Interner {
+    | ^^^^^^^^^^^^^^^^^^^ this is the expected type
+    = help: you can use `cargo tree` to explore your dependency tree
+note: there are multiple different versions of crate `dartforge_types` in the dependency graph
+   --> crates/types/src/table.rs:127:1
+    |
+127 | pub struct TypeTable {
+    | -------------------- this is the found type
+    |
+   ::: crates/types/src/table.rs:127:1
+    |
+127 | pub struct TypeTable {
+    | ^^^^^^^^^^^^^^^^^^^^ this is the expected type
+    = help: you can use `cargo tree` to explore your dependency tree
+note: there are multiple different versions of crate `dartforge_types` in the dependency graph
+   --> crates/types/src/resolve.rs:107:1
+    |
+107 | pub struct OutlineTypes {
+    | ----------------------- this is the found type
+    |
+   ::: crates/types/src/resolve.rs:107:1
+    |
+107 | pub struct OutlineTypes {
+    | ^^^^^^^^^^^^^^^^^^^^^^^ this is the expected type
+    = help: you can use `cargo tree` to explore your dependency tree
+note: there are multiple different versions of crate `dartforge_types` in the dependency graph
+   --> crates/types/src/resolved.rs:308:1
+    |
+308 | pub struct BodyTypes {
+    | -------------------- this is the found type
+    |
+   ::: crates/types/src/resolved.rs:308:1
+    |
+308 | pub struct BodyTypes {
+    | ^^^^^^^^^^^^^^^^^^^^ this is the expected type
+    = help: you can use `cargo tree` to explore your dependency tree
+note: function defined here
+   --> crates/emit_native/src/native_world.rs:49:8
+    |
+ 49 | pub fn compute(
+    |        ^^^^^^^
+
+error: aborting due to 5 previous errors; 1 warning emitted
+
+For more information about this error, try `rustc --explain E0308`.

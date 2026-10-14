@@ -1,0 +1,4271 @@
+{
+  "artifact": {
+    "blake3": "c3e392413dc45f209b8f4a6dfb84aaffc5efdaf5acca449c9cf37c948313d55d",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "65df0531ee72b6b83ae75ba21851b84652aaf6934d46252b42f311f751e1cf48",
+    "optimized": true,
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-production/file-explorer-off/program"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "28a0469a94221544474ba553f029473c61ebf464d371ac8e98da39adc17686c9",
+      "uri": "file:///Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart"
+    },
+    {
+      "blake3": "7e344f99d01b0cc520282b155048f250aad6816b81764ae9d19415fdc1e7c59a",
+      "uri": "package:dart_ui/dart_ui.dart"
+    },
+    {
+      "blake3": "665f4c9198b55982b0c0c0194323a946a4cc3e21a4b22fb9c8ea2992e8909e40",
+      "uri": "package:file_explorer/src/engine/explorer_model.dart"
+    },
+    {
+      "blake3": "5452e8b93a1f157e4f75363bf55d9d355c240c4930e1d828b984fade2afdcaa7",
+      "uri": "package:file_explorer/src/engine/location.dart"
+    },
+    {
+      "blake3": "380dfebb0cd208261e4070afbd97a3624ec5207238b4495af4bbc5037ce61944",
+      "uri": "package:file_explorer/src/engine/strings.dart"
+    },
+    {
+      "blake3": "58e078c7b4364c80716fbe56de439b09e46b9134721f2cd08624d07901bc2c14",
+      "uri": "package:file_explorer/src/io/io_file_system.dart"
+    },
+    {
+      "blake3": "5682f89c5c8cae45905281895f2608e1673579d76eb13abcea4d03a1125a51d4",
+      "uri": "package:file_explorer/src/io/thumbnail_loader.dart"
+    },
+    {
+      "blake3": "c6d62380250cb4da5629f4afa66bb829dc51479c982bdbb1d827e49ed63f1239",
+      "uri": "package:file_explorer/src/ui/app.dart"
+    },
+    {
+      "blake3": "7a27fe37bb4622a210b5461783679475b90b9afaf951fba8dacc8f2f604f86f6",
+      "uri": "package:dart_ui/src/app/application.dart"
+    },
+    {
+      "blake3": "70ecacd1db8bb6c253b9b4e954f05d388853723b1a9733e3a3d1e92a558aa849",
+      "uri": "package:dart_ui/src/backends/default_platform_resolver.dart"
+    },
+    {
+      "blake3": "a5f3de0fee8dd6887205a4a23afa68a89f6f4591fa55cf51c74ce13e30ab65ef",
+      "uri": "package:dart_ui/src/backends/process_end_io.dart"
+    },
+    {
+      "blake3": "da94b2453e8195950738046e4ae5ef1301871d1df86c6ecf872c7e84b5b3f262",
+      "uri": "package:dart_ui/src/widgets/widget.dart"
+    },
+    {
+      "blake3": "a910800a14ed6763f1ce27f3ea4033ac36fd993c3b431ad71c5829551ba95d71",
+      "uri": "package:dart_ui/src/animation/animation.dart"
+    },
+    {
+      "blake3": "39c73e1fe97229c170d2e8ec0c761b8136b9340d387a08fdb02e95e02d9389db",
+      "uri": "package:dart_ui/src/animation/clock.dart"
+    },
+    {
+      "blake3": "cebfbc67d5fba2dfeb42f528f019a07ce8f1f4d13d18502aa1fcce2dfee250b2",
+      "uri": "package:dart_ui/src/animation/curves.dart"
+    },
+    {
+      "blake3": "c578a0997ac69382eabb97e10d2551e84449c7be675469d3ed1749cd2dbc86cc",
+      "uri": "package:dart_ui/src/animation/keyframes.dart"
+    },
+    {
+      "blake3": "a52b6355dbff5edfcb556d0056c973f16e6dcae4d3aa6ae5ad52622857044f25",
+      "uri": "package:dart_ui/src/animation/simulation.dart"
+    },
+    {
+      "blake3": "8d028eefa83aad12c17dcaadce99bca63a2dd40f2cfd033b4f1fdb22992c9d31",
+      "uri": "package:dart_ui/src/animation/ticker.dart"
+    },
+    {
+      "blake3": "aba46a95db90ba5dcd648a6975adbc7984e700dc4ce361b59b415d17e9f579f6",
+      "uri": "package:dart_ui/src/app/app.dart"
+    },
+    {
+      "blake3": "d7807b935fb8990365af177376ca33fa096bf2f60e33617451513e1ce15df69e",
+      "uri": "package:dart_ui/src/app/widgets_binding.dart"
+    },
+    {
+      "blake3": "305253e6eb82f1604d899b9d639eb204ab7d48ae241e3a1b3771bed647999649",
+      "uri": "package:dart_ui/src/assets/embedded_assets.dart"
+    },
+    {
+      "blake3": "abedc7880665a8323a30f779ea15270f67c22a12df3c419487de67b0ad58b869",
+      "uri": "package:dart_ui/src/audio/audio.dart"
+    },
+    {
+      "blake3": "3dfc29f39e02cf7828821930aa435e3132ca53d86858bc7c80a0f42285f214e7",
+      "uri": "package:dart_ui/src/backends/headless/headless_backend.dart"
+    },
+    {
+      "blake3": "032ff6e1134d2d5c0f55e0845a14f84f9335370dcb246133840fa9beaa77691e",
+      "uri": "package:dart_ui/src/backends/headless/headless_test_support.dart"
+    },
+    {
+      "blake3": "b4c263d713f3cdae0ac6c84efcd9e05a9f940fbae3a41b58cdbc6afba8812635",
+      "uri": "package:dart_ui/src/cdr/document/cdr_document.dart"
+    },
+    {
+      "blake3": "0a6f62357c0fea755054ed3d4433bd84e89cc19563e3dca78ea9c7372d144a9d",
+      "uri": "package:dart_ui/src/cdr/document/cdr_translator.dart"
+    },
+    {
+      "blake3": "51c9894af6c1e2161a0a2911e1c54d1cac4b8a839780d8bef3c743db8941a967",
+      "uri": "package:dart_ui/src/commands/command.dart"
+    },
+    {
+      "blake3": "cfd8b3ba8df1e4d9dd5d867c75937b089498934c3da3b75aef2000aec666c0aa",
+      "uri": "package:dart_ui/src/commands/command_registry.dart"
+    },
+    {
+      "blake3": "0c7f550dc4d56d1e3dea89eb74fa6f396310f691c36600219e9922657e975aa1",
+      "uri": "package:dart_ui/src/commands/menu_spec.dart"
+    },
+    {
+      "blake3": "3ca4adf300a2bc110e8d244aff3b3ad9bc9ab9b3fab472ec735d2ca33c15930d",
+      "uri": "package:dart_ui/src/crypto/asn1/der.dart"
+    },
+    {
+      "blake3": "a05118f0d6f721bd6e1a69f5be0e8221f7aa0ce45a639b7968343657e0eaa52f",
+      "uri": "package:dart_ui/src/crypto/certificate_provider.dart"
+    },
+    {
+      "blake3": "c093ab2be58d3b5c06759758fb3770fa0baf5c1e9dc60720fc1705f127cedcb9",
+      "uri": "package:dart_ui/src/crypto/crypto.dart"
+    },
+    {
+      "blake3": "4c832c34d0f80dbe40f66214b99f364eadee4acd3650abcd87c691cf5ce8fb93",
+      "uri": "package:dart_ui/src/crypto/crypto_backend.dart"
+    },
+    {
+      "blake3": "60113632fa44aa7053d4e0d419c0459d79c4897617cc08b5c6b0fa28b28800ca",
+      "uri": "package:dart_ui/src/crypto/crypto_identity.dart"
+    },
+    {
+      "blake3": "f97ed42d8e4547ced43514c0a3aa93d585c0f03cbc6eafb4550a7864ba62fbd0",
+      "uri": "package:dart_ui/src/crypto/external_key_signer.dart"
+    },
+    {
+      "blake3": "ba2e4486295b2367e96fd6cc34d1755492f76f0ecd1d3f8646a6d6cc0004be3f",
+      "uri": "package:dart_ui/src/crypto/linux/linux.dart"
+    },
+    {
+      "blake3": "6d666b512427cb46f5afe304c1e5a8de2e8f41ded329909a3dff4220d3ad1220",
+      "uri": "package:dart_ui/src/crypto/macos/macos.dart"
+    },
+    {
+      "blake3": "e4e2404ab34bfb3da3ece1f64988abdff3e5a212c621132fc4d5086c25b753cc",
+      "uri": "package:dart_ui/src/crypto/pkcs11/pkcs11.dart"
+    },
+    {
+      "blake3": "84930183569a5cf0569cef8c0bbc07e94e9465865fe63e1d3e8405ad329d8e1e",
+      "uri": "package:dart_ui/src/crypto/windows/windows_certificate_store.dart"
+    },
+    {
+      "blake3": "4468367e84ce09f46691447586498d4d6500d5c43da54e220418003009809222",
+      "uri": "package:dart_ui/src/crypto/x509/x509_certificate.dart"
+    },
+    {
+      "blake3": "f5bed499e806e18e7bfb09bf184b0028c2b93d0e989858c7ee6fd72f574c2da8",
+      "uri": "package:dart_ui/src/diagnostics/dev_overlay.dart"
+    },
+    {
+      "blake3": "12ebe59ca64e15706c0b8beed7dcfeb09059c2cb9ab2f4017cac2b86df5f4695",
+      "uri": "package:dart_ui/src/foundation/app_lifecycle_state.dart"
+    },
+    {
+      "blake3": "ee6dc504b9d812c5794f4da5a0776abb894aa3b9afe8d78996445d17b7307fbe",
+      "uri": "package:dart_ui/src/foundation/basic_types.dart"
+    },
+    {
+      "blake3": "bd14d36781bebe71531ca5d742aa0d61c6371a0de2f58c40e5aba3996df1da9a",
+      "uri": "package:dart_ui/src/foundation/change_notifier.dart"
+    },
+    {
+      "blake3": "89cff8607da2306fcb23bc185e801029de25243cb20217eda50cb5caf6964c4d",
+      "uri": "package:dart_ui/src/foundation/compute.dart"
+    },
+    {
+      "blake3": "48ef4ed804a054131723bbbc09430aef3aea0a6c4e0a77b6690610a7d7ee5494",
+      "uri": "package:dart_ui/src/foundation/constants.dart"
+    },
+    {
+      "blake3": "447c32e956aae723cb36d74df4f33892de38591798931cf69d22df8177f174f2",
+      "uri": "package:dart_ui/src/foundation/diagnostics.dart"
+    },
+    {
+      "blake3": "5fedd3b59f74873d9ed244d5060ca0cabda3d16021669d258c0da0d7c427a186",
+      "uri": "package:dart_ui/src/foundation/error_details.dart"
+    },
+    {
+      "blake3": "2c227efe08b2532b6540fc277ba91e3742c301d75220add3e5127b32e326d477",
+      "uri": "package:dart_ui/src/foundation/frame_timeline.dart"
+    },
+    {
+      "blake3": "d2879cee34288c9289d81c864993710db5071a564d143da7e8b9e466b4c9f702",
+      "uri": "package:dart_ui/src/foundation/lifecycle.dart"
+    },
+    {
+      "blake3": "3966a5f53203a3ca89171c594062bcecf9b70d9ea44240ef6ba7b6c455f35d10",
+      "uri": "package:dart_ui/src/foundation/locale.dart"
+    },
+    {
+      "blake3": "dad388505931b48b6d5a8f0e6d9df48ff6802c329e316c0d51b169f714ea9b52",
+      "uri": "package:dart_ui/src/foundation/lru_cache.dart"
+    },
+    {
+      "blake3": "24db7d3de5d17b5feb7ed5ed42961ec911da07833d6f5910e3d8ed1cd5576978",
+      "uri": "package:dart_ui/src/foundation/print.dart"
+    },
+    {
+      "blake3": "5f890d0859c465521c081a1d1cec9ee57045f5d4a93f6e96e2de094cbc39c331",
+      "uri": "package:dart_ui/src/foundation/synchronous_future.dart"
+    },
+    {
+      "blake3": "dd8bd35b93ac6bb82e0d3ae7f9d9e1b72696648fd2ef29bd89801d2926b4dda4",
+      "uri": "package:dart_ui/src/gallery/gallery.dart"
+    },
+    {
+      "blake3": "1a61357382332746b13de0a98c04ff9d51742e848fa0d4429d8469c7bc50eab5",
+      "uri": "package:dart_ui/src/geometry/offset.dart"
+    },
+    {
+      "blake3": "ef86be5e2b679336e6588c644df50b8d985e5676971e17541eda7aaaff937bca",
+      "uri": "package:dart_ui/src/geometry/path.dart"
+    },
+    {
+      "blake3": "a53121ef0b79160a0b5379e41c3198080c419d58e85d6709a2b7363688b245f9",
+      "uri": "package:dart_ui/src/geometry/rect.dart"
+    },
+    {
+      "blake3": "72c6d5b6b793a4cfc2b73929cc3a39f7b107f74df2906cb997075902be2d0c99",
+      "uri": "package:dart_ui/src/geometry/relative_rect.dart"
+    },
+    {
+      "blake3": "11998b31a1c7dfe5b2e05b2e3fa0055ee1966b40d6203b24f2ac5aaf854024d4",
+      "uri": "package:dart_ui/src/geometry/rrect.dart"
+    },
+    {
+      "blake3": "b8e2cce5037f1d9ff637b64952a428847269101be879761a4b06f3e3537bef7b",
+      "uri": "package:dart_ui/src/geometry/size.dart"
+    },
+    {
+      "blake3": "5eb5f15182a6f13c785d2c3e755a630226aa8baa11fbb6558bb1ee6b264f59b0",
+      "uri": "package:dart_ui/src/geometry/transform2d.dart"
+    },
+    {
+      "blake3": "03898ba3dc9bd032525a7a75962887cd5b20f67456b8673846ce03a6c68b02f0",
+      "uri": "package:dart_ui/src/gestures/gestures.dart"
+    },
+    {
+      "blake3": "3eb3cd4dcd2caa34cf9c9f5c1cfc4a29cb9ddfb398054c815063510b75f68db8",
+      "uri": "package:dart_ui/src/graphics/color.dart"
+    },
+    {
+      "blake3": "4e2b4c6b263d455fd84ee414c498d8819ef96bf005486f0da16a1197d09e08c1",
+      "uri": "package:dart_ui/src/graphics/content_hint.dart"
+    },
+    {
+      "blake3": "10b76ae9a2850d95a2f90f4fd23d19a0a6ea218980941351dd5fd63df3d9ee8a",
+      "uri": "package:dart_ui/src/graphics/display_list.dart"
+    },
+    {
+      "blake3": "5eadd560cdeed352fcc68ec70bc5f3021856e9f801a3c164deeaf0b2e41cafea",
+      "uri": "package:dart_ui/src/graphics/display_list_debug.dart"
+    },
+    {
+      "blake3": "c5cb2195166ebad871044cf66ccf425754c0a7c4c827eb594f4212fe0e6fca6b",
+      "uri": "package:dart_ui/src/graphics/display_list_geometry.dart"
+    },
+    {
+      "blake3": "c57de9d031bce946b5b94ad653b40f4cde673795fefac02a030a044a9dc84b19",
+      "uri": "package:dart_ui/src/graphics/display_list_opcodes.dart"
+    },
+    {
+      "blake3": "4ed967b59908139ad9bda14770ee6b452da618fb870aa0bf7d3ba520fdf0e79d",
+      "uri": "package:dart_ui/src/graphics/display_list_pool.dart"
+    },
+    {
+      "blake3": "0b0d0852108baa7e69e17b67e2d1de49856cf17c0e59f0e4c25058ba5e7aacda",
+      "uri": "package:dart_ui/src/graphics/display_list_reader.dart"
+    },
+    {
+      "blake3": "a73aa826cd34343570826908a03e2f6aa48cde00cf9ef3d0100aa2b2d96bddfb",
+      "uri": "package:dart_ui/src/graphics/filter_quality.dart"
+    },
+    {
+      "blake3": "6bff5d265d24e269fe096a3e7bfe6be2d195a2adb65c6edaf324a69d2a2895d4",
+      "uri": "package:dart_ui/src/graphics/glyph_text.dart"
+    },
+    {
+      "blake3": "dcccff0a35459ec9adedc75b3f3dc4702b6cd88158072558c2b1d14187d3a2a6",
+      "uri": "package:dart_ui/src/graphics/gradient.dart"
+    },
+    {
+      "blake3": "8cbd3e1d33209c9fda8397fe3b56102666c08f6d982852089b05687e96f87334",
+      "uri": "package:dart_ui/src/graphics/gradient_lut.dart"
+    },
+    {
+      "blake3": "e67c6978bf187206d97d102961cfdba90be7e38b7204d66d185c749b5599b924",
+      "uri": "package:dart_ui/src/graphics/image/decoded_image.dart"
+    },
+    {
+      "blake3": "bc0082db26783906b9874482b395b36cd5b404fbfe2cc75b5a1edde199251cf1",
+      "uri": "package:dart_ui/src/graphics/image/image_errors.dart"
+    },
+    {
+      "blake3": "4d9fc4c2696766e69b6e9fadb4de946ae11702a3e372b8213519198cb3c64797",
+      "uri": "package:dart_ui/src/graphics/image/inflate.dart"
+    },
+    {
+      "blake3": "82b2c173c68145dece33af10dce1b57ab5a0f5ceda52cea645aadb1f027ba6f3",
+      "uri": "package:dart_ui/src/graphics/image/png.dart"
+    },
+    {
+      "blake3": "045c850814fea5f58bfefb3199a3618e13766bb667ac360325ec215bbad336a1",
+      "uri": "package:dart_ui/src/graphics/image/png_encoder.dart"
+    },
+    {
+      "blake3": "646be153fd044e15e0331d368e7ca8b6ae3b410076b587103540ab91066cc2d4",
+      "uri": "package:dart_ui/src/graphics/image/raster_codec.dart"
+    },
+    {
+      "blake3": "b3610421ec05d01f94896aa9bdd042ae77bd91e85274dd2dad1942a1d5e1a1fb",
+      "uri": "package:dart_ui/src/graphics/image/raster_formats.dart"
+    },
+    {
+      "blake3": "9e3d85445ccbb26d9e2c09d1fe78d9053413871816180e18da1b19ae26171d60",
+      "uri": "package:dart_ui/src/graphics/shader.dart"
+    },
+    {
+      "blake3": "1e0c25d3eafbedb463258b1cba164325c9db0ca2443351d3039c0b1633c99235",
+      "uri": "package:dart_ui/src/graphics/svg/svg_path.dart"
+    },
+    {
+      "blake3": "f144af6b137a6ad8377fd05dbfe5249ed0bbf653266b328eb0213dd0109bd183",
+      "uri": "package:dart_ui/src/graphics/svg/svg_picture.dart"
+    },
+    {
+      "blake3": "5c80d9b7ca4f37fe40c82c6f8e4f5c50434075c60f7a42758be9c2a4f9f78cb6",
+      "uri": "package:dart_ui/src/graphics/vector/arrowheads.dart"
+    },
+    {
+      "blake3": "9094932f527b202387a83f329b2b451f0f346f704c74c0ba9b84b94b2f6604c6",
+      "uri": "package:dart_ui/src/graphics/vector/bezier.dart"
+    },
+    {
+      "blake3": "890def5e62d2da2083827e3e1e963db2734b1ef7af9fb07dc37c0a727e672868",
+      "uri": "package:dart_ui/src/graphics/vector/calligraphy.dart"
+    },
+    {
+      "blake3": "52c12d1adcbed526fb9cf34eb36d27a4da6ad8149ff0a8577b3ebc475de6a459",
+      "uri": "package:dart_ui/src/graphics/vector/constants.dart"
+    },
+    {
+      "blake3": "91af779c709bda79d448bb7dfd8219cd904a76551c5b0fb106ae57ee3707cd28",
+      "uri": "package:dart_ui/src/graphics/vector/contour.dart"
+    },
+    {
+      "blake3": "967701e57475a043fcae9e8d50e3ae07a9b98f28034f89ac51c61dd04b2e807d",
+      "uri": "package:dart_ui/src/graphics/vector/doc_methods.dart"
+    },
+    {
+      "blake3": "6a66cf5ccec56ffc90cc6fa81d4486e5f282701700dbcf34d83eecbf7983d6a0",
+      "uri": "package:dart_ui/src/graphics/vector/document.dart"
+    },
+    {
+      "blake3": "68a0e5a52b97f996334717a01e85fe61d3cf5c6d8a7f2380f447d2813d5283f3",
+      "uri": "package:dart_ui/src/graphics/vector/document_history.dart"
+    },
+    {
+      "blake3": "b9a90a571a343169a9dd8d2acf068faadd9c4c92acb8fa928a606e777631f6fd",
+      "uri": "package:dart_ui/src/graphics/vector/document_object.dart"
+    },
+    {
+      "blake3": "f4e05cf22899baa0552839b81e3f389c0aa3808acaaadef79e78a695d221429f",
+      "uri": "package:dart_ui/src/graphics/vector/pixmap.dart"
+    },
+    {
+      "blake3": "92c126a924e8970dbfdc8f1e79e6cf8bace321c703023b331a42653581504aaa",
+      "uri": "package:dart_ui/src/graphics/vector/primitives.dart"
+    },
+    {
+      "blake3": "eb90f59d74486f28b76b2932d60b709366c385456444c9eb567a71114fdd9c96",
+      "uri": "package:dart_ui/src/graphics/vector/selectable_objects.dart"
+    },
+    {
+      "blake3": "00b2c97afe98af8cdbee01b2556400e78130cf69325400f34c3d64d4b7ce5cf2",
+      "uri": "package:dart_ui/src/graphics/vector/serialization/vector_svg_codec.dart"
+    },
+    {
+      "blake3": "3145aa46be32a78c2f931d20df054446df05fb6cf3c81429ba5c25dd01086f8c",
+      "uri": "package:dart_ui/src/graphics/vector/shaping.dart"
+    },
+    {
+      "blake3": "b697b1b6b66e5022254fa98813e2e0a088568e55ccbbc634e07c2939b3ff5a61",
+      "uri": "package:dart_ui/src/graphics/vector/structural_objects.dart"
+    },
+    {
+      "blake3": "47795f8e0b2193a7679c05f1667404b66dbb07195e5e63b5b9963ab2bfacbe34",
+      "uri": "package:dart_ui/src/graphics/vector/style.dart"
+    },
+    {
+      "blake3": "0f7c7f6248acc198708d70dfb681d8d5823339b330fe69e1f65b29a58bbe645f",
+      "uri": "package:dart_ui/src/graphics/video/av_sync.dart"
+    },
+    {
+      "blake3": "0edb55dca6f712c41ad27067943c0852927393cda3f68733a91a8d1cee32d1dc",
+      "uri": "package:dart_ui/src/graphics/video/video_color_conversion.dart"
+    },
+    {
+      "blake3": "80edd0ff84ad5bf74614479acc4464c332735dd17eadaf8daee93d40ae9848eb",
+      "uri": "package:dart_ui/src/graphics/video/video_decoder.dart"
+    },
+    {
+      "blake3": "3f065881898ee8378a22e1120a2ea9eb62674f7c1ed57ffc597ef938f73ace7c",
+      "uri": "package:dart_ui/src/graphics/video/video_frame.dart"
+    },
+    {
+      "blake3": "912c0b05251e6288a5cfd1a21a539f2549ece2aef1e390617c2744d72d858c8b",
+      "uri": "package:dart_ui/src/layout/alignment.dart"
+    },
+    {
+      "blake3": "c6f42bcce5f388b30dfc0570fd82a0ad7a17c3223bd39cd613578a2840622187",
+      "uri": "package:dart_ui/src/layout/border_radius.dart"
+    },
+    {
+      "blake3": "651c1ddf14bd1ee568db70ec6e37633a7829d7a593f4f0475e2f1eedf29e4051",
+      "uri": "package:dart_ui/src/layout/borders.dart"
+    },
+    {
+      "blake3": "2fcd40c314b3b29b29573243e472cc9676a82c7eb8ca331c9071488aa2ad3336",
+      "uri": "package:dart_ui/src/layout/box_constraints.dart"
+    },
+    {
+      "blake3": "9ee2c613d64c48f6272a7dd64f2790fda8f24cdc7d6473ef18684ef386c7d555",
+      "uri": "package:dart_ui/src/layout/canvas.dart"
+    },
+    {
+      "blake3": "e671e37801ef0e5f12880b333f4d47ef7a079ae914920e4af7d348fa397c48b6",
+      "uri": "package:dart_ui/src/layout/custom_painter.dart"
+    },
+    {
+      "blake3": "90a93b639e9a46ff55e4936d94decb8c57c668cae3bef96cb43b00fe258fea81",
+      "uri": "package:dart_ui/src/layout/decoration.dart"
+    },
+    {
+      "blake3": "208fda21cffd44a0a15392aa4a34382d2230c0bc03b99631db239c624f681dc8",
+      "uri": "package:dart_ui/src/layout/edge_insets.dart"
+    },
+    {
+      "blake3": "e62ba3799bee0e3203982938c9de95421c2de244f7841ee4a69ab41e7700d403",
+      "uri": "package:dart_ui/src/layout/layout_errors.dart"
+    },
+    {
+      "blake3": "bafd265a2a6dac9d8e38586dcbea6acc3079b35c900291147c97161b3b3f8c69",
+      "uri": "package:dart_ui/src/layout/pipeline.dart"
+    },
+    {
+      "blake3": "6d4e07e3b2ca1325ef8692d19170f77eaf46caf829b8bc3e11dba91cabd5e4e5",
+      "uri": "package:dart_ui/src/layout/pixel_snap.dart"
+    },
+    {
+      "blake3": "19cf9093458614ad44b4528b4486e0d26f2d0f053f6a8fbf4ef091c004c54031",
+      "uri": "package:dart_ui/src/layout/render_align.dart"
+    },
+    {
+      "blake3": "0ee0cda040332e3b6b074dac84946b94da69d786523b9e1f55d1cdc3cae3ecd5",
+      "uri": "package:dart_ui/src/layout/render_aspect_ratio.dart"
+    },
+    {
+      "blake3": "39e1c5f8dd3a36c6800acee215b51aa9bf3d12a4018e615ee57b47f560276db3",
+      "uri": "package:dart_ui/src/layout/render_box.dart"
+    },
+    {
+      "blake3": "1b61b352eb94fda2ab010c05c809bc95632ae36436b2ac03a0730e3ad73160a5",
+      "uri": "package:dart_ui/src/layout/render_clip.dart"
+    },
+    {
+      "blake3": "dbc597567a4808754d2d4b6b00f01b7c7a2e94db743422bdd6a72a48698f323e",
+      "uri": "package:dart_ui/src/layout/render_colored_box.dart"
+    },
+    {
+      "blake3": "0d1cdbb08287f4080fe08f8545670b2b8ad56d1083bb13111b042b9a49d492e4",
+      "uri": "package:dart_ui/src/layout/render_constrained_box.dart"
+    },
+    {
+      "blake3": "e90fdd2e4414859a4f984132a8215b336b82095147cd804e6153d6da361e20b0",
+      "uri": "package:dart_ui/src/layout/render_custom_layout.dart"
+    },
+    {
+      "blake3": "624198c95c53c7b80cb399e325d262e8ef4b816935978dfd8d2877a54bb329d8",
+      "uri": "package:dart_ui/src/layout/render_flex.dart"
+    },
+    {
+      "blake3": "3502b22da21daa3d274757b58274340f369b8ebec5f884d0bd1a57f0c8e53332",
+      "uri": "package:dart_ui/src/layout/render_flow.dart"
+    },
+    {
+      "blake3": "6bee11e04f96c84aefad3d098374f4f2848c9273edb9e748ed6946037be6df31",
+      "uri": "package:dart_ui/src/layout/render_grid.dart"
+    },
+    {
+      "blake3": "c2ec8c122e214f9c7e879c674527157efce99798edcad866ef09e404577a2a6d",
+      "uri": "package:dart_ui/src/layout/render_padding.dart"
+    },
+    {
+      "blake3": "6c44fc00d3510cd9eb92e628a8ee69433f08bfb8d27853c1f905b90b7b486d39",
+      "uri": "package:dart_ui/src/layout/render_proxy_box.dart"
+    },
+    {
+      "blake3": "0db02580b3fecf5ba0a1d0a13375db56cf120d8973bb98f8d37ea885d2ad2956",
+      "uri": "package:dart_ui/src/layout/render_sliver.dart"
+    },
+    {
+      "blake3": "0adb5678c8de2df496233243f29a7992197996cc41d2a7168c56261dfbd8aa08",
+      "uri": "package:dart_ui/src/layout/render_stack.dart"
+    },
+    {
+      "blake3": "9eaeeb42a5d3ec8481452d7c297b896cc9019fcf713ca4bc8d45037c28895b38",
+      "uri": "package:dart_ui/src/layout/render_table.dart"
+    },
+    {
+      "blake3": "e8d429fe5afdd451934ea7438c307a0e01c3db7d2d3f4f46fc24429a0f9fba90",
+      "uri": "package:dart_ui/src/layout/render_viewport.dart"
+    },
+    {
+      "blake3": "33b4d38015a66d5b00fd16f9dc07ed6efc81307b949cfb923a23bf5782565960",
+      "uri": "package:dart_ui/src/layout/render_wrap.dart"
+    },
+    {
+      "blake3": "ce3ad7726902f51c87231b697a5b9bd94b97a508f6819c6ddc45e61a209b7e6f",
+      "uri": "package:dart_ui/src/layout/scroll_metrics.dart"
+    },
+    {
+      "blake3": "db7b98483838aebc0e546c6ee2872694383b57b35d2b5e7818404a3e58b9f073",
+      "uri": "package:dart_ui/src/pdf/document/pdf_document.dart"
+    },
+    {
+      "blake3": "a31da9309745ede077df9d05a46013c0e1d80d6c59ea3af11b41fbb0786606d8",
+      "uri": "package:dart_ui/src/pdf/document/pdf_incremental_writer.dart"
+    },
+    {
+      "blake3": "a01ca7078a351b0e635c5a52c9180a2f2f3cec62f18d09a86e0c4a848eecca05",
+      "uri": "package:dart_ui/src/pdf/export/vector_pdf_exporter.dart"
+    },
+    {
+      "blake3": "15a2f8d01cf863c892fbded3438a44aa5f9ee7df47368de44306c44291beba56",
+      "uri": "package:dart_ui/src/pdf/sign/pdf_certificate_provider_signer.dart"
+    },
+    {
+      "blake3": "d73f0b87dc9dbbfe85f5d3d4ed6c8d9d57298a2c0f5997a66591b09b243d7cee",
+      "uri": "package:dart_ui/src/pdf/sign/pdf_cms.dart"
+    },
+    {
+      "blake3": "2b3c35bb99ad293a68bca67e422f2126e46a5bc8252e018ff9087fbb40509e9e",
+      "uri": "package:dart_ui/src/pdf/sign/pdf_external_signer.dart"
+    },
+    {
+      "blake3": "207b2b845bd446b173df9a356554a837b098d4cd1eebcc3fb257583d02b186a4",
+      "uri": "package:dart_ui/src/pdf/sign/pdf_signature_inspector.dart"
+    },
+    {
+      "blake3": "1a5f7ab0e59b6ad09f97c99a05caaab6ad864e2302a3a612eebbb72dd83bd90e",
+      "uri": "package:dart_ui/src/pdf/sign/pdf_signer.dart"
+    },
+    {
+      "blake3": "d7f90c826da7813ca4d54c9f8edb5d88f965c31b75e3e90e51e7ab488b406c0a",
+      "uri": "package:dart_ui/src/platform/backend_selection.dart"
+    },
+    {
+      "blake3": "dc1dd0ec10691f5af2f77e052adc947b7bac37d55f38d779fbcff3e0eb65fad7",
+      "uri": "package:dart_ui/src/platform/drag_drop.dart"
+    },
+    {
+      "blake3": "1dc19a3f70f3cc28f32e8ba7285d9cfcc546c1edf48cd3811c0591598a8139d4",
+      "uri": "package:dart_ui/src/platform/editing_convention.dart"
+    },
+    {
+      "blake3": "43997fc356dd5c3b45674faa66122e646717e7699f46042b7ba091dfe3e3bdb7",
+      "uri": "package:dart_ui/src/platform/file_picker.dart"
+    },
+    {
+      "blake3": "5f3dd0e846279ffefedae195e72220871f2064c93d8a9976025cdf5a0ffc5235",
+      "uri": "package:dart_ui/src/platform/file_watcher.dart"
+    },
+    {
+      "blake3": "822fdb97eeadaf1708744fa24f6e7f7b952a049b9639de481ad635aa568110af",
+      "uri": "package:dart_ui/src/platform/input_events.dart"
+    },
+    {
+      "blake3": "9b85aaa4542dcb80d7c643cc96c88579ca3d9d251d429ea2362b66a929a2951c",
+      "uri": "package:dart_ui/src/platform/logical_keyboard_key.dart"
+    },
+    {
+      "blake3": "70123bc8e59997dd84a097dde1f8cb8900e80337f8190d314a297ffb0e5ee954",
+      "uri": "package:dart_ui/src/platform/message_box.dart"
+    },
+    {
+      "blake3": "db65ea575d55ea1b9cccf65368c81a1db7ab651a74dbc559519d0fc11e5ed2bc",
+      "uri": "package:dart_ui/src/platform/native_menu.dart"
+    },
+    {
+      "blake3": "33fc7f53cfe96b7e9e0964c094daa3a0dbd2853bd83fce7012d28ae7e60a759f",
+      "uri": "package:dart_ui/src/platform/native_window.dart"
+    },
+    {
+      "blake3": "b0cf0495913a7871b521dbc7623f87b2455299b19434a3f24761961ad7f4981d",
+      "uri": "package:dart_ui/src/platform/screen_color.dart"
+    },
+    {
+      "blake3": "5964b91034087bef053254c9f888b7ef7ba12828d6a93a9216199303104c1826",
+      "uri": "package:dart_ui/src/platform/shell.dart"
+    },
+    {
+      "blake3": "3b943c4d39cfebbd2f396906261a843f6aad4e0547b3a275e24c708681dd9d9f",
+      "uri": "package:dart_ui/src/platform/shortcut_activator.dart"
+    },
+    {
+      "blake3": "5b10097f2a99b4750bfdb13965fde805e4e8a24ff1012d6f280157768b18c716",
+      "uri": "package:dart_ui/src/platform/standard_paths.dart"
+    },
+    {
+      "blake3": "cb4b6ea06f53954be4f95603e3bd85a10cda52281cfc2983fcc9959a0c9857d4",
+      "uri": "package:dart_ui/src/platform/system_fonts.dart"
+    },
+    {
+      "blake3": "747f449f183bc6bc3f41729e6fd9b098ead783b8d6c6d2a1f41faa5f6acbc76d",
+      "uri": "package:dart_ui/src/platform/system_info.dart"
+    },
+    {
+      "blake3": "508afa0c6468c85d622a5fbff5974def6f13a308133f1aab76608f4c176c960b",
+      "uri": "package:dart_ui/src/platform/system_settings.dart"
+    },
+    {
+      "blake3": "f380a8077404b2e9fc71e8c6b491f7d086d05bbe33aa2f46f6c01236f792bd67",
+      "uri": "package:dart_ui/src/platform/text_input.dart"
+    },
+    {
+      "blake3": "60a955a4d95db0c05e91a635f938f59524747170f3073c32263fc0ca4e0a85e5",
+      "uri": "package:dart_ui/src/platform/trash.dart"
+    },
+    {
+      "blake3": "3ef9743e41c094545b4bf12ebada0f8d51289dc3669c0cf3a2a9ee3cbc9faf82",
+      "uri": "package:dart_ui/src/platform/window_events.dart"
+    },
+    {
+      "blake3": "be0b2b26359858251cde0d8c9b266cd89bcf64ca57dae2e4e2092a76fbedc9dd",
+      "uri": "package:dart_ui/src/rendering/cpu_canvas.dart"
+    },
+    {
+      "blake3": "b0d08af40e07ca81c4523e19cb1553ed924324320d8897a129a4941dc0fb660c",
+      "uri": "package:dart_ui/src/rendering/cpu_renderer.dart"
+    },
+    {
+      "blake3": "8cd110738258bed020735b827ff5f4bb75dcca4c7f0baccbff09d7a191416f19",
+      "uri": "package:dart_ui/src/rendering/framebuffer.dart"
+    },
+    {
+      "blake3": "54b77eb53becac4cbc4edf777bb8cc012eab468f8249122048f4ae49c6707299",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_path_strategy.dart"
+    },
+    {
+      "blake3": "2d99c6660534ac2131d980279c74cce2bd03c2fa4fb62041218c7921f38cd67d",
+      "uri": "package:dart_ui/src/rendering/path/coverage_span_sink.dart"
+    },
+    {
+      "blake3": "19ba8a181f6733e1446c800ea65701394e264b9cbd9eae7c8279cdebf1901056",
+      "uri": "package:dart_ui/src/rendering/path/fill_rule.dart"
+    },
+    {
+      "blake3": "a6fc2cdf18026271f9eff905e0f6be4d32173aec52845f4e311afe3d1f8bbd24",
+      "uri": "package:dart_ui/src/rendering/path/scanline_filler.dart"
+    },
+    {
+      "blake3": "8715fa90acf7e143956f4e243c2faab0ff209d78ac0cc2a315e4e8e9a03e06de",
+      "uri": "package:dart_ui/src/rendering/path/stroker.dart"
+    },
+    {
+      "blake3": "9c224c1dd082e608694dd8ee6253766bb1fb431829be6ceac10dd43182508024",
+      "uri": "package:dart_ui/src/rendering/present_mode.dart"
+    },
+    {
+      "blake3": "a6f16e68e08724022df74d84a6431fc26eba2e8d2cd615d41b7cdd1386f3b303",
+      "uri": "package:dart_ui/src/rendering/raster/blend.dart"
+    },
+    {
+      "blake3": "b425a6ddf26b430b97675c2636c6ba30913506c1551bcdf0bea6918161eebb2e",
+      "uri": "package:dart_ui/src/rendering/raster/clip_stack.dart"
+    },
+    {
+      "blake3": "d17de223673114df6a4eacb29316b51ed1b9d170ecf23e06047609827ec92112",
+      "uri": "package:dart_ui/src/rendering/raster/rasterizer.dart"
+    },
+    {
+      "blake3": "9cc82e10c2293c6bcc2aa450c15f3569bed25b49cf71cf07d6715a5993c776d0",
+      "uri": "package:dart_ui/src/rendering/render_diagnostics.dart"
+    },
+    {
+      "blake3": "9a12c0ed750ba584537bb687c24cc2f9f058c7dc603dd6caabf4a8ab8160fc41",
+      "uri": "package:dart_ui/src/rendering/render_object.dart"
+    },
+    {
+      "blake3": "feadaf3aa864b18428a92db4912ca57ab7bfcacccebaf0fd11b87b03e22d2137",
+      "uri": "package:dart_ui/src/rendering/render_policy.dart"
+    },
+    {
+      "blake3": "0831a90f716e7e8942c750c718691204d610735042d9ed4672f4ea5eca059950",
+      "uri": "package:dart_ui/src/rendering/renderer.dart"
+    },
+    {
+      "blake3": "d0038416be3615c7d575864c860e0a55ef2f12dd2c76b71cfe3d4ae206f4fb3b",
+      "uri": "package:dart_ui/src/rendering/replay/display_list_player.dart"
+    },
+    {
+      "blake3": "87c7c6d9da33e544a53092731ffa0cdc9ecba5fd719520c0f3c59273456dbfe0",
+      "uri": "package:dart_ui/src/rendering/replay/recording_sink.dart"
+    },
+    {
+      "blake3": "7474cbb263174cb2965a2cadaab3b748f518d95c32b537b635dd50c982f25b57",
+      "uri": "package:dart_ui/src/rendering/replay/replay_state.dart"
+    },
+    {
+      "blake3": "945e2bd5c5eb948241ba7fdf4e0a5fb2e110404964b492eef969198d3dd8a634",
+      "uri": "package:dart_ui/src/rendering/text/color_glyph_cache.dart"
+    },
+    {
+      "blake3": "60621a78ab15010b9e17999d9789e527f189dc9d805d10da42ddd929f4a70e7d",
+      "uri": "package:dart_ui/src/rendering/text/font_registry.dart"
+    },
+    {
+      "blake3": "d4f418d1dc2d27c10b95d35e73f9d40793f2d78ea3a013e6d7fc5a50b3f0852a",
+      "uri": "package:dart_ui/src/rendering/text/framework_fonts.dart"
+    },
+    {
+      "blake3": "025add92933af72c375139f805b1f4f41cb56b3560b3ba4a740cc7483b7d9b45",
+      "uri": "package:dart_ui/src/rendering/text/text_painter.dart"
+    },
+    {
+      "blake3": "7aa40aea0f4b187e5dc287cfc108d3f8144c4e363351125ad44e4b005ea6a801",
+      "uri": "package:dart_ui/src/scheduler/dispatcher_priority.dart"
+    },
+    {
+      "blake3": "ff340ad097ed562c29e643b728c3caee11d7c812123a459010a85abfc9c0f662",
+      "uri": "package:dart_ui/src/scheduler/frame_scheduler.dart"
+    },
+    {
+      "blake3": "a16bdd6cc2e43a10e74e75e7a888d2610c050e61dd5db105794705796fd3bd97",
+      "uri": "package:dart_ui/src/scheduler/manual_dispatcher.dart"
+    },
+    {
+      "blake3": "f0508c06ba919a8b3a2e5b8cc0bd152d450da395c82c7e6544f53521c961bc06",
+      "uri": "package:dart_ui/src/scheduler/timer_handle.dart"
+    },
+    {
+      "blake3": "804ace286abe11999a1880da666c2c5a5c18febe66e8d5b9c90d531246b6adee",
+      "uri": "package:dart_ui/src/scheduler/ui_dispatcher.dart"
+    },
+    {
+      "blake3": "c0a366828d329a10c59ce558df669568aab72e73c76722974654f95ea6438818",
+      "uri": "package:dart_ui/src/semantics/semantics.dart"
+    },
+    {
+      "blake3": "986183e0f197061f21a95a41e769974f87ce9e333178a94df7b8ed7d26cea3e2",
+      "uri": "package:dart_ui/src/text/bidi.dart"
+    },
+    {
+      "blake3": "be9c5abe214e7e439e7a47eb235e547abbf4fafb5ba2b6057a1e3740f64439f2",
+      "uri": "package:dart_ui/src/text/case_mapping.dart"
+    },
+    {
+      "blake3": "bf2a2fc3374ac19980c0cd20eb8811bde9c44bf04b5f3835f3394e2164ad0875",
+      "uri": "package:dart_ui/src/text/cff.dart"
+    },
+    {
+      "blake3": "7f20fd90800f2755d3f502cb466d5135e055c44ff38def649070c071a7950654",
+      "uri": "package:dart_ui/src/text/color_bitmaps.dart"
+    },
+    {
+      "blake3": "edb79d75bba56cf93475c45b8c981756fb94ac387bfd0e63f9905a186827e270",
+      "uri": "package:dart_ui/src/text/default_ignorable.dart"
+    },
+    {
+      "blake3": "51fe8c230931de6166b7425f09c0aad6275fd93e186147818a41f499dff2560a",
+      "uri": "package:dart_ui/src/text/font_fallback.dart"
+    },
+    {
+      "blake3": "08c5819365dd5796cd88fb7f47ecd30a588df03723ec426e5862a247eb5400da",
+      "uri": "package:dart_ui/src/text/font_tables.dart"
+    },
+    {
+      "blake3": "259ff270e01f345b2bb2cab7e19326b4b84fcc0133ea8f6347338c684f1b75a9",
+      "uri": "package:dart_ui/src/text/grapheme.dart"
+    },
+    {
+      "blake3": "c13618ace05bcbe0f3be2c60cdee4cc51c3123e19beab9062277c9d893ce0f1a",
+      "uri": "package:dart_ui/src/text/line_break.dart"
+    },
+    {
+      "blake3": "b39ff80d09b88d51f76037e33788ecec994997eb6db9bee8e320bbcc19bafb4c",
+      "uri": "package:dart_ui/src/text/normalize.dart"
+    },
+    {
+      "blake3": "6435627824f919e4ed36155a578b08476ba519c5bade56f3eb8e6e5c7db6d7f1",
+      "uri": "package:dart_ui/src/text/paragraph.dart"
+    },
+    {
+      "blake3": "b791ff9c43fc3c641d8102888db14e523c892caad6da8e1dab71b4a1e2500967",
+      "uri": "package:dart_ui/src/text/script.dart"
+    },
+    {
+      "blake3": "3c20ca25a418b93d1403ceec08b5cacda630b7a0ac6c1b787cd923a4c5d5eb78",
+      "uri": "package:dart_ui/src/text/shaper.dart"
+    },
+    {
+      "blake3": "17d30cffde95b1e15b49137c1f9890f93ff005bfc2e43fcb86987795fd04cab7",
+      "uri": "package:dart_ui/src/text/shapers/arabic.dart"
+    },
+    {
+      "blake3": "3d3dd7d284566bad321c2e02884693262f48c640eb8f28d02ec5c83080fcc287",
+      "uri": "package:dart_ui/src/text/shapers/script_models.dart"
+    },
+    {
+      "blake3": "a49324663ece581b906b68ac19acc9a1619895adaeeab3cebdd1f7aa0e0ce8bd",
+      "uri": "package:dart_ui/src/text/text_decoration.dart"
+    },
+    {
+      "blake3": "1be1ea0fc3cab49b472e4c8e14aa89d4f2de794d2fe16c4407053eb6f7841b9c",
+      "uri": "package:dart_ui/src/text/typeface.dart"
+    },
+    {
+      "blake3": "6a214d81d062ec1a8576488e8a574113926c82f2a713a16eddfaff8f2403bc89",
+      "uri": "package:dart_ui/src/text/word_break.dart"
+    },
+    {
+      "blake3": "fe23bc702f9f501ab0c82bd232e05f3dfbfee8b1ce70b25545e1febf5858fcd6",
+      "uri": "package:dart_ui/src/vector_editing/curve_fitting.dart"
+    },
+    {
+      "blake3": "e342112d6ffabfdb99abba87d9b31078cf4368fa2087abf028d31096ea7248c8",
+      "uri": "package:dart_ui/src/vector_editing/freehand_tool.dart"
+    },
+    {
+      "blake3": "da8e01472c0ace249568f4b40abd9fe2cccb7aefa076a8afb824866bf1c0d5e9",
+      "uri": "package:dart_ui/src/vector_editing/node_editing.dart"
+    },
+    {
+      "blake3": "452858fc1364f2b85c788185f54b76d35067f31ddc15ad12074c88f627e18489",
+      "uri": "package:dart_ui/src/vector_editing/parametric_handles.dart"
+    },
+    {
+      "blake3": "8720e5f0f856ab3b1a7a1eba6391c49ef1b54f09062ebb4d876f390da75ab29e",
+      "uri": "package:dart_ui/src/vector_editing/path_boolean.dart"
+    },
+    {
+      "blake3": "cf9550dd160b15c3da2eb40d27e92b1f96c07ddcbdfd868f41ce94709beccefb",
+      "uri": "package:dart_ui/src/vector_editing/patterns.dart"
+    },
+    {
+      "blake3": "839efeb21f74d7de3f5d5c8b6068cc28baf68538dff3f7b108a0d7f50dc83204",
+      "uri": "package:dart_ui/src/vector_editing/selection.dart"
+    },
+    {
+      "blake3": "9a1b508d4564d1281801071c9056561762d81a308fd6fb3a403a5922508701a1",
+      "uri": "package:dart_ui/src/vector_editing/shape_tool.dart"
+    },
+    {
+      "blake3": "f1d1eaaa1c567ef5e440b51a55e125763345799bef1d7e49ffcc00712eceb847",
+      "uri": "package:dart_ui/src/vector_editing/snap_manager.dart"
+    },
+    {
+      "blake3": "73795b954361c43f7a982535af912a64d73f6629ac11ee60a69c74054692f015",
+      "uri": "package:dart_ui/src/vector_editing/text_metrics.dart"
+    },
+    {
+      "blake3": "42cf06b9825b4479822647a3978f452f1532f6d5f1f19ab8174ffada875b8b8d",
+      "uri": "package:dart_ui/src/vector_editing/tool_controller.dart"
+    },
+    {
+      "blake3": "8734c8d65057d76cf4c008207ab0a5f1dc0fc1920758aa954fb8b56f4d4002b6",
+      "uri": "package:dart_ui/src/vector_editing/tool_mode.dart"
+    },
+    {
+      "blake3": "bca8c706335fe95997814f11d6ec2c999679512181862e70ff1e346f83a63743",
+      "uri": "package:dart_ui/src/widgets/actions.dart"
+    },
+    {
+      "blake3": "db93fe04092d100ffb990f5d1142e731e911673f52fe47515f27f15f874d7a3c",
+      "uri": "package:dart_ui/src/widgets/actions_widget.dart"
+    },
+    {
+      "blake3": "e6911d7d8c5776ee6ac7e1494b661c1eba31d0c7e4b099488c67b1244df32c86",
+      "uri": "package:dart_ui/src/widgets/animated_list.dart"
+    },
+    {
+      "blake3": "b51f2d9b16ef0510cff220464f05ae74429198f24f8729622da03d0792627545",
+      "uri": "package:dart_ui/src/widgets/animated_transforms.dart"
+    },
+    {
+      "blake3": "fba94a2e321ef3313bd3566b52a930624cd4a5e67e0d4817882e9f1ab2d505c6",
+      "uri": "package:dart_ui/src/widgets/animated_widgets.dart"
+    },
+    {
+      "blake3": "330debbc8f4f2150f2bbb6d84ca36a3e08e73e6249b214884f33bbf82d5ce9d1",
+      "uri": "package:dart_ui/src/widgets/animation_scope.dart"
+    },
+    {
+      "blake3": "f31210f9e233097b54bad70fbf5e45959a36c6d158729259afc2c716cc38a1a8",
+      "uri": "package:dart_ui/src/widgets/async_builders.dart"
+    },
+    {
+      "blake3": "f9e5467c2f67497e7b632aad8118b0d5e7e460fff5a27334dcba177ba0de5ea9",
+      "uri": "package:dart_ui/src/widgets/badge.dart"
+    },
+    {
+      "blake3": "f5bb037b1c8e35b99d4f05166cbcf6c53a3006c4eb36a20ec9be61a97cb9f214",
+      "uri": "package:dart_ui/src/widgets/basic.dart"
+    },
+    {
+      "blake3": "b254793296f16acd0834c8f4b688e98adcb6eb328c649273720791ebcd93204b",
+      "uri": "package:dart_ui/src/widgets/binding_observer.dart"
+    },
+    {
+      "blake3": "88e57c7407a0bc28b46a114704302a6a660735baf576636dd103a3896cdf78c7",
+      "uri": "package:dart_ui/src/widgets/bounded_draggable.dart"
+    },
+    {
+      "blake3": "a7e168c526055e666e566f87d188b7f2c06f3ac395f1348fd3aabea89671c07e",
+      "uri": "package:dart_ui/src/widgets/breadcrumb_bar.dart"
+    },
+    {
+      "blake3": "5e5ec82d524c8f5803157f15cd10d1a8a7d2d6fffe37313dfb0f7c39fd332bf1",
+      "uri": "package:dart_ui/src/widgets/calendar.dart"
+    },
+    {
+      "blake3": "8c1728acfc6cc250bcc9024574fc435e3353bbe677f33468598a4dd9ce0ee762",
+      "uri": "package:dart_ui/src/widgets/callback_shortcuts.dart"
+    },
+    {
+      "blake3": "e57b3eb47c94f873c5e219191e3fba9eac49025a2498540ea81c8e966b4c5a74",
+      "uri": "package:dart_ui/src/widgets/client_decoration.dart"
+    },
+    {
+      "blake3": "b8220a36a2fe072d01570632fa2d00a66bcd55609791aedefee5b618a8d05d39",
+      "uri": "package:dart_ui/src/widgets/clip_widgets.dart"
+    },
+    {
+      "blake3": "a7c7eeecb7cd8eb967ba51e6f58fe05b44fcb5091186cc924e8c814b0f0786dd",
+      "uri": "package:dart_ui/src/widgets/color_picker.dart"
+    },
+    {
+      "blake3": "c05abd4fbe7766d67f8ebe2595321cab6e9304f93559178879cb6443b78e94af",
+      "uri": "package:dart_ui/src/widgets/combo_box.dart"
+    },
+    {
+      "blake3": "94aa440455c01db581a08861136ae076ab1dfd9bd0f5cddd06a9245902cd495d",
+      "uri": "package:dart_ui/src/widgets/command_button.dart"
+    },
+    {
+      "blake3": "e4f310dfc59a54af1fc1fab62383256e7d9631791c81305cb78e3cc9eaeedefe",
+      "uri": "package:dart_ui/src/widgets/command_menus.dart"
+    },
+    {
+      "blake3": "153c04ee8bee5e6aaabe50e684f112d952d27eda0e2b2542d3d8cc88cf463cce",
+      "uri": "package:dart_ui/src/widgets/context_menu_area.dart"
+    },
+    {
+      "blake3": "a17569856b659d66b5de22d9e139468f40b7e21a3d007b090f950b37f4ad65b7",
+      "uri": "package:dart_ui/src/widgets/control.dart"
+    },
+    {
+      "blake3": "a91fd9fa62edca2f9057f9ce10272cbaa1fabe39a2bdd87bf3a1acdb1c3fd9d2",
+      "uri": "package:dart_ui/src/widgets/controls.dart"
+    },
+    {
+      "blake3": "a8a10402de0ba8e0e73a8e203349835515f052d2d5503b4ff9d57f024ad0bda2",
+      "uri": "package:dart_ui/src/widgets/custom_layout.dart"
+    },
+    {
+      "blake3": "15d61d9970fec736526b5b8036b007c313ea964ee25d6ee76d88e6215be3bacf",
+      "uri": "package:dart_ui/src/widgets/custom_paint.dart"
+    },
+    {
+      "blake3": "d3c402b92c31d0f1b130f78a1c5901b9583b279864fdb6424d411122c7214d64",
+      "uri": "package:dart_ui/src/widgets/dart_ui_app.dart"
+    },
+    {
+      "blake3": "75a6a3671ee9e533c5ab1f5df2e9c64abecaa3758e0c4955bcfde73b7537dc43",
+      "uri": "package:dart_ui/src/widgets/data_grid.dart"
+    },
+    {
+      "blake3": "cc6cb51b880061f4bd15b93a5a71a41f8398a3e99979ca0a33b89868a573a541",
+      "uri": "package:dart_ui/src/widgets/dialogs.dart"
+    },
+    {
+      "blake3": "9b3380298d7f6a5e23e9ae63c11408b8c132b76b2ebcda313a77d6be7fe654c1",
+      "uri": "package:dart_ui/src/widgets/directionality.dart"
+    },
+    {
+      "blake3": "31df0fd9c0db0a36304d8bfa6cd52f443d0ec60344bd02167aebff9bb3f6ebc8",
+      "uri": "package:dart_ui/src/widgets/dismissible.dart"
+    },
+    {
+      "blake3": "481cf2990a3814410220f42ea30038f48d38037d032f4d1e59d6a9348011cdec",
+      "uri": "package:dart_ui/src/widgets/divider.dart"
+    },
+    {
+      "blake3": "8fb951bfec65962da23a42bc779bc553a933c946a923ad7984e68f69c0f0fe48",
+      "uri": "package:dart_ui/src/widgets/docking.dart"
+    },
+    {
+      "blake3": "409e9db97b7cf53057c32a07566157e5b630ab2845799986c5fcaa3e3d2d408e",
+      "uri": "package:dart_ui/src/widgets/document_tabs.dart"
+    },
+    {
+      "blake3": "7ace0c773e34c97e37c86a635c3f1af597dd8a458eef6b14228c7da25570df0f",
+      "uri": "package:dart_ui/src/widgets/drag_drop.dart"
+    },
+    {
+      "blake3": "c832e900af33bc46c7da5b22af2f275ca914cf982acd3948c4c236bb1165cdd4",
+      "uri": "package:dart_ui/src/widgets/drag_target.dart"
+    },
+    {
+      "blake3": "0a752299d4771a2d6579fc6efe4aa5548e3151bae348aee7be8e7c4e8516d485",
+      "uri": "package:dart_ui/src/widgets/element.dart"
+    },
+    {
+      "blake3": "2ad8dac47be82dceac2a79b57a6483024303fe8a05232a9ca8933684e7119619",
+      "uri": "package:dart_ui/src/widgets/error_widget.dart"
+    },
+    {
+      "blake3": "30f7b5f3dce0664cf250c6fe92e2afe691c57c7cee76c14319eee190a4b131a0",
+      "uri": "package:dart_ui/src/widgets/errors.dart"
+    },
+    {
+      "blake3": "bb77aac1c954563befa6ea24a0b7375868559b807b6cc2903e983568e9f04df2",
+      "uri": "package:dart_ui/src/widgets/expander.dart"
+    },
+    {
+      "blake3": "6e7dfbe93da95846b007b891465268d83cd56ded4def025cbf0fe50adf3e840a",
+      "uri": "package:dart_ui/src/widgets/flow.dart"
+    },
+    {
+      "blake3": "6c880a15797506c28b19bdc558d3a1343515dad5b2d00f051523863fe85bd359",
+      "uri": "package:dart_ui/src/widgets/fluent_icons.dart"
+    },
+    {
+      "blake3": "d6cbe3908ac1b08a762001532ba577aa4839a5f815d4bf0728255d9987600f4f",
+      "uri": "package:dart_ui/src/widgets/flyout.dart"
+    },
+    {
+      "blake3": "43f8ef5fe54ffaf66818783164ae22e2ff16e6196a09833f46e6b27f1baa6c46",
+      "uri": "package:dart_ui/src/widgets/focus.dart"
+    },
+    {
+      "blake3": "2ded3a336838502f4ed8a6b4eb0928858fa10cb9ef8d4efbb9aaf4cc85532d22",
+      "uri": "package:dart_ui/src/widgets/focus_scope.dart"
+    },
+    {
+      "blake3": "aae6897f37cf72ff2bbd5612d3ca174a47d14c8a674b00c1f6245e743620d623",
+      "uri": "package:dart_ui/src/widgets/focus_traversal.dart"
+    },
+    {
+      "blake3": "020d101ec80212762a2b0222cf9cd5abbfcdf494d14070e9325bd04e8939390b",
+      "uri": "package:dart_ui/src/widgets/focus_widget.dart"
+    },
+    {
+      "blake3": "6abe79e04145a039d8460512c84f27801cf11b7e9d28dd2e6d0bee2b8f484281",
+      "uri": "package:dart_ui/src/widgets/form.dart"
+    },
+    {
+      "blake3": "14dd00fe84827bac3a59d4382025fcd2227921e87c8110c1f05653f0a18ad18f",
+      "uri": "package:dart_ui/src/widgets/gesture_detector.dart"
+    },
+    {
+      "blake3": "6d3f118e1daa41d14160697ce0707c735426051517e1fae974930cdaba268a2d",
+      "uri": "package:dart_ui/src/widgets/hero.dart"
+    },
+    {
+      "blake3": "052d67d23863286c8b89071b0bb828145c7f57bcf9b277a7fb5a76ed4fff16fd",
+      "uri": "package:dart_ui/src/widgets/hover.dart"
+    },
+    {
+      "blake3": "ae3d68e7cb54fd9550321da8e72aea8ee8340af74f78c1ef11bc6690143a663f",
+      "uri": "package:dart_ui/src/widgets/icon.dart"
+    },
+    {
+      "blake3": "29d9b4dcb9bca261e6f4812c81ae2ed84604686982db680c53ab92362ff3b016",
+      "uri": "package:dart_ui/src/widgets/icon_button.dart"
+    },
+    {
+      "blake3": "9e4138fb5731d3270353f45c046c811fda32b2de4843c159b518f87d231cb91b",
+      "uri": "package:dart_ui/src/widgets/image.dart"
+    },
+    {
+      "blake3": "7ec580157c0461bc83822a2c90ab0c1cbf09333e2f74b3ae14ee2cb94d103c7d",
+      "uri": "package:dart_ui/src/widgets/implicit_animation.dart"
+    },
+    {
+      "blake3": "9bda56a6934f3bc51443ad702cb121e695a5f98e238bc5a9914d7a6bac39f95a",
+      "uri": "package:dart_ui/src/widgets/info_bar.dart"
+    },
+    {
+      "blake3": "691d48441c5841e72e8fba32b20c40081a5a6eac88cfebc074d72d54771e2f65",
+      "uri": "package:dart_ui/src/widgets/inherited_model.dart"
+    },
+    {
+      "blake3": "a70b4184fff6a92dc45051973b471af7dbfd305b2814e61628d4d45a0509b2d5",
+      "uri": "package:dart_ui/src/widgets/inherited_notifier.dart"
+    },
+    {
+      "blake3": "8aeb1bbaa52a37dd61b2db8c495bfd609bc932c9520dbd8047d57a7d52e84158",
+      "uri": "package:dart_ui/src/widgets/interactive_viewer.dart"
+    },
+    {
+      "blake3": "549ebaeac00ab06fc415389186a3da479762e1a51042cc36e333c260915d9b4e",
+      "uri": "package:dart_ui/src/widgets/keyboard_router.dart"
+    },
+    {
+      "blake3": "f6f3ab83fec5b35dfb9e956c4f9f13d784ac9bf9ff8c5c6d15778ee1cabc1f18",
+      "uri": "package:dart_ui/src/widgets/keys.dart"
+    },
+    {
+      "blake3": "ce3c74182def1f2a53c87ecb54ab8c2e43a66bf8608c0ed9e57ba93f06a75fb3",
+      "uri": "package:dart_ui/src/widgets/layout_builder.dart"
+    },
+    {
+      "blake3": "3473354f4933cb80c64f4d7b40f48cef3673daac4966e323c603e1d52ec33da5",
+      "uri": "package:dart_ui/src/widgets/layout_widgets.dart"
+    },
+    {
+      "blake3": "5acf390c94315be44a822363e46bca6f344e69532afdff91b7127cede146ce55",
+      "uri": "package:dart_ui/src/widgets/list_box.dart"
+    },
+    {
+      "blake3": "003b972088ac04b19ba4b22829bee223db05be7def69fc421d323749e5fcc7f7",
+      "uri": "package:dart_ui/src/widgets/listenable_builders.dart"
+    },
+    {
+      "blake3": "57dcc65af796bae5d1f8ff913580b64530d059992f699d69e04cb4d2f611057e",
+      "uri": "package:dart_ui/src/widgets/listener.dart"
+    },
+    {
+      "blake3": "9f6279758cb197409b737b7003086f949e1d9f3e333b8070c24cf14ffe288481",
+      "uri": "package:dart_ui/src/widgets/localizations.dart"
+    },
+    {
+      "blake3": "7d7ae71d3dbcd4604f6c33e083b5f8756b79ed1fd7d5cb8c3b54ee47423f8273",
+      "uri": "package:dart_ui/src/widgets/media_query.dart"
+    },
+    {
+      "blake3": "390a516cdf58f5a3f71e97b4bb595588db939a0ffc35b5f153031e9a04a514bf",
+      "uri": "package:dart_ui/src/widgets/menu_anchor.dart"
+    },
+    {
+      "blake3": "f5d51c93e62e87aab5d060caf0c0fe4414c0647326431ed6e3be22703aa11be0",
+      "uri": "package:dart_ui/src/widgets/mouse_region.dart"
+    },
+    {
+      "blake3": "76f6a61bf0cd3703dc8718c6520adfd96abf0cfb8221f89aae7ec73787d876d5",
+      "uri": "package:dart_ui/src/widgets/navigator.dart"
+    },
+    {
+      "blake3": "88f7412d7f49e06d8f8085c43e161c49be4f66a9bb1214be15f56c15ffca6f5c",
+      "uri": "package:dart_ui/src/widgets/nested_scroll_view.dart"
+    },
+    {
+      "blake3": "6007fa9ef721030fd8171daa380e421a7a9387a1af3489f65a07c345e183ba79",
+      "uri": "package:dart_ui/src/widgets/notification_listener.dart"
+    },
+    {
+      "blake3": "a34be4ee2d646b359c89ec2b5d372c734b80cf93451394aa7825ce1c5483c1a7",
+      "uri": "package:dart_ui/src/widgets/number_box.dart"
+    },
+    {
+      "blake3": "d3638107fda58dffe4383bcc84fb0ca7bd94197960f1f5d1e360948fe10f7147",
+      "uri": "package:dart_ui/src/widgets/overlay.dart"
+    },
+    {
+      "blake3": "99bce596a529f74ebb4f4377059d5599e3960ad741639cceea7e14ff76fc4570",
+      "uri": "package:dart_ui/src/widgets/page_view.dart"
+    },
+    {
+      "blake3": "be5b31bdd0701da88e9bf7ae2ddc080d607f8775c4cb122d580e4a24c1577778",
+      "uri": "package:dart_ui/src/widgets/phosphor_icons.dart"
+    },
+    {
+      "blake3": "c74fbe5fcefba49cc0495a9f514d6e5b723c04001450849f20d366a48d0d0472",
+      "uri": "package:dart_ui/src/widgets/platform_menu_bar.dart"
+    },
+    {
+      "blake3": "506dc1fee59352e6755ac342413be857bbd158d43a9cbcbd4dbf7d376a91c2e6",
+      "uri": "package:dart_ui/src/widgets/pointer_listener.dart"
+    },
+    {
+      "blake3": "5ff67d0ad599233b112960e2df45536b338b1535d2eb8bd850a38cbe2ecf2e18",
+      "uri": "package:dart_ui/src/widgets/pointer_router.dart"
+    },
+    {
+      "blake3": "7f8f6c9e475f65761d66d220eacee7618b134aecdef142fa4891af3544cf997b",
+      "uri": "package:dart_ui/src/widgets/popup.dart"
+    },
+    {
+      "blake3": "b19becb3378f4f78f231bd729ebb810a349135be4aef783f6feea089fea32587",
+      "uri": "package:dart_ui/src/widgets/popup_host.dart"
+    },
+    {
+      "blake3": "1e3539d4ae2e7a715cd8c0ebab0a139a509d0ca6b03b30eee23b53f2e0444448",
+      "uri": "package:dart_ui/src/widgets/popup_menu.dart"
+    },
+    {
+      "blake3": "0e9d821f1918cab5cef82f7d8a0da0099b7347d2a0b30810d62bf6de5a3c7a7e",
+      "uri": "package:dart_ui/src/widgets/progress_indicator.dart"
+    },
+    {
+      "blake3": "f685d243d4fad2b48ef704b0d42aaf7474eefea1ae9f1b3c42ab34bbd211cbbd",
+      "uri": "package:dart_ui/src/widgets/properties.dart"
+    },
+    {
+      "blake3": "11d1a784e5efb96c08e7e246450b0e6f503917c69df6909f90d49a41f46b0bb2",
+      "uri": "package:dart_ui/src/widgets/proxy.dart"
+    },
+    {
+      "blake3": "7ab057755bcd2269b8117aab16a7ca6f87fd098717b8fa674a900d9653c593a1",
+      "uri": "package:dart_ui/src/widgets/ribbon.dart"
+    },
+    {
+      "blake3": "f99e890b0ff94df16e6f1b142b5c16aff9632d209502dbc29979ce00ec0d92e1",
+      "uri": "package:dart_ui/src/widgets/routes.dart"
+    },
+    {
+      "blake3": "841d5d3a2cac3799e6de5b6e7d71a2db4143f6470f6716b3d49521705ab3e3c6",
+      "uri": "package:dart_ui/src/widgets/safe_area.dart"
+    },
+    {
+      "blake3": "6426c297e8af84dfdddfc112d39622a45b556f4dbbac4c1ee35176d6a1f10847",
+      "uri": "package:dart_ui/src/widgets/scroll_controller.dart"
+    },
+    {
+      "blake3": "bbef9204a76d39141af2b2703ae55b3c1913ca7db0e3aed3fd92dad19a7162e7",
+      "uri": "package:dart_ui/src/widgets/scroll_notification.dart"
+    },
+    {
+      "blake3": "1b677c4b3990d1f0309f327164545135ff8c2af6bad61ec07fe85e3b294f04be",
+      "uri": "package:dart_ui/src/widgets/scroll_physics.dart"
+    },
+    {
+      "blake3": "c3733cc33f01f1eed135419d056f391975e0c01175f7067c1ea654e8da7a9c6b",
+      "uri": "package:dart_ui/src/widgets/scroll_view.dart"
+    },
+    {
+      "blake3": "6a8b43cdbdc1ccf5b419dbf72634f0ad2a037c61ca96e35837e38fad5cd8a136",
+      "uri": "package:dart_ui/src/widgets/scrollbar.dart"
+    },
+    {
+      "blake3": "7a64afc5724b2208df426b6fa2a24b29c920b091b3d64fcdd37aa1b6cfcf9fe3",
+      "uri": "package:dart_ui/src/widgets/selectable_text.dart"
+    },
+    {
+      "blake3": "3e5421966bef62f85acdb4a1c675cb75d5eb1e12c5e37db4bf6c709e2a545737",
+      "uri": "package:dart_ui/src/widgets/semantics_widgets.dart"
+    },
+    {
+      "blake3": "9b0af37769466031df17c482d17578962bd01ada71e89550cafb9273d0f37039",
+      "uri": "package:dart_ui/src/widgets/shortcuts.dart"
+    },
+    {
+      "blake3": "612ed845aad6e77afee8f0cff2922068c19964ef9dd0f8179f93377d7914d3d5",
+      "uri": "package:dart_ui/src/widgets/signal_visualization.dart"
+    },
+    {
+      "blake3": "88d198cff35938be0c16a55727ddd5f56ad7742505781de2ea237149e10c3ff7",
+      "uri": "package:dart_ui/src/widgets/sizing.dart"
+    },
+    {
+      "blake3": "3c2fc750f564d1902a19c370efb25d98a3e30ae31ab26a14e84ef0b9ea391e46",
+      "uri": "package:dart_ui/src/widgets/sliver_app_bar.dart"
+    },
+    {
+      "blake3": "cd3620794b2384c094c4935e11cf9150bda3a55784a918453d0f87e1e2e1297e",
+      "uri": "package:dart_ui/src/widgets/slivers.dart"
+    },
+    {
+      "blake3": "b06e7515774c1531c1a9c949771d30e0d81d2b725bb9b6556d6daf185b8eb059",
+      "uri": "package:dart_ui/src/widgets/split_view.dart"
+    },
+    {
+      "blake3": "0e11c4f84b7b80973c1b95f6a43d2211a0de09ba9c349fa59cafe18405daf5bb",
+      "uri": "package:dart_ui/src/widgets/status_bar.dart"
+    },
+    {
+      "blake3": "7cd634f1fea3c47b294def394dbb35391073fce4a70cfbc50bc3b995aae09446",
+      "uri": "package:dart_ui/src/widgets/style.dart"
+    },
+    {
+      "blake3": "58e74a85d338ef847fe287332e4e8f9d75017ef7e0898acb95c3eba832db6d99",
+      "uri": "package:dart_ui/src/widgets/svg.dart"
+    },
+    {
+      "blake3": "7333fb6d35ea72f1101e385ccb4e24ee1fedc49baa05aa8c589f3c5a7c933f2b",
+      "uri": "package:dart_ui/src/widgets/table.dart"
+    },
+    {
+      "blake3": "a5bba3d4ec26f0dba1c431631f92691906b488f7521c4997bbc968b949257900",
+      "uri": "package:dart_ui/src/widgets/tabs.dart"
+    },
+    {
+      "blake3": "d07d59117eae93f60603a5e018b79ccb96d554460d124717c5962c63bcd0b9b7",
+      "uri": "package:dart_ui/src/widgets/text_form_field.dart"
+    },
+    {
+      "blake3": "190fa2d197c1bedfae5a2f62991fadbd2985fc0c3d04d3e49aea5c6f7f88a7c1",
+      "uri": "package:dart_ui/src/widgets/text_span.dart"
+    },
+    {
+      "blake3": "c28f0048f0649cd0b43a6215eae936aff2c48679f57400dc6539a68d5615508f",
+      "uri": "package:dart_ui/src/widgets/theme.dart"
+    },
+    {
+      "blake3": "0b7611b9f9352d130ace689f4d1273967f08f1c2c1f92e16adb6382d1ba10bdb",
+      "uri": "package:dart_ui/src/widgets/ticker_provider.dart"
+    },
+    {
+      "blake3": "b870be61a4ddf93a60b742f06220dc2c4daf4bbe1c966e102717a60c88ba3e80",
+      "uri": "package:dart_ui/src/widgets/time_picker.dart"
+    },
+    {
+      "blake3": "1a93de25579cf6f47c6d9b5cd9c9c47c820293d11c65ed443a82486bffb8959b",
+      "uri": "package:dart_ui/src/widgets/toolbar.dart"
+    },
+    {
+      "blake3": "c34b88545d8e833d0c836352886db3685e096d2559ecd6cb15aff5f4ab2f28e1",
+      "uri": "package:dart_ui/src/widgets/tooltip.dart"
+    },
+    {
+      "blake3": "0eaa2e97c4ad148cd8d567a7fe4d3efb7c7c5dd2c1cb46e606d671ef639a0990",
+      "uri": "package:dart_ui/src/widgets/tree_view.dart"
+    },
+    {
+      "blake3": "c7f17c0a88dd24382e8999613f4b8f24487083d9ff25cf39cec673ed4963001b",
+      "uri": "package:dart_ui/src/widgets/value_listenable_builder.dart"
+    },
+    {
+      "blake3": "e73cd7279f2f34479d1ebeb420520d145e90fe237f553b3ea60210f996a25e63",
+      "uri": "package:dart_ui/src/widgets/vector_editor/color_controls.dart"
+    },
+    {
+      "blake3": "bc61ff8459598464462d732a0f2ff42911ecc5e4396662604d2988f3b722e6b3",
+      "uri": "package:dart_ui/src/widgets/vector_editor/fill_controls.dart"
+    },
+    {
+      "blake3": "33e2459f6a3ba25503b6380bbe7c31ec339e9d0e81fda297cf2799c106219807",
+      "uri": "package:dart_ui/src/widgets/vector_editor/ruler.dart"
+    },
+    {
+      "blake3": "100023a677ddc58710fcadefcbcade0469fad53b1253f3394268ede270e865d5",
+      "uri": "package:dart_ui/src/widgets/vector_editor/stroke_controls.dart"
+    },
+    {
+      "blake3": "699a70e272bfbba5dcf2614e7a7da9d3f530da535dfb2c4e9f426ca45ff2ba44",
+      "uri": "package:dart_ui/src/widgets/vector_editor/text_edit_controller.dart"
+    },
+    {
+      "blake3": "723d1a2e2d3fdda23eb4d7c3060c826f3626c11f37c3bec1ae94705a9f5362b0",
+      "uri": "package:dart_ui/src/widgets/vector_editor/vector_canvas.dart"
+    },
+    {
+      "blake3": "000475400bdb3ccaa5fd5f55bd00f73fa80bac9eaee7435ec0247f2cdc91376b",
+      "uri": "package:dart_ui/src/widgets/vector_editor/vector_renderer.dart"
+    },
+    {
+      "blake3": "9d35d430d11e681f8511e18046609d266fc51b6125c2cda1645e6e978b50005f",
+      "uri": "package:dart_ui/src/widgets/video.dart"
+    },
+    {
+      "blake3": "b63d75ef213e7dc09175ad3f612c477dfd27cf602bc3fe42371d77a7ba93cd68",
+      "uri": "package:dart_ui/src/widgets/widgets_app.dart"
+    },
+    {
+      "blake3": "bc0bc673ad60874ea5614ecca64c2a574ce179796613cba65db2c2eb7ec160ab",
+      "uri": "package:dart_ui/src/widgets/window_drag_area.dart"
+    },
+    {
+      "blake3": "f964f6706869796815784eea2e203807e5ffe7a813e80c260e6836c089e7d2d5",
+      "uri": "package:dart_ui/src/widgets/window_scope.dart"
+    },
+    {
+      "blake3": "b01d9b02fcaa6655437efbd4064eed2d277ed7817cdc14b773bef43465cecd53",
+      "uri": "package:file_explorer/src/engine/explorer_tab.dart"
+    },
+    {
+      "blake3": "518c84cf6d77c8bd35461cfaaff7c72b92b2072c60520510dc1cc36c83cdbe08",
+      "uri": "package:file_explorer/src/engine/file_system.dart"
+    },
+    {
+      "blake3": "ae7e5728ad9aad9f4b6f075589a9ee64735bf10e68408751e607b5787f0b4a77",
+      "uri": "package:file_explorer/src/engine/file_types.dart"
+    },
+    {
+      "blake3": "9ab1a1a004f3f4f2e45e103f173380326d62a54eb99f2cc4c6d61ddfb9eacfac",
+      "uri": "package:file_explorer/src/engine/sorting.dart"
+    },
+    {
+      "blake3": "871cff688a8a77a6ccd64a2f890631b155bc343ab4404d3b38181585b8be16d1",
+      "uri": "package:file_explorer/src/ui/explorer_window.dart"
+    },
+    {
+      "blake3": "051121b8ab537015000102c71d4ffecb35f4752b983f53b2d5ad47bba926a078",
+      "uri": "package:file_explorer/src/ui/thumbnails.dart"
+    },
+    {
+      "blake3": "bd33fd04de2717b0305bb20dc5bb4c4cea9624c7b53ebb48b45884a167e7cae4",
+      "uri": "package:dart_ui/src/foundation/collections.dart"
+    },
+    {
+      "blake3": "31ea899c52c4bd94dd2e5f8ace800541366d989a51774a2a282f725dc4ff76da",
+      "uri": "package:dart_ui/src/graphics/mesh/mesh3d.dart"
+    },
+    {
+      "blake3": "f6916f7790904f71701ccbed2d9271dd4789d603eb9db88ac930f1a60ae72ed5",
+      "uri": "package:dart_ui/src/platform/clipboard.dart"
+    },
+    {
+      "blake3": "e70db9b9c9e2c33bb20c14ca374ddcb08482b3859a13b86c73d960a187ac410f",
+      "uri": "package:dart_ui/src/rendering/mesh/mesh_rasterizer.dart"
+    },
+    {
+      "blake3": "b42ed1d257e799ac8841c53ac41b026f67dd5a0f780de58bf61fa5691b5e5219",
+      "uri": "package:dart_ui/src/rendering/mesh/mesh_scene.dart"
+    },
+    {
+      "blake3": "e9ceaa8259159506f0b299bb72f3193157007a263ba86dcb65e63dfe640905c8",
+      "uri": "package:dart_ui/src/rendering/mesh/mesh_scene_host.dart"
+    },
+    {
+      "blake3": "8cc12eeeff5a21bceb566b9ad7defc350687ae19f3412b775c491e8263fa43c2",
+      "uri": "package:dart_ui/src/semantics/accessibility.dart"
+    },
+    {
+      "blake3": "8f1adc1d5403635011026e7bfd4415416a9d223a0da0324f7b739b8b8747f5b7",
+      "uri": "package:dart_ui/src/widgets/context_menu.dart"
+    },
+    {
+      "blake3": "54fb250caf8b726d324bfb228b0f9e127d37ff7e58bb8629c074058f1ce537ef",
+      "uri": "package:dart_ui/src/widgets/mesh_scene_scope.dart"
+    },
+    {
+      "blake3": "c153932afb5184d6c859ff34c3b2b81542f9a6261df83dfb1ec2e36af54beb85",
+      "uri": "package:dart_ui/src/app/application_info.dart"
+    },
+    {
+      "blake3": "8208d9f96456bea6b145a347b35a270adbb5ee71e99a5aa9c3326b7cad89e4fe",
+      "uri": "package:dart_ui/src/app/frame_loop.dart"
+    },
+    {
+      "blake3": "79ac16c04b4a4a5a0a56cbb3247159b72cdb2ede2012d42d1796e13bfb9f000c",
+      "uri": "package:dart_ui/src/app/window_host.dart"
+    },
+    {
+      "blake3": "bf5cc5519ad4948b4cf7d09e0e5dc382533c117afce793351c634131f0ead0d2",
+      "uri": "package:dart_ui/src/app/window_popup_host.dart"
+    },
+    {
+      "blake3": "fa13773a273ede65ebadbd6b861ffa7aecaa4499dd25136ddf8fd8f745f2e87c",
+      "uri": "package:dart_ui/src/rendering/gpu/d3d11/d3d11_backend.dart"
+    },
+    {
+      "blake3": "ba5524bc3c9c7ca2c0a34ee5475ffc5bb97e0264deaeb6c3f19db44ced361b83",
+      "uri": "package:dart_ui/src/rendering/gpu/d3d11/d3d11_mesh_pipeline.dart"
+    },
+    {
+      "blake3": "fb11ef15745535226f058487527386eae43897c43d773dd7c72b0bdf00fb6719",
+      "uri": "package:dart_ui/src/rendering/gpu/d3d12/d3d12_surface_descriptor.dart"
+    },
+    {
+      "blake3": "901eae614a9751a42347bf48fd2c8e7887e30ec4e965c230b0c1f48da690e380",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_backend.dart"
+    },
+    {
+      "blake3": "0402f40e15c4f22762f9619294b59ae2ba9f160f4e49902bcb673e60a1ccfb08",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_context.dart"
+    },
+    {
+      "blake3": "7ee0b9a027d08475a5c63bfa2225786ab9acb7a900891c181412f988172d068c",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_mesh_renderer.dart"
+    },
+    {
+      "blake3": "b6565e6c4b1358b7733cab392dd35c52bcfe97b54618fbc280a67f1b9e995703",
+      "uri": "package:dart_ui/src/rendering/gpu/metal/metal_backend.dart"
+    },
+    {
+      "blake3": "5721408a065b9057ad2693a761d3b5176f5e1c5bd06d8b0a841298d6e9dc7901",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_backend.dart"
+    },
+    {
+      "blake3": "692189f82b088c4bad8cbf82d9a8122418251dd4774e3a98f42d56bb841cba57",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_instance.dart"
+    },
+    {
+      "blake3": "43fddb42d87e7898d9e916d632773e873b9e21a82fd188757feaa234f1751cad",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_library.dart"
+    },
+    {
+      "blake3": "cf9339a8d1c48398a25ad266ba0de1db3aeda0041c1a04a4ad4c803adcabeea6",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_mesh_pipeline.dart"
+    },
+    {
+      "blake3": "1a91277f599c108f696cbb86450540b17ae0db9849ef9052b876bd5ebec2ba55",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_surface_descriptor.dart"
+    },
+    {
+      "blake3": "357f0d44cc4346f02c7aac386957658463807b83cca90051754e34053b9d1d35",
+      "uri": "package:dart_ui/src/backends/android/android_backend.dart"
+    },
+    {
+      "blake3": "d54ff2e3cb1252e3f07658a329db60ef20c657a717af0d99089a5585a8ad1f45",
+      "uri": "package:dart_ui/src/backends/android/android_window.dart"
+    },
+    {
+      "blake3": "95f6cba1b4d8deed0397989a34f97a381313e485246052c3a0736d7c50f7cfec",
+      "uri": "package:dart_ui/src/backends/ios/ios_backend.dart"
+    },
+    {
+      "blake3": "81b6b0ec56b9ef653b992d904113105b09193008e4319963d45a2a25786b40d0",
+      "uri": "package:dart_ui/src/backends/ios/ios_window.dart"
+    },
+    {
+      "blake3": "e565b82147a37e7f097653ddc3991b4d7ff372724bc6a1f81bb725dc485a91e8",
+      "uri": "package:dart_ui/src/backends/macos/embedded/embedded_backend.dart"
+    },
+    {
+      "blake3": "07af887645a76492006e0d650c3c748d62581904e65df0c6c53589d688121481",
+      "uri": "package:dart_ui/src/backends/macos/embedded/embedded_window.dart"
+    },
+    {
+      "blake3": "72818f7f77862f9c0fa2b4abed528e53224b782a7f3b9cc614ca46b862bd9832",
+      "uri": "package:dart_ui/src/backends/macos/macos.dart"
+    },
+    {
+      "blake3": "5e82084a0b9dff0b666031841342e4503c8c830fecfb80409f8c83c8edcd269b",
+      "uri": "package:dart_ui/src/backends/macos/macos_cpu_window.dart"
+    },
+    {
+      "blake3": "e1dc124a5d7fe762befb2f1a919be0d4a7cc88b9e7d421921515162bbc4d4b8e",
+      "uri": "package:dart_ui/src/backends/macos/surface_pool.dart"
+    },
+    {
+      "blake3": "3c265c7859595f2d060bacd6237ee5185d316f4c574a3393b27836981c9931cd",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_backend.dart"
+    },
+    {
+      "blake3": "14b1a82609b745e45e63fc248d59022a6081614dddb1f3bd25615259c84a5f59",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_cpu_presenter.dart"
+    },
+    {
+      "blake3": "0c4f9affae3dccd0b97a389627a2659cb0a00d6ed352eb4a3887f1628d1a250d",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_window.dart"
+    },
+    {
+      "blake3": "54b5a6aa82849d35aeb7ec84becabf6ed4dfe98829f11ed3858ffb58210522d6",
+      "uri": "package:dart_ui/src/backends/win32/d2d/d2d_backend.dart"
+    },
+    {
+      "blake3": "34ede8deade6c8084a96737a3ce44a7f605c38fbc14904c217c00744af366393",
+      "uri": "package:dart_ui/src/backends/win32/d2d/d2d_targets.dart"
+    },
+    {
+      "blake3": "fdcefe49b42b37b4b61c31308ceb764eb698dd8c486bfcbd761c587528b21dc4",
+      "uri": "package:dart_ui/src/backends/win32/d3d11/win32_d3d11_surface.dart"
+    },
+    {
+      "blake3": "6b7bedc42835dbfa14e87acac66a53598a045550692cf584c276773e948f6d5a",
+      "uri": "package:dart_ui/src/backends/win32/d3d12/d3d12_backend.dart"
+    },
+    {
+      "blake3": "134584d0180afbde6de2635a1db62210d5262ea2859a831a982a3933cbbfcd7e",
+      "uri": "package:dart_ui/src/backends/win32/d3d12/d3d12_device.dart"
+    },
+    {
+      "blake3": "ac8c8c5842211343800933c3c5e3ff1b7add980a431145b95fa779f90faa2e7f",
+      "uri": "package:dart_ui/src/backends/win32/d3d12/d3d12_mesh_pipeline.dart"
+    },
+    {
+      "blake3": "377bdc80024abe0e3e241fe5d91fc7444d71e46ac36613bfdef3e4ace926b74f",
+      "uri": "package:dart_ui/src/backends/win32/win32.dart"
+    },
+    {
+      "blake3": "3e1dae03a629d0c583877307c70d910bf2f011587275ba086dd2d6f45e25447e",
+      "uri": "package:dart_ui/src/backends/win32/win32_gl_surface.dart"
+    },
+    {
+      "blake3": "37441360104972db02fa1fedef390c2d856d5edf68e937e01f7fdfd3c16a6a42",
+      "uri": "package:dart_ui/src/backends/x11/x11_backend.dart"
+    },
+    {
+      "blake3": "a9e74f229efdbb7e9202cfdd46d7a759196a003d83de7fe1200432524e3ad002",
+      "uri": "package:dart_ui/src/backends/x11/x11_cpu_presenter.dart"
+    },
+    {
+      "blake3": "3fd55200b0bcd50c3f407298c3d93123736693cc39a42010cd417bb945441d74",
+      "uri": "package:dart_ui/src/backends/x11/x11_gl_surface.dart"
+    },
+    {
+      "blake3": "10fefec9ef62a834ff080d6827430db4ebb7bd5f8f17b1679f4016bc4942ac4a",
+      "uri": "package:dart_ui/src/backends/x11/x11_window.dart"
+    },
+    {
+      "blake3": "230dd457c22b1408d90355b73ff030344dd7754dc6bb8308325bab1293bcb13a",
+      "uri": "package:dart_ui/src/audio/audio_codec.dart"
+    },
+    {
+      "blake3": "87e7fa8bfbdd474285ecba790d57d00312385c1ddb108d9b105a4853f253b6c5",
+      "uri": "package:dart_ui/src/audio/audio_device.dart"
+    },
+    {
+      "blake3": "f814b85ad1d0c2ee0ed210de9cbd796472e34f84b3db8a2fb992ee645d121e40",
+      "uri": "package:dart_ui/src/audio/audio_format.dart"
+    },
+    {
+      "blake3": "998c45b1749404918449eddcd1c8cedeecdd3e38078ac6a134f8d22a423159e5",
+      "uri": "package:dart_ui/src/audio/audio_gain.dart"
+    },
+    {
+      "blake3": "a9ce02c7084bb802580e2b5b4dedb39825489fb6b120d48e1037c84f58e2d5b9",
+      "uri": "package:dart_ui/src/audio/audio_session_volume.dart"
+    },
+    {
+      "blake3": "e5191fba65f0aaf34c59869b1a940d6436e574824fa7ad08eb5c23e65f26812c",
+      "uri": "package:dart_ui/src/platform/clipboard_formats.dart"
+    },
+    {
+      "blake3": "38b062c3c8fd61738b2e9bcc62f272d9fb727a6dfd9eb93c404be8260fca355f",
+      "uri": "package:dart_ui/src/cdr/container/riff_reader.dart"
+    },
+    {
+      "blake3": "07a922c2dd5d7d549f79cfc0918336700bfeb30e20947e3eb11213180f27c3fc",
+      "uri": "package:dart_ui/src/cdr/container/zip_cdr_archive.dart"
+    },
+    {
+      "blake3": "20635ec0a4f7273dade17a2ee1811062c4828c0880d7ce250dc84aeab1feadaa",
+      "uri": "package:dart_ui/src/cdr/geometry/cdr_path.dart"
+    },
+    {
+      "blake3": "4e7b5784fcdb55fe0a64e69272c29ccad2673bad5cde5f285e2e9f278417c08c",
+      "uri": "package:dart_ui/src/cdr/container/riff_writer.dart"
+    },
+    {
+      "blake3": "ef4eee7b4c2bf46c0a474d946d2816cb5f93a7fce4891153ebc8ceab196d1db9",
+      "uri": "package:dart_ui/src/cdr/styles/cdr_color_parser.dart"
+    },
+    {
+      "blake3": "0d7b189f9cbc98d08b35c43042928c8646db071024e5970a87ebf006969369cd",
+      "uri": "package:dart_ui/src/platform/key_gesture.dart"
+    },
+    {
+      "blake3": "a37855f1f8a72069f0085b87a7c2a0ea544076e211f4f504621ccedefd08ea2b",
+      "uri": "package:dart_ui/src/crypto/ffi/ffi_crypto_backend_native.dart"
+    },
+    {
+      "blake3": "4aee7cd99ec66073e42ba1cd5645919e0907e571d19bcfb4dc6fdb268a38710b",
+      "uri": "package:dart_ui/src/crypto/linux/linux_certificate_discovery_io.dart"
+    },
+    {
+      "blake3": "e1b997d373093601c354522f48a4e90f210ad3e45706c1ad4c99608278858d77",
+      "uri": "package:dart_ui/src/crypto/macos/macos_certificate_provider_io.dart"
+    },
+    {
+      "blake3": "e7c73e0d295675d962cdcd213a0a61b38b4ae21cb43a771305799f64523c24e8",
+      "uri": "package:dart_ui/src/crypto/pkcs11/pkcs11_certificate_provider.dart"
+    },
+    {
+      "blake3": "3269802bde9b3a5128d2ff31befa815714de09347d4d49dc608b88b8ec6269b5",
+      "uri": "package:dart_ui/src/crypto/pkcs11/pkcs11_platform_io.dart"
+    },
+    {
+      "blake3": "846002a383b3cd07d777360f9df9e840e15ab737248561cf556763b83a413410",
+      "uri": "package:dart_ui/src/crypto/pkcs11/pkcs11_types.dart"
+    },
+    {
+      "blake3": "9bb33d4daf5c1b9ec464fc4b8718cc31fc0dff130e8ebb0a67d55a636c755b11",
+      "uri": "package:dart_ui/src/crypto/windows/windows_certificate_provider.dart"
+    },
+    {
+      "blake3": "c5250bb90cf306add2045e05d192c167a4db2f335166163990398b5cf1f2a0ba",
+      "uri": "package:dart_ui/src/crypto/windows/windows_certificate_store_platform_io.dart"
+    },
+    {
+      "blake3": "00f59b13c7d6d9effdd3b8ab8dff8f214a37bb2398aacb8b04d99a70c33e4746",
+      "uri": "package:dart_ui/src/crypto/windows/windows_certificate_store_types.dart"
+    },
+    {
+      "blake3": "775cd684f7c8d03a53491e6d01b03ee919b89edf9455ec9c97946249bf86901a",
+      "uri": "package:meta/meta.dart"
+    },
+    {
+      "blake3": "a8ed2dc50af479e55444d2ef13230ad4f02bd0dfbe23fdc0bdefa397d14ded6b",
+      "uri": "package:dart_ui/src/foundation/compute_io.dart"
+    },
+    {
+      "blake3": "89747a5f5906a742d6805864c66c982f7a1f61bfc973db8e2be434c9144f4d00",
+      "uri": "package:dart_ui/src/gestures/arena.dart"
+    },
+    {
+      "blake3": "1e196eeddb35669935c49aef27d187fcc0d34de6dc04ba7e0bdcec11141d7a60",
+      "uri": "package:dart_ui/src/gestures/binding.dart"
+    },
+    {
+      "blake3": "7b8aadec74b812b24d27cb57bb2a3c2ab16299f9d4b19aa358dd180d45b371a0",
+      "uri": "package:dart_ui/src/gestures/constants.dart"
+    },
+    {
+      "blake3": "ab940c0b1d9fe1f4b0ccafc067c39c14fbb7817746b9037898a1b787428bc8aa",
+      "uri": "package:dart_ui/src/gestures/drag.dart"
+    },
+    {
+      "blake3": "50e651af8346c30687f45ff43ab10de8e47ae5b9296e4aa026f05ca65d93c193",
+      "uri": "package:dart_ui/src/gestures/long_press.dart"
+    },
+    {
+      "blake3": "fa93ed29bd5481121bb6c0d6bbb9c0d0075a307540dae4bc5fb7595cdc237d7b",
+      "uri": "package:dart_ui/src/gestures/pointer_signal_resolver.dart"
+    },
+    {
+      "blake3": "52cd85daffa2cfedff0edd31d995a3ecd9bf4d036da0fa5d89febf66faadb0fd",
+      "uri": "package:dart_ui/src/gestures/recognizer.dart"
+    },
+    {
+      "blake3": "fb5a8a01ee44f1a49e459e5a8c8dfda718bd5f360cb1ec519cfcd048a46b0820",
+      "uri": "package:dart_ui/src/gestures/scale.dart"
+    },
+    {
+      "blake3": "b077fd05157527bdac48ea15325d368d4b6b6bf0fc5801c6990436e5932848a9",
+      "uri": "package:dart_ui/src/gestures/tap.dart"
+    },
+    {
+      "blake3": "631a6daf697b83b24bfa710fd369e80dc3caa1ecf1981c2ea6c21838b52b50a3",
+      "uri": "package:dart_ui/src/gestures/velocity_tracker.dart"
+    },
+    {
+      "blake3": "e0364acea86e21e61170376d13a1914111f64b69374ed2531cf7a8d4ee57234f",
+      "uri": "package:dart_ui/src/geometry/stroke.dart"
+    },
+    {
+      "blake3": "83232aca73815cfdb99721735e13a5506b92c63a882f5501713735cb5ee0e349",
+      "uri": "package:dart_ui/src/graphics/image/deflate.dart"
+    },
+    {
+      "blake3": "53a346eb78c3a63650f7c2fcafbd6fc4026649db19cd64df3c7e2f0a170339a0",
+      "uri": "package:j2k/j2k.dart"
+    },
+    {
+      "blake3": "e23180de848ac2fecf1228faeda880960a2c6e1bb2bddb75c624d11756df5fd5",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image_lib.dart"
+    },
+    {
+      "blake3": "aec1070d46d263d7a512a5e47fe72da3ed84f1831fce74d640cf190a57d86160",
+      "uri": "package:dart_ui/src/graphics/image/native_raster_codec_async_stub.dart"
+    },
+    {
+      "blake3": "19c8e81058dff05de1e0d39d18f4655dc82ec1744e18aac24e25a2aa500d5104",
+      "uri": "package:dart_ui/src/graphics/image/native_raster_codec_io.dart"
+    },
+    {
+      "blake3": "bfa7435283d3becea08e36def2e8e9da452078b889d3197b4641f63c15585101",
+      "uri": "package:dart_ui/src/graphics/xml/xml.dart"
+    },
+    {
+      "blake3": "b7563fe04363ee4c60293f81ee043b19c6870138047f6386b6372d1ece0d8e86",
+      "uri": "package:dart_ui/src/graphics/svg/svg_values.dart"
+    },
+    {
+      "blake3": "e4f3fd252f293657a581cd5fb4ca668aeec2141415bc77ca16af0d6ad5ddfbe3",
+      "uri": "package:dart_ui/src/geometry/fill_rule.dart"
+    },
+    {
+      "blake3": "e5962e8ad4c863fdabf7acfc1e31592669700b52935d3daae9a88c0ba0768cdb",
+      "uri": "package:dart_ui/src/graphics/video/video_decoder_platform_io.dart"
+    },
+    {
+      "blake3": "d7fea9c54bdbcdf1824844525464726033d01e2375f191ed1ca2708d14a63e14",
+      "uri": "package:dart_ui/src/foundation/frame_time.dart"
+    },
+    {
+      "blake3": "ef5b186f4d9c7715f9d6e9088e3667bff97e7ab22b72f50305222cba2d42053a",
+      "uri": "package:dart_ui/src/layout/list_virtualization.dart"
+    },
+    {
+      "blake3": "0ee91d1ab8ebe107a08798fb6806d5e5d5f03e773d372a1250ebce3791e15170",
+      "uri": "package:dart_ui/src/pdf/crypto/pdf_encryption.dart"
+    },
+    {
+      "blake3": "69f4d4ba7817aa7f34e6ec06d78e5a46ad4cba5d614a275162d0285342809508",
+      "uri": "package:dart_ui/src/pdf/format/pdf_limits.dart"
+    },
+    {
+      "blake3": "8d52bc31819241c067a614d4f2d41e0b0b1caf0cfa76aa5d984d98c0cc6d5ce1",
+      "uri": "package:dart_ui/src/pdf/format/pdf_object.dart"
+    },
+    {
+      "blake3": "1c48f7fb16fd8093cb664eac664d04d50d1f11baf2c416f8a96ad630a9203f5b",
+      "uri": "package:dart_ui/src/pdf/format/pdf_xref.dart"
+    },
+    {
+      "blake3": "7b88d333114ddc1ad81962e5489a769991bf49a6d4c586cb92b0cb8e67f51cae",
+      "uri": "package:dart_ui/src/pdf/io/byte_reader.dart"
+    },
+    {
+      "blake3": "56b19841668157d8d256504bf2bef1b25bea1a7c3b72cd58d66177408c0d50fc",
+      "uri": "package:dart_ui/src/pdf/document/pdf_page.dart"
+    },
+    {
+      "blake3": "00cbdf6d4a1dc53f2e67c9bcd6ec32b3338e1ac28dcfeca8353d4bbd58904f90",
+      "uri": "package:dart_ui/src/pdf/annot/pdf_annotation.dart"
+    },
+    {
+      "blake3": "f6e4a39e7a468712f163ac4af2757bd68d7dabd46c3d4f7efa72445e471523f4",
+      "uri": "package:dart_ui/src/pdf/export/pdf_canvas_recorder.dart"
+    },
+    {
+      "blake3": "e9ccffae8d9c17c202c7ab8512e1daaceacd754fc128ecbe538a5960e590f0cb",
+      "uri": "package:dart_ui/src/pdf/export/pdf_document_builder.dart"
+    },
+    {
+      "blake3": "d88232011bc6e78b854b3bbbf2c4de0db52c3525db2f81c2121cd936d07f9f5e",
+      "uri": "package:dart_ui/src/pdf/sign/pdf_byte_range_signer.dart"
+    },
+    {
+      "blake3": "80104ff5a6465edacbf320559239bc24fba65e96f372d1ddea56ce9d12ec26cf",
+      "uri": "package:dart_ui/src/pdf/sign/icp_brasil_logo.dart"
+    },
+    {
+      "blake3": "8f7c5eaf338023b972491840344d32bdd5174de7644c39ceeff5cc5dfc481756",
+      "uri": "package:dart_ui/src/platform/drag_drop_types.dart"
+    },
+    {
+      "blake3": "22cefb3296a1a72620b20ea1565383a2450ea512239eddaca1d6b19107844a22",
+      "uri": "package:dart_ui/src/platform/editing_convention_platform_io.dart"
+    },
+    {
+      "blake3": "549907e3bb4d20e7572b095e01039d27267e4a061fca9d8a9b2c565d5c12b3d8",
+      "uri": "package:dart_ui/src/platform/file_picker_platform_io.dart"
+    },
+    {
+      "blake3": "33214f50cdb9ca48e7867ed5d381ca169ca9844e3ba7a454f663dfbc0fa5667c",
+      "uri": "package:dart_ui/src/platform/file_picker_types.dart"
+    },
+    {
+      "blake3": "5dda9f619401afa8aa43f5db776611053b9488cbddccc2233ac766f2eedba310",
+      "uri": "package:dart_ui/src/platform/file_watcher_platform_io.dart"
+    },
+    {
+      "blake3": "9634c6a60fecb3137fc2fbdd8ca6a300449aa6c4d8ab38c9b196c9394fdae5f8",
+      "uri": "package:dart_ui/src/platform/message_box_platform_io.dart"
+    },
+    {
+      "blake3": "2aca0e26343e89eb0cf5560b5bf75bf83968ace40f9b317e8a7ed972d57ac7a4",
+      "uri": "package:dart_ui/src/platform/message_box_types.dart"
+    },
+    {
+      "blake3": "00bc6ba66cb3203a9b72019f33e6b35d5e89139bd283a5523001fa0a193510b5",
+      "uri": "package:dart_ui/src/foundation/value_notifier.dart"
+    },
+    {
+      "blake3": "23cedeee671341a7c58a5f1741a77d110b4e3d83bb40277e92348582f82b04c3",
+      "uri": "package:dart_ui/src/platform/screen_info.dart"
+    },
+    {
+      "blake3": "3001fe73fdedc5d57cf659abf50ad5e7b384f166b377280d9e2315637d41a9d7",
+      "uri": "package:dart_ui/src/platform/shell_platform_io.dart"
+    },
+    {
+      "blake3": "8836d3cb6c2ff72205987f0f61ad260899ca21f25ef0acd266a4e9576877c005",
+      "uri": "package:dart_ui/src/platform/shell_types.dart"
+    },
+    {
+      "blake3": "bf4110a3851255e770b93d77753032a316d754a4acef352e9eab61cc7ee8f5f9",
+      "uri": "package:dart_ui/src/platform/standard_paths_platform_io.dart"
+    },
+    {
+      "blake3": "acf15803c3f4ebcf06026d11d73512371d8d63b129489ba9485c2f24766f81e9",
+      "uri": "package:dart_ui/src/platform/standard_paths_types.dart"
+    },
+    {
+      "blake3": "998fc7631fecdaea6a9a5f07cae8fe3a838c2edb265ce34b53e9420e48c8c74f",
+      "uri": "package:dart_ui/src/platform/system_info_platform_io.dart"
+    },
+    {
+      "blake3": "e482251e42b3f78c51771fd7cda309b6aa750812ee7b7b2eb7b7a063f3f1ab25",
+      "uri": "package:dart_ui/src/platform/system_info_types.dart"
+    },
+    {
+      "blake3": "7dbef143fc483409db082fccfcdea0d0d8f4d7938ecc1c59e1fc0e82baaf48c3",
+      "uri": "package:dart_ui/src/platform/text_input_types.dart"
+    },
+    {
+      "blake3": "7c116f382f3736d169a78e8e5ceeb0b1bcb69975989ad69358f0b2a95f854406",
+      "uri": "package:dart_ui/src/platform/trash_platform_io.dart"
+    },
+    {
+      "blake3": "40dee65fecbad04282f90c81c5a10cf629700073076d56d4ad4dda5d63531160",
+      "uri": "package:dart_ui/src/platform/trash_types.dart"
+    },
+    {
+      "blake3": "0eeba94afe535f7e243e7b5e652e4fb0ffe72512ceaff684cb22c485d8c22bab",
+      "uri": "package:dart_ui/src/rendering/gpu/vector/analytic_primitive.dart"
+    },
+    {
+      "blake3": "c8c151ef14555a80e223469adb58e8f99030376e309beadb319401e6aa6d9d44",
+      "uri": "package:dart_ui/src/rendering/raster/rounded_rect_coverage.dart"
+    },
+    {
+      "blake3": "8cc316773b5dadf9884631782083ffeb554227e8e395f56cff9da37e4e73a98c",
+      "uri": "package:dart_ui/src/rendering/text/glyph_cache.dart"
+    },
+    {
+      "blake3": "573059067facfee5e7c648d34e15d60a61718aa123a91f436cd6502b5c2c2739",
+      "uri": "package:dart_ui/src/rendering/text/glyph_raster.dart"
+    },
+    {
+      "blake3": "18840ae1faa16e7b8a5a5a891986739a8ada592a29b32ec840cb132ee1d73abf",
+      "uri": "package:dart_ui/src/rendering/raster/coverage.dart"
+    },
+    {
+      "blake3": "94412c0e2dae57dbe3a21d0fe234b3f37d2c3f9022f1f814e90a212aba0a3057",
+      "uri": "package:dart_ui/src/rendering/path/dasher.dart"
+    },
+    {
+      "blake3": "2ad4dc300ea45d693ce9a804d0fb31c739ef1fef7e19fc1e9f1930689ff35c1a",
+      "uri": "package:dart_ui/src/text/cmap.dart"
+    },
+    {
+      "blake3": "9e00de456394c8cf66cedc80829232fdafea166ff76b3f67ef1b74645916d5d2",
+      "uri": "package:dart_ui/src/text/font_data.dart"
+    },
+    {
+      "blake3": "fafe91452e93e0392a2a68bf0e53233e7d69ac4218796f450619c789e211debc",
+      "uri": "package:dart_ui/src/text/sfnt.dart"
+    },
+    {
+      "blake3": "3c58ea329e97013c3408065ba9d64f787d502346091c7b2112ca7ef302b31e11",
+      "uri": "package:dart_ui/src/rendering/text/framework_fonts_io.dart"
+    },
+    {
+      "blake3": "45da9c9e73d553b50423994045192accb5a410688a2b328fe5a5e528af1997c2",
+      "uri": "package:dart_ui/src/text/tables/case_table.dart"
+    },
+    {
+      "blake3": "103d5e191932deeabdede97e86d0f6a8091e6fdbf1c8d6ad911f9dc3ddcb4dff",
+      "uri": "package:dart_ui/src/text/tables/normalization_table.dart"
+    },
+    {
+      "blake3": "76a4d8c15b8f97e820edcc27d9ec573926ebf054940f94c298cd814775a92b9f",
+      "uri": "package:dart_ui/src/text/tables/mirroring_table.dart"
+    },
+    {
+      "blake3": "71823daa81923e432b9d54fc827604adafb0dad187c27f00f14b8e7b530d80cf",
+      "uri": "package:dart_ui/src/text/tables/script_table.dart"
+    },
+    {
+      "blake3": "22ace45bcf6dbb6e5b771e277ed0dbffaf6303e5652e2c37591cf06ad987c1ca",
+      "uri": "package:dart_ui/src/text/gpos.dart"
+    },
+    {
+      "blake3": "140b5375451ef9546a12d286a85b28ec33c0dfbbcf5e164b8e8c81657f3d6175",
+      "uri": "package:dart_ui/src/text/gsub.dart"
+    },
+    {
+      "blake3": "ff7ea239fddeda751e9d1ffa57217a214cb70a1ab3a8bfb579f8b2626e3690e0",
+      "uri": "package:dart_ui/src/text/kern.dart"
+    },
+    {
+      "blake3": "1f9c7cdca8fd4706de66d7fbd7edbf16ee72b6bead7361d06f4c9d7ffda0e97f",
+      "uri": "package:dart_ui/src/text/layout_common.dart"
+    },
+    {
+      "blake3": "aba11ee462c18304ffc3cea8234433480fbb04837fead7ff637cf229464ea2ba",
+      "uri": "package:dart_ui/src/text/tables/joining_table.dart"
+    },
+    {
+      "blake3": "5be37d733c1f7e5532419129440c5beb559111721f79ca6e7935531e14748967",
+      "uri": "package:dart_ui/src/text/glyf.dart"
+    },
+    {
+      "blake3": "7e74da7689d4504c0f4698cf87770f55a09ec6897a172196132959afce8a18e7",
+      "uri": "package:dart_ui/src/text/tables/word_break_table.dart"
+    },
+    {
+      "blake3": "5d53f815df3eeb83830b22d349a699541110b8fc243a44816c14f67f65f8ef7d",
+      "uri": "package:dart_ui/src/widgets/text_field.dart"
+    },
+    {
+      "blake3": "7eb59f6d2896a961bd1701b6183d9402d02f2ab86f05381b1afaf6e133d0a6ce",
+      "uri": "package:dart_ui/src/widgets/menu.dart"
+    },
+    {
+      "blake3": "cc7b160da6084c2363c943b800e814d6cece698e419e76c9a170a7354d30749c",
+      "uri": "package:dart_ui/src/widgets/virtualization.dart"
+    },
+    {
+      "blake3": "8a0f736c1b7186112f88315755a17036569203080292677d3b5f4a9dfc02ad81",
+      "uri": "package:dart_ui/src/widgets/docking/collapsed_tab_strip.dart"
+    },
+    {
+      "blake3": "d96479c0519b372eea8148c9a5bd0371e20be6af4b930195052660c1e9092ebb",
+      "uri": "package:dart_ui/src/widgets/docking/docking.dart"
+    },
+    {
+      "blake3": "afae2c94ba6cb6c6abb442673bdd06ca5ddbadfa17f4a6387ef05cea7bfdbecf",
+      "uri": "package:dart_ui/src/widgets/docking/docking_layout.dart"
+    },
+    {
+      "blake3": "9c4dd19e8765c6662f164e4accbe3280505ccdc4dd23a3e9a08dfa77263ebd32",
+      "uri": "package:dart_ui/src/widgets/docking/docking_theme.dart"
+    },
+    {
+      "blake3": "f7438cca22164d28361c9060c4aa41a7cf0ae43be47a32665f8a7aee2b33a635",
+      "uri": "package:dart_ui/src/platform/logical_keys.dart"
+    },
+    {
+      "blake3": "e9640402e303c43226641be6addbbc74482920e7062cd781c558bbab8c7dfdb4",
+      "uri": "package:dart_ui/src/widgets/text_editing.dart"
+    },
+    {
+      "blake3": "526e01107131f1533aaee3648de442d61e4f49073565e8ee6622617eb5b0c71a",
+      "uri": "package:file_explorer/src/engine/explorer_commands.dart"
+    },
+    {
+      "blake3": "2a81fd35103bf3b848f7df2f9eae4eaae1cadbf4c4445903f531380cce8b3a59",
+      "uri": "package:file_explorer/src/engine/explorer_host.dart"
+    },
+    {
+      "blake3": "ef9fbfcb351b054049ca18145bd3d7e33229ec0bc85ae9ed27f3664f35e8ee8a",
+      "uri": "package:file_explorer/src/ui/bar_button.dart"
+    },
+    {
+      "blake3": "cc474b11418232c85f857c470379e1924a0ace16fb8371e1600f032e560e3758",
+      "uri": "package:file_explorer/src/ui/command_icons.dart"
+    },
+    {
+      "blake3": "3ff592cff4e949a6e0283bca2bae279bcc2d67c81ed0e49e9f164caf8accea36",
+      "uri": "package:file_explorer/src/ui/details_pane.dart"
+    },
+    {
+      "blake3": "65bfeb2b9e585592467357c43461dacc1dacd8db7acde47657cac146fd1af44c",
+      "uri": "package:file_explorer/src/ui/folder_view.dart"
+    },
+    {
+      "blake3": "83df88ca2fef93719cec49a92a288b6e9f9988cb1190b3af4f42b5e241095102",
+      "uri": "package:file_explorer/src/ui/home_page.dart"
+    },
+    {
+      "blake3": "51000567532e84e8130836048c3ccab459bc779b238246fc9dbd8a2e959da5d1",
+      "uri": "package:file_explorer/src/ui/menus.dart"
+    },
+    {
+      "blake3": "6f2464d349a1f9538baf51bb5220a0863c45d5e0abe77783609323fad4befebd",
+      "uri": "package:file_explorer/src/ui/properties_dialog.dart"
+    },
+    {
+      "blake3": "f95e1e6cd1a7a77cbe6aa5b821ab67a5e50dec26510a092554515b8ddd47fc33",
+      "uri": "package:file_explorer/src/ui/sidebar.dart"
+    },
+    {
+      "blake3": "83b128b26376e955a9fb89c9d58e4cd4f8f328567a4a5d929d7d1ddc34228911",
+      "uri": "package:dart_ui/src/ffi/com.dart"
+    },
+    {
+      "blake3": "05eb4a9db1ecd6d6916d3a08aaf8acce85f0227d1e6229128ee73da8a490aac0",
+      "uri": "package:dart_ui/src/ffi/native_memory.dart"
+    },
+    {
+      "blake3": "0ba175cf8fc7727dc8e4153297a6d9618f21fb006f73b6992537eea28bb8a795",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_batcher.dart"
+    },
+    {
+      "blake3": "3aa570f17886562da090dc4a4b43d269eaba11a37a0f124a5dc168d6e7a65cf0",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_device_state.dart"
+    },
+    {
+      "blake3": "df5123faa8ec2801e4c3954ba36b7bef3e3a0be71b4746406caf0a4bde035a7a",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_glyph_atlas.dart"
+    },
+    {
+      "blake3": "2f552daddfc1385e951ae3b47d2c90fa87683405628beaa6eae23da4bfe6ae1a",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_gradient.dart"
+    },
+    {
+      "blake3": "7696a6d86d2ba58900e47fc3747f48bd73265e9e2db73a7ccecf795319b9c503",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_layer_stack.dart"
+    },
+    {
+      "blake3": "13e479cd3b4e2d6bba93eb5fdaa0072870d73b8ae46312302187612aa3cc2ef8",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_mask_atlas.dart"
+    },
+    {
+      "blake3": "5f7957704233893ab2937ecfc478fe49b58cd3d9dc956b771a89e242ec924240",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_path_planning.dart"
+    },
+    {
+      "blake3": "c4c4bb67fb4c64837952055ae3809f46ee463772ada49bbdc1556f1f540145a5",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_pipeline.dart"
+    },
+    {
+      "blake3": "e02cb32a1bff0cf5d03e26a544aee381e5ad77dbda64f0e430218171681e4a0f",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_raster_sink.dart"
+    },
+    {
+      "blake3": "482733c9382090fcfa75aba0853d0a080c3f2a7ce405c7428bf4fa067a86839b",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_recovery.dart"
+    },
+    {
+      "blake3": "32d65910da8527d2e8a9446c6f11fbeaa10541c4f2127f5ed9489732a320d659",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_texture.dart"
+    },
+    {
+      "blake3": "0fb3778f43bbff665b07ed536d25649215e393147aed5e407b688a0a1992c534",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_vector_command_stream.dart"
+    },
+    {
+      "blake3": "b9b199c2a05958dcc80f30ad5fde53b4956513a26ce5cda7d31bc99b6691f031",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_vector_submission_cursor.dart"
+    },
+    {
+      "blake3": "2044249fc4447e0d71adc83a0c88727f11a562deb884518c72f37b173fd253c1",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_video_image.dart"
+    },
+    {
+      "blake3": "9bc24e9cc116b6bbb8df0603ffa66f2d7145602658634bbb53156454b7f88e62",
+      "uri": "package:dart_ui/src/rendering/gpu/d3d11/d3d11_bindings.dart"
+    },
+    {
+      "blake3": "2b67a93f19be6eea2314359bb01d66f7bd13ff87b5f13ebcbf96f8a235be9358",
+      "uri": "package:dart_ui/src/rendering/gpu/d3d11/d3d11_shaders.dart"
+    },
+    {
+      "blake3": "80d9a37dd2b74f051890a75b31e0a30e18e850e85e030e952d6d6604428eb503",
+      "uri": "package:dart_ui/src/rendering/gpu/d3d11/d3d11_surface_descriptor.dart"
+    },
+    {
+      "blake3": "434e70e04c3a15edb856c124e3151e16fa642ad41654b3501cbcb57d506c390f",
+      "uri": "package:dart_ui/src/rendering/gpu/d3d11/d3d11_vector_executors.dart"
+    },
+    {
+      "blake3": "d0d0b2a4fc307a58fdce1c83375526ac6cd97c1cd2e35ca0ccca8e8816171e4c",
+      "uri": "package:dart_ui/src/rendering/gpu/d3d11/d3d11_vector_replay.dart"
+    },
+    {
+      "blake3": "b6e663e96b0cfa60499d873a7b8e95da71cb791593d2bb458b729ab92ad27c4a",
+      "uri": "package:dart_ui/src/rendering/gpu/d3d11/d3d11_window_target.dart"
+    },
+    {
+      "blake3": "2cf5b085c4def4c1373e90806d5b917bd2f6f3435989dd5c8f902ee43d303393",
+      "uri": "package:dart_ui/src/rendering/gpu/d3d11/d3d11_mesh_shaders.dart"
+    },
+    {
+      "blake3": "c0dac63f968006e12b929c564bc5eac9af8d9d98108e376ecccbb32ff15d9c86",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_path_repetition.dart"
+    },
+    {
+      "blake3": "ddc8ce8191f82c86909f1937350081f66ebab1291fcc736887786da09304fe6b",
+      "uri": "package:dart_ui/src/rendering/gpu/vector/cpu_tessellation.dart"
+    },
+    {
+      "blake3": "4f285a3464de4265df035fbe3ef56b5dfcd26ed020eb254fb96d73548a3af425",
+      "uri": "package:dart_ui/src/rendering/gpu/vector/sparse_strip_draw_plan.dart"
+    },
+    {
+      "blake3": "17140780b3ea8427730025e2c6507ebf999c5a54137c544222b767ae625825e1",
+      "uri": "package:dart_ui/src/rendering/gpu/vector/stencil_cover_draw_plan.dart"
+    },
+    {
+      "blake3": "70105d3ca7ab3db9d577af42330ba2b9b5893166c9f8a6f452d33c1b13ca0d24",
+      "uri": "package:dart_ui/src/rendering/gpu/vector/vector_plan_cache.dart"
+    },
+    {
+      "blake3": "148685bcfe96b51ff20098c5fd32efc6fa2b9da2164bbf157f5b706fdb765095",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_bindings.dart"
+    },
+    {
+      "blake3": "64b588ddf9c891df1a473fefc707a9fba23a64fad0ff45d1eaed101ce1ce4f63",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_framebuffer_pool.dart"
+    },
+    {
+      "blake3": "d36849c1ab8279d46ef2d0951b3f27576b9cec5b5a9daab2bd2988506dc334e1",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_shaders.dart"
+    },
+    {
+      "blake3": "525ac7e01aa7c8140dee3203c132a113903199c1d154c10279acc204e10a8dd0",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_sparse_driver.dart"
+    },
+    {
+      "blake3": "38cfa573c76e8f4ab7ff2dbcc10443fb8b5b6975b9c16b91392917e83428d8b1",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_sparse_executor.dart"
+    },
+    {
+      "blake3": "0358a8a29348e055f0c171352089223c4dd05b299ef6b9b384c6f867911cab82",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_stencil_cover_driver.dart"
+    },
+    {
+      "blake3": "e2b758b142e22ad4975e532f16aaa4c2a956833db722b4d5c8e47a8ea4364edf",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_stencil_cover_executor.dart"
+    },
+    {
+      "blake3": "294e9a7f2466c62ac399f9696b9b2a3a2fb64de4ef09e12d30c0c85a087548e5",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_surface_descriptor.dart"
+    },
+    {
+      "blake3": "55181ed17904cdf1a7940feca6f907ec61066bacfd0558eb96766285a9426c76",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_tessellated_driver.dart"
+    },
+    {
+      "blake3": "a6b54f4331c6742e4ab14be393cdde1c583746893b2866789c0b9c87426f50af",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_tessellated_executor.dart"
+    },
+    {
+      "blake3": "2de862070999bc6bca510c071f38c3aa1326760d837b37128ba354702b282492",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_vector_path_recorder.dart"
+    },
+    {
+      "blake3": "9b0345c9af0e48aaa723d99f2c5a926911612886d534aecef1083b994424b294",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_vector_replay.dart"
+    },
+    {
+      "blake3": "51feda37aeb81f29f4963e1665f54fd2fb215da02e90c0b5996b80ef8d98c126",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_window_target.dart"
+    },
+    {
+      "blake3": "caf96056a2ca8d3a72a04a160ee2739133efdccc29e0f5fcacddde4a5d43495a",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_mesh_pipeline.dart"
+    },
+    {
+      "blake3": "0eaa98f22f86495b7f724024ed3b7e4518142dbdafd05867170c07506a70fcea",
+      "uri": "package:dart_ui/src/ffi/objc_runtime.dart"
+    },
+    {
+      "blake3": "738f84a298efeedcc0ee3c001a4b2235e6aa53c35938d67d40fa884aaedc929b",
+      "uri": "package:dart_ui/src/rendering/gpu/metal/metal_bindings.dart"
+    },
+    {
+      "blake3": "6ffd28c8d4b7e05022619399f7d163ddb161b18f69343ca9cf1601a1610e67b2",
+      "uri": "package:dart_ui/src/rendering/gpu/metal/metal_device.dart"
+    },
+    {
+      "blake3": "856c637dd1771ee20abc1f64eafca21a32475c8015ae6d8c932a8b99435fd146",
+      "uri": "package:dart_ui/src/rendering/gpu/metal/metal_mesh_renderer.dart"
+    },
+    {
+      "blake3": "d85b4b394817a8a83672f173e03b32f075deba970e75988881f2afcb707e5e2b",
+      "uri": "package:dart_ui/src/rendering/gpu/metal/metal_offscreen.dart"
+    },
+    {
+      "blake3": "864440e96270b5c414a2bac524688786298969501630faf10fbec551bba96734",
+      "uri": "package:dart_ui/src/rendering/gpu/metal/metal_surface_descriptor.dart"
+    },
+    {
+      "blake3": "212edab90f8c4c661b0fe7f15e1bcd66809bbe3c9102982c3a2c4135754be645",
+      "uri": "package:dart_ui/src/rendering/gpu/metal/metal_window_target.dart"
+    },
+    {
+      "blake3": "54c4c1aedc47dded7cf5b100fd3bd7636dd08863969ff68a85af01ac953172bb",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_constants.dart"
+    },
+    {
+      "blake3": "f56b905e92b5f6658f07b72605da365355f6e5fd89959c2ec6e88643bcf51bfc",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_device.dart"
+    },
+    {
+      "blake3": "5edb2021eae5b91f559e1a7f41e27ff7dbadd282bf9fe4c09f872a7b6975acd0",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_ffi.g.dart"
+    },
+    {
+      "blake3": "b15daa8c8281e34699b3df5059d8ff85d72d2936b5bd38dbcd221beac7b1fe69",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_memory.dart"
+    },
+    {
+      "blake3": "8d609a70ea1f277dd31650dd5a785a482bc7b2df6bd2d80bcee4ffa4a99d12e4",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_pipeline.dart"
+    },
+    {
+      "blake3": "49bb3e6bc5fcdc922120036b1f748eabdb0d7675a4c9b7c711ee47c8941f3453",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_shaders.dart"
+    },
+    {
+      "blake3": "1004f201b59eba9b67f565dbae2752e8868f8780a85331cf1e1ea948cb2b97b5",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_sparse_driver.dart"
+    },
+    {
+      "blake3": "a24d31d94000d7fd225a164f762ba8ccd4cce8634233ad51f73b3c0d66d4eee0",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_sparse_executor.dart"
+    },
+    {
+      "blake3": "c195835ac48f2df89391dcdf80ca272b74e7cbcd856634c6d95d3a6ddb963c91",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_swapchain.dart"
+    },
+    {
+      "blake3": "b9184dea95932eeca8008e4b2aae988d12e3d2c0aebcd3a7390bc6012b2587d4",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_vector_path_recorder.dart"
+    },
+    {
+      "blake3": "262af0b46458bfa492e145d03c1e48c6d6354adc45f58f9fc4bb78c609380859",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_wsi_bindings.dart"
+    },
+    {
+      "blake3": "261b24947b94f4e94bfdd8b3e6d19edd55c739856b9b886fdab66db18e519f28",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_bindings.dart"
+    },
+    {
+      "blake3": "9d326a3769a9f1cffb65e1ce16f4b0b68ed5285a618895986b2b409356bf2ac3",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_mesh_shaders.dart"
+    },
+    {
+      "blake3": "70411e9353511828827437acfdf44eeca91bf6a96da8772bf283210b9445303c",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_libc.dart"
+    },
+    {
+      "blake3": "2b0b6191329257e838e813621656a31caf564fa8d422b915ae679347264119a0",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_transport.dart"
+    },
+    {
+      "blake3": "578ac164c5f5d7bd4811f164c2e4af454d8df78d732258d77944aed9e04b3e55",
+      "uri": "package:dart_ui/src/backends/android/android_host_protocol.dart"
+    },
+    {
+      "blake3": "3736a6ac3dbefa095f57d5e645e7ff2e1de9780ae5ee230b5baf066989adbd95",
+      "uri": "package:dart_ui/src/backends/android/android_shared_memory.dart"
+    },
+    {
+      "blake3": "a425ac80bcce8612f3d399b3f442033c477afc1be84cf6793f756716d8af9a76",
+      "uri": "package:dart_ui/src/backends/android/android_text_input.dart"
+    },
+    {
+      "blake3": "cae208ed45b2c3ee725df837d4091c646353e69aa0d74f2221315ab3c193e8ea",
+      "uri": "package:dart_ui/src/backends/retained_cpu_window.dart"
+    },
+    {
+      "blake3": "65650e9c3c7cdd3cfc62faf0b04bfbe79aa4b9c19d23fe97605c8295ac3bba5f",
+      "uri": "package:dart_ui/src/backends/android/android_input.dart"
+    },
+    {
+      "blake3": "18d027b4ee1f373f4d3993fd5c445627793960f5b6c5bd85dffb1835c56d8c49",
+      "uri": "package:dart_ui/src/backends/ios/ios_uikit.dart"
+    },
+    {
+      "blake3": "abf2a65a443168d505f6568870c583cbf72332dc8d83a00b45fa5badb78d4607",
+      "uri": "package:dart_ui/src/backends/apple/cocoa_ffi.dart"
+    },
+    {
+      "blake3": "9ff55084e0877cd5edc166411c929d510ca5585bd2f0f4f7d1819195c88f5297",
+      "uri": "package:dart_ui/src/backends/macos/macos_backend_kind.dart"
+    },
+    {
+      "blake3": "7a8f141737ac1191c47d90e0effb095794c2a91af2b9f3a9b956ff61675e8187",
+      "uri": "package:dart_ui/src/backends/macos/embedded/embedded_appkit.dart"
+    },
+    {
+      "blake3": "42645a0b9b0d4402f320dde1b389ce575a6b579cb6832116e69502729f50b0f5",
+      "uri": "package:dart_ui/src/backends/macos/embedded/embedded_runtime.dart"
+    },
+    {
+      "blake3": "cf273104a3412262d8beb0b05a9127837cce777e1adbb73beab9cda0609ee6f3",
+      "uri": "package:dart_ui/src/backends/macos/appkit_event_decoding.dart"
+    },
+    {
+      "blake3": "6dcb9d146b46d14c44a3a0f1b92d06387394fde4ef32909bde32c4d0f9d98075",
+      "uri": "package:dart_ui/src/backends/macos/io_surface.dart"
+    },
+    {
+      "blake3": "273353e742dc94c5d8945f3e3fd1ba70583a90aec078e4a1c1de6652b2707cbb",
+      "uri": "package:dart_ui/src/backends/macos/macos_event_translation.dart"
+    },
+    {
+      "blake3": "5f684c4734f52977c9f20b6086e97c6706860091c00358a5c6774bbb29897408",
+      "uri": "package:dart_ui/src/backends/macos/macos_window.dart"
+    },
+    {
+      "blake3": "9f3c0f317cc7641b723968dcaa146332c3937cb7ac7644aa43ee0874f04df2bf",
+      "uri": "package:dart_ui/src/backends/macos/macos_backend.dart"
+    },
+    {
+      "blake3": "d8ef3298f75dfa8a2b301870779f57c18738c6d15b0ce0a4ce76a76d69e0802e",
+      "uri": "package:dart_ui/src/backends/macos/macos_backend_selection.dart"
+    },
+    {
+      "blake3": "7c342993ab21d0400955138fea8ba52cffb26c25181ded2a5cc1d335d79efcee",
+      "uri": "package:dart_ui/src/platform/compose_sequences.dart"
+    },
+    {
+      "blake3": "3c69a2d6e6ad1b01e8055d2eacff5086c5dd906cd5bbf2039afafe8f007ea22c",
+      "uri": "package:dart_ui/src/platform/compose_sequences_platform_io.dart"
+    },
+    {
+      "blake3": "82a807ecb34e2e5ea5064f3d5655b0f4552960e91cf3d205a56637093e9cedad",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_clipboard.dart"
+    },
+    {
+      "blake3": "bb0e3638f7056372d014622102d65cfbe2e7a686f359be0e7db6d9e8c6701c48",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_connection.dart"
+    },
+    {
+      "blake3": "dc61596664474a1430a2c38f23ebee808628b7856c6789d29fce8ae709ee2205",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_cursor.dart"
+    },
+    {
+      "blake3": "f89863b722879d1355f9fd245ccb20b6bd38e2d011bd466c8e51bbdaa5e142cd",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_cursor_theme.dart"
+    },
+    {
+      "blake3": "af50bb46c494decb677a76da01d153f2dd584900052ff6699edc813a26743dd9",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_drag_drop.dart"
+    },
+    {
+      "blake3": "0e4ce40a6e21ef0d81355b8df788f68c30d01a1472f089dcf562870af4a42dd6",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_drag_drop_backend.dart"
+    },
+    {
+      "blake3": "9bb2f83d0c54eafa00dba826d9b0810dd825472ff0b3306bec462973539497bc",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_events.dart"
+    },
+    {
+      "blake3": "f8f854aca9973db07b683b248dba0ed7970e9f17309d218f0392d5cc83d65dba",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_key_repeat.dart"
+    },
+    {
+      "blake3": "69988bcd9874efecb6e928ec18d93c4505f5b07e2ac72877ba8d9271fe7dd917",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_memfd.dart"
+    },
+    {
+      "blake3": "8d8cec8fe42e83202ee72cdf0b9bc45ee3c295d3338edd493c4f09d2c1fce810",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_protocol.dart"
+    },
+    {
+      "blake3": "89c076c0a5e5635f39f0aa265ba508efbe88090e25ff76fe74234ce9d7358555",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_shm.dart"
+    },
+    {
+      "blake3": "7e89b523e39934ab26253192f2445c76bfc924c90af68c3b953559215c27f90d",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_text_input.dart"
+    },
+    {
+      "blake3": "28f7f7f03d5d7048b4fcc6b0dacc08335ab1f493918ce827ffc9119088d555df",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_positioner.dart"
+    },
+    {
+      "blake3": "9daba94ed958a0aa51b705cfe3ad339009b8cf03f13d5dd44e6ff6adecd858bb",
+      "uri": "package:dart_ui/src/backends/win32/d3d12/d3d12_com.dart"
+    },
+    {
+      "blake3": "0a67446e68d9cf29490bf39acebf3a87c1f53c210a79a05b74edcdb250743e91",
+      "uri": "package:dart_ui/src/backends/win32/d2d/d2d1_interfaces.dart"
+    },
+    {
+      "blake3": "ba34cb12d39b2c5953de4dc9d9ad05df49842cb64528f12dc0bbc013b0c0342c",
+      "uri": "package:dart_ui/src/backends/win32/d2d/d2d1_library.dart"
+    },
+    {
+      "blake3": "d5bb988817b87acda5237b62f08ae21a76ef54eb91e7eac9a6dff58d622ad7f1",
+      "uri": "package:dart_ui/src/backends/win32/d2d/d2d1_structs.dart"
+    },
+    {
+      "blake3": "fef5a969b2e826749876fa1419a95196d38575374d49513f7293957415112f34",
+      "uri": "package:dart_ui/src/backends/win32/d2d/d2d_raster_sink.dart"
+    },
+    {
+      "blake3": "e46a2ac3d2194b6f126ab8c7ab8e8e6e7a60ef54e562deaa2ce1777bea1b75c1",
+      "uri": "package:dart_ui/src/backends/win32/win32_api.dart"
+    },
+    {
+      "blake3": "ffbfbcb84bcf851e8079bc415b10c1e649fa907cdf010a71f4ce8c35964f0837",
+      "uri": "package:dart_ui/src/backends/win32/win32_constants.dart"
+    },
+    {
+      "blake3": "8deef6f083a45259137b171ef7179867fe574cd3ed6dc52c94d6aabb45c8dd2a",
+      "uri": "package:dart_ui/src/backends/win32/win32_structs.dart"
+    },
+    {
+      "blake3": "f2ce865c023a3a1dff872033727f78fdb3fc61697445a617527172c3b6b61161",
+      "uri": "package:dart_ui/src/rendering/gpu/d3d12/d3d12_compute_tile_executor.dart"
+    },
+    {
+      "blake3": "2986aa4fd78eb222bab61a34bd1c655b59479c4e058f60b7ea0af1a62a9902a1",
+      "uri": "package:dart_ui/src/rendering/gpu/d3d12/d3d12_shaders.dart"
+    },
+    {
+      "blake3": "1c0720a96741508aaadb3b1981681ca0f96cebbff5627711e19dd1f32843d270",
+      "uri": "package:dart_ui/src/rendering/gpu/d3d12/d3d12_sparse_executor.dart"
+    },
+    {
+      "blake3": "32b43007007275b8cbbaf6128cf082d0e2adb68f2ebf32160fe127818d04dd20",
+      "uri": "package:dart_ui/src/rendering/gpu/vector/compute_tile_scene.dart"
+    },
+    {
+      "blake3": "40a3fcb5b97ae69e085c4d78afcb863ebed26e01cad00b885733cab5616b7296",
+      "uri": "package:dart_ui/src/backends/win32/d3d12/d3d12_arena.dart"
+    },
+    {
+      "blake3": "138516e395250c14414638533ea16653bd8a15f051d94400fcebff6ac47ce2bf",
+      "uri": "package:dart_ui/src/backends/win32/d3d12/d3d12_compute_tile_driver.dart"
+    },
+    {
+      "blake3": "a20c47e1839035b053e2fcca02ab53d26646e28e4137027c50fca1efdad4603f",
+      "uri": "package:dart_ui/src/backends/win32/d3d12/d3d12_frame_ring.dart"
+    },
+    {
+      "blake3": "e26d7524af58b9f1272bde925f2422ff6382ed5cd980e6a839fbb93cf600b9ec",
+      "uri": "package:dart_ui/src/backends/win32/d3d12/d3d12_interfaces.dart"
+    },
+    {
+      "blake3": "a1c96f0003c0be17c23a45bc5c8574a6777de5d16738401fc87eaac5ee18a38d",
+      "uri": "package:dart_ui/src/backends/win32/d3d12/d3d12_library.dart"
+    },
+    {
+      "blake3": "ea5549b3e7967df117bc8e1b63262ad66d995ec68df531d848390ffd9f8a6ec6",
+      "uri": "package:dart_ui/src/backends/win32/d3d12/d3d12_offscreen_target.dart"
+    },
+    {
+      "blake3": "3d9696018aac8be4b7803554b1d3235c8fd9db4c3deb8029fa24bb15187eb1a4",
+      "uri": "package:dart_ui/src/backends/win32/d3d12/d3d12_sparse_driver.dart"
+    },
+    {
+      "blake3": "e10eb01868cf1f0ca7c00c78d969b6af2b06137f8c42a226bd6f9cbe5784001c",
+      "uri": "package:dart_ui/src/backends/win32/d3d12/d3d12_structs.dart"
+    },
+    {
+      "blake3": "34cce83cadfdf51a3a305758e577681cbd77606f61b8c78a97b132d888055c24",
+      "uri": "package:dart_ui/src/backends/win32/d3d12/d3d12_window_target.dart"
+    },
+    {
+      "blake3": "245db6159117d4e9fac12a0337f3c92ff68cb2593069908165715c086a777c2d",
+      "uri": "package:dart_ui/src/backends/win32/d3d12/d3d12_mesh_shaders.dart"
+    },
+    {
+      "blake3": "4f67a9b068d9332116fa27eefbebcedbe83360b2d9059ee7fbf060b01516a826",
+      "uri": "package:dart_ui/src/backends/win32/win32_abi.dart"
+    },
+    {
+      "blake3": "40772df57461027a4fce12b6e7e8185e3eff868c4fb995de6480246f49761adc",
+      "uri": "package:dart_ui/src/backends/win32/win32_backend.dart"
+    },
+    {
+      "blake3": "42a2040cf6ad9bc37aca0ddf4cd1ff4cf4174dca8df9bab8ecb1f37b12970844",
+      "uri": "package:dart_ui/src/backends/win32/win32_clipboard.dart"
+    },
+    {
+      "blake3": "fcf65765e37a3778ebcf71eff23c857a8310221ab9396df2177312804b682b81",
+      "uri": "package:dart_ui/src/backends/win32/win32_coordinates.dart"
+    },
+    {
+      "blake3": "b95e30a1f25199e80d75a8879a4babc1138a935cf5c6363f59178210fec8cb22",
+      "uri": "package:dart_ui/src/backends/win32/win32_cpu_presenter.dart"
+    },
+    {
+      "blake3": "34017578e26d3264179ea58c60084e0a8b8db82db47931af08353dfb083845c7",
+      "uri": "package:dart_ui/src/backends/win32/win32_diagnostics.dart"
+    },
+    {
+      "blake3": "2a7bff0f617eaf8783270a313fbf629f12dc5f8406511f8f6493659b9ca55550",
+      "uri": "package:dart_ui/src/backends/win32/win32_dib_surface.dart"
+    },
+    {
+      "blake3": "861cd7a7061eb205bf9a8357c16168c53cd085de383709b75d3a7c4b366e0dcc",
+      "uri": "package:dart_ui/src/backends/win32/win32_ime.dart"
+    },
+    {
+      "blake3": "90eda16f1e099715d35e4658ab131dead3b3dbbbf18facee5b4c9f1fa2015191",
+      "uri": "package:dart_ui/src/backends/win32/win32_window.dart"
+    },
+    {
+      "blake3": "6b2fc20af0f015a2947516197c14d9477e80dbb55224a0a987068b901e269612",
+      "uri": "package:dart_ui/src/backends/win32/win32_window_class.dart"
+    },
+    {
+      "blake3": "d6104ef71ac2f501d7b12bcd65a8d33be115c6a59b19247c56572d9830ec3890",
+      "uri": "package:dart_ui/src/backends/x11/x11_bindings.dart"
+    },
+    {
+      "blake3": "35300d08e64e5bc4e22a928e8fc6414024941d1a9ac6c922d1611e5d33d4f6cd",
+      "uri": "package:dart_ui/src/backends/x11/x11_clipboard.dart"
+    },
+    {
+      "blake3": "a128afc33525d8cdfa32732ecf18cde84d6ad354da0a33602d4fe17ebfec2af9",
+      "uri": "package:dart_ui/src/backends/x11/x11_connection.dart"
+    },
+    {
+      "blake3": "c108afdc43a7a7abcd4bf2bec25450a61f7ea6be6e6a9d66ca2177f0cbdd0578",
+      "uri": "package:dart_ui/src/backends/x11/x11_drag_drop.dart"
+    },
+    {
+      "blake3": "34e6307b291c2339715400f113911d996e9d2849ae8379a60fad6ed9f86d3e55",
+      "uri": "package:dart_ui/src/backends/x11/x11_events.dart"
+    },
+    {
+      "blake3": "c0a088909c0e3e3a1c6010944166049f5d60ff4f8cda344183e74f8fb9c6a750",
+      "uri": "package:dart_ui/src/backends/x11/x11_keyboard.dart"
+    },
+    {
+      "blake3": "7b700669096b55f8b41ad9124ee6a5bb0b50f2a010168e566ad6e645542140f0",
+      "uri": "package:dart_ui/src/backends/x11/x11_libc.dart"
+    },
+    {
+      "blake3": "7bd39e11b6fa4b5af96444ea4ed75169268e0d8b7627eac9269f020c9834f8d5",
+      "uri": "package:dart_ui/src/backends/x11/x11_protocol.dart"
+    },
+    {
+      "blake3": "debe587b0b7886dcf0ab7a56843bd7c38a3313659f96f095b96200f2c1a86a4d",
+      "uri": "package:dart_ui/src/backends/x11/x11_randr.dart"
+    },
+    {
+      "blake3": "3ebbd12ce435928e06c45862a0b42e9469552b553d2d73c15b71b2026a8eea29",
+      "uri": "package:dart_ui/src/backends/x11/x11_scale.dart"
+    },
+    {
+      "blake3": "dee75de8820327b96eb2d11bbf7f8d3676c25de18f1b7827c5f80c22276c623b",
+      "uri": "package:dart_ui/src/backends/x11/x11_surface.dart"
+    },
+    {
+      "blake3": "044d57b7ad72feb3dfbf033e7084f05ddb93f702604ea184c9107f622552a7c4",
+      "uri": "package:dart_ui/src/backends/x11/x11_coordinates.dart"
+    },
+    {
+      "blake3": "0c5a9aecd0c5333e96958581cc3d7cf2342e48663ca7a322998658dca6028a41",
+      "uri": "package:dart_ui/src/graphics/container/zip_archive.dart"
+    },
+    {
+      "blake3": "f920495e59a5879926e90aad14061cf0cda8566dc6be2c7fe38ee8eddda1dea1",
+      "uri": "package:dart_ui/src/cdr/styles/cdr_styles.dart"
+    },
+    {
+      "blake3": "6f2b85d68ee25c53b81cd17779181deae3459cc2b1ca25c3105907a58aa92b3a",
+      "uri": "package:dart_ui/src/crypto/dart/pure_dart_crypto_backend.dart"
+    },
+    {
+      "blake3": "367c7352d327b0862baa2e3da60863618d86425e638f24c88751fe37f49b9033",
+      "uri": "package:meta/meta_meta.dart"
+    },
+    {
+      "blake3": "5cc5ada45873d42cb00049ff954c62064642fad58fdc7316a7580961975f64ed",
+      "uri": "package:dart_ui/src/graphics/image/deflate_platform_io.dart"
+    },
+    {
+      "blake3": "acf5981149b37bc01f577b8b989289ad69628cc11a4901bedb71f21bb5104c0b",
+      "uri": "package:j2k/src/api/jpeg2000_codec.dart"
+    },
+    {
+      "blake3": "d78184f36b59ad6e6e926f73efd60994c3d7c7bc095b1d6c5c51f34edac0c56c",
+      "uri": "package:j2k/src/jpeg2000_exceptions.dart"
+    },
+    {
+      "blake3": "6f5f74bc3f5a0df64d8127bc464353bdab2cf7048872086fbde60d860ef7b44c",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/channel_order.dart"
+    },
+    {
+      "blake3": "7ff26173bd92900ce772b9c58b99621d3d85d2f8154a15474dedfa25b585e7ee",
+      "uri": "package:dart_ui/src/graphics/image/codecs/exif/exif_data.dart"
+    },
+    {
+      "blake3": "12600dadba17a3a16bae646af44f36c52552f985ec5570339775e757cb2f54bd",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/decode_info.dart"
+    },
+    {
+      "blake3": "08c6174940976ef847f8ad53c8d6653f4ccc0fde4e9daf1e7acc72de8b860947",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/jpeg/jpeg_util.dart"
+    },
+    {
+      "blake3": "d80f03d46f3f3a5984226e22f114d5d0983c23e1187e4cbfd4abc11aeae1601e",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/jpeg_decoder.dart"
+    },
+    {
+      "blake3": "8956706ed16e00e6299196b09dae86a7a6c7cac5415debd161c8c52c9ea04ddd",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/jpeg_encoder.dart"
+    },
+    {
+      "blake3": "0ac00eed781a95771341f369122e6847153f8b31b57235d4a3dcbae11cf74679",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/webp_decoder.dart"
+    },
+    {
+      "blake3": "fbfb5b7450fa1cf50bc2fddb366a77cc48ef89a4bfcbd1e7d25b3aa25efd359a",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/image.dart"
+    },
+    {
+      "blake3": "de6f3273f4feaaf8365ac7a5bed536e23acc17fcfc9f7250926a1ed977c21589",
+      "uri": "package:dart_ui/src/graphics/image/native/imageio_codec.dart"
+    },
+    {
+      "blake3": "b5f8c86feed364114489498cc0387af80095c6db1846b8bb35e1e030469b35c5",
+      "uri": "package:dart_ui/src/graphics/image/native/turbojpeg_codec.dart"
+    },
+    {
+      "blake3": "6b703f8d63183beced3fd6bf7f970e3bcdcad9d9359ca0a7c8fb6ee0e04eeb9e",
+      "uri": "package:dart_ui/src/graphics/image/native/wic_codec.dart"
+    },
+    {
+      "blake3": "8e0928b0d1ab724f975732289b8d82656ab4752d7117c53ef638210ee0abbc03",
+      "uri": "package:dart_ui/src/graphics/video/macos_native_video_decoder.dart"
+    },
+    {
+      "blake3": "f78988aedf87c037371846b933228278f6239c9297ae2d890d3f049d1bab14c8",
+      "uri": "package:dart_ui/src/graphics/video/video_decoder_linux_gstreamer.dart"
+    },
+    {
+      "blake3": "f44f66cc09853628c13dba5aff6719474658d2f279e4580b04ae46456f749e46",
+      "uri": "package:dart_ui/src/graphics/video/video_decoder_windows_mf.dart"
+    },
+    {
+      "blake3": "ad470e5970720e8bb92dfa2395b64934442bec97e4275e973d1c925f65a672b7",
+      "uri": "package:dart_ui/src/pdf/crypto/pdf_security_handler.dart"
+    },
+    {
+      "blake3": "2f8c3619e6906618121aaa1f224008dbcef3f3b67ed438ad4c14e1f9c2e4d3a5",
+      "uri": "package:dart_ui/src/pdf/filter/ascii85_filter.dart"
+    },
+    {
+      "blake3": "ab9539e8bda888f716e0339d8b808a8b7d3edba3155b9ccc6b4d99cecdadc07a",
+      "uri": "package:dart_ui/src/pdf/filter/ascii_hex_filter.dart"
+    },
+    {
+      "blake3": "07b1eb29af4b345cbad4e594a60750f6e3762f8b1feff9dd036d98be43fa3186",
+      "uri": "package:dart_ui/src/pdf/filter/ccitt_fax_filter.dart"
+    },
+    {
+      "blake3": "1b5936561a2ceb4ff4c3535a505e1c5eeffd31ec70d82107a99c176e3b03906a",
+      "uri": "package:dart_ui/src/pdf/filter/flate_filter.dart"
+    },
+    {
+      "blake3": "a64faf1a28db3d8ffa46630ec7e6a3fb0262bca19463a06380f1a8234f99a983",
+      "uri": "package:dart_ui/src/pdf/filter/lzw_filter.dart"
+    },
+    {
+      "blake3": "83377af8efaf68d7b032eca2aaac48f62065ac0640580812b9fa574095d09bdb",
+      "uri": "package:dart_ui/src/pdf/filter/pdf_filter.dart"
+    },
+    {
+      "blake3": "4ac854dca858751668289ae44d7368fd65263ba3181a23a318de56bf0aa59e29",
+      "uri": "package:dart_ui/src/pdf/filter/run_length_filter.dart"
+    },
+    {
+      "blake3": "0841558ee0013f4ed13ad489cd1208bddea79cadb9d3ca49c20f535a1fd90a52",
+      "uri": "package:dart_ui/src/pdf/format/pdf_lexer.dart"
+    },
+    {
+      "blake3": "000d1e4ef100ece6ab3fc2f5842068cd917474bd893fbc4b73b405ae3d9183d6",
+      "uri": "package:dart_ui/src/pdf/format/pdf_parser.dart"
+    },
+    {
+      "blake3": "f635c85423d79a554f7a7541af986cbfa8ff75602a5481e813ada27a91035a28",
+      "uri": "package:dart_ui/src/pdf/gfx/pdf_matrix.dart"
+    },
+    {
+      "blake3": "67fa661e8b2c330be242ade4ca3835486054f618fd8f565a86a16bb2e5ace809",
+      "uri": "package:dart_ui/src/pdf/export/pdf_embedded_font.dart"
+    },
+    {
+      "blake3": "d91e5d78014a1cd622f0a62e2d06d880d9f3b97fedf20bc6228b93ffe9f36878",
+      "uri": "package:dart_ui/src/platform/file_picker_windows_com.dart"
+    },
+    {
+      "blake3": "4d56217dec36fad81d617a85136d804ea4079543cbf3fe1cab58d78bde7de015",
+      "uri": "package:dart_ui/src/platform/file_picker_windows_modal.dart"
+    },
+    {
+      "blake3": "78e016a34778ae3e7fbd2a7c5691337913313ee0860c0431c112496efdf57845",
+      "uri": "package:dart_ui/src/rendering/text/framework_fonts_base.dart"
+    },
+    {
+      "blake3": "9b9b2cb7e8716886bee4633fa47c8c0e042429650ef5c4eba5ffcbd3cd1dde31",
+      "uri": "package:dart_ui/src/text/tables/packed_table.dart"
+    },
+    {
+      "blake3": "e34362a797399e92587f9ecab86decc0c4d8c173b25be6b06f12f6c88d94d1bb",
+      "uri": "package:dart_ui/src/widgets/input_decorator.dart"
+    },
+    {
+      "blake3": "7c4d684a91c71d9ab7d555fa96155d425b2a619711bf39091d14d67ba8dd94be",
+      "uri": "package:dart_ui/src/widgets/text_input_formatter.dart"
+    },
+    {
+      "blake3": "0417737e6f3c34db832d5de0ae51e75f5d1056beb48bc4537c55ec75959cdc5a",
+      "uri": "package:dart_ui/src/widgets/text_input_options.dart"
+    },
+    {
+      "blake3": "43196a9d780a8f27a3c5f73061e6e5d7fd89f45d8036cb5189397c1d9b740579",
+      "uri": "package:dart_ui/commands.dart"
+    },
+    {
+      "blake3": "96ee9a203f12b58cbb261115d0bf937b3e361f4e417073c5d9cda2b04920c39c",
+      "uri": "package:file_explorer/src/engine/commands/command_context.dart"
+    },
+    {
+      "blake3": "6fcd6bfdcb94c77461c11bffd0e621bbfc481e2e3ddaa84a47f039984bf2fcdb",
+      "uri": "package:file_explorer/src/engine/commands/file_commands.dart"
+    },
+    {
+      "blake3": "ce7ee08c154cda48aa896b05ac35550b175db92a9d99f67c61554164b6a69692",
+      "uri": "package:file_explorer/src/engine/commands/navigation_commands.dart"
+    },
+    {
+      "blake3": "4216f0d35f2c3e597d209992374e020f3aea07a5ad1209112468afcb3e2b1893",
+      "uri": "package:file_explorer/src/engine/commands/selection_commands.dart"
+    },
+    {
+      "blake3": "4747bc8219217ed4549c2a38a864a2827a71432176091c3a1c5dd162b1c40200",
+      "uri": "package:file_explorer/src/engine/commands/tab_commands.dart"
+    },
+    {
+      "blake3": "1829903450a5203f0780f098a9a3bf6cc41d0ef5a64f5e6ad7298f848275e883",
+      "uri": "package:file_explorer/src/engine/commands/view_commands.dart"
+    },
+    {
+      "blake3": "04b4479d4ac5ef1c156ab06ad009ec3eee8dc97fff548e831911cd5fd99cdb89",
+      "uri": "package:file_explorer/src/ui/file_icon.dart"
+    },
+    {
+      "blake3": "872673c2154124fe37114699958d5a88cfb4fe5344676f85077631a43c66d544",
+      "uri": "package:file_explorer/src/ui/drag_support.dart"
+    },
+    {
+      "blake3": "3bf93b445fd0bde5cbd58c8437508a2917361a3a81ce046540a02a45fa2897d3",
+      "uri": "package:file_explorer/src/engine/properties.dart"
+    },
+    {
+      "blake3": "ab3c0ec7327a8a464f1cb6b92b2171470e77ddbb4226608dde066a7e446902ef",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_vertex_buffer.dart"
+    },
+    {
+      "blake3": "b3744b9585b71c1a60d15f7cbefa01dd2ba269b28756f37fb4bffc8cc2701414",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_path_workload_builder.dart"
+    },
+    {
+      "blake3": "0bc87f9a4fd00b9435a638734938ead82b9ae4414b5f0aa5b49422d6abed2628",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_mask_tiling.dart"
+    },
+    {
+      "blake3": "b428555bf1d3741afda0ff131b23790ef082cc9363ae425509076fe01d65fbe6",
+      "uri": "package:dart_ui/src/rendering/gpu/gpu_path_dispatch.dart"
+    },
+    {
+      "blake3": "2b7e7bde7948ea9a85bee7a108043159b7fdfd31cdada265c7fea58dcf9c1bb4",
+      "uri": "package:dart_ui/src/rendering/gpu/vector/sparse_strips.dart"
+    },
+    {
+      "blake3": "d44cbbd98ca1e7c441eea90b340b96220592de5a45864b0b2168f814c0b1c471",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_sparse_strips.dart"
+    },
+    {
+      "blake3": "682a5c576ae9990f118548c52005ba306e36254cd1371d63e87dd3e18fb438d8",
+      "uri": "package:dart_ui/src/rendering/gpu/vector/native_strip_rasterizer.dart"
+    },
+    {
+      "blake3": "66b46492cf6ab0c53fc61acf1fa1043d82e0b8dd1bc6299398799e847445dc1b",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_present_pacer.dart"
+    },
+    {
+      "blake3": "eb97095c9d262b39a1594fe897893567c2ac80f96ca8c39f6ee9640eebc0d7ef",
+      "uri": "package:dart_ui/src/rendering/gpu/gl/gl_mesh_shaders.dart"
+    },
+    {
+      "blake3": "c6caf8c9b04215ec6147a2bf3025f06399cc593ae4daa1e86b688f3f0ccc02ea",
+      "uri": "package:dart_ui/src/rendering/gpu/metal/metal_shaders.dart"
+    },
+    {
+      "blake3": "0a134ab5e64272a511d871ebf49c67f79657e007cfcf892170868a2e82221bc2",
+      "uri": "package:dart_ui/src/rendering/gpu/metal/metal_mesh_shaders.dart"
+    },
+    {
+      "blake3": "36e7b4e1282ce91762a429393d5e7dc226895be63a65d7cc47541e1b021a9e6d",
+      "uri": "package:dart_ui/src/rendering/gpu/metal/metal_textures.dart"
+    },
+    {
+      "blake3": "e05bf039cc140a0a2ac764341bfcea73788344b491603a22698507091983f304",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_spirv.dart"
+    },
+    {
+      "blake3": "5693822765709befbf7a7d2554ee6000e797f2095818440cd478749fbc17283c",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_sparse_strips.dart"
+    },
+    {
+      "blake3": "4d47a8c43d7c00781853781a20e79143c2002fc749a0173d1fdd205430aa6873",
+      "uri": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_wsi_platform.dart"
+    },
+    {
+      "blake3": "1e205961845e1b13eb5eb18b7cc27acf4237a0efe8d0b63895b45c1ea8e2404c",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_wire.dart"
+    },
+    {
+      "blake3": "affa33f94bd5560d4d62c463654d763bbe30821abffcb2ee60de121ff7201726",
+      "uri": "package:dart_ui/src/backends/macos/macos_input.dart"
+    },
+    {
+      "blake3": "dc5c3eed0accaa9eda859cb1298bdc43e80bf22dfc8454c2bb95d199af8617df",
+      "uri": "package:dart_ui/src/backends/macos/host_process.dart"
+    },
+    {
+      "blake3": "0c629043a912e8ef061de74566c93957ef8aed4789ad23759a054a512f3c6a33",
+      "uri": "package:dart_ui/src/backends/macos/host_protocol.dart"
+    },
+    {
+      "blake3": "7c32cc137e850dcb528dc9f6c5edfb0d933db9fcfd78f07a05df0c06fbefc1e5",
+      "uri": "package:dart_ui/src/backends/macos/host_supervisor.dart"
+    },
+    {
+      "blake3": "ceef859e140e600f830eb4fbae5f13b997e07d6a74a33895a7051010292321e6",
+      "uri": "package:dart_ui/src/backends/macos/macos_accessibility.dart"
+    },
+    {
+      "blake3": "110d53864acd42ad7ceb24281b56986f57a1c1fe43c786c8ebcc8ed520490db5",
+      "uri": "package:dart_ui/src/backends/macos/macos_drag_drop.dart"
+    },
+    {
+      "blake3": "21f113464c6959e4f0278066e115b8c37781432d0cdcfc52908bc2ec7feba287",
+      "uri": "package:dart_ui/src/backends/macos/macos_native_menu.dart"
+    },
+    {
+      "blake3": "fa40bdf2981a2e9de90506ebc9e1a09b6af5a1a30ab59e18a467fa80e1311d5c",
+      "uri": "package:dart_ui/src/backends/macos/macos_text_input.dart"
+    },
+    {
+      "blake3": "5fba651e66051c92998328533c9ee521b4d5a6c949546c188db5f2ad143cc7de",
+      "uri": "package:dart_ui/src/backends/macos/appkit_signal/appkit_signal_session.dart"
+    },
+    {
+      "blake3": "3631d6baa41a8886a7718563ead28da0e4e4c4913e385431036201b60b9a2c04",
+      "uri": "package:dart_ui/src/backends/macos/appkit_signal/appkit_signal_window.dart"
+    },
+    {
+      "blake3": "6291a1c13b0d94310eee144d6cbb567cb774ddfbc2fbb53786e6b40b0585d7cd",
+      "uri": "package:dart_ui/src/backends/macos/host_locator.dart"
+    },
+    {
+      "blake3": "db32056081be4927ce16bd5c226eceabd4c3f3fd8bd63af6bc7f44463edc7cf6",
+      "uri": "package:dart_ui/src/backends/macos/macos_clipboard.dart"
+    },
+    {
+      "blake3": "0ecbe194a2e545a5f47c4e46fbad36036283a89cff7e29ea3ef610b2a1af1210",
+      "uri": "package:dart_ui/src/backends/macos/skylight/skylight_dock.dart"
+    },
+    {
+      "blake3": "2934ba2a2e27ab6511e74ddb993b4348da8da9f95247c20afeb46fd4d798715a",
+      "uri": "package:dart_ui/src/backends/macos/skylight/skylight_session.dart"
+    },
+    {
+      "blake3": "ebebec29c47d18a21db9a975c8f7d50d1d373b7b9e5b73b4f7061777a448a5b9",
+      "uri": "package:dart_ui/src/backends/macos/skylight/skylight_window.dart"
+    },
+    {
+      "blake3": "e8a4fcf29fde5075ba616070ec39b25590b37cc55622154917d2bec89d69d311",
+      "uri": "package:dart_ui/src/backends/macos/spare_host.dart"
+    },
+    {
+      "blake3": "58e66344955550f49420031e6fdae358991c144fbccbdfd7c76bcc109ca2dccb",
+      "uri": "package:dart_ui/src/backends/macos/mach_rendezvous.dart"
+    },
+    {
+      "blake3": "ad0d4219ccdfb64f4927d42634820bcad89a8ba5244b6021a21297e8e3e98f27",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_keymap.dart"
+    },
+    {
+      "blake3": "0ad7e2c6d2c7063487a9e750e82e61483fa598c3c12bf2716318f827dfd0550b",
+      "uri": "package:dart_ui/src/backends/wayland/wayland_xcursor.dart"
+    },
+    {
+      "blake3": "e0b0f3b83b58b53a9b0c138e7abbdf92847fcb530a7c56533e0559066601cc4a",
+      "uri": "package:dart_ui/src/platform/keysyms.dart"
+    },
+    {
+      "blake3": "d579a18fd20b01d63a3c26bd7dee2eca1c989b09b9ea99f1cd6ea2fcf68d0fa0",
+      "uri": "package:dart_ui/src/backends/win32/d2d/dwrite_interfaces.dart"
+    },
+    {
+      "blake3": "ce847ceff6c59da8c8c79e78f2f3863a27b3d26d662f143db28c836860a36f63",
+      "uri": "package:dart_ui/src/backends/win32/d2d/d2d_glyph_atlas.dart"
+    },
+    {
+      "blake3": "3e2846c1521b66d421c5eba96e843112b30a34156e9721aec874579abe22f405",
+      "uri": "package:dart_ui/src/backends/win32/d2d/dwrite_font_faces.dart"
+    },
+    {
+      "blake3": "6140123736812923096b2b17075f7edcaa7d83e59d0e4487051db3bd34360c14",
+      "uri": "package:dart_ui/src/rendering/gpu/d3d12/d3d12_compute_tile_shader.dart"
+    },
+    {
+      "blake3": "6be7a1597c29a6036a19733f6f28897b23469b5e51cde4dd92291087ce25e1bb",
+      "uri": "package:dart_ui/src/rendering/gpu/d3d12/d3d12_sparse_strips.dart"
+    },
+    {
+      "blake3": "4ccc17a68e2d011a2b71d6bbf079d000969ed906ff3e1447434cc56dcfd7a68f",
+      "uri": "package:dart_ui/src/rendering/gpu/d3d12/d3d12_vector_path_recorder.dart"
+    },
+    {
+      "blake3": "04afbd7eac34dd05be6b7f1a25f3b98d32585601a5eb5323bdc084736b2485d5",
+      "uri": "package:dart_ui/src/backends/win32/uia/uia_core.dart"
+    },
+    {
+      "blake3": "f1ff09762d0f1b912e7b263dbe1164f7e2100648b8b81c61d7d6dfcc037c3dec",
+      "uri": "package:dart_ui/src/backends/win32/uia/uia_session.dart"
+    },
+    {
+      "blake3": "a4e5f489d03f9fdf2e02dcc7db975950f864dc1d5c59a747866717c37f1a8b39",
+      "uri": "package:dart_ui/src/backends/win32/win32_drag_drop.dart"
+    },
+    {
+      "blake3": "e0e5b655839a6b74cffdca7b40244d6c5c9994e044d8a6b7dcd867acf389ff6b",
+      "uri": "package:dart_ui/src/backends/win32/win32_ole.dart"
+    },
+    {
+      "blake3": "e62652f7c8de739c5a3c28dbb2a8bfb3b6dc2127193ace03e7d62b4e478ac15a",
+      "uri": "package:dart_ui/src/backends/win32/win32_system_settings.dart"
+    },
+    {
+      "blake3": "3744da8bb1fe289d91c180cfeffed7bd7ba15d34299a1e397ac985452db3aca4",
+      "uri": "package:dart_ui/src/backends/win32/win32_clipboard_formats.dart"
+    },
+    {
+      "blake3": "fc253744a0cc6ec2f7e2cb7605d995d3aba394a2662a9e3561f9a4194f576e3b",
+      "uri": "package:dart_ui/src/backends/win32/win32_present_mode.dart"
+    },
+    {
+      "blake3": "616e5e058365bc9e8af16acede86abaa71832a2dc26bcc973c532fe238ef4733",
+      "uri": "package:dart_ui/src/backends/win32/uia/uia_bridge.dart"
+    },
+    {
+      "blake3": "0c86075bf4d76830a8d5f5013aea759cd3cc5586570cd9bd86b374f808feaa88",
+      "uri": "package:dart_ui/src/backends/x11/x11_put_image_plan.dart"
+    },
+    {
+      "blake3": "6e895604315c8424b6fc4722dbb838f98ff718e9803c17970d911dd9d871cb71",
+      "uri": "package:dart_ui/src/crypto/dart/pure_dart_aes.dart"
+    },
+    {
+      "blake3": "01b0fc114a6d78924e19a1625e246a4866628c9eaca408ebf7e0d1c5b3c59bad",
+      "uri": "package:dart_ui/src/crypto/dart/pure_dart_md5.dart"
+    },
+    {
+      "blake3": "48304c1f8a746b176723ae4ff109c6e2ebdeb0c081008549154905b0ef594525",
+      "uri": "package:dart_ui/src/crypto/dart/pure_dart_rc4.dart"
+    },
+    {
+      "blake3": "cb26cf477d8cc702c5cc9ff2691485c6215c21850a927fa8b465c94bf05fb918",
+      "uri": "package:dart_ui/src/crypto/dart/pure_dart_sha.dart"
+    },
+    {
+      "blake3": "78449c83eede9236b855eccde770931c018d1f347b29ad975190eb1f3ad28bdf",
+      "uri": "package:j2k/src/colorspace/boxes/channel_definition_box.dart"
+    },
+    {
+      "blake3": "28696402f9a8ff875c529374dcbc474f459a10fb4857f7589e4b7d736c7477ce",
+      "uri": "package:j2k/src/colorspace/color_space.dart"
+    },
+    {
+      "blake3": "04b23b45b52e379374aa7fcb8069c74cb7bbbbd572bd1a6e22636cf4a03da499",
+      "uri": "package:j2k/src/colorspace/color_space_mapper.dart"
+    },
+    {
+      "blake3": "3e761675011c6fe5edcc2b6fce5547276019b1357f68874f0e38b2ce760cb124",
+      "uri": "package:j2k/src/j2k/codestream/header_info.dart"
+    },
+    {
+      "blake3": "c9b826788e95b189cdbd1e2c524ad33a17ee4215ac6e31e7ed7b3e0d919dd813",
+      "uri": "package:j2k/src/j2k/codestream/markers.dart"
+    },
+    {
+      "blake3": "374336781d99e7a6284c47bcb3e72409cd49c5ca66f095b31575f7e404368189",
+      "uri": "package:j2k/src/j2k/codestream/reader/bitstream_reader_agent.dart"
+    },
+    {
+      "blake3": "0cbdc241cd9bff470e0e52fa4e1558d57821417b30ac363c73e62d5438e587cc",
+      "uri": "package:j2k/src/j2k/codestream/reader/file_bitstream_reader_agent.dart"
+    },
+    {
+      "blake3": "d46c15940c08e27dbc76c5ad14113a02a4e6ef9c4218a35e70f1186186acc56b",
+      "uri": "package:j2k/src/j2k/codestream/reader/pkt_decoder.dart"
+    },
+    {
+      "blake3": "9f2cf581d649e39e3ed345edc92a5afe51a984fefa0da081c199d1dab1909398",
+      "uri": "package:j2k/src/j2k/codestream/reader/pkt_decoder_harness.dart"
+    },
+    {
+      "blake3": "105bf41e1e869f61155d2ea1d78c21b289accbc8ea4e088c7f16a3d52a2cb877",
+      "uri": "package:j2k/src/j2k/codestream/reader/header_decoder.dart"
+    },
+    {
+      "blake3": "92e22fc87fd17f3be568b793755cb6d719d6a053fb5da958e700ecf0b8e0e147",
+      "uri": "package:j2k/src/j2k/codestream/writer/header_encoder.dart"
+    },
+    {
+      "blake3": "a16ae1d21dbe6e163ede70f7c908969cf485816bd4caa015bd68811215e7cbe4",
+      "uri": "package:j2k/src/j2k/codestream/writer/pkt_encoder.dart"
+    },
+    {
+      "blake3": "3a8daf6ee4c9f8528f7265822021021b8025b0e53d7150999d34c1dba0766555",
+      "uri": "package:j2k/src/j2k/decoder/decoder_specs.dart"
+    },
+    {
+      "blake3": "e57ea223973d6fc4e4e209ca5048c08960fe3bba78b9634b97c6051d1231eb01",
+      "uri": "package:j2k/src/j2k/encoder/encoder_specs.dart"
+    },
+    {
+      "blake3": "c3e107fe11a082a923485d01f7199e7bb97ff54d53dad06169c325254db63e6a",
+      "uri": "package:j2k/src/j2k/entropy/decoder/entropy_decoder.dart"
+    },
+    {
+      "blake3": "838085a8919664987c3650bee7ffd743c8e582864fd43de7e487a649a6e0117c",
+      "uri": "package:j2k/src/j2k/entropy/encoder/entropy_coder.dart"
+    },
+    {
+      "blake3": "e689478a8fe503de0f014ca1ba55d95130c83a1bae8281b5697e9392637282a3",
+      "uri": "package:j2k/src/j2k/entropy/encoder/post_comp_rate_allocator.dart"
+    },
+    {
+      "blake3": "1ad6dd48a0109f8b56a99b2fefb09a97e9ccd2b0f92b6b8d3214b3874472f8c2",
+      "uri": "package:j2k/src/j2k/fileformat/file_format_boxes.dart"
+    },
+    {
+      "blake3": "a76ee5d7a3a906872357b932c6f0f54c7bebe072ec6ec11c0596fd6ae4ea2c68",
+      "uri": "package:j2k/src/j2k/fileformat/file_format_reader.dart"
+    },
+    {
+      "blake3": "e0ebcb48f3cf8ed9bf71bbc07bf13e05c6fa0120e603609febee8548dbee7ac4",
+      "uri": "package:j2k/src/j2k/image/blk_img_data_src.dart"
+    },
+    {
+      "blake3": "ed6e295a99b6389be2ced2c695b7db6e8c7569e5302f08d6bb2a60dc6246e45e",
+      "uri": "package:j2k/src/j2k/image/data_blk_int.dart"
+    },
+    {
+      "blake3": "197ad6c3b8cdb86986f91dade0c9d2d4b9e4d20a661a354b36b27b0f65a4a27a",
+      "uri": "package:j2k/src/j2k/image/forwcomptransf/forw_comp_transf.dart"
+    },
+    {
+      "blake3": "e89725ede52e03e134b0a66417f9b886b0b3d2e5bc7b394619fce46bb1eff637",
+      "uri": "package:j2k/src/j2k/image/img_data_converter.dart"
+    },
+    {
+      "blake3": "24613040ae1b047e9032bb55f70892f267dd85ee003ecd3bafba9d64d8b1a80b",
+      "uri": "package:j2k/src/j2k/image/input/img_reader.dart"
+    },
+    {
+      "blake3": "5814eccb3ceeab2e73553614d976cf4b035e08c5a2aaba3c40cb94905377f369",
+      "uri": "package:j2k/src/j2k/image/invcomptransf/inv_component_transformer.dart"
+    },
+    {
+      "blake3": "ad2c2f092422c8c4d7ddc2345d2abdd65e447cb60c65486589ae494116d9e074",
+      "uri": "package:j2k/src/j2k/image/tiler.dart"
+    },
+    {
+      "blake3": "ca56877af27da72b024f1644cf59ad316b8b7c18628e49eb8fc3e26ff0b8ca1a",
+      "uri": "package:j2k/src/j2k/io/exceptions.dart"
+    },
+    {
+      "blake3": "f15bb9394840988661a684f74f97cf8ad69f05e59cb235715bcf8f09cdc3c0c5",
+      "uri": "package:j2k/src/j2k/platform/platform.dart"
+    },
+    {
+      "blake3": "914ad413f5a43ee01e9b3ff53ce9d0261d05fa2d0217ec9a2e0452a0ee949b34",
+      "uri": "package:j2k/src/j2k/quantization/quantizer/quantizer.dart"
+    },
+    {
+      "blake3": "cb3553cdeb868c9bf47ed901d18cc123e7eedfd47ccabefff01cb36eddd82a9a",
+      "uri": "package:j2k/src/j2k/roi/encoder/roi_scaler.dart"
+    },
+    {
+      "blake3": "bed23e5a9dde98181fa9babe66e512fe6ebf46722e34a0ed63eca0d975535677",
+      "uri": "package:j2k/src/j2k/roi/roi_de_scaler.dart"
+    },
+    {
+      "blake3": "48e4da1d9b5ef2f0f506ae1bd1b2832e562bb15bb0ac02fe01e3e5bc83cf4411",
+      "uri": "package:j2k/src/j2k/util/facility_manager.dart"
+    },
+    {
+      "blake3": "fda2f7d6ad630e1d41cf1b1e6c4fdb56295c088b0f951966ec4f1b697ac5c758",
+      "uri": "package:j2k/src/j2k/util/is_random_access_io.dart"
+    },
+    {
+      "blake3": "62778f6421264fdfbaa4c7a5e4b5804386e93977e44f80644eb03e6a08706732",
+      "uri": "package:j2k/src/j2k/util/msg_logger.dart"
+    },
+    {
+      "blake3": "8160482cb45a1ce24f5d066079fdb3ee4234afa8f6385579a95ca2f90603363a",
+      "uri": "package:j2k/src/j2k/util/parameter_list.dart"
+    },
+    {
+      "blake3": "aa4598ec1e65b94ef516660da73dca8a68a32a3d290713def7eb2d1eee29700c",
+      "uri": "package:j2k/src/j2k/wavelet/analysis/an_wt_filter.dart"
+    },
+    {
+      "blake3": "1a6ad4f0f4b7611e586d9ab940d52e44c78072ca14c710b5094536729c5b07eb",
+      "uri": "package:j2k/src/j2k/wavelet/analysis/forward_wt.dart"
+    },
+    {
+      "blake3": "5000b784085c0ec80c23429c088da9fa228c3282fe491aca3d0aab2ed2e73ca6",
+      "uri": "package:j2k/src/j2k/wavelet/synthesis/inverse_wt.dart"
+    },
+    {
+      "blake3": "b8ba2ec567912c1688b30ca1f75e8ad294d5164a236f4769a19db8636c94fe2d",
+      "uri": "package:j2k/src/j2k/wavelet/synthesis/syn_wt_filter.dart"
+    },
+    {
+      "blake3": "72d7eba9463462c58b4caafb0bf9bd9d728e4ae91ffa11c8723984ef1224a6db",
+      "uri": "package:j2k/src/j2k/wavelet/synthesis/syn_wt_filter_float_lift9x7.dart"
+    },
+    {
+      "blake3": "c54c2d8e3917c3bd42f323e7166f2e9fa4cabdcfd6f8f668f5263349a6f2dfd3",
+      "uri": "package:j2k/src/j2k/wavelet/synthesis/syn_wt_filter_int_lift5x3.dart"
+    },
+    {
+      "blake3": "d3a227ebb6a95fb64e18bbc0478f9ed0e84f3622c5ef5b75e61c72e5cd5f78d2",
+      "uri": "package:j2k/src/api/interleaved_memory_reader.dart"
+    },
+    {
+      "blake3": "8ec01aba94b7402f616b18fbc1d62cc32a3df3a13a50471e2022473bb28b855a",
+      "uri": "package:j2k/src/api/memory_codestream_writer.dart"
+    },
+    {
+      "blake3": "0a4c2fd964439164f55d5d08cdef074693bdef14d73d729bed425d45bd37f947",
+      "uri": "package:j2k/src/api/pnm_parser.dart"
+    },
+    {
+      "blake3": "c95a044db189511047ab63e223fbd7a275ccf2c4e4f0cbd5de45dafc50d1c754",
+      "uri": "package:dart_ui/src/graphics/image/codecs/util/input_buffer.dart"
+    },
+    {
+      "blake3": "acd364db236b4088b3200deb96a497923e694382804e83f949a11e9079ad6932",
+      "uri": "package:dart_ui/src/graphics/image/codecs/util/output_buffer.dart"
+    },
+    {
+      "blake3": "4ab13ab804948195d22fc52190f250d4516b21bdd53a2ff4906a7a1b4e98e0ef",
+      "uri": "package:dart_ui/src/graphics/image/codecs/exif/exif_tag.dart"
+    },
+    {
+      "blake3": "1ae24c95fb9a6adc9656dea9a4515ce7cec3d12e9acd25341b256da76c6d7bd0",
+      "uri": "package:dart_ui/src/graphics/image/codecs/exif/ifd_container.dart"
+    },
+    {
+      "blake3": "d83103fbf8978dace27d3f9d0c9b1a2e383f90f7c91aba296def543dd679b3b1",
+      "uri": "package:dart_ui/src/graphics/image/codecs/exif/ifd_directory.dart"
+    },
+    {
+      "blake3": "d607e9b998a8077fce12bcac15477d8091e092c69d8fe76f2826b3e949306efd",
+      "uri": "package:dart_ui/src/graphics/image/codecs/exif/ifd_value.dart"
+    },
+    {
+      "blake3": "f98fd7579318ea3c2d512765ea7fd15c03c2388969ec21595f94a21db6d3f083",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/color.dart"
+    },
+    {
+      "blake3": "bcd02d965a8fa2207cc5d4a8115ba5a34ea83ca62ac832a74fb29e9aeda75625",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/jpeg/jpeg_marker.dart"
+    },
+    {
+      "blake3": "bb8baa0f41a340a4f72c68283e32ff24a320dfb87954e82926c7d4bba30edc8b",
+      "uri": "package:dart_ui/src/graphics/image/codecs/util/image_exception.dart"
+    },
+    {
+      "blake3": "821a593a563ac9c978ff683be06717686b907a6528cf72ea4087a6e17f55629a",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/decoder.dart"
+    },
+    {
+      "blake3": "ebcc84a5fff34281db50c84347d844911618ef357f30d0a4850283fbb51f6ec7",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/image_format.dart"
+    },
+    {
+      "blake3": "2fc9b9af97ff236031a138f4c554f1de71dc272266cc66e73055c538a3dfe21f",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/jpeg/jpeg_data.dart"
+    },
+    {
+      "blake3": "ea4368e1c01266c52841bb15811507bbf7e88400878f1aeea9eb2548c4a49bc9",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/jpeg/jpeg_info.dart"
+    },
+    {
+      "blake3": "c60464264a1743739283f75d9792bcf7756a5e0737e75ba133f87ee095b6ddd7",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/const_color_uint8.dart"
+    },
+    {
+      "blake3": "7d0d912847bda9081dbbb67baf5719b54ec206deb83e1cf6b465d97652a94a38",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/format.dart"
+    },
+    {
+      "blake3": "ae3593edf67f497fc1476f17323fdf694c542cebe7bae6d8c0321f772c58bcd4",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/icc_profile.dart"
+    },
+    {
+      "blake3": "70e9d5df01999d1b95afe11633de523575820a55a9ee795a3767d652f38e744d",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/encoder.dart"
+    },
+    {
+      "blake3": "18cbfd7d2b61a064caa5e376a0d4ef3a23856342bb07af011b369cbe15c8e195",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/color_uint8.dart"
+    },
+    {
+      "blake3": "0bdd10ce8f793ccb3355c4c69228aa43fa3b0465c6b9854af74e3551db8a9c98",
+      "uri": "package:dart_ui/src/graphics/image/codecs/draw/composite_image.dart"
+    },
+    {
+      "blake3": "3734adcd1c0cdfddce59e5b9545655c48c6659f92b85bbe0ed02374bceb3f583",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/webp/vp8.dart"
+    },
+    {
+      "blake3": "d59f181a5c8c165720ad1c3b3d912f04a524d7fc90491d3e71046ee4372ac3dc",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/webp/vp8l.dart"
+    },
+    {
+      "blake3": "4011c4bcef11e5bb4dbd50c0f5bd3ac4e0365ec5fcbe651c7ed8c27bffb510c4",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/webp/webp_frame.dart"
+    },
+    {
+      "blake3": "e6091f4110d4677a335b0f86b4b14c9b546e3576425c5763ef8fa2e29a59ccf1",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/webp/webp_info.dart"
+    },
+    {
+      "blake3": "b6d0d0e39cb5bac3faf2457e5e31811073e30498ffd3b17d617f80ef4a7547ff",
+      "uri": "package:dart_ui/src/graphics/image/codecs/util/color_util.dart"
+    },
+    {
+      "blake3": "56392514a3734d5e0e1ebfb2cc9b459ab5c70d00776154f15c92e08a101f1582",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/image_data.dart"
+    },
+    {
+      "blake3": "c098913f93f7c045fec6f57cde575dc6e542ad32fa9b9c77f5adb472e291e93f",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/image_data_float16.dart"
+    },
+    {
+      "blake3": "5836d5a988809e031adfdfd27f1c33a698dec609fd4d4db851dd030b00f0bbc6",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/image_data_float32.dart"
+    },
+    {
+      "blake3": "506a8077a6de4e2278eb7d6c319abadf8aa1eef4cafe1f8e84b3c12c177e8f52",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/image_data_float64.dart"
+    },
+    {
+      "blake3": "b4eecc178bd16df5a9d2d861c5ac3baaa329998a8953aae7fd14196093bb3125",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/image_data_int16.dart"
+    },
+    {
+      "blake3": "1765750823e206194b297eef83212b933c368ec183f308d174a9967df0ebe342",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/image_data_int32.dart"
+    },
+    {
+      "blake3": "eabdb71a56e11ec7dcd2316b3b8f7d4af05b4385533add0249a983a0a6a40918",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/image_data_int8.dart"
+    },
+    {
+      "blake3": "dde6dabfd8d129a3e92cb0582d5c57f9e38c81db7381834e18285f8efe1ece27",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/image_data_uint1.dart"
+    },
+    {
+      "blake3": "41bbbbfab4c11e4e53efd69f82b8da6be84d3ee154c8c68ab779ed550d0364e6",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/image_data_uint16.dart"
+    },
+    {
+      "blake3": "86ebd1785a929b27afe9cf8a0f575f68085d14e729c86b0f034c3119d4478642",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/image_data_uint2.dart"
+    },
+    {
+      "blake3": "cfe6fdb6bb6eeb4073a37d94c2abddcce90e5431f298708b079b80ab61161fa8",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/image_data_uint32.dart"
+    },
+    {
+      "blake3": "a45114c4810e5c50440f9cf0531db6e1633e3063f78768d3562f6543c2eaedd8",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/image_data_uint4.dart"
+    },
+    {
+      "blake3": "80aa483d8d1d024a3d057c6a7224d84321cb19beeb20aee0d3255d64ba9ab818",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/image_data_uint8.dart"
+    },
+    {
+      "blake3": "fdeeea693797d03c3ddece6c124fb7ee0ace21001030b440d8f16d0437690c67",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/interpolation.dart"
+    },
+    {
+      "blake3": "571cd106eea3ce994d7e47f0dc5dc55d14243cee136c825f43848f39d95b1959",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/palette.dart"
+    },
+    {
+      "blake3": "607b6ca06243bdcbc7dccad70452d7d8aea66f721e939ba7558c65af5a4e7ecc",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/palette_float16.dart"
+    },
+    {
+      "blake3": "6945fdd975a414e94f3d631fd83ce81f1e38524c8f7b0395139e0475616c5677",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/palette_float32.dart"
+    },
+    {
+      "blake3": "4157e42b52631a52ad63904df14748b42e4053857a6af942ee9d825d10bc9d28",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/palette_float64.dart"
+    },
+    {
+      "blake3": "220ff495c7f64720c598b51cc1e73fa573bab15424b600a13b10fc4c325ff68c",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/palette_int16.dart"
+    },
+    {
+      "blake3": "607fe2bd4e33c7c96be739abaee0a4f356541f75f5e02c41c46cea3b84bc7f30",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/palette_int32.dart"
+    },
+    {
+      "blake3": "d8876dcb767808b07e21a49f7a05030ec03679e4df2633c0eaf21bfeea1d6cf3",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/palette_int8.dart"
+    },
+    {
+      "blake3": "6ddbbc3113edc2a2d4ea9aade4852d4a0a7c9b6417b4c74187001d37b18198ad",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/palette_uint16.dart"
+    },
+    {
+      "blake3": "b0596273f863f144a5599705d445dc2ce36df6e4beb15a8ee060898953ba588b",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/palette_uint32.dart"
+    },
+    {
+      "blake3": "0ed4b7817c4562905e87c92f25adb93f92f0006179852ba8a7393dca13d8bea5",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/palette_uint8.dart"
+    },
+    {
+      "blake3": "bb0016a646a15c22f55578c4639b40081c0d74e26d917f39bbd45db02992d962",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/pixel.dart"
+    },
+    {
+      "blake3": "ae8464b23a96381fcb583b289fc7ec803ee0a71d7dac91e678ef3887226d35d8",
+      "uri": "package:dart_ui/src/graphics/video/video_frame_ring_buffer.dart"
+    },
+    {
+      "blake3": "a952ad68ee618af4386c9ce83c3ceb55582bd4d5198a5917cc7b8cac34af15b0",
+      "uri": "package:dart_ui/src/backends/win32/uia/uia_constants.dart"
+    },
+    {
+      "blake3": "9a6afd1fbc17de64814c7ef4cf8184919cc80ce208a2e60ff71ad3a3f076d6e1",
+      "uri": "package:dart_ui/src/backends/win32/uia/uia_events.dart"
+    },
+    {
+      "blake3": "57c381ccb65a5e482ed5a2f2091f082dbb417e8f0bbf487646fe063ed6c9638e",
+      "uri": "package:dart_ui/src/backends/win32/uia/com_server.dart"
+    },
+    {
+      "blake3": "f8b598186e088a36b6b078d23437b54d22f833a68266c57d6ae7c56c9de7cd40",
+      "uri": "package:dart_ui/src/backends/win32/win32_drag_source.dart"
+    },
+    {
+      "blake3": "8ccc1e9e450274151b9a56f48b78c6c85681760cf919087b5595d16691518dd6",
+      "uri": "package:dart_ui/src/backends/win32/uia/uia_provider.dart"
+    },
+    {
+      "blake3": "41a432fd515b5f43ecc34636cc8a39d298ca08a7898391b44d27ed1d94420e42",
+      "uri": "package:j2k/src/icc/icc_profile.dart"
+    },
+    {
+      "blake3": "72df12d96dddedea79b0862cd6993eaadcbca8644b6a3c21c97fbd08edd11504",
+      "uri": "package:j2k/src/colorspace/boxes/jp2_box.dart"
+    },
+    {
+      "blake3": "bbff473bdb28849e5b40f9d1ad1e8333750b1a488be72bb1b3d2619bf9e01a61",
+      "uri": "package:j2k/src/j2k/io/random_access_io.dart"
+    },
+    {
+      "blake3": "0e7533291d08e83e681d7660299b2981e265c8cf18efcb797367ec11c1d3da88",
+      "uri": "package:j2k/src/colorspace/color_space_exception.dart"
+    },
+    {
+      "blake3": "c4ee83c89c0afc47c65143ca865e38743ad4e2fd697f9793842af238d1c0e382",
+      "uri": "package:j2k/src/colorspace/boxes/palette_box.dart"
+    },
+    {
+      "blake3": "50cea27b8eb30b337820d2f2bb8a9947e49729410b1c0b10b24616628b0c1d6d",
+      "uri": "package:j2k/src/colorspace/boxes/component_mapping_box.dart"
+    },
+    {
+      "blake3": "b926c7b5fd67372be47f7c170537cd64fe9045f205c61eea4f02251e6ff9c547",
+      "uri": "package:j2k/src/colorspace/boxes/color_specification_box.dart"
+    },
+    {
+      "blake3": "537ca831e1ba88573a343452e1aed89fb45519835f2dd1670b22bf951fbdc603",
+      "uri": "package:j2k/src/colorspace/boxes/image_header_box.dart"
+    },
+    {
+      "blake3": "dc2c2ef22dbe93140fd912b49a0c110117b99092f8b594dd3706550402b54586",
+      "uri": "package:j2k/src/icc/icc_profiler.dart"
+    },
+    {
+      "blake3": "3ab69c488a8780f17598b55854c9b73f14e4cb94829dd059a7a274a732b1cd03",
+      "uri": "package:j2k/src/j2k/image/data_blk.dart"
+    },
+    {
+      "blake3": "f67a20ee25344a2212d2887c636fb30d8adbcd4dadc684f1201ff336e2ad94ca",
+      "uri": "package:j2k/src/j2k/image/data_blk_float.dart"
+    },
+    {
+      "blake3": "a9e7509a589d0642e02866f3d2775ce8babce72deb5ed8cd5e4d53176a2cc4e2",
+      "uri": "package:j2k/src/j2k/image/img_data_adapter.dart"
+    },
+    {
+      "blake3": "e9ff7e9dfc95e7a7f39c2e30cf60617f87f387a063e9bc9248781c23f380016f",
+      "uri": "package:j2k/src/colorspace/enumerated_color_space_mapper.dart"
+    },
+    {
+      "blake3": "1647c9ed90bc80b314cc92cc13e5b769c8875737806aeaec1f999279f9519db7",
+      "uri": "package:j2k/src/colorspace/palettized_color_space_mapper.dart"
+    },
+    {
+      "blake3": "43d7a49321211e1dd2c6951b7ec8e7367b4d505f6c22312b912940b15dae5e34",
+      "uri": "package:j2k/src/colorspace/sycc_color_space_mapper.dart"
+    },
+    {
+      "blake3": "9ba6d1d23019d1fd9af517af961846d12fd65720a45a3dbb58ab4e825238f683",
+      "uri": "package:j2k/src/j2k/roi/max_shift_spec.dart"
+    },
+    {
+      "blake3": "e8cfb5aae2542a27a0383f185c6931a058352c8aff7e0170c70d9d406cec88f8",
+      "uri": "package:j2k/src/j2k/roi/rect_roi_spec.dart"
+    },
+    {
+      "blake3": "6731f9556a968c05e29c673d541b070f342bbb4ca271d49eb2eb690c3808be70",
+      "uri": "package:j2k/src/j2k/wavelet/filter_types.dart"
+    },
+    {
+      "blake3": "450d37f32ab6dd1aa5f29f710bf594412c2d67e9d0e8eae6386724f6762bae36",
+      "uri": "package:j2k/src/j2k/codestream/progression_type.dart"
+    },
+    {
+      "blake3": "2295038f152c2e97e71e6cad2fdaf217500e84462a345c788203e35cec6c96c9",
+      "uri": "package:j2k/src/j2k/codestream/c_blk_coord_info.dart"
+    },
+    {
+      "blake3": "88fa6f434338b284266aabec256c4bde2f2012fdce477f885dc24b6d4b57e0b5",
+      "uri": "package:j2k/src/j2k/codestream/prec_info.dart"
+    },
+    {
+      "blake3": "7bbcc44d70c50195fae19261fbf914d8335a73824d58a7ea26e212195dcc2618",
+      "uri": "package:j2k/src/j2k/entropy/decoder/coded_c_blk_data_src_dec.dart"
+    },
+    {
+      "blake3": "0016f09effe772af491308cc25efb24122303ce6a1cdcf8d60bd8c45aca6cc3b",
+      "uri": "package:j2k/src/j2k/entropy/decoder/dec_lyrd_c_blk.dart"
+    },
+    {
+      "blake3": "b6b9d19618b96f5182e9721f3be3f54b75d6d6f55444b539f173cc40c1bfc590",
+      "uri": "package:j2k/src/j2k/entropy/std_entropy_coder_options.dart"
+    },
+    {
+      "blake3": "ffc3f84916cf5674481aaab1c217dbedb18413d9e644031a0ed5a27558824ccb",
+      "uri": "package:j2k/src/j2k/image/coord.dart"
+    },
+    {
+      "blake3": "065af7cec8838ed9c7d560e0c7f2a384bc87eba04e3f5fa64c4d3137308d35e0",
+      "uri": "package:j2k/src/j2k/module_spec.dart"
+    },
+    {
+      "blake3": "7ea7815428cc283a37c77e689296061409c689240667b1f3ccfe9dd75876e35d",
+      "uri": "package:j2k/src/j2k/quantization/dequantizer/std_dequantizer_params.dart"
+    },
+    {
+      "blake3": "c6c4c1b62ae530566f01df8470f457776f752f022154113a9be6edabbaff2f61",
+      "uri": "package:j2k/src/j2k/util/array_util.dart"
+    },
+    {
+      "blake3": "4daaaf8bf61cb56c0aa9e9a112db4ba81bc9d8ebb5e07124f5230fef8d17fe3b",
+      "uri": "package:j2k/src/j2k/util/decoder_instrumentation.dart"
+    },
+    {
+      "blake3": "8b339f7bab3b96e6a9f9f7fe599c30cd3841625610b0d4043a906689993426b5",
+      "uri": "package:j2k/src/j2k/util/math_util.dart"
+    },
+    {
+      "blake3": "542417f459dbcefadcf86a36950647d8ecfc1567ca76839e3535ca378b3e97e8",
+      "uri": "package:j2k/src/j2k/util/string_format_exception.dart"
+    },
+    {
+      "blake3": "bf91836be85106452c7020f852ad138048378cfa5c3911a6829f5c00cc397aa7",
+      "uri": "package:j2k/src/j2k/wavelet/subband.dart"
+    },
+    {
+      "blake3": "25eb0a9419fb18091e0cb05e5a2d6e7d334fe36afa830dc4f46d8133782a3710",
+      "uri": "package:j2k/src/j2k/wavelet/synthesis/subband_syn.dart"
+    },
+    {
+      "blake3": "607b86bc914c95b784c79ac084ae18d54e9d67751ba6fdb95503f1095be0412e",
+      "uri": "package:j2k/src/j2k/wavelet/wavelet_filter.dart"
+    },
+    {
+      "blake3": "d8b58795ef93935ad7ca638dfd50d310c6c6aa3e476ac9a0c7d77406f5702eb6",
+      "uri": "package:j2k/src/j2k/codestream/reader/pkt_header_bit_reader.dart"
+    },
+    {
+      "blake3": "9d60735fceb02ab4d9fb08bce8a327f30b60026863d4cd9a415e4d260ac653b4",
+      "uri": "package:j2k/src/j2k/codestream/reader/tag_tree_decoder.dart"
+    },
+    {
+      "blake3": "86ccbe547b08959bd2f7baefb1800cd7c405101cca4e31aa01bcef8a9f173279",
+      "uri": "package:j2k/src/j2k/codestream/reader/c_blk_info.dart"
+    },
+    {
+      "blake3": "401f5c7c248618375eff78cf74f1ad5a75e531329737969b5f0ac95618689dec",
+      "uri": "package:j2k/src/colorspace/channel_definition_mapper.dart"
+    },
+    {
+      "blake3": "dfcb1dada2bcb8b22ecd18db1594d2a9715a45babcbc581028676ceea46c752a",
+      "uri": "package:j2k/src/colorspace/resampler.dart"
+    },
+    {
+      "blake3": "06f0ac6f39219ed2e9948e6f24739e294fe63b4fdf8f286e727862e0ba0b31e0",
+      "uri": "package:j2k/src/j2k/entropy/decoder/std_entropy_decoder.dart"
+    },
+    {
+      "blake3": "7534451fca455fad8612436a3ce1a45937039311087bccefbda31fa4b02925f0",
+      "uri": "package:j2k/src/j2k/image/invcomptransf/inv_comp_transf.dart"
+    },
+    {
+      "blake3": "fe57c885ac6a059f76c62c1a6f6f14b2a4ac746693fef594b55abaa2b46ddac9",
+      "uri": "package:j2k/src/j2k/quantization/dequantizer/std_dequantizer.dart"
+    },
+    {
+      "blake3": "8b8f2fd0747db103c3ddfc573244a7afab1deff6b7df4787346aeaf2c7f8f93f",
+      "uri": "package:j2k/src/j2k/quantization/dequantizer/c_blk_quant_data_src_dec.dart"
+    },
+    {
+      "blake3": "ebc10485a3abc74c4b65287c1cfd08722e0bbcca3fd33c0bdca07e56c47f210b",
+      "uri": "package:j2k/src/j2k/image/img_data.dart"
+    },
+    {
+      "blake3": "57a097fd4867f1ae674627f0898fbf372303cdb36a6b32ec6088ff6cf413c117",
+      "uri": "package:j2k/src/j2k/io/binary_data_output.dart"
+    },
+    {
+      "blake3": "bebed8ade00996f53a9eb3d204a6af71becde9562e1cfe6d3768b7c74fa48611",
+      "uri": "package:j2k/src/j2k/jj2k_info.dart"
+    },
+    {
+      "blake3": "71039b478b9f36352ae28ad60b3b1e33519fc926b2cffffa197e364bf0eb7ec8",
+      "uri": "package:j2k/src/j2k/wavelet/analysis/subband_an.dart"
+    },
+    {
+      "blake3": "813beebef37d0c0d69db4c03ccd01dba726fbfb567f13b1dc022d0a808da4cbe",
+      "uri": "package:j2k/src/j2k/quantization/quantizer/std_quantizer.dart"
+    },
+    {
+      "blake3": "57e4826070bda5f969aa73963e13e817fea02576a05d98effe4542ce8fb06511",
+      "uri": "package:j2k/src/j2k/entropy/progression.dart"
+    },
+    {
+      "blake3": "13b38e9bbfa2c024cf59bbf4f3512a94edd8add05823a8abd04d4ec1b76341ed",
+      "uri": "package:j2k/src/j2k/entropy/encoder/coded_c_blk_data_src_enc.dart"
+    },
+    {
+      "blake3": "e0f392d28ead61b0eed9a4174431523a179dfb9b546be6a01ca7cd98e0215c32",
+      "uri": "package:j2k/src/j2k/entropy/encoder/c_blk_rate_dist_stats.dart"
+    },
+    {
+      "blake3": "e642a228450f271b40365e4589239196406a2d30d99450256f0b97e07e0b9af6",
+      "uri": "package:j2k/src/j2k/codestream/writer/bit_output_buffer.dart"
+    },
+    {
+      "blake3": "465406dc07935701a630731ee47c6de5850f43681778ad7eda4f725b0c59f430",
+      "uri": "package:j2k/src/j2k/codestream/writer/tag_tree_encoder.dart"
+    },
+    {
+      "blake3": "c75662aa27970020d42419060c5f34f8cae820d96a1267b3e457b789e8a9fde0",
+      "uri": "package:j2k/src/j2k/entropy/c_blk_size_spec.dart"
+    },
+    {
+      "blake3": "31820ef05205c5452d380c446eab7e665585f00643cb514b5e5ab4ee26398706",
+      "uri": "package:j2k/src/j2k/entropy/precinct_size_spec.dart"
+    },
+    {
+      "blake3": "9be6360ab5d9497377b6ed145b1a18af5a08b6ae0aa4719eb28f2883721aa741",
+      "uri": "package:j2k/src/j2k/image/comp_transf_spec.dart"
+    },
+    {
+      "blake3": "8e5ea4ea9e1635333bd8529f79ecd539085b0c961e6878f6e26d1ecc5cbc4523",
+      "uri": "package:j2k/src/j2k/integer_spec.dart"
+    },
+    {
+      "blake3": "08612d7887f84794a71cd44de2637062f4896113e426967e01fb6787f5144066",
+      "uri": "package:j2k/src/j2k/quantization/guard_bits_spec.dart"
+    },
+    {
+      "blake3": "07beb4797804f7130e8b8ae1448da848c3f21122c8f4806e366a17561c6fe614",
+      "uri": "package:j2k/src/j2k/quantization/quant_step_size_spec.dart"
+    },
+    {
+      "blake3": "afbd70872815263ee396d73805c68f8a735b38138db05d7bfbda5dd8a2495ca1",
+      "uri": "package:j2k/src/j2k/quantization/quant_type_spec.dart"
+    },
+    {
+      "blake3": "8bac7d3aaaaacdb22ae751712f145929b9296e7fbb65d9f0dbf4cce121ccd646",
+      "uri": "package:j2k/src/j2k/wavelet/synthesis/syn_wt_filter_spec.dart"
+    },
+    {
+      "blake3": "3b02cc4d3aad31e3defe1b0948b1ad8db480548d1756dd71f2d9098f14e9f062",
+      "uri": "package:j2k/src/j2k/wavelet/wt_decomp_spec.dart"
+    },
+    {
+      "blake3": "00dac572fac418f4e2108130440ec62ae8dc2afadb5f96dd759e2d2e3666f2f8",
+      "uri": "package:j2k/src/j2k/entropy/progression_spec.dart"
+    },
+    {
+      "blake3": "483a302f91df27bfb6ddad5d6dccb95f3618164baf42145a855aebeabea4652d",
+      "uri": "package:j2k/src/j2k/image/forwcomptransf/forw_comp_transf_spec.dart"
+    },
+    {
+      "blake3": "cabc49bf1ed280683aab238f1ed03215c804584da41f6bd0b5e66dbb9588e066",
+      "uri": "package:j2k/src/j2k/string_spec.dart"
+    },
+    {
+      "blake3": "1d333ecb55aaea17f716c6f1d1cea419e0054a05578bdced3f2ca700b35d3682",
+      "uri": "package:j2k/src/j2k/wavelet/analysis/an_wt_filter_spec.dart"
+    },
+    {
+      "blake3": "fb3baabecc7202c72606ba10e3187f00b49ec267bea7523f35b659a93903a222",
+      "uri": "package:j2k/src/j2k/wavelet/synthesis/multi_res_img_data_adapter.dart"
+    },
+    {
+      "blake3": "f919e4dd943e0f9ddce7a34b2271eea8bbeeaef846d0592ba0209e4b40aa6d7b",
+      "uri": "package:j2k/src/j2k/quantization/quantizer/c_blk_quant_data_src_enc.dart"
+    },
+    {
+      "blake3": "87d748b62ba9ce95efb274354d840fdbdf03a03848c02ed07b4a52d675ac6a3e",
+      "uri": "package:j2k/src/j2k/entropy/encoder/std_entropy_coder.dart"
+    },
+    {
+      "blake3": "91c6ea7ad20daea089d33d349a536d31f92d1c9c7770408c15b9597ef199a782",
+      "uri": "package:j2k/src/j2k/codestream/writer/codestream_writer.dart"
+    },
+    {
+      "blake3": "97f5c77aac7d992d9ef766f004d39219e744a7a197bb4830daef8fa67b4350d1",
+      "uri": "package:j2k/src/j2k/entropy/encoder/ebcot_rate_allocator.dart"
+    },
+    {
+      "blake3": "1fff8a6ae7128862f7b78051a26dd4dc4a0d94e930d3d119be403eb132b0149d",
+      "uri": "package:j2k/src/j2k/entropy/encoder/layers_info.dart"
+    },
+    {
+      "blake3": "ca57857db457cbfad87958e2f3039696c3e772f8c12dd44625a0b0c21ed42a81",
+      "uri": "package:j2k/src/j2k/no_next_element_exception.dart"
+    },
+    {
+      "blake3": "a797468cbff9ff9821c2c272c792221327cd65800206712450e6149d4ecb88ba",
+      "uri": "package:j2k/src/j2k/platform/platform_io.dart"
+    },
+    {
+      "blake3": "05829f46d3adbd02982d3ee8b6848bd369923b749a2825569c3de08e9a993ffa",
+      "uri": "package:j2k/src/j2k/wavelet/analysis/c_blk_wt_data_src.dart"
+    },
+    {
+      "blake3": "5f7c117581adbc902687db11692923693c8ea13e01de6e2e6f482c806e9aa5a4",
+      "uri": "package:j2k/src/j2k/wavelet/analysis/c_blk_wt_data.dart"
+    },
+    {
+      "blake3": "d999b2a5cccf2156536ad2fc6dbe08bab1f2c344ecafe7a98876b4a12ccc6e0b",
+      "uri": "package:j2k/src/j2k/roi/encoder/roi.dart"
+    },
+    {
+      "blake3": "2ea01cd51582dfc061cfdf1d9a9de63dc66ab9fe4e97e5923208149c4afeda45",
+      "uri": "package:j2k/src/j2k/roi/encoder/arb_roi_mask_generator.dart"
+    },
+    {
+      "blake3": "39061986c0b799f1a6e5c4e8c451cfe01116006465a83c7e949266ac10e33849",
+      "uri": "package:j2k/src/j2k/roi/encoder/roi_mask_generator.dart"
+    },
+    {
+      "blake3": "54b784a58364aeddd0f1a8737d4de7628c90f05b659f06b53b4e262463eef7b1",
+      "uri": "package:j2k/src/j2k/roi/encoder/rect_roi_mask_generator.dart"
+    },
+    {
+      "blake3": "a277335f8a7b3fd32b16069f743ae4e3c5c4dbdf498dfbe59560a79d7bf3b75d",
+      "uri": "package:j2k/src/j2k/util/int32_utils.dart"
+    },
+    {
+      "blake3": "f432fc29d801c75e8b23eafa033d9bee2dde22c2daaacfce5d57bf483af7e60e",
+      "uri": "package:j2k/src/j2k/roi/rectangular_roi.dart"
+    },
+    {
+      "blake3": "86a4120c0b1e93688b090ea733b1725a33a70fbb2deba376fcb3d7ddf90b3b62",
+      "uri": "package:j2k/src/j2k/util/progress_watch.dart"
+    },
+    {
+      "blake3": "ba265915cdc2d05b0287f54d13a0f1c3e8180ac859ae89effd5883824a9af3a6",
+      "uri": "package:j2k/src/j2k/io/endian_type.dart"
+    },
+    {
+      "blake3": "50b695e6339a6a9279e6fd4549fe61160fe59e9c49f3f8512857f1937c807c74",
+      "uri": "package:j2k/src/j2k/wavelet/analysis/forw_wt.dart"
+    },
+    {
+      "blake3": "f1cb1c1ec436fc1ce1a4f7e9e095e16f3b1bd42c81822b8939585e539fe9770a",
+      "uri": "package:j2k/src/j2k/wavelet/analysis/forw_wt_full.dart"
+    },
+    {
+      "blake3": "084749bdaa989e0c2eb2d1d069fb57000cb685c4a0966bb2db58a12566b03f78",
+      "uri": "package:j2k/src/j2k/wavelet/synthesis/c_blk_wt_data_src_dec.dart"
+    },
+    {
+      "blake3": "ae0454bd97991657cdeb85db9c8eb0d37e9f4563afb0207f4399657044bc3611",
+      "uri": "package:j2k/src/j2k/wavelet/synthesis/inv_wt_adapter.dart"
+    },
+    {
+      "blake3": "6b86bca14d3a10349330dcc9839513fe7168a37432f91889ca526cfb19e50b9e",
+      "uri": "package:j2k/src/j2k/wavelet/synthesis/inv_wt_full.dart"
+    },
+    {
+      "blake3": "46d287cbbf27b0438d8faad237859353d9897b932a0b6801296305434b4aec68",
+      "uri": "package:j2k/src/j2k/wavelet/synthesis/syn_wt_filter_float.dart"
+    },
+    {
+      "blake3": "4811af697798de0ab542af1569d34177954cbaf2f5deaaabb883a1e61c40e0e8",
+      "uri": "package:j2k/src/j2k/wavelet/synthesis/syn_wt_filter_int.dart"
+    },
+    {
+      "blake3": "ee471c2ab2d5aa1684bf043f611313e793dd03b7bfe6569b31ba9f7fdf030ec6",
+      "uri": "package:dart_ui/src/graphics/image/codecs/util/bit_utils.dart"
+    },
+    {
+      "blake3": "f91a15d24020bda77f77976e3e3c913f88cd8ea6d01dffb44b92718a2787dc88",
+      "uri": "package:dart_ui/src/graphics/image/codecs/util/rational.dart"
+    },
+    {
+      "blake3": "2333fa61873d34032f677112d2fb42619de35134448ea67137c7d1343a7455e1",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/channel.dart"
+    },
+    {
+      "blake3": "d9389608e4769af530719485bbfa25b5a6be55044d612508144f918de37abaa3",
+      "uri": "package:dart_ui/src/graphics/image/codecs/util/_internal.dart"
+    },
+    {
+      "blake3": "b2c852423efefede364b9a0d3add8b1749498b2638ce7be6aa6baf8242d009ac",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/jpeg/_component_data.dart"
+    },
+    {
+      "blake3": "e0eafaa35d72cb158647dd56014fa8e45bfa8a2dd4b6c2be776e6f07cfde6509",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/jpeg/_jpeg_huffman.dart"
+    },
+    {
+      "blake3": "cd66ad674540deabfaa4eb966e99630c620bee3c9f14118af1df9e6b8c4891ef",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/jpeg/_jpeg_quantize_io.dart"
+    },
+    {
+      "blake3": "ef86f3409c7f4221a81931ab72181d142384bca3bd0aa325fe80040bc409dde6",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/jpeg/jpeg_adobe.dart"
+    },
+    {
+      "blake3": "662b3d66ae8522fe37f3077131b83031a74285cd9897a8ab6a2529f758712da3",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/jpeg/jpeg_component.dart"
+    },
+    {
+      "blake3": "47094459c419496eab10e4f638d843fcf8c96847e54e4cab0d1345a72acbdaca",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/jpeg/jpeg_frame.dart"
+    },
+    {
+      "blake3": "c8af7e4e802eebb32d22e1816f76c75053c76729a78478b22a4f74ba52de5aaf",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/jpeg/jpeg_jfif.dart"
+    },
+    {
+      "blake3": "dae2932b1fc89153cbde599835e1743e1542da71698a972e4b534ebff5cc271a",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/jpeg/jpeg_scan.dart"
+    },
+    {
+      "blake3": "e0153433c5e07b33869322a90ce155ad64476d5ecfedc25483ba78d1d66c5a9f",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/channel_iterator.dart"
+    },
+    {
+      "blake3": "501e7f08e8c0a375e0a06885c23a269e72a1acf5cc20c45fc56e1eb6386ad8ec",
+      "uri": "package:dart_ui/src/graphics/image/codecs/util/math_util.dart"
+    },
+    {
+      "blake3": "5b4d3f5d58df244ddd5fc91b85cea302bdc10457744814a17ac421cb3e39e5b6",
+      "uri": "package:dart_ui/src/graphics/image/codecs/draw/blend_mode.dart"
+    },
+    {
+      "blake3": "8b1bb725ac84d32a2dbdce0cc741c9cfa087b516a676fbdde31a9a1d7cc364a5",
+      "uri": "package:dart_ui/src/graphics/image/codecs/draw/draw_pixel.dart"
+    },
+    {
+      "blake3": "de9bc010a230242e07ecbacde658025e5a360844f2432aee7eb972a6fdf506a9",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/webp/vp8_bit_reader.dart"
+    },
+    {
+      "blake3": "aac810069a34674e4dc1d6500eb9e8283df26a9aeb59b6a58233062be34f6c80",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/webp/vp8_filter.dart"
+    },
+    {
+      "blake3": "9dc6578860359cb66160c054ac2bfe6efb3bdd38266beea27eb5c18cd588f914",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/webp/vp8_types.dart"
+    },
+    {
+      "blake3": "eb394939a58f7ed46aa8ab4ff36a4f887ed3d4aa8fece0bdda7b05349440e34d",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/webp/webp_alpha.dart"
+    },
+    {
+      "blake3": "98bc0e96dfc4802435148a90d866156573b0af49fa94aeaf245aa7fbe6bb5cde",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/webp/vp8l_bit_reader.dart"
+    },
+    {
+      "blake3": "f3fb32991962735302a8a33e0c73cf238468b2c241318309526a08cb8c93c2bf",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/webp/vp8l_color_cache.dart"
+    },
+    {
+      "blake3": "d02d0953982e6575b0a422ede86720abae467d7cd37abf814afbb982b5df1f5c",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/webp/vp8l_transform.dart"
+    },
+    {
+      "blake3": "8a243962f33c3aa809d832966ee49c6bef93d145dda6176fb23e68092c1ca57d",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/webp/webp_huffman.dart"
+    },
+    {
+      "blake3": "ed5cc3528e78b56ca17d4de7306920e793c4b229ef64f0dbdde5da7962b0e622",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/color_float16.dart"
+    },
+    {
+      "blake3": "5e48ad326416605c8313f2107bb39ca1c6dac0ac1b7aef75175c59e64d41a618",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/color_float32.dart"
+    },
+    {
+      "blake3": "9369b08bda6942b9051af4e5c458a05a06ffd26c8a0c795c668345e683cc42e0",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/color_float64.dart"
+    },
+    {
+      "blake3": "7929f9f22deb6c63aa5c83a7ad47205dee63a5416577a6358b452d47d66419f6",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/color_int16.dart"
+    },
+    {
+      "blake3": "3be4c45b62e17d906864a7a34bc0dfa215bb26a33c43a0b820d2e08e2366c316",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/color_int32.dart"
+    },
+    {
+      "blake3": "0c3770daa5a92e2fcf101055eaea680af95e04bf93c5ef77f85dc77c1b0d0af6",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/color_int8.dart"
+    },
+    {
+      "blake3": "fcf68dd876f4aa69fcacee35647b6bd88d418755b99648503024f01967690bca",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/color_uint1.dart"
+    },
+    {
+      "blake3": "e5472551e9dfc5377278eedfdc43b0ff3387149520d03132009b19c63b4aa140",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/color_uint16.dart"
+    },
+    {
+      "blake3": "2b33c66b223fb727210b3e4bd05dc9822658f4c194fe9a13f0a33cb67e4ff306",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/color_uint2.dart"
+    },
+    {
+      "blake3": "8c9fc9945c1ce00d011e96d8f4be7988ebc8dfd0ff0f0fe28bbf8aaa70793cc4",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/color_uint32.dart"
+    },
+    {
+      "blake3": "4ebea3fa6e50d18f76f9290505bfffe9fa0f1a3ae9c374cd53c3a5292f1e853f",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/color_uint4.dart"
+    },
+    {
+      "blake3": "1a7818ba45276563937f4f666d7e8896f00cb0076cb7a0d59efb69c6e2f421fe",
+      "uri": "package:dart_ui/src/graphics/image/codecs/util/float16.dart"
+    },
+    {
+      "blake3": "b4f536805076b73e43c69192cddc449fbd802bf718b6138673fbacac0ea79421",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/pixel_float16.dart"
+    },
+    {
+      "blake3": "e933e755dc44b0c20a3313b7d0b96db600fbf646204c6ea2091795ca74b2d4cc",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/pixel_range_iterator.dart"
+    },
+    {
+      "blake3": "e33e02226a6ac6598de0fbd78d27d37478e9ca1569bcd3602c31efa3b1112aec",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/pixel_float32.dart"
+    },
+    {
+      "blake3": "219f69964d7f14097707234e82078c35a5842c10c30b0d2fbfc6c1746a576f9c",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/pixel_float64.dart"
+    },
+    {
+      "blake3": "315623ca730dec11b6c7afdbc0084f21daf4b5dcc98ac9f7777044f2121c0d65",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/pixel_int16.dart"
+    },
+    {
+      "blake3": "04e42598e8061859dee2fce8031365cdb8baf302366874d754418c4886a41dec",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/pixel_int32.dart"
+    },
+    {
+      "blake3": "97cb7f43b2626dcbc70642c433eccad0ad2e508d0288a15cf5d1bcae7f1b1336",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/pixel_int8.dart"
+    },
+    {
+      "blake3": "ab81c246a15c486f73743248586df6e60beb73b8a4e2df5c1bc54fce5170dc06",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/pixel_uint1.dart"
+    },
+    {
+      "blake3": "d512a3a91d75ef7c1f0d5741c40c04d1986ea48de56bc2eadd93e409d32dee40",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/pixel_uint16.dart"
+    },
+    {
+      "blake3": "d83176c54fc25af26b84ed2b12618eea9f403f11a204e65d29ac148e1e8b9bef",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/pixel_uint2.dart"
+    },
+    {
+      "blake3": "1bc03cb78428c22d956cd779f90f8d03df3fef7a17ef307653570cf960f58f09",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/pixel_uint32.dart"
+    },
+    {
+      "blake3": "96db729574f944d1320403a3318937305463edbe1ef271278499199325b8e19c",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/pixel_uint4.dart"
+    },
+    {
+      "blake3": "4ed703ca8ad7b865188febd1c06d657b646284905f3c01139b8b554805ceb071",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/pixel_uint8.dart"
+    },
+    {
+      "blake3": "6cbc2998c6e8bc9aab64da63997cb777b309c72566862d32685bb534ce05cedc",
+      "uri": "package:dart_ui/src/graphics/image/codecs/image/pixel_undefined.dart"
+    },
+    {
+      "blake3": "68d3711947a9dbb1219be656f56c8c93be502ffa7f5961eed500a6ed910960de",
+      "uri": "package:dart_ui/src/backends/win32/uia/uia_mapping.dart"
+    },
+    {
+      "blake3": "964b3e4eca31b37c2de84a0e9f4f579610408d9daf58e586423b24666f00be25",
+      "uri": "package:j2k/src/icc/types/xyz_number.dart"
+    },
+    {
+      "blake3": "7ce275d389679c9ea12265ded05479feb9afd109cf03b2b3a6c2c924c3c4d130",
+      "uri": "package:j2k/src/icc/types/icc_profile_version.dart"
+    },
+    {
+      "blake3": "d134993159962f50e61627aec38a672fcc9e516d2a9fca73a4204235da98927e",
+      "uri": "package:j2k/src/icc/types/icc_date_time.dart"
+    },
+    {
+      "blake3": "da297586f4d97787aab0f012a49ab73f6c92f8c368b352dc0f66c333036437b1",
+      "uri": "package:j2k/src/icc/types/icc_profile_header.dart"
+    },
+    {
+      "blake3": "a4f2f8a5bdb4f8290b42c5d45a620fc8bae562692adf8d65152e0e073152b1b7",
+      "uri": "package:j2k/src/icc/tags/icc_tag_table.dart"
+    },
+    {
+      "blake3": "f2bd28a6374f97a4444d6ae7ba7556cbcc9e5badb7525be477aa20c01a47f0ad",
+      "uri": "package:j2k/src/icc/tags/icc_curve_type.dart"
+    },
+    {
+      "blake3": "249c66b16ddf002ca6e81ae392b03e4029860dde22faed0a15d5e11fcb4b3c05",
+      "uri": "package:j2k/src/icc/tags/icc_xyz_type.dart"
+    },
+    {
+      "blake3": "ffc6cc19bc815cfaeb8cb649172676926d268b418b30048cdc9f255f5e2156da",
+      "uri": "package:j2k/src/icc/restricted_icc_profile.dart"
+    },
+    {
+      "blake3": "d3b79b97d7f7be28d0e3c92dd84253e01e6eaee09659c04046925197f27928c5",
+      "uri": "package:j2k/src/icc/icc_profile_invalid_exception.dart"
+    },
+    {
+      "blake3": "52fada1ef3cd2a2f84bf10e82df4bc104f533473317801e2f17185c73ad828b9",
+      "uri": "package:j2k/src/j2k/io/binary_data_input.dart"
+    },
+    {
+      "blake3": "628b2446aaf65590991df5ffca2288e271e9aaac567c1856441893c799d4dd04",
+      "uri": "package:j2k/src/icc/icc_monochrome_input_profile.dart"
+    },
+    {
+      "blake3": "3d65df2ae5d589d2361e620aab93a9e0560ae37a296814300eae9b24d85f3dbf",
+      "uri": "package:j2k/src/icc/icc_matrix_based_input_profile.dart"
+    },
+    {
+      "blake3": "a2f0099b4ec3ed5bdfd5ba042bd720713382e2c076abda87bd77e98bf159ce5a",
+      "uri": "package:j2k/src/icc/lut/monochrome_transform_to_srgb.dart"
+    },
+    {
+      "blake3": "fe85fa1f7f22b12ce176cdeb9a0a934dd508df0cdbd8bb55194420b5149895dd",
+      "uri": "package:j2k/src/icc/lut/matrix_based_transform_to_srgb.dart"
+    },
+    {
+      "blake3": "23d6a2013f33866fa2a53fdafa6eee171dff599b797381da682d66c834876d23",
+      "uri": "package:j2k/src/icc/lut/matrix_based_transform_exception.dart"
+    },
+    {
+      "blake3": "0737100c46e0066fdde816e11c8ac37ec4e242d400c469ac7f91d5f58e455f40",
+      "uri": "package:j2k/src/icc/lut/monochrome_transform_exception.dart"
+    },
+    {
+      "blake3": "96254c46bca8234ff1017423307ff15ea87c50e70516386b19f08ff03f6c6660",
+      "uri": "package:j2k/src/j2k/codestream/coord_info.dart"
+    },
+    {
+      "blake3": "90a1831d67574afb86d85eaf664b9009587d09dc9a2d0763bde41c5d644969db",
+      "uri": "package:j2k/src/j2k/wavelet/synthesis/inv_wt_data.dart"
+    },
+    {
+      "blake3": "0a466a82a08f9d46f79e056f2b36cec1435360ddf80b92e1fe6481eac95b0f80",
+      "uri": "package:j2k/src/j2k/entropy/coded_c_blk.dart"
+    },
+    {
+      "blake3": "d20c31df6f9ed13c0a4a37790e1cac93940e63021bbe992bf89da62a507a0616",
+      "uri": "package:j2k/src/j2k/quantization/quantization_type.dart"
+    },
+    {
+      "blake3": "56f3dbd96c6b42cfac4148be2df491171ac382309179b46a40c5c7ccbe8d0d6c",
+      "uri": "package:j2k/src/j2k/quantization/dequantizer/dequantizer_params.dart"
+    },
+    {
+      "blake3": "65f1ed70d011246ed71a66473af9949dad0ed3b39b850d3accc0b45bb2ec1164",
+      "uri": "package:j2k/src/j2k/util/decoder_debug_config.dart"
+    },
+    {
+      "blake3": "9aaa3382f2646430c169877bc8e0ecea2893c58f9536b90bd93ed63c02cb07c8",
+      "uri": "package:j2k/src/j2k/entropy/decoder/byte_input_buffer.dart"
+    },
+    {
+      "blake3": "bc4dbef81772d6d1895bd8d9941cc6a61054663cb5cd5e931c9b6d59e5b9e394",
+      "uri": "package:j2k/src/j2k/entropy/decoder/byte_to_bit_input.dart"
+    },
+    {
+      "blake3": "b2efcc4e619f63cb5c1fb01c84e323d706d7f9d088439a73b674c9e8d5863764",
+      "uri": "package:j2k/src/j2k/entropy/decoder/mq_decoder.dart"
+    },
+    {
+      "blake3": "45f310884ff0ce6b93b693506d36e39696631ec427138411488dd6556b300df1",
+      "uri": "package:j2k/src/j2k/quantization/dequantizer/dequantizer.dart"
+    },
+    {
+      "blake3": "92e51b5cb3a7c044f52100a4faa5241f8369ac22d8561b911636888fb424bdf2",
+      "uri": "package:j2k/src/j2k/wavelet/analysis/c_blk_wt_data_float.dart"
+    },
+    {
+      "blake3": "e0949fd95a412f297a29722adcb0aaca1b7d4188688e07796241c6ab790793c6",
+      "uri": "package:j2k/src/j2k/wavelet/analysis/c_blk_wt_data_int.dart"
+    },
+    {
+      "blake3": "e9373876f6492c1132513d171f9851a98c763aae8b3da0e1822b4c473d346ed8",
+      "uri": "package:j2k/src/j2k/wavelet/analysis/forw_wt_data_props.dart"
+    },
+    {
+      "blake3": "86ea9b12c2aebc74b69531e82e6c89c2f751a0351145c2641049f6ee5f8eeddc",
+      "uri": "package:j2k/src/j2k/not_implemented_error.dart"
+    },
+    {
+      "blake3": "e87bf2dbf38a8622b85671464f8339a74c2d4dc9b862b4011c5de047eae314c6",
+      "uri": "package:j2k/src/j2k/wavelet/analysis/an_wt_filter_int_lift5x3.dart"
+    },
+    {
+      "blake3": "c2dd44c9338cd2a046d7596246f3fefff7b52b139f34ed1be75abaaef1654481",
+      "uri": "package:j2k/src/j2k/wavelet/analysis/an_wt_filter_float_lift9x7.dart"
+    },
+    {
+      "blake3": "8039010bb3faaa88608380854a5a78c46a0405b26c82b634e97f52cf0b07d23e",
+      "uri": "package:j2k/src/j2k/wavelet/synthesis/multi_res_img_data.dart"
+    },
+    {
+      "blake3": "9c19293a01bef6e74907791e3eeed954f28d71606a3e8c709bd70cff98e20d40",
+      "uri": "package:j2k/src/j2k/entropy/encoder/mq_coder.dart"
+    },
+    {
+      "blake3": "9d80f3588b6244be8b8a317568499a0efbdeb124c85028cf43261ccaed830875",
+      "uri": "package:j2k/src/j2k/entropy/encoder/bit_to_byte_output.dart"
+    },
+    {
+      "blake3": "63c08b31e74a0075edaa4199d9896b75bb2067a2bac8f1df6c61fcc487aa377f",
+      "uri": "package:j2k/src/j2k/entropy/encoder/byte_output_buffer.dart"
+    },
+    {
+      "blake3": "f91b1cdecabf211c2ea38bd40087e533acf2d1d7b728ea99bcb594776d561e71",
+      "uri": "package:j2k/src/j2k/entropy/encoder/ebcot_layer.dart"
+    },
+    {
+      "blake3": "ff379616ba646c0517245d33e79fea66d25487358847453104b814202af66c72",
+      "uri": "package:j2k/src/j2k/image/input/img_reader_pgm.dart"
+    },
+    {
+      "blake3": "cf9314240d71756a35f9d0b47c5a21d7c3899acb12d85bb7b7779ca411860904",
+      "uri": "package:j2k/src/j2k/roi/encoder/subband_rect_roi_mask.dart"
+    },
+    {
+      "blake3": "08c226efab7a6181ead6a793e659d697c5b5f0e8804d178141a3296f91e51484",
+      "uri": "package:j2k/src/j2k/roi/roi_shape.dart"
+    },
+    {
+      "blake3": "c157ea6f0af0c7b366534a4c94f6876fc4daa138f74170b3af5d7bf8ec25a3c3",
+      "uri": "package:j2k/src/j2k/wavelet/wavelet_transform.dart"
+    },
+    {
+      "blake3": "5b8a87cea7baee6da7960fd0476e2e5df31d8da413c15bc8ea925250b7629e21",
+      "uri": "package:j2k/src/j2k/wavelet/synthesis/inv_wt.dart"
+    },
+    {
+      "blake3": "766e2734dfdb83cee5d1bb889eb9a9901ba668297920f6a4151cc2ad938208f9",
+      "uri": "package:dart_ui/src/graphics/image/codecs/formats/webp/webp_filters.dart"
+    },
+    {
+      "blake3": "f67732ac6a69d22e6b0af37841b73eeb015f438847ef1e25a9611e4db1e2f9ca",
+      "uri": "package:j2k/src/icc/tags/icc_tag.dart"
+    },
+    {
+      "blake3": "0c2650564f6942d64cb2f8199d372f8caffee788d6369a0b198524b71611cfdf",
+      "uri": "package:j2k/src/icc/matrix_based_restricted_profile.dart"
+    },
+    {
+      "blake3": "0828e0af0363aef54b81430e397f13b02c7400614791eee2b9279e54e95924f7",
+      "uri": "package:j2k/src/icc/monochrome_input_restricted_profile.dart"
+    },
+    {
+      "blake3": "efc7e4b23e97cb8b4efabb4337dfafe1cc19135a3d8fa3f5fd2f9458bf7d9790",
+      "uri": "package:j2k/src/icc/icc_profile_exception.dart"
+    },
+    {
+      "blake3": "7b0ab0467a24c8cf0a58b6570f3ab75334d01021de9dcaf896496ce9ccb30dc6",
+      "uri": "package:j2k/src/icc/lut/look_up_table_fp.dart"
+    },
+    {
+      "blake3": "49098ba9fb11dfcf9faf696439a597d3eec51c1065950ba1d579bc4a454b9af6",
+      "uri": "package:j2k/src/icc/lut/look_up_table32_linear_srgb_to_srgb.dart"
+    },
+    {
+      "blake3": "b81ac5a9e51f290eefcaf5f9b002ea414ba474941d129fec01a9c05a8f7ad90b",
+      "uri": "package:j2k/src/j2k/wavelet/analysis/an_wt_filter_int.dart"
+    },
+    {
+      "blake3": "fa8a965a2df5ea20dbe055c8c96195cbe91ded658babca49dd0f6ee9558b3d7a",
+      "uri": "package:j2k/src/j2k/wavelet/analysis/an_wt_filter_float.dart"
+    },
+    {
+      "blake3": "a769f83bf98636ed0de136a8fd8d3b8553e4166e2705700d56f4e05392b5a05a",
+      "uri": "package:j2k/src/j2k/roi/encoder/subband_roi_mask.dart"
+    },
+    {
+      "blake3": "a9a2b6814b6681067eb3b9435b4a9dcf3fd62b10cde09f8c694190d0ea9c6bad",
+      "uri": "package:j2k/src/icc/tags/icc_text_description_type.dart"
+    },
+    {
+      "blake3": "6461817bd40659810bb4dfea7342a14661dd85d51488ec4428a9d36714288404",
+      "uri": "package:j2k/src/icc/tags/icc_text_type.dart"
+    },
+    {
+      "blake3": "ac4125cae39541483ecab011b9a76a7616db7b0993e2c712404c51cf7276b8ec",
+      "uri": "package:j2k/src/icc/tags/icc_xyz_type_reverse.dart"
+    },
+    {
+      "blake3": "ece651a3151ad4606d9243f7d2ef8cd6915220ef59992b4bdc86c27d50f8d3da",
+      "uri": "package:j2k/src/icc/tags/icc_curve_type_reverse.dart"
+    },
+    {
+      "blake3": "79c8fad71cc08d030ac6398abe8282040e46561d9be46d33b6258ce0f2ecbde8",
+      "uri": "package:j2k/src/icc/lut/look_up_table.dart"
+    },
+    {
+      "blake3": "367513c4a118f343ed7f001c4673e764fdd4a17530e89be16bec98f8a96bfe24",
+      "uri": "package:j2k/src/icc/lut/look_up_table_fp_gamma.dart"
+    },
+    {
+      "blake3": "3fde90d0056fe8a6e346a13d18cc56696e1fd91bc42ad25b62ad81f669b2b9a1",
+      "uri": "package:j2k/src/icc/lut/look_up_table_fp_interp.dart"
+    },
+    {
+      "blake3": "6bc79258cf69710277af327980d2b1aa35c01eb91f7f6a6f3e85845e4e52c85e",
+      "uri": "package:j2k/src/icc/lut/look_up_table32.dart"
+    },
+    {
+      "blake3": "e214c1d8bc4b4b8b6161481af6e94003f87594ef6493a8d5eedf6e70547edb3c",
+      "uri": "package:j2k/src/icc/lut/look_up_table32_gamma.dart"
+    },
+    {
+      "blake3": "c1e03a89178f32f99b0c089e281cf3dd6a6d07286f0527308c6935d8a2ff35d5",
+      "uri": "package:j2k/src/icc/lut/look_up_table32_interp.dart"
+    }
+  ],
+  "verification_implemented": false
+}

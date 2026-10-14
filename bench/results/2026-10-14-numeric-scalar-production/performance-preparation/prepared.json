@@ -1,0 +1,71 @@
+{
+  "inputs_before": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-producer/dartforge": "1d2dadbc030f9da15f4672900ad1f9aab1ea736edb0acff6be82174b8d620655",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/probe.dart": "6fb4e41442c7748deef988bb21c0e5a2438bacb62dfd0629e42387cf1422ef0d",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json": "c5c1c22ad085905aa6341ddf11b3999b001cb6ac128a61f117a1fb8d532ec934",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/lib/src/graphics/image/codecs/color/format.dart": "c7750e025311ea78a05c0ec73cec464a8845ac99599b61be9c089afee97c62db"
+  },
+  "commands": [
+    {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-format-performance/off"
+      ],
+      "exit_code": 0,
+      "checked_double_optout": "1"
+    },
+    {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-format-performance/on"
+      ],
+      "exit_code": 0,
+      "checked_double_optout": null
+    }
+  ],
+  "artifacts": {
+    "off": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-format-performance/off",
+      "sha256": "847d3c1f133c5ed1b99fccdb795e0d80c29c8ec05bfbf97d28b31308e44028ca",
+      "bytes": 3335024
+    },
+    "on": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-format-performance/on",
+      "sha256": "2614b311499fa67d899941a97fb29ed865f2cc7f94920382d52720cb818b8222",
+      "bytes": 3335024
+    },
+    "official": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/official",
+      "sha256": "d9f08755507e8c4a94638271c00d0e087d0a8686658463a42f109c8423758cb8"
+    }
+  },
+  "official_reuse_ledger": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-enum-pattern-identity/performance-preparation/prepared.json",
+  "official_reuse_ledger_sha256": "998600fcbf16551acc52c10d12829ad952c3c45340ae09f30edb5e4101f75625",
+  "scope": "Compile-only preparation. Same source, packages, SDK and producer; only checked-double optout differs.",
+  "inputs_unchanged": true,
+  "result": "READY_NOT_TIMED"
+}

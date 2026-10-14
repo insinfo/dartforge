@@ -1,0 +1,15 @@
+{
+  "result": "CONFIRMED_UNSAFE_ACCEPTANCE",
+  "frozen_producer_sha256": "1d2dadbc030f9da15f4672900ad1f9aab1ea736edb0acff6be82174b8d620655",
+  "OFF": {
+    "stdout": "false\n",
+    "double_boxes": 1,
+    "exit": 0
+  },
+  "ON": {
+    "stdout": "true\n",
+    "double_boxes": 0,
+    "exit": 0
+  },
+  "scope": "Actual selectedSDK3.6.2 source modification to inheritedObject.noSuchMethod only; unchangedcanonical_Double/identical overlays failtoexclude allocationidentity observation. No upstreammodifiedSDKexecutionclaim. Production unchanged; mustharden/refuse before shipping."
+}

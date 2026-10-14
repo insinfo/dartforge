@@ -1,0 +1,48 @@
+b0 TERMINATOR CondBranch { cond: Val(ValueId(3)), then_block: BlockId(1), else_block: BlockId(2) }
+b0 v1 I64 Const(Int(1))
+b0 v2 Ref CallRuntime { name: "dartforge_object_get", args: [(Val(ValueId(0)), Ref), (Constant(Int(0)), I64)], ret_ty: Ref }
+b0 v3 I1 ICmp(Eq, Val(ValueId(2)), Constant(Null))
+b1 TERMINATOR CondBranch { cond: Val(ValueId(9)), then_block: BlockId(5), else_block: BlockId(6) }
+b1 v8 Ref Phi { incoming: [(BlockId(0), Constant(Null)), (BlockId(3), Val(ValueId(7)))], ty: Ref }
+b1 v9 I1 ICmp(Eq, Val(ValueId(8)), Constant(Null))
+b2 TERMINATOR CondBranch { cond: Val(ValueId(6)), then_block: BlockId(4), else_block: BlockId(3) }
+b2 v4 I64 CallStatic { symbol: "df.bench$2edart.Node.count", args: [Val(ValueId(2))], ret_ty: I64 }
+b2 v5 I8 CallRuntime { name: "dartforge_exception_pending", args: [], ret_ty: I8 }
+b2 v6 I1 ICmp(Ne, Val(ValueId(5)), Constant(Int(0)))
+b3 TERMINATOR Branch(BlockId(1))
+b3 v7 Ref Box { op: Val(ValueId(4)), from: I64 }
+b4 TERMINATOR Return(Some(Constant(Int(0))))
+b5 TERMINATOR Branch(BlockId(7))
+b5 v13 I64 Const(Int(0))
+b6 TERMINATOR CondBranch { cond: Val(ValueId(12)), then_block: BlockId(9), else_block: BlockId(8) }
+b6 v10 I64 Unbox { op: Val(ValueId(8)), to: I64 }
+b6 v11 I8 CallRuntime { name: "dartforge_exception_pending", args: [], ret_ty: I8 }
+b6 v12 I1 ICmp(Ne, Val(ValueId(11)), Constant(Int(0)))
+b7 TERMINATOR CondBranch { cond: Val(ValueId(17)), then_block: BlockId(10), else_block: BlockId(11) }
+b7 v14 I64 Phi { incoming: [(BlockId(8), Val(ValueId(10))), (BlockId(5), Val(ValueId(13)))], ty: I64 }
+b7 v15 I64 Add(Val(ValueId(1)), Val(ValueId(14)))
+b7 v16 Ref CallRuntime { name: "dartforge_object_get", args: [(Val(ValueId(0)), Ref), (Constant(Int(1)), I64)], ret_ty: Ref }
+b7 v17 I1 ICmp(Eq, Val(ValueId(16)), Constant(Null))
+b8 TERMINATOR Branch(BlockId(7))
+b9 TERMINATOR Return(Some(Constant(Int(0))))
+b10 TERMINATOR CondBranch { cond: Val(ValueId(23)), then_block: BlockId(14), else_block: BlockId(15) }
+b10 v22 Ref Phi { incoming: [(BlockId(7), Constant(Null)), (BlockId(12), Val(ValueId(21)))], ty: Ref }
+b10 v23 I1 ICmp(Eq, Val(ValueId(22)), Constant(Null))
+b11 TERMINATOR CondBranch { cond: Val(ValueId(20)), then_block: BlockId(13), else_block: BlockId(12) }
+b11 v18 I64 CallStatic { symbol: "df.bench$2edart.Node.count", args: [Val(ValueId(16))], ret_ty: I64 }
+b11 v19 I8 CallRuntime { name: "dartforge_exception_pending", args: [], ret_ty: I8 }
+b11 v20 I1 ICmp(Ne, Val(ValueId(19)), Constant(Int(0)))
+b12 TERMINATOR Branch(BlockId(10))
+b12 v21 Ref Box { op: Val(ValueId(18)), from: I64 }
+b13 TERMINATOR Return(Some(Constant(Int(0))))
+b14 TERMINATOR Branch(BlockId(16))
+b14 v27 I64 Const(Int(0))
+b15 TERMINATOR CondBranch { cond: Val(ValueId(26)), then_block: BlockId(18), else_block: BlockId(17) }
+b15 v24 I64 Unbox { op: Val(ValueId(22)), to: I64 }
+b15 v25 I8 CallRuntime { name: "dartforge_exception_pending", args: [], ret_ty: I8 }
+b15 v26 I1 ICmp(Ne, Val(ValueId(25)), Constant(Int(0)))
+b16 TERMINATOR Return(Some(Val(ValueId(29))))
+b16 v28 I64 Phi { incoming: [(BlockId(17), Val(ValueId(24))), (BlockId(14), Val(ValueId(27)))], ty: I64 }
+b16 v29 I64 Add(Val(ValueId(15)), Val(ValueId(28)))
+b17 TERMINATOR Branch(BlockId(16))
+b18 TERMINATOR Return(Some(Constant(Int(0))))

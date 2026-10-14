@@ -1,0 +1,527 @@
+{
+  "rows": [
+    {
+      "order": 0,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-bench/off/program"
+      ],
+      "exit_code": 0,
+      "wall_ms": 1520.291041,
+      "max_rss_bytes": 77381632,
+      "results": {
+        "fib": 2178309,
+        "trees": 3156655,
+        "numeric": 752938,
+        "strings": 2000000,
+        "json": 1253013890
+      },
+      "kernel_ms": {
+        "fib": [
+          12,
+          10,
+          9,
+          8
+        ],
+        "trees": [
+          24,
+          22,
+          23,
+          23
+        ],
+        "numeric": [
+          96,
+          96,
+          96,
+          97
+        ],
+        "strings": [
+          72,
+          72,
+          73,
+          73
+        ],
+        "json": [
+          112,
+          101,
+          104,
+          101
+        ]
+      }
+    },
+    {
+      "order": 0,
+      "profile": "on",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-bench/on/program"
+      ],
+      "exit_code": 0,
+      "wall_ms": 1484.231791,
+      "max_rss_bytes": 73629696,
+      "results": {
+        "fib": 2178309,
+        "trees": 3156655,
+        "numeric": 752938,
+        "strings": 2000000,
+        "json": 1253013890
+      },
+      "kernel_ms": {
+        "fib": [
+          15,
+          12,
+          10,
+          9
+        ],
+        "trees": [
+          23,
+          20,
+          22,
+          21
+        ],
+        "numeric": [
+          96,
+          96,
+          96,
+          96
+        ],
+        "strings": [
+          72,
+          70,
+          71,
+          71
+        ],
+        "json": [
+          107,
+          99,
+          102,
+          99
+        ]
+      }
+    },
+    {
+      "order": 0,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/official/bench"
+      ],
+      "exit_code": 0,
+      "wall_ms": 953.018791,
+      "max_rss_bytes": 197165056,
+      "results": {
+        "fib": 2178309,
+        "trees": 3156655,
+        "numeric": 752938,
+        "strings": 2000000,
+        "json": 1253013890
+      },
+      "kernel_ms": {
+        "fib": [
+          8,
+          9,
+          8,
+          9
+        ],
+        "trees": [
+          13,
+          12,
+          12,
+          11
+        ],
+        "numeric": [
+          95,
+          95,
+          95,
+          95
+        ],
+        "strings": [
+          44,
+          45,
+          45,
+          45
+        ],
+        "json": [
+          69,
+          74,
+          71,
+          69
+        ]
+      }
+    },
+    {
+      "order": 1,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/official/bench"
+      ],
+      "exit_code": 0,
+      "wall_ms": 947.843,
+      "max_rss_bytes": 197722112,
+      "results": {
+        "fib": 2178309,
+        "trees": 3156655,
+        "numeric": 752938,
+        "strings": 2000000,
+        "json": 1253013890
+      },
+      "kernel_ms": {
+        "fib": [
+          8,
+          9,
+          8,
+          8
+        ],
+        "trees": [
+          13,
+          11,
+          11,
+          12
+        ],
+        "numeric": [
+          96,
+          95,
+          95,
+          95
+        ],
+        "strings": [
+          45,
+          44,
+          44,
+          44
+        ],
+        "json": [
+          69,
+          75,
+          71,
+          70
+        ]
+      }
+    },
+    {
+      "order": 1,
+      "profile": "on",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-bench/on/program"
+      ],
+      "exit_code": 0,
+      "wall_ms": 1211.617666,
+      "max_rss_bytes": 73613312,
+      "results": {
+        "fib": 2178309,
+        "trees": 3156655,
+        "numeric": 752938,
+        "strings": 2000000,
+        "json": 1253013890
+      },
+      "kernel_ms": {
+        "fib": [
+          6,
+          6,
+          7,
+          7
+        ],
+        "trees": [
+          22,
+          21,
+          22,
+          21
+        ],
+        "numeric": [
+          96,
+          96,
+          96,
+          96
+        ],
+        "strings": [
+          72,
+          71,
+          71,
+          71
+        ],
+        "json": [
+          107,
+          100,
+          103,
+          101
+        ]
+      }
+    },
+    {
+      "order": 1,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-bench/off/program"
+      ],
+      "exit_code": 0,
+      "wall_ms": 1216.478958,
+      "max_rss_bytes": 73400320,
+      "results": {
+        "fib": 2178309,
+        "trees": 3156655,
+        "numeric": 752938,
+        "strings": 2000000,
+        "json": 1253013890
+      },
+      "kernel_ms": {
+        "fib": [
+          6,
+          6,
+          7,
+          7
+        ],
+        "trees": [
+          23,
+          22,
+          23,
+          22
+        ],
+        "numeric": [
+          96,
+          96,
+          96,
+          96
+        ],
+        "strings": [
+          72,
+          72,
+          72,
+          72
+        ],
+        "json": [
+          108,
+          101,
+          104,
+          100
+        ]
+      }
+    },
+    {
+      "order": 2,
+      "profile": "on",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-bench/on/program"
+      ],
+      "exit_code": 0,
+      "wall_ms": 1214.470292,
+      "max_rss_bytes": 77414400,
+      "results": {
+        "fib": 2178309,
+        "trees": 3156655,
+        "numeric": 752938,
+        "strings": 2000000,
+        "json": 1253013890
+      },
+      "kernel_ms": {
+        "fib": [
+          7,
+          7,
+          7,
+          7
+        ],
+        "trees": [
+          21,
+          20,
+          22,
+          21
+        ],
+        "numeric": [
+          96,
+          96,
+          96,
+          96
+        ],
+        "strings": [
+          72,
+          72,
+          72,
+          72
+        ],
+        "json": [
+          108,
+          101,
+          103,
+          100
+        ]
+      }
+    },
+    {
+      "order": 2,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-bench/off/program"
+      ],
+      "exit_code": 0,
+      "wall_ms": 1223.399833,
+      "max_rss_bytes": 73646080,
+      "results": {
+        "fib": 2178309,
+        "trees": 3156655,
+        "numeric": 752938,
+        "strings": 2000000,
+        "json": 1253013890
+      },
+      "kernel_ms": {
+        "fib": [
+          7,
+          7,
+          7,
+          7
+        ],
+        "trees": [
+          23,
+          22,
+          23,
+          23
+        ],
+        "numeric": [
+          96,
+          96,
+          96,
+          96
+        ],
+        "strings": [
+          72,
+          71,
+          72,
+          72
+        ],
+        "json": [
+          109,
+          101,
+          104,
+          101
+        ]
+      }
+    },
+    {
+      "order": 2,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/official/bench"
+      ],
+      "exit_code": 0,
+      "wall_ms": 955.388334,
+      "max_rss_bytes": 197722112,
+      "results": {
+        "fib": 2178309,
+        "trees": 3156655,
+        "numeric": 752938,
+        "strings": 2000000,
+        "json": 1253013890
+      },
+      "kernel_ms": {
+        "fib": [
+          9,
+          9,
+          9,
+          9
+        ],
+        "trees": [
+          12,
+          11,
+          11,
+          14
+        ],
+        "numeric": [
+          103,
+          95,
+          95,
+          95
+        ],
+        "strings": [
+          45,
+          45,
+          44,
+          44
+        ],
+        "json": [
+          69,
+          74,
+          71,
+          69
+        ]
+      }
+    }
+  ],
+  "medians": {
+    "official": {
+      "wall_ms": 953.018791,
+      "max_rss_bytes": 197722112,
+      "kernel_ms": {
+        "fib": 9,
+        "trees": 11,
+        "numeric": 95,
+        "strings": 44,
+        "json": 71
+      }
+    },
+    "off": {
+      "wall_ms": 1223.399833,
+      "max_rss_bytes": 73646080,
+      "kernel_ms": {
+        "fib": 7,
+        "trees": 23,
+        "numeric": 96,
+        "strings": 72,
+        "json": 101
+      }
+    },
+    "on": {
+      "wall_ms": 1214.470292,
+      "max_rss_bytes": 73629696,
+      "kernel_ms": {
+        "fib": 7,
+        "trees": 21,
+        "numeric": 96,
+        "strings": 71,
+        "json": 101
+      }
+    }
+  },
+  "artifacts": {
+    "official": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/official/bench",
+      "sha256": "f33cff89814d93457d1ad206ac3f4282fdf2e60c98375a7087d5b6fcba4867a8",
+      "bytes": 5379136
+    },
+    "off": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-bench/off/program",
+      "bytes": 3368032,
+      "sha256": "f3a9e60bef35940d3968d58bc09e0044e1b33de7b3ede8a08c79a9084357391c",
+      "node_count_text_bytes": 688,
+      "link_map_sha256": "af907b06f8e9fefeecb9357639642dcd3ba2e0ce4ce907176e458f8ab837eba2"
+    },
+    "on": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-bench/on/program",
+      "bytes": 3368032,
+      "sha256": "b895e80363bc783b51761367b781d034a8d654e31b9b555edc55f8d4c0503f7d",
+      "node_count_text_bytes": 244,
+      "link_map_sha256": "6decd8d1a02a825e5303f36c9678e80aeef678a6e14f37fc3eb78cc3bf864884"
+    }
+  },
+  "prepared_sha256": "b2ecee682cff0b922b30a453da6c2029e47ac911e474b8e69b9ce8cdbedca2d8",
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/bench.dart": "8bacd8323aad4882d8aa8a32cbac9edf9abf1d0fdaa1d235aa20f1721ba7275c",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-producer/dartforge": "1d2dadbc030f9da15f4672900ad1f9aab1ea736edb0acff6be82174b8d620655"
+  },
+  "inputs_unchanged": true,
+  "scope": "Three alternating fresh processes per profile. First of four calls per kernel discarded; process wall/RSS includes all four. Millisecond kernel timers limit resolution. Exact consumed results match upstream."
+}

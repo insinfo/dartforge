@@ -1,0 +1,6 @@
+{
+  "artifact_sha256": "732b7d7129fbf5df75d07c374717a33b282ea81c47cd897253a9ffaee1b436cd",
+  "navigation": "Initial root2items, child1item, Backreturnedroot2items; screenshots visually inspected",
+  "exit_code": 0,
+  "scope": "Ordinary original File Explorer entry; actual child wait status preserved. Functional check, not frame-performance measurement."
+}

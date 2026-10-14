@@ -1,0 +1,73 @@
+{
+  "result": "COMPILE_PAIR_PASS_GUI_PENDING",
+  "producer_sha256": "1d2dadbc030f9da15f4672900ad1f9aab1ea736edb0acff6be82174b8d620655",
+  "compile_order": [
+    "on",
+    "off"
+  ],
+  "input_count": 11652,
+  "input_manifest_sha256": "cb9bdc8c2495d25e3154c4ca8cd841506fd4ed57725331c5180be2d07f901995",
+  "historical_input_differences": 0,
+  "original_entry_sha256": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+  "OFF": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-production/file-explorer-off/program",
+    "bytes": 28310160,
+    "sha256": "ed101cc8d4d0c544feb14ce736a82cbd3a9ff1914fa16f5ca9e5230c8c71eb83"
+  },
+  "ON": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-production/file-explorer/program",
+    "bytes": 28293616,
+    "sha256": "732b7d7129fbf5df75d07c374717a33b282ea81c47cd897253a9ffaee1b436cd"
+  },
+  "bytes_removed": 16544,
+  "sections": {
+    "off": {
+      "__TEXT,__text": 25116428,
+      "__TEXT,__stubs": 2016,
+      "__TEXT,__stub_helper": 2040,
+      "__TEXT,__literals": 11008,
+      "__TEXT,__gcc_except_tab": 5496,
+      "__TEXT,__const": 783729,
+      "__TEXT,__cstring": 19173,
+      "__TEXT,__unwind_info": 18172,
+      "__TEXT,__eh_frame": 120480,
+      "__DATA_CONST,__got": 40,
+      "__DATA_CONST,__const": 761104,
+      "__DATA_CONST,__dfimg": 1038576,
+      "__DATA,__la_symbol_ptr": 1344,
+      "__DATA,__data": 5512,
+      "__DATA,__thread_vars": 1488,
+      "__DATA,__thread_data": 19553,
+      "__DATA,__thread_bss": 5720,
+      "__DATA,__bss": 448,
+      "__DATA,__common": 184
+    },
+    "on": {
+      "__TEXT,__text": 25101336,
+      "__TEXT,__stubs": 2016,
+      "__TEXT,__stub_helper": 2040,
+      "__TEXT,__literals": 11008,
+      "__TEXT,__gcc_except_tab": 5496,
+      "__TEXT,__const": 783729,
+      "__TEXT,__cstring": 19173,
+      "__TEXT,__unwind_info": 18172,
+      "__TEXT,__eh_frame": 120480,
+      "__DATA_CONST,__got": 40,
+      "__DATA_CONST,__const": 761104,
+      "__DATA_CONST,__dfimg": 1038576,
+      "__DATA,__la_symbol_ptr": 1344,
+      "__DATA,__data": 5512,
+      "__DATA,__thread_vars": 1488,
+      "__DATA,__thread_data": 19553,
+      "__DATA,__thread_bss": 5720,
+      "__DATA,__bss": 448,
+      "__DATA,__common": 184
+    }
+  },
+  "toggles_OFF": {
+    "DARTFORGE_NO_SCALAR_COALESCE": "1",
+    "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": "1"
+  },
+  "other_optimizations": "BothdefaultON",
+  "scope": "Same frozen producer/input/runtime profile; wholebinary size comparison only. No performance/startup/fullfeatureclaim. GUI stillpending."
+}

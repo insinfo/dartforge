@@ -1,0 +1,1428 @@
+diff --git a/crates/emit_native/src/hir.rs b/crates/emit_native/src/hir.rs
+index 41d49df6..cbfab933 100644
+--- a/crates/emit_native/src/hir.rs
++++ b/crates/emit_native/src/hir.rs
+@@ -1106,6 +1106,8 @@ pub struct Module {
+     /// AOT registration keeps this image's ancestry facts fixed.
+     /// Reloadable images leave this false: older generations may add edges.
+     pub arc_fixed_ancestry: bool,
++    /// Selected canonical SDK double identity/hash overlays were independently verified.
++    pub checked_double_identity: bool,
+     /// Registration facts from the same compiled SDK summaries used at link time.
+     pub arc_external_ancestry: ArcExternalAncestry,
+     /// The ARC preparation accepts direct calls to Dart functions of another
+diff --git a/crates/emit_native/src/lower/double_identity.rs b/crates/emit_native/src/lower/double_identity.rs
+new file mode 100644
+index 00000000..584459d7
+--- /dev/null
++++ b/crates/emit_native/src/lower/double_identity.rs
+@@ -0,0 +1,90 @@
++//! Conservative certificate for reusing a checked primitive double box.
++use crate::context::Context;
++use dartforge_elements::model::{Element, FunctionElementId, FunctionKind, FunctionRef};
++use std::collections::HashSet;
++
++const DOUBLE: &str = include_str!("../../../../native_sdk/core/double.dart");
++const IDENTICAL: &str = include_str!("../../../../native_sdk/core/identical_patch.dart");
++
++pub(super) fn certified(ctx: &Context) -> bool {
++    let Some(core) = ctx.program.core else {
++        return false;
++    };
++    let library = ctx.program.library(core);
++    if library.uri != "dart:core" || !library.is_sdk {
++        return false;
++    }
++    let selected = |id: FunctionElementId, owner, name, kind, expected: &str| {
++        let mut id = id;
++        let mut seen = HashSet::new();
++        loop {
++            if !seen.insert(id) {
++                return false;
++            }
++            let f = ctx.program.function(id);
++            if f.library != core
++                || f.class != owner
++                || f.name != name
++                || f.kind != kind
++                || f.variable.is_some()
++            {
++                return false;
++            }
++            if let Some(patch) = f.patched_by {
++                id = patch;
++                continue;
++            }
++            let FunctionRef::Function { unit, .. } = f.node else {
++                return false;
++            };
++            let unit = ctx.program.unit(unit);
++            return unit.library == core && unit.source == expected;
++        }
++    };
++    let Some(name) = ctx.interner.lookup("_Double") else {
++        return false;
++    };
++    let Some(Element::Class(cid)) = ctx.program.lookup(core, name).and_then(|e| e.getter) else {
++        return false;
++    };
++    let class = ctx.program.class(cid);
++    let Some(decl) = class.decl else {
++        return false;
++    };
++    if class.library != core
++        || ctx.program.unit(decl.unit).source != DOUBLE
++        || !class.mixins.is_empty()
++        || !class.mixin_classes.is_empty()
++        || !class.shadowed_instance_members.is_empty()
++    {
++        return false;
++    }
++    for name in ["hashCode", "_identityHashCode"] {
++        let Some(symbol) = ctx.interner.lookup(name) else {
++            return false;
++        };
++        let Some(&f) = class.instance_members.get(&symbol) else {
++            return false;
++        };
++        if !selected(f, Some(cid), symbol, FunctionKind::Getter, DOUBLE) {
++            return false;
++        }
++    }
++    for name in ["identical", "identityHashCode"] {
++        let Some(symbol) = ctx.interner.lookup(name) else {
++            return false;
++        };
++        let Some(Element::Function(f)) = ctx.program.lookup(core, symbol).and_then(|e| e.getter)
++        else {
++            return false;
++        };
++        if !selected(f, None, symbol, FunctionKind::Function, IDENTICAL) {
++            return false;
++        }
++    }
++    crate::natives::native("Identical_comparison")
++        .is_some_and(|n| n.state == crate::natives::State::Runtime)
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/crates/emit_native/src/lower/double_identity/tests.rs b/crates/emit_native/src/lower/double_identity/tests.rs
+new file mode 100644
+index 00000000..0d6b042f
+--- /dev/null
++++ b/crates/emit_native/src/lower/double_identity/tests.rs
+@@ -0,0 +1,183 @@
++use super::*;
++use std::path::{Path, PathBuf};
++fn fixture() -> PathBuf {
++    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/checked_double_roundtrip/main.dart")
++}
++fn with_context(edit: Option<(&str, &str, &str)>, action: impl FnOnce(&mut Context)) {
++    with_entry_context(&fixture(), edit, action);
++}
++fn with_entry_context(
++    entry: &Path,
++    edit: Option<(&str, &str, &str)>,
++    action: impl FnOnce(&mut Context),
++) {
++    let temporary = tempfile::tempdir().unwrap();
++    let mut sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
++    if let Some((file, old, new)) = edit {
++        let original = sdk.root.join(file);
++        let selected = sdk.replacements.get(&original).unwrap_or(&original);
++        let source = std::fs::read_to_string(selected).unwrap();
++        assert!(
++            source.contains(old),
++            "SDK test replacement must actually apply: {file}"
++        );
++        let modified = temporary.path().join("sdk-edit.dart");
++        std::fs::write(&modified, source.replace(old, new)).unwrap();
++        sdk.replacements.insert(original, modified);
++    }
++    let mut interner = dartforge_intern::Interner::new();
++    let (program, diagnostics) =
++        dartforge_elements::load::load_lenient(entry, &sdk, None, &mut interner);
++    assert!(diagnostics.is_empty(), "{diagnostics:?}");
++    let mut table = dartforge_types::TypeTable::new();
++    let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
++    let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
++    let libraries: Vec<_> = program
++        .libraries
++        .iter()
++        .enumerate()
++        .filter(|(_, l)| !l.is_sdk)
++        .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32))
++        .collect();
++    let (bodies, _) = dartforge_types::infer_library_bodies_with_locals(
++        &program,
++        &interner,
++        &mut table,
++        &core,
++        &mut outline,
++        &libraries,
++    );
++    let mut context =
++        Context::new(&program, &interner, &table, &core, &outline, &bodies).with_source_sdk();
++    action(&mut context);
++}
++
++#[test]
++fn canonical_selected_sdk_certifies_and_modified_identity_hash_fails_closed() {
++    std::thread::Builder::new()
++        .stack_size(64 << 20)
++        .spawn(|| {
++            with_context(None, |ctx| {
++                assert!(
++                    certified(ctx),
++                    "actual canonical SDK declarations must certify"
++                );
++                let mut module = crate::lower::lower_program(ctx);
++                assert!(module.checked_double_identity);
++                assert!(module.errors.is_empty(), "{:?}", module.errors);
++                let boxes = |m: &crate::hir::Module| {
++                    m.functions
++                        .iter()
++                        .filter(|f| f.name == "roundTrip")
++                        .flat_map(|f| &f.blocks)
++                        .flat_map(|b| &b.instructions)
++                        .filter(|(_, i, _)| {
++                            matches!(
++                                i,
++                                crate::hir::Instruction::Box {
++                                    from: crate::hir::Type::F64,
++                                    ..
++                                }
++                            )
++                        })
++                        .count()
++                };
++                assert!(
++                    boxes(&module) > 0,
++                    "ordinary lowering must contain the actual roundtrip"
++                );
++                module.arc_fixed_ancestry = true;
++                crate::optimize::optimize(&mut module);
++                assert_eq!(
++                    boxes(&module),
++                    0,
++                    "canonical ordinary program must actually exercise the fast path: {:#?}",
++                    module.functions.iter().find(|f| f.name == "roundTrip")
++                );
++                assert!(
++                    module
++                        .functions
++                        .iter()
++                        .filter(|f| f.name == "roundTrip")
++                        .flat_map(|f| &f.blocks)
++                        .flat_map(|b| &b.instructions)
++                        .any(|(_, i, _)| matches!(
++                            i,
++                            crate::hir::Instruction::Unbox {
++                                to: crate::hir::Type::F64,
++                                ..
++                            }
++                        )),
++                    "validation must remain"
++                );
++            });
++            for edit in [
++                (
++                    "_internal/vm/lib/double.dart",
++                    "int get _identityHashCode => hashCode;",
++                    "int get _identityHashCode => 17;",
++                ),
++                (
++                    "_internal/vm/lib/identical_patch.dart",
++                    "Identical_comparison",
++                    "Object_getHash",
++                ),
++                (
++                    "_internal/vm/lib/identical_patch.dart",
++                    "object._identityHashCode",
++                    "17",
++                ),
++            ] {
++                with_context(Some(edit), |ctx| {
++                    assert!(
++                        !certified(ctx),
++                        "actual SDK replacement must invalidate proof: {edit:?}"
++                    );
++                    assert!(!crate::lower::lower_program(ctx).checked_double_identity);
++                });
++            }
++        })
++        .unwrap()
++        .join()
++        .unwrap();
++}
++
++#[test]
++fn actual_format_widened_booleans_preserve_all_eight_checked_return_rewrites() {
++    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
++        let temporary = tempfile::tempdir().unwrap();
++        // Exact ordinary dart_ui source retained as a portable regression fixture.
++        let actual = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/checked_double_roundtrip/format.dart");
++        std::fs::copy(actual, temporary.path().join("format.dart")).unwrap();
++        let entry = temporary.path().join("main.dart");
++        std::fs::write(&entry, "import 'format.dart'; void main() { print(convertFormatValue(1, Format.uint2, Format.float32)); }").unwrap();
++        with_entry_context(&entry, None, |ctx| {
++            let mut module = crate::lower::lower_program(ctx);
++            assert!(module.errors.is_empty(), "{:?}", module.errors);
++            assert!(!module.sdk_library);
++            assert!(module.checked_double_identity);
++            module.arc_fixed_ancestry = true;
++            let counts = |module: &crate::hir::Module| {
++                let f = module.functions.iter().find(|f| f.name == "convertFormatValue").unwrap();
++                let mut boxes = 0;
++                let mut unboxes = 0;
++                let mut widened_or = 0;
++                for (_, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
++                    if matches!(inst, crate::hir::Instruction::Box { from: crate::hir::Type::F64, .. }) { boxes += 1; }
++                    if matches!(inst, crate::hir::Instruction::Unbox { to: crate::hir::Type::F64, .. }) { unboxes += 1; }
++                    if matches!(inst, crate::hir::Instruction::Or(..)) && *ty == crate::hir::Type::I1
++                        && crate::llvm::LlvmEmitter::result_type(inst, *ty) == crate::hir::Type::I64 { widened_or += 1; }
++                }
++                (boxes, unboxes, widened_or)
++            };
++            let before = counts(&module);
++            assert_eq!(before.0, 8);
++            assert!(before.2 > 0, "actual source must exercise canonical widened boolean guards");
++            crate::optimize::optimize(&mut module);
++            let after = counts(&module);
++            assert_eq!(after.0, 0, "all eight actual checked double return paths must be optimized");
++            assert_eq!(after.1, before.1, "original checks remain intact");
++            assert_eq!(after.2, before.2, "unrelated predicates remain intact");
++        });
++    }).unwrap().join().unwrap();
++}
+diff --git a/crates/emit_native/src/lower/mod.rs b/crates/emit_native/src/lower/mod.rs
+index 846cce00..a347e82a 100644
+--- a/crates/emit_native/src/lower/mod.rs
++++ b/crates/emit_native/src/lower/mod.rs
+@@ -15,6 +15,7 @@ pub mod statements;
+ pub mod primitive_const;
+ pub mod constants;
+ mod environment;
++mod double_identity;
+ mod platform;
+ mod native_pump;
+ mod sync_native_callable;
+@@ -188,6 +189,7 @@ pub fn late_field_getter_symbol(ctx: &Context, vid: VariableId) -> String {
+ pub fn lower_program(ctx: &Context) -> Module {
+     let mut module = Module::new();
+     module.arc_memory = ctx.arc_memory;
++    module.checked_double_identity = double_identity::certified(ctx);
+ 
+     // 1. Registers known classes
+     // Default Object class as id 0
+diff --git a/crates/emit_native/src/optimize/checked_double_roundtrip.rs b/crates/emit_native/src/optimize/checked_double_roundtrip.rs
+new file mode 100644
+index 00000000..d40a0a25
+--- /dev/null
++++ b/crates/emit_native/src/optimize/checked_double_roundtrip.rs
+@@ -0,0 +1,212 @@
++//! Reuse canonical double boxes only after their original checked unbox succeeds.
++use super::{
++    cfg::Cfg,
++    operands::{operands, operands_mut, terminator_operands, terminator_operands_mut},
++};
++use crate::hir::*;
++use std::collections::{HashMap, HashSet};
++
++pub(super) fn rewrite(module: &mut Module) -> usize {
++    if std::env::var("DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP").as_deref() == Ok("1")
++        || !module.checked_double_identity
++        || !module.arc_fixed_ancestry
++        || module.arc_memory
++        || module.arc_prepared
++        || module.arc_aot_ports.is_some()
++        || module.sdk_library
++        || module.functions.iter().any(|f| {
++            matches!(
++                f.symbol.as_str(),
++                "dartforge_unbox_double"
++                    | "dartforge_box_double"
++                    | "dartforge_native_Identical_comparison"
++                    | "dartforge_native_DartForge_double_hashCode"
++            )
++        })
++    {
++        return 0;
++    }
++    module.functions.iter_mut().map(rewrite_function).sum()
++}
++
++fn rewrite_function(f: &mut Function) -> usize {
++    if f.blocks.first().is_none_or(|b| b.id != BlockId(0)) {
++        return 0;
++    }
++    let mut ids = HashSet::new();
++    let mut types = HashMap::new();
++    let mut locations = HashMap::new();
++    for (v, _, t) in &f.params {
++        if types.insert(*v, Some(*t)).is_some() {
++            return 0;
++        }
++    }
++    for (bi, b) in f.blocks.iter().enumerate() {
++        if !ids.insert(b.id) {
++            return 0;
++        }
++        for (ii, (v, i, t)) in b.instructions.iter().enumerate() {
++            locations.insert(*v, (bi, ii));
++            let proven = (crate::llvm::LlvmEmitter::result_type(i, *t) == *t).then_some(*t);
++            if types.insert(*v, proven).is_some() {
++                return 0;
++            }
++        }
++    }
++    if f.blocks.iter().any(|b| {
++        super::cfg::successors(&b.terminator)
++            .iter()
++            .any(|id| !ids.contains(id))
++    }) {
++        return 0;
++    }
++    let cfg = Cfg::new(f);
++    let dominates = |a: usize, mut b: usize| {
++        if cfg.idom[b] == usize::MAX {
++            return false;
++        }
++        while a != b {
++            let next = cfg.idom[b];
++            if next == b {
++                return false;
++            }
++            b = next;
++        }
++        true
++    };
++    let mut replacements = HashMap::new();
++    for (bi, b) in f.blocks.iter().enumerate() {
++        if cfg.idom[bi] == usize::MAX || cfg.predecessors[bi].len() != 1 {
++            continue;
++        }
++        let Some((
++            boxed,
++            Instruction::Box {
++                op: Operand::Val(scalar),
++                from: Type::F64,
++            },
++            Type::Ref,
++        )) = b.instructions.first()
++        else {
++            continue;
++        };
++        if !b.instructions[1..].iter().all(|(_, i, t)| matches!(i, Instruction::CallRuntime { name, args, ret_ty: Type::Void } if name == "dartforge_exception_clear" && args.is_empty()) && *t == Type::Void)
++            || !matches!(b.terminator, Terminator::Return(Some(Operand::Val(v))) if v == *boxed)
++        {
++            continue;
++        }
++        let mut other_use = false;
++        for (ui, user) in f.blocks.iter().enumerate() {
++            for (_, inst, _) in &user.instructions {
++                operands(inst, &mut |op| {
++                    other_use |= matches!(op, Operand::Val(v) if v == boxed);
++                });
++            }
++            if ui != bi {
++                terminator_operands(&user.terminator, &mut |op| {
++                    other_use |= matches!(op, Operand::Val(v) if v == boxed);
++                });
++            }
++        }
++        if other_use {
++            continue;
++        }
++        let pi = cfg.predecessors[bi][0];
++        let predecessor = &f.blocks[pi];
++        let n = predecessor.instructions.len();
++        if n < 3 {
++            continue;
++        }
++        let tail = &predecessor.instructions[n - 3..];
++        let (
++            unboxed,
++            Instruction::Unbox {
++                op: Operand::Val(original),
++                to: Type::F64,
++            },
++            Type::F64,
++        ) = &tail[0]
++        else {
++            continue;
++        };
++        if scalar != unboxed || types.get(original) != Some(&Some(Type::Ref)) {
++            continue;
++        }
++        if let Some(&(definition_block, definition_position)) = locations.get(original) {
++            if !dominates(definition_block, pi)
++                || (definition_block == pi && definition_position >= n - 3)
++            {
++                continue;
++            }
++        } else if !f
++            .params
++            .iter()
++            .any(|(v, _, t)| v == original && *t == Type::Ref)
++        {
++            continue;
++        }
++        let (
++            pending,
++            Instruction::CallRuntime {
++                name,
++                args,
++                ret_ty: Type::I8,
++            },
++            Type::I8,
++        ) = &tail[1]
++        else {
++            continue;
++        };
++        if name != "dartforge_exception_pending" || !args.is_empty() {
++            continue;
++        }
++        let (
++            condition,
++            Instruction::ICmp(ICmpOp::Ne, Operand::Val(read), Operand::Constant(Constant::Int(0))),
++            Type::I1,
++        ) = &tail[2]
++        else {
++            continue;
++        };
++        if pending != read {
++            continue;
++        }
++        let Terminator::CondBranch {
++            cond: Operand::Val(test),
++            then_block,
++            else_block,
++        } = predecessor.terminator
++        else {
++            continue;
++        };
++        if test != *condition || else_block != b.id || then_block == b.id {
++            continue;
++        }
++        // The checked-success edge is the sole entrance. There is no intervening
++        // call, allocation, mutation, join, or backedge between the load and reuse.
++        replacements.insert(*boxed, Operand::Val(*original));
++    }
++    let count = replacements.len();
++    if count == 0 {
++        return 0;
++    }
++    let replace = &mut |op: &mut Operand| {
++        if let Operand::Val(v) = op
++            && let Some(value) = replacements.get(v)
++        {
++            *op = value.clone();
++        }
++    };
++    for b in &mut f.blocks {
++        for (_, i, _) in &mut b.instructions {
++            operands_mut(i, replace);
++        }
++        terminator_operands_mut(&mut b.terminator, replace);
++        b.instructions
++            .retain(|(v, _, _)| !replacements.contains_key(v));
++    }
++    count
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/crates/emit_native/src/optimize/checked_double_roundtrip/tests.rs b/crates/emit_native/src/optimize/checked_double_roundtrip/tests.rs
+new file mode 100644
+index 00000000..ff7ef0da
+--- /dev/null
++++ b/crates/emit_native/src/optimize/checked_double_roundtrip/tests.rs
+@@ -0,0 +1,204 @@
++use super::*;
++
++fn fixture() -> Function {
++    Function {
++        symbol: "checked".into(),
++        name: "checked".into(),
++        params: vec![(ValueId(0), "value".into(), Type::Ref)],
++        return_ty: Type::Ref,
++        debug_info: None,
++        blocks: vec![
++            BasicBlock {
++                id: BlockId(0),
++                instructions: vec![
++                    (
++                        ValueId(1),
++                        Instruction::Unbox {
++                            op: Operand::Val(ValueId(0)),
++                            to: Type::F64,
++                        },
++                        Type::F64,
++                    ),
++                    (
++                        ValueId(2),
++                        Instruction::CallRuntime {
++                            name: "dartforge_exception_pending".into(),
++                            args: vec![],
++                            ret_ty: Type::I8,
++                        },
++                        Type::I8,
++                    ),
++                    (
++                        ValueId(3),
++                        Instruction::ICmp(
++                            ICmpOp::Ne,
++                            Operand::Val(ValueId(2)),
++                            Operand::Constant(Constant::Int(0)),
++                        ),
++                        Type::I1,
++                    ),
++                ],
++                terminator: Terminator::CondBranch {
++                    cond: Operand::Val(ValueId(3)),
++                    then_block: BlockId(2),
++                    else_block: BlockId(1),
++                },
++            },
++            BasicBlock {
++                id: BlockId(1),
++                instructions: vec![(
++                    ValueId(4),
++                    Instruction::Box {
++                        op: Operand::Val(ValueId(1)),
++                        from: Type::F64,
++                    },
++                    Type::Ref,
++                )],
++                terminator: Terminator::Return(Some(Operand::Val(ValueId(4)))),
++            },
++            BasicBlock {
++                id: BlockId(2),
++                instructions: vec![],
++                terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
++            },
++        ],
++    }
++}
++
++#[test]
++fn keeps_validation_error_edge_and_returns_original_on_success() {
++    let mut f = fixture();
++    assert_eq!(rewrite_function(&mut f), 1);
++    assert!(matches!(
++        f.blocks[0].instructions[0].1,
++        Instruction::Unbox { to: Type::F64, .. }
++    ));
++    assert_eq!(f.blocks[1].instructions.len(), 0);
++    assert!(matches!(
++        f.blocks[1].terminator,
++        Terminator::Return(Some(Operand::Val(ValueId(0))))
++    ));
++    assert!(matches!(
++        f.blocks[2].terminator,
++        Terminator::Return(Some(Operand::Constant(Constant::Null)))
++    ));
++}
++
++#[test]
++fn refuses_mutation_calls_ambiguous_entry_wrong_scalar_and_invalid_types() {
++    for variant in 0..5 {
++        let mut f = fixture();
++        match variant {
++            0 => f.blocks[1].instructions.insert(
++                0,
++                (
++                    ValueId(5),
++                    Instruction::CallRuntime {
++                        name: "mutate".into(),
++                        args: vec![],
++                        ret_ty: Type::I64,
++                    },
++                    Type::I64,
++                ),
++            ),
++            1 => f.blocks[2].terminator = Terminator::Branch(BlockId(1)),
++            2 => f.blocks[0].instructions.insert(
++                1,
++                (
++                    ValueId(5),
++                    Instruction::CallRuntime {
++                        name: "mutate".into(),
++                        args: vec![],
++                        ret_ty: Type::I64,
++                    },
++                    Type::I64,
++                ),
++            ),
++            3 => {
++                f.blocks[1].instructions[0].1 = Instruction::Box {
++                    op: Operand::Val(ValueId(2)),
++                    from: Type::F64,
++                }
++            }
++            _ => f.params[0].2 = Type::I64,
++        }
++        assert_eq!(rewrite_function(&mut f), 0, "variant {variant}");
++    }
++}
++
++#[test]
++fn rejects_missing_targets_duplicate_blocks_and_non_dominating_refs() {
++    for variant in 0..3 {
++        let mut f = fixture();
++        match variant {
++            0 => f.blocks[2].terminator = Terminator::Branch(BlockId(99)),
++            1 => f.blocks[2].id = BlockId(1),
++            _ => {
++                f.blocks[2].instructions.push((
++                    ValueId(5),
++                    Instruction::Const(Constant::Null),
++                    Type::Ref,
++                ));
++                f.blocks[0].instructions[0].1 = Instruction::Unbox {
++                    op: Operand::Val(ValueId(5)),
++                    to: Type::F64,
++                };
++            }
++        }
++        assert_eq!(rewrite_function(&mut f), 0, "variant {variant}");
++    }
++}
++
++#[test]
++fn refuses_unknown_sdk_and_arc_or_reloadable_images() {
++    for variant in 0..5 {
++        let mut module = Module::new();
++        module.checked_double_identity = true;
++        module.arc_fixed_ancestry = true;
++        module.functions.push(fixture());
++        match variant {
++            0 => module.checked_double_identity = false,
++            1 => module.arc_memory = true,
++            2 => module.arc_prepared = true,
++            3 => module.arc_fixed_ancestry = false,
++            _ => module.functions[0].symbol = "dartforge_unbox_double".into(),
++        }
++        assert_eq!(rewrite(&mut module), 0, "variant {variant}");
++    }
++}
++
++#[test]
++fn unrelated_widened_boolean_or_is_not_a_ref_representation_proof() {
++    let mut f = fixture();
++    f.blocks[0].instructions.insert(
++        0,
++        (
++            ValueId(5),
++            Instruction::Or(
++                Operand::Constant(Constant::Bool(false)),
++                Operand::Constant(Constant::Bool(true)),
++            ),
++            Type::I1,
++        ),
++    );
++    assert_eq!(rewrite_function(&mut f), 1);
++    assert!(matches!(f.blocks[0].instructions[0].1, Instruction::Or(..)));
++    let mut malformed = fixture();
++    malformed.blocks[0].instructions.insert(
++        0,
++        (
++            ValueId(5),
++            Instruction::Const(Constant::Double(1.0)),
++            Type::Ref,
++        ),
++    );
++    malformed.blocks[0].instructions[1].1 = Instruction::Unbox {
++        op: Operand::Val(ValueId(5)),
++        to: Type::F64,
++    };
++    assert_eq!(
++        rewrite_function(&mut malformed),
++        0,
++        "the original Ref must have a physically compatible definition"
++    );
++}
+diff --git a/crates/emit_native/src/optimize/mod.rs b/crates/emit_native/src/optimize/mod.rs
+index dfec432c..77db6d0d 100644
+--- a/crates/emit_native/src/optimize/mod.rs
++++ b/crates/emit_native/src/optimize/mod.rs
+@@ -33,6 +33,8 @@ mod tests;
+ #[cfg(test)]
+ mod pre_prune_tests;
+ mod physical_devirtualize;
++mod checked_double_roundtrip;
++mod scalar_coalesce;
+ 
+ use crate::hir::*;
+ use std::collections::HashMap;
+@@ -230,6 +232,8 @@ pub fn optimize(module: &mut Module) {
+         }
+         false
+     });
++    scalar_coalesce::rewrite(module);
++    checked_double_roundtrip::rewrite(module);
+     // Inlining and representation folding can expose literal class queries.
+     // Fixed registration facts prove only the negative cases; the usual cleanup
+     // removes their unreachable branches before tables or ownership plans exist.
+diff --git a/crates/emit_native/src/optimize/scalar_coalesce.rs b/crates/emit_native/src/optimize/scalar_coalesce.rs
+new file mode 100644
+index 00000000..267ea905
+--- /dev/null
++++ b/crates/emit_native/src/optimize/scalar_coalesce.rs
+@@ -0,0 +1,324 @@
++//! Keep guarded nullable integer intermediates scalar without changing exception edges.
++
++use super::{
++    cfg::Cfg,
++    operands::{operands, terminator_operands},
++};
++use crate::hir::*;
++use std::collections::{HashMap, HashSet};
++
++/// Removes closed integer box/null merges in tracing code, including SDK bodies.
++pub(super) fn rewrite(module: &mut Module) -> usize {
++    if module.arc_memory
++        || module.arc_prepared
++        || module.arc_aot_ports.is_some()
++        || std::env::var("DARTFORGE_NO_SCALAR_COALESCE").as_deref() == Ok("1")
++        || module.functions.iter().any(|f| {
++            matches!(
++                f.symbol.as_str(),
++                "dartforge_unbox_int" | "df.box_int" | "df.unbox_int" | "df.allocate"
++            )
++        })
++    {
++        return 0;
++    }
++    module.functions.iter_mut().map(rewrite_function).sum()
++}
++
++/// Preserves predecessor labels and all calls, pending checks and terminators.
++fn rewrite_function(f: &mut Function) -> usize {
++    if f.blocks.is_empty()
++        || f.blocks.len() > 512
++        || f.blocks.iter().map(|b| b.instructions.len()).sum::<usize>() > 8192
++    {
++        return 0;
++    }
++    let mut blocks = HashMap::new();
++    let mut types = HashMap::new();
++    let mut definitions = HashMap::new();
++    let mut uses: HashMap<ValueId, Vec<(usize, usize)>> = HashMap::new();
++    for (v, _, t) in &f.params {
++        if types.insert(*v, Some(*t)).is_some() {
++            return 0;
++        }
++    }
++    for (bi, b) in f.blocks.iter().enumerate() {
++        if blocks.insert(b.id, bi).is_some() {
++            return 0;
++        }
++        for (ii, (v, i, t)) in b.instructions.iter().enumerate() {
++            if types
++                .insert(
++                    *v,
++                    (crate::llvm::LlvmEmitter::result_type(i, *t) == *t).then_some(*t),
++                )
++                .is_some()
++            {
++                return 0;
++            }
++            definitions.insert(*v, (bi, ii));
++            operands(i, &mut |op| {
++                if let Operand::Val(v) = op {
++                    uses.entry(*v).or_default().push((bi, ii));
++                }
++            });
++        }
++        terminator_operands(&b.terminator, &mut |op| {
++            if let Operand::Val(v) = op {
++                uses.entry(*v).or_default().push((bi, usize::MAX));
++            }
++        });
++    }
++    if f.blocks.iter().any(|b| {
++        super::cfg::successors(&b.terminator)
++            .iter()
++            .any(|id| !blocks.contains_key(id))
++    }) {
++        return 0;
++    }
++    let cfg = Cfg::new(f);
++    if !cfg.predecessors[0].is_empty() {
++        return 0;
++    }
++    // Acyclic functions make edge availability and exclusion of reentry explicit.
++    let mut indegree: Vec<_> = cfg.predecessors.iter().map(Vec::len).collect();
++    let mut ready: Vec<_> = indegree
++        .iter()
++        .enumerate()
++        .filter_map(|(i, n)| (*n == 0).then_some(i))
++        .collect();
++    let mut seen = 0;
++    while let Some(b) = ready.pop() {
++        seen += 1;
++        for &s in &cfg.successors[b] {
++            indegree[s] -= 1;
++            if indegree[s] == 0 {
++                ready.push(s);
++            }
++        }
++    }
++    if seen != f.blocks.len() {
++        return 0;
++    }
++    let dominates = |a: usize, mut b: usize| {
++        if cfg.idom[b] == usize::MAX {
++            return false;
++        }
++        while a != b {
++            let next = cfg.idom[b];
++            if next == b {
++                return false;
++            }
++            b = next;
++        }
++        true
++    };
++    let available = |op: &Operand, bi: usize, ii: usize| match op {
++        Operand::Constant(Constant::Int(_)) => true,
++        Operand::Val(v) if types.get(v) == Some(&Some(Type::I64)) => definitions
++            .get(v)
++            .map_or(true, |&(db, di)| dominates(db, bi) && (db != bi || di < ii)),
++        _ => false,
++    };
++    let Some(mut fresh) = types.keys().map(|v| v.0).max().unwrap_or(0).checked_add(1) else {
++        return 0;
++    };
++    let mut edits = Vec::new();
++    for (bi, b) in f.blocks.iter().enumerate() {
++        if cfg.idom[bi] == usize::MAX {
++            continue;
++        }
++        for (ii, (phi, inst, tuple)) in b.instructions.iter().enumerate() {
++            let Instruction::Phi {
++                incoming,
++                ty: Type::Ref,
++            } = inst
++            else {
++                continue;
++            };
++            if *tuple != Type::Ref || incoming.len() != 2 || cfg.predecessors[bi].len() != 2 {
++                continue;
++            }
++            let labels: HashSet<_> = incoming.iter().map(|(id, _)| *id).collect();
++            if labels.len() != 2
++                || cfg.predecessors[bi]
++                    .iter()
++                    .any(|p| !labels.contains(&f.blocks[*p].id))
++            {
++                continue;
++            }
++            let mut scalar_inputs = Vec::new();
++            let mut null_inputs = Vec::new();
++            let mut boxed_location = None;
++            let mut valid = true;
++            for (label, op) in incoming {
++                match op {
++                    Operand::Constant(Constant::Null) => {
++                        scalar_inputs.push((*label, Operand::Constant(Constant::Int(0))));
++                        null_inputs.push((*label, Operand::Constant(Constant::Bool(true))));
++                    }
++                    Operand::Val(v) => {
++                        let Some(&(db, di)) = definitions.get(v) else {
++                            valid = false;
++                            break;
++                        };
++                        let (_, producer, ty) = &f.blocks[db].instructions[di];
++                        let Instruction::Box {
++                            op: scalar,
++                            from: Type::I64,
++                        } = producer
++                        else {
++                            valid = false;
++                            break;
++                        };
++                        if *ty != Type::Ref
++                            || types.get(v) != Some(&Some(Type::Ref))
++                            || uses.get(v).map(Vec::as_slice) != Some(&[(bi, ii)][..])
++                            || f.blocks[db].id != *label
++                            || !available(scalar, db, di)
++                            || boxed_location.is_some()
++                        {
++                            valid = false;
++                            break;
++                        }
++                        boxed_location = Some((db, di));
++                        scalar_inputs.push((*label, scalar.clone()));
++                        null_inputs.push((*label, Operand::Constant(Constant::Bool(false))));
++                    }
++                    _ => {
++                        valid = false;
++                        break;
++                    }
++                }
++            }
++            let Some(box_location) = boxed_location else {
++                continue;
++            };
++            if !valid {
++                continue;
++            }
++            let Some(phi_uses) = uses.get(phi) else {
++                continue;
++            };
++            if phi_uses.len() != 2 {
++                continue;
++            }
++            let mut query = None;
++            let mut unbox = None;
++            for &(ub, ui) in phi_uses {
++                if ui == usize::MAX {
++                    valid = false;
++                    break;
++                }
++                let (v, user, ty) = &f.blocks[ub].instructions[ui];
++                match user {
++                    Instruction::ICmp(
++                        op @ (ICmpOp::Eq | ICmpOp::Ne),
++                        Operand::Val(p),
++                        Operand::Constant(Constant::Null),
++                    ) if p == phi && *ty == Type::I1 && ub == bi && ui > ii => {
++                        query = Some((*v, ui, *op))
++                    }
++                    Instruction::Unbox {
++                        op: Operand::Val(p),
++                        to: Type::I64,
++                    } if p == phi && *ty == Type::I64 && ui == 0 => unbox = Some((ub, ui)),
++                    _ => valid = false,
++                }
++            }
++            let (Some((condition, qi, comparison)), Some((ub, ui))) = (query, unbox) else {
++                continue;
++            };
++            let Terminator::CondBranch {
++                cond: Operand::Val(c),
++                then_block,
++                else_block,
++            } = b.terminator
++            else {
++                continue;
++            };
++            let nonnull = if comparison == ICmpOp::Eq {
++                else_block
++            } else {
++                then_block
++            };
++            if !valid
++                || c != condition
++                || then_block == else_block
++                || f.blocks[ub].id != nonnull
++                || cfg.predecessors[ub] != [bi]
++                || !dominates(bi, ub)
++                || types.get(&condition) != Some(&Some(Type::I1))
++                || types.get(&f.blocks[ub].instructions[ui].0) != Some(&Some(Type::I64))
++            {
++                continue;
++            }
++            let Some(next) = fresh.checked_add(1) else {
++                return 0;
++            };
++            edits.push((
++                bi,
++                ii,
++                qi,
++                ub,
++                ui,
++                box_location,
++                ValueId(fresh),
++                comparison,
++                scalar_inputs,
++                null_inputs,
++            ));
++            fresh = next;
++        }
++    }
++    let count = edits.len();
++    let mut removals = HashSet::new();
++    let mut additions = Vec::new();
++    for (bi, ii, qi, ub, ui, boxed, null_id, comparison, scalar_inputs, null_inputs) in edits {
++        let phi = f.blocks[bi].instructions[ii].0;
++        f.blocks[bi].instructions[ii].1 = Instruction::Phi {
++            incoming: scalar_inputs,
++            ty: Type::I64,
++        };
++        f.blocks[bi].instructions[ii].2 = Type::I64;
++        f.blocks[bi].instructions[qi].1 = Instruction::ICmp(
++            ICmpOp::Eq,
++            Operand::Val(null_id),
++            Operand::Constant(Constant::Bool(comparison == ICmpOp::Eq)),
++        );
++        f.blocks[ub].instructions[ui].1 =
++            Instruction::Add(Operand::Val(phi), Operand::Constant(Constant::Int(0)));
++        additions.push((bi, null_id, null_inputs));
++        removals.insert(boxed);
++    }
++    for (bi, b) in f.blocks.iter_mut().enumerate() {
++        let mut ii = 0;
++        b.instructions.retain(|_| {
++            let keep = !removals.contains(&(bi, ii));
++            ii += 1;
++            keep
++        });
++    }
++    for (bi, null_id, null_inputs) in additions {
++        let prefix = f.blocks[bi]
++            .instructions
++            .iter()
++            .take_while(|(_, i, _)| matches!(i, Instruction::Phi { .. }))
++            .count();
++        f.blocks[bi].instructions.insert(
++            prefix,
++            (
++                null_id,
++                Instruction::Phi {
++                    incoming: null_inputs,
++                    ty: Type::I1,
++                },
++                Type::I1,
++            ),
++        );
++    }
++    count
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/crates/emit_native/src/optimize/scalar_coalesce/tests.rs b/crates/emit_native/src/optimize/scalar_coalesce/tests.rs
+new file mode 100644
+index 00000000..19292ed3
+--- /dev/null
++++ b/crates/emit_native/src/optimize/scalar_coalesce/tests.rs
+@@ -0,0 +1,259 @@
++//! Representation and exceptional-control-flow tests for nullable integer merges.
++use super::*;
++
++fn value(n: u32) -> Operand {
++    Operand::Val(ValueId(n))
++}
++fn sample() -> Function {
++    Function {
++        symbol: "count".into(),
++        name: "count".into(),
++        debug_info: None,
++        params: vec![
++            (ValueId(0), "nullable".into(), Type::Ref),
++            (ValueId(1), "integer".into(), Type::I64),
++        ],
++        return_ty: Type::I64,
++        blocks: vec![
++            BasicBlock {
++                id: BlockId(0),
++                instructions: vec![(
++                    ValueId(2),
++                    Instruction::ICmp(ICmpOp::Eq, value(0), Operand::Constant(Constant::Null)),
++                    Type::I1,
++                )],
++                terminator: Terminator::CondBranch {
++                    cond: value(2),
++                    then_block: BlockId(2),
++                    else_block: BlockId(1),
++                },
++            },
++            BasicBlock {
++                id: BlockId(1),
++                instructions: vec![(
++                    ValueId(3),
++                    Instruction::Box {
++                        op: value(1),
++                        from: Type::I64,
++                    },
++                    Type::Ref,
++                )],
++                terminator: Terminator::Branch(BlockId(2)),
++            },
++            BasicBlock {
++                id: BlockId(2),
++                instructions: vec![
++                    (
++                        ValueId(4),
++                        Instruction::Phi {
++                            incoming: vec![
++                                (BlockId(0), Operand::Constant(Constant::Null)),
++                                (BlockId(1), value(3)),
++                            ],
++                            ty: Type::Ref,
++                        },
++                        Type::Ref,
++                    ),
++                    (
++                        ValueId(5),
++                        Instruction::ICmp(ICmpOp::Eq, value(4), Operand::Constant(Constant::Null)),
++                        Type::I1,
++                    ),
++                ],
++                terminator: Terminator::CondBranch {
++                    cond: value(5),
++                    then_block: BlockId(3),
++                    else_block: BlockId(4),
++                },
++            },
++            BasicBlock {
++                id: BlockId(3),
++                instructions: vec![],
++                terminator: Terminator::Return(Some(Operand::Constant(Constant::Int(0)))),
++            },
++            BasicBlock {
++                id: BlockId(4),
++                instructions: vec![
++                    (
++                        ValueId(6),
++                        Instruction::Unbox {
++                            op: value(4),
++                            to: Type::I64,
++                        },
++                        Type::I64,
++                    ),
++                    (
++                        ValueId(7),
++                        Instruction::CallRuntime {
++                            name: "dartforge_exception_pending".into(),
++                            args: vec![],
++                            ret_ty: Type::I8,
++                        },
++                        Type::I8,
++                    ),
++                    (
++                        ValueId(8),
++                        Instruction::ICmp(
++                            ICmpOp::Ne,
++                            value(7),
++                            Operand::Constant(Constant::Int(0)),
++                        ),
++                        Type::I1,
++                    ),
++                ],
++                terminator: Terminator::CondBranch {
++                    cond: value(8),
++                    then_block: BlockId(5),
++                    else_block: BlockId(6),
++                },
++            },
++            BasicBlock {
++                id: BlockId(5),
++                instructions: vec![],
++                terminator: Terminator::Return(Some(Operand::Constant(Constant::Int(-1)))),
++            },
++            BasicBlock {
++                id: BlockId(6),
++                instructions: vec![],
++                terminator: Terminator::Return(Some(value(6))),
++            },
++        ],
++    }
++}
++
++#[test]
++fn preserves_pending_edges_and_full_width_integer_values() {
++    for integer in [0, -1, i64::MIN, i64::MAX, 1i64 << 62] {
++        let mut f = sample();
++        if let Instruction::Box { op, .. } = &mut f.blocks[1].instructions[0].1 {
++            *op = Operand::Constant(Constant::Int(integer));
++        }
++        let edges: Vec<_> = f
++            .blocks
++            .iter()
++            .map(|b| format!("{:?}", b.terminator))
++            .collect();
++        let pending = format!("{:?}", f.blocks[4].instructions[1]);
++        assert_eq!(rewrite_function(&mut f), 1);
++        assert!(f.blocks[1].instructions.is_empty());
++        assert!(
++            matches!(&f.blocks[2].instructions[0].1, Instruction::Phi { incoming, ty: Type::I64 } if incoming[1].1 == Operand::Constant(Constant::Int(integer)))
++        );
++        assert!(matches!(
++            f.blocks[2].instructions[1].1,
++            Instruction::Phi { ty: Type::I1, .. }
++        ));
++        assert!(matches!(
++            f.blocks[4].instructions[0].1,
++            Instruction::Add(
++                Operand::Val(ValueId(4)),
++                Operand::Constant(Constant::Int(0))
++            )
++        ));
++        assert_eq!(format!("{:?}", f.blocks[4].instructions[1]), pending);
++        assert_eq!(
++            f.blocks
++                .iter()
++                .map(|b| format!("{:?}", b.terminator))
++                .collect::<Vec<_>>(),
++            edges
++        );
++    }
++}
++
++#[test]
++fn refuses_shared_values_loops_wrong_types_and_unavailable_definitions() {
++    for variant in 0..16 {
++        let mut f = sample();
++        match variant {
++            0 => f.blocks[3].terminator = Terminator::Return(Some(value(4))),
++            1 => f.blocks[3].terminator = Terminator::Return(Some(value(3))),
++            2 => f.blocks[6].terminator = Terminator::Branch(BlockId(2)),
++            3 => f.blocks[3].terminator = Terminator::Branch(BlockId(4)),
++            4 => f.blocks[1].instructions[0].2 = Type::I64,
++            5 => {
++                if let Instruction::Box { from, .. } = &mut f.blocks[1].instructions[0].1 {
++                    *from = Type::F64;
++                }
++            }
++            6 => {
++                if let Instruction::Phi { incoming, .. } = &mut f.blocks[2].instructions[0].1 {
++                    incoming[0].0 = BlockId(1);
++                }
++            }
++            7 => f.blocks[4].instructions[0].2 = Type::Ref,
++            8 => f.blocks[2].terminator = Terminator::Branch(BlockId(4)),
++            9 => f.blocks[0].terminator = Terminator::Branch(BlockId(99)),
++            10 => {
++                f.params.pop();
++                f.blocks[3].instructions.push((
++                    ValueId(1),
++                    Instruction::Const(Constant::Int(9)),
++                    Type::I64,
++                ));
++            }
++            11 => f.blocks[6].id = BlockId(5),
++            12 => f.params[1].2 = Type::Ref,
++            13 => {
++                if let Instruction::Phi { incoming, .. } = &mut f.blocks[2].instructions[0].1 {
++                    incoming[0].1 = value(0);
++                }
++            }
++            14 => {
++                f.blocks[1].instructions[0].1 = Instruction::CallRuntime {
++                    name: "opaque_integer_box".into(),
++                    args: vec![(value(1), Type::I64)],
++                    ret_ty: Type::Ref,
++                }
++            }
++            15 => f.blocks[2].instructions[0].2 = Type::I64,
++            _ => unreachable!(),
++        }
++        let original = format!("{f:?}");
++        assert_eq!(rewrite_function(&mut f), 0, "variant {variant}");
++        assert_eq!(format!("{f:?}"), original);
++    }
++}
++
++#[test]
++fn local_proof_allows_sdk_and_refuses_arc_and_runtime_homonyms() {
++    let mut module = Module::new();
++    module.sdk_library = true;
++    module.functions.push(sample());
++    assert_eq!(rewrite(&mut module), 1);
++    for variant in 0..4 {
++        let mut module = Module::new();
++        module.functions.push(sample());
++        match variant {
++            0 => module.arc_memory = true,
++            1 => module.arc_prepared = true,
++            2 => module.functions[0].symbol = "dartforge_unbox_int".into(),
++            3 => module.functions[0].symbol = "df.allocate".into(),
++            _ => unreachable!(),
++        }
++        assert_eq!(rewrite(&mut module), 0);
++    }
++}
++
++#[test]
++fn ordinary_recursive_nullable_count_removes_both_box_unbox_pairs() {
++    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
++        let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/devirtualization/scalar_nullable_count.dart");
++        let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
++        let mut interner = dartforge_intern::Interner::new();
++        let program = dartforge_elements::load::load(&entry, &sdk, None, &mut interner).unwrap();
++        let mut table = dartforge_types::TypeTable::new();
++        let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
++        let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
++        let libraries: Vec<_> = program.libraries.iter().enumerate().filter(|(_, library)| !library.is_sdk).map(|(i, _)| dartforge_elements::model::LibraryId(i as u32)).collect();
++        let (bodies, _) = dartforge_types::infer_library_bodies_with_locals(&program, &interner, &mut table, &core, &mut outline, &libraries);
++        let context = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies).with_source_sdk();
++        let mut module = crate::lower::lower_program(&context);
++        assert!(module.errors.is_empty(), "{:?}", module.errors);
++        // Production optimize invokes this pass; the ordinary method remains recursive.
++        super::super::optimize(&mut module);
++        let f = module.functions.iter().find(|f| f.name == "Node.count" || f.symbol.contains("Node.count")).expect("ordinary count method");
++        assert_eq!(f.blocks.iter().flat_map(|b| &b.instructions).filter(|(_, i, _)| matches!(i, Instruction::Box { .. } | Instruction::Unbox { .. })).count(), 0, "{f:#?}");
++        assert_eq!(f.blocks.iter().flat_map(|b| &b.instructions).filter(|(_, i, _)| matches!(i, Instruction::CallStatic { symbol, .. } if symbol.contains("Node.count"))).count(), 2);
++    }).unwrap().join().unwrap();
++}
+diff --git a/crates/emit_native/tests/fixtures/checked_double_roundtrip/main.dart b/crates/emit_native/tests/fixtures/checked_double_roundtrip/main.dart
+new file mode 100644
+index 00000000..0a8df8ad
+--- /dev/null
++++ b/crates/emit_native/tests/fixtures/checked_double_roundtrip/main.dart
+@@ -0,0 +1,22 @@
++import 'dart:typed_data';
++@pragma('vm:never-inline')
++Object roundTrip(dynamic value) {
++  final double scalar = value;
++  return scalar;
++}
++String bits(double value) {
++  final data = ByteData(8)..setFloat64(0, value, Endian.little);
++  return data.buffer.asUint8List().join(',');
++}
++void main() {
++  final data = ByteData(8)..setUint64(0, 0x7ff8000000000042, Endian.little);
++  for (final value in <double>[0.0, -0.0, 1.25, double.infinity,
++      double.negativeInfinity, double.nan, data.getFloat64(0, Endian.little)]) {
++    final result = roundTrip(value) as double;
++    print('${bits(result)}:${identical(value, result)}:${identityHashCode(value) == identityHashCode(result)}');
++  }
++  for (final value in <dynamic>[null, '1', true, Object()]) {
++    try { roundTrip(value); print('unexpected'); }
++    on TypeError { print('TypeError'); }
++  }
++}
+diff --git a/crates/emit_native/tests/fixtures/devirtualization/scalar_nullable_count.dart b/crates/emit_native/tests/fixtures/devirtualization/scalar_nullable_count.dart
+new file mode 100644
+index 00000000..2f6b5482
+--- /dev/null
++++ b/crates/emit_native/tests/fixtures/devirtualization/scalar_nullable_count.dart
+@@ -0,0 +1,31 @@
++class Node {
++  final Node? left;
++  final Node? right;
++  Node(this.left, this.right);
++  int count() => 1 + (left?.count() ?? 0) + (right?.count() ?? 0);
++}
++
++class NumberSource {
++  final int value;
++  final bool fails;
++  NumberSource(this.value, [this.fails = false]);
++  int read() {
++    if (fails) throw StateError('read failed');
++    return value;
++  }
++}
++
++int readNullable(NumberSource? source) => source?.read() ?? -7;
++
++void main() {
++  print(Node(Node(null, null), Node(Node(null, null), null)).count());
++  for (final value in [0, -1, 4611686018427387904, -9223372036854775808, 9223372036854775807]) {
++    print(readNullable(NumberSource(value)));
++  }
++  print(readNullable(null));
++  try {
++    print(readNullable(NumberSource(12, true)));
++  } catch (_) {
++    print('caught');
++  }
++}

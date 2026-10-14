@@ -1,0 +1,9 @@
+{
+  "pid": 72932,
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-production/file-explorer/program",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+    "--lang=en"
+  ],
+  "binary_sha256": "732b7d7129fbf5df75d07c374717a33b282ea81c47cd897253a9ffaee1b436cd"
+}
