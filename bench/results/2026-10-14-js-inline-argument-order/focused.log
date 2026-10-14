@@ -1,0 +1,9 @@
+   Compiling dartforge-emit-js-production v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js_production)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.80s
+     Running tests/inline_argument_order.rs (target/js/debug/deps/inline_argument_order-6a644378505a4e84)
+
+running 1 test
+test inline_arguments_match_vm_and_o2 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.67s
+

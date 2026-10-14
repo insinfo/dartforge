@@ -1,0 +1,141 @@
+{
+  "scope": "Correctness checkpoint only. No performance/size improvement claimed.",
+  "fixture": "crates/emit_js/tests/programs/inline_argument_order.dart",
+  "fixture_sha256": "5ae0d134f214870b630b3ee2261d7efd5597358559a5859c0eea14f69cf8393f",
+  "compilers": {
+    "baseline": {
+      "path": "target/current-js-status/compiler/dartforge-jsprod",
+      "sha256": "9b4299b4eab1bb28cc833e5ff6660895ef73b2e1eba454f919a29f7bda43c86c"
+    },
+    "fixed": {
+      "path": "target/js-hotpath-next/fixed-jsprod",
+      "sha256": "75ba5868001b00e0660d6b743be4d042d6f706f8f76c33d16980232482fe287a",
+      "profile": "debug compiled by final --tests gate"
+    }
+  },
+  "runs": {
+    "VM": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "run",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/inline_argument_order.dart"
+      ],
+      "exit": 0,
+      "stdout": "2\n9\n2\n9\n3\nleftbody\nthrow\n302\nleftright\n0\nleft\n3\nrightbody\n7\nright\n5\nlocal late error\ntop late error\n",
+      "stderr": ""
+    },
+    "O2": {
+      "compile_command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "js",
+        "-O2",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/inline_argument_order.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-hotpath-next/final.O2.js"
+      ],
+      "artifact_sha256": "35dc316a56667f48ae8882c710bc7fce24938226c4b332921d2e3f1ed74ae918",
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-hotpath-next/final.O2.js"
+      ],
+      "exit": 0,
+      "stdout": "2\n9\n2\n9\n3\nleftbody\nthrow\n302\nleftright\n0\nleft\n3\nrightbody\n7\nright\n5\nlocal late error\ntop late error\n",
+      "stderr": ""
+    },
+    "baseline.raw": {
+      "compile_command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/inline_argument_order.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-hotpath-next/final.baseline.raw.js",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify"
+      ],
+      "artifact_sha256": "c80d7a8d316d6527174ca631c92a5d2ab096b48cb152312af752958377d14854",
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-hotpath-next/final.baseline.raw.js"
+      ],
+      "exit": 0,
+      "stdout": "2\n9\n2\n9\n3\nleftbody\nthrow\n302\nleftright\n0\nleft\n3\nrightbody\n7\nright\n5\nlocal late error\ntop late error\n",
+      "stderr": ""
+    },
+    "baseline.min": {
+      "compile_command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/inline_argument_order.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-hotpath-next/final.baseline.min.js",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+      ],
+      "artifact_sha256": "8150926b901e3b1c6af4fda2aaafbbd8ad513b5f48e28e03831c7893b12edf05",
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-hotpath-next/final.baseline.min.js"
+      ],
+      "exit": 0,
+      "stdout": "10\n9\n10\n9\n3\nbodyleft\nbodythrow\n302\nrightleft\n0\n\n3\nbodyright\n7\nright\n5\nlocal late error\ntop late error\n",
+      "stderr": ""
+    },
+    "fixed.raw": {
+      "compile_command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-hotpath-next/fixed-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/inline_argument_order.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-hotpath-next/final.fixed.raw.js",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify"
+      ],
+      "artifact_sha256": "c80d7a8d316d6527174ca631c92a5d2ab096b48cb152312af752958377d14854",
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-hotpath-next/final.fixed.raw.js"
+      ],
+      "exit": 0,
+      "stdout": "2\n9\n2\n9\n3\nleftbody\nthrow\n302\nleftright\n0\nleft\n3\nrightbody\n7\nright\n5\nlocal late error\ntop late error\n",
+      "stderr": ""
+    },
+    "fixed.min": {
+      "compile_command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-hotpath-next/fixed-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/inline_argument_order.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-hotpath-next/final.fixed.min.js",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+      ],
+      "artifact_sha256": "98f06b5c8610b73593fb45c890d376bb85ec8c1de4a7f4614968e3713f69afd1",
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-hotpath-next/final.fixed.min.js"
+      ],
+      "exit": 0,
+      "stdout": "2\n9\n2\n9\n3\nleftbody\nthrow\n302\nleftright\n0\nleft\n3\nrightbody\n7\nright\n5\nlocal late error\ntop late error\n",
+      "stderr": ""
+    }
+  },
+  "source_hashes": {
+    "crates/emit_js_production/src/inline.rs": "fea9792c8bf72960c69d949ce103f020edd8414ed5834d8f23bafafb58457ab5",
+    "crates/emit_js_production/tests/inline_argument_order.rs": "620f50d189add636ca40bbeec91e07850e7b4fdd13fe8b0d3f25a2599cf0d30e",
+    "crates/emit_js/tests/programs/inline_argument_order.dart": "5ae0d134f214870b630b3ee2261d7efd5597358559a5859c0eea14f69cf8393f"
+  },
+  "baseline_min_red": true,
+  "fixed_raw_min_exact_VM_O2": true,
+  "final_production_gate_passed": 84,
+  "final_production_gate_log_sha256": "1d4629ad60a100fe2ea684df3589d0f7c3430f7f4c25e866759ffaf1e9e5651c",
+  "earlier_gate_failures": "Initial unit assertions depended on unsafe mutable-name/property substitutions. Later full gate correctly rejected definitely-unassigned Dart fixture; invalid source and log preserved. Final valid fixture uses opaque conditional initialization."
+}

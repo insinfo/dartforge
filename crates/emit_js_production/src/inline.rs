@@ -16,12 +16,12 @@
 //! once. When `E` evaluates anything other than a parameter (a call, a
 //! property read, a free name) before its last parameter, or uses the
 //! parameters out of order, or under a condition, the inlining only happens
-//! at the calls whose arguments are simple (names, literals, `this` and
-//! property reads without calls), which evaluation order cannot affect. A
+//! at calls whose arguments are stable primitive literals or `this`. Names
+//! can be changed by a callback in the body, and property reads can invoke
+//! getters or throw, so neither can move across body evaluation without proof. A
 //! parameter the body never reads may have a default value (`n = null`, an
 //! optional positional parameter) and may be left out by the call; when the
-//! call passes it, the argument must have no effect at all (a name, a literal,
-//! `this`), because it disappears: `checkBinding(old, new, "expr", loc)` of
+//! call passes it, the argument must have no effect at all (a literal or `this`), because it disappears: `checkBinding(old, new, "expr", loc)` of
 //! the ngdart views, which only compares the first two in production, becomes
 //! the comparison.
 //!
@@ -235,19 +235,16 @@ impl Body<'_> {
     }
 }
 
-/// An argument whose evaluation order does not matter: names, literals,
-/// `this` and property reads of those.
-fn simple(e: &Expression<'_>) -> bool {
+/// An argument whose value and effects cannot change when body evaluation
+/// moves before it. Mutable names and property reads require a separate proof.
+fn stable_argument(e: &Expression<'_>) -> bool {
     match e {
-        Expression::Identifier(_)
-        | Expression::StringLiteral(_)
+        Expression::StringLiteral(_)
         | Expression::NumericLiteral(_)
         | Expression::BooleanLiteral(_)
         | Expression::NullLiteral(_)
         | Expression::ThisExpression(_) => true,
-        Expression::StaticMemberExpression(m) => !m.optional && simple(&m.object),
-        Expression::ComputedMemberExpression(m) => !m.optional && simple(&m.object) && simple(&m.expression),
-        Expression::ParenthesizedExpression(p) => simple(&p.expression),
+        Expression::ParenthesizedExpression(p) => stable_argument(&p.expression),
         _ => false,
     }
 }
@@ -267,20 +264,10 @@ fn plain_params(p: &FormalParameters<'_>) -> Option<Vec<(String, bool)>> {
         .collect()
 }
 
-/// An argument that can be dropped when its parameter is unused: evaluating
-/// it has no effect (a name, a literal, `this`). A property read can run a
-/// getter or throw on `null`, so it is not one.
+/// An unused argument can disappear only when evaluation cannot throw or
+/// invoke an accessor. A bare name needs a separate initialization proof.
 fn droppable(e: &Expression<'_>) -> bool {
-    match e {
-        Expression::Identifier(_)
-        | Expression::StringLiteral(_)
-        | Expression::NumericLiteral(_)
-        | Expression::BooleanLiteral(_)
-        | Expression::NullLiteral(_)
-        | Expression::ThisExpression(_) => true,
-        Expression::ParenthesizedExpression(p) => droppable(&p.expression),
-        _ => false,
-    }
+    stable_argument(e)
 }
 
 /// The returned expression of a body that is a single `return E;`.
@@ -559,7 +546,7 @@ impl Sites<'_> {
             return None;
         }
         let args: Vec<&Expression<'_>> = it.arguments.iter().map(|a| a.as_expression()).collect::<Option<_>>()?;
-        if d.simple_args && !args.iter().all(|a| simple(a)) {
+        if d.simple_args && !args.iter().all(|a| stable_argument(a)) {
             return None;
         }
         // The arguments of unused parameters are dropped.
@@ -737,11 +724,12 @@ mod tests {
 
     #[test]
     fn keeps_order_with_effects() {
-        // The body reads `g` before the parameter: only simple arguments.
-        let src = wrap("f = function(a) { return g + a; };\nh(f(y()));\nh(f(z));");
+        // A body evaluation before the parameter requires stable arguments.
+        let src = wrap("f = function(a) { return g + a; };\nh(f(y()));\nh(f(z));\nh(f(3));");
         let out = apply(&src).unwrap();
         assert!(out.contains("h(f(y()))"), "{out}");
-        assert!(out.contains("h((g + (z)))"), "{out}");
+        assert!(out.contains("h(f(z))"), "{out}");
+        assert!(out.contains("h((g + (3)))"), "{out}");
     }
 
     #[test]
@@ -760,12 +748,26 @@ mod tests {
 
     #[test]
     fn drops_the_arguments_of_unused_parameters() {
-        let src = wrap("f = function(a, b, c = null, d = null) { return !g(a, b); };\nh(f(x.y, z, \"expr\", loc));\nh(f(x, z));\nh(f(x, z, w.v));");
+        let src = wrap("f = function(a, b, c = null, d = null) { return !g(a, b); };\nh(f(x.y, z, \"expr\", loc));\nh(f(x, z));\nh(f(x, z, w.v));\nh(f(1, 2, \"expr\", 5));");
         let out = apply(&src).unwrap();
-        assert!(out.contains("h((!g((x.y), (z))))"), "{out}");
-        assert!(out.contains("h((!g((x), (z))))"), "{out}");
+        // The callee is looked up in the body; mutable arguments stay eager.
+        assert!(out.contains("h(f(x.y, z, \"expr\", loc))"), "{out}");
+        assert!(out.contains("h(f(x, z))"), "{out}");
+        assert!(out.contains("h((!g((1), (2))))"), "{out}");
         // A property read can throw: its argument is not dropped.
         assert!(out.contains("h(f(x, z, w.v))"), "{out}");
+    }
+
+    #[test]
+    #[ignore = "requires Node on PATH"]
+    fn unused_argument_preserves_temporal_dead_zone_error() {
+        let source = wrap("f = function(unused) { return 7; };\ntry { console.log(f(value)); } catch (error) { console.log(error.name); }\nlet value = 1;");
+        let transformed = apply(&source).unwrap();
+        for code in [&source, &transformed] {
+            let output = std::process::Command::new("node").args(["-e", code]).output().unwrap();
+            assert!(output.status.success() && output.stderr.is_empty());
+            assert_eq!(String::from_utf8(output.stdout).unwrap(), "ReferenceError\n");
+        }
     }
 
     #[test]
