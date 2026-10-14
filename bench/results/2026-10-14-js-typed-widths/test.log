@@ -1,0 +1,14 @@
+   Compiling dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)
+   Compiling dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+   Compiling dartforge-macros-host v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/macros_host)
+   Compiling dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+   Compiling dartforge-world v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/world)
+   Compiling dartforge-emit-js-production v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js_production)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.10s
+     Running tests/typed_loop_brands.rs (target/js/debug/deps/typed_loop_brands-6497037de8dd798d)
+
+running 1 test
+test mixed_width_reads_preserve_precision_signedness_and_checked_fallbacks ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.15s
+

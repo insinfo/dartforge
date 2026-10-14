@@ -1,0 +1,635 @@
+{
+  "window_start_utc": "2026-10-14T09:13:08.072023+00:00",
+  "node_window_end_utc": "2026-10-14T09:13:10.878318+00:00",
+  "policy": "Fresh Node process for each artifact in alternating order over three rounds; median of five samples after first discarded warmup, then median across three process medians. Same immutable checked compiler and unchanged input. Native builds/executions paused by root; usual idle desktop/browser background remains. Timings apply only to these two ordinary kernels.",
+  "node_version": "v24.21.0",
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/current-jsprod": "a19db1c3add6446d1f103a5510cf47f7651a7a0594624533b83ca66dd8890a69",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/typed_data_widths.dart": "3c2d7348a0d277520c19a6ae4f537666a566540d25b83248990a568ff132f5c4",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.disabled.raw.js": "3aa1bf7faa12aac3da84473bd50a98193e76de016b4ddcf096dabf0546786898",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.enabled.raw.js": "a3ab868c8348b2f3dea84c02cc280606a12e10cd5e3ef2ac5bc9f7e1c311cc5c",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.disabled.minified.js": "d025c40a983c61a632a0e605193229dccd3b0da63d78c49a53182cadf9586cbf",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.enabled.minified.js": "bb7cc1c3244c0e435282b49f7b5121269b8c107fa4463ee423dcc110606fcb1a",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.official-O2.js": "b06a269a4f744b1a7e093e882846bac6c1171fd7c414a661f56d2821da4d47cc"
+  },
+  "inputs_stable": true,
+  "runs": [
+    {
+      "profile": "disabled.raw",
+      "rep": 0,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.disabled.raw.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 0.33619170800000003,
+      "samples_us": {
+        "mixed_f32_i16": [
+          24000,
+          21000,
+          21000,
+          21000,
+          22000,
+          22000
+        ],
+        "sum_i32": [
+          31000,
+          27000,
+          29000,
+          29000,
+          28000,
+          29000
+        ]
+      },
+      "medians_us": {
+        "mixed_f32_i16": 21000,
+        "sum_i32": 29000
+      },
+      "results": {
+        "mixed_f32_i16": "-40000.5968354526",
+        "sum_i32": "-500005000000"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "enabled.raw",
+      "rep": 0,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.enabled.raw.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 0.10983304199999999,
+      "samples_us": {
+        "mixed_f32_i16": [
+          9000,
+          6000,
+          7000,
+          6000,
+          6000,
+          7000
+        ],
+        "sum_i32": [
+          8000,
+          6000,
+          6000,
+          6000,
+          6000,
+          7000
+        ]
+      },
+      "medians_us": {
+        "mixed_f32_i16": 6000,
+        "sum_i32": 6000
+      },
+      "results": {
+        "mixed_f32_i16": "-40000.5968354526",
+        "sum_i32": "-500005000000"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "disabled.minified",
+      "rep": 0,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.disabled.minified.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 0.28514158300000003,
+      "samples_us": {
+        "mixed_f32_i16": [
+          26000,
+          24000,
+          24000,
+          24000,
+          24000,
+          23000
+        ],
+        "sum_i32": [
+          20000,
+          18000,
+          17000,
+          18000,
+          18000,
+          18000
+        ]
+      },
+      "medians_us": {
+        "mixed_f32_i16": 24000,
+        "sum_i32": 18000
+      },
+      "results": {
+        "mixed_f32_i16": "-40000.5968354526",
+        "sum_i32": "-500005000000"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "enabled.minified",
+      "rep": 0,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.enabled.minified.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 0.10923066699999995,
+      "samples_us": {
+        "mixed_f32_i16": [
+          8000,
+          6000,
+          7000,
+          6000,
+          6000,
+          7000
+        ],
+        "sum_i32": [
+          7000,
+          6000,
+          6000,
+          7000,
+          6000,
+          6000
+        ]
+      },
+      "medians_us": {
+        "mixed_f32_i16": 6000,
+        "sum_i32": 6000
+      },
+      "results": {
+        "mixed_f32_i16": "-40000.5968354526",
+        "sum_i32": "-500005000000"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "official-O2",
+      "rep": 0,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.official-O2.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 0.10232350000000001,
+      "samples_us": {
+        "mixed_f32_i16": [
+          8000,
+          6000,
+          6000,
+          6000,
+          7000,
+          6000
+        ],
+        "sum_i32": [
+          8000,
+          7000,
+          6000,
+          6000,
+          6000,
+          6000
+        ]
+      },
+      "medians_us": {
+        "mixed_f32_i16": 6000,
+        "sum_i32": 6000
+      },
+      "results": {
+        "mixed_f32_i16": "-40000.5968354526",
+        "sum_i32": "-500005000000"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "official-O2",
+      "rep": 1,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.official-O2.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 0.10499745800000004,
+      "samples_us": {
+        "mixed_f32_i16": [
+          8000,
+          6000,
+          6000,
+          7000,
+          6000,
+          6000
+        ],
+        "sum_i32": [
+          8000,
+          6000,
+          6000,
+          7000,
+          6000,
+          6000
+        ]
+      },
+      "medians_us": {
+        "mixed_f32_i16": 6000,
+        "sum_i32": 6000
+      },
+      "results": {
+        "mixed_f32_i16": "-40000.5968354526",
+        "sum_i32": "-500005000000"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "enabled.minified",
+      "rep": 1,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.enabled.minified.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 0.11077599999999999,
+      "samples_us": {
+        "mixed_f32_i16": [
+          10000,
+          6000,
+          7000,
+          6000,
+          7000,
+          7000
+        ],
+        "sum_i32": [
+          8000,
+          6000,
+          6000,
+          6000,
+          6000,
+          6000
+        ]
+      },
+      "medians_us": {
+        "mixed_f32_i16": 7000,
+        "sum_i32": 6000
+      },
+      "results": {
+        "mixed_f32_i16": "-40000.5968354526",
+        "sum_i32": "-500005000000"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "disabled.minified",
+      "rep": 1,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.disabled.minified.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 0.28356491699999986,
+      "samples_us": {
+        "mixed_f32_i16": [
+          27000,
+          24000,
+          24000,
+          24000,
+          23000,
+          24000
+        ],
+        "sum_i32": [
+          20000,
+          18000,
+          18000,
+          17000,
+          18000,
+          18000
+        ]
+      },
+      "medians_us": {
+        "mixed_f32_i16": 24000,
+        "sum_i32": 18000
+      },
+      "results": {
+        "mixed_f32_i16": "-40000.5968354526",
+        "sum_i32": "-500005000000"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "enabled.raw",
+      "rep": 1,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.enabled.raw.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 0.11037841700000017,
+      "samples_us": {
+        "mixed_f32_i16": [
+          9000,
+          6000,
+          7000,
+          7000,
+          6000,
+          7000
+        ],
+        "sum_i32": [
+          7000,
+          6000,
+          7000,
+          6000,
+          6000,
+          6000
+        ]
+      },
+      "medians_us": {
+        "mixed_f32_i16": 7000,
+        "sum_i32": 6000
+      },
+      "results": {
+        "mixed_f32_i16": "-40000.5968354526",
+        "sum_i32": "-500005000000"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "disabled.raw",
+      "rep": 1,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.disabled.raw.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 0.32141312499999986,
+      "samples_us": {
+        "mixed_f32_i16": [
+          24000,
+          21000,
+          21000,
+          22000,
+          22000,
+          22000
+        ],
+        "sum_i32": [
+          28000,
+          27000,
+          26000,
+          27000,
+          25000,
+          26000
+        ]
+      },
+      "medians_us": {
+        "mixed_f32_i16": 22000,
+        "sum_i32": 26000
+      },
+      "results": {
+        "mixed_f32_i16": "-40000.5968354526",
+        "sum_i32": "-500005000000"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "disabled.raw",
+      "rep": 2,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.disabled.raw.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 0.3047540839999998,
+      "samples_us": {
+        "mixed_f32_i16": [
+          31000,
+          30000,
+          29000,
+          29000,
+          28000,
+          28000
+        ],
+        "sum_i32": [
+          18000,
+          15000,
+          16000,
+          16000,
+          15000,
+          15000
+        ]
+      },
+      "medians_us": {
+        "mixed_f32_i16": 29000,
+        "sum_i32": 15000
+      },
+      "results": {
+        "mixed_f32_i16": "-40000.5968354526",
+        "sum_i32": "-500005000000"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "enabled.raw",
+      "rep": 2,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.enabled.raw.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 0.10993075000000019,
+      "samples_us": {
+        "mixed_f32_i16": [
+          9000,
+          6000,
+          6000,
+          7000,
+          6000,
+          7000
+        ],
+        "sum_i32": [
+          8000,
+          6000,
+          6000,
+          6000,
+          6000,
+          6000
+        ]
+      },
+      "medians_us": {
+        "mixed_f32_i16": 6000,
+        "sum_i32": 6000
+      },
+      "results": {
+        "mixed_f32_i16": "-40000.5968354526",
+        "sum_i32": "-500005000000"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "disabled.minified",
+      "rep": 2,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.disabled.minified.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 0.2839025829999997,
+      "samples_us": {
+        "mixed_f32_i16": [
+          26000,
+          24000,
+          24000,
+          23000,
+          25000,
+          23000
+        ],
+        "sum_i32": [
+          20000,
+          18000,
+          18000,
+          17000,
+          18000,
+          18000
+        ]
+      },
+      "medians_us": {
+        "mixed_f32_i16": 24000,
+        "sum_i32": 18000
+      },
+      "results": {
+        "mixed_f32_i16": "-40000.5968354526",
+        "sum_i32": "-500005000000"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "enabled.minified",
+      "rep": 2,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.enabled.minified.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 0.11638912499999998,
+      "samples_us": {
+        "mixed_f32_i16": [
+          8000,
+          6000,
+          7000,
+          6000,
+          7000,
+          6000
+        ],
+        "sum_i32": [
+          8000,
+          6000,
+          7000,
+          6000,
+          6000,
+          9000
+        ]
+      },
+      "medians_us": {
+        "mixed_f32_i16": 6000,
+        "sum_i32": 6000
+      },
+      "results": {
+        "mixed_f32_i16": "-40000.5968354526",
+        "sum_i32": "-500005000000"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "official-O2",
+      "rep": 2,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.official-O2.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 0.11070212499999998,
+      "samples_us": {
+        "mixed_f32_i16": [
+          7000,
+          7000,
+          6000,
+          6000,
+          7000,
+          6000
+        ],
+        "sum_i32": [
+          8000,
+          6000,
+          6000,
+          7000,
+          6000,
+          6000
+        ]
+      },
+      "medians_us": {
+        "mixed_f32_i16": 6000,
+        "sum_i32": 6000
+      },
+      "results": {
+        "mixed_f32_i16": "-40000.5968354526",
+        "sum_i32": "-500005000000"
+      },
+      "stderr_empty": true
+    }
+  ],
+  "vm_command": [
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+    "run",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/typed_data_widths.dart"
+  ],
+  "vm_results": {
+    "mixed_f32_i16": "-40000.5968354526",
+    "sum_i32": "-500005000000"
+  },
+  "all_results_exact_vm": true,
+  "summary_medians_us": {
+    "disabled.raw": {
+      "mixed_f32_i16": 22000,
+      "sum_i32": 26000
+    },
+    "enabled.raw": {
+      "mixed_f32_i16": 6000,
+      "sum_i32": 6000
+    },
+    "disabled.minified": {
+      "mixed_f32_i16": 24000,
+      "sum_i32": 18000
+    },
+    "enabled.minified": {
+      "mixed_f32_i16": 6000,
+      "sum_i32": 6000
+    },
+    "official-O2": {
+      "mixed_f32_i16": 6000,
+      "sum_i32": 6000
+    }
+  }
+}

@@ -1,0 +1,7 @@
+   Compiling dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)
+   Compiling dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+   Compiling dartforge-macros-host v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/macros_host)
+   Compiling dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+   Compiling dartforge-world v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/world)
+   Compiling dartforge-emit-js-production v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js_production)
+    Finished `release` profile [optimized] target(s) in 55.85s

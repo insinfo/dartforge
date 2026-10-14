@@ -33,11 +33,18 @@ impl FnEmitter<'_, '_> {
             return None;
         }
         let brand = match self.ctx.class_name(*class) {
+            "Float32List" => "Float32Array",
             "Float64List" => "Float64Array",
+            "Int8List" => "Int8Array",
             "Uint8List" => "Uint8Array",
+            "Uint8ClampedList" => "Uint8ClampedArray",
+            "Int16List" => "Int16Array",
+            "Uint16List" => "Uint16Array",
+            "Int32List" => "Int32Array",
+            "Uint32List" => "Uint32Array",
             _ => return None,
         };
-        Some((brand, if brand == "Float64Array" { self.ctx.t_double() } else { self.ctx.t_int() }))
+        Some((brand, if matches!(brand, "Float32Array" | "Float64Array") { self.ctx.t_double() } else { self.ctx.t_int() }))
     }
 
     fn numeric_loop_value(&self, e: ExprId, index: SymbolId, arrays: &mut Vec<SymbolId>, raw: &mut HashMap<ExprId, Ty>) -> bool {

@@ -1,0 +1,15 @@
+mixed=400cccccdd000000
+readonly=400cccccdd000000
+view=401133333c000000
+short=3fe666666c000000:range=1
+empty=8000000000000000
+negativeZero=8000000000000000
+infinity=7ff0000000000000
+mutate=4020333333400000
+offset=1:range=3
+Int8List=-4:readonly=-4:view=-131:empty=0
+Uint8ClampedList=637:readonly=637:view=637:empty=0
+Int16List=-3:readonly=-3:view=-32770:empty=0
+Uint16List=163838:readonly=163838:view=98303:empty=0
+Int32List=-2:readonly=-2:view=2147483646:empty=0
+Uint32List=6442450943:readonly=6442450943:view=6442450943:empty=0

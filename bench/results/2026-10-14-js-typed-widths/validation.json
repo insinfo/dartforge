@@ -1,0 +1,227 @@
+{
+  "compiler": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/current-jsprod",
+    "sha256": "a19db1c3add6446d1f103a5510cf47f7651a7a0594624533b83ca66dd8890a69"
+  },
+  "baseline_compiler": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/baseline-jsprod",
+    "sha256": "62c8d1b8fb5daa80469574b088b9e32a8a4bdbcdbf8d4323ee9309d0d7b26925"
+  },
+  "artifacts": {
+    "fixture.disabled.minified": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/current-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_loop_brands.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/fixture.disabled.minified.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_TYPED_LOOPS": "0"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "e4066d59deab12582fc85b7b1d0ef3f95fac3d7937200efe53ae6c6778882368",
+      "bytes": 70471,
+      "source_sha256": "548f9c2bf7d3541e3a2fbafd4e4d052b719536878e637c58e6bb2487bac2cfbe",
+      "run_exit": 0,
+      "exact_vm": true,
+      "stderr_empty": true
+    },
+    "fixture.disabled.raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/current-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_loop_brands.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/fixture.disabled.raw.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_TYPED_LOOPS": "0"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "0e1dda03e59b47eb410b457af429dbbb3033982aee1c53104186bfee15cc9b85",
+      "bytes": 238883,
+      "source_sha256": "548f9c2bf7d3541e3a2fbafd4e4d052b719536878e637c58e6bb2487bac2cfbe",
+      "run_exit": 0,
+      "exact_vm": true,
+      "stderr_empty": true
+    },
+    "fixture.enabled.minified": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/current-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_loop_brands.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/fixture.enabled.minified.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_TYPED_LOOPS": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "4fffb6979bcd4cdc104d003bea063645322bdb088aa48901534a366bbacff9db",
+      "bytes": 74247,
+      "source_sha256": "548f9c2bf7d3541e3a2fbafd4e4d052b719536878e637c58e6bb2487bac2cfbe",
+      "run_exit": 0,
+      "exact_vm": true,
+      "stderr_empty": true
+    },
+    "fixture.enabled.raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/current-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_loop_brands.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/fixture.enabled.raw.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_TYPED_LOOPS": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "eee00f619201f98fc2662364bd3dcbca5b746fbdf5edeca6e2a5f7a8e2c545f3",
+      "bytes": 243460,
+      "source_sha256": "548f9c2bf7d3541e3a2fbafd4e4d052b719536878e637c58e6bb2487bac2cfbe",
+      "run_exit": 0,
+      "exact_vm": true,
+      "stderr_empty": true
+    },
+    "bench.disabled.minified": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/current-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/typed_data_widths.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.disabled.minified.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_TYPED_LOOPS": "0"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "d025c40a983c61a632a0e605193229dccd3b0da63d78c49a53182cadf9586cbf",
+      "bytes": 57190,
+      "source_sha256": "3c2d7348a0d277520c19a6ae4f537666a566540d25b83248990a568ff132f5c4"
+    },
+    "bench.disabled.raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/current-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/typed_data_widths.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.disabled.raw.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_TYPED_LOOPS": "0"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "3aa1bf7faa12aac3da84473bd50a98193e76de016b4ddcf096dabf0546786898",
+      "bytes": 200830,
+      "source_sha256": "3c2d7348a0d277520c19a6ae4f537666a566540d25b83248990a568ff132f5c4"
+    },
+    "bench.enabled.minified": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/current-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/typed_data_widths.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.enabled.minified.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_TYPED_LOOPS": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "bb7cc1c3244c0e435282b49f7b5121269b8c107fa4463ee423dcc110606fcb1a",
+      "bytes": 58607,
+      "source_sha256": "3c2d7348a0d277520c19a6ae4f537666a566540d25b83248990a568ff132f5c4"
+    },
+    "bench.enabled.raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/current-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/typed_data_widths.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.enabled.raw.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_TYPED_LOOPS": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "a3ab868c8348b2f3dea84c02cc280606a12e10cd5e3ef2ac5bc9f7e1c311cc5c",
+      "bytes": 202535,
+      "source_sha256": "3c2d7348a0d277520c19a6ae4f537666a566540d25b83248990a568ff132f5c4"
+    }
+  },
+  "sources": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_loop_brands.dart": "548f9c2bf7d3541e3a2fbafd4e4d052b719536878e637c58e6bb2487bac2cfbe",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/src/typed_loops.rs": "cc4a2f1114c19207760e4cbaba89698a6a2713a8368bb3aaa5ab0241e0e5c658",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js_production/tests/typed_loop_brands.rs": "54f4766319996a9da5efe80b6a1fac37c053933b1db0a8d354ff7dc6da3968c8",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/typed_data_widths.dart": "3c2d7348a0d277520c19a6ae4f537666a566540d25b83248990a568ff132f5c4"
+  },
+  "timing_run": true,
+  "official_benchmark": {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "compile",
+      "js",
+      "-O2",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/typed_data_widths.dart",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-brands/bench.official-O2.js"
+    ],
+    "artifact_sha256": "b06a269a4f744b1a7e093e882846bac6c1171fd7c414a661f56d2821da4d47cc",
+    "bytes": 48383
+  },
+  "tests": [
+    {
+      "command": "cargo test --locked -p dartforge-emit-js-production --test typed_loop_brands -- --ignored",
+      "passed": 1,
+      "failed": 0,
+      "log": "test.log"
+    },
+    {
+      "command": "cargo test --locked -p dartforge-emit-js-production --test typed_loop_ranges -- --ignored",
+      "passed": 1,
+      "failed": 0,
+      "log": "existing-ranges.log"
+    },
+    {
+      "command": "cargo test --locked -p dartforge-emit-js-production --lib",
+      "passed": 66,
+      "ignored": 1,
+      "failed": 0,
+      "log": "production-lib.log"
+    }
+  ],
+  "new_brands": [
+    "Float32List",
+    "Int8List",
+    "Uint8ClampedList",
+    "Int16List",
+    "Uint16List",
+    "Int32List",
+    "Uint32List"
+  ],
+  "scope": "Exact physical typed-array read-loop versioning with original checked fallback. No broad Dart2JS performance parity or bundle-size improvement claim.",
+  "source_hashes_stable": true,
+  "baseline_fixture": {
+    "compile_log": "baseline.compile.log",
+    "artifact_sha256": "0e1dda03e59b47eb410b457af429dbbb3033982aee1c53104186bfee15cc9b85",
+    "bytes": 238883,
+    "run_exit": 0,
+    "exact_vm": true,
+    "stdout_log": "baseline.stdout"
+  },
+  "copied_compiler_sha256": "a19db1c3add6446d1f103a5510cf47f7651a7a0594624533b83ca66dd8890a69",
+  "inputs_stable": true,
+  "performance_ledger": "performance.json"
+}

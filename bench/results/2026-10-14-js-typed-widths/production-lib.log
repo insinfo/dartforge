@@ -1,0 +1,75 @@
+   Compiling dartforge-emit-js-production v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js_production)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.32s
+     Running unittests src/lib.rs (target/js/debug/deps/dartforge_emit_js_production-fb6c86a20c8ec7b0)
+
+running 67 tests
+test bundle::tests::resolves_relative_paths ... ok
+test bundle::tests::node_list_gets_list_methods_before_user_code ... ok
+test bundle::tests::splits_preamble ... ok
+test bundle::tests::renamed_export_becomes_alias_in_bundle ... ok
+test bundle::tests::orders_dependency_first ... ok
+test bundle::tests::cycle_does_not_abort ... ok
+test flatten::tests::observed_object_stays ... ok
+test flatten::tests::shadowed_name_stays ... ok
+test alias_this::tests::few_citations_constructor_and_field_stay ... ok
+test flatten::tests::lazy_this_delete_and_unwritten_stay ... ok
+test alias_this::tests::four_citations_become_a_local ... ok
+test flatten::tests::written_member_becomes_variable ... ok
+test inline::tests::drops_the_arguments_of_unused_parameters ... ok
+test inline::tests::refuses_a_reassigned_function ... ok
+test inline::tests::keeps_order_with_effects ... ok
+test inline::tests::inlines_a_static_accessor ... ok
+test inline::tests::refuses_a_used_parameter_with_a_default ... ok
+test minify::tests::keeps_line_breaks_that_decide_semicolons ... ok
+test minify::tests::is_deterministic_and_idempotent ... ok
+test inline::tests::refuses_a_shadowed_free_name ... ok
+test minify::tests::literals_are_copied_as_they_are ... ok
+test minify::tests::removes_comments_and_indentation ... ok
+test inline::tests::removes_a_definition_without_uses ... ok
+test minify::tests::slash_after_expression_is_division ... ok
+test minify::tests::whitespace_that_separates_tokens_stays ... ok
+test own_sdk::front_coding_tests::front_coding_round_trips ... ok
+test minify::tests::shares_short_names_only_outside_common_groups ... ok
+test reach::tests::member_requires_class_and_selector ... ok
+test reach::tests::selector_used_by_live_member_lights_up_another ... ok
+test reach::tests::simple_chain ... ok
+test rti_rules::tests::resource_transport_preserves_class_identity_strings_and_call_order_in_node ... ignored, requires Node
+test scan::tests::class_members_conserve_bytes ... ok
+test rti_rules::tests::program_rules_merge_into_the_last_call ... ok
+test scan::tests::closing_brace_ignores_strings ... ok
+test scan::tests::conserves_bytes ... ok
+test rti_rules::tests::program_resources_batch_into_the_last_statement ... ok
+test scan::tests::object_entries_at_level_zero ... ok
+test rti_rules::tests::identical_rules_forward_to_the_first ... ok
+test sdk::tests::call_is_not_declaration ... ok
+test sdk::tests::class_members ... ok
+test sdk::tests::constant_and_bar_member_references ... ok
+test sdk::tests::does_not_mistake_field_for_library ... ok
+test sdk::tests::html_reference_with_dollar ... ok
+test sdk::tests::class_define_lazy_does_not_tie_to_namespace ... ok
+test sdk::tests::rti_recipe_reference ... ok
+test sdk::tests::pruning_keeps_what_lives_and_drops_the_rest ... ok
+test sdk::tests::extension_list_follows_the_member ... ok
+test sdk::tests::sdk_alias_in_user_module_points_to_the_local_name ... ok
+test sdk::tests::symbol_table_private_entry_reference ... ok
+test shapes::tests::class_signature ... ok
+test shapes::tests::constructor_with_prototype ... ok
+test shapes::tests::class_with_default_constructor ... ok
+test shapes::tests::generic_constructor_prologue ... ok
+test tests::assembles_one_file_in_topological_order ... ok
+test tests::bundling_does_not_merge_libraries ... ok
+test verify::tests::operator_selectors_from_text ... ok
+test verify::tests::rti_recipe_is_a_reference ... ok
+test verify::tests::selectors_from_text ... ok
+test verify::tests::top_level_class_and_lazy_definitions ... ok
+test tests::prunes_the_embedded_runtime ... ok
+test tests::assembly_is_deterministic ... ok
+test rti_rules::tests::resource_transport_accepts_only_bounded_canonical_singletons ... ok
+test cache::tests::second_read_comes_from_the_cache_and_is_equal ... ok
+test cache::tests::pruning_through_the_cache_is_identical ... ok
+test cache::tests::corrupted_file_rebuilds ... ok
+test cache::tests::incompatible_runtime_or_configuration_rebuilds ... ok
+test cache::tests::evicts_the_oldest ... ok
+
+test result: ok. 66 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
