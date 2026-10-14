@@ -1,0 +1,12 @@
+typed: [0] [7] 7
+index-receiver: [0] [3]
+index-rhs: [5, 0] 1
+global: [6] [0]
+compound: 4 6 6
+compound-order: first.get:0,rhs,second.set:0:6
+post: 5 4
+post-order: post.get:0,post.set:1:5
+ifnull: null 9 9
+ifnull-order: null.get:0,rhs,other.set:1:9
+full: 4
+full-order: full.get:0

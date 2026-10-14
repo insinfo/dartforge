@@ -1,0 +1,87 @@
+{
+  "status": "General JS indexed-assignment evaluation order corrected; all final gates pass.",
+  "base_git_commit": "e9049167e1b364f0a598b7c6344ac028d8cfd6fa",
+  "source_hashes": {
+    "crates/emit_js/src/expr.rs": "9bc1db6bc9355880b83ebc0ab3c509ccdb8fed4ad6e6aecec5c76281f8caac26",
+    "crates/emit_js/tests/basic.rs": "94807dc3342a885f37ae0ecebbfc7aeaca6ebcc41a0a85fa870e77d21496786a",
+    "crates/emit_js/tests/programs/index_assignment_order.dart": "e743a481271952992b03bfd508a6ba7c64ee31bdb15e285e31877bb8ecf9f00c",
+    "crates/emit_js_production/tests/index_assignment_order.rs": "1fb7e1e33e33a932ec53ef2e29f485a5ed32998b9baa135d73f65212ef0d8407"
+  },
+  "current_debug_compiler": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/debug/dartforge-jsprod",
+    "sha256": "8bc54daaf656cd658ecb927cf80a52552dd2a2d3e0c06a6ff7861e21b80792f1",
+    "used_by": "CARGO_BIN_EXE_dartforge-jsprod in production index_assignment_order integration; --no-minify/raw and default/minified compile modes."
+  },
+  "baseline_compiler": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+    "sha256": "96a34ad807a15943ba5ab041653e7d64b84ff76e99a7331cf32278592eedfa7a"
+  },
+  "baseline_scope": "Same final fixture, raw/min red: both exit1 after earlier receiver/compound/ifnull divergences when printing old dynamic void-setter assignment result (undefined). Partial stdout/stderr retained. Earlier narrow receiver-only witness also VM/O2=[7],[0] vs baseline=[0],[7].",
+  "behavior": "Snapshot receiver and index before RHS, including simple mutable bindings. Compound/ifnull indexed writes snapshot before getter/RHS. Static/dynamic/extension dispatch retained; assignment expression yields RHS regardless of setter return. Stable this/super references preserved.",
+  "fixture_cases": [
+    "typed receiver reassigned in RHS",
+    "receiver reassigned during index evaluation",
+    "index reassigned in RHS",
+    "global receiver reassigned in RHS",
+    "custom getter mutates receiver/index before compound write",
+    "postfix indexed write keeps original index",
+    "nullable indexer ifnull write and no-write branch",
+    "dynamic setter assignment expression returns RHS",
+    "throwing setter is invoked once after RHS",
+    "bounds error occurs after index/RHS",
+    "dynamic null receiver fails after index/RHS",
+    "RHS type error prevents setter",
+    "extension and extension-type indexed assignment/compound",
+    "parenthesized receiver with conditional RHS",
+    "throwing RHS skips setter after receiver/index once",
+    "null-aware simple index assignment skips index/RHS"
+  ],
+  "gates": {
+    "production": {
+      "command": "DARTFORGE_SDK_LIB=/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib cargo test --locked -p dartforge-emit-js-production --tests -- --include-ignored",
+      "library_passed": 67,
+      "integration_passed": 13,
+      "failures": 0,
+      "SDK_overlay_environment_note": "An initial attempt omitted the required SDK lib env; rerun with explicit path passes the entire suite. No failed test was treated as passing."
+    },
+    "development": {
+      "command": "cargo test --locked -p dartforge-emit-js --tests -- --include-ignored",
+      "library_passed": 2,
+      "basic_passed": 14,
+      "determinism_passed": 2,
+      "failures": 0
+    },
+    "final_fixture": "VM/dart2js O2/current Forge raw/current Forge min exact, checked by integration assertion; stdout expected is fixture.vm.stdout. Development SDK output exact VM too."
+  },
+  "development_artifact_hashes": {
+    "dart_sdk.js": "28dc6b642e1b3736dda5a7c46f5cbfab056f5b3560f31f802ef7ef94744218ea",
+    "index_assignment_order.js": "a2cf8f4b3feda50cc6c48845ee6f221de04a8b9a698e0f34b951f4bb05af80e3",
+    "preambulo.js": "1515caaa04663d6658e7199c3828b6b0581d0c8fe46737c9747e09a4839e8a25",
+    "main.mjs": "e03a995a561c11489de1292c309b4a0d365f1aa6497df0d3b8516259ea266939"
+  },
+  "semantic_scope": "Correctness only; no new release build/performance timing or broad parity claim. Existing debug compiler+modular artifact hashes are used; production temporary raw/min/O2 artifacts are removed by integration test after assertion, so those final artifact hashes were not preserved. Tests and source hashes allow exact regeneration.",
+  "environment": {
+    "cargo_target_dir": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js",
+    "tmpdir": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/index-assignment",
+    "node": "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+    "sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk"
+  },
+  "evidence_hashes": {
+    "production-full.log": "1d4e107ee24abb1c24a126f5909257bf30977d9fbeca71ccbf49690b64b3ec7d",
+    "baseline.min.run.stderr": "c7b963bb10dd603e1e05e6f4da8715a3b7f80c94f88db8a6b463135edc360d84",
+    "baseline.py": "d2cc01f0bffa62a16349dacf639b06a72ce2389ac3811b42da00e968026b4a19",
+    "baseline.min.compile.stdout": "97d1440f52224e8f1961843f9e252a81a2561ace97d8999f69751a0ee786f479",
+    "baseline.min.compile.stderr": "73e5d1f06a089088b9af76111ad8613f1596c710307cfc39f9bcfea8d20f4b6e",
+    "baseline.min.run.stdout": "c4d09f0e36b137df5e102d10d8e3b656ed5b8588ffe8ffa291c6e4017bbd589d",
+    "fixture.vm.stdout": "55058186ce2060802b046ab28f6fdca8de2ca38d04676a870c9d569e9b97124c",
+    "baseline.log": "564bc72032bdb3cc9fc51adde80e3b021853f7daecad5122abd7bf911ff08aa5",
+    "baseline.json": "9c7364d23bc5813594d01497162c43d1078a751393aadf5541083aafee512746",
+    "baseline.raw.compile.stdout": "2bbaf1314c00762c7d64c8d84f41b2a99889ed099e31a01ead549eaca9381bea",
+    "baseline.raw.run.stdout": "c4d09f0e36b137df5e102d10d8e3b656ed5b8588ffe8ffa291c6e4017bbd589d",
+    "development-tests.log": "c3cb39eb15e47df62b5de4024727490c094b89e9dc872f00443c6d47dd18292e",
+    "baseline.raw.run.stderr": "c7b963bb10dd603e1e05e6f4da8715a3b7f80c94f88db8a6b463135edc360d84",
+    "baseline.raw.compile.stderr": "73e5d1f06a089088b9af76111ad8613f1596c710307cfc39f9bcfea8d20f4b6e",
+    "focused.log": "91e4a97060ea4039c2b0b68fafbf1b2bd2330e70fd7fed58e4391ab140e53872",
+    "fixture.vm.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

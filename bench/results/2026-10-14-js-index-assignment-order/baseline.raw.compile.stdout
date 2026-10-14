@@ -1,0 +1,2 @@
+/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/index_assignment_order.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/index-assignment/baseline/raw/program.js (267 KB; 1 modules; user 15 KB; runtime 279 -> 279 KB, 0/0 live units)
+world: classes 4/4 instantiated + 0 type only; functions 30/30; 274 selectors; 6 round(s); world 5 ms, emission 60 ms, verifier 25 ms

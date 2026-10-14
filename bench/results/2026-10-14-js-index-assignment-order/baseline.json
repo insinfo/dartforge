@@ -1,0 +1,113 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+  "compiler_sha256": "96a34ad807a15943ba5ab041653e7d64b84ff76e99a7331cf32278592eedfa7a",
+  "fixture": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/index_assignment_order.dart",
+  "fixture_sha256": "e743a481271952992b03bfd508a6ba7c64ee31bdb15e285e31877bb8ecf9f00c",
+  "VM_stdout_sha256": "55058186ce2060802b046ab28f6fdca8de2ca38d04676a870c9d569e9b97124c",
+  "profiles": {
+    "raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/index_assignment_order.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/index-assignment/baseline/raw/program.js",
+        "--no-minify"
+      ],
+      "exit": 255,
+      "stderr": "Unhandled exception:\nTypeError: Cannot read properties of undefined (reading 'Symbol(dartx.toString)')\n",
+      "artifact_sha256": "f65eca5d888cf3ef16438f3a249bdb2d7146334ceda77c582bde2c2f7b9b9bba",
+      "differs_from_VM": true,
+      "different_lines": [
+        {
+          "line": 1,
+          "expected": "typed: [7] [0] 7",
+          "actual": "typed: [0] [7] 7"
+        },
+        {
+          "line": 2,
+          "expected": "index-receiver: [3] [0]",
+          "actual": "index-receiver: [0] [3]"
+        },
+        {
+          "line": 5,
+          "expected": "compound: 6 10 6",
+          "actual": "compound: 4 6 6"
+        },
+        {
+          "line": 6,
+          "expected": "compound-order: first.get:0,rhs,first.set:0:6",
+          "actual": "compound-order: first.get:0,rhs,second.set:0:6"
+        },
+        {
+          "line": 8,
+          "expected": "post-order: post.get:0,post.set:0:5",
+          "actual": "post-order: post.get:0,post.set:1:5"
+        },
+        {
+          "line": 9,
+          "expected": "ifnull: 9 8 9",
+          "actual": "ifnull: null 9 9"
+        },
+        {
+          "line": 10,
+          "expected": "ifnull-order: null.get:0,rhs,null.set:0:9",
+          "actual": "ifnull-order: null.get:0,rhs,other.set:1:9"
+        }
+      ]
+    },
+    "min": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/index_assignment_order.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/index-assignment/baseline/min/program.js"
+      ],
+      "exit": 255,
+      "stderr": "Unhandled exception:\nTypeError: Cannot read properties of undefined (reading 'Symbol(dartx.toString)')\n",
+      "artifact_sha256": "35035410b2bce07c2fc7285289ae491efc84bdc701a297209b0de58632235e15",
+      "differs_from_VM": true,
+      "different_lines": [
+        {
+          "line": 1,
+          "expected": "typed: [7] [0] 7",
+          "actual": "typed: [0] [7] 7"
+        },
+        {
+          "line": 2,
+          "expected": "index-receiver: [3] [0]",
+          "actual": "index-receiver: [0] [3]"
+        },
+        {
+          "line": 5,
+          "expected": "compound: 6 10 6",
+          "actual": "compound: 4 6 6"
+        },
+        {
+          "line": 6,
+          "expected": "compound-order: first.get:0,rhs,first.set:0:6",
+          "actual": "compound-order: first.get:0,rhs,second.set:0:6"
+        },
+        {
+          "line": 8,
+          "expected": "post-order: post.get:0,post.set:0:5",
+          "actual": "post-order: post.get:0,post.set:1:5"
+        },
+        {
+          "line": 9,
+          "expected": "ifnull: 9 8 9",
+          "actual": "ifnull: null 9 9"
+        },
+        {
+          "line": 10,
+          "expected": "ifnull-order: null.get:0,rhs,null.set:0:9",
+          "actual": "ifnull-order: null.get:0,rhs,other.set:1:9"
+        }
+      ]
+    }
+  },
+  "scope": "Correctness only, exact same final ordinary Dart fixture on immutable pre-fix compiler. No source workaround, timing or performance claim."
+}

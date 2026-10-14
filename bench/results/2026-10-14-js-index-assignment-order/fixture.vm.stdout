@@ -1,0 +1,32 @@
+typed: [7] [0] 7
+index-receiver: [3] [0]
+index-rhs: [5, 0] 1
+global: [6] [0]
+compound: 6 10 6
+compound-order: first.get:0,rhs,first.set:0:6
+post: 5 4
+post-order: post.get:0,post.set:0:5
+ifnull: 9 8 9
+ifnull-order: null.get:0,rhs,null.set:0:9
+full: 4
+full-order: full.get:0
+dynamic-result: 11
+dynamic-order: dynamic.set:0:11
+setter-error: true
+setter-values: 0 0
+setter-error-order: rhs,throw.set:0:3
+bounds: true
+bounds-order: index,rhs
+null: true
+null-order: index,rhs
+type: true
+type-order: index,rhs
+extension: 12 0 12
+extension-type: 13 0 13
+extension-type-compound: 26 0 26
+parenthesized-conditional: [15] [0] 1 15
+conditional-order: conditional-rhs
+rhs-error: true
+rhs-error-order: receiver,index,rhs
+null-aware: null
+null-aware-order: 

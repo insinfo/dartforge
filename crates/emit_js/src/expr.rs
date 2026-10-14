@@ -3260,48 +3260,39 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// `recv[i] = v`; the expression evaluates to `v`.
     pub fn emit_index_set(&mut self, recv: &Js, recv_ty: &Ty, idx: &Js, v: &Js) -> Js {
-        if recv_ty.is_dynamic() {
-            return Js::prim(format!("dart.dsend({}, '_set', [{}, {}])", recv.code, idx.code, v.code));
-        }
-        match self.ctx.lookup_member(recv_ty, "[]=", false) {
-            Some(_) => {
-                let access = self.member_access(recv_ty, "[]=", false);
-                let t = self.temp();
-                let mut parts = Vec::new();
-                let recv_js = if is_simple(&recv.code) {
-                    recv.at(P_PRIMARY).into_owned()
-                } else {
-                    let tr = self.temp();
-                    parts.push(format!("{tr} = {}", recv.code));
-                    tr
-                };
-                let idx_js = if is_simple(&idx.code) && (is_simple(&v.code) || v.code.starts_with('"')) {
-                    idx.code.clone()
-                } else {
-                    let ti = self.temp();
-                    parts.push(format!("{ti} = {}", idx.code));
-                    ti
-                };
-                parts.push(format!("{t} = {}", v.code));
-                parts.push(format!("{recv_js}{access}({idx_js}, {t})"));
-                parts.push(t);
-                Js::new(parts.join(", "), P_COMMA).paren()
-            }
-            None => {
-                if let Some((ext, _, subst)) = self.find_extension_member(recv_ty, "[]=", false) {
-                    let e = self.ctx.program.extension(ext);
-                    let lib_var = self.lib_var(e.library);
-                    let ext_name = self.extension_js_name(ext);
-                    let t = self.temp();
-                    let mut args = self.ext_type_args(ext, &subst);
-                    args.push(recv.code.clone());
-                    args.push(idx.code.clone());
-                    args.push(t.clone());
-                    return Js::new(format!("{t} = {}, {lib_var}[{}]({}), {t}", v.code, js::string_literal(&format!("{ext_name}|[]=")), args.join(", ")), P_COMMA).paren();
-                }
-                Js::prim(format!("dart.dsend({}, '_set', [{}, {}])", recv.code, idx.code, v.code))
-            }
-        }
+        // An identifier is cheap to read, but its binding can change while the
+        // index or RHS runs. Snapshot both operands before evaluating the RHS.
+        let mut parts = Vec::new();
+        let recv_js = if matches!(recv.code.as_str(), "this" | "super") {
+            recv.code.clone()
+        } else {
+            let t = self.temp();
+            parts.push(format!("{t} = {}", recv.code));
+            t
+        };
+        let index = self.temp();
+        parts.push(format!("{index} = {}", idx.code));
+        let value = self.temp();
+        parts.push(format!("{value} = {}", v.code));
+        let call = if recv_ty.is_dynamic() {
+            format!("dart.dsend({recv_js}, '_set', [{index}, {value}])")
+        } else if self.ctx.lookup_member(recv_ty, "[]=", false).is_some() {
+            let access = self.member_access(recv_ty, "[]=", false);
+            format!("{recv_js}{access}({index}, {value})")
+        } else if let Some((ext, _, subst)) = self.find_extension_member(recv_ty, "[]=", false) {
+            let e = self.ctx.program.extension(ext);
+            let lib_var = self.lib_var(e.library);
+            let ext_name = self.extension_js_name(ext);
+            let mut args = self.ext_type_args(ext, &subst);
+            args.extend([recv_js, index, value.clone()]);
+            format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|[]=")), args.join(", "))
+        } else {
+            format!("dart.dsend({recv_js}, '_set', [{index}, {value}])")
+        };
+        parts.push(call);
+        // Assignment expressions yield the RHS, regardless of setter return.
+        parts.push(value);
+        Js::new(parts.join(", "), P_COMMA).paren()
     }
 
     /// `x op= v`, `++x`, `x++`.
@@ -3341,7 +3332,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let Some((owner, _)) = self.ext_type_member(target) else { unreachable!() };
                 let recv_e = *recv;
                 let (rjs, _, _guards) = self.emit_target(recv_e);
-                let recv_js = if is_simple(&rjs.code) {
+                let recv_js = if matches!(rjs.code.as_str(), "this" | "super") {
                     rjs.code.clone()
                 } else {
                     let tmp = self.temp();
@@ -3352,13 +3343,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let write_op = self.ext_type_operator_fn(owner, "[]=");
                 let ctx_i = read_op.and_then(|f| self.ext_type_param(Some(recv_e), owner, f, 0));
                 let (ijs, _) = self.emit_expr(*index, ctx_i.as_ref());
-                let idx_js = if is_simple(&ijs.code) {
-                    ijs.code.clone()
-                } else {
-                    let tmp = self.temp();
-                    self.pending_prefix.push(format!("{tmp} = {}", ijs.code));
-                    tmp
-                };
+                let idx_js = self.temp();
+                self.pending_prefix.push(format!("{idx_js} = {}", ijs.code));
                 let (r, rt) = match read_op {
                     Some(f) => self.ext_type_operator(&Js::prim(recv_js.clone()), Some(recv_e), owner, f, &[Js::prim(idx_js.clone())]),
                     None => (Js::prim("null"), Ty::Dynamic),
@@ -3424,7 +3410,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             ExprKind::Index { target: recv, index, .. } => {
                 let (rjs, rty, _guards) = self.emit_target(*recv);
-                let recv_js = if is_simple(&rjs.code) {
+                let recv_js = if matches!(rjs.code.as_str(), "this" | "super") {
                     rjs.code.clone()
                 } else {
                     let tmp = self.temp();
@@ -3432,13 +3418,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     tmp
                 };
                 let (ijs, _) = self.emit_expr(*index, None);
-                let idx_js = if is_simple(&ijs.code) {
-                    ijs.code.clone()
-                } else {
-                    let tmp = self.temp();
-                    self.pending_prefix.push(format!("{tmp} = {}", ijs.code));
-                    tmp
-                };
+                let idx_js = self.temp();
+                self.pending_prefix.push(format!("{idx_js} = {}", ijs.code));
                 let (r, rt) = self.emit_index_get(&Js::prim(recv_js.clone()), &rty, &Js::prim(idx_js.clone()), Some(target));
                 let rty2 = rty.clone();
                 (r, rt, Box::new(move |s: &mut Self, v: &Js| s.emit_index_set(&Js::prim(recv_js.clone()), &rty2, &Js::prim(idx_js.clone()), v)))

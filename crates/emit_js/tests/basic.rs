@@ -112,3 +112,8 @@ fn p9_lexical_scope() {
 fn p10_reified_types() {
     check("p10_reified_types");
 }
+
+#[test]
+fn indexed_assignment_order() {
+    check("index_assignment_order");
+}
