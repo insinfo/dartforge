@@ -1,0 +1,7 @@
+Could not format because the source could not be parsed:
+
+line 2, column 12 of target/formatter-language-gates/new-declaration.dart: This requires the 'constructor-tearoffs' language feature to be enabled.
+  ╷
+2 │ class A {A.new();}
+  │            ^^^
+  ╵

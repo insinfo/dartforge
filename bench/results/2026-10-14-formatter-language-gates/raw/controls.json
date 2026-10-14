@@ -1,0 +1,38 @@
+[
+  {
+    "case": "late-type",
+    "exit_code": 0
+  },
+  {
+    "case": "late-local-type",
+    "exit_code": 0
+  },
+  {
+    "case": "required-name",
+    "exit_code": 0
+  },
+  {
+    "case": "late-only",
+    "exit_code": 65
+  },
+  {
+    "case": "required-only",
+    "exit_code": 65
+  },
+  {
+    "case": "old-named",
+    "exit_code": 0
+  },
+  {
+    "case": "new-call",
+    "exit_code": 65
+  },
+  {
+    "case": "new-explicit-call",
+    "exit_code": 65
+  },
+  {
+    "case": "new-declaration",
+    "exit_code": 65
+  }
+]

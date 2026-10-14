@@ -380,15 +380,15 @@ impl<'f> Parser<'f> {
     /// `kind == IDENTIFIER_TOKEN`: an identifier that is neither built-in nor a
     /// pseudo-keyword.
     fn plain_ident(&self, i: usize) -> bool {
-        self.ident(i) && word_style(self.txt(i)) == WordStyle::NoneKind
+        self.ident(i) && self.word_style_at(i) == WordStyle::NoneKind
     }
 
     fn built_in(&self, i: usize) -> bool {
-        self.ident(i) && word_style(self.txt(i)) == WordStyle::BuiltIn
+        self.ident(i) && self.word_style_at(i) == WordStyle::BuiltIn
     }
 
     fn pseudo(&self, i: usize) -> bool {
-        self.ident(i) && word_style(self.txt(i)) == WordStyle::Pseudo
+        self.ident(i) && self.word_style_at(i) == WordStyle::Pseudo
     }
 
     /// Identifier with text `s` (contextual words).
@@ -427,6 +427,11 @@ impl<'f> Parser<'f> {
     /// name).
     fn modifier(&self, i: usize) -> bool {
         let t = self.txt(i);
+        // Before null safety these contextual words remain ordinary names,
+        // including types named `late` and named parameters called `required`.
+        if self.version < (2, 12) && matches!(t, "late" | "required") {
+            return false;
+        }
         match self.kind_(i) {
             TokenKind::Reserved(Keyword::Const | Keyword::Final | Keyword::Var) => true,
             TokenKind::Identifier
@@ -569,6 +574,7 @@ impl<'f> Parser<'f> {
     /// an identifier: `A.new`).
     fn expect_ident_or_new(&mut self) -> R<usize> {
         if self.kw(self.pos, Keyword::New) {
+            self.feature(self.pos, (2, 15), "constructor-tearoffs");
             return Ok(self.advance());
         }
         self.expect_ident()

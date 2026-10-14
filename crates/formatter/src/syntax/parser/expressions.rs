@@ -1022,6 +1022,7 @@ impl Parser<'_> {
             return self.send_or_function(ctx);
         }
         if self.kw(self.pos, Keyword::New) {
+            self.feature(self.pos, (2, 15), "constructor-tearoffs");
             return self.send(ctx, true);
         }
         Err(self.error(&format!(
@@ -1245,10 +1246,7 @@ impl Parser<'_> {
         let mut name_ = a;
         if self.op(self.pos, Op::Dot) {
             let d = self.advance();
-            if !(self.ident(self.pos) || self.kw(self.pos, Keyword::New)) {
-                return Err(self.error("Expected an identifier."));
-            }
-            name_ = self.advance();
+            name_ = self.expect_ident_or_new()?;
             prefix = Some((a as Tk, d as Tk));
         }
         let type_arguments = if self.op(self.pos, Op::Lt) {
@@ -1272,10 +1270,7 @@ impl Parser<'_> {
         let mut name = None;
         if self.op(self.pos, Op::Dot) {
             period = Some(self.advance() as Tk);
-            if !(self.ident(self.pos) || self.kw(self.pos, Keyword::New)) {
-                return Err(self.error("Expected an identifier."));
-            }
-            let n = self.advance();
+            let n = self.expect_ident_or_new()?;
             name = Some(self.simple(n));
         }
         Ok(self.node(

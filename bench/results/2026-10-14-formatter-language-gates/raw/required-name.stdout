@@ -1,0 +1,1 @@
+{"path":"target/formatter-language-gates/required-name.dart","source":"// @dart=2.11\nvoid f({required}) {}\n","selection":{"offset":-1,"length":-1}}

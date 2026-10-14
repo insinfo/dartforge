@@ -1,0 +1,9 @@
+   Compiling dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.73s
+     Running tests/parser.rs (target/p4/debug/deps/parser-55f281015032fe0b)
+
+running 1 test
+test language_version_constructor_new_and_null_safety_modifiers ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.00s
+

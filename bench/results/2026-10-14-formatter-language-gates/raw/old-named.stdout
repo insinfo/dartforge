@@ -1,0 +1,1 @@
+{"path":"target/formatter-language-gates/old-named.dart","source":"// @dart=2.14\nclass A {\n  A.named();\n}\n\nvar f = A.named;\n","selection":{"offset":-1,"length":-1}}

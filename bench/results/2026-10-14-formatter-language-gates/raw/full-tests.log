@@ -1,0 +1,58 @@
+   Compiling dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.83s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_formatter-d0ba3b15511ca043)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cases.rs (target/p4/debug/deps/cases-ea02703f5dc57e24)
+
+running 3 tests
+test syntax_error_is_rejected ... ok
+test configurable_line_length ... ok
+test cases_match_dart_format ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/parser.rs (target/p4/debug/deps/parser-55f281015032fe0b)
+
+running 28 tests
+test declaration_start_and_end_ignore_comments ... ok
+test composed_greater_operators ... ok
+test assert_as_expression ... ok
+test directives_ ... ok
+test errors_the_analyzer_does_not_treat_as_syntactic ... ok
+test cascades ... ok
+test annotations ... ok
+test collections_and_elements ... ok
+test async_and_generators ... ok
+test function_expression_invocations ... ok
+test index_with_question ... ok
+test formal_parameters_ ... ok
+test language_version ... ok
+test function_references_and_relationals ... ok
+test functions ... ok
+test instance_creation ... ok
+test declarations_ ... ok
+test method_invocations ... ok
+test records_and_parentheses ... ok
+test prefixed_identifiers_and_accesses ... ok
+test language_version_constructor_new_and_null_safety_modifiers ... ok
+test symbols_and_merged_operator_names ... ok
+test string_literals ... ok
+test syntax_errors ... ok
+test patterns_ ... ok
+test types_ ... ok
+test statements_ ... ok
+test large_file_performance ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/parser_sweep.rs (target/p4/debug/deps/parser_sweep-022c2e8f67a777c0)
+
+running 1 test
+test sweep_of_repository_and_sdk ... ignored, sweeps the repository and the installed SDK
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

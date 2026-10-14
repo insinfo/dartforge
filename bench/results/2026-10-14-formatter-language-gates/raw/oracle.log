@@ -1,0 +1,5 @@
+   Compiling dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.42s
+     Running `target/p4/debug/examples/oracle --dart /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart --cache target/formatter-language-gates/oracle-cache --diffs target/formatter-language-gates/oracle-diffs /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib corpus/specification/e2 crates/formatter/tests/cases target/formatter-language-gates`
+selected: 705 new dart format references…
+selected: 455/455 identical (100.0%) — different 0, rejected 0, unexpected output 0, panics 0; dart rejects 250 (we do too: 250)

@@ -1074,10 +1074,7 @@ impl Parser<'_> {
         let ri = self.pos;
         let constructor_name = if self.op(self.pos, Op::Dot) {
             let p = self.advance();
-            if !(self.ident(self.pos) || self.kw(self.pos, Keyword::New)) {
-                return Err(self.error("Expected an identifier."));
-            }
-            let n = self.advance();
+            let n = self.expect_ident_or_new()?;
             Some(self.node(
                 Node::RepresentationConstructorName {
                     period: p as Tk,
@@ -1230,10 +1227,7 @@ impl Parser<'_> {
         };
         let constructor_selector = if self.op(self.pos, Op::Dot) {
             let p = self.advance();
-            if !(self.ident(self.pos) || self.kw(self.pos, Keyword::New)) {
-                return Err(self.error("Expected an identifier."));
-            }
-            let n = self.advance();
+            let n = self.expect_ident_or_new()?;
             let s = self.simple(n);
             Some(self.node(
                 Node::ConstructorSelector {
@@ -1771,10 +1765,7 @@ impl Parser<'_> {
             let n = self.expect_ident()?;
             if self.op(self.pos, Op::Dot) {
                 period = Some(self.advance());
-                if !(self.ident(self.pos) || self.kw(self.pos, Keyword::New)) {
-                    return Err(self.error("Expected an identifier."));
-                }
-                name2 = Some(self.advance());
+                name2 = Some(self.expect_ident_or_new()?);
             }
             n
         };
@@ -1966,10 +1957,7 @@ impl Parser<'_> {
         let name = self.expect_ident()?;
         let (period, name2) = if self.op(self.pos, Op::Dot) {
             let p = self.advance();
-            if !(self.ident(self.pos) || self.kw(self.pos, Keyword::New)) {
-                return Err(self.error("Expected an identifier."));
-            }
-            (Some(p), Some(self.advance()))
+            (Some(p), Some(self.expect_ident_or_new()?))
         } else {
             (None, None)
         };
@@ -2078,10 +2066,7 @@ impl Parser<'_> {
             self.advance();
             let (period, constructor_name) = if self.op(self.pos, Op::Dot) {
                 let p = self.advance();
-                if !(self.ident(self.pos) || self.kw(self.pos, Keyword::New)) {
-                    return Err(self.error("Expected an identifier."));
-                }
-                let n = self.advance();
+                let n = self.expect_ident_or_new()?;
                 (Some(p as Tk), Some(self.simple(n)))
             } else {
                 (None, None)
@@ -2111,7 +2096,7 @@ impl Parser<'_> {
                 {
                     return Err(self.error("Expected an identifier."));
                 }
-                name_ = Some(self.advance());
+                name_ = Some(self.expect_ident_or_new()?);
                 if self.op(self.pos, Op::Assign) {
                     let field_name = self.simple(name_.unwrap_or(0));
                     let eq = self.advance();

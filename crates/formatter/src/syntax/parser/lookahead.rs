@@ -844,6 +844,9 @@ impl Parser<'_> {
     #[allow(dead_code)]
     pub(super) fn word_style_at(&self, i: usize) -> WordStyle {
         if self.ident(i) {
+            if self.version < (2, 12) && matches!(self.txt(i), "late" | "required") {
+                return WordStyle::NoneKind;
+            }
             word_style(self.txt(i))
         } else {
             WordStyle::NoneKind

@@ -1,0 +1,83 @@
+{
+  "scope": "Formatter-only language-version rejection: unnamed constructor new selectors/calls/declarations require2.15; late/required remain ordinary names before2.12 and invalid modifier-shaped syntax rejects. Shared compiler/analyzer parsers unchanged.",
+  "source_sha256": {
+    "crates/formatter/src/syntax/parser/mod.rs": "7a43457628807279719e796c24a4866addac7c46379697b5d61876cc8495343d",
+    "crates/formatter/src/syntax/parser/lookahead.rs": "78d184fac92729760fd30e357099917c33c7267d1adb150af7a2d57f46c778e7",
+    "crates/formatter/src/syntax/parser/declarations.rs": "fbd732de6960aef3492bc5f3073cb79f38d2374e62dfe4014b8d0cac80c9f4a5",
+    "crates/formatter/src/syntax/parser/expressions.rs": "22810a9c7a3c2fa6cef08c100766b9fe33af8e5e49a9c50db3aa2ccc36db354c",
+    "crates/formatter/tests/parser.rs": "0718b841f604d2beb8345cc73367b542677055647499b3f165568818bee53060"
+  },
+  "sdk_dart_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+  "gates": {
+    "focused": {
+      "command": "cargo test --locked -p dartforge-formatter --test parser language_version_constructor_new_and_null_safety_modifiers -j2",
+      "passed": 1
+    },
+    "lib_and_tests": {
+      "command": "cargo test --locked -p dartforge-formatter --lib --tests -j2",
+      "passed": 31,
+      "failed": 0,
+      "ignored": 1,
+      "doctests": false
+    },
+    "SDK3_6_2_format_oracle": {
+      "accepted": 426,
+      "byte_identical": 426,
+      "different": 0,
+      "unexpected_rejection": 0
+    },
+    "SDK_e2_existing_cases_controls_oracle": {
+      "selected": 705,
+      "SDK_accepted": 455,
+      "byte_identical": 455,
+      "both_reject": 250,
+      "SDK_rejects_but_Forge_accepts": 0,
+      "panics": 0
+    }
+  },
+  "oracle_binary_sha256": "c3cccd4a8cc3f954c59842ef83c92aa6d55cb3ee7e1af366471a72ce2b393f20",
+  "limits": [
+    "Validation concerns formatter syntax/format output; no new compiler/analyzer version support claim.",
+    "Rejection acceptance agrees with SDK in this selected corpus; exact legacy error wording/offset is not asserted.",
+    "Current immutable CLI images predate this source patch; no rebuilt CLI gate is claimed.",
+    "Final tests-only whitespace normalization happened after passing gate; production source unchanged."
+  ],
+  "archive_sha256": {
+    "fixtures/late-only.dart": "b42113d050cd0a7a2a4ca44b4813eb2925241165c78ec984722f1bce709d6edd",
+    "fixtures/required-name.dart": "da49024b850cf2d2ed0475cf2fcc3acb90a42918ac95e104ddf4eeb24feb3867",
+    "fixtures/old-named.dart": "c3d3110018970d669a1462c06a62bcb52980b85a84778204a722ee613c9d645a",
+    "fixtures/required-only.dart": "57e96a07fbea62cf31569b5d11ab6856e1e253a5ca57efa269e5e869c29caa4d",
+    "fixtures/new-declaration.dart": "1ea10b067c699fc4e0b90f77e012cfbbdaadda77546fc23e1e56855aa9f6f623",
+    "fixtures/late-local-type.dart": "6473b22b2074cdf94cdb316eb486364b2fe9029eb123f6cf009b00568bc39464",
+    "fixtures/d30_late_211.dart": "78b3d1d9b8ba158dd1682541a0b170f6b66691c32c5f8d4e36d2a280c018f2a0",
+    "fixtures/d15_new_214.dart": "78b73e7392fd34501602ad112e8abb1b18d12c636f0cd23e69b68df9f6512512",
+    "fixtures/new-call.dart": "a35658188e3c59ce90c37dce056cf56d100b901b29dd7bd6ab3ef927067031bc",
+    "fixtures/new-explicit-call.dart": "f0706a72f6cb982dc16b12d1a2e499ac30ef0e70e046c74e604e82c2920cc436",
+    "fixtures/late-type.dart": "86facd63d163f7d42a5f7394d7ca0fc4ccd7a7614a211b715d46c219344c651e",
+    "raw/late-only.stderr": "e5287fd2d0d8fe36886f2618fadd8edfa70cf7ab63820ca1f0fe7f5b8ec5acb4",
+    "raw/new-explicit-call.stderr": "02cf7f29ca27388a71fa67c97c6f977e09e4d925aa0739d119e9be5372f4848e",
+    "raw/controls.json": "416545572681932a330bc30c109d47a2302f27107c5471f2e504212cf9f1a34a",
+    "raw/required-only.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "raw/new-declaration.stderr": "87e7ddaf7fce051a04e2a3692d5e0f592d90b8329bf96ed67c4c64ffef74b884",
+    "raw/late-type.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "raw/late-type.stdout": "803a979773cbe07599dc9fb09c10f8fb609ea1f3afbc9eccd4716ad697d810f6",
+    "raw/required-only.stderr": "d0f6c8370619d079dbc91039340a6ab88f76c35902cc503019496cc9f97c0482",
+    "raw/new-declaration.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "raw/late-only.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "raw/new-explicit-call.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "raw/required-name.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "raw/official-rejections.stderr": "b405bf8d767255d110424e471a06417dbb01313134ffc8399a02370228d73f73",
+    "raw/oracle.log": "6f6acbc6c8bb440e4350212da5d16985b6ab857e204b7703357ecf8ae6bd0a0f",
+    "raw/full-tests.log": "11df76c5f5cbea31ae9a3b924d5bd6165a3fcf839b5ec87a25b122f09ae8208f",
+    "raw/sdk-only-oracle.log": "ef79178ee9a2d4acd5bb44a390d6c69427dc79a28d852907e8dcd143ab959b89",
+    "raw/late-local-type.stdout": "4242dd11611d9d8a6c8826bd0b922500ed6a06ca790c710a24bd89f47655df71",
+    "raw/new-call.stderr": "9b711f944c0d5409210a7b87405d8dbbb7960539376761d2205e85c140485f4c",
+    "raw/old-named.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "raw/old-named.stdout": "bf2e31ad86da96c9ea387a4ff47be1d20f1c0738436a4aa2a4ea77ed139cb2e8",
+    "raw/new-call.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "raw/late-local-type.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "raw/focused.log": "a23c6eb0f58df3795c58176ce9312934fb08569ebd9c3ce7b2689796f50a05fd",
+    "raw/required-name.stdout": "87c822aabc56de51eb16f2ae157f78eef7c65bdbfb87c68fdb80e8d50e997a5f",
+    "raw/official-rejections.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

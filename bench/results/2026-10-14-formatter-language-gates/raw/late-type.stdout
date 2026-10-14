@@ -1,0 +1,1 @@
+{"path":"target/formatter-language-gates/late-type.dart","source":"// @dart=2.11\nclass late {}\n\nlate x;\n","selection":{"offset":-1,"length":-1}}

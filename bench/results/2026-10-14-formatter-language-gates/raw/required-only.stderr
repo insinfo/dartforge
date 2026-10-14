@@ -1,0 +1,7 @@
+Could not format because the source could not be parsed:
+
+line 2, column 9 of target/formatter-language-gates/required-only.dart: Unexpected text 'required'.
+  ╷
+2 │ void f({required int a}) {}
+  │         ^^^^^^^^
+  ╵

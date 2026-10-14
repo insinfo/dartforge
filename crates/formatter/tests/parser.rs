@@ -784,3 +784,35 @@ fn large_file_performance() {
     // 10 thousand lines; the limit is generous for the unoptimized test profile.
     assert!(elapsed_time.as_secs_f64() < 5.0, "{elapsed_time:?}");
 }
+
+#[test]
+fn language_version_constructor_new_and_null_safety_modifiers() {
+    for source in [
+        include_str!("../../../corpus/specification/e2/d15_new_214.dart"),
+        include_str!("../../../corpus/specification/e2/d30_late_211.dart"),
+        "// @dart=2.14\nclass A {} var x = A.new();",
+        "// @dart=2.14\nclass A {} var x = new A.new();",
+        "// @dart=2.14\nclass A { A.new(); }",
+        "// @dart=2.14\nclass A { factory A.new() = B; } class B extends A {}",
+        "// @dart=2.14\nclass A { A.named(): this.new(); A(); }",
+        "// @dart=2.14\nclass A { A(): super.new(); }",
+        "// @dart=2.11\nvoid f(){late int x;}",
+        "// @dart=2.11\nclass A { late int x; }",
+        "// @dart=2.11\nvoid f({required int a}) {}",
+    ] {
+        assert!(parse(source).is_err(), "{source}");
+    }
+    for source in [
+        "// @dart=2.15\nclass A { A.new(); } var f = A.new; var x = new A.new();",
+        "// @dart=2.12\nlate int x; void f({required int a}) {late int y;}",
+        // These words still serve as ordinary identifiers in legacy code.
+        "// @dart=2.11\nclass late {} late x; void f(){late local;}",
+        "// @dart=2.11\nvoid f({required}) {}",
+        "// @dart=2.11\nvar late = 1; var required = 2;",
+        "// @dart=2.14\nclass A {A.named();} var f = A.named;",
+    ] {
+        read(source);
+    }
+    assert!(parse_with("class A {} var f=A.new;", ParseOptions { version: (2, 14) }).is_err());
+    assert!(parse_with("late int x;", ParseOptions { version: (2, 11) }).is_err());
+}
