@@ -15,6 +15,7 @@ pub mod statements;
 pub mod primitive_const;
 pub mod constants;
 mod environment;
+mod platform;
 mod native_pump;
 mod sync_native_callable;
 mod runtime_policy;

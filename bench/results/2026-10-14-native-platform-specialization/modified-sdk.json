@@ -1,0 +1,9 @@
+{
+  "original": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/platform_impl.dart",
+  "original_sha256": "29873adce212c12f826049e673aa4a208b8c38ffaa03de4f9ba4c4e0d7a01cda",
+  "modified": "target/platform-specialization/modified-sdk/lib/io/platform_impl.dart",
+  "modified_sha256": "656131aa88e5a0f7417e71adfd99bf23ee6c5369c1ed6636f15c0961f7571fb5",
+  "replacement_from": "static String get operatingSystem => _operatingSystem();",
+  "replacement_to": "static String get operatingSystem { print('platform wrapper'); return _operatingSystem(); }",
+  "scope": "Diagnostic SDK wrapper tests only; no SDK/repository production source modifications."
+}

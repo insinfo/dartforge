@@ -1,0 +1,109 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/candidate-platform-producer/dartforge",
+  "compiler_sha256": "539086b6334ac61ddbaea956ddf9218aca83d0435eb54633119f9318a88987d7",
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/platform_flags/reexport.dart": "f2b42076e114b8469086bc931ac08b2794820c9fc91f54e79f823f2179923136",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/platform_flags/main.dart": "f5763233b01764b797a3d85068153c1e0159ee8d47dafded14ea3941669f800e"
+  },
+  "ordinary_VM_stdout": "[false, true, false, false, false, false]\ntrue\ntrue\nfalse\nfalse\nfalse\n5\n",
+  "runs": {
+    "original.off": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/candidate-platform-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/platform_flags/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/correctness/original/off/program"
+      ],
+      "compile_exit": 0,
+      "opt_out": "1",
+      "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "binary_sha256": "699f6d90ff2f6f211f66cb9f5b953675ddb2414a65eb6ca08d6e9100a7efe9da",
+      "exit": 0,
+      "stdout": "[false, true, false, false, false, false]\ntrue\ntrue\nfalse\nfalse\nfalse\n5\n",
+      "stderr": "",
+      "exact_expected": true
+    },
+    "original.on": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/candidate-platform-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/platform_flags/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/correctness/original/on/program"
+      ],
+      "compile_exit": 0,
+      "opt_out": null,
+      "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "binary_sha256": "3a739bc65201a260095793084915ba998d5810f8f56a068975f65d1a9a6dfe75",
+      "exit": 0,
+      "stdout": "[false, true, false, false, false, false]\ntrue\ntrue\nfalse\nfalse\nfalse\n5\n",
+      "stderr": "",
+      "exact_expected": true
+    },
+    "wrapper.off": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/candidate-platform-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/platform_flags/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/modified-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/correctness/wrapper/off/program"
+      ],
+      "compile_exit": 0,
+      "opt_out": "1",
+      "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/modified-sdk/lib",
+      "binary_sha256": "8480927cb3f3798fcffc3836add1e62749dcfeff7f8f838fac6c84d9447f1c4b",
+      "exit": 0,
+      "stdout": "platform wrapper\n[false, true, false, false, false, false]\ntrue\ntrue\nfalse\nfalse\nfalse\n5\n",
+      "stderr": "",
+      "exact_expected": true
+    },
+    "wrapper.on": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/candidate-platform-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/platform_flags/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/modified-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/correctness/wrapper/on/program"
+      ],
+      "compile_exit": 0,
+      "opt_out": null,
+      "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/modified-sdk/lib",
+      "binary_sha256": "8480927cb3f3798fcffc3836add1e62749dcfeff7f8f838fac6c84d9447f1c4b",
+      "exit": 0,
+      "stdout": "platform wrapper\n[false, true, false, false, false, false]\ntrue\ntrue\nfalse\nfalse\nfalse\n5\n",
+      "stderr": "",
+      "exact_expected": true
+    }
+  },
+  "scope": "Correctness only; no startup/performance measurements. Public native SDK effect probe is a diagnostic copied SDK, not a source workaround.",
+  "inputs_stable": true
+}

@@ -1,0 +1,20 @@
+{
+  "scope": "Same immutable compiler/runtime, same app/config/SDK inputs; optimized tracing off/on differs only platform specialization switch. Compile-only size evidence, no runtime/startup/GUI/throughput claim.",
+  "compiler_sha256": "539086b6334ac61ddbaea956ddf9218aca83d0435eb54633119f9318a88987d7",
+  "binary_bytes": {
+    "off": 28741552,
+    "on": 28475840
+  },
+  "saved_bytes": 265712,
+  "saved_percent": 0.9244873067397334,
+  "text_section_bytes": {
+    "off": 25499832,
+    "on": 25273996
+  },
+  "input_count": 11652,
+  "inputs_unchanged": true,
+  "runtime_archives_equal": true,
+  "candidate_source_manifest_sha256": "5788424fe99b751564950f2a19410bc27fc5d19be01160d8b68007fe62b73db7",
+  "full_native_gate": "Parent ran 647 native library tests, all passing. Root owns full-gate log/provenance.",
+  "remaining_independent_issue": "Explicit --sdk changes frontend sources/class IDs, but cached SDK discovery in prune_program_hir/driver uses dart_sdk(). Wrapper --sdk-only lost effects; explicit matching DARTFORGE_SDK_LIB validated real copied-SDK off/on fallback."
+}

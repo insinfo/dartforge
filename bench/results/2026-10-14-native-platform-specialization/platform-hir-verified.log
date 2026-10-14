@@ -1,0 +1,22 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.26s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 3 tests
+test lower::platform::tests::sdk_getter_wrapper_effects_are_not_erased ... ok
+test lower::platform::tests::canonical_flags_are_proven_without_inferring_sdk_bodies ... ok
+test lower::platform::tests::initializer_and_native_annotation_changes_keep_fallback ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 644 filtered out; finished in 1.07s
+

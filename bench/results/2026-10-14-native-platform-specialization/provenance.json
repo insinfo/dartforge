@@ -1,0 +1,15 @@
+{
+  "candidate_compiler": {
+    "path": "target/candidate-platform-producer/dartforge",
+    "sha256": "539086b6334ac61ddbaea956ddf9218aca83d0435eb54633119f9318a88987d7"
+  },
+  "source_hashes": {
+    "crates/emit_native/src/lower/platform.rs": "09c13e45072826b6d67752f311262017ee0b83d1c53fde6494376399f201110e",
+    "crates/emit_native/src/lower/members.rs": "f4170b6c722496964d2f0cdc786894b5d8d88cd8c8b215aaa4d6c90f4785da48",
+    "crates/emit_native/src/lower/mod.rs": "7a8866211c6ba23d9f56c1dc9f95323250fabc06400dcc61aa1a4b1551fce1c4",
+    "crates/emit_native/tests/fixtures/platform_flags/main.dart": "f5763233b01764b797a3d85068153c1e0159ee8d47dafded14ea3941669f800e",
+    "crates/emit_native/tests/fixtures/platform_flags/reexport.dart": "f2b42076e114b8469086bc931ac08b2794820c9fc91f54e79f823f2179923136"
+  },
+  "modified_sdk_provenance_sha256": "031ba68d8b0a5fa1ebc19eceba32ae05669cf0e9835bb6843787b9ee0f3daf73",
+  "scope": "Focused HIR/native correctness; paired size compilation pending. No performance/GUI/startup claim. --sdk frontend versus discovered linked SDK divergence is a separate remaining compiler issue."
+}

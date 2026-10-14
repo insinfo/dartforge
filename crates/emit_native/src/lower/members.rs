@@ -2163,6 +2163,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Reads a global through the lazy getter.
     pub fn read_global(&mut self, vid: VariableId, span: Span) -> Operand {
+        if let Some(value) = self.read_platform_flag(vid) {
+            return value;
+        }
         if let Some(v) = self.read_native_variable(vid, span) {
             return v;
         }
