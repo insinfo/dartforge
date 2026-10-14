@@ -148,6 +148,11 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
             // assignment (`DeclaredVariablePattern`).
             if assignment && !*var_ && !f2 && ty.is_none() {
                 if let Some(MemberName::Local(id)) = cx.lookup(name.sym) {
+                    if cx.local_functions.contains(&id) {
+                        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::PATTERN_ASSIGNMENT_NOT_LOCAL_VARIABLE, name.span, &[]);
+                        return;
+                    }
+                    super::expr::check_final_local(inf, cx, id, name.span);
                     super::expr::write_in_primary(inf, cx, id, name.span);
                     if inf.record_locals {
                         let offset = cx.local(id).offset;

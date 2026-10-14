@@ -3926,7 +3926,7 @@ fn undefined_unary_operator(inf: &mut BodyInferrer<'_>, recv: TypeId, the_name: 
     inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::UNDEFINED_OPERATOR, sp, &[the_name, &typ]);
 }
 
-fn check_final_local(inf: &mut BodyInferrer<'_>, cx: &Body, id: LocalId, span: dartforge_diagnostics::Span) {
+pub(crate) fn check_final_local(inf: &mut BodyInferrer<'_>, cx: &Body, id: LocalId, span: dartforge_diagnostics::Span) {
     let l = cx.local(id);
     if cx.local_functions.contains(&id) {
         inf.warning(ASSIGNMENT_TO_FUNCTION.template.to_string(), span);

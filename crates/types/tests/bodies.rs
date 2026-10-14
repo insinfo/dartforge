@@ -1169,6 +1169,63 @@ fn const_local_and_top_level_final_are_not_final_local() {
 }
 
 #[test]
+fn pattern_assignment_checks_local_write_flow() {
+    let cases = [
+        ("int f(){final a=1;(a,)=(2,);return a;}", "assignment_to_final_local", 1),
+        ("int f(){final int a;(a,)=(1,);(a,)=(2,);return a;}", "assignment_to_final_local", 1),
+        ("int f(bool b){final int a;if(b)a=1;(a,)=(2,);return a;}", "assignment_to_final_local", 1),
+        ("int f(){late final int a;a=1;(a,)=(2,);return a;}", "late_final_local_already_assigned", 1),
+        ("int f(){late final int a=1;(a,)=(2,);return a;}", "late_final_local_already_assigned", 1),
+        ("int f(){final a=1;var b=0;(b,(a,))=(2,(3,));return a+b;}", "assignment_to_final_local", 1),
+        ("int f(){final a=1;[a]=[2];return a;}", "assignment_to_final_local", 1),
+        ("int f(){final int a;(a,a)=(1,2);return a;}", "assignment_to_final_local", 1),
+        ("int f(){final int a;(a,)=(a=1,);return a;}", "assignment_to_final_local", 1),
+        ("int f(){final int a;(a,)=(2,);return a;}", "", 0),
+        ("int f(){late final int a;(a,)=(2,);return a;}", "", 0),
+        ("int f(){var a=1;(a,)=(2,);return a;}", "", 0),
+        // SDK 3.6.2's analyzer omits this error, but its compiler crashes on the
+        // same invalid program. Keep the ordinary const-write restriction.
+        ("int f(){const a=1;(a,)=(2,);return a;}", "assignment_to_const", 1),
+        ("int f(){int a()=>1;(a,)=(()=>2,);return a();}", "pattern_assignment_not_local_variable", 1),
+    ];
+    let tmp = tempdir().unwrap();
+    let sdk = mock_sdk(tmp.path());
+    for ((source, expected, count), decoration) in cases.into_iter().flat_map(|case| [false, true].map(|decoration| (case, decoration))) {
+        let mut interner = Interner::new();
+        let path = tmp.path().join("main.dart");
+        fs::write(&path, source).unwrap();
+        let (prog, _) = load_lenient(&path, &sdk, None, &mut interner);
+        let mut table = TypeTable::new();
+        table.preserve_decoration = decoration;
+        let core = CoreTypes::init(&mut table, &prog, &interner);
+        let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+        let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+        let writes: Vec<_> = diags.iter().filter(|d| {
+            d.code.is_some_and(|c| matches!(c.info().name,
+                "assignment_to_final_local" | "late_final_local_already_assigned" |
+                "assignment_to_const" | "pattern_assignment_not_local_variable"))
+                || d.message.starts_with(ASSIGNMENT_TO_FINAL_LOCAL.template)
+                || d.message.starts_with(ASSIGNMENT_TO_CONST.template)
+        }).collect();
+        assert_eq!(writes.len(), count, "{source}: {diags:?}");
+        for d in writes {
+            assert!(d.code.is_some_and(|c| c.info().name == expected)
+                || (expected == "assignment_to_final_local" && d.message.starts_with(ASSIGNMENT_TO_FINAL_LOCAL.template))
+                || (expected == "assignment_to_const" && d.message.starts_with(ASSIGNMENT_TO_CONST.template)), "{source}: {d:?}");
+            assert_eq!(&source[d.span.start..d.span.end], "a", "{source}: {d:?}");
+            let expected_offset = if let Some(start) = source.find("(a,a)") {
+                start + 3
+            } else if let Some(start) = source.rfind("(a,") {
+                start + 1
+            } else {
+                source.find("[a]").unwrap() + 1
+            };
+            assert_eq!(d.span.start, expected_offset, "{source}: {d:?}");
+        }
+    }
+}
+
+#[test]
 fn analyzer_negatives_40_cases() {
     // 1. ARGUMENT_TYPE_NOT_ASSIGNABLE: passes String to int
     verify_diagnostic(

@@ -1,0 +1,105 @@
+{
+  "scope": "Destructuring local writes reuse existing final/late/const flow checks before recording the write, both compiler and decorated analyzer modes. Local function targets receive pattern_assignment_not_local_variable.",
+  "source_sha256": {
+    "crates/types/src/inference/expr.rs": "50800cab65a066fd062f82993216f1a58c910b2f8a5468086978b8c3410c6226",
+    "crates/types/src/inference/patterns.rs": "20795297c5483a9784dc884c30918ee8840014d4cdf522030357cc1bce0eec58",
+    "crates/types/src/inference/patterns/matching.rs": "81c8c3ef8902af434fa05de9c9dda82b79a0b120a235df554671684867005c70",
+    "crates/types/tests/bodies.rs": "8556c2e8abf65524cec1277f114edc26260254a8689212c7e1cb885a0cfad042"
+  },
+  "fixture_sha256": {
+    "final_assigned.dart": "029c5674189ceded8bd059a5a91b55e459f3199480f41945bdc791b9fd84e948",
+    "mutable.dart": "eebe11ae20992e1edf0b407d974a971497a4c686b6086adcc047806b10aaae97",
+    "const_assigned.dart": "90a2455727f1d78fa12e6d6e16c5b68d43c47e7a37eda8118c37857ea61c9a92",
+    "late_assigned.dart": "c26ef33c5b55ebc26f6975031b6225d3a5cbc2f7b9a89532039fd76860aa8bfb",
+    "final_unassigned.dart": "7197042fd90d405d29932598c692889911465ccecf39436d93bfc4a23df3113a",
+    "late_unassigned.dart": "70a59fa87e3822c814b8041dfb9ded384fbc1bd2f335f91ffcf42070cff944f6",
+    "duplicates.dart": "2ad7bc0bfd4b76993b6ba5dd5510c1173fe5629508836fb1b57618caa16d9a4d",
+    "list.dart": "5e0b89f5ec69d736386f53cc99a2002a75f8e1dd336baa94b42ed2dbd0f71c2c",
+    "final_maybe.dart": "41097798fcc86dc65a9c86c966604da6add4af4c58ae93e6e754c92d4c72a1dc",
+    "final_twice.dart": "d0295f7a33cb5bc357fccf8a549ce17da4facd399ac82d74e8b9a13e1eb4c1d1",
+    "const_main.dart": "be47e548f771e39d4e3620bcd67fe88b76576a09a460fca76f657337edc51098",
+    "function.dart": "f338896121221908b776df58ac6eebf765e7f5c5c3ced41c7c5b2df9270ba36d",
+    "late_initializer.dart": "a89edc8589a1a4e23d59e7dfb6922331fa9a890924e3e5f469d542f6517f2d5f",
+    "nested.dart": "65dabf358e58852525aa467c15f5e21900b5e5b9786993242c2fd08e9e16b167"
+  },
+  "sdk_dart_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+  "commands": [
+    {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "analyze",
+        "--format",
+        "machine",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-pattern-assignment-final-locals/fixtures"
+      ],
+      "exit_code": 3,
+      "started_unix": 1791993274.790851,
+      "stdout_sha256": "4afb5f62fd07a1fa4251e30e7bb9af3a77b1bd40891dbfefb2b41dbb8bb082c3",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "exe",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-pattern-assignment-final-locals/fixtures/const_main.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/analyzer-final-pattern-audit/const-archive.exe"
+      ],
+      "exit_code": 254,
+      "started_unix": 1791993275.4934862,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "3486fa567dd03e1f19f4b4b398134344a1485c768e6fc4f62b969c64eaa4e8d2"
+    },
+    {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-pattern-assignment-final-locals/fixtures/const_main.dart"
+      ],
+      "exit_code": 252,
+      "started_unix": 1791993275.755372,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "384012be0e97998c4b78baaeea5c9c209baa66bef0262f6d89e78f2353463bde"
+    }
+  ],
+  "historical_baseline_cli_sha256": "574b50b6cc88e7db341a5bf9e29e6343cfe9100b100e9de562ce1c9b59337f8f",
+  "gates": {
+    "focused": "14 cases in each of two type-table modes, exact write identifier spans; 1 Rust test passed",
+    "types_lib_and_bodies": "8 library tests + 59 body tests passed; 3 ignored, no doctests",
+    "all_types_lib_and_integration": {
+      "command": "cargo test --locked -p dartforge-types --lib --tests -j2",
+      "exit_code": 0,
+      "passed": 111,
+      "failed": 0,
+      "ignored": 6,
+      "log_sha256": "23c8cd4927ebaa47f42334ab11f339cd2e0385af81495cb2bcfb7f251c5ad2ca",
+      "environment": {
+        "CARGO_TARGET_DIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4",
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p8-runtime"
+      },
+      "doctests": false
+    },
+    "diff_check": {
+      "command": "git diff --check -- crates/types/src/inference/expr.rs crates/types/src/inference/patterns.rs crates/types/src/inference/patterns/matching.rs crates/types/tests/bodies.rs",
+      "exit_code": 0
+    }
+  },
+  "limits": [
+    "No final rebuilt CLI differential claimed: fixed behavior verified directly in semantic inference regression tests.",
+    "SDK 3.6.2 analyzer omits the const destructuring write diagnostic; SDK compile exe and VM execution both crash on that program. DartForge intentionally retains assignment_to_const rather than accepting the invalid write.",
+    "Legacy pattern type checking still has its existing scope, type recovery, and unrelated diagnostic differences."
+  ],
+  "test_binary_sha256": {
+    "target/p4/debug/deps/dartforge_types-88e25f54b067a054": "942c814e39f4417cbd5e6c2f07c390fef28dff461b82aacfb26c622ad2bd4da8",
+    "target/p4/debug/deps/bodies-fff58cd796a94992": "4ba5ca573d586e00cb42cd7ce803e2af867bc9bc864185dd2924b96ef11bfac8",
+    "target/p4/debug/deps/corpus_inference-00449c9bc8f8a7c5": "b57194c886218aa1bef62eab0b4bf0915f56c280fcfa5b05f362df572e8698fb",
+    "target/p4/debug/deps/inference_groups-baf7de446278d73c": "cdd2a67d0b919eff92a3d1c3bd95fce5ddaef57f57463a5074a246c4796320ff",
+    "target/p4/debug/deps/optimization_annotations-b0c15d621fc47656": "9f8313510e2185e46dc38593d5521a1bc4ea6d609adf159702836885beacfa91",
+    "target/p4/debug/deps/sdk-ea38c32d408a45ee": "bf0c6abb156766071758302ab2bf88a37cb35d17d7b3f44e1b577138261543d6",
+    "target/p4/debug/deps/sdk_without_bodies-a87f86acfb1a87fa": "a3813e22ad04210ce04366aba0d8f8ffae1d0353ca10aa2c0566558cc04637ec",
+    "target/p4/debug/deps/shadow_index-016486ba56b4cbd4": "2c8ef43387377139c1dfa4c4d925b18f3a9c736b447d17242ff9990ae5e7370a",
+    "target/p4/debug/deps/subtyping_cases-9b1f0935cec90c39": "33e1299ec4fb209ee9b54ecc3ebd1f3357a59c25a5e8948fd0f320761f4754ad",
+    "target/p4/debug/deps/unit_tests-3bf43a2f424586a2": "c6eeb34c03d42e626e3179e7d9c7ebc3077b9086a13a089cfce82b99df50513d"
+  },
+  "inputs_stable": true
+}

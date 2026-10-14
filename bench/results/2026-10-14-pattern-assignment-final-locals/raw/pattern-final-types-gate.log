@@ -1,0 +1,84 @@
+   Compiling dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.12s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_types-88e25f54b067a054)
+
+running 8 tests
+test const_eval::graph::tests::acyclic_chain_evaluates_from_leaves_to_root ... ok
+test inference::integers::tests::exact_doubles ... ok
+test const_eval::graph::tests::cycle_constructor_seen_before_gives_false_cycle ... ok
+test const_eval::graph::tests::self_reference_and_trivial_cycle ... ok
+test const_eval::graph::tests::same_thing_with_class_after_gives_no_false_cycle ... ok
+test const_eval::graph::tests::three_cycle_with_clean_dependent ... ok
+test phase_sdk::tests::constraints ... ok
+test inference::integers::tests::integer_range ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/bodies.rs (target/p4/debug/deps/bodies-fff58cd796a94992)
+
+running 62 tests
+test class_method_is_not_setter_even_with_extension ... ok
+test assign_to_types_and_top_level_function ... ok
+test cases_sharing_body_and_irrefutable_case_assign ... ok
+test augmentation_inherits_omitted_types ... ok
+test class_getter_without_setter_in_simple_assignment ... ok
+test assignment_to_final_local_marks_only_identifier ... ok
+test constant_in_case_and_promotion_on_rhs_of_if_null ... ok
+test const_local_and_top_level_final_are_not_final_local ... ok
+test creation_of_non_class_name ... ok
+test binary_operator_in_override_per_oracle ... ok
+test creation_via_alias_infers_nested_argument_from_context ... ok
+test creation_via_alias_with_written_argument_keeps_incompatible_type ... ok
+test dead_code_snippets_like_analyzer ... ok
+test enum_augmentation_adds_values_and_members ... ok
+test explicit_extension_override_rejects_static_members ... ok
+test explicit_override_without_getter_uses_extension_code ... ok
+test explicit_override_without_method_uses_extension_code ... ok
+test explicit_extension_override_without_setter ... ok
+test extension_getter_without_setter ... ok
+test enum_generative_constructor_reference_is_not_missing_constructor ... ok
+test final_field_without_setter_and_assignable_late_final ... ok
+test imported_same_name_extensions_remain_applicable ... ok
+test inherited_member_uses_most_specific_declaration ... ok
+test lexical_getter_without_setter_in_assignments_and_increments ... ok
+test enum_generative_constructor_invocation_with_new_const_and_unnamed ... ok
+test instance_member_in_explicit_instantiation_has_own_code_and_span ... ok
+test local_function_is_not_assignable_final_variable ... ok
+test missing_new_after_instantiated_type_keeps_constructor_diagnostic ... ok
+test missing_static_getter_in_extension_per_oracle ... ok
+test missing_static_method_in_extension_per_oracle ... ok
+test new_sali_type_checks ... ignored
+test missing_static_setter_in_extension_per_oracle ... ok
+test override_without_call_per_oracle ... ok
+test index_operators_in_override_per_oracle ... ok
+test promotion_and_inference ... ok
+test pattern_assignment_checks_local_write_flow ... ok
+test pub_corpus_type_checks ... ignored
+test read_only_static_members_in_assignments ... ok
+test redirecting_factory_to_enum_generative_reports_at_target ... ok
+test sdk_bodies_type_check ... ignored
+test analyzer_negatives_40_cases ... ok
+test static_access_to_class_instance_members_per_oracle ... ok
+test static_call_in_extension_override ... ok
+test static_access_to_extension_instance_members_per_oracle ... ok
+test static_member_through_instance ... ok
+test static_method_in_extension_override ... ok
+test switch_on_nullable_sealed_is_exhaustive ... ok
+test static_or_unknown_member_in_explicit_instantiation ... ok
+test top_level_getter_without_setter_and_pair_with_setter ... ok
+test top_level_late_final_without_initializer_accepts_write ... ok
+test type_arguments_out_of_bounds ... ok
+test unary_operator_in_override_per_oracle ... ok
+test write_to_instance_method_via_type_and_undefined_setter ... ok
+test void_result_use ... ok
+test horizontal_inference_follows_dependencies_between_closures ... ok
+test completing_finally_carries_promotions_past_try ... ok
+test generator_without_yield_and_empty_return_like_analyzer_3_6_2 ... ok
+test instantiation_to_bounds_follows_dependencies_and_written_bound ... ok
+test member_from_different_interfaces_uses_most_specific_signature ... ok
+test if_null_with_non_completing_rhs_promotes_lhs ... ok
+test property_access_on_never_receiver ... ok
+test override_inherits_inferred_type_of_untyped_field ... ok
+
+test result: ok. 59 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.60s
+

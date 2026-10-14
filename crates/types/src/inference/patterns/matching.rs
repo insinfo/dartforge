@@ -538,7 +538,16 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                 // an element that is neither a local nor a parameter,
                 // `PATTERN_ASSIGNMENT_NOT_LOCAL_VARIABLE`.
                 match expr::resolve_name(inf, cx, name.sym, false) {
-                    expr::NameRef::Local(id) => expr::write_in_primary(inf, cx, id, name.span),
+                    expr::NameRef::Local(id) => {
+                        if cx.local_functions.contains(&id) {
+                            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::PATTERN_ASSIGNMENT_NOT_LOCAL_VARIABLE, name.span, &[]);
+                            return;
+                        }
+                        // Check the current flow before recording this write: earlier
+                        // targets and the RHS may already have assigned a final local.
+                        expr::check_final_local(inf, cx, id, name.span);
+                        expr::write_in_primary(inf, cx, id, name.span);
+                    }
                     expr::NameRef::ImplicitThis | expr::NameRef::Forward(_) | expr::NameRef::None_ => {
                         expr::undefined_name_without_this(inf, cx, name);
                     }

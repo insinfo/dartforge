@@ -1,0 +1,8 @@
+ERROR|COMPILE_TIME_ERROR|ASSIGNMENT_TO_FINAL_LOCAL|/Volumes/ssd_dock/MyRustProjects/dartforge/target/analyzer-final-pattern-audit/final_assigned.dart|1|23|1|The final variable 'a' can only be set once.
+ERROR|COMPILE_TIME_ERROR|ASSIGNMENT_TO_FINAL_LOCAL|/Volumes/ssd_dock/MyRustProjects/dartforge/target/analyzer-final-pattern-audit/final_maybe.dart|1|42|1|The final variable 'a' can only be set once.
+ERROR|COMPILE_TIME_ERROR|ASSIGNMENT_TO_FINAL_LOCAL|/Volumes/ssd_dock/MyRustProjects/dartforge/target/analyzer-final-pattern-audit/final_twice.dart|1|38|1|The final variable 'a' can only be set once.
+ERROR|COMPILE_TIME_ERROR|PATTERN_ASSIGNMENT_NOT_LOCAL_VARIABLE|/Volumes/ssd_dock/MyRustProjects/dartforge/target/analyzer-final-pattern-audit/function.dart|1|24|1|Only local variables can be assigned in pattern assignments.
+ERROR|COMPILE_TIME_ERROR|LATE_FINAL_LOCAL_ALREADY_ASSIGNED|/Volumes/ssd_dock/MyRustProjects/dartforge/target/analyzer-final-pattern-audit/late_assigned.dart|1|35|1|The late final local variable is already assigned.
+ERROR|COMPILE_TIME_ERROR|LATE_FINAL_LOCAL_ALREADY_ASSIGNED|/Volumes/ssd_dock/MyRustProjects/dartforge/target/analyzer-final-pattern-audit/late_initializer.dart|1|32|1|The late final local variable is already assigned.
+ERROR|COMPILE_TIME_ERROR|ASSIGNMENT_TO_FINAL_LOCAL|/Volumes/ssd_dock/MyRustProjects/dartforge/target/analyzer-final-pattern-audit/list.dart|1|23|1|The final variable 'a' can only be set once.
+ERROR|COMPILE_TIME_ERROR|ASSIGNMENT_TO_FINAL_LOCAL|/Volumes/ssd_dock/MyRustProjects/dartforge/target/analyzer-final-pattern-audit/nested.dart|1|35|1|The final variable 'a' can only be set once.
