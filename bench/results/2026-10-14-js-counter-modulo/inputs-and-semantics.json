@@ -1,0 +1,315 @@
+{
+  "compiler": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+    "sha256": "62c8d1b8fb5daa80469574b088b9e32a8a4bdbcdbf8d4323ee9309d0d7b26925"
+  },
+  "sdk_version": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\"",
+  "node_version": "v24.21.0",
+  "sources": {
+    "objects": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/objects_in_collections.dart",
+      "sha256": "85174e310ad0b75ea9e004cf8700b1c878d6a6d6c1eddab9c76a41daff64d313"
+    },
+    "counter": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/positive_counter_modulo.dart",
+      "sha256": "263b429e4ac395b5d80a424d39988d2e3b7f4920bc78bde48a219df0dffe97d0"
+    },
+    "zero": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/positive_counter_modulo_zero.dart",
+      "sha256": "31c510f1145ca011fc675ce33775c8e616a7a814a8b377b824149eb627075bd0"
+    },
+    "foreign": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/positive_counter_modulo_foreign.dart",
+      "sha256": "1feafbbec274932548e8d3fa06922e9783a3f41a6afa131d714c9bed15dd1972"
+    }
+  },
+  "cases": {
+    "objects.disabled": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/objects_in_collections.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/objects.disabled.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_COUNTER_MODULO": "0"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "f6cc8e5ed6c24fab079148269159400e7da295dbb726c842eb658748ad4c1d86",
+      "raw_bytes": 61840
+    },
+    "objects.enabled": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/objects_in_collections.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/objects.enabled.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_COUNTER_MODULO": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "b4dc874dd1b392b4215806c32fee0816bbbb7d4449944d53fe53ac4a45c31453",
+      "raw_bytes": 61828
+    },
+    "objects.raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/objects_in_collections.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/objects.raw.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_COUNTER_MODULO": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "729f68aaba4ccd9752617062fd555003b07025a1f27889a3a33dba3044dc227d",
+      "raw_bytes": 218095
+    },
+    "objects.officialO2": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "js",
+        "-O2",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/objects_in_collections.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/objects.official-O2.js"
+      ],
+      "artifact_sha256": "2d1680e72d37637d2c6a73083f5584712a49e6a0b4b0eaba634200d2232f6cd8",
+      "raw_bytes": 44861
+    },
+    "counter.disabled": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/positive_counter_modulo.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/counter.disabled.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_COUNTER_MODULO": "0"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "b10e490ba7f13a2e78d213f0b1d70778cf3de9d9794e3658cad40f7f7e941bff",
+      "raw_bytes": 49160,
+      "exit_code": 0,
+      "stdout": "canonical=[0, 1, 2, 0, 1, 2, 0, 1]\nevents=[record:0, record:1, record:2, record:0, record:1, record:2, record:0, record:1]\nprefix=[0, 1, 2, 3, 4, 5, 6, 0]\nuserNamedIntrinsic=[0, 1, 2, 3]\nmaximumDivisor=[0, 1, 2, 3]\nnegative=[2, 0, 1, 2]\nmutated=[1, 0]\nshadowed=[2, 2, 2]\ncaptured=[0, 1, 2]\ncallback=[1, 0]\nnested=[0, 1, 2]\nnonunit=[0, 2, 1]\nnegativeDivisor=[0, 1, 2, 0]\noversizedDivisor=[0, 1, 2, 3]\ndynamicDivisor=[0, 1, 2, 0]\ndynamicError=true\ngetterBound=[0, 1, 2]:[bound-get, bound-get, bound-get, bound-get]\ncallBound=[0, 1, 2]:[bound-call, bound-call, bound-call, bound-call]\nconditionWrite=[1]\nconditionClosure=[0, 1, 2]\n",
+      "stderr": ""
+    },
+    "counter.enabled": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/positive_counter_modulo.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/counter.enabled.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_COUNTER_MODULO": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "a054dc754306c1001c962e13dd0be6636943ac453ec63fce5c8c70f56d2b97ad",
+      "raw_bytes": 49136,
+      "exit_code": 0,
+      "stdout": "canonical=[0, 1, 2, 0, 1, 2, 0, 1]\nevents=[record:0, record:1, record:2, record:0, record:1, record:2, record:0, record:1]\nprefix=[0, 1, 2, 3, 4, 5, 6, 0]\nuserNamedIntrinsic=[0, 1, 2, 3]\nmaximumDivisor=[0, 1, 2, 3]\nnegative=[2, 0, 1, 2]\nmutated=[1, 0]\nshadowed=[2, 2, 2]\ncaptured=[0, 1, 2]\ncallback=[1, 0]\nnested=[0, 1, 2]\nnonunit=[0, 2, 1]\nnegativeDivisor=[0, 1, 2, 0]\noversizedDivisor=[0, 1, 2, 3]\ndynamicDivisor=[0, 1, 2, 0]\ndynamicError=true\ngetterBound=[0, 1, 2]:[bound-get, bound-get, bound-get, bound-get]\ncallBound=[0, 1, 2]:[bound-call, bound-call, bound-call, bound-call]\nconditionWrite=[1]\nconditionClosure=[0, 1, 2]\n",
+      "stderr": ""
+    },
+    "counter.raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/positive_counter_modulo.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/counter.raw.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_COUNTER_MODULO": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "6c883edf9484391e8792d4d907f4aca33c469af236e59d7b4af561d708d8b4b6",
+      "raw_bytes": 180114,
+      "exit_code": 0,
+      "stdout": "canonical=[0, 1, 2, 0, 1, 2, 0, 1]\nevents=[record:0, record:1, record:2, record:0, record:1, record:2, record:0, record:1]\nprefix=[0, 1, 2, 3, 4, 5, 6, 0]\nuserNamedIntrinsic=[0, 1, 2, 3]\nmaximumDivisor=[0, 1, 2, 3]\nnegative=[2, 0, 1, 2]\nmutated=[1, 0]\nshadowed=[2, 2, 2]\ncaptured=[0, 1, 2]\ncallback=[1, 0]\nnested=[0, 1, 2]\nnonunit=[0, 2, 1]\nnegativeDivisor=[0, 1, 2, 0]\noversizedDivisor=[0, 1, 2, 3]\ndynamicDivisor=[0, 1, 2, 0]\ndynamicError=true\ngetterBound=[0, 1, 2]:[bound-get, bound-get, bound-get, bound-get]\ncallBound=[0, 1, 2]:[bound-call, bound-call, bound-call, bound-call]\nconditionWrite=[1]\nconditionClosure=[0, 1, 2]\n",
+      "stderr": ""
+    },
+    "counter.officialO2": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "js",
+        "-O2",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/positive_counter_modulo.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/counter.official-O2.js"
+      ],
+      "artifact_sha256": "f905fa9400ff9768c542e9306269b2a337d837751ab6fae7c654703f9d78206f",
+      "raw_bytes": 41444,
+      "exit_code": 0,
+      "stdout": "canonical=[0, 1, 2, 0, 1, 2, 0, 1]\nevents=[record:0, record:1, record:2, record:0, record:1, record:2, record:0, record:1]\nprefix=[0, 1, 2, 3, 4, 5, 6, 0]\nuserNamedIntrinsic=[0, 1, 2, 3]\nmaximumDivisor=[0, 1, 2, 3]\nnegative=[2, 0, 1, 2]\nmutated=[1, 0]\nshadowed=[2, 2, 2]\ncaptured=[0, 1, 2]\ncallback=[1, 0]\nnested=[0, 1, 2]\nnonunit=[0, 2, 1]\nnegativeDivisor=[0, 1, 2, 0]\noversizedDivisor=[0, 1, 2, 3]\ndynamicDivisor=[0, 1, 2, 0]\ndynamicError=true\ngetterBound=[0, 1, 2]:[bound-get, bound-get, bound-get, bound-get]\ncallBound=[0, 1, 2]:[bound-call, bound-call, bound-call, bound-call]\nconditionWrite=[1]\nconditionClosure=[0, 1, 2]\n",
+      "stderr": ""
+    },
+    "counter.vm": {
+      "exit_code": 0,
+      "stdout": "canonical=[0, 1, 2, 0, 1, 2, 0, 1]\nevents=[record:0, record:1, record:2, record:0, record:1, record:2, record:0, record:1]\nprefix=[0, 1, 2, 3, 4, 5, 6, 0]\nuserNamedIntrinsic=[0, 1, 2, 3]\nmaximumDivisor=[0, 1, 2, 3]\nnegative=[2, 0, 1, 2]\nmutated=[1, 0]\nshadowed=[2, 2, 2]\ncaptured=[0, 1, 2]\ncallback=[1, 0]\nnested=[0, 1, 2]\nnonunit=[0, 2, 1]\nnegativeDivisor=[0, 1, 2, 0]\noversizedDivisor=[0, 1, 2, 3]\ndynamicDivisor=[0, 1, 2, 0]\ndynamicError=true\ngetterBound=[0, 1, 2]:[bound-get, bound-get, bound-get, bound-get]\ncallBound=[0, 1, 2]:[bound-call, bound-call, bound-call, bound-call]\nconditionWrite=[1]\nconditionClosure=[0, 1, 2]\n",
+      "stderr": ""
+    },
+    "zero.disabled": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/positive_counter_modulo_zero.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/zero.disabled.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_COUNTER_MODULO": "0"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "f900d702b0e8ee0c316ef05cc960b893464313b2b97377b0df40b173098d5c43",
+      "raw_bytes": 46454,
+      "exit_code": 0,
+      "stdout": "NaN\n",
+      "stderr": ""
+    },
+    "zero.enabled": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/positive_counter_modulo_zero.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/zero.enabled.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_COUNTER_MODULO": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "f900d702b0e8ee0c316ef05cc960b893464313b2b97377b0df40b173098d5c43",
+      "raw_bytes": 46454,
+      "exit_code": 0,
+      "stdout": "NaN\n",
+      "stderr": ""
+    },
+    "zero.raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/positive_counter_modulo_zero.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/zero.raw.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_COUNTER_MODULO": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "7e8b992012433fe7df5a1d777695685d51b2d861e97f44f58a610a3762b96439",
+      "raw_bytes": 172713,
+      "exit_code": 0,
+      "stdout": "NaN\n",
+      "stderr": ""
+    },
+    "zero.officialO2": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "js",
+        "-O2",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/positive_counter_modulo_zero.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/zero.official-O2.js"
+      ],
+      "artifact_sha256": "8d6fbfa74680ad59e3091a04835da0f9b59d5cee27f5760eb19b8350fbe91348",
+      "raw_bytes": 38725,
+      "exit_code": 0,
+      "stdout": "NaN\n",
+      "stderr": ""
+    },
+    "zero.vm": {
+      "exit_code": 0,
+      "stdout": "zeroError=true\n",
+      "stderr": ""
+    },
+    "foreign.disabled": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/positive_counter_modulo_foreign.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/foreign.disabled.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_COUNTER_MODULO": "0"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "c0fdb4fb1b72ebf93fb4170a1b183ce94fe7b9db00ebb47b3f7e4246483dc623",
+      "raw_bytes": 46546,
+      "exit_code": 0,
+      "stdout": "[2, 1]\n",
+      "stderr": ""
+    },
+    "foreign.enabled": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/positive_counter_modulo_foreign.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/foreign.enabled.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_COUNTER_MODULO": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "c0fdb4fb1b72ebf93fb4170a1b183ce94fe7b9db00ebb47b3f7e4246483dc623",
+      "raw_bytes": 46546,
+      "exit_code": 0,
+      "stdout": "[2, 1]\n",
+      "stderr": ""
+    },
+    "foreign.raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/positive_counter_modulo_foreign.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/foreign.raw.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_COUNTER_MODULO": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "ef3a62acb427a01f94aaa2778a17035efe505ffa99d1625d438b028123ab435d",
+      "raw_bytes": 172807,
+      "exit_code": 0,
+      "stdout": "[2, 1]\n",
+      "stderr": ""
+    }
+  },
+  "policy": "Both compiler toggles retain default checks. SDK source3.6.2. Production optimization only canonical unescaped nonnegative int counters and exact certified SDK modulo.",
+  "zero_divergence": {
+    "vm": "UnsupportedError",
+    "officialO2": "NaN",
+    "forge_counter_disabled": "NaN",
+    "forge_counter_enabled": "NaN",
+    "classification": "Existing official JS/VM integer-zero representation divergence; no VM parity claimed."
+  },
+  "inputs_stable": true
+}

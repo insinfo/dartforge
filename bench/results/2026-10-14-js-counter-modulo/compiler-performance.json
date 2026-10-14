@@ -1,0 +1,274 @@
+{
+  "artifacts": {
+    "disabled": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/objects.disabled.js",
+      "sha256": "f6cc8e5ed6c24fab079148269159400e7da295dbb726c842eb658748ad4c1d86"
+    },
+    "enabled": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/objects.enabled.js",
+      "sha256": "b4dc874dd1b392b4215806c32fee0816bbbb7d4449944d53fe53ac4a45c31453"
+    },
+    "officialO2": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/objects.official-O2.js",
+      "sha256": "2d1680e72d37637d2c6a73083f5584712a49e6a0b4b0eaba634200d2232f6cd8"
+    }
+  },
+  "runs": [
+    {
+      "profile": "disabled",
+      "repetition": 0,
+      "exit_code": 0,
+      "stdout": "object_list: 26000 23000 15000 18000 21000 15000 us | 129592732.5\nobject_sort: 91000 89000 85000 80000 82000 85000 us | 100028\nmap_int_object: 19000 18000 18000 19000 16000 17000 us | 19999900000\nmap_str_object: 21000 15000 17000 15000 15000 24000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 18000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 85000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 18000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 15000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "enabled",
+      "repetition": 0,
+      "exit_code": 0,
+      "stdout": "object_list: 21000 17000 8000 13000 15000 10000 us | 129592732.5\nobject_sort: 85000 85000 80000 76000 77000 79000 us | 100028\nmap_int_object: 19000 17000 18000 19000 17000 17000 us | 19999900000\nmap_str_object: 13000 15000 11000 13000 11000 14000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 13000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 79000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 17000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 13000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "officialO2",
+      "repetition": 0,
+      "exit_code": 0,
+      "stdout": "object_list: 13000 4000 5000 6000 8000 3000 us | 129592732.5\nobject_sort: 33000 38000 30000 31000 29000 30000 us | 100028\nmap_int_object: 14000 10000 14000 8000 13000 9000 us | 19999900000\nmap_str_object: 14000 5000 14000 5000 5000 5000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 5000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 30000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 10000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 5000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "officialO2",
+      "repetition": 1,
+      "exit_code": 0,
+      "stdout": "object_list: 14000 4000 6000 5000 9000 3000 us | 129592732.5\nobject_sort: 33000 36000 30000 30000 30000 30000 us | 100028\nmap_int_object: 13000 10000 14000 16000 8000 14000 us | 19999900000\nmap_str_object: 7000 5000 9000 5000 5000 12000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 5000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 30000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 14000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 5000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "enabled",
+      "repetition": 1,
+      "exit_code": 0,
+      "stdout": "object_list: 22000 17000 9000 13000 10000 15000 us | 129592732.5\nobject_sort: 88000 89000 84000 81000 81000 85000 us | 100028\nmap_int_object: 19000 17000 17000 20000 17000 18000 us | 19999900000\nmap_str_object: 13000 15000 11000 14000 11000 14000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 13000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 84000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 17000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 14000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "disabled",
+      "repetition": 1,
+      "exit_code": 0,
+      "stdout": "object_list: 26000 23000 15000 18000 21000 16000 us | 129592732.5\nobject_sort: 93000 90000 86000 82000 82000 86000 us | 100028\nmap_int_object: 18000 17000 17000 20000 16000 17000 us | 19999900000\nmap_str_object: 22000 15000 18000 14000 15000 21000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 18000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 86000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 17000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 15000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "disabled",
+      "repetition": 2,
+      "exit_code": 0,
+      "stdout": "object_list: 27000 23000 15000 24000 18000 21000 us | 129592732.5\nobject_sort: 95000 90000 87000 84000 85000 84000 us | 100028\nmap_int_object: 20000 18000 17000 17000 22000 17000 us | 19999900000\nmap_str_object: 18000 19000 15000 18000 15000 17000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 21000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 85000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 17000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 17000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "enabled",
+      "repetition": 2,
+      "exit_code": 0,
+      "stdout": "object_list: 21000 17000 8000 14000 15000 10000 us | 129592732.5\nobject_sort: 86000 84000 82000 77000 78000 81000 us | 100028\nmap_int_object: 19000 17000 18000 18000 17000 18000 us | 19999900000\nmap_str_object: 13000 15000 11000 14000 11000 13000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 14000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 81000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 18000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 13000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "officialO2",
+      "repetition": 2,
+      "exit_code": 0,
+      "stdout": "object_list: 14000 9000 3000 4000 8000 4000 us | 129592732.5\nobject_sort: 32000 32000 30000 30000 29000 37000 us | 100028\nmap_int_object: 10000 9000 13000 9000 14000 9000 us | 19999900000\nmap_str_object: 11000 5000 5000 8000 5000 5000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 4000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 30000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 9000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 5000,
+          "result": "1199980"
+        }
+      }
+    }
+  ],
+  "compiler_sha256": "62c8d1b8fb5daa80469574b088b9e32a8a4bdbcdbf8d4323ee9309d0d7b26925",
+  "source_sha256": "85174e310ad0b75ea9e004cf8700b1c878d6a6d6c1eddab9c76a41daff64d313",
+  "summary": {
+    "disabled": {
+      "object_list": 18000,
+      "object_sort": 85000,
+      "map_int_object": 17000,
+      "map_str_object": 15000
+    },
+    "enabled": {
+      "object_list": 13000,
+      "object_sort": 81000,
+      "map_int_object": 17000,
+      "map_str_object": 13000
+    },
+    "officialO2": {
+      "object_list": 5000,
+      "object_sort": 30000,
+      "map_int_object": 10000,
+      "map_str_object": 5000
+    }
+  },
+  "inputs_stable": true,
+  "aggregation": {
+    "rounds_per_process": 6,
+    "warmup_policy": "Discard the first round of each kernel; it is printed but excluded.",
+    "within_process": "statistics.median of the remaining five samples (third sorted sample).",
+    "summary": "statistics.median of the three per-process medians for each profile/kernel.",
+    "resolution_limit": "SDK JS Stopwatch observations are quantized to millisecond increments; microseconds are output units.",
+    "order": "Three fresh-process repetitions, profile order reversed in repetition1."
+  }
+}

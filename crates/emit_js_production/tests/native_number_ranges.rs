@@ -73,8 +73,18 @@ fn changed_sdk_modulo_body_keeps_original_dispatch() {
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../emit_js/tests/programs/native_number_ranges.dart");
     let options = dartforge_emit_js_production::Options { minify: false, ..Default::default() };
     let compiled = dartforge_emit_js_production::compile_own_sdk(&source, Some(&overlay), None, options, &Default::default());
+    let counter_source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../emit_js/tests/programs/positive_counter_modulo.dart");
+    let counter = dartforge_emit_js_production::compile_own_sdk(&counter_source, Some(&overlay), None, dartforge_emit_js_production::Options { minify: false, ..Default::default() }, &Default::default());
     fs::remove_dir_all(&overlay).unwrap();
     let production = compiled.expect("modified SDK compilation");
+    let counter = counter.expect("modified SDK counter compilation");
+    assert!(!counter.js.contains("i % 3"), "altered SDK helper must disable the counter fast path");
+    let mut counter_node = Command::new("node").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("Node");
+    counter_node.stdin.take().unwrap().write_all(format!("globalThis.self=globalThis;\n{}", counter.js).as_bytes()).unwrap();
+    let counter_output = counter_node.wait_with_output().unwrap();
+    assert!(counter_output.status.success(), "{}", String::from_utf8_lossy(&counter_output.stderr));
+    assert!(String::from_utf8(counter_output.stdout).unwrap().contains("canonical=[0, 2, 3, 0, 2, 3, 0, 2]"));
+
     assert!(!production.js.contains("typeof result === 'number' ? result > 0"), "changed body must fail certification closed");
     let mut node = Command::new("node").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("Node");
     node.stdin.take().unwrap().write_all(format!("globalThis.self=globalThis;\n{}", production.js).as_bytes()).unwrap();

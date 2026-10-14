@@ -1,0 +1,64 @@
+{
+  "status": "Final bundle hash verified from actual loaded browser script; overview mount observed. Not an exception-free page/all-features claim.",
+  "loaded_bundle": {
+    "url": "http://127.0.0.1:8771/number/main.dart.js",
+    "scriptId": "7",
+    "expectedPath": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/counter-modulo/final/limitless_ui.js",
+    "expectedSha256": "b27c4e1988d5eaeac957797a279972cf47c75ca99c44ceb8ffb78aa7726ae817",
+    "actualLoadedSha256": "b27c4e1988d5eaeac957797a279972cf47c75ca99c44ceb8ffb78aa7726ae817",
+    "actualLoadedBytes": 3533442,
+    "matchesExpected": true
+  },
+  "prior_baseline": {
+    "path": "bench/results/2026-10-14-js-sdk-number/browser-smoke.json",
+    "sha256": "107ae8ad321ff3a84fe352967d14480ed37bbfd9048ddf3a2c84f61334763245",
+    "pause_headlines": [
+      "TypeError: Cannot assign to read only property 'Symbol(Symbol.toStringTag)' of object '#<DataView>'",
+      "TypeError: Cannot assign to read only property 'Symbol(Symbol.toStringTag)' of object '#<Map>'",
+      "TypeError: Cannot assign to read only property 'Symbol(Symbol.toStringTag)' of object '#<Promise>'",
+      "TypeError: Cannot assign to read only property 'Symbol(Symbol.toStringTag)' of object '#<Set>'",
+      "TypeError: Cannot assign to read only property 'Symbol(Symbol.toStringTag)' of object '#<WeakMap>'",
+      "ReferenceError: dart is not defined",
+      "ReferenceError: html is not defined",
+      "ReferenceError: dartx is not defined",
+      "ReferenceError: html is not defined",
+      "ReferenceError: html is not defined"
+    ]
+  },
+  "current_pause_headlines": [
+    "TypeError: Cannot assign to read only property 'Symbol(Symbol.toStringTag)' of object '#<DataView>'",
+    "TypeError: Cannot assign to read only property 'Symbol(Symbol.toStringTag)' of object '#<Map>'",
+    "TypeError: Cannot assign to read only property 'Symbol(Symbol.toStringTag)' of object '#<Promise>'",
+    "TypeError: Cannot assign to read only property 'Symbol(Symbol.toStringTag)' of object '#<Set>'",
+    "TypeError: Cannot assign to read only property 'Symbol(Symbol.toStringTag)' of object '#<WeakMap>'",
+    "ReferenceError: dart is not defined",
+    "ReferenceError: html is not defined",
+    "ReferenceError: dartx is not defined",
+    "ReferenceError: html is not defined",
+    "ReferenceError: html is not defined"
+  ],
+  "pause_headlines_match_baseline": true,
+  "exception_attribution": {
+    "five_Quill_TypeErrors": {
+      "source": "assets/js/quill/2.0.3/quill.js",
+      "source_sha256": "122702e2521771611887bf381b925647909fec4b2f8930d2120f07127eba093a",
+      "offset_context": [
+        117750,
+        118230
+      ],
+      "code_reason": "Quill bundled raw-tag detector attempts to overwrite Symbol.toStringTag inside an explicit try/catch. Debugger pause-on-all observes these caught exceptions.",
+      "baseline_already_contains_same_five_headlines": true
+    },
+    "five_ReferenceErrors": {
+      "source": "Runtime.evaluate expression in scripts/probe-limitless-ui.mjs",
+      "code_reason": "The probe intentionally attempts dart/html/dartx globals inside explicit try/catch. Production bundle globals are private to its closure, so those negative diagnostics return ReferenceError strings.",
+      "baseline_already_contains_same_five_headlines": true
+    }
+  },
+  "uncaught_runtime_console_log_or_HTTP_diagnostics": [],
+  "app_local_error_array": [],
+  "source_empty_reason": "The original probe source field is an error-stack snippet near a failing _appendStyles call; no such uncaught stack was observed. It is not a loaded-bundle inventory.",
+  "original_smoke_preserved": "browser-smoke.json",
+  "actual_loaded_source_proof": "browser-provenance.json",
+  "probe_source_sha256": "75bad05daf05a6b56287b7eb4d8b5b8b99c3c7ba82dfd3a38749f9779c830f96"
+}

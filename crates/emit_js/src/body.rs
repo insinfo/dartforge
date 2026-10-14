@@ -7,7 +7,7 @@ use crate::ty::Ty;
 use dartforge_elements::model::{ClassId, Element, FunctionKind, LibraryId, UnitId};
 use dartforge_frontend::ast::{self, Ast, ExprId, FunctionBody, StmtId, StmtKind};
 use dartforge_intern::SymbolId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Local variable in scope.
 #[derive(Clone, Debug)]
@@ -122,6 +122,8 @@ pub struct FnEmitter<'m, 'a> {
     pub(crate) typed_loop_raw: HashMap<ExprId, Ty>,
     /// Certified SDK modulo-result comparison; no class-wide numeric assumptions.
     pub(crate) sdk_number_comparison: Option<ExprId>,
+    /// Modulo nodes certified in the current unescaped nonnegative counter.
+    pub(crate) counter_modulo: HashSet<ExprId>,
 }
 
 impl<'m, 'a> FnEmitter<'m, 'a> {
@@ -196,6 +198,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             in_foreign_js: false,
             typed_loop_raw: HashMap::new(),
             sdk_number_comparison: None,
+            counter_modulo: HashSet::new(),
         }
     }
 
@@ -1341,6 +1344,8 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     }
                     None => String::new(),
                 };
+                let counter = self.positive_counter_modulo(init, *condition, updates, *body);
+                let previous_counter = std::mem::replace(&mut self.counter_modulo, counter);
                 let plan = self.typed_read_loop(init, *condition, updates, *body);
                 let upd: Vec<String> = updates.iter().map(|u| self.emit_discarded(*u).code).collect();
                 let versioned = plan.is_some();
@@ -1367,6 +1372,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 self.pop_scope();
                 self.w.close("}");
                 if versioned { self.w.close("}"); }
+                self.counter_modulo = previous_counter;
                 self.pop_scope();
             }
             StmtKind::ForIn { await_, target, iterable, body } => {

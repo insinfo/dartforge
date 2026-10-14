@@ -1,0 +1,59 @@
+{
+  "scope": "Bounded checked JS counter modulo optimization, ordinary Dart code unchanged. Not general native or browser performance parity.",
+  "compiler": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+    "sha256": "62c8d1b8fb5daa80469574b088b9e32a8a4bdbcdbf8d4323ee9309d0d7b26925"
+  },
+  "source_hashes": {
+    "crates/emit_js/src/body.rs": "16861e8d33b7273e7b40b5cbb0a0a95f7dcd706aafd19332cb294fc699523f1e",
+    "crates/emit_js/src/counter_loops.rs": "8ad92c456bb6e6acabc788854bdc2a4cf18796532386f5ed4c6d307b8e688cc4",
+    "crates/emit_js/src/expr.rs": "aa803525469225795ec1d4cda4ecef27c5e21a7926311266cc68417b779dbb91",
+    "crates/emit_js/src/lib.rs": "8b5de8451e6d19c43abc40c07e259cdfb4f676fd73a4a38c30d297b19b927954",
+    "crates/emit_js/src/own_sdk.rs": "dd91e6dc2eaa07e98391d4ad671d82b360c4087f2fb10c27000c441b47ba725f",
+    "crates/emit_js_production/tests/native_number_ranges.rs": "fd2fcf0c5b65366d2d931bf52259fa8f02b0544af1da4ab9d507ff0e3db0602c",
+    "crates/emit_js_production/tests/positive_counter_modulo.rs": "403e3c57d190f5862461d7e764485d4b66cdae77b94f75fb71c2727f69a22e3e",
+    "crates/emit_js/tests/programs/positive_counter_modulo.dart": "263b429e4ac395b5d80a424d39988d2e3b7f4920bc78bde48a219df0dffe97d0",
+    "crates/emit_js/tests/programs/positive_counter_modulo_zero.dart": "31c510f1145ca011fc675ce33775c8e616a7a814a8b377b824149eb627075bd0",
+    "crates/emit_js/tests/programs/positive_counter_modulo_foreign.dart": "1feafbbec274932548e8d3fa06922e9783a3f41a6afa131d714c9bed15dd1972",
+    "bench/performance/objects_in_collections.dart": "85174e310ad0b75ea9e004cf8700b1c878d6a6d6c1eddab9c76a41daff64d313",
+    "bench/performance/common.dart": "d02c6fc0e3cd9b0fc42233aa9ea182c836744cafc492d41b8ae3c54045aecf95"
+  },
+  "sdk_helper": {
+    "path": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_internal/js_dev_runtime/private/js_number.dart",
+    "sha256": "735fbc32ac331f48636144c51fddfb442fdc224e4e68e466338ae51a352a25ff"
+  },
+  "policy": {
+    "flags": "Default checked own-SDK production, DARTFORGE_JSPROD_COUNTER_MODULO=0 vs1; both retain all other settings. Official dart2js -O2 SDK3.6.2, checked.",
+    "eligible": "Fresh int counter+0, single+1 update, unescaped/unmodified binding, known positive decimal divisor<=1e9, certified canonical SDK helper.",
+    "refusals": "SDK units, actual foreign JS intrinsic identities, closures, declarations, assignments, nested loops, unknown AST/control forms, negative/zero/dynamic/oversized divisors.",
+    "signed_zero": "Nonnegative +0 counter with only+1 cannot produce negative dividend or wrap negative; at Number precision limit increment stalls.",
+    "existing_divergence": "Integer modulo zero separately recorded: VM UnsupportedError; official O2 and Forge (toggleoff/on) NaN."
+  },
+  "gates": {
+    "passed": 76,
+    "command": "cargo test --locked -p dartforge-emit-js -p dartforge-emit-js-production --lib --test native_number_ranges --test typed_native_length --test typed_loop_ranges --test numeric_dynamic_operands --test positive_counter_modulo -j2 -- --include-ignored",
+    "exit_code": 0,
+    "log": "js-test-gate.log",
+    "analyzer": "Ordinary positive/zero fixtures: No issues found. Private JS intrinsic fixture intentionally is SDK-only, unavailable on VM."
+  },
+  "performance": "compiler-performance.json",
+  "semantic_inputs": "inputs-and-semantics.json",
+  "web_sizes": "web-sizes.json",
+  "browser_smoke": "browser-smoke.json",
+  "prototype": {
+    "ledger": "target/tmp-js-production-audit/counter-modulo/prototype-performance.json",
+    "note": "Manual replacement measured separately; final gains are compiler toggle ablation, not prototype."
+  },
+  "artifacts": {
+    "inputs-and-semantics.json": "0b9f361ca1df0f5fbe5151391afcc75eb2d201d7ea54bd67d2048900ed47b62a",
+    "web-sizes.json": "844ee57258509b30576f8b9f0cda1e4b6a21726ab20bf95d9c4d2a0cc3ddc604",
+    "compiler-performance.json": "4eae11df405011c0fa6e778583c29ed4c95d7f9e440b65775bc3093e59e5d52b",
+    "js-test-gate.log": "851bdaa9a935e1321defe6534375f916d279b989120616f7562414ccc9ed85bd",
+    "browser-smoke.json": "4ab1d75e9476512ac07c5932e6bac2b111800aaffa488e558638ec1909259f2f",
+    "browser-provenance.json": "45471bf5b3d27433867eed43350f0abfd19539cb50a027fb49e98d92213df304",
+    "browser-attribution.json": "a778471c48bfd85eba14706d16fccccbcbaf8411ebd61b5c1ac61f14fa5d30ed"
+  },
+  "browser_provenance": "browser-provenance.json",
+  "browser_attribution": "browser-attribution.json",
+  "browser_scope": "Final loaded script SHA verified; overview mounted2, no uncaught Runtime/console/log/HTTP diagnostics. Ten debugger-caught exceptions preserved and baseline-matched; no exception-free/all-features claim."
+}

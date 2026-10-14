@@ -2711,6 +2711,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let access = self.member_access(lt, ">", false);
             return (Js::new(format!("typeof {} === 'number' ? {} > {} : {}{}({})", l.code, l.at(P_REL), r.at(P_REL + 1), l.at(P_PRIMARY), access, r.code), P_COND), ctx.t_bool());
         }
+        if op == BinaryOp::Rem && node.is_some_and(|id| self.counter_modulo.contains(&id)) && ctx.is_int(lt) && ctx.is_int(rt) {
+            return (Js::new(format!("{} % {}", l.at(P_MUL), r.at(P_MUL + 1)), P_MUL), ctx.t_int());
+        }
         let num_l = ctx.is_num_like_nullable(lt);
         let num_r = ctx.is_num_like_nullable(rt) || matches!(rt, Ty::Dynamic);
         if num_l && (num_r || ctx.is_num_like_nullable(rt)) && !matches!(op, BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull) {

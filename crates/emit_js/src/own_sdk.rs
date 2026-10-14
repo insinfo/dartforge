@@ -92,6 +92,8 @@ pub struct SdkMode {
     pub virtuality: std::cell::OnceCell<(HashMap<ClassId, HashSet<dartforge_intern::SymbolId>>, HashSet<ClassId>)>,
     /// Simple class names that repeat in the program ([`needs_library_uri`]).
     pub repeated_names: std::cell::OnceCell<HashSet<dartforge_intern::SymbolId>>,
+    /// Complete canonical Number modulo certificate, independent of emit order.
+    pub number_modulo_certified: std::cell::OnceCell<bool>,
 }
 
 /// `dart.setLibraryUri(C, uri)` is only read by the error message of `as` when
@@ -236,6 +238,7 @@ impl SdkMode {
             patches: HashMap::new(),
             virtuality: std::cell::OnceCell::new(),
             repeated_names: std::cell::OnceCell::new(),
+            number_modulo_certified: std::cell::OnceCell::new(),
         };
         // Intrinsics, by (library, name).
         for (i, f) in p.functions.iter().enumerate() {
@@ -981,7 +984,7 @@ pub fn js_statement(e: &mut FnEmitter, x: ExprId) -> Option<String> {
 }
 
 /// The top-level function called by `callee(...)` (`f` or `prefix.f`).
-fn called_function(e: &FnEmitter, callee: ExprId) -> Option<FunctionElementId> {
+pub(crate) fn called_function(e: &FnEmitter, callee: ExprId) -> Option<FunctionElementId> {
     match &e.expr(callee).kind {
         ExprKind::Identifier(id) => match e.ident_target(id.sym, callee) {
             crate::expr::IdentTarget::Element(Element::Function(f)) => Some(f),
@@ -1524,4 +1527,23 @@ fn modulo_js_arguments(e: &FnEmitter, x: ExprId, template: &str) -> Option<Vec<E
     let ExprKind::String(s) = &e.expr(text.value).kind else { return None };
     if t.constant_value()?.to_string_lossy() != "!" || s.constant_value()?.to_string_lossy() != template { return None; }
     Some(rest.iter().map(|a| a.value).collect())
+}
+
+/// Certify the actual SDK helper in its own lexical/type environment.
+pub(crate) fn certified_number_modulo(ctx: &Ctx) -> bool {
+    let Some(sdk) = &ctx.sdk else { return false };
+    *sdk.number_modulo_certified.get_or_init(|| {
+        let Some(class) = ctx.jsnumber else { return false };
+        let Some(name) = ctx.sym("%") else { return false };
+        let Some(fid) = ctx.program.class(class).instance_members.get(&name).copied() else { return false };
+        let f = ctx.program.function(fid);
+        let FunctionRef::Function { unit, function } = f.node else { return false };
+        let state = ModState::new(f.library);
+        let mut e = FnEmitter::new(ctx, &state, unit, Some(class), false);
+        let af = ctx.program.unit(unit).ast.function(function);
+        e.ret_ty = ctx.ty_of(ctx.outline.functions[fid.0 as usize].return_type);
+        let signature = ctx.fn_ty(fid);
+        e.declare_params(af.parameters.as_deref().unwrap_or(&[]), Some(&signature));
+        modulo_number_comparison(&mut e, fid).is_some()
+    })
 }
