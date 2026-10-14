@@ -1,0 +1,35 @@
+{
+  "focused_contracts": {
+    "passed": 42,
+    "failed": 0,
+    "exit_code": 0
+  },
+  "sources": {
+    "crates/emit_native/src/optimize/arc/contracts.rs": "0b9164a0664060fd4366b640958ccb2fab7a941935823c145afbc15ed94d846c",
+    "crates/emit_native/src/optimize/arc/contracts/trivial_phis.rs": "665718b0bb5a208ba891b3dfa9a2d54e4c35e9afac953bee574d8fd43cd9f977",
+    "crates/emit_native/src/optimize/arc/contracts/trivial_phis/tests.rs": "ad73919be1285c05e3c2544dc2f7948c83f8b12296af359bd220590d58dded6a",
+    "crates/emit_native/tests/fixtures/arc_ports/null_phi_coalesce.dart": "e2dcf2fce58b3b87a6e53d5644099977059a2c8b1348203a202d24c5d0aad884"
+  },
+  "logs": {
+    "null-phi-contract-tests.log": "8a2c15dfd9c1e146740941ab4120246bb964f6115bfe73e24edc238683fd11fe",
+    "full-native-lib-tests.log": "d7510d18c2598d94282b903c34c6bf36f98a84481bb1e5ca699511d420b14cc0",
+    "null-phi-release.log": "d6fbeed8cd6641bdab28cfbbbc0d7a2cf322973c57a53555bed2cd5e443e817c",
+    "text-phi-validation.log": "ef47940d5098674f8375c6e93f5638f5fbab0aae586890d47ac52a7be5423475"
+  },
+  "independent_review": {
+    "unsafe_acceptance_found": false,
+    "closed_graph_and_anchors_required": true,
+    "direct_owned_demands_preserved": true,
+    "pending_errors_and_final_verification_preserved": true
+  },
+  "baseline_compiler_sha256": "6ec21e1eb65740148f562cd2700ba962abbbc10197d85545a3647f4cf4990e72",
+  "baseline_prepared_error": "minimal-before.stderr",
+  "baseline_fixture_sha256": "e2dcf2fce58b3b87a6e53d5644099977059a2c8b1348203a202d24c5d0aad884",
+  "native_lib": {
+    "passed": 609,
+    "failed": 0,
+    "ignored": 7,
+    "exit_code": 0
+  },
+  "release_exit_code": 0
+}

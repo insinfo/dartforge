@@ -1,0 +1,61 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.31s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 42 tests
+test optimize::arc::contracts::tests::abi_byte_is_not_i1_boolean ... ok
+test optimize::arc::contracts::tests::audited_collection_requires_exceptional_exit ... ok
+test optimize::arc::contracts::tests::arithmetic_does_not_erase_ownership_before_bitcast ... ok
+test optimize::arc::contracts::tests::capture_borrows_env_and_rejects_incompatible_signatures ... ok
+test optimize::arc::contracts::tests::audited_scalar_field_produces_bits_without_classifying_generic_get ... ok
+test optimize::arc::contracts::tests::cleanup_exits_cover_runtime_error_without_repairing_double_consumption ... ok
+test optimize::arc::contracts::tests::cleanup_preserves_transfer_and_retains_before_releasing_other_tokens ... ok
+test optimize::arc::contracts::tests::contracts_do_not_infer_ref_by_width_or_hide_tokens ... ok
+test optimize::arc::contracts::tests::dart_parameters_do_not_classify_i64_and_reject_conflict_atomically ... ok
+test optimize::arc::contracts::tests::comparison_produces_bool_without_consuming_reference ... ok
+test optimize::arc::contracts::tests::dart_wrapper_does_not_publish_parameters_when_transfer_fails ... ok
+test optimize::arc::contracts::tests::fallible_query_produces_scalar_only_on_normal_exit ... ok
+test optimize::arc::contracts::tests::dart_return_insertion_is_idempotent_and_atomic_if_cleanup_missing ... ok
+test optimize::arc::contracts::tests::helpers_agree_with_effects ... ok
+test optimize::arc::contracts::tests::interrupt_and_byte_without_owners_but_inexact_abi_is_rejected ... ok
+test optimize::arc::contracts::tests::loop_bool_phi_is_produced_without_inventing_owner ... ok
+test optimize::arc::contracts::tests::numeric_phi_requires_origin_and_semantic_contract ... ok
+test optimize::arc::contracts::tests::owned_exception_has_independent_ref_result_without_new_failure ... ok
+test optimize::arc::contracts::tests::producer_checks_pending_dependency_in_borrowed_phi_cycle ... ok
+test optimize::arc::contracts::tests::producer_checks_real_ssa_type_before_publishing ... ok
+test optimize::arc::contracts::tests::producer_is_atomic_and_produces_owned_without_inferring_by_width ... ok
+test optimize::arc::contracts::tests::producer_preserves_borrow_in_anchored_loop_phi ... ok
+test optimize::arc::contracts::tests::producer_preserves_borrow_in_phi_chain_without_manual_class ... ok
+test optimize::arc::contracts::tests::publish_global_copies_owner_without_consuming_ssa ... ok
+test optimize::arc::contracts::tests::pure_operation_does_not_reinterpret_reference_as_scalar ... ok
+test optimize::arc::contracts::tests::ref_phi_does_not_accept_scalar_even_with_owned_class ... ok
+test optimize::arc::contracts::tests::rti_define_borrows_object_without_turning_type_id_into_ref ... ok
+test optimize::arc::contracts::tests::rti_recipe_borrows_string_and_returns_id_without_inventing_owned_ref ... ok
+test optimize::arc::contracts::tests::runtime_constants_preserve_scalar_address_distinction ... ok
+test optimize::arc::contracts::tests::integer_widths_preserve_scalar_contract_and_reject_handles ... ok
+test optimize::arc::contracts::tests::throw_with_trace_requires_two_ref_borrows_without_consuming_tokens ... ok
+test optimize::arc::contracts::tests::scalar_bitcast_requires_origin_and_is_block_order_independent ... ok
+test optimize::arc::contracts::tests::trivial_ref_phi_does_not_erase_entry_ownership ... ok
+test optimize::arc::contracts::tests::trivial_ref_phi_producer_respects_explicit_owned_transfer ... ok
+test optimize::arc::contracts::tests::throwing_exit_releases_result_and_guard_requires_cfg_without_publishing ... ok
+test optimize::arc::contracts::tests::typed_arithmetic_produces_plan_without_seeds_and_rejects_ref ... ok
+test optimize::arc::contracts::tests::unbox_borrows_reference_and_returns_fallible_scalar_without_consumption ... ok
+test optimize::arc::contracts::tests::typed_constants_and_permanent_literals_need_no_manual_seed ... ok
+test optimize::arc::contracts::tests::verifier_rejects_pure_operation_with_forged_metadata ... ok
+test optimize::arc::contracts::trivial_phis::tests::anchored_graph_requires_every_dependency_to_be_trivial_and_founded ... ok
+test optimize::arc::contracts::trivial_phis::tests::explicitly_dropped_null_phi_keeps_an_owned_logical_token ... ok
+test optimize::arc::contracts::trivial_phis::tests::ordinary_nullable_coalesce_with_throwing_inline_fallback_certifies ... ok
+
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 574 filtered out; finished in 0.67s
+

@@ -1,0 +1,38 @@
+b0 TERMINATOR CondBranch { cond: Val(ValueId(2)), then_block: BlockId(1), else_block: BlockId(2) }
+b0 v1 Ref GetField { object: Val(ValueId(0)), index: 2 }
+b0 v2 I1 ICmp(Eq, Val(ValueId(1)), Constant(Null))
+b1 TERMINATOR CondBranch { cond: Val(ValueId(4)), then_block: BlockId(4), else_block: BlockId(5) }
+b1 v3 Ref GetField { object: Val(ValueId(0)), index: 3 }
+b1 v4 I1 ICmp(Eq, Val(ValueId(3)), Constant(Null))
+b2 TERMINATOR Branch(BlockId(3))
+b3 TERMINATOR Return(Some(Val(ValueId(14))))
+b3 v14 Ref Phi { incoming: [(BlockId(2), Val(ValueId(1))), (BlockId(11), Val(ValueId(22)))], ty: Ref }
+b4 TERMINATOR CondBranch { cond: Val(ValueId(7)), then_block: BlockId(7), else_block: BlockId(6) }
+b4 v5 Ref CallRuntime { name: "dartforge_null_check_error_new", args: [], ret_ty: Ref }
+b4 v6 I8 CallRuntime { name: "dartforge_exception_pending", args: [], ret_ty: I8 }
+b4 v7 I1 ICmp(Ne, Val(ValueId(6)), Constant(Int(0)))
+b5 TERMINATOR CondBranch { cond: Val(ValueId(18)), then_block: BlockId(15), else_block: BlockId(14) }
+b5 v15 Ref Const(String("dartforge: code pruned as unreachable was called: df.package$3adart_ui$2fsrc$2fwidgets$2ftext_span$2edart.InlineSpan.toPlainText"))
+b5 v16 Ref CallRuntime { name: "dartforge_unsupported_error_new", args: [(Val(ValueId(15)), Ref)], ret_ty: Ref }
+b5 v17 I8 CallRuntime { name: "dartforge_exception_pending", args: [], ret_ty: I8 }
+b5 v18 I1 ICmp(Ne, Val(ValueId(17)), Constant(Int(0)))
+b14 TERMINATOR CondBranch { cond: Val(ValueId(21)), then_block: BlockId(16), else_block: BlockId(17) }
+b14 v19 Void CallRuntime { name: "dartforge_arc_throw_ref_v1", args: [(Val(ValueId(16)), Ref)], ret_ty: Void }
+b14 v20 I8 CallRuntime { name: "dartforge_exception_pending", args: [], ret_ty: I8 }
+b14 v21 I1 ICmp(Ne, Val(ValueId(20)), Constant(Int(0)))
+b15 TERMINATOR Branch(BlockId(18))
+b16 TERMINATOR Branch(BlockId(18))
+b17 TERMINATOR Unreachable
+b18 TERMINATOR CondBranch { cond: Val(ValueId(13)), then_block: BlockId(12), else_block: BlockId(11) }
+b18 v22 Ref Phi { incoming: [(BlockId(15), Constant(Null)), (BlockId(16), Constant(Null))], ty: Ref }
+b18 v12 I8 CallRuntime { name: "dartforge_exception_pending", args: [], ret_ty: I8 }
+b18 v13 I1 ICmp(Ne, Val(ValueId(12)), Constant(Int(0)))
+b6 TERMINATOR CondBranch { cond: Val(ValueId(10)), then_block: BlockId(8), else_block: BlockId(9) }
+b6 v8 Void CallRuntime { name: "dartforge_arc_throw_ref_v1", args: [(Val(ValueId(5)), Ref)], ret_ty: Void }
+b6 v9 I8 CallRuntime { name: "dartforge_exception_pending", args: [], ret_ty: I8 }
+b6 v10 I1 ICmp(Ne, Val(ValueId(9)), Constant(Int(0)))
+b7 TERMINATOR Return(Some(Constant(Null)))
+b8 TERMINATOR Return(Some(Constant(Null)))
+b9 TERMINATOR Unreachable
+b11 TERMINATOR Branch(BlockId(3))
+b12 TERMINATOR Return(Some(Constant(Null)))

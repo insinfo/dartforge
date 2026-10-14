@@ -1,6 +1,8 @@
 //! Translation of the audited externs into the token plan of the HIR.
 //! Does not presume contracts for absent symbols nor certify provenance/borrows.
 
+mod trivial_phis;
+
 use super::OwnerOrigin;
 use super::{
     TokenEffect, Ownership, ScopePlan, TokenPlan, verify_scopes, verify_tokens,
@@ -658,13 +660,17 @@ fn produce_phi(
             require_owned.insert(v);
         }
     }
+    // Return demand on a mixed parent does not manufacture tokens for a
+    // separately proved null/permanent-only child. Direct transfers and returns
+    // still demand their own logical token, including physically empty null.
+    let trivial_children = trivial_phis::prove(f, classes, &require_owned);
     loop {
         let previous = require_owned.len();
         for v in require_owned.clone() {
             if let Some(Instruction::Phi { incoming, .. }) = defs.get(&v) {
                 require_owned.extend(incoming.iter().filter_map(|(_, op)| {
                     if let Operand::Val(of) = op {
-                        Some(*of)
+                        (!trivial_children.contains(of)).then_some(*of)
                     } else {
                         None
                     }
