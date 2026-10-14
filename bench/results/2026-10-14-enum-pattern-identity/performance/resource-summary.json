@@ -1,0 +1,31 @@
+{
+  "source_measurement": "measurement.json",
+  "source_measurement_sha256": "db613dcc3b44857aa73edeb886a126c3bfebdf436451425a9ecd2435a59b6467",
+  "resource_log_sha256": {
+    "0-off.stderr": "99592329a91b142fe22f62b6b9dad3bc8ea20bd0c6b872df9fdbe7047b8fac8b",
+    "0-on.stderr": "c4e5ad26d232f1675cf1b2a298d9d4926d016b55ec9eef7c0eebc44ffb6f460a",
+    "0-official.stderr": "49932900a3a0f0a7eada1fd1dfc9747262dcf4daca0290d7d605ae57228a47f9",
+    "1-off.stderr": "af1fc14b31566f27d333f5898b5ededf0560c9cc18ecf41f4eb3d009857329aa",
+    "1-on.stderr": "bf8d4c94729c896a653d4c86da2fa614d7ba92b89a40c88a05f856b1d9ad7cce",
+    "1-official.stderr": "cc00f1a1f85c119d1d2339105f920e026612be93f88c478766cb2366743f9e1d",
+    "2-official.stderr": "e1da01a88d71ebe43684be70cb0f80035e8d37bba6a4e592513caddfd18f856c",
+    "2-on.stderr": "7c3858599f1f73fa3a2aef8e2113314e86adfdeb8e660e96cdd3082e367d44ad",
+    "2-off.stderr": "d44e97264acf800b24da9bf54aedb5f9c29e0b5f5709237021fa709e2ff23cec",
+    "3-on.stderr": "592e7689f25d94d0c0e3a28147165e959c1bddef4c4420ac830a3192397b1a11",
+    "3-off.stderr": "5fafe1893ed37ce882e1ab4fd3934a98aef69d005a917456b3f2721fca117fde",
+    "3-official.stderr": "c110d8150d160d9bc3e508edb9e449a52080cce790aa2785c88cb7bc571f901a"
+  },
+  "median_wall_ms": {
+    "official": 440.553583,
+    "off": 6294.736292,
+    "on": 2256.937291
+  },
+  "median_max_rss_bytes": {
+    "off": 11829248,
+    "on": 11730944,
+    "official": 17055744
+  },
+  "on_vs_off_speedup": 2.789061227842506,
+  "on_vs_official_wall_ratio": 5.122957520016357,
+  "note": "Peak RSS is process-level; it does not measure allocation count. Three alternating measured runs; all 57.6M-call checksums identical."
+}

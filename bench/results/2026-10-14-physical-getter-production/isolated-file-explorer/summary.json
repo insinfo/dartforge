@@ -1,0 +1,31 @@
+{
+  "comparison_ledger_sha256": "a4c335bc6cc0f5a7394478aec5a37997035d7008bf7fbb2ea573374cad92daf2",
+  "scope": "Exact full local IR hashes agree, so no getter-eligible function changed in this actual program. Full IR stays on SSD target; duplicate fullapp gzip archives intentionally omitted. No execution/timing claim.",
+  "eligible_getter_functions_changed": 0,
+  "binary_bytes_on": 28310160,
+  "binary_bytes_off": 28310160,
+  "deltas_on_minus_off": {
+    "binary_bytes": 0,
+    "text_section_bytes": 0
+  },
+  "ir": {
+    "on": {
+      "sha256": "d10cba04eb7381fe7813f8b615d1d73b11ec9fd32d17d1b0b9916211c5261afd",
+      "bytes": 301824809,
+      "selector_lookup_calls": 34628
+    },
+    "off": {
+      "sha256": "d10cba04eb7381fe7813f8b615d1d73b11ec9fd32d17d1b0b9916211c5261afd",
+      "bytes": 301824809,
+      "selector_lookup_calls": 34628
+    }
+  },
+  "local_full_ir": {
+    "on": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/canonical-cache-sizes/combined_default/.df_tmp/program.ll",
+    "off": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/isolated-getter-file-explorer/.df_tmp/program.ll"
+  },
+  "compiler_unchanged": true,
+  "inputs_unchanged": true,
+  "runtime_archives_unchanged": true,
+  "sources_unchanged": true
+}

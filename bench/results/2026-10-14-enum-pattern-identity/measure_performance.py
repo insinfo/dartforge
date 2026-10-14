@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 import statistics
 import subprocess
 import time
@@ -35,7 +36,8 @@ for index, order in enumerate([orders[0], *orders]):
         (output / f'{index}-{label}.stderr').write_text(run.stderr)
         rows.append({'order': index, 'warmup': index == 0, 'profile': label,
                      'command': command, 'exit_code': run.returncode, 'wall_ms': wall,
-                     'stdout': run.stdout})
+                     'stdout': run.stdout,
+                     'max_rss_bytes': int(re.search(r'(\d+)\s+maximum resident set size', run.stderr).group(1))})
         print(label, index, round(wall, 3), flush=True)
 medians = {label: statistics.median(r['wall_ms'] for r in rows if not r['warmup'] and r['profile'] == label)
            for label in manifest['artifacts']}
