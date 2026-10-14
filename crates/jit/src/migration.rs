@@ -26,6 +26,7 @@ pub(crate) struct Field {
     pub nullable: bool,
     pub late: bool,
     pub ty: String,
+    pub type_identity: Option<String>,
 }
 
 /// The layout of a class: id, enum fields before the declared ones, fields.
@@ -84,7 +85,11 @@ pub(crate) fn ir_layouts(ir: &str) -> Vec<Layout> {
                         Some(owner) => Some(unescape(owner)?),
                         None => None,
                     };
-                    Some(Field { name, owner, nullable: flags.contains('a'), late: flags.contains('l'), ty })
+                    let mut type_identity = q.next().and_then(unescape).filter(|identity| identity.starts_with("type-v1:") && identity.len() > "type-v1:".len());
+                    if q.next().is_some() {
+                        type_identity = None;
+                    }
+                    Some(Field { name, owner: owner.filter(|owner| !owner.is_empty()), nullable: flags.contains('a'), late: flags.contains('l'), ty, type_identity })
                 })
                 .collect::<Option<Vec<_>>>()?;
             Some(Layout { class, base, fields })
@@ -98,13 +103,32 @@ pub(crate) fn plan_fn(before: &[Layout], after: &[Layout], name: &dyn Fn(i64) ->
     let mut plan = Vec::new();
     for old_gen in before {
         let Some(new) = after.iter().find(|l| l.class == old_gen.class) else { continue };
+        let class = name(old_gen.class);
+        // Display strings such as `Foo` cannot distinguish declarations in
+        // different libraries. Check preserved fields even when all displayed
+        // layout metadata is unchanged; legacy text alone supplies no proof.
+        for field in &new.fields {
+            if let Some(previous) = old_gen.fields.iter().find(|old| old.name == field.name && old.owner == field.owner) {
+                let (Some(old_type), Some(new_type)) = (&previous.type_identity, &field.type_identity) else {
+                    return Err(format!("the type identity of field `{}` of {class} is unavailable; restart the session", field.name));
+                };
+                if old_type != new_type {
+                    let identity_note = if previous.ty == field.ty { "; declaration or structural type identity differs" } else { "" };
+                    return Err(format!(
+                        "field `{}` of {class} changed its type ({} to {}{identity_note}); the live objects hold values of the \
+                         old type, so the reload is rejected — restart the session",
+                        field.name, previous.ty, field.ty
+                    ));
+                }
+            }
+        }
         if new == old_gen {
             continue;
         }
-        let class = name(old_gen.class);
         // A bare field spelling is not a physical declaration identity:
         // inherited private fields (or shadowed public fields) can share it.
-        // Legacy layouts remain usable when their identities are unambiguous.
+        // Owner-less field keys remain usable when unambiguous, but every
+        // preserved field still requires the versioned semantic type identity.
         for layout in [old_gen, new] {
             let mut seen = std::collections::HashSet::new();
             if layout.fields.iter().any(|field| !seen.insert((&field.owner, &field.name))) {
@@ -125,13 +149,6 @@ pub(crate) fn plan_fn(before: &[Layout], after: &[Layout], name: &dyn Fn(i64) ->
             match old_gen.fields.iter().position(|v| v.name == c.name && v.owner == c.owner) {
                 Some(i) => {
                     let v = &old_gen.fields[i];
-                    if v.ty != c.ty {
-                        return Err(format!(
-                            "field `{}` of {class} changed its type ({} to {}); the live objects hold values of the \
-                             old type, so the reload is rejected — restart the session",
-                            c.name, v.ty, c.ty
-                        ));
-                    }
                     if v.late != c.late {
                         return Err(format!(
                             "field `{}` of {class} {} `late`; the reload is rejected — restart the session",
@@ -173,7 +190,7 @@ mod tests_mod {
     use super::*;
 
     fn field(name: &str, nullable: bool, late: bool, ty: &str) -> Field {
-        Field { name: name.into(), owner: None, nullable, late, ty: ty.into() }
+        Field { name: name.into(), owner: None, nullable, late, ty: ty.into(), type_identity: Some(format!("type-v1:unit-{ty}")) }
     }
 
     #[test]
@@ -181,7 +198,12 @@ mod tests_mod {
         let ir = "; df.fields 7 0 valor::int,rotulo$5f:a:String$3f\n; df.fields 8 2 \ndefine void @f() { ret void }\n";
         let l = ir_layouts(ir);
         assert_eq!(l.len(), 2);
-        assert_eq!(l[0].fields, vec![field("valor", false, false, "int"), field("rotulo_", true, false, "String?")]);
+        let legacy = |name, nullable, late, ty| {
+            let mut field = field(name, nullable, late, ty);
+            field.type_identity = None;
+            field
+        };
+        assert_eq!(l[0].fields, vec![legacy("valor", false, false, "int"), legacy("rotulo_", true, false, "String?")]);
         assert_eq!((l[1].class, l[1].base, l[1].fields.len()), (8, 2, 0));
     }
 
@@ -243,6 +265,35 @@ mod tests_mod {
     }
 
     #[test]
+    fn preserved_legacy_empty_unknown_and_trailing_type_metadata_are_refused() {
+        for field in ["value::Foo:main$2edart$3aBox", "value::Foo:main$2edart$3aBox:", "value::Foo:main$2edart$3aBox:type-v2$3aunknown", "value::Foo:main$2edart$3aBox:type-v1$3aI:audit-extra"] {
+            let layouts = ir_layouts(&format!("; df.fields 5 0 {field}\n"));
+            assert_eq!(layouts.len(), 1, "malformed type proof must not discard the layout");
+            assert!(layouts[0].fields[0].type_identity.is_none());
+            assert!(plan_fn(&layouts, &layouts, &|_| "Box".into()).unwrap_err().contains("type identity"));
+        }
+    }
+
+    #[test]
+    fn same_display_type_cannot_hide_library_or_argument_identity_changes() {
+        let mut first = field("value", false, false, "Foo");
+        first.owner = Some("main.dart:Box".into());
+        first.type_identity = Some("type-v1:I-a.dart-Foo".into());
+        let old = Layout { class: 5, base: 0, fields: vec![first.clone()] };
+        for identity in ["type-v1:I-b.dart-Foo", "type-v1:I-a.dart-Foo-argument", "type-v1:I-a.dart-Foo-nullable"] {
+            let mut changed = first.clone();
+            changed.type_identity = Some(identity.into());
+            let new = Layout { class: 5, base: 0, fields: vec![changed] };
+            let error = plan_fn(&[old.clone()], &[new], &|_| "Box".into()).unwrap_err();
+            assert!(error.contains("changed its type") && error.contains("structural type identity differs"), "{error}");
+        }
+        let mut alias = first;
+        alias.ty = "Alias".into();
+        let plan = plan_fn(&[old], &[Layout { class: 5, base: 0, fields: vec![alias] }], &|_| "Box".into()).unwrap();
+        assert_eq!(plan[0].origin, vec![0]);
+    }
+
+    #[test]
     #[ignore = "requires LLVM and the source-built Dart SDK"]
     fn emitted_private_fields_migrate_by_declaration_not_spelling() {
         std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
@@ -280,5 +331,54 @@ mod tests_mod {
             drop(session);
             std::fs::remove_dir_all(dir).unwrap();
         }).unwrap().join().unwrap();
+    }    #[test]
+    #[ignore = "requires LLVM and the source-built Dart SDK"]
+    fn emitted_same_spelling_field_type_change_rejects_before_publication() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let dir = std::env::temp_dir().join(format!("dartforge-jit-field-type-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let entry = dir.join("main.dart");
+            std::fs::write(dir.join("a.dart"), "class Foo { int tag = 11; }\n").unwrap();
+            std::fs::write(dir.join("b.dart"), "class Foo { int tag = 22; }\n").unwrap();
+            let before_source = "import 'a.dart' as a; import 'b.dart' as b; class Box { a.Foo value = a.Foo(); } final instance = Box(); int turns = 0; void main() { ++turns; if (turns == 1) instance.value.tag = 101; if (instance.value.tag != 101 || turns > 2 || (instance.value as dynamic) is b.Foo) throw StateError('Original state lost'); print(instance.value.tag + turns); }\n";
+            std::fs::write(&entry, before_source).unwrap();
+            let sdk = std::env::var_os("DARTFORGE_TEST_SDK_LIB").map(std::path::PathBuf::from);
+            let options = dartforge_emit_native::CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                sdk: sdk.as_deref(), packages: None, timings: false, optimize: false,
+                language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None,
+            };
+            let before = dartforge_emit_native::emit_reloadable_ir(&entry, &options, None).unwrap();
+            std::fs::write(&entry, before_source.replace("a.Foo value = a.Foo()", "b.Foo value = b.Foo()")).unwrap();
+            let after = dartforge_emit_native::emit_reloadable_ir(&entry, &options, Some(&before.text)).unwrap();
+            let old = ir_layouts(&before.text);
+            let new = ir_layouts(&after.text);
+            let old_box = old.iter().find(|layout| layout.fields.len() == 1 && layout.fields[0].name == "value").unwrap();
+            let new_box = new.iter().find(|layout| layout.class == old_box.class).unwrap();
+            assert_eq!(old_box.fields[0].ty, new_box.fields[0].ty, "display spelling intentionally collides");
+            assert_ne!(old_box.fields[0].type_identity, new_box.fields[0].type_identity);
+            let dll = dartforge_emit_native::sdk_module::source_sdk_dll().unwrap();
+            let mut session = crate::JitSession::new_for_ir_with(&before.text, Some(&dll)).unwrap();
+            session.add_reloadable_module("field-types", &before.text).unwrap();
+            assert_eq!(session.run_reloadable_main().unwrap().exit_code, 0);
+            let error = session.hot_reload("field-types", &after.text).unwrap_err();
+            assert!(error.to_string().contains("changed its type"), "{error}");
+            assert_eq!(session.run_reloadable_main().unwrap().exit_code, 0, "rejected publication must retain the original body, object and turn counter");
+            // An alias of the original type preserves the same semantic field
+            // type and may publish normally after the rejected generation.
+            let alias_source = before_source.replace("class Box", "typedef Alias = a.Foo; class Box")
+                .replace("a.Foo value = a.Foo()", "Alias value = a.Foo()")
+                .replace("turns > 2", "turns > 3");
+            std::fs::write(&entry, alias_source).unwrap();
+            let alias = dartforge_emit_native::emit_reloadable_ir(&entry, &options, Some(&before.text)).unwrap();
+            let alias_layouts = ir_layouts(&alias.text);
+            let alias_box = alias_layouts.iter().find(|layout| layout.class == old_box.class).unwrap();
+            assert_eq!(old_box.fields[0].type_identity, alias_box.fields[0].type_identity);
+            session.hot_reload("field-types", &alias.text).unwrap();
+            assert_eq!(session.run_reloadable_main().unwrap().exit_code, 0);
+            drop(session);
+            std::fs::remove_dir_all(dir).unwrap();
+        }).unwrap().join().unwrap();
     }
+
 }

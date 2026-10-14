@@ -708,16 +708,16 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(self.out, "; df.class {id} {} {}", crate::context::escape_str(lib), crate::context::escape_str(class)).unwrap();
         }
         // The layout of the objects, to migrate the live instances (J03):
-        // `name:flags:ty[:owner]`, with `a` nullable and `l` late. The
+        // `name:flags:ty:owner:type_identity`, with `a` nullable and `l` late. The
         // declaring owner distinguishes inherited fields with equal spellings.
         for (id, base, fields) in &self.module.program_fields {
             let list: Vec<String> = fields
                 .iter()
                 .map(|c| {
                     let flags = format!("{}{}", if c.nullable { "a" } else { "" }, if c.late { "l" } else { "" });
-                    let owner = c.owner.as_ref().map_or_else(String::new,
-                        |owner| format!(":{}", crate::context::escape_str(owner)));
-                    format!("{}:{flags}:{}{owner}", crate::context::escape_str(&c.name), crate::context::escape_str(&c.ty))
+                    let owner = c.owner.as_deref().map(crate::context::escape_str).unwrap_or_default();
+                    let identity = c.type_identity.as_deref().map(crate::context::escape_str).unwrap_or_default();
+                    format!("{}:{flags}:{}:{owner}:{identity}", crate::context::escape_str(&c.name), crate::context::escape_str(&c.ty))
                 })
                 .collect();
             writeln!(self.out, "; df.fields {id} {base} {}", list.join(",")).unwrap();

@@ -1,0 +1,39 @@
+{
+  "scope": "Read-only metadata proof; no actual JIT reload executed yet.",
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-null-metadata-compiler/dartforge",
+  "compiler_sha256": "02dd0c2ef1d5a4eeefdc9a1a76faf4d4ad0b4f4711989480bb5ec5e2087c2002",
+  "sdk": "3.6.2",
+  "sdk_analyze": "Analyzing jit-type-identity...\nNo issues found!\n",
+  "before_vm": "11\nfalse\n",
+  "after_vm": "22\nfalse\n",
+  "sources": {
+    "target/jit-type-identity/a.dart": "76491f481c8433ff7de91028fdabb8a31942c6547e77425a79080217307bbdc6",
+    "target/jit-type-identity/b.dart": "37b20441bc51f6eb3b5451bfa696c7ed3ceef7682935cd670591b0facdcab44a",
+    "target/jit-type-identity/before.dart": "a514e887f3507f0646ebe3de73a9da88b32877cff1bfb4ede47838f62dfeaa5c",
+    "target/jit-type-identity/after.dart": "6ce24ed710419c250bad0b25ace3322c8fb085536e03b5eddbcbf05a75f39cee",
+    "crates/jit/src/migration.rs": "a286b8b85ed3ebe2ef9b0358f3d912c3535cb2abc32949da0857a90cc4036858",
+    "crates/emit_native/src/context.rs": "2141e4393078b8b24c3fc3fdd6a0e36b1c721c9020a02bfd2b849f9ddf4d72cd",
+    "crates/emit_native/src/hir.rs": "a7392507c5bcba42ccb699ce69f7bc70618e5f6ef162cfda1394328e73af22db",
+    "crates/emit_native/src/llvm/mod.rs": "cbaf9eac91c12b93f4e45887a2df95e1a3c0533805d1fd9a61b70945f14baa6c"
+  },
+  "before_ir_sha256": "d6e4ed2db222efcfb7b7bb613e2f044c1ee5c27fe59dabb6a0318e6ffd68dae7",
+  "before_metadata": [
+    "; df.class 1026 main$2edart Box",
+    "; df.class 1024 a$2edart Foo",
+    "; df.class 1025 b$2edart Foo",
+    "; df.fields 1026 0 value::Foo:main$242edart$3aBox",
+    "; df.fields 1024 0 ",
+    "; df.fields 1025 0 "
+  ],
+  "after_ir_sha256": "72c82bbb59f24292ba09a14ba4167c2f1a4f60e0bf10f3a6971ae76e0306a8e3",
+  "after_metadata": [
+    "; df.class 1026 main$2edart Box",
+    "; df.class 1024 a$2edart Foo",
+    "; df.class 1025 b$2edart Foo",
+    "; df.fields 1026 0 value::Foo:main$242edart$3aBox",
+    "; df.fields 1024 0 ",
+    "; df.fields 1025 0 "
+  ],
+  "metadata_equal": true,
+  "consequence": "migration::plan_fn returns no migration for equal Layout; display type Foo cannot distinguish a.Foo and b.Foo. Actual live reload refusal/rollback test required for fix."
+}

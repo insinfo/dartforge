@@ -965,8 +965,11 @@ pub struct LayoutField {
     /// `null` is a value of the declared type (`T?`, `dynamic`, `Object?`…).
     pub nullable: bool,
     pub late: bool,
-    /// The declared type, as text (a change in it does not migrate).
+    /// Readable declared type for rejection diagnostics.
     pub ty: String,
+    /// Versioned semantic type identity, independent of aliases and arena IDs.
+    /// Missing identity cannot justify preserving a live field on reload.
+    pub type_identity: Option<String>,
 }
 
 /// How a `Return` exits when the exception may be pending, with exceptions by

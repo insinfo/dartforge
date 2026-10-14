@@ -1,5 +1,7 @@
 //! Compilation context of the `dartforge-emit-native` crate.
 
+mod layout_type_identity;
+
 use dartforge_elements::model::{LibraryId, Program, UnitId};
 use dartforge_intern::{Interner, SymbolId};
 use dartforge_types::resolve::OutlineTypes;
@@ -468,6 +470,7 @@ impl<'a> Context<'a> {
                             nullable,
                             late: var.late,
                             ty: self.table.format(t, self.interner, self.program),
+                            type_identity: self.layout_type_identity(t),
                         }
                     })
                     .collect();

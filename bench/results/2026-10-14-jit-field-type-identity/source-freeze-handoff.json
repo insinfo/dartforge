@@ -1,0 +1,53 @@
+{
+  "scope": "Source implementation freeze, completed full gates and all six actual JIT modes. Runtime workspace delta is recorded; this is a gate of the immutable producer, not pending runtime changes.",
+  "source_sha256": {
+    "crates/emit_native/src/context.rs": "5d3703a2340f289f2d5acbb2c5802ad2c6bd78c6ee0b0bd135e41daa86cc08cb",
+    "crates/emit_native/src/context/layout_type_identity.rs": "1482cce7636d96433e21253cbba60cd041fd8f888b910a909ce72704ff4f4fe8",
+    "crates/emit_native/src/hir.rs": "268e89bf038560da33006ad2310b340d8d03f973ed56647b41a09c93035c2c06",
+    "crates/emit_native/src/llvm/mod.rs": "d8079c183e749c38f7d8b231e7c8050460b9d7568528027d668d24b243f90ccb",
+    "crates/jit/src/migration.rs": "798644406cac8f010cd4a7e0c84a77864e80309291a5a2191f03a8103bc74964"
+  },
+  "test_binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/dartforge_jit-c962d1984d821d80",
+  "test_binary_sha256": "7b6a97006cfbe00db9570af03e8b831e9302cd721e6ec686220275d571766313",
+  "completed_matrix_runs": [
+    [
+      "tracing-normal",
+      true,
+      0
+    ],
+    [
+      "tracing-stress",
+      true,
+      0
+    ],
+    [
+      "legacy-arc-normal",
+      true,
+      0
+    ],
+    [
+      "legacy-arc-stress",
+      true,
+      0
+    ],
+    [
+      "prepared-arc-normal",
+      true,
+      0
+    ],
+    [
+      "prepared-arc-stress",
+      true,
+      0
+    ]
+  ],
+  "pending_matrix_runs": [],
+  "live_session": null,
+  "live_pid": null,
+  "gates": "gates.json",
+  "baseline_collision": "original-type-collision-audit.json",
+  "commit_base": "bdd50ffca10ededaeed0fee0af4fe77bfd69437f",
+  "runtime_workspace_delta_policy": "Only unrelated runtime/src/natives_strings.rs source edits allowed after immutable testbinary build; compiled-source snapshot remains original. This is not a gate for the edited runtime. Parent authorized continuing already-passed cases without recompilation.",
+  "production_limits": "Versioned semantic field identity; legacy/unproved types require restart. No ancestry-change or general type-system/hot-reload certification.",
+  "all_six_actual_modes_passed": true
+}

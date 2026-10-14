@@ -1,0 +1,40 @@
+{
+  "scope": "Gates against immutable compiled-source snapshot before the unrelated natives_strings.rs workspace edit; not validation of that pending runtime change.",
+  "commands": {
+    "focused": "cargo test --locked -p dartforge-jit --lib migration::tests_mod -- --test-threads=1",
+    "helper": "cargo test --locked -p dartforge-emit-native --lib context::layout_type_identity -- --test-threads=1",
+    "native_full": "cargo test --locked -p dartforge-emit-native --lib -- --test-threads=2",
+    "jit_full": "cargo test --locked -p dartforge-jit --lib -- --include-ignored --test-threads=1",
+    "actual_tracing": "DARTFORGE_ARC_CHECK=1 DARTFORGE_EFFECTS=check cargo test --locked -p dartforge-jit --lib emitted_same_spelling_field_type_change_rejects_before_publication -- --include-ignored --nocapture --test-threads=1"
+  },
+  "counts": {
+    "focused": {
+      "passed": 7,
+      "ignored": 2
+    },
+    "helper": {
+      "passed": 6,
+      "ignored": 0
+    },
+    "native_full": {
+      "passed": 627,
+      "ignored": 8
+    },
+    "jit_full": {
+      "passed": 38,
+      "ignored": 0
+    },
+    "actual_tracing": {
+      "passed": 1,
+      "ignored": 0
+    }
+  },
+  "all_exit_zero": true,
+  "logs_sha256": {
+    "full-native-lib.log": "e3fd5c4fdab2f002c1fab2f55d86ccdb20bda5eda970f751bb63109409280f48",
+    "helper-final.log": "e62ce78682e6e743a068de59fcc6d91879ece0278cd4d5e09480702c7188ef7d",
+    "full-jit-lib.log": "53b530d64c7b26b7619b2f044693b978e55bcfb829d124cfd8518da0d4b7fe8c",
+    "final-focused.log": "8c88681de7234430ff563fd55bc53d230bcfbaf7dfd5ed426a992523bc7cb805",
+    "actual-tracing.log": "5f12ca0a0f0c75fbd8100f58717421daa8660ddb27716cd2ce937f61621594db"
+  }
+}
