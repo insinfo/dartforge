@@ -1,0 +1,15 @@
+{
+  "label": "on-caller-rea",
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-caller-diagnosis-v3/on-caller.bin",
+  "open_options": {
+    "format": "raw-binary",
+    "architecture": "arm64",
+    "entry_point": "0x1000f3c08"
+  },
+  "procedures": [
+    {
+      "label": "convertPixels",
+      "address": "0x1000f3c08"
+    }
+  ]
+}

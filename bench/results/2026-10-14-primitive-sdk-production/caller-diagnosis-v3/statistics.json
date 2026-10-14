@@ -1,0 +1,20 @@
+[
+  {
+    "profile": "on",
+    "bytes": 1548,
+    "decoded_instructions": 387,
+    "complete_mapped_coverage": true,
+    "direct_BL": 26,
+    "indirect_BLR": 2,
+    "MRS": 1
+  },
+  {
+    "profile": "official",
+    "bytes": 360,
+    "decoded_instructions": 90,
+    "complete_mapped_coverage": true,
+    "direct_BL": 3,
+    "indirect_BLR": 4,
+    "MRS": 0
+  }
+]

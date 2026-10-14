@@ -1,0 +1,11 @@
+{
+  "jsonrpc": "2.0",
+  "id": 6,
+  "method": "tools/call",
+  "params": {
+    "name": "procedure_callees",
+    "arguments": {
+      "procedure": "0x1000f3c08"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-color-performance-v3/official/program",
+  "sha256": "5000f4afa15e64928f64968b3ed04c75709bec303ec6314d5e74127355c05ad1",
+  "function": "convertPixels",
+  "address": "0x93344",
+  "bytes": 360,
+  "file_offset": 5043012,
+  "raw_sha256": "ce8660450118fa5846efa23b2df1370bec5292c167167600587d82b78f75b934",
+  "scope": "Exact mapped ARM64 function bytes; external helpers/data are not included."
+}

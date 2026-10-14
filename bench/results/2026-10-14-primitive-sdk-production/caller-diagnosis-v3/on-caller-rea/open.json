@@ -1,0 +1,28 @@
+{
+  "result": {
+    "_meta": {
+      "provenance": {
+        "untrusted_content": true,
+        "source": "analysis_target"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"result\":{\"path\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-caller-diagnosis-v3/on-caller.bin\",\"format\":\"raw-binary\",\"kind\":\"executable\",\"sha256\":\"566a66f69f1bdb78bdb1e0abaebf72ea9f596fdc87a3126f9a7abf65ec885c30\",\"architecture\":\"arm64\",\"entry_point\":\"0x1000f3c08\"}}"
+      }
+    ],
+    "structuredContent": {
+      "result": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-caller-diagnosis-v3/on-caller.bin",
+        "format": "raw-binary",
+        "kind": "executable",
+        "sha256": "566a66f69f1bdb78bdb1e0abaebf72ea9f596fdc87a3126f9a7abf65ec885c30",
+        "architecture": "arm64",
+        "entry_point": "0x1000f3c08"
+      }
+    }
+  },
+  "jsonrpc": "2.0",
+  "id": 2
+}

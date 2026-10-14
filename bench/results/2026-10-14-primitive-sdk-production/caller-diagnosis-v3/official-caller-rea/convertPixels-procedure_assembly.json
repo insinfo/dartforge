@@ -1,0 +1,103 @@
+{
+  "result": {
+    "_meta": {
+      "provenance": {
+        "untrusted_content": true,
+        "source": "analysis_target"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"evidence_id\":\"ev_64c6e917429027f61aa3a7338e611cf2c6370ac73579f9b02a8485b98fd0986b\",\"subject\":{\"name\":\"official-caller.bin\",\"digest\":{\"sha256\":\"ce8660450118fa5846efa23b2df1370bec5292c167167600587d82b78f75b934\"},\"local_path\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-caller-diagnosis-v3/official-caller.bin\",\"format\":\"raw-binary\",\"architecture\":\"arm64\"},\"provider\":{\"id\":\"ghidra\",\"name\":\"Ghidra\",\"version\":\"12.1.4\"},\"analysis_profile\":{\"provider\":{\"id\":\"ghidra\",\"name\":\"Ghidra\",\"version\":\"12.1.4\"},\"parameters\":{\"target_kind\":\"executable\",\"target_format\":\"raw-binary\",\"architecture\":\"arm64\",\"available_architectures\":[\"arm64\"],\"import_mode\":\"ephemeral-source-immutable\",\"annotation_policy\":\"atomic-function-entry-metadata-v1\",\"load_image_observations\":\"source-mappings-entry-context-v2\",\"function_body_evidence\":\"complete-inclusive-ranges-v1\",\"function_references\":\"complete-body-and-entry-reference-manager-v2\",\"call_relationship_coverage\":\"function-body-call-coverage-v5\",\"function_dossier_coverage\":\"observed-facets-and-call-relationships-v1\",\"string_inventory_evidence\":\"defined-data-coverage-v1\",\"location_resolution\":\"explicit-address-exact-entry-symbol-first-v3\",\"procedure_file_offset_resolution\":\"address-first-unique-target-source-mapping-v2\",\"instruction_flow_evidence\":\"decoded-return-pcode-v1\",\"instruction_references\":\"exact-address-incoming-v1\",\"function_boundary_observations\":\"ghidra-function-boundary-limitations-v3\",\"no_return_repair\":\"returning-imports-decoded-return-v2\",\"process_launch\":\"inspected-jvm-launch-support-v1\",\"load_image_evidence\":\"independent-raw-mapping-context-v4\",\"jump_table_evidence\":\"typed-case-default-blocks-v1\",\"decompiler_jump_loads\":true,\"loader\":\"BinaryLoader\",\"language_id\":\"AARCH64:LE:64:v8A\",\"compiler_spec_id\":\"default\",\"language_selection\":\"caller-supplied-v1\",\"entry_point\":\"0x93344\",\"entry_seed\":\"external-entry-and-function-before-analysis-v1\",\"analyzer_preset\":\"ghidra-default\"},\"digest\":\"8367006479735443c40fd35949ac24275c9698f0dc1c46baa53fb08bb3579c08\"},\"predicate_type\":\"rea.analysis\",\"operation\":\"procedure_assembly\",\"parameters\":{\"procedure\":\"0x93344\"},\"raw_result\":{\"value\":\"0x93344: stp x29, x30, [x15, #-0x10]!\\n0x93348: mov x29, x15\\n0x9334c: sub x15, x15, #0x30\\n0x93350: mov x5, x1\\n0x93354: mov x4, x2\\n0x93358: stur x1, [x29, #-0x18]\\n0x9335c: stur x2, [x29, #-0x20]\\n0x93360: ldr x16, [x26, #0x38]\\n0x93364: cmp x15, x16\\n0x93368: b.ls 0x00093498\\n0x9336c: mov x8, #0x0\\n0x93370: mov x7, #0x0\\n0x93374: mov x6, #0xff\\n0x93378: stur x8, [x29, #-0x8]\\n0x9337c: stur x7, [x29, #-0x10]\\n0x93380: ldr x16, [x26, #0x38]\\n0x93384: cmp x15, x16\\n0x93388: b.ls 0x000934a0\\n0x9338c: cmp x7, x4\\n0x93390: b.ge 0x00093488\\n0x93394: mov x0, x7\\n0x93398: ubfx x0, x0, #0x0, #0x20\\n0x9339c: and x1, x0, x6\\n0x933a0: ldur x0, [x5, #0xf]\\n0x933a4: asr x2, x0, #0x1\\n0x933a8: mov x3, x1\\n0x933ac: ubfx x3, x3, #0x0, #0x20\\n0x933b0: mov x0, x2\\n0x933b4: mov x1, x3\\n0x933b8: cmp x1, x0\\n0x933bc: b.cs 0x000934a8\\n0x933c0: ldur x0, [x5, #0x17]\\n0x933c4: add x16, x0, x3, LSL #0x3\\n0x933c8: ldur x1, [x16, #0x17]\\n0x933cc: mov x0, #0x3c\\n0x933d0: tbz w1, #0x0, 0x000933dc\\n0x933d4: ldur x0, [x1, #-0x1]\\n0x933d8: ubfx x0, x0, #0xc, #0x14\\n0x933dc: mov x2, #0x0\\n0x933e0: mov x3, #0x1\\n0x933e4: sub x30, x0, #0xffa\\n0x933e8: ldr x30, [x21, x30, LSL #0x3]\\n0x933ec: blr x30\\n0x933f0: mov x1, #0x3c\\n0x933f4: tbz w0, #0x0, 0x00093400\\n0x933f8: ldur x1, [x0, #-0x1]\\n0x933fc: ubfx x1, x1, #0xc, #0x14\\n0x93400: mov x16, #0x1fe\\n0x93404: stp x16, x0, [x15]\\n0x93408: mov x0, x1\\n0x9340c: sub x30, x0, #0x1, LSL #12\\n0x93410: ldr x30, [x21, x30, LSL #0x3]\\n0x93414: blr x30\\n0x93418: mov x1, #0x3c\\n0x9341c: tbz w0, #0x0, 0x00093428\\n0x93420: ldur x1, [x0, #-0x1]\\n0x93424: ubfx x1, x1, #0xc, #0x14\\n0x93428: str x0, [x15]\\n0x9342c: mov x0, x1\\n0x93430: sub x30, x0, #0xff7\\n0x93434: ldr x30, [x21, x30, LSL #0x3]\\n0x93438: blr x30\\n0x9343c: mov x1, #0x3c\\n0x93440: tbz w0, #0x0, 0x0009344c\\n0x93444: ldur x1, [x0, #-0x1]\\n0x93448: ubfx x1, x1, #0xc, #0x14\\n0x9344c: str x0, [x15]\\n0x93450: mov x0, x1\\n0x93454: sub x30, x0, #0xff7\\n0x93458: ldr x30, [x21, x30, LSL #0x3]\\n0x9345c: blr x30\\n0x93460: asr x1, x0, #0x1\\n0x93464: tbz w0, #0x0, 0x0009346c\\n0x93468: ldur x1, [x0, #0x7]\\n0x9346c: ldur x0, [x29, #-0x8]\\n0x93470: add x8, x0, x1\\n0x93474: ldur x1, [x29, #-0x10]\\n0x93478: add x7, x1, #0x1\\n0x9347c: ldur x5, [x29, #-0x18]\\n0x93480: ldur x4, [x29, #-0x20]\\n0x93484: b 0x00093374\\n0x93488: mov x0, x8\\n0x9348c: mov x15, x29\\n0x93490: ldp x29, x30, [x15], #0x10\\n0x93494: ret\\n0x93498: bl 0x000894e8\\n0x9349c: b 0x0009336c\\n0x934a0: bl 0x000894e8\\n0x934a4: b 0x0009338c\\n0x934a8: bl 0x00089930\",\"limitations\":[]},\"normalized_result\":\"0x93344: stp x29, x30, [x15, #-0x10]!\\n0x93348: mov x29, x15\\n0x9334c: sub x15, x15, #0x30\\n0x93350: mov x5, x1\\n0x93354: mov x4, x2\\n0x93358: stur x1, [x29, #-0x18]\\n0x9335c: stur x2, [x29, #-0x20]\\n0x93360: ldr x16, [x26, #0x38]\\n0x93364: cmp x15, x16\\n0x93368: b.ls 0x00093498\\n0x9336c: mov x8, #0x0\\n0x93370: mov x7, #0x0\\n0x93374: mov x6, #0xff\\n0x93378: stur x8, [x29, #-0x8]\\n0x9337c: stur x7, [x29, #-0x10]\\n0x93380: ldr x16, [x26, #0x38]\\n0x93384: cmp x15, x16\\n0x93388: b.ls 0x000934a0\\n0x9338c: cmp x7, x4\\n0x93390: b.ge 0x00093488\\n0x93394: mov x0, x7\\n0x93398: ubfx x0, x0, #0x0, #0x20\\n0x9339c: and x1, x0, x6\\n0x933a0: ldur x0, [x5, #0xf]\\n0x933a4: asr x2, x0, #0x1\\n0x933a8: mov x3, x1\\n0x933ac: ubfx x3, x3, #0x0, #0x20\\n0x933b0: mov x0, x2\\n0x933b4: mov x1, x3\\n0x933b8: cmp x1, x0\\n0x933bc: b.cs 0x000934a8\\n0x933c0: ldur x0, [x5, #0x17]\\n0x933c4: add x16, x0, x3, LSL #0x3\\n0x933c8: ldur x1, [x16, #0x17]\\n0x933cc: mov x0, #0x3c\\n0x933d0: tbz w1, #0x0, 0x000933dc\\n0x933d4: ldur x0, [x1, #-0x1]\\n0x933d8: ubfx x0, x0, #0xc, #0x14\\n0x933dc: mov x2, #0x0\\n0x933e0: mov x3, #0x1\\n0x933e4: sub x30, x0, #0xffa\\n0x933e8: ldr x30, [x21, x30, LSL #0x3]\\n0x933ec: blr x30\\n0x933f0: mov x1, #0x3c\\n0x933f4: tbz w0, #0x0, 0x00093400\\n0x933f8: ldur x1, [x0, #-0x1]\\n0x933fc: ubfx x1, x1, #0xc, #0x14\\n0x93400: mov x16, #0x1fe\\n0x93404: stp x16, x0, [x15]\\n0x93408: mov x0, x1\\n0x9340c: sub x30, x0, #0x1, LSL #12\\n0x93410: ldr x30, [x21, x30, LSL #0x3]\\n0x93414: blr x30\\n0x93418: mov x1, #0x3c\\n0x9341c: tbz w0, #0x0, 0x00093428\\n0x93420: ldur x1, [x0, #-0x1]\\n0x93424: ubfx x1, x1, #0xc, #0x14\\n0x93428: str x0, [x15]\\n0x9342c: mov x0, x1\\n0x93430: sub x30, x0, #0xff7\\n0x93434: ldr x30, [x21, x30, LSL #0x3]\\n0x93438: blr x30\\n0x9343c: mov x1, #0x3c\\n0x93440: tbz w0, #0x0, 0x0009344c\\n0x93444: ldur x1, [x0, #-0x1]\\n0x93448: ubfx x1, x1, #0xc, #0x14\\n0x9344c: str x0, [x15]\\n0x93450: mov x0, x1\\n0x93454: sub x30, x0, #0xff7\\n0x93458: ldr x30, [x21, x30, LSL #0x3]\\n0x9345c: blr x30\\n0x93460: asr x1, x0, #0x1\\n0x93464: tbz w0, #0x0, 0x0009346c\\n0x93468: ldur x1, [x0, #0x7]\\n0x9346c: ldur x0, [x29, #-0x8]\\n0x93470: add x8, x0, x1\\n0x93474: ldur x1, [x29, #-0x10]\\n0x93478: add x7, x1, #0x1\\n0x9347c: ldur x5, [x29, #-0x18]\\n0x93480: ldur x4, [x29, #-0x20]\\n0x93484: b 0x00093374\\n0x93488: mov x0, x8\\n0x9348c: mov x15, x29\\n0x93490: ldp x29, x30, [x15], #0x10\\n0x93494: ret\\n0x93498: bl 0x000894e8\\n0x9349c: b 0x0009336c\\n0x934a0: bl 0x000894e8\\n0x934a4: b 0x0009338c\\n0x934a8: bl 0x00089930\",\"confidence\":\"observed\",\"authority\":\"shipped-artifact\",\"environment\":null,\"limitations\":[\"The session serves operations only after Ghidra reports default auto-analysis complete; incomplete analysis does not expose partial results.\",\"The imported Program and temporary project are ephemeral and deleted on close. Annotation operations edit session database metadata; original executable bytes are never written.\",\"Cancelling an active Ghidra request terminates its ephemeral database and discards session annotations. The selected target remains open; the next provider query imports the original artifact again.\",\"Default-space addresses use lowercase 0x-prefixed hexadecimal; other address spaces use <percent-encoded-space>:0x<hex>.\",\"Assembly is Ghidra Listing text and does not claim textual equivalence with Hopper output.\",\"macOS sessions require a matching executable Ghidra native decompiler; REA checks for it but does not build native components or change Gatekeeper quarantine state.\",\"Headerless raw-binary analysis uses the caller-supplied architecture and entry address; file offset 0 is mapped at that address. Headers are not discovered from file bytes.\",\"Little-endian generic Ghidra languages are used for x86, x86_64, arm, arm64, and NMOS 6502. Big-endian, Thumb-only, Cortex-M, 65C02, 65816, and other processor variants are unsupported in this increment.\",\"Static analysis does not emulate reset vectors, memory-mapped I/O, or firmware boot sequences.\"],\"relationship_coverage\":null,\"locations\":[],\"evidence_links\":[]}"
+      }
+    ],
+    "structuredContent": {
+      "evidence_id": "ev_64c6e917429027f61aa3a7338e611cf2c6370ac73579f9b02a8485b98fd0986b",
+      "subject": {
+        "name": "official-caller.bin",
+        "digest": {
+          "sha256": "ce8660450118fa5846efa23b2df1370bec5292c167167600587d82b78f75b934"
+        },
+        "local_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-caller-diagnosis-v3/official-caller.bin",
+        "format": "raw-binary",
+        "architecture": "arm64"
+      },
+      "provider": {
+        "id": "ghidra",
+        "name": "Ghidra",
+        "version": "12.1.4"
+      },
+      "analysis_profile": {
+        "provider": {
+          "id": "ghidra",
+          "name": "Ghidra",
+          "version": "12.1.4"
+        },
+        "parameters": {
+          "target_kind": "executable",
+          "target_format": "raw-binary",
+          "architecture": "arm64",
+          "available_architectures": [
+            "arm64"
+          ],
+          "import_mode": "ephemeral-source-immutable",
+          "annotation_policy": "atomic-function-entry-metadata-v1",
+          "load_image_observations": "source-mappings-entry-context-v2",
+          "function_body_evidence": "complete-inclusive-ranges-v1",
+          "function_references": "complete-body-and-entry-reference-manager-v2",
+          "call_relationship_coverage": "function-body-call-coverage-v5",
+          "function_dossier_coverage": "observed-facets-and-call-relationships-v1",
+          "string_inventory_evidence": "defined-data-coverage-v1",
+          "location_resolution": "explicit-address-exact-entry-symbol-first-v3",
+          "procedure_file_offset_resolution": "address-first-unique-target-source-mapping-v2",
+          "instruction_flow_evidence": "decoded-return-pcode-v1",
+          "instruction_references": "exact-address-incoming-v1",
+          "function_boundary_observations": "ghidra-function-boundary-limitations-v3",
+          "no_return_repair": "returning-imports-decoded-return-v2",
+          "process_launch": "inspected-jvm-launch-support-v1",
+          "load_image_evidence": "independent-raw-mapping-context-v4",
+          "jump_table_evidence": "typed-case-default-blocks-v1",
+          "decompiler_jump_loads": true,
+          "loader": "BinaryLoader",
+          "language_id": "AARCH64:LE:64:v8A",
+          "compiler_spec_id": "default",
+          "language_selection": "caller-supplied-v1",
+          "entry_point": "0x93344",
+          "entry_seed": "external-entry-and-function-before-analysis-v1",
+          "analyzer_preset": "ghidra-default"
+        },
+        "digest": "8367006479735443c40fd35949ac24275c9698f0dc1c46baa53fb08bb3579c08"
+      },
+      "predicate_type": "rea.analysis",
+      "operation": "procedure_assembly",
+      "parameters": {
+        "procedure": "0x93344"
+      },
+      "raw_result": {
+        "value": "0x93344: stp x29, x30, [x15, #-0x10]!\n0x93348: mov x29, x15\n0x9334c: sub x15, x15, #0x30\n0x93350: mov x5, x1\n0x93354: mov x4, x2\n0x93358: stur x1, [x29, #-0x18]\n0x9335c: stur x2, [x29, #-0x20]\n0x93360: ldr x16, [x26, #0x38]\n0x93364: cmp x15, x16\n0x93368: b.ls 0x00093498\n0x9336c: mov x8, #0x0\n0x93370: mov x7, #0x0\n0x93374: mov x6, #0xff\n0x93378: stur x8, [x29, #-0x8]\n0x9337c: stur x7, [x29, #-0x10]\n0x93380: ldr x16, [x26, #0x38]\n0x93384: cmp x15, x16\n0x93388: b.ls 0x000934a0\n0x9338c: cmp x7, x4\n0x93390: b.ge 0x00093488\n0x93394: mov x0, x7\n0x93398: ubfx x0, x0, #0x0, #0x20\n0x9339c: and x1, x0, x6\n0x933a0: ldur x0, [x5, #0xf]\n0x933a4: asr x2, x0, #0x1\n0x933a8: mov x3, x1\n0x933ac: ubfx x3, x3, #0x0, #0x20\n0x933b0: mov x0, x2\n0x933b4: mov x1, x3\n0x933b8: cmp x1, x0\n0x933bc: b.cs 0x000934a8\n0x933c0: ldur x0, [x5, #0x17]\n0x933c4: add x16, x0, x3, LSL #0x3\n0x933c8: ldur x1, [x16, #0x17]\n0x933cc: mov x0, #0x3c\n0x933d0: tbz w1, #0x0, 0x000933dc\n0x933d4: ldur x0, [x1, #-0x1]\n0x933d8: ubfx x0, x0, #0xc, #0x14\n0x933dc: mov x2, #0x0\n0x933e0: mov x3, #0x1\n0x933e4: sub x30, x0, #0xffa\n0x933e8: ldr x30, [x21, x30, LSL #0x3]\n0x933ec: blr x30\n0x933f0: mov x1, #0x3c\n0x933f4: tbz w0, #0x0, 0x00093400\n0x933f8: ldur x1, [x0, #-0x1]\n0x933fc: ubfx x1, x1, #0xc, #0x14\n0x93400: mov x16, #0x1fe\n0x93404: stp x16, x0, [x15]\n0x93408: mov x0, x1\n0x9340c: sub x30, x0, #0x1, LSL #12\n0x93410: ldr x30, [x21, x30, LSL #0x3]\n0x93414: blr x30\n0x93418: mov x1, #0x3c\n0x9341c: tbz w0, #0x0, 0x00093428\n0x93420: ldur x1, [x0, #-0x1]\n0x93424: ubfx x1, x1, #0xc, #0x14\n0x93428: str x0, [x15]\n0x9342c: mov x0, x1\n0x93430: sub x30, x0, #0xff7\n0x93434: ldr x30, [x21, x30, LSL #0x3]\n0x93438: blr x30\n0x9343c: mov x1, #0x3c\n0x93440: tbz w0, #0x0, 0x0009344c\n0x93444: ldur x1, [x0, #-0x1]\n0x93448: ubfx x1, x1, #0xc, #0x14\n0x9344c: str x0, [x15]\n0x93450: mov x0, x1\n0x93454: sub x30, x0, #0xff7\n0x93458: ldr x30, [x21, x30, LSL #0x3]\n0x9345c: blr x30\n0x93460: asr x1, x0, #0x1\n0x93464: tbz w0, #0x0, 0x0009346c\n0x93468: ldur x1, [x0, #0x7]\n0x9346c: ldur x0, [x29, #-0x8]\n0x93470: add x8, x0, x1\n0x93474: ldur x1, [x29, #-0x10]\n0x93478: add x7, x1, #0x1\n0x9347c: ldur x5, [x29, #-0x18]\n0x93480: ldur x4, [x29, #-0x20]\n0x93484: b 0x00093374\n0x93488: mov x0, x8\n0x9348c: mov x15, x29\n0x93490: ldp x29, x30, [x15], #0x10\n0x93494: ret\n0x93498: bl 0x000894e8\n0x9349c: b 0x0009336c\n0x934a0: bl 0x000894e8\n0x934a4: b 0x0009338c\n0x934a8: bl 0x00089930",
+        "limitations": []
+      },
+      "normalized_result": "0x93344: stp x29, x30, [x15, #-0x10]!\n0x93348: mov x29, x15\n0x9334c: sub x15, x15, #0x30\n0x93350: mov x5, x1\n0x93354: mov x4, x2\n0x93358: stur x1, [x29, #-0x18]\n0x9335c: stur x2, [x29, #-0x20]\n0x93360: ldr x16, [x26, #0x38]\n0x93364: cmp x15, x16\n0x93368: b.ls 0x00093498\n0x9336c: mov x8, #0x0\n0x93370: mov x7, #0x0\n0x93374: mov x6, #0xff\n0x93378: stur x8, [x29, #-0x8]\n0x9337c: stur x7, [x29, #-0x10]\n0x93380: ldr x16, [x26, #0x38]\n0x93384: cmp x15, x16\n0x93388: b.ls 0x000934a0\n0x9338c: cmp x7, x4\n0x93390: b.ge 0x00093488\n0x93394: mov x0, x7\n0x93398: ubfx x0, x0, #0x0, #0x20\n0x9339c: and x1, x0, x6\n0x933a0: ldur x0, [x5, #0xf]\n0x933a4: asr x2, x0, #0x1\n0x933a8: mov x3, x1\n0x933ac: ubfx x3, x3, #0x0, #0x20\n0x933b0: mov x0, x2\n0x933b4: mov x1, x3\n0x933b8: cmp x1, x0\n0x933bc: b.cs 0x000934a8\n0x933c0: ldur x0, [x5, #0x17]\n0x933c4: add x16, x0, x3, LSL #0x3\n0x933c8: ldur x1, [x16, #0x17]\n0x933cc: mov x0, #0x3c\n0x933d0: tbz w1, #0x0, 0x000933dc\n0x933d4: ldur x0, [x1, #-0x1]\n0x933d8: ubfx x0, x0, #0xc, #0x14\n0x933dc: mov x2, #0x0\n0x933e0: mov x3, #0x1\n0x933e4: sub x30, x0, #0xffa\n0x933e8: ldr x30, [x21, x30, LSL #0x3]\n0x933ec: blr x30\n0x933f0: mov x1, #0x3c\n0x933f4: tbz w0, #0x0, 0x00093400\n0x933f8: ldur x1, [x0, #-0x1]\n0x933fc: ubfx x1, x1, #0xc, #0x14\n0x93400: mov x16, #0x1fe\n0x93404: stp x16, x0, [x15]\n0x93408: mov x0, x1\n0x9340c: sub x30, x0, #0x1, LSL #12\n0x93410: ldr x30, [x21, x30, LSL #0x3]\n0x93414: blr x30\n0x93418: mov x1, #0x3c\n0x9341c: tbz w0, #0x0, 0x00093428\n0x93420: ldur x1, [x0, #-0x1]\n0x93424: ubfx x1, x1, #0xc, #0x14\n0x93428: str x0, [x15]\n0x9342c: mov x0, x1\n0x93430: sub x30, x0, #0xff7\n0x93434: ldr x30, [x21, x30, LSL #0x3]\n0x93438: blr x30\n0x9343c: mov x1, #0x3c\n0x93440: tbz w0, #0x0, 0x0009344c\n0x93444: ldur x1, [x0, #-0x1]\n0x93448: ubfx x1, x1, #0xc, #0x14\n0x9344c: str x0, [x15]\n0x93450: mov x0, x1\n0x93454: sub x30, x0, #0xff7\n0x93458: ldr x30, [x21, x30, LSL #0x3]\n0x9345c: blr x30\n0x93460: asr x1, x0, #0x1\n0x93464: tbz w0, #0x0, 0x0009346c\n0x93468: ldur x1, [x0, #0x7]\n0x9346c: ldur x0, [x29, #-0x8]\n0x93470: add x8, x0, x1\n0x93474: ldur x1, [x29, #-0x10]\n0x93478: add x7, x1, #0x1\n0x9347c: ldur x5, [x29, #-0x18]\n0x93480: ldur x4, [x29, #-0x20]\n0x93484: b 0x00093374\n0x93488: mov x0, x8\n0x9348c: mov x15, x29\n0x93490: ldp x29, x30, [x15], #0x10\n0x93494: ret\n0x93498: bl 0x000894e8\n0x9349c: b 0x0009336c\n0x934a0: bl 0x000894e8\n0x934a4: b 0x0009338c\n0x934a8: bl 0x00089930",
+      "confidence": "observed",
+      "authority": "shipped-artifact",
+      "environment": null,
+      "limitations": [
+        "The session serves operations only after Ghidra reports default auto-analysis complete; incomplete analysis does not expose partial results.",
+        "The imported Program and temporary project are ephemeral and deleted on close. Annotation operations edit session database metadata; original executable bytes are never written.",
+        "Cancelling an active Ghidra request terminates its ephemeral database and discards session annotations. The selected target remains open; the next provider query imports the original artifact again.",
+        "Default-space addresses use lowercase 0x-prefixed hexadecimal; other address spaces use <percent-encoded-space>:0x<hex>.",
+        "Assembly is Ghidra Listing text and does not claim textual equivalence with Hopper output.",
+        "macOS sessions require a matching executable Ghidra native decompiler; REA checks for it but does not build native components or change Gatekeeper quarantine state.",
+        "Headerless raw-binary analysis uses the caller-supplied architecture and entry address; file offset 0 is mapped at that address. Headers are not discovered from file bytes.",
+        "Little-endian generic Ghidra languages are used for x86, x86_64, arm, arm64, and NMOS 6502. Big-endian, Thumb-only, Cortex-M, 65C02, 65816, and other processor variants are unsupported in this increment.",
+        "Static analysis does not emulate reset vectors, memory-mapped I/O, or firmware boot sequences."
+      ],
+      "relationship_coverage": null,
+      "locations": [],
+      "evidence_links": []
+    }
+  },
+  "jsonrpc": "2.0",
+  "id": 4
+}

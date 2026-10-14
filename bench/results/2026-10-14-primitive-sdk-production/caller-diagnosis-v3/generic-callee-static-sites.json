@@ -1,0 +1,21 @@
+{
+  "defined_IR_bytes": 374386,
+  "enum_getter_static_sites": 120,
+  "enum_getter_histogram": {
+    "uint1": 10,
+    "uint2": 10,
+    "uint4": 10,
+    "uint8": 10,
+    "uint16": 10,
+    "uint32": 10,
+    "int8": 10,
+    "int16": 10,
+    "int32": 10,
+    "float16": 10,
+    "float32": 10,
+    "float64": 10
+  },
+  "selector_sites": 88,
+  "conditional_branch_sites": 902,
+  "scope": "Static pre-LTO sites only; no execution counts or hot-branch cost attribution."
+}

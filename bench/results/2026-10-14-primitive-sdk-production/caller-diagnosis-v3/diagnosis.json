@@ -1,0 +1,49 @@
+{
+  "scope": "Readonly real IR and genuine local REA6.5/Ghidra12.1.4 exact mapped ARM64 caller comparison on V3 artifacts. No compiler edits, builds, or new timings.",
+  "observed": {
+    "forge_caller_bytes": 1548,
+    "official_caller_bytes": 360,
+    "forge_ON_generic_color_bytes": 42668,
+    "forge_OFF_generic_color_bytes": 36668,
+    "official_snapshot_color_symbol": "Absent; only convertPixels360-byte symbol found.",
+    "forge_hot_loop_IR": [
+      "Bounds/storage-shape dispatch for pixels[index]. General storage yields existing Ref; F64-storage path would allocate a Double box, but actual active shape was not measured.",
+      "Two lazy enum getter calls inside every loop iteration, eachgetter508linkedbytes.",
+      "Direct call to full generic convertFormatValue(value, opaqueFloat32GetterResult, opaqueUint8GetterResult).",
+      "Result class switchDouble4/Smi2/Mint3, checked scalar conversion or generictoInt selector fallback."
+    ],
+    "official_assembly": [
+      "Direct list storage element Ref load.",
+      "No direct call to generic color conversion or enum getters in caller.",
+      "Four dynamic table BLR sites remain, matching source residual clamp, multiply, inner and outer toInt operations. Their private ABI targets were not fully decoded, so names remain source/assembly inference.",
+      "Three direct BL sites are cold stack/bounds helpers; no scalar FMul is claimed."
+    ],
+    "generic_color_IR": "120enumgetterstaticcalls, 10per enum value, and88selectorstaticcalls. These count branches and cold paths, not executed calls."
+  },
+  "diagnosis": "The remaining gap includes missing callsite constant propagation through lazy enum getters and missing pre-inlining specialization of a large known-body function. Upstream has already reduced the format-dependent conversion into caller residual operations; DartForge repeats generic enum dispatch and helper frame work. Size and timings alone do not quantify each contributor.",
+  "next_sound_fix": {
+    "name": "Bounded constant-argument specialization for known static call targets.",
+    "hook": "Before pruning summaries/inlining: collect actual CallStatic argument origins; clone a known HIR body with certified symbolic constant argument facts, fold constant comparisons and unreachable CFG, then apply existing bounded inlining. Prefer profitable reduced clones; keep original generic entry for remaining calls/closures/FFI.",
+    "first_scope": [
+      "Tracing fixed image; actual available callee body and compatible ABI.",
+      "Literal scalar arguments first; simple enum constants only with resolved declaration identity, canonical identity-equality proof and actual getter-return/value proof. Never infer enum identity from a function name or static type.",
+      "Keep original argument evaluation order, getter calls and pending exception paths unless a separate initialization/effects certificate proves elimination legal. A successful getter body or guarded exact returned value is needed; declarations alone do not prove runtime value.",
+      "Known enum arguments can fold from/to pattern dispatch in a reduced clone; retain generic fallback where proof is absent, including changed SDK equality, enhanced enums, mixins, ambiguous ancestry and escaping identity observations.",
+      "Per-target clone count, total code-growth budget and post-fold size/inlining budget prevent combinatorial binaries. No function-name-specific optimization."
+    ],
+    "semantic_checks": [
+      "Two distinct simple enum values, equal values, different enum classes, nullable/unknown inputs and ordinary scalar literal specialization.",
+      "Side effects and exceptions while evaluating arguments; zero-iteration loops; cold/warm enum initialization and failed initialization/retry.",
+      "Changed SDK Object/Enum equality and native alias; custom callbacks/FFI/closures retain generic target.",
+      "NaN, infinities, signed zero, Mint overflow and clamp/toInt error paths remain exact.",
+      "ActualCLI OFF/ON 2736color cases plus dynamic230case fixture and GCstress, fullgate, final matched caller assembly, binary size and quiet paired timings."
+    ],
+    "insertion_candidate": "lib.rs before prune_program_hir, via a bounded specialization pass adjacent to optimize::prepare_for_pruning (currently line482). It must promote local arguments/dataflow before collecting facts and prune each new clone before summaries; optimize::optimize builds its inlining copy inventory only later (after mem2reg, currently line178). Literal-only scope needs no SDK body transport; symbolic enum scope requires lowering-certified identity/value premises and actual normal-return/getter proof."
+  },
+  "limitations": [
+    "Raw decompiler C warns about bad instruction data at external cold target boundaries; quantitative counts use complete mapped assembly coverage.",
+    "Upstream private snapshot table offsets do not prove semantic callee names without table mapping.",
+    "F64 listread reboxing exists as a conditional path; runtime active storage shape and allocation counts were not measured, so it is not asserted as the dominant execution bottleneck.",
+    "Global inlining-threshold increase is not justified: current HIR genericbody is far above BODY_LIMIT40 and contains cache-state getter operations. Specialize and prune before deciding whether to inline."
+  ]
+}

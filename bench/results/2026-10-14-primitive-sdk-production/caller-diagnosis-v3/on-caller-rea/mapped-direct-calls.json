@@ -1,0 +1,158 @@
+[
+  {
+    "instruction": "0x1000f3c8c: bl 0x10009ed44",
+    "mapped_symbols": [
+      "_dartforge_globals_area_id"
+    ]
+  },
+  {
+    "instruction": "0x1000f3d60: bl 0x1000a18e8",
+    "mapped_symbols": [
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "instruction": "0x1000f3db8: bl 0x1000a18e8",
+    "mapped_symbols": [
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "instruction": "0x1000f3dfc: bl 0x1000b7158",
+    "mapped_symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "instruction": "0x1000f3e28: bl 0x100100058",
+    "mapped_symbols": [
+      "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.float32"
+    ]
+  },
+  {
+    "instruction": "0x1000f3e34: bl 0x1000ff2c8",
+    "mapped_symbols": [
+      "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.uint8"
+    ]
+  },
+  {
+    "instruction": "0x1000f3e48: bl 0x1000f43bc",
+    "mapped_symbols": [
+      "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue"
+    ]
+  },
+  {
+    "instruction": "0x1000f3ecc: bl 0x1000b7158",
+    "mapped_symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "instruction": "0x1000f3f20: bl 0x1000b9680",
+    "mapped_symbols": [
+      "_dartforge_unbox_int"
+    ]
+  },
+  {
+    "instruction": "0x1000f3f2c: bl 0x1000a18e8",
+    "mapped_symbols": [
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "instruction": "0x1000f3f44: bl 0x100165fdc",
+    "mapped_symbols": [
+      "_df.dart$3acore._IntegerImplementation.toInt"
+    ]
+  },
+  {
+    "instruction": "0x1000f3f98: bl 0x1000a18e8",
+    "mapped_symbols": [
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "instruction": "0x1000f4034: bl 0x1000b94cc",
+    "mapped_symbols": [
+      "_dartforge_unbox_double"
+    ]
+  },
+  {
+    "instruction": "0x1000f4044: bl 0x1000a2538",
+    "mapped_symbols": [
+      "_dartforge_native_DartForge_double_toInt"
+    ]
+  },
+  {
+    "instruction": "0x1000f4050: bl 0x1000a18e8",
+    "mapped_symbols": [
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "instruction": "0x1000f40c8: bl 0x1000a18e8",
+    "mapped_symbols": [
+      "_dartforge_value_class"
+    ]
+  },
+  {
+    "instruction": "0x1000f4110: bl 0x1000b7158",
+    "mapped_symbols": [
+      "_dartforge_selector"
+    ]
+  },
+  {
+    "instruction": "0x1000f4158: bl 0x10010296c",
+    "mapped_symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "instruction": "0x1000f4160: bl 0x10010296c",
+    "mapped_symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "instruction": "0x1000f416c: bl 0x10010296c",
+    "mapped_symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "instruction": "0x1000f4184: bl 0x10009b524",
+    "mapped_symbols": [
+      "_dartforge_allocate"
+    ]
+  },
+  {
+    "instruction": "0x1000f41a0: bl 0x10009b524",
+    "mapped_symbols": [
+      "_dartforge_allocate"
+    ]
+  },
+  {
+    "instruction": "0x1000f41ec: bl 0x10010296c",
+    "mapped_symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "instruction": "0x1000f41f4: bl 0x10010296c",
+    "mapped_symbols": [
+      "_df.context.slow"
+    ]
+  },
+  {
+    "instruction": "0x1000f4200: bl 0x1000b7930",
+    "mapped_symbols": [
+      "_dartforge_stack_overflow"
+    ]
+  },
+  {
+    "instruction": "0x1000f420c: bl 0x10009c2e8",
+    "mapped_symbols": [
+      "_dartforge_exception_clear"
+    ]
+  }
+]

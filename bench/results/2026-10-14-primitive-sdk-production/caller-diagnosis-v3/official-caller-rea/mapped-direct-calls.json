@@ -1,0 +1,14 @@
+[
+  {
+    "instruction": "0x93498: bl 0x000894e8",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x934a0: bl 0x000894e8",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x934a8: bl 0x00089930",
+    "mapped_symbols": []
+  }
+]

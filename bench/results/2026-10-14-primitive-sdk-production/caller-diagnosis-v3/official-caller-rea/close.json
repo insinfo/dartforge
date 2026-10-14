@@ -1,0 +1,27 @@
+{
+  "result": {
+    "_meta": {
+      "provenance": {
+        "untrusted_content": true,
+        "source": "analysis_target"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"result\":{\"path\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-primitive-sdk-production/caller-diagnosis-v3/official-caller-rea/snapshot.json\",\"bytes\":38135,\"primitive_entries\":0,\"workflow_entries\":1,\"evidence_records\":5}}"
+      }
+    ],
+    "structuredContent": {
+      "result": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-primitive-sdk-production/caller-diagnosis-v3/official-caller-rea/snapshot.json",
+        "bytes": 38135,
+        "primitive_entries": 0,
+        "workflow_entries": 1,
+        "evidence_records": 5
+      }
+    }
+  },
+  "jsonrpc": "2.0",
+  "id": 8
+}

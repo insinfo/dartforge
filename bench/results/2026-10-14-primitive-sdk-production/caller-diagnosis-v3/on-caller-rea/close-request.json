@@ -1,0 +1,11 @@
+{
+  "jsonrpc": "2.0",
+  "id": 8,
+  "method": "tools/call",
+  "params": {
+    "name": "close_binary",
+    "arguments": {
+      "snapshot_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-primitive-sdk-production/caller-diagnosis-v3/on-caller-rea/snapshot.json"
+    }
+  }
+}

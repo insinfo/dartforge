@@ -1,0 +1,22 @@
+{
+  "config": {
+    "label": "on-caller-rea",
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-caller-diagnosis-v3/on-caller.bin",
+    "open_options": {
+      "format": "raw-binary",
+      "architecture": "arm64",
+      "entry_point": "0x1000f3c08"
+    },
+    "procedures": [
+      {
+        "label": "convertPixels",
+        "address": "0x1000f3c08"
+      }
+    ]
+  },
+  "target_sha256": "566a66f69f1bdb78bdb1e0abaebf72ea9f596fdc87a3126f9a7abf65ec885c30",
+  "REA_version": "6.5.0",
+  "provider": "Ghidra12.1.4/JDK21.0.12.1/nativeARM64",
+  "server_exit": 0,
+  "scope": "Local static native assembly and heuristic C pseudocode; Dart custom snapshot ABI is not interpreted as recovered Dart semantics."
+}
