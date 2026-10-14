@@ -1,0 +1,13 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit",
+  "sha256": "e106c2da3f1156bdd851f45706d36644f375815b7a20fe933c765f7aef6b2354",
+  "source_hashes_verified": 1500,
+  "features": [
+    "native",
+    "jit"
+  ],
+  "profile": "release",
+  "head": "8a986f9a75404f62125be849438c46f6a2d92aa6",
+  "environment": "target/jit-arc-readiness/env.zsh",
+  "sdk": "3.6.2"
+}

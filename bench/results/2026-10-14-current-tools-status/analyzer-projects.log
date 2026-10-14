@@ -1,0 +1,14 @@
+valid_sdk EXACT
+non_bool EXACT
+undefined EXACT
+assignment DIFF
+syntax EXACT
+nullable_receiver EXACT
+argument_type EXACT
+return_type EXACT
+required_argument EXACT
+invalid_override EXACT
+valid_records_patterns EXACT
+file_explorer EXACT
+explorer_model EXACT
+framework_application EXACT

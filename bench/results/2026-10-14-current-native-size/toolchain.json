@@ -1,0 +1,23 @@
+{
+  "files": {
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart": {
+      "sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+      "bytes": 38668192
+    },
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/utils/gen_snapshot": {
+      "sha256": "ee9830553e1a6f568cbdb32b474f73ff84f723284b4f567efc8537ac147d9eee",
+      "bytes": 5270720
+    },
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/gen_kernel_aot.dart.snapshot": {
+      "sha256": "d0602cd19c4a3874114e8185f6f31f95f603424b546483f8416c34c2db9462a9",
+      "bytes": 13966856
+    },
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/native-provenance.json": {
+      "sha256": "20016a4e0f8c3b7f16970e3afa950ff5eb12fc3d4d607e08e649a250f6211e24",
+      "bytes": 423
+    }
+  },
+  "producer_source_manifest": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/source.json",
+  "producer_source_manifest_sha256": "3a1947c610bbe218ae2b69315d292cc9476610b1001ae4bfdacbae91df0aad9e",
+  "scope": "Compiled artifacts only; no executable was run. Original command-placement refusal archived separately, not a source/compiler failure."
+}

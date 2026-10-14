@@ -1,0 +1,12 @@
+server_utf8 / round=1: CPU 34.500 ms/1000 requests
+server_utf8 /json round=1: CPU 36.000 ms/1000 requests
+server_utf8 / round=1: CPU 33.500 ms/1000 requests
+server_utf8 /json round=1: CPU 36.000 ms/1000 requests
+server_utf8 / round=2: CPU 34.500 ms/1000 requests
+server_utf8 /json round=2: CPU 35.500 ms/1000 requests
+server_utf8 / round=2: CPU 34.000 ms/1000 requests
+server_utf8 /json round=2: CPU 35.500 ms/1000 requests
+server_utf8 / round=3: CPU 34.000 ms/1000 requests
+server_utf8 /json round=3: CPU 35.500 ms/1000 requests
+server_utf8 / round=3: CPU 33.500 ms/1000 requests
+server_utf8 /json round=3: CPU 35.500 ms/1000 requests

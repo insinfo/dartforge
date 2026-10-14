@@ -1,0 +1,124 @@
+{
+  "date": "2026-10-14",
+  "sdk": "3.6.2",
+  "compiler_sha256": "50c1a7a7ff7cc1b4e79ab0181c479f03c897d553913723cfdb1109d9589edfc4",
+  "jit_sha256": "e106c2da3f1156bdd851f45706d36644f375815b7a20fe933c765f7aef6b2354",
+  "kernels": {
+    "tracing": {
+      "kernels_ms": {
+        "fib": 7,
+        "trees": 23,
+        "numeric": 102,
+        "strings": 72,
+        "json": 101
+      },
+      "wall_ms": 1268.703958,
+      "peak_rss_bytes": 77283328
+    },
+    "legacy-arc": {
+      "kernels_ms": {
+        "fib": 15,
+        "trees": 255,
+        "numeric": 101,
+        "strings": 180,
+        "json": 354
+      },
+      "wall_ms": 3815.038333,
+      "peak_rss_bytes": 296124416
+    },
+    "prepared-arc": {
+      "kernels_ms": {
+        "fib": 15,
+        "trees": 398,
+        "numeric": 101,
+        "strings": 376,
+        "json": 897
+      },
+      "wall_ms": 7366.539958,
+      "peak_rss_bytes": 299941888
+    },
+    "official": {
+      "kernels_ms": {
+        "fib": 9,
+        "trees": 12,
+        "numeric": 100,
+        "strings": 45,
+        "json": 72
+      },
+      "wall_ms": 981.499959,
+      "peak_rss_bytes": 197672960
+    },
+    "jit": {
+      "kernels_ms": {
+        "fib": 19,
+        "trees": 56,
+        "numeric": 228,
+        "strings": 103,
+        "json": 224
+      },
+      "wall_ms": 2689.1985,
+      "peak_rss_bytes": 132988928
+    },
+    "vm": {
+      "kernels_ms": {
+        "fib": 11,
+        "trees": 17,
+        "numeric": 120,
+        "strings": 42,
+        "json": 71
+      },
+      "wall_ms": 1180.245583,
+      "peak_rss_bytes": 337281024
+    }
+  },
+  "artifact_bytes": {
+    "tracing/hello": 3169616,
+    "tracing/bench": 3368048,
+    "tracing/server_utf8": 4577328,
+    "legacy-arc/hello": 3037264,
+    "legacy-arc/bench": 3219168,
+    "prepared-arc/hello": 3583008,
+    "prepared-arc/bench": 3764944,
+    "official/hello": 5329888,
+    "official/bench": 5379136,
+    "official/server_utf8": 5625376
+  },
+  "http": [
+    {
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/tracing/server_utf8",
+      "route": "/",
+      "median_cpu_ms_per_1000_requests": 33.99999999999999,
+      "minimum": 33.99999999999999,
+      "maximum": 34.5
+    },
+    {
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/tracing/server_utf8",
+      "route": "/json",
+      "median_cpu_ms_per_1000_requests": 35.5,
+      "minimum": 35.5,
+      "maximum": 36.0
+    },
+    {
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/official/server_utf8",
+      "route": "/",
+      "median_cpu_ms_per_1000_requests": 33.49999999999999,
+      "minimum": 33.49999999999999,
+      "maximum": 34.5
+    },
+    {
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/official/server_utf8",
+      "route": "/json",
+      "median_cpu_ms_per_1000_requests": 35.5,
+      "minimum": 35.5,
+      "maximum": 36.0
+    }
+  ],
+  "limits": [
+    "Small CPU kernels, three alternating fresh process repetitions; millisecond timer resolution.",
+    "JIT run uses current default optimize=false; no VM hot reload latency benchmark.",
+    "Process wall/RSS includes JIT loading/compilation; kernel timings exclude them.",
+    "HTTP local Python client, one keep-alive connection, fixed20000requests/1000warmup per route across3alternating rounds; CPU counter0.01s.",
+    "Initial HTTP driver requested nonexistent /json-utf8 route: rejected body archived, corrected route /json invokes JsonUtf8Encoder. No source/artifact changes."
+  ],
+  "complete": true
+}

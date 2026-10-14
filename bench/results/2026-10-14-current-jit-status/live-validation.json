@@ -1,0 +1,173 @@
+{
+  "success": true,
+  "states": [
+    [
+      "LIVE",
+      "one",
+      "202",
+      "1",
+      "initial"
+    ],
+    [
+      "LIVE",
+      "two",
+      "202",
+      "2",
+      "null-added"
+    ],
+    [
+      "LIVE",
+      "three",
+      "202",
+      "3",
+      "null-added"
+    ],
+    [
+      "LIVE",
+      "four",
+      "202",
+      "4",
+      "null-added"
+    ]
+  ],
+  "exit_code": 0,
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit",
+  "compiler_sha256": "e106c2da3f1156bdd851f45706d36644f375815b7a20fe933c765f7aef6b2354",
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit",
+    "reload",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-jit-validation/fixture/main.dart",
+    "--sdk",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "--interval",
+    "50",
+    "--once"
+  ],
+  "events": [
+    {
+      "stream": "stderr",
+      "line": "[reload] generation 1: state preserved in the same session",
+      "unix": 1791996233.1273742
+    },
+    {
+      "stream": "stdout",
+      "line": "LIVE|one|202|1|initial",
+      "unix": 1791996233.3335779
+    },
+    {
+      "stream": "stderr",
+      "line": "[reload] generation 2: published into the running program (state preserved)",
+      "unix": 1791996233.524211
+    },
+    {
+      "stream": "stdout",
+      "line": "LIVE|two|202|2|null-added",
+      "unix": 1791996233.533291
+    },
+    {
+      "stream": "stderr",
+      "line": "[reload] generation 3: published into the running program (state preserved)",
+      "unix": 1791996233.688659
+    },
+    {
+      "stream": "stdout",
+      "line": "LIVE|three|202|3|null-added",
+      "unix": 1791996233.73348
+    },
+    {
+      "stream": "stderr",
+      "line": "[reload] generation 4: published into the running program (state preserved)",
+      "unix": 1791996233.911216
+    },
+    {
+      "stream": "stdout",
+      "line": "LIVE|four|202|4|null-added",
+      "unix": 1791996233.93347
+    }
+  ],
+  "rss_snapshots": [
+    {
+      "phase": "one",
+      "unix": 1791996233.357503,
+      "processes": [
+        {
+          "pid": 50454,
+          "ppid": 50451,
+          "rss_kib": 12640,
+          "command": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit reload /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-jit-validation/fixture/main.dart --sdk /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib --interval 50 --once"
+        },
+        {
+          "pid": 50455,
+          "ppid": 50454,
+          "rss_kib": 1488416,
+          "command": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit reload /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-jit-validation/fixture/main.dart --sdk /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib --interval 50 --once --child --supervisor 62798"
+        }
+      ]
+    },
+    {
+      "phase": "two",
+      "unix": 1791996233.556544,
+      "processes": [
+        {
+          "pid": 50454,
+          "ppid": 50451,
+          "rss_kib": 12640,
+          "command": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit reload /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-jit-validation/fixture/main.dart --sdk /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib --interval 50 --once"
+        },
+        {
+          "pid": 50455,
+          "ppid": 50454,
+          "rss_kib": 1489024,
+          "command": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit reload /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-jit-validation/fixture/main.dart --sdk /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib --interval 50 --once --child --supervisor 62798"
+        }
+      ]
+    },
+    {
+      "phase": "three",
+      "unix": 1791996233.7560792,
+      "processes": [
+        {
+          "pid": 50454,
+          "ppid": 50451,
+          "rss_kib": 12640,
+          "command": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit reload /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-jit-validation/fixture/main.dart --sdk /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib --interval 50 --once"
+        },
+        {
+          "pid": 50455,
+          "ppid": 50454,
+          "rss_kib": 1489072,
+          "command": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit reload /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-jit-validation/fixture/main.dart --sdk /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib --interval 50 --once --child --supervisor 62798"
+        }
+      ]
+    },
+    {
+      "phase": "four",
+      "unix": 1791996233.9568572,
+      "processes": [
+        {
+          "pid": 50454,
+          "ppid": 50451,
+          "rss_kib": 12640,
+          "command": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit reload /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-jit-validation/fixture/main.dart --sdk /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib --interval 50 --once"
+        },
+        {
+          "pid": 50455,
+          "ppid": 50454,
+          "rss_kib": 1489120,
+          "command": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit reload /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-jit-validation/fixture/main.dart --sdk /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib --interval 50 --once --child --supervisor 62798"
+        }
+      ]
+    }
+  ],
+  "fixture_versions_sha256": {
+    "one": "4fe98b7bd1376a9fb76e2c85dd2b2842b12c12b4c83e83cacce1a7c30f2ff36e",
+    "two": "881e0a650d426596c3cbf366bbe59e04476d586a662bcf62dffd809147f80e97",
+    "three": "392754d074d2bbe74bc2eb976ad99f41d4d14dd21e03f5fdfaf76c268b651740",
+    "four": "78c74fd230604858c52e9068e7bc5dae0ea8051fd9ddec197293cb5645991cd1"
+  },
+  "limits": [
+    "Diagnostic RSS at active phases, not benchmark or leak proof.",
+    "No hot reload timing comparison with official VM.",
+    "Ordinary async live fixture; default tracing only."
+  ]
+}

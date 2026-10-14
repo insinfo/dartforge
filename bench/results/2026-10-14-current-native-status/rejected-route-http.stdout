@@ -1,0 +1,2 @@
+server_utf8 / round=1: CPU 34.500 ms/1000 requests
+server_utf8 /json round=1: CPU 37.000 ms/1000 requests

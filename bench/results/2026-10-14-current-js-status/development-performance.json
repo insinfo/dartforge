@@ -1,0 +1,484 @@
+{
+  "window_start_utc": "2026-10-14T16:41:09.322054+00:00",
+  "window_end_utc": "2026-10-14T16:41:31.209460+00:00",
+  "compiler_sha256": "50c1a7a7ff7cc1b4e79ab0181c479f03c897d553913723cfdb1109d9589edfc4",
+  "runtime_sha256": "28dc6b642e1b3736dda5a7c46f5cbfab056f5b3560f31f802ef7ef94744218ea",
+  "timer_contract": "Original six-call kernel contract; performance.now exposed uniformly via self/window; median five after first warmup, median three fresh process reps.",
+  "scope": "Two development kernels, not broad parity. Process wall includes startup plus all original work and is not pure startup latency.",
+  "runs": [
+    {
+      "case": "typed_data",
+      "profile": "ForgeDev",
+      "rep": 0,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/typed_data/ForgeDev/host.mjs"
+      ],
+      "exit": 0,
+      "wall_seconds_including_startup_and_workload": 3.3473924999999998,
+      "samples_us": {
+        "product_f64": [
+          195192,
+          186906,
+          202885,
+          192877,
+          189333,
+          188784
+        ],
+        "fnv_bytes": [
+          334308,
+          338401,
+          335117,
+          338359,
+          331944,
+          333180
+        ]
+      },
+      "medians_us": {
+        "product_f64": 189333,
+        "fnv_bytes": 335117
+      }
+    },
+    {
+      "case": "typed_data",
+      "profile": "DDC",
+      "rep": 0,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/typed_data/DDC/host.mjs"
+      ],
+      "exit": 0,
+      "wall_seconds_including_startup_and_workload": 3.3315640419999997,
+      "samples_us": {
+        "product_f64": [
+          194236,
+          191143,
+          193704,
+          195342,
+          190758,
+          185897
+        ],
+        "fnv_bytes": [
+          341883,
+          334382,
+          324696,
+          333759,
+          329629,
+          338803
+        ]
+      },
+      "medians_us": {
+        "product_f64": 191143,
+        "fnv_bytes": 333759
+      }
+    },
+    {
+      "case": "typed_data",
+      "profile": "DDC",
+      "rep": 1,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/typed_data/DDC/host.mjs"
+      ],
+      "exit": 0,
+      "wall_seconds_including_startup_and_workload": 3.4984642080000006,
+      "samples_us": {
+        "product_f64": [
+          204233,
+          198348,
+          195902,
+          197455,
+          199494,
+          205742
+        ],
+        "fnv_bytes": [
+          354406,
+          345994,
+          352804,
+          350514,
+          355374,
+          355823
+        ]
+      },
+      "medians_us": {
+        "product_f64": 198348,
+        "fnv_bytes": 352804
+      }
+    },
+    {
+      "case": "typed_data",
+      "profile": "ForgeDev",
+      "rep": 1,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/typed_data/ForgeDev/host.mjs"
+      ],
+      "exit": 0,
+      "wall_seconds_including_startup_and_workload": 3.368564874999999,
+      "samples_us": {
+        "product_f64": [
+          193015,
+          194448,
+          194156,
+          193025,
+          192780,
+          192744
+        ],
+        "fnv_bytes": [
+          343303,
+          339645,
+          334790,
+          337631,
+          337364,
+          337050
+        ]
+      },
+      "medians_us": {
+        "product_f64": 193025,
+        "fnv_bytes": 337364
+      }
+    },
+    {
+      "case": "typed_data",
+      "profile": "ForgeDev",
+      "rep": 2,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/typed_data/ForgeDev/host.mjs"
+      ],
+      "exit": 0,
+      "wall_seconds_including_startup_and_workload": 3.2986042080000004,
+      "samples_us": {
+        "product_f64": [
+          186495,
+          181264,
+          183475,
+          180723,
+          186493,
+          184962
+        ],
+        "fnv_bytes": [
+          335760,
+          335323,
+          338827,
+          336176,
+          340062,
+          333181
+        ]
+      },
+      "medians_us": {
+        "product_f64": 183475,
+        "fnv_bytes": 336176
+      }
+    },
+    {
+      "case": "typed_data",
+      "profile": "DDC",
+      "rep": 2,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/typed_data/DDC/host.mjs"
+      ],
+      "exit": 0,
+      "wall_seconds_including_startup_and_workload": 3.510737917,
+      "samples_us": {
+        "product_f64": [
+          201054,
+          194712,
+          208880,
+          196243,
+          199870,
+          199170
+        ],
+        "fnv_bytes": [
+          351197,
+          352931,
+          355989,
+          356920,
+          356087,
+          355329
+        ]
+      },
+      "medians_us": {
+        "product_f64": 199170,
+        "fnv_bytes": 355989
+      }
+    },
+    {
+      "case": "calls",
+      "profile": "ForgeDev",
+      "rep": 0,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/calls/ForgeDev/host.mjs"
+      ],
+      "exit": 0,
+      "wall_seconds_including_startup_and_workload": 0.2536051669999999,
+      "samples_us": {
+        "shapes": [
+          6435,
+          2621,
+          2664,
+          2622,
+          2283,
+          2615
+        ],
+        "closures": [
+          11085,
+          10565,
+          10599,
+          10581,
+          10590,
+          10533
+        ],
+        "fib": [
+          5299,
+          5147,
+          5246,
+          5240,
+          5244,
+          5188
+        ]
+      },
+      "medians_us": {
+        "shapes": 2621,
+        "closures": 10581,
+        "fib": 5240
+      }
+    },
+    {
+      "case": "calls",
+      "profile": "DDC",
+      "rep": 0,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/calls/DDC/host.mjs"
+      ],
+      "exit": 0,
+      "wall_seconds_including_startup_and_workload": 0.24522212499999796,
+      "samples_us": {
+        "shapes": [
+          6956,
+          2306,
+          2578,
+          2614,
+          2925,
+          2737
+        ],
+        "closures": [
+          9869,
+          9399,
+          9421,
+          9360,
+          9337,
+          9330
+        ],
+        "fib": [
+          5117,
+          4866,
+          4869,
+          4859,
+          4864,
+          4841
+        ]
+      },
+      "medians_us": {
+        "shapes": 2614,
+        "closures": 9360,
+        "fib": 4864
+      }
+    },
+    {
+      "case": "calls",
+      "profile": "DDC",
+      "rep": 1,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/calls/DDC/host.mjs"
+      ],
+      "exit": 0,
+      "wall_seconds_including_startup_and_workload": 0.2444000829999986,
+      "samples_us": {
+        "shapes": [
+          7231,
+          2362,
+          2652,
+          2604,
+          2364,
+          2637
+        ],
+        "closures": [
+          9873,
+          9387,
+          9457,
+          9336,
+          9397,
+          9356
+        ],
+        "fib": [
+          5244,
+          5147,
+          5154,
+          5151,
+          5199,
+          5159
+        ]
+      },
+      "medians_us": {
+        "shapes": 2604,
+        "closures": 9387,
+        "fib": 5154
+      }
+    },
+    {
+      "case": "calls",
+      "profile": "ForgeDev",
+      "rep": 1,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/calls/ForgeDev/host.mjs"
+      ],
+      "exit": 0,
+      "wall_seconds_including_startup_and_workload": 0.2541805830000001,
+      "samples_us": {
+        "shapes": [
+          6486,
+          2703,
+          2580,
+          2279,
+          2389,
+          2293
+        ],
+        "closures": [
+          11069,
+          10554,
+          10659,
+          10725,
+          10676,
+          10588
+        ],
+        "fib": [
+          5427,
+          5318,
+          5301,
+          5284,
+          5276,
+          5330
+        ]
+      },
+      "medians_us": {
+        "shapes": 2389,
+        "closures": 10659,
+        "fib": 5301
+      }
+    },
+    {
+      "case": "calls",
+      "profile": "ForgeDev",
+      "rep": 2,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/calls/ForgeDev/host.mjs"
+      ],
+      "exit": 0,
+      "wall_seconds_including_startup_and_workload": 0.2545285000000028,
+      "samples_us": {
+        "shapes": [
+          6203,
+          2627,
+          2518,
+          2433,
+          2344,
+          2339
+        ],
+        "closures": [
+          11187,
+          10595,
+          10583,
+          10651,
+          10707,
+          10571
+        ],
+        "fib": [
+          5226,
+          5098,
+          5083,
+          5103,
+          5068,
+          5074
+        ]
+      },
+      "medians_us": {
+        "shapes": 2433,
+        "closures": 10595,
+        "fib": 5083
+      }
+    },
+    {
+      "case": "calls",
+      "profile": "DDC",
+      "rep": 2,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/calls/DDC/host.mjs"
+      ],
+      "exit": 0,
+      "wall_seconds_including_startup_and_workload": 0.24428829200000024,
+      "samples_us": {
+        "shapes": [
+          7113,
+          2487,
+          2649,
+          2584,
+          2671,
+          2596
+        ],
+        "closures": [
+          9858,
+          9445,
+          9465,
+          9353,
+          9341,
+          9395
+        ],
+        "fib": [
+          5071,
+          4860,
+          4837,
+          4850,
+          4838,
+          4980
+        ]
+      },
+      "medians_us": {
+        "shapes": 2596,
+        "closures": 9395,
+        "fib": 4850
+      }
+    }
+  ],
+  "summary_medians_us": {
+    "typed_data": {
+      "ForgeDev": {
+        "product_f64": 189333,
+        "fnv_bytes": 336176
+      },
+      "DDC": {
+        "product_f64": 198348,
+        "fnv_bytes": 352804
+      }
+    },
+    "calls": {
+      "ForgeDev": {
+        "shapes": 2433,
+        "closures": 10595,
+        "fib": 5240
+      },
+      "DDC": {
+        "shapes": 2604,
+        "closures": 9387,
+        "fib": 4864
+      }
+    }
+  }
+}

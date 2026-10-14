@@ -1,0 +1,2 @@
+/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/typed_data.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/typed_data/raw/program.js (192 KB; 2 modules; user 6 KB; runtime 210 -> 210 KB, 0/0 live units)
+world: classes 0/0 instantiated + 0 type only; functions 4/4; 249 selectors; 4 round(s); world 3 ms, emission 27 ms, verifier 11 ms

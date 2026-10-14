@@ -1,0 +1,27 @@
+{
+  "files": {
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart": {
+      "sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+      "bytes": 38668192
+    },
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dart2js.dart.snapshot": {
+      "sha256": "92b4e561e400a4cba6ed9cfdc8e3d0a463942eacc3125a92846b11c40476226e",
+      "bytes": 87808432
+    },
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot": {
+      "sha256": "adc0425b882d82ac3a6562afd58dad1a0b6f0e22dce9be729ab54244a0927478",
+      "bytes": 58831808
+    },
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/runtime/ddc/dart_sdk.js": {
+      "sha256": "28dc6b642e1b3736dda5a7c46f5cbfab056f5b3560f31f802ef7ef94744218ea",
+      "bytes": 7087858
+    },
+    "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node": {
+      "sha256": "07be551af5db7e5a5516afcf4163c11eabca799ec680328b064fac0a00eb5e3e",
+      "bytes": 122127712
+    }
+  },
+  "CPU": "Apple M4",
+  "system": "ProductName:\t\tmacOS\nProductVersion:\t\t27.2\nBuildVersion:\t\t26B5101f",
+  "scope": "Root-authorized quiet runtime window; usual idle browser/background OS services may remain. Exactly three fresh alternating repetitions, not confidence intervals."
+}

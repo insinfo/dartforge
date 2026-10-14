@@ -1,0 +1,36 @@
+{
+  "command": [
+    "python3",
+    "scripts/measure-http-pairs.py",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/tracing/server_utf8",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/official/server_utf8",
+    "--requests",
+    "20000",
+    "--warmup",
+    "1000",
+    "--rounds",
+    "3",
+    "--routes",
+    "/,/json",
+    "--output",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-native-status/http.json"
+  ],
+  "started_utc": "2026-10-14T17:00:40.378853+00:00",
+  "finished_utc": "2026-10-14T17:01:00.261716+00:00",
+  "exit": 0,
+  "artifacts": [
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/tracing/server_utf8",
+      "sha256": "9b343f61be4afd9be240610f328c1ec96b56eee10bd9b079eac2655814b30a13",
+      "bytes": 4577328
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/official/server_utf8",
+      "sha256": "76debde75fbb44b651b11d6be4a130192e1ba5d5bdca5eb4dfe2b57dece42bab",
+      "bytes": 5625376
+    }
+  ],
+  "harness_sha256": "596adbe93ab93baa2da08ba2823de6b3fbb1f8b44e59aa6a7904f796f6bbb503",
+  "inputs_stable": true,
+  "scope": "Fixed work, one local Python keep-alive connection, verified response bytes, CPU ps counter resolution0.01s; throughput client-limited."
+}

@@ -1,0 +1,10 @@
+{
+  "dartforge-lsp": {
+    "sha256": "05003c196e3db2ad8a49e2e880c1269fa8f0db0c638cd945425405d97d4af504",
+    "bytes": 13726352
+  },
+  "dartforge-parity": {
+    "sha256": "82448134157b738c22821869035b7314ef85dc294c16bfa0924441c787839da5",
+    "bytes": 9327040
+  }
+}

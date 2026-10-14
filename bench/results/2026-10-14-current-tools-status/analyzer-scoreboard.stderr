@@ -1,0 +1,34 @@
+group analyzer: 8253 files
+  20/344 batches
+  40/344 batches
+  60/344 batches
+  80/344 batches
+  100/344 batches
+  120/344 batches
+  140/344 batches
+  160/344 batches
+  180/344 batches
+  200/344 batches
+  220/344 batches
+  240/344 batches
+  260/344 batches
+  280/344 batches
+  300/344 batches
+  320/344 batches
+  340/344 batches
+  344/344 batches
+group analyzer: 8.5 s
+group analyzer-3.13: 2 files
+  1/1 batches
+group analyzer-3.13: 0.0 s
+group linguagem: 1179 files
+  20/50 batches
+  40/50 batches
+  50/50 batches
+group linguagem: 1.5 s
+group linguagem-3.13: 5 files
+  1/1 batches
+group linguagem-3.13: 0.1 s
+group sonda: 1 files
+  1/1 batches
+group sonda: 0.0 s

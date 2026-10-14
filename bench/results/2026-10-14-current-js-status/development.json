@@ -1,0 +1,271 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+  "compiler_sha256": "50c1a7a7ff7cc1b4e79ab0181c479f03c897d553913723cfdb1109d9589edfc4",
+  "runtime_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/runtime/ddc/dart_sdk.js",
+  "runtime_sha256": "28dc6b642e1b3736dda5a7c46f5cbfab056f5b3560f31f802ef7ef94744218ea",
+  "cases": {
+    "correctness.typed_data": {
+      "ForgeDev": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+          "compile-js",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/typed_data.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/correctness/typed_data/ForgeDev",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness",
+        "exit": 0,
+        "compile_wall_seconds": 0.020210459000000004,
+        "folder": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/correctness/typed_data/ForgeDev",
+        "host": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/correctness/typed_data/ForgeDev/host.mjs",
+        "artifacts": {
+          "dart_sdk.js": "28dc6b642e1b3736dda5a7c46f5cbfab056f5b3560f31f802ef7ef94744218ea",
+          "preambulo.js": "1515caaa04663d6658e7199c3828b6b0581d0c8fe46737c9747e09a4839e8a25",
+          "host.mjs": "e45d07b500e7dd35070e69f21161f129d265c3bac24b2c2b782fad7644806620",
+          "main.mjs": "5afbdbd32f5a56b25cfe742da450e45e9972cb399e56be15f3cd9bd24066b809",
+          "common.js": "96b9b0025fb7a89d206ff19f2c036c07cec328d8d06bd3a5c955bf0d9d2cb1dc",
+          "typed_data.js": "db0019f47c1ad1406e186abb7b02d1a5ecbb3bf7ba7e9280427de6a5798b79be"
+        },
+        "source_sha256": "8d182ae8eccd5b554c3db6c9997c3e2d0a01b1c5273012dec7129fd949b20973",
+        "emitted_module_bytes_excluding_shared_sdk": 4323,
+        "shared_sdk_runtime_bytes": 7087858,
+        "size_policy": "Own module + wrapper bytes reported separately from shared SDK runtime; Forge writes a runtime copy, DDC points to same captured runtime."
+      },
+      "DDC": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot",
+          "--modules=es6",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/correctness/typed_data/DDC/program.js",
+          "typed_data.dart"
+        ],
+        "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness",
+        "exit": 0,
+        "compile_wall_seconds": 0.139827542,
+        "folder": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/correctness/typed_data/DDC",
+        "host": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/correctness/typed_data/DDC/host.mjs",
+        "artifacts": {
+          "host.mjs": "e45d07b500e7dd35070e69f21161f129d265c3bac24b2c2b782fad7644806620",
+          "main.mjs": "f20bc6406e92b7b42b342096986bd712f0fc886050048c49bd4c3df6b04f8305",
+          "program.js": "ab9b3c75a1753cfb82f9deb17fd3ad82433be47a9ce74c3392d998ca35506a76"
+        },
+        "source_sha256": "8d182ae8eccd5b554c3db6c9997c3e2d0a01b1c5273012dec7129fd949b20973",
+        "emitted_module_bytes_excluding_shared_sdk": 11864,
+        "shared_sdk_runtime_bytes": 7087858,
+        "size_policy": "Own module + wrapper bytes reported separately from shared SDK runtime; Forge writes a runtime copy, DDC points to same captured runtime."
+      }
+    },
+    "correctness.calls": {
+      "ForgeDev": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+          "compile-js",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/calls.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/correctness/calls/ForgeDev",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness",
+        "exit": 0,
+        "compile_wall_seconds": 0.020009708000000015,
+        "folder": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/correctness/calls/ForgeDev",
+        "host": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/correctness/calls/ForgeDev/host.mjs",
+        "artifacts": {
+          "dart_sdk.js": "28dc6b642e1b3736dda5a7c46f5cbfab056f5b3560f31f802ef7ef94744218ea",
+          "preambulo.js": "1515caaa04663d6658e7199c3828b6b0581d0c8fe46737c9747e09a4839e8a25",
+          "host.mjs": "e45d07b500e7dd35070e69f21161f129d265c3bac24b2c2b782fad7644806620",
+          "main.mjs": "1b925192216b53884d5b431fd6d6872a7138ca5e371bd5fba35fbacf9118bc5d",
+          "calls.js": "d9552f73b58f789060076d23782887beddc01e0fc9312f856d2a5dfdc41cb87b",
+          "common.js": "96b9b0025fb7a89d206ff19f2c036c07cec328d8d06bd3a5c955bf0d9d2cb1dc"
+        },
+        "source_sha256": "418bad90bc6fbc837261bfa1f97494b3afe54cc86f9c61c1113480d3c45510e0",
+        "emitted_module_bytes_excluding_shared_sdk": 8358,
+        "shared_sdk_runtime_bytes": 7087858,
+        "size_policy": "Own module + wrapper bytes reported separately from shared SDK runtime; Forge writes a runtime copy, DDC points to same captured runtime."
+      },
+      "DDC": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot",
+          "--modules=es6",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/correctness/calls/DDC/program.js",
+          "calls.dart"
+        ],
+        "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness",
+        "exit": 0,
+        "compile_wall_seconds": 0.141972458,
+        "folder": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/correctness/calls/DDC",
+        "host": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/correctness/calls/DDC/host.mjs",
+        "artifacts": {
+          "host.mjs": "e45d07b500e7dd35070e69f21161f129d265c3bac24b2c2b782fad7644806620",
+          "main.mjs": "01ff7da9422ccaeebe68c4ff9327a85c687198efe80927fa1e0245c5f1b38584",
+          "program.js": "02f452cb1fb207cf7cf8f348590224416df8369ba89d96af463d864106d87eb4"
+        },
+        "source_sha256": "418bad90bc6fbc837261bfa1f97494b3afe54cc86f9c61c1113480d3c45510e0",
+        "emitted_module_bytes_excluding_shared_sdk": 8084,
+        "shared_sdk_runtime_bytes": 7087858,
+        "size_policy": "Own module + wrapper bytes reported separately from shared SDK runtime; Forge writes a runtime copy, DDC points to same captured runtime."
+      }
+    },
+    "timing.typed_data": {
+      "ForgeDev": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+          "compile-js",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/typed_data.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/typed_data/ForgeDev",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance",
+        "exit": 0,
+        "compile_wall_seconds": 0.020144208000000052,
+        "folder": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/typed_data/ForgeDev",
+        "host": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/typed_data/ForgeDev/host.mjs",
+        "artifacts": {
+          "dart_sdk.js": "28dc6b642e1b3736dda5a7c46f5cbfab056f5b3560f31f802ef7ef94744218ea",
+          "preambulo.js": "1515caaa04663d6658e7199c3828b6b0581d0c8fe46737c9747e09a4839e8a25",
+          "host.mjs": "e45d07b500e7dd35070e69f21161f129d265c3bac24b2c2b782fad7644806620",
+          "main.mjs": "5afbdbd32f5a56b25cfe742da450e45e9972cb399e56be15f3cd9bd24066b809",
+          "common.js": "2a38ea11b2e6d78e5faa7a3da56b716fc0fd10b09b55a9e1b256c7573ebd49c8",
+          "typed_data.js": "963e7ba3f5b4f3c7d5caac0128a254a2a26ceaddbc9870389ba2aadf9fc08bbf"
+        },
+        "source_sha256": "8d182ae8eccd5b554c3db6c9997c3e2d0a01b1c5273012dec7129fd949b20973",
+        "emitted_module_bytes_excluding_shared_sdk": 4703,
+        "shared_sdk_runtime_bytes": 7087858,
+        "size_policy": "Own module + wrapper bytes reported separately from shared SDK runtime; Forge writes a runtime copy, DDC points to same captured runtime."
+      },
+      "DDC": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot",
+          "--modules=es6",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/typed_data/DDC/program.js",
+          "typed_data.dart"
+        ],
+        "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance",
+        "exit": 0,
+        "compile_wall_seconds": 0.13956754100000002,
+        "folder": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/typed_data/DDC",
+        "host": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/typed_data/DDC/host.mjs",
+        "artifacts": {
+          "host.mjs": "e45d07b500e7dd35070e69f21161f129d265c3bac24b2c2b782fad7644806620",
+          "main.mjs": "f20bc6406e92b7b42b342096986bd712f0fc886050048c49bd4c3df6b04f8305",
+          "program.js": "0574782fdb8c35d63e5766a1a7aaeccbdddf158b944d3762bc97e60815f0c915"
+        },
+        "source_sha256": "8d182ae8eccd5b554c3db6c9997c3e2d0a01b1c5273012dec7129fd949b20973",
+        "emitted_module_bytes_excluding_shared_sdk": 12832,
+        "shared_sdk_runtime_bytes": 7087858,
+        "size_policy": "Own module + wrapper bytes reported separately from shared SDK runtime; Forge writes a runtime copy, DDC points to same captured runtime."
+      }
+    },
+    "timing.calls": {
+      "ForgeDev": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+          "compile-js",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/calls.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/calls/ForgeDev",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance",
+        "exit": 0,
+        "compile_wall_seconds": 0.020370582999999942,
+        "folder": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/calls/ForgeDev",
+        "host": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/calls/ForgeDev/host.mjs",
+        "artifacts": {
+          "dart_sdk.js": "28dc6b642e1b3736dda5a7c46f5cbfab056f5b3560f31f802ef7ef94744218ea",
+          "preambulo.js": "1515caaa04663d6658e7199c3828b6b0581d0c8fe46737c9747e09a4839e8a25",
+          "host.mjs": "e45d07b500e7dd35070e69f21161f129d265c3bac24b2c2b782fad7644806620",
+          "main.mjs": "1b925192216b53884d5b431fd6d6872a7138ca5e371bd5fba35fbacf9118bc5d",
+          "calls.js": "32830d073f405ce63509e7a5d7a154c5e77096fde12832ce6036584f73017c7a",
+          "common.js": "2a38ea11b2e6d78e5faa7a3da56b716fc0fd10b09b55a9e1b256c7573ebd49c8"
+        },
+        "source_sha256": "418bad90bc6fbc837261bfa1f97494b3afe54cc86f9c61c1113480d3c45510e0",
+        "emitted_module_bytes_excluding_shared_sdk": 8662,
+        "shared_sdk_runtime_bytes": 7087858,
+        "size_policy": "Own module + wrapper bytes reported separately from shared SDK runtime; Forge writes a runtime copy, DDC points to same captured runtime."
+      },
+      "DDC": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot",
+          "--modules=es6",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/calls/DDC/program.js",
+          "calls.dart"
+        ],
+        "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance",
+        "exit": 0,
+        "compile_wall_seconds": 0.14133508399999994,
+        "folder": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/calls/DDC",
+        "host": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/timing/calls/DDC/host.mjs",
+        "artifacts": {
+          "host.mjs": "e45d07b500e7dd35070e69f21161f129d265c3bac24b2c2b782fad7644806620",
+          "main.mjs": "01ff7da9422ccaeebe68c4ff9327a85c687198efe80927fa1e0245c5f1b38584",
+          "program.js": "cca5035112ea7ded069331f8af861b7a1a02efe2f9552d290001f01a6d77afe8"
+        },
+        "source_sha256": "418bad90bc6fbc837261bfa1f97494b3afe54cc86f9c61c1113480d3c45510e0",
+        "emitted_module_bytes_excluding_shared_sdk": 8533,
+        "shared_sdk_runtime_bytes": 7087858,
+        "size_policy": "Own module + wrapper bytes reported separately from shared SDK runtime; Forge writes a runtime copy, DDC points to same captured runtime."
+      }
+    }
+  },
+  "scope": "Development modules share installed generated Dart 3.6.2 SDK runtime. Cold Node startup separate from warmed kernel samples. No full application readiness claim.",
+  "correctness": {
+    "typed_data": {
+      "ForgeDev": {
+        "command": [
+          "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/correctness/typed_data/ForgeDev/host.mjs"
+        ],
+        "exit": 0,
+        "stdout": "product_f64: 749982499.8499922\nfnv_bytes: 1540479600\n",
+        "stderr": "",
+        "exact_O2": true
+      },
+      "DDC": {
+        "command": [
+          "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/correctness/typed_data/DDC/host.mjs"
+        ],
+        "exit": 0,
+        "stdout": "product_f64: 749982499.8499922\nfnv_bytes: 1540479600\n",
+        "stderr": "",
+        "exact_O2": true
+      }
+    },
+    "calls": {
+      "ForgeDev": {
+        "command": [
+          "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/correctness/calls/ForgeDev/host.mjs"
+        ],
+        "exit": 0,
+        "stdout": "shapes: 9242078840.029448\nclosures: 722784\nfib: 832040\n",
+        "stderr": "",
+        "exact_O2": true
+      },
+      "DDC": {
+        "command": [
+          "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/development/correctness/calls/DDC/host.mjs"
+        ],
+        "exit": 0,
+        "stdout": "shapes: 9242078840.029448\nclosures: 722784\nfib: 832040\n",
+        "stderr": "",
+        "exact_O2": true
+      }
+    }
+  }
+}

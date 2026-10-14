@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-14",
+  "producer_source_hashes_at_copy": 1500,
+  "sdk": {
+    "version": "3.6.2",
+    "path": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk",
+    "executable_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa"
+  },
+  "source_changes_since_copy": [],
+  "performance_timings_measured": false,
+  "formatter": {
+    "input_files": 13181,
+    "jointly_accepted_exact_utf8_files": 10474,
+    "byte_differences": 0,
+    "sdk_only_accepted": 0,
+    "native_only_accepted": 2,
+    "native_only_acceptance_gaps": [
+      "corpus/specification/e2/d15_new_214.dart: constructor tearoff under@dart2.14",
+      "corpus/specification/e2/d30_late_211.dart: late/required under@dart2.11"
+    ],
+    "sdk_library": {
+      "input_files": 426,
+      "native_accepted": 426,
+      "sdk_accepted": 426,
+      "jointly_accepted": 426,
+      "exact_bytes": 426,
+      "byte_mismatches": [],
+      "native_only_accepted": [],
+      "sdk_only_accepted": []
+    },
+    "rejected_inputs_separately_counted": true,
+    "fresh_sdk_oracle": true
+  },
+  "complete_correctness": true,
+  "production_ready_claim": false
+}

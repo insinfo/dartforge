@@ -1,0 +1,4 @@
+json exact O2 True VM exact False
+typed_data exact O2 True VM exact False
+objects_in_collections exact O2 True VM exact False
+calls exact O2 True VM exact True

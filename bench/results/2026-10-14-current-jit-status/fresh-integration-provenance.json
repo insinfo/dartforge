@@ -1,0 +1,13 @@
+{
+  "test_binary_sha256": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/callback_retention-094c60f759234ff3": "13357971ecc2ac09f1d5f98524f18b3925b4ca6bc412c07b852509151091115c",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/hot_reload-53d04ec4cab7e889": "f7676997320a7e77ae16274c68758f9fc606f5b87166594f7ad603507427e719"
+  },
+  "command": "cargo test --locked -p dartforge-jit --test hot_reload --test callback_retention -- --include-ignored --test-threads=1",
+  "exit_code": 0,
+  "counts": [
+    5,
+    16
+  ],
+  "scope": "Actual compiled current source integration tests, with declared retention count assertions; not a runtime memory benchmark."
+}

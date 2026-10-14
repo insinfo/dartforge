@@ -1,0 +1,706 @@
+{
+  "schema": 1,
+  "sdk_lib": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+  "lsp": {},
+  "analyzer": [
+    {
+      "case": "valid_sdk",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/valid_sdk.dart",
+      "source_sha256": "ebcd39618d5504249e4326953625cb9d7c21a7120184b13da26e3a4acd92f3cb",
+      "exit_codes": {
+        "official": 0,
+        "dartforge": 0
+      },
+      "exact_match": true,
+      "official": [],
+      "dartforge": [],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "non_bool",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/non_bool.dart",
+      "source_sha256": "2ce315376e68c0624baa6735f793c8c11091fd514e72ba446aae5bec8f370d64",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 3
+      },
+      "exact_match": true,
+      "official": [
+        {
+          "code": "non_bool_condition",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/non_bool.dart",
+            "range": {
+              "start": {
+                "offset": 18,
+                "line": 1,
+                "column": 19
+              },
+              "end": {
+                "offset": 19,
+                "line": 1,
+                "column": 20
+              }
+            }
+          },
+          "problemMessage": "Conditions must have a static type of 'bool'.",
+          "correctionMessage": "Try changing the condition.",
+          "documentation": "https://dart.dev/diagnostics/non_bool_condition"
+        }
+      ],
+      "dartforge": [
+        {
+          "code": "non_bool_condition",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/non_bool.dart",
+            "range": {
+              "start": {
+                "offset": 18,
+                "line": 1,
+                "column": 19
+              },
+              "end": {
+                "offset": 19,
+                "line": 1,
+                "column": 20
+              }
+            }
+          },
+          "problemMessage": "Conditions must have a static type of 'bool'.",
+          "correctionMessage": "Try changing the condition.",
+          "documentation": "https://dart.dev/diagnostics/non_bool_condition"
+        }
+      ],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "undefined",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/undefined.dart",
+      "source_sha256": "d86dfaabe860f5b968d40e902625f857ad3829e04fb285387597409943858c13",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 3
+      },
+      "exact_match": true,
+      "official": [
+        {
+          "code": "undefined_identifier",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/undefined.dart",
+            "range": {
+              "start": {
+                "offset": 20,
+                "line": 1,
+                "column": 21
+              },
+              "end": {
+                "offset": 27,
+                "line": 1,
+                "column": 28
+              }
+            }
+          },
+          "problemMessage": "Undefined name 'missing'.",
+          "correctionMessage": "Try correcting the name to one that is defined, or defining the name.",
+          "documentation": "https://dart.dev/diagnostics/undefined_identifier"
+        }
+      ],
+      "dartforge": [
+        {
+          "code": "undefined_identifier",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/undefined.dart",
+            "range": {
+              "start": {
+                "offset": 20,
+                "line": 1,
+                "column": 21
+              },
+              "end": {
+                "offset": 27,
+                "line": 1,
+                "column": 28
+              }
+            }
+          },
+          "problemMessage": "Undefined name 'missing'.",
+          "correctionMessage": "Try correcting the name to one that is defined, or defining the name.",
+          "documentation": "https://dart.dev/diagnostics/undefined_identifier"
+        }
+      ],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "assignment",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/assignment.dart",
+      "source_sha256": "f8fec0dd8767a12f4853b575da87ea5421001f9d4f006eb3b3aae8619ed9434c",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 0
+      },
+      "exact_match": false,
+      "official": [
+        {
+          "code": "invalid_assignment",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/assignment.dart",
+            "range": {
+              "start": {
+                "offset": 26,
+                "line": 1,
+                "column": 27
+              },
+              "end": {
+                "offset": 33,
+                "line": 1,
+                "column": 34
+              }
+            }
+          },
+          "problemMessage": "A value of type 'String' can't be assigned to a variable of type 'int'.",
+          "correctionMessage": "Try changing the type of the variable, or casting the right-hand type to 'int'.",
+          "documentation": "https://dart.dev/diagnostics/invalid_assignment"
+        }
+      ],
+      "dartforge": [],
+      "missing": [
+        {
+          "code": "invalid_assignment",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/assignment.dart",
+            "range": {
+              "start": {
+                "offset": 26,
+                "line": 1,
+                "column": 27
+              },
+              "end": {
+                "offset": 33,
+                "line": 1,
+                "column": 34
+              }
+            }
+          },
+          "problemMessage": "A value of type 'String' can't be assigned to a variable of type 'int'.",
+          "correctionMessage": "Try changing the type of the variable, or casting the right-hand type to 'int'.",
+          "documentation": "https://dart.dev/diagnostics/invalid_assignment"
+        }
+      ],
+      "additional": [],
+      "unfiltered": {
+        "exit_code": 3,
+        "exact_match": true,
+        "report": {
+          "version": 1,
+          "diagnostics": [
+            {
+              "code": "invalid_assignment",
+              "severity": "ERROR",
+              "type": "COMPILE_TIME_ERROR",
+              "location": {
+                "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/assignment.dart",
+                "range": {
+                  "start": {
+                    "offset": 26,
+                    "line": 1,
+                    "column": 27
+                  },
+                  "end": {
+                    "offset": 33,
+                    "line": 1,
+                    "column": 34
+                  }
+                }
+              },
+              "problemMessage": "A value of type 'String' can't be assigned to a variable of type 'int'.",
+              "correctionMessage": "Try changing the type of the variable, or casting the right-hand type to 'int'.",
+              "documentation": "https://dart.dev/diagnostics/invalid_assignment"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "case": "syntax",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/syntax.dart",
+      "source_sha256": "b85e99b2b899a8fb5c3a85d4681ebe683aaf5adf4f7eba4f38d8dbf859ae1f0d",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 3
+      },
+      "exact_match": true,
+      "official": [
+        {
+          "code": "missing_identifier",
+          "severity": "ERROR",
+          "type": "SYNTACTIC_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/syntax.dart",
+            "range": {
+              "start": {
+                "offset": 28,
+                "line": 1,
+                "column": 29
+              },
+              "end": {
+                "offset": 29,
+                "line": 1,
+                "column": 30
+              }
+            }
+          },
+          "problemMessage": "Expected an identifier."
+        }
+      ],
+      "dartforge": [
+        {
+          "code": "missing_identifier",
+          "severity": "ERROR",
+          "type": "SYNTACTIC_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/syntax.dart",
+            "range": {
+              "start": {
+                "offset": 28,
+                "line": 1,
+                "column": 29
+              },
+              "end": {
+                "offset": 29,
+                "line": 1,
+                "column": 30
+              }
+            }
+          },
+          "problemMessage": "Expected an identifier."
+        }
+      ],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "nullable_receiver",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/nullable_receiver.dart",
+      "source_sha256": "f4ef6be3aa7ee297dfc73860eb680aa4a36f7a6f04cf70d6aaa644993275acd7",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 3
+      },
+      "exact_match": true,
+      "official": [
+        {
+          "code": "unchecked_use_of_nullable_value",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/nullable_receiver.dart",
+            "range": {
+              "start": {
+                "offset": 36,
+                "line": 1,
+                "column": 37
+              },
+              "end": {
+                "offset": 42,
+                "line": 1,
+                "column": 43
+              }
+            }
+          },
+          "problemMessage": "The property 'length' can't be unconditionally accessed because the receiver can be 'null'.",
+          "correctionMessage": "Try making the access conditional (using '?.') or adding a null check to the target ('!').",
+          "documentation": "https://dart.dev/diagnostics/unchecked_use_of_nullable_value"
+        }
+      ],
+      "dartforge": [
+        {
+          "code": "unchecked_use_of_nullable_value",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/nullable_receiver.dart",
+            "range": {
+              "start": {
+                "offset": 36,
+                "line": 1,
+                "column": 37
+              },
+              "end": {
+                "offset": 42,
+                "line": 1,
+                "column": 43
+              }
+            }
+          },
+          "problemMessage": "The property 'length' can't be unconditionally accessed because the receiver can be 'null'.",
+          "correctionMessage": "Try making the access conditional (using '?.') or adding a null check to the target ('!').",
+          "documentation": "https://dart.dev/diagnostics/unchecked_use_of_nullable_value"
+        }
+      ],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "argument_type",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/argument_type.dart",
+      "source_sha256": "b1c250dfbd6358ea935d077781e2f35f72227d6a7436f724a5bad426e3db3e3d",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 3
+      },
+      "exact_match": true,
+      "official": [
+        {
+          "code": "argument_type_not_assignable",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/argument_type.dart",
+            "range": {
+              "start": {
+                "offset": 37,
+                "line": 2,
+                "column": 17
+              },
+              "end": {
+                "offset": 44,
+                "line": 2,
+                "column": 24
+              }
+            }
+          },
+          "problemMessage": "The argument type 'String' can't be assigned to the parameter type 'int'. ",
+          "documentation": "https://dart.dev/diagnostics/argument_type_not_assignable"
+        }
+      ],
+      "dartforge": [
+        {
+          "code": "argument_type_not_assignable",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/argument_type.dart",
+            "range": {
+              "start": {
+                "offset": 37,
+                "line": 2,
+                "column": 17
+              },
+              "end": {
+                "offset": 44,
+                "line": 2,
+                "column": 24
+              }
+            }
+          },
+          "problemMessage": "The argument type 'String' can't be assigned to the parameter type 'int'. ",
+          "documentation": "https://dart.dev/diagnostics/argument_type_not_assignable"
+        }
+      ],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "return_type",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/return_type.dart",
+      "source_sha256": "73737ee802bb096cc3d5a84119f20afb757f8e6369f8e76f105d0e07e9d5ba4f",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 3
+      },
+      "exact_match": true,
+      "official": [
+        {
+          "code": "return_of_invalid_type",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/return_type.dart",
+            "range": {
+              "start": {
+                "offset": 11,
+                "line": 1,
+                "column": 12
+              },
+              "end": {
+                "offset": 18,
+                "line": 1,
+                "column": 19
+              }
+            }
+          },
+          "problemMessage": "A value of type 'String' can't be returned from the function 'f' because it has a return type of 'int'.",
+          "documentation": "https://dart.dev/diagnostics/return_of_invalid_type"
+        }
+      ],
+      "dartforge": [
+        {
+          "code": "return_of_invalid_type",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/return_type.dart",
+            "range": {
+              "start": {
+                "offset": 11,
+                "line": 1,
+                "column": 12
+              },
+              "end": {
+                "offset": 18,
+                "line": 1,
+                "column": 19
+              }
+            }
+          },
+          "problemMessage": "A value of type 'String' can't be returned from the function 'f' because it has a return type of 'int'.",
+          "documentation": "https://dart.dev/diagnostics/return_of_invalid_type"
+        }
+      ],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "required_argument",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/required_argument.dart",
+      "source_sha256": "442468d1c2ab8d42620aa47dd40e8489dfa50f6323789b967da94b5351a896ee",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 3
+      },
+      "exact_match": true,
+      "official": [
+        {
+          "code": "missing_required_argument",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/required_argument.dart",
+            "range": {
+              "start": {
+                "offset": 46,
+                "line": 2,
+                "column": 15
+              },
+              "end": {
+                "offset": 47,
+                "line": 2,
+                "column": 16
+              }
+            }
+          },
+          "problemMessage": "The named parameter 'value' is required, but there's no corresponding argument.",
+          "correctionMessage": "Try adding the required argument.",
+          "documentation": "https://dart.dev/diagnostics/missing_required_argument"
+        }
+      ],
+      "dartforge": [
+        {
+          "code": "missing_required_argument",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/required_argument.dart",
+            "range": {
+              "start": {
+                "offset": 46,
+                "line": 2,
+                "column": 15
+              },
+              "end": {
+                "offset": 47,
+                "line": 2,
+                "column": 16
+              }
+            }
+          },
+          "problemMessage": "The named parameter 'value' is required, but there's no corresponding argument.",
+          "correctionMessage": "Try adding the required argument.",
+          "documentation": "https://dart.dev/diagnostics/missing_required_argument"
+        }
+      ],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "invalid_override",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/invalid_override.dart",
+      "source_sha256": "eddb07e7783c0a0286d529a8d69e404de39317aaba38d30ffc905fc986d4a019",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 3
+      },
+      "exact_match": true,
+      "official": [
+        {
+          "code": "invalid_override",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/invalid_override.dart",
+            "range": {
+              "start": {
+                "offset": 53,
+                "line": 2,
+                "column": 28
+              },
+              "end": {
+                "offset": 54,
+                "line": 2,
+                "column": 29
+              }
+            }
+          },
+          "problemMessage": "'B.f' ('String Function()') isn't a valid override of 'A.f' ('int Function()').",
+          "contextMessages": [
+            {
+              "location": {
+                "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/invalid_override.dart",
+                "range": {
+                  "start": {
+                    "offset": 14,
+                    "line": 1,
+                    "column": 15
+                  },
+                  "end": {
+                    "offset": 15,
+                    "line": 1,
+                    "column": 16
+                  }
+                }
+              },
+              "message": "The member being overridden."
+            }
+          ],
+          "documentation": "https://dart.dev/diagnostics/invalid_override"
+        }
+      ],
+      "dartforge": [
+        {
+          "code": "invalid_override",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/invalid_override.dart",
+            "range": {
+              "start": {
+                "offset": 53,
+                "line": 2,
+                "column": 28
+              },
+              "end": {
+                "offset": 54,
+                "line": 2,
+                "column": 29
+              }
+            }
+          },
+          "problemMessage": "'B.f' ('String Function()') isn't a valid override of 'A.f' ('int Function()').",
+          "contextMessages": [
+            {
+              "location": {
+                "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/invalid_override.dart",
+                "range": {
+                  "start": {
+                    "offset": 14,
+                    "line": 1,
+                    "column": 15
+                  },
+                  "end": {
+                    "offset": 15,
+                    "line": 1,
+                    "column": 16
+                  }
+                }
+              },
+              "message": "The member being overridden."
+            }
+          ],
+          "documentation": "https://dart.dev/diagnostics/invalid_override"
+        }
+      ],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "valid_records_patterns",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-tools-status/analyzer-projects/project/lib/valid_records_patterns.dart",
+      "source_sha256": "8652bab0b769a94d32f3524ec355c826a40e70ab2fcb649008f2eb5a551c6248",
+      "exit_codes": {
+        "official": 0,
+        "dartforge": 0
+      },
+      "exact_match": true,
+      "official": [],
+      "dartforge": [],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "file_explorer",
+      "path": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+      "source_sha256": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+      "exit_codes": {
+        "official": 0,
+        "dartforge": 0
+      },
+      "exact_match": true,
+      "official": [],
+      "dartforge": [],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "explorer_model",
+      "path": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/lib/src/engine/explorer_model.dart",
+      "source_sha256": "a6c3af7d6b5f35ab4789d153fadd96f991924941af83d5ef860abcc89ddb7a8e",
+      "exit_codes": {
+        "official": 0,
+        "dartforge": 0
+      },
+      "exact_match": true,
+      "official": [],
+      "dartforge": [],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "framework_application",
+      "path": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/lib/src/app/application.dart",
+      "source_sha256": "a42b6a5d61a620378c2f3ac7d56eb07a7039276c0b3f46163260b088510aefb4",
+      "exit_codes": {
+        "official": 0,
+        "dartforge": 0
+      },
+      "exact_match": true,
+      "official": [],
+      "dartforge": [],
+      "missing": [],
+      "additional": []
+    }
+  ],
+  "production_ready_claim": false,
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/verify-lsp-analyzer.py": "e524a47724f1f01667a230897c0ee2a4fe5368fd418e76478e9b6dd0a4ab3a3f",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native": "50c1a7a7ff7cc1b4e79ab0181c479f03c897d553913723cfdb1109d9589edfc4"
+  },
+  "inputs_stable": true,
+  "audit_completed": true,
+  "analyzer_exact_match_count": 13
+}

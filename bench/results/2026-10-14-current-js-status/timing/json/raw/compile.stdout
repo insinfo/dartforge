@@ -1,0 +1,2 @@
+/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/json/raw/program.js (497 KB; 2 modules; user 12 KB; runtime 527 -> 527 KB, 0/0 live units)
+world: classes 1/1 instantiated + 0 type only; functions 17/17; 338 selectors; 6 round(s); world 8 ms, emission 97 ms, verifier 39 ms

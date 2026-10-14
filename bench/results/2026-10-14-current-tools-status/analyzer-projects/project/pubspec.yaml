@@ -1,0 +1,3 @@
+name: lsp_audit_fixture
+environment:
+  sdk: ">=3.6.0 <4.0.0"

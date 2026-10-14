@@ -1,0 +1,3 @@
+/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/limitless_ui/forge_checked/program.js (3453 KB; 791 modules; user 13529 KB; runtime 1091 -> 1091 KB, 0/0 live units)
+compaction: 13362 -> 3453 KB
+world: classes 1623/3220 instantiated + 193 type only; functions 38637/57599; 1837 selectors; 6 round(s); world 182 ms, emission 2775 ms, verifier 860 ms

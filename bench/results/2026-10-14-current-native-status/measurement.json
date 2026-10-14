@@ -1,0 +1,1246 @@
+{
+  "started_utc": "2026-10-14T16:58:50.129028+00:00",
+  "finished_utc": "2026-10-14T16:59:51.591495+00:00",
+  "jit_policy": "Current CLI run default: optimize=false; no optimized-guest claim",
+  "records": [
+    {
+      "pair": 1,
+      "mode": "tracing",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/tracing/bench"
+      ],
+      "exit": 0,
+      "wall_ns": 1550553875,
+      "peak_rss_bytes": 77463552,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            15,
+            10,
+            10,
+            8
+          ],
+          "median_after_first_ms": 10
+        },
+        "trees": {
+          "samples_ms": [
+            25,
+            22,
+            24,
+            23
+          ],
+          "median_after_first_ms": 23
+        },
+        "numeric": {
+          "samples_ms": [
+            104,
+            101,
+            104,
+            101
+          ],
+          "median_after_first_ms": 101
+        },
+        "strings": {
+          "samples_ms": [
+            72,
+            73,
+            73,
+            72
+          ],
+          "median_after_first_ms": 73
+        },
+        "json": {
+          "samples_ms": [
+            107,
+            100,
+            104,
+            101
+          ],
+          "median_after_first_ms": 101
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    },
+    {
+      "pair": 1,
+      "mode": "legacy-arc",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/legacy-arc/bench"
+      ],
+      "exit": 0,
+      "wall_ns": 4105683125,
+      "peak_rss_bytes": 336625664,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            18,
+            16,
+            15,
+            16
+          ],
+          "median_after_first_ms": 16
+        },
+        "trees": {
+          "samples_ms": [
+            250,
+            255,
+            256,
+            270
+          ],
+          "median_after_first_ms": 256
+        },
+        "numeric": {
+          "samples_ms": [
+            106,
+            106,
+            105,
+            106
+          ],
+          "median_after_first_ms": 106
+        },
+        "strings": {
+          "samples_ms": [
+            188,
+            179,
+            185,
+            187
+          ],
+          "median_after_first_ms": 185
+        },
+        "json": {
+          "samples_ms": [
+            552,
+            361,
+            359,
+            350
+          ],
+          "median_after_first_ms": 359
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    },
+    {
+      "pair": 1,
+      "mode": "prepared-arc",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/prepared-arc/bench"
+      ],
+      "exit": 0,
+      "wall_ns": 7739578458,
+      "peak_rss_bytes": 381288448,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            28,
+            19,
+            16,
+            14
+          ],
+          "median_after_first_ms": 16
+        },
+        "trees": {
+          "samples_ms": [
+            403,
+            398,
+            398,
+            397
+          ],
+          "median_after_first_ms": 398
+        },
+        "numeric": {
+          "samples_ms": [
+            103,
+            102,
+            102,
+            103
+          ],
+          "median_after_first_ms": 102
+        },
+        "strings": {
+          "samples_ms": [
+            379,
+            377,
+            466,
+            374
+          ],
+          "median_after_first_ms": 377
+        },
+        "json": {
+          "samples_ms": [
+            1086,
+            900,
+            916,
+            910
+          ],
+          "median_after_first_ms": 910
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    },
+    {
+      "pair": 1,
+      "mode": "official",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/official/bench"
+      ],
+      "exit": 0,
+      "wall_ns": 1241794542,
+      "peak_rss_bytes": 197476352,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            15,
+            12,
+            11,
+            10
+          ],
+          "median_after_first_ms": 11
+        },
+        "trees": {
+          "samples_ms": [
+            14,
+            12,
+            12,
+            12
+          ],
+          "median_after_first_ms": 12
+        },
+        "numeric": {
+          "samples_ms": [
+            104,
+            100,
+            100,
+            100
+          ],
+          "median_after_first_ms": 100
+        },
+        "strings": {
+          "samples_ms": [
+            45,
+            45,
+            44,
+            45
+          ],
+          "median_after_first_ms": 45
+        },
+        "json": {
+          "samples_ms": [
+            70,
+            75,
+            73,
+            70
+          ],
+          "median_after_first_ms": 73
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    },
+    {
+      "pair": 1,
+      "mode": "jit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/bench.dart"
+      ],
+      "exit": 0,
+      "wall_ns": 10980072041,
+      "peak_rss_bytes": 1584594944,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            20,
+            18,
+            18,
+            18
+          ],
+          "median_after_first_ms": 18
+        },
+        "trees": {
+          "samples_ms": [
+            56,
+            55,
+            57,
+            56
+          ],
+          "median_after_first_ms": 56
+        },
+        "numeric": {
+          "samples_ms": [
+            229,
+            229,
+            228,
+            229
+          ],
+          "median_after_first_ms": 229
+        },
+        "strings": {
+          "samples_ms": [
+            103,
+            103,
+            103,
+            103
+          ],
+          "median_after_first_ms": 103
+        },
+        "json": {
+          "samples_ms": [
+            232,
+            224,
+            227,
+            224
+          ],
+          "median_after_first_ms": 224
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    },
+    {
+      "pair": 1,
+      "mode": "vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/bench.dart"
+      ],
+      "exit": 0,
+      "wall_ns": 1294391125,
+      "peak_rss_bytes": 337395712,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            11,
+            11,
+            11,
+            11
+          ],
+          "median_after_first_ms": 11
+        },
+        "trees": {
+          "samples_ms": [
+            19,
+            18,
+            17,
+            17
+          ],
+          "median_after_first_ms": 17
+        },
+        "numeric": {
+          "samples_ms": [
+            121,
+            120,
+            119,
+            120
+          ],
+          "median_after_first_ms": 120
+        },
+        "strings": {
+          "samples_ms": [
+            48,
+            45,
+            42,
+            42
+          ],
+          "median_after_first_ms": 42
+        },
+        "json": {
+          "samples_ms": [
+            91,
+            79,
+            71,
+            69
+          ],
+          "median_after_first_ms": 71
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    },
+    {
+      "pair": 2,
+      "mode": "vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/bench.dart"
+      ],
+      "exit": 0,
+      "wall_ns": 1180245583,
+      "peak_rss_bytes": 337281024,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            12,
+            11,
+            11,
+            11
+          ],
+          "median_after_first_ms": 11
+        },
+        "trees": {
+          "samples_ms": [
+            20,
+            17,
+            17,
+            17
+          ],
+          "median_after_first_ms": 17
+        },
+        "numeric": {
+          "samples_ms": [
+            121,
+            120,
+            120,
+            119
+          ],
+          "median_after_first_ms": 120
+        },
+        "strings": {
+          "samples_ms": [
+            48,
+            44,
+            42,
+            42
+          ],
+          "median_after_first_ms": 42
+        },
+        "json": {
+          "samples_ms": [
+            87,
+            79,
+            72,
+            70
+          ],
+          "median_after_first_ms": 72
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    },
+    {
+      "pair": 2,
+      "mode": "jit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/bench.dart"
+      ],
+      "exit": 0,
+      "wall_ns": 2689198500,
+      "peak_rss_bytes": 132349952,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            18,
+            19,
+            19,
+            19
+          ],
+          "median_after_first_ms": 19
+        },
+        "trees": {
+          "samples_ms": [
+            56,
+            55,
+            56,
+            56
+          ],
+          "median_after_first_ms": 56
+        },
+        "numeric": {
+          "samples_ms": [
+            228,
+            225,
+            228,
+            229
+          ],
+          "median_after_first_ms": 228
+        },
+        "strings": {
+          "samples_ms": [
+            108,
+            106,
+            107,
+            106
+          ],
+          "median_after_first_ms": 106
+        },
+        "json": {
+          "samples_ms": [
+            230,
+            223,
+            226,
+            224
+          ],
+          "median_after_first_ms": 224
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    },
+    {
+      "pair": 2,
+      "mode": "official",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/official/bench"
+      ],
+      "exit": 0,
+      "wall_ns": 981499959,
+      "peak_rss_bytes": 197722112,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            9,
+            9,
+            9,
+            9
+          ],
+          "median_after_first_ms": 9
+        },
+        "trees": {
+          "samples_ms": [
+            14,
+            12,
+            12,
+            13
+          ],
+          "median_after_first_ms": 12
+        },
+        "numeric": {
+          "samples_ms": [
+            101,
+            100,
+            100,
+            101
+          ],
+          "median_after_first_ms": 100
+        },
+        "strings": {
+          "samples_ms": [
+            45,
+            45,
+            47,
+            45
+          ],
+          "median_after_first_ms": 45
+        },
+        "json": {
+          "samples_ms": [
+            71,
+            75,
+            72,
+            70
+          ],
+          "median_after_first_ms": 72
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    },
+    {
+      "pair": 2,
+      "mode": "prepared-arc",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/prepared-arc/bench"
+      ],
+      "exit": 0,
+      "wall_ns": 7346660917,
+      "peak_rss_bytes": 296075264,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            15,
+            14,
+            14,
+            14
+          ],
+          "median_after_first_ms": 14
+        },
+        "trees": {
+          "samples_ms": [
+            405,
+            399,
+            399,
+            398
+          ],
+          "median_after_first_ms": 399
+        },
+        "numeric": {
+          "samples_ms": [
+            103,
+            101,
+            101,
+            102
+          ],
+          "median_after_first_ms": 101
+        },
+        "strings": {
+          "samples_ms": [
+            378,
+            376,
+            372,
+            376
+          ],
+          "median_after_first_ms": 376
+        },
+        "json": {
+          "samples_ms": [
+            1083,
+            890,
+            890,
+            896
+          ],
+          "median_after_first_ms": 890
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    },
+    {
+      "pair": 2,
+      "mode": "legacy-arc",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/legacy-arc/bench"
+      ],
+      "exit": 0,
+      "wall_ns": 3815038333,
+      "peak_rss_bytes": 296124416,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            15,
+            15,
+            16,
+            15
+          ],
+          "median_after_first_ms": 15
+        },
+        "trees": {
+          "samples_ms": [
+            249,
+            255,
+            252,
+            268
+          ],
+          "median_after_first_ms": 255
+        },
+        "numeric": {
+          "samples_ms": [
+            104,
+            102,
+            101,
+            101
+          ],
+          "median_after_first_ms": 101
+        },
+        "strings": {
+          "samples_ms": [
+            182,
+            176,
+            181,
+            180
+          ],
+          "median_after_first_ms": 180
+        },
+        "json": {
+          "samples_ms": [
+            517,
+            361,
+            352,
+            354
+          ],
+          "median_after_first_ms": 354
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    },
+    {
+      "pair": 2,
+      "mode": "tracing",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/tracing/bench"
+      ],
+      "exit": 0,
+      "wall_ns": 1268703958,
+      "peak_rss_bytes": 77283328,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            7,
+            7,
+            7,
+            6
+          ],
+          "median_after_first_ms": 7
+        },
+        "trees": {
+          "samples_ms": [
+            23,
+            22,
+            26,
+            24
+          ],
+          "median_after_first_ms": 24
+        },
+        "numeric": {
+          "samples_ms": [
+            105,
+            101,
+            112,
+            103
+          ],
+          "median_after_first_ms": 103
+        },
+        "strings": {
+          "samples_ms": [
+            74,
+            72,
+            72,
+            73
+          ],
+          "median_after_first_ms": 72
+        },
+        "json": {
+          "samples_ms": [
+            109,
+            103,
+            105,
+            100
+          ],
+          "median_after_first_ms": 103
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    },
+    {
+      "pair": 3,
+      "mode": "tracing",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/tracing/bench"
+      ],
+      "exit": 0,
+      "wall_ns": 1248097125,
+      "peak_rss_bytes": 73400320,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            7,
+            6,
+            6,
+            6
+          ],
+          "median_after_first_ms": 6
+        },
+        "trees": {
+          "samples_ms": [
+            23,
+            22,
+            24,
+            23
+          ],
+          "median_after_first_ms": 23
+        },
+        "numeric": {
+          "samples_ms": [
+            104,
+            103,
+            101,
+            102
+          ],
+          "median_after_first_ms": 102
+        },
+        "strings": {
+          "samples_ms": [
+            73,
+            72,
+            72,
+            72
+          ],
+          "median_after_first_ms": 72
+        },
+        "json": {
+          "samples_ms": [
+            108,
+            101,
+            104,
+            100
+          ],
+          "median_after_first_ms": 101
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    },
+    {
+      "pair": 3,
+      "mode": "legacy-arc",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/legacy-arc/bench"
+      ],
+      "exit": 0,
+      "wall_ns": 3793417541,
+      "peak_rss_bytes": 293158912,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            16,
+            15,
+            15,
+            15
+          ],
+          "median_after_first_ms": 15
+        },
+        "trees": {
+          "samples_ms": [
+            248,
+            255,
+            253,
+            267
+          ],
+          "median_after_first_ms": 255
+        },
+        "numeric": {
+          "samples_ms": [
+            103,
+            101,
+            101,
+            100
+          ],
+          "median_after_first_ms": 101
+        },
+        "strings": {
+          "samples_ms": [
+            183,
+            177,
+            179,
+            177
+          ],
+          "median_after_first_ms": 177
+        },
+        "json": {
+          "samples_ms": [
+            514,
+            350,
+            352,
+            351
+          ],
+          "median_after_first_ms": 351
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    },
+    {
+      "pair": 3,
+      "mode": "prepared-arc",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/prepared-arc/bench"
+      ],
+      "exit": 0,
+      "wall_ns": 7366539958,
+      "peak_rss_bytes": 299941888,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            16,
+            15,
+            15,
+            15
+          ],
+          "median_after_first_ms": 15
+        },
+        "trees": {
+          "samples_ms": [
+            404,
+            399,
+            398,
+            396
+          ],
+          "median_after_first_ms": 398
+        },
+        "numeric": {
+          "samples_ms": [
+            101,
+            101,
+            100,
+            100
+          ],
+          "median_after_first_ms": 100
+        },
+        "strings": {
+          "samples_ms": [
+            377,
+            375,
+            371,
+            377
+          ],
+          "median_after_first_ms": 375
+        },
+        "json": {
+          "samples_ms": [
+            1082,
+            893,
+            915,
+            897
+          ],
+          "median_after_first_ms": 897
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    },
+    {
+      "pair": 3,
+      "mode": "official",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/official/bench"
+      ],
+      "exit": 0,
+      "wall_ns": 971014667,
+      "peak_rss_bytes": 197672960,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            9,
+            9,
+            9,
+            9
+          ],
+          "median_after_first_ms": 9
+        },
+        "trees": {
+          "samples_ms": [
+            13,
+            12,
+            12,
+            12
+          ],
+          "median_after_first_ms": 12
+        },
+        "numeric": {
+          "samples_ms": [
+            100,
+            99,
+            99,
+            99
+          ],
+          "median_after_first_ms": 99
+        },
+        "strings": {
+          "samples_ms": [
+            45,
+            45,
+            45,
+            45
+          ],
+          "median_after_first_ms": 45
+        },
+        "json": {
+          "samples_ms": [
+            70,
+            74,
+            71,
+            70
+          ],
+          "median_after_first_ms": 71
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    },
+    {
+      "pair": 3,
+      "mode": "jit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/bench.dart"
+      ],
+      "exit": 0,
+      "wall_ns": 2682196125,
+      "peak_rss_bytes": 132988928,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            19,
+            20,
+            19,
+            19
+          ],
+          "median_after_first_ms": 19
+        },
+        "trees": {
+          "samples_ms": [
+            56,
+            55,
+            56,
+            56
+          ],
+          "median_after_first_ms": 56
+        },
+        "numeric": {
+          "samples_ms": [
+            227,
+            227,
+            226,
+            225
+          ],
+          "median_after_first_ms": 226
+        },
+        "strings": {
+          "samples_ms": [
+            103,
+            102,
+            102,
+            107
+          ],
+          "median_after_first_ms": 102
+        },
+        "json": {
+          "samples_ms": [
+            231,
+            224,
+            236,
+            223
+          ],
+          "median_after_first_ms": 224
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    },
+    {
+      "pair": 3,
+      "mode": "vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/bench.dart"
+      ],
+      "exit": 0,
+      "wall_ns": 1174863750,
+      "peak_rss_bytes": 336232448,
+      "kernels": {
+        "fib": {
+          "samples_ms": [
+            11,
+            11,
+            11,
+            11
+          ],
+          "median_after_first_ms": 11
+        },
+        "trees": {
+          "samples_ms": [
+            20,
+            18,
+            17,
+            17
+          ],
+          "median_after_first_ms": 17
+        },
+        "numeric": {
+          "samples_ms": [
+            120,
+            119,
+            119,
+            117
+          ],
+          "median_after_first_ms": 119
+        },
+        "strings": {
+          "samples_ms": [
+            48,
+            45,
+            42,
+            42
+          ],
+          "median_after_first_ms": 42
+        },
+        "json": {
+          "samples_ms": [
+            87,
+            79,
+            71,
+            71
+          ],
+          "median_after_first_ms": 71
+        }
+      },
+      "results": {
+        "fib": "2178309",
+        "trees": "3156655",
+        "numeric": "752938",
+        "strings": "2000000",
+        "json": "1253013890"
+      }
+    }
+  ],
+  "summary": {
+    "tracing": {
+      "kernels_ms": {
+        "fib": 7,
+        "trees": 23,
+        "numeric": 102,
+        "strings": 72,
+        "json": 101
+      },
+      "wall_ms": 1268.703958,
+      "peak_rss_bytes": 77283328
+    },
+    "legacy-arc": {
+      "kernels_ms": {
+        "fib": 15,
+        "trees": 255,
+        "numeric": 101,
+        "strings": 180,
+        "json": 354
+      },
+      "wall_ms": 3815.038333,
+      "peak_rss_bytes": 296124416
+    },
+    "prepared-arc": {
+      "kernels_ms": {
+        "fib": 15,
+        "trees": 398,
+        "numeric": 101,
+        "strings": 376,
+        "json": 897
+      },
+      "wall_ms": 7366.539958,
+      "peak_rss_bytes": 299941888
+    },
+    "official": {
+      "kernels_ms": {
+        "fib": 9,
+        "trees": 12,
+        "numeric": 100,
+        "strings": 45,
+        "json": 72
+      },
+      "wall_ms": 981.499959,
+      "peak_rss_bytes": 197672960
+    },
+    "jit": {
+      "kernels_ms": {
+        "fib": 19,
+        "trees": 56,
+        "numeric": 228,
+        "strings": 103,
+        "json": 224
+      },
+      "wall_ms": 2689.1985,
+      "peak_rss_bytes": 132988928
+    },
+    "vm": {
+      "kernels_ms": {
+        "fib": 11,
+        "trees": 17,
+        "numeric": 120,
+        "strings": 42,
+        "json": 71
+      },
+      "wall_ms": 1180.245583,
+      "peak_rss_bytes": 337281024
+    }
+  },
+  "complete": true,
+  "all_outputs_exact": true,
+  "source_hashes_stable": true,
+  "scope": "Three alternating process orders; four calls per kernel, discard first; median remaining calls then median processes. Millisecond kernel resolution. Process wall/RSS include JIT compilation and SDK loading, distinct from warmed kernel timings. Fresh native tracing/legacy/prepared ARC versus installed SDK3.6.2 AOT/VM."
+}

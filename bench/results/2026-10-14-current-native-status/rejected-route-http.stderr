@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/measure-http-pairs.py", line 160, in <module>
+    main()
+  File "/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/measure-http-pairs.py", line 140, in main
+    result = measure(executable, route, args.requests, args.warmup, sample, args.request_bytes)
+  File "/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/measure-http-pairs.py", line 70, in measure
+    expected_id = requests(connection, route, warmup, 0, body)
+  File "/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/measure-http-pairs.py", line 48, in requests
+    raise RuntimeError(f"Unexpected JSON: {response_body!r}")
+RuntimeError: Unexpected JSON: b'hello'

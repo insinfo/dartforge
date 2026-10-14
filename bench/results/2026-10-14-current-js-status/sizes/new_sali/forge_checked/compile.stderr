@@ -1,0 +1,62 @@
+warning: The type cast is unnecessary because the value already has this type. at bytes 11918..12003
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 3554..3561
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 5265..5272
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 18451..18458
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 11194..11201
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 61857..61864
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 62616..62623
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 64378..64385
+warning: Unreachable code (dead code). at bytes 93447..93467
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 105165..105172
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 166389..166396
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1869..1882
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4037..4044
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 18107..18114
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 4952..4959
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 16105..16112
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'false'. at bytes 1300..1317
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 35052..35059
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 986..993
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 2123..2130
+(288 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: verifier: 1818 gap(s) fixed; DARTFORGE_JSPROD_FIXES=N shows more
+warning: verifier: class L$dart_excel__src__jiffy__src__locale__locales__bn_locale.BnRelativeTime cited in the text and pruned
+warning: verifier: class L$js__js._Anonymous cited in the text and pruned
+warning: verifier: class L$ngdart__src__common__pipes__uppercase_pipe.UpperCasePipe cited in the text and pruned
+warning: verifier: class _internal.LateError cited in the text and pruned
+warning: verifier: _js_helper.IdentityMap.from cited in the text and pruned
+warning: verifier: _js_helper.LinkedMap.from cited in the text and pruned
+warning: verifier: _native_typed_data.NativeTypedData.new cited in the text and pruned
+warning: verifier: class async._IterationMarker cited in the text and pruned
+warning: verifier: function async._asyncAwait cited in the text and pruned
+warning: verifier: function async._asyncRethrow cited in the text and pruned
+warning: verifier: function async._asyncReturn cited in the text and pruned
+warning: verifier: function async._asyncStarHelper cited in the text and pruned
+warning: verifier: function async._asyncStartSync cited in the text and pruned
+warning: verifier: function async._makeAsyncAwaitCompleter cited in the text and pruned
+warning: verifier: function async._makeAsyncStarStreamController cited in the text and pruned
+warning: verifier: function async._makeSyncStarIterable cited in the text and pruned
+warning: verifier: function async._streamOfController cited in the text and pruned
+warning: verifier: function async._wrapJsFunctionForAsync cited in the text and pruned
+warning: verifier: class collection._SplayTreeMapNode cited in the text and pruned
+warning: verifier: core._Enum.new cited in the text and pruned
+warning: pending reference with no element: L$archive__src__archive.Archive.__proto__
+warning: pending reference with no element: L$archive__src__archive_file.ArchiveFile.__proto__
+warning: pending reference with no element: L$archive__src__util__encryption.AESEngine.__proto__
+warning: pending reference with no element: L$archive__src__util__encryption.HMac.__proto__
+warning: pending reference with no element: L$archive__src__util__encryption.KeyParameter.__proto__
+warning: pending reference with no element: L$archive__src__util__encryption.MD4FamilyDigest.__proto__
+warning: pending reference with no element: L$archive__src__util__encryption.PBKDF2KeyDerivator.__proto__
+warning: pending reference with no element: L$archive__src__util__encryption.Register64.__proto__
+warning: pending reference with no element: L$archive__src__util__input_stream.InputStream.__proto__
+warning: pending reference with no element: L$archive__src__util__input_stream.InputStreamBase.__proto__
+warning: pending reference with no element: L$archive__src__util__output_stream.OutputStream.__proto__
+warning: pending reference with no element: L$archive__src__zip_encoder.ZipEncoder.__proto__
+warning: pending reference with no element: L$archive__src__zip_encoder._ZipFileData.__proto__
+warning: pending reference with no element: L$archive__src__zlib__deflate.Deflate.__proto__
+warning: pending reference with no element: L$archive__src__zlib__inflate.Inflate.__proto__
+warning: pending reference with no element: L$archive__src__zlib_encoder.ZLibEncoder.__proto__
+warning: pending reference with no element: L$built_collection__src__internal__copy_on_write_list.CopyOnWriteList.__proto__
+warning: pending reference with no element: L$built_collection__src__internal__copy_on_write_map.CopyOnWriteMap.__proto__
+warning: pending reference with no element: L$built_collection__src__internal__copy_on_write_set.CopyOnWriteSet.__proto__
+warning: pending reference with no element: L$built_collection__src__list.BuiltList.__proto__

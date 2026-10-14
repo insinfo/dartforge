@@ -1,0 +1,20 @@
+{
+  "date": "2026-10-14",
+  "source_head": "41da2b0c53d69cf3311ed486f692e7642e5479bf",
+  "source_hashes_count": 1500,
+  "source_stable": true,
+  "sdk": "3.6.2",
+  "reports": [
+    "../2026-10-14-current-native-size/comparison.json",
+    "status.json",
+    "../2026-10-14-current-jit-status/status.json",
+    "../2026-10-14-current-js-status/summary.json",
+    "../2026-10-14-current-tools-status/status.json"
+  ],
+  "implementation_commit": "41da2b0c",
+  "new_native_commands": [
+    "dartforge test",
+    "dartforge pub get"
+  ],
+  "full_upstream_compatibility": false
+}

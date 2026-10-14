@@ -1,0 +1,279 @@
+{
+  "date": "2026-10-14",
+  "producer_source_hashes_at_copy": 1500,
+  "binaries": {
+    "dartforge-native": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+      "sha256": "50c1a7a7ff7cc1b4e79ab0181c479f03c897d553913723cfdb1109d9589edfc4"
+    },
+    "dartforge-lsp": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-lsp",
+      "sha256": "05003c196e3db2ad8a49e2e880c1269fa8f0db0c638cd945425405d97d4af504"
+    },
+    "dartforge-parity": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-parity",
+      "sha256": "82448134157b738c22821869035b7314ef85dc294c16bfa0924441c787839da5"
+    }
+  },
+  "sdk": {
+    "version": "3.6.2",
+    "path": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk",
+    "executable_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa"
+  },
+  "source_changes_since_copy": [],
+  "performance_timings_measured": true,
+  "analyzer": {
+    "scoreboard_command": [
+      "target/current-toolchain-status/dartforge-parity",
+      "scoreboard",
+      "--corpus",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/diagnostics",
+      "--workers",
+      "2",
+      "--batch",
+      "24",
+      "--details"
+    ],
+    "cached_oracle_groups": [
+      {
+        "group": "analyzer",
+        "sdk_recorded": "3.6.2",
+        "oracle_kind": "previously recorded SDK oracle; not regenerated today",
+        "oracle_metadata_sha256": "aced8dbfabd0d0629cd4d9700cb7362c720a6a151685ef265167fcd08f7292f6",
+        "oracle_records_sha256": "f01616e5fd84023767a4d05436ba0be18b1b5efe90bc4740178e56228216e7fd",
+        "oracle_record_commit": "bdac4a5c4ba9ddcab90fe326abe001299ddfd06f 2026-10-13T14:00:22-03:00",
+        "recorded_source_fnv": "59aef144876332bd",
+        "current_source_fnv": "59aef144876332bd",
+        "source_hash_matches": true,
+        "effective_files": 8253,
+        "excluded_oracle_crash_files": [
+          "number_literals_with_separators/NumberLiteralsWithSeparators__missing_number_after_e_1.dart",
+          "number_literals_with_separators/NumberLiteralsWithSeparators__missing_number_after_e_2.dart",
+          "number_literals_with_separators/NumberLiteralsWithSeparators__other_erroneous_1.dart",
+          "number_literals_with_separators/NumberLiteralsWithSeparators__other_erroneous_2.dart",
+          "number_literals_with_separators/NumberLiteralsWithSeparators__other_erroneous_3.dart",
+          "number_literals_with_separators/NumberLiteralsWithSeparators__other_erroneous_4.dart",
+          "number_literals_with_separators/NumberLiteralsWithSeparators__other_erroneous_6.dart"
+        ],
+        "diagnostics": 10690
+      },
+      {
+        "group": "analyzer-3.13",
+        "sdk_recorded": "3.13.4",
+        "oracle_kind": "previously recorded SDK oracle; not regenerated today",
+        "oracle_metadata_sha256": "30eb40c5aebe34a8b56fb2ef3087d8e3f3aba30dea3c5bd15376a076f60d67b2",
+        "oracle_records_sha256": "208cba9cfd437ea406f9fbec030129e4a9b4d35d7bc0366fc86a9f93083fa378",
+        "oracle_record_commit": "bdac4a5c4ba9ddcab90fe326abe001299ddfd06f 2026-10-13T14:00:22-03:00",
+        "recorded_source_fnv": "27b81295fdd2ffd3",
+        "current_source_fnv": "27b81295fdd2ffd3",
+        "source_hash_matches": true,
+        "effective_files": 2,
+        "excluded_oracle_crash_files": [],
+        "diagnostics": 2
+      },
+      {
+        "group": "linguagem",
+        "sdk_recorded": "3.6.2",
+        "oracle_kind": "previously recorded SDK oracle; not regenerated today",
+        "oracle_metadata_sha256": "60d0e9e9bd7d5ff6d288d01be218fad58a42e8f6bf12bae3fa2b10ed310310e1",
+        "oracle_records_sha256": "08b184aafe083012680cf1abc004fcb614e76e62e28297e90ba67ad0fe98f667",
+        "oracle_record_commit": "bdac4a5c4ba9ddcab90fe326abe001299ddfd06f 2026-10-13T14:00:22-03:00",
+        "recorded_source_fnv": "9e09ea643e19eb8f",
+        "current_source_fnv": "9e09ea643e19eb8f",
+        "source_hash_matches": true,
+        "effective_files": 1179,
+        "excluded_oracle_crash_files": [
+          "dot_shorthands/equality/equality_extension_override_error_test.dart",
+          "number/separators_error_test.dart"
+        ],
+        "diagnostics": 12265
+      },
+      {
+        "group": "linguagem-3.13",
+        "sdk_recorded": "3.13.4",
+        "oracle_kind": "previously recorded SDK oracle; not regenerated today",
+        "oracle_metadata_sha256": "2003b2b9b23df21552e82eb08596b9e3b20a0634352063028d1f1d60f6c6f879",
+        "oracle_records_sha256": "54494219ac7f83e4c71a5830b96da74e51ac5588c17208a4ae44f5bba494246b",
+        "oracle_record_commit": "bdac4a5c4ba9ddcab90fe326abe001299ddfd06f 2026-10-13T14:00:22-03:00",
+        "recorded_source_fnv": "2f95bcde68ff1666",
+        "current_source_fnv": "2f95bcde68ff1666",
+        "source_hash_matches": true,
+        "effective_files": 5,
+        "excluded_oracle_crash_files": [],
+        "diagnostics": 48
+      },
+      {
+        "group": "sonda",
+        "sdk_recorded": "3.6.2",
+        "oracle_kind": "previously recorded SDK oracle; not regenerated today",
+        "oracle_metadata_sha256": "da6d2f3312d2633b7f885317a4fac52b9ebc67048e6035f584b566a392356c34",
+        "oracle_records_sha256": "07845012bbaeb79a57e1407a3914a26300837bb2be92748f3751cf84e8c9fbfa",
+        "oracle_record_commit": "bdac4a5c4ba9ddcab90fe326abe001299ddfd06f 2026-10-13T14:00:22-03:00",
+        "recorded_source_fnv": "1e1b630fad6c527f",
+        "current_source_fnv": "1e1b630fad6c527f",
+        "source_hash_matches": true,
+        "effective_files": 1,
+        "excluded_oracle_crash_files": [],
+        "diagnostics": 7
+      }
+    ],
+    "files_compared": 9440,
+    "oracle_diagnostics": 23012,
+    "exact_position_hits": 23001,
+    "exact_position_message_hits": 22996,
+    "missing": 11,
+    "additional": 0,
+    "wrong_position": 0,
+    "wrong_message": 5,
+    "perfect_codes": 597,
+    "codes_with_oracle_cases": 607,
+    "fresh_project_cases": 14,
+    "fresh_project_default_exact": 13,
+    "fresh_project_with_all_fallback_exact": 14,
+    "fresh_project_known_gap": {
+      "case": "ordinary invalid assignment",
+      "default": "suppressed invalid_assignment; exit0 vsSDKexit3",
+      "all": "exact SDK JSON/exit3"
+    },
+    "note": "Scoreboard compares cached source-current oracles from3.6.2/3.13.4; only14project cases use newly executedSDK3.6.2 today. Corpus harness elapsed values are concurrent correctness runs, not performance measurements.",
+    "whole_project_fresh_comparisons": [
+      {
+        "project": "file_explorer",
+        "dart_input_files": 43,
+        "default_exact": true,
+        "all_exact": true,
+        "diagnostic_counts": {
+          "sdk": 0,
+          "native": 0,
+          "native-all": 0
+        }
+      },
+      {
+        "project": "ordinary_pub_project",
+        "dart_input_files": 1,
+        "default_exact": true,
+        "all_exact": true,
+        "diagnostic_counts": {
+          "sdk": 0,
+          "native": 0,
+          "native-all": 0
+        }
+      }
+    ]
+  },
+  "formatter": {
+    "input_files": 13181,
+    "jointly_accepted_exact_utf8_files": 10474,
+    "byte_differences": 0,
+    "sdk_only_accepted": 0,
+    "native_only_accepted": 2,
+    "native_only_acceptance_gaps": [
+      "corpus/specification/e2/d15_new_214.dart: constructor tearoff under@dart2.14",
+      "corpus/specification/e2/d30_late_211.dart: late/required under@dart2.11"
+    ],
+    "sdk_library": {
+      "input_files": 426,
+      "native_accepted": 426,
+      "sdk_accepted": 426,
+      "jointly_accepted": 426,
+      "exact_bytes": 426,
+      "byte_mismatches": [],
+      "native_only_accepted": [],
+      "sdk_only_accepted": []
+    },
+    "rejected_inputs_separately_counted": true,
+    "fresh_sdk_oracle": true
+  },
+  "lsp": {
+    "files": 4,
+    "method_scope": [
+      "textDocument/definition",
+      "textDocument/references",
+      "textDocument/rename",
+      "textDocument/formatting"
+    ],
+    "normalized_exact": 17,
+    "compared": 17,
+    "diagnostic_scope": "non_bool_condition published after versioned edit in bothservers; native isolatedtypedchild observed",
+    "memory_metric": "sampled process RSS, not allocation/retained-heap or precise truepeak;50ms sampling andsame4file/17query scope",
+    "memory": {
+      "native": {
+        "sampling_interval_seconds": 0.05,
+        "metric": "ps RSS KiB; parent plus live descendant processes, no retained-heap equivalence claim",
+        "peak_parent_rss_kib": 133936,
+        "peak_tree_rss_kib": 133936,
+        "observed_descendant_pids": [
+          "50804"
+        ]
+      },
+      "sdk": {
+        "sampling_interval_seconds": 0.05,
+        "metric": "ps RSS KiB; parent plus live descendant processes, no retained-heap equivalence claim",
+        "peak_parent_rss_kib": 470448,
+        "peak_tree_rss_kib": 470448,
+        "observed_descendant_pids": []
+      }
+    },
+    "native_typed_child_sampled_max_kib": 3680,
+    "child_memory_limitation": "short-lived child sampling may undersample actualpeak; stderr liveheap logs archived separately",
+    "fresh_sdk_oracle": true
+  },
+  "complete_correctness": true,
+  "production_ready_claim": false,
+  "timing_pending": null,
+  "timing_complete": true,
+  "performance_summary": {
+    "quiet_window_authorized": true,
+    "contract": "First measured fresh process reported separately, then3alternating repeat fresh-process pairs. Filesystem/page cache is uncontrolled and warmed by prior correctness; this is not cold-disk or persistent-server throughput. Analyzer valid wholeFileExplorer exactmachineJSON oracle. Formatter426SDKlibrary files jointlyaccepted/exactbytes proved beforehand. Wallseconds plus waited-child kernel CPU accounted. No source/file writes.",
+    "repeat_fresh_process_pairs": 3,
+    "analyzer_formatter": {
+      "analyze": {
+        "repeat_fresh_process_wall_medians_seconds": {
+          "native": 0.46487208299999994,
+          "sdk": 0.6820872079999996
+        },
+        "native_over_sdk_ratio": 0.6815434706114591
+      },
+      "format": {
+        "repeat_fresh_process_wall_medians_seconds": {
+          "native": 0.4169660000000004,
+          "sdk": 1.5518301250000004
+        },
+        "native_over_sdk_ratio": 0.2686930697391896
+      }
+    },
+    "first_fresh_process_wall_seconds": {
+      "analyze": {
+        "native": 0.47567462499999996,
+        "sdk": 1.0344056250000002
+      },
+      "format": {
+        "native": 0.41535766599999935,
+        "sdk": 1.5137609999999997
+      }
+    },
+    "lsp_client_latency_scope": "3fresh dual-server sessions,17semanticallymatched requests each, alternatingserverorder; clientrequest roundtrip includes transport+JSON; initialmethods may waitonprojectanalysis; initialization/diagnosticwait excluded. No persistentlong-project throughput claim.",
+    "lsp_client_method_medians_seconds": {
+      "textDocument/definition": {
+        "native": 0.00041433299999998896,
+        "sdk": 0.003977812499999955
+      },
+      "textDocument/formatting": {
+        "native": 0.00014674999999986227,
+        "sdk": 0.03130279199999997
+      },
+      "textDocument/references": {
+        "native": 0.048776229500000046,
+        "sdk": 0.010842604499999964
+      },
+      "textDocument/rename": {
+        "native": 0.00042206249999995893,
+        "sdk": 0.009378146000000032
+      }
+    },
+    "lsp_reference_regression": "References median48.776ms native vs10.843ms SDK (~4.5xslower) across18matchedqueries per server; preserved, not normalized away.",
+    "all_lsp_rounds_normalized_exact": true,
+    "inputs_and_compiler_unchanged": true,
+    "limitations": "Fresh processes on prior correctness-warmed/uncontrolled filesystemcache. Analyzer valid43-fileFileExplorer; formatter426acceptedSDKfiles. LSP4-file/17query fixture per session;3sessions. No cold-disk/persistentlargeproject/overallproductionreadiness claim."
+  }
+}

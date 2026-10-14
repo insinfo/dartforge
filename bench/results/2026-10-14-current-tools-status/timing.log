@@ -1,0 +1,19 @@
+analyze-0-native terminal0
+analyze-0-sdk terminal0
+analyze-1-sdk terminal0
+analyze-1-native terminal0
+analyze-2-native terminal0
+analyze-2-sdk terminal0
+analyze-3-sdk terminal0
+analyze-3-native terminal0
+format-0-native terminal0
+format-0-sdk terminal0
+format-1-sdk terminal0
+format-1-native terminal0
+format-2-native terminal0
+format-2-sdk terminal0
+format-3-sdk terminal0
+format-3-native terminal0
+lsp 0 terminal0
+lsp 1 terminal0
+lsp 2 terminal0

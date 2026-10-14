@@ -1,0 +1,11 @@
+[dartforge-lsp] logging to stderr; stdout is protocol only
+[dartforge-lsp] memory before the analysis of /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp: 0.1 MiB in use
+[dartforge-lsp] memory after the analysis: 1.3 MiB in use
+[dartforge-lsp] memory before the analysis of /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp: 1.3 MiB in use
+[dartforge-lsp] memory after the engine (4 files kept): 0.1 MiB in use
+[dartforge-lsp] memory after the analysis, in the child: 0.0 MiB in use
+[dartforge-lsp] memory after the analysis: 11.2 MiB in use
+[dartforge-lsp] memory before the analysis of /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp: 0.1 MiB in use
+[dartforge-lsp] memory after the engine (4 files kept): 0.1 MiB in use
+[dartforge-lsp] memory after the analysis, in the child: 0.0 MiB in use
+[dartforge-lsp] memory after the analysis: 0.1 MiB in use

@@ -1,0 +1,113 @@
+{
+  "success": true,
+  "states": [
+    [
+      "LIVE",
+      "one",
+      "202",
+      "1",
+      "initial"
+    ],
+    [
+      "LIVE",
+      "restarted",
+      "new-state",
+      "1",
+      "null-added"
+    ]
+  ],
+  "exit_code": 0,
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit",
+  "compiler_sha256": "e106c2da3f1156bdd851f45706d36644f375815b7a20fe933c765f7aef6b2354",
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit",
+    "reload",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-jit-validation/restart-fixture/main.dart",
+    "--sdk",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "--interval",
+    "50",
+    "--once"
+  ],
+  "events": [
+    {
+      "stream": "stderr",
+      "line": "[reload] generation 1: state preserved in the same session",
+      "unix": 1791996379.5066922
+    },
+    {
+      "stream": "stdout",
+      "line": "LIVE|one|202|1|initial",
+      "unix": 1791996379.7269812
+    },
+    {
+      "stream": "stderr",
+      "line": "[reload] the edit cannot be applied to the running program: contract: field `value` of class State changed its type (int to String); the live objects hold values of the old type, so the reload is rejected \u2014 restart the session",
+      "unix": 1791996379.907737
+    },
+    {
+      "stream": "stderr",
+      "line": "[reload] restarting the program with the new code",
+      "unix": 1791996379.9978619
+    },
+    {
+      "stream": "stderr",
+      "line": "[reload] generation 1: state preserved in the same session",
+      "unix": 1791996380.194546
+    },
+    {
+      "stream": "stdout",
+      "line": "LIVE|restarted|new-state|1|null-added",
+      "unix": 1791996380.402328
+    }
+  ],
+  "rss_snapshots": [
+    {
+      "phase": "one",
+      "unix": 1791996379.760587,
+      "processes": [
+        {
+          "pid": 50847,
+          "ppid": 50842,
+          "rss_kib": 12640,
+          "command": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit reload /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-jit-validation/restart-fixture/main.dart --sdk /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib --interval 50 --once"
+        },
+        {
+          "pid": 50849,
+          "ppid": 50847,
+          "rss_kib": 87392,
+          "command": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit reload /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-jit-validation/restart-fixture/main.dart --sdk /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib --interval 50 --once --child --supervisor 62839"
+        }
+      ]
+    },
+    {
+      "phase": "restarted",
+      "unix": 1791996380.436097,
+      "processes": [
+        {
+          "pid": 50847,
+          "ppid": 50842,
+          "rss_kib": 12672,
+          "command": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit reload /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-jit-validation/restart-fixture/main.dart --sdk /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib --interval 50 --once"
+        },
+        {
+          "pid": 50861,
+          "ppid": 50847,
+          "rss_kib": 87248,
+          "command": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit reload /Volumes/ssd_dock/MyRustProjects/dartforge/target/current-jit-validation/restart-fixture/main.dart --sdk /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib --interval 50 --once --child --supervisor 62839"
+        }
+      ]
+    }
+  ],
+  "fixture_versions_sha256": {
+    "one": "2f8c2d5f149d0dc7a900298efa8cdb187cb16a6e6d674462895ea0b5a12d4eee",
+    "two": "6f2f72de40519668f40a8fb689b3723352f5cf473eda9069aa5f36c9337d3fd8",
+    "three": "f7af92508bc45414fc02e1213b8af44481ba5c21f7f808120f659b6bbbf94666",
+    "four": "e15d8724f3c94f8dc2c4b9fa54ec654371de261b3b6b744c20b51f1f1cf07587"
+  },
+  "limits": [
+    "Diagnostic RSS at active phases, not benchmark or leak proof.",
+    "No hot reload timing comparison with official VM.",
+    "Ordinary async live fixture; default tracing only."
+  ]
+}

@@ -1,0 +1,104 @@
+{
+  "scope": "Fresh matched Node kernel measurements only; no broad language or application performance parity.",
+  "production_window": [
+    "2026-10-14T16:40:37.830519+00:00",
+    "2026-10-14T16:41:09.180768+00:00"
+  ],
+  "development_window": [
+    "2026-10-14T16:41:09.322054+00:00",
+    "2026-10-14T16:41:31.209460+00:00"
+  ],
+  "production_min_to_O2_ratios": {
+    "objects_in_collections": {
+      "object_list": 3.103,
+      "object_sort": 2.7322,
+      "map_int_object": 1.7544,
+      "map_str_object": 2.3536
+    },
+    "json": {
+      "decode_small": 1.384,
+      "encode_small": 1.7472,
+      "decode_medium": 1.3447,
+      "encode_medium": 1.5826,
+      "decode_large": 1.2171,
+      "encode_large": 1.2862,
+      "indented": 1.3672,
+      "utf8_bytes": 3.5865,
+      "reviver": 1.4351
+    },
+    "typed_data": {
+      "product_f64": 1.0249,
+      "fnv_bytes": 0.9929
+    },
+    "calls": {
+      "shapes": 0.6562,
+      "closures": 1.0465,
+      "fib": 0.9967
+    }
+  },
+  "development_to_DDC_ratios": {
+    "typed_data": {
+      "product_f64": 0.9545,
+      "fnv_bytes": 0.9529
+    },
+    "calls": {
+      "shapes": 0.9343,
+      "closures": 1.1287,
+      "fib": 1.0773
+    }
+  },
+  "sizes": {
+    "limitless_ui": {
+      "forge_checked": {
+        "bytes": 3535556,
+        "gzip9_bytes": 1020032,
+        "compile_wall_seconds": 7.519431540999999
+      },
+      "dart2js_O2": {
+        "bytes": 3870230,
+        "gzip9_bytes": 1020812,
+        "compile_wall_seconds": 17.229714459
+      },
+      "dart2js_O4": {
+        "bytes": 3708478,
+        "gzip9_bytes": 983801,
+        "compile_wall_seconds": 15.832171458000001
+      }
+    },
+    "new_sali": {
+      "forge_checked": {
+        "bytes": 7625133,
+        "gzip9_bytes": 2078667,
+        "compile_wall_seconds": 17.417993916999997
+      },
+      "dart2js_O2": {
+        "bytes": 8022590,
+        "gzip9_bytes": 2110700,
+        "compile_wall_seconds": 27.577993415999998
+      },
+      "dart2js_O4": {
+        "bytes": 7616037,
+        "gzip9_bytes": 2018929,
+        "compile_wall_seconds": 25.267032083000004
+      }
+    },
+    "hello": {
+      "forge_checked": {
+        "bytes": 46212,
+        "gzip9_bytes": 16046,
+        "compile_wall_seconds": 0.13989583299999708
+      },
+      "dart2js_O2": {
+        "bytes": 33595,
+        "gzip9_bytes": 11106,
+        "compile_wall_seconds": 0.6658271669999891
+      },
+      "dart2js_O4": {
+        "bytes": 5081,
+        "gzip9_bytes": 1799,
+        "compile_wall_seconds": 0.5788111250000014
+      }
+    }
+  },
+  "compilation_limit": "Recorded one-shot CLI compile wall times include process startup and ran alongside permitted correctness builds, not isolated repeated compile-time comparisons. Rust incremental release producer build is separate: 1m 00s."
+}

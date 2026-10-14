@@ -1,0 +1,207 @@
+{
+  "cases": {
+    "json": {
+      "runs": {
+        "VM": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "run",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/json.dart"
+          ],
+          "exit": 0,
+          "stdout": "small: 1074 units, sum 857085424, round trip true\nmedium: 100733 units, sum 1063291676, round trip true\nlarge: 5923393 units, sum 577431855, round trip true\nindented: 178455 units, sum 203103296, round trip true\nbytes: 103091, true\ndecoded: 158414064\ndecode_small: 999993056\nencode_small: 948440368\ndecode_medium: 298456378\nencode_medium: 128399358\ndecode_large: 158414064\nencode_large: 303257809\nindented: 788061168\nutf8_bytes: 558946680\nreviver: 548498912\n",
+          "stderr": ""
+        },
+        "raw": {
+          "command": [
+            "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+            "-e",
+            "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/json/raw/program.js"
+          ],
+          "exit": 0,
+          "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 1024686864\nencode_small: 552014064\ndecode_medium: 649351068\nencode_medium: 195067402\ndecode_large: 298278621\nencode_large: 689020713\nindented: 188745904\nutf8_bytes: 434926252\nreviver: 373962124\n",
+          "stderr": ""
+        },
+        "min": {
+          "command": [
+            "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+            "-e",
+            "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/json/min/program.js"
+          ],
+          "exit": 0,
+          "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 1024686864\nencode_small: 552014064\ndecode_medium: 649351068\nencode_medium: 195067402\ndecode_large: 298278621\nencode_large: 689020713\nindented: 188745904\nutf8_bytes: 434926252\nreviver: 373962124\n",
+          "stderr": ""
+        },
+        "O2": {
+          "command": [
+            "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+            "-e",
+            "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/json/O2/program.js"
+          ],
+          "exit": 0,
+          "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 1024686864\nencode_small: 552014064\ndecode_medium: 649351068\nencode_medium: 195067402\ndecode_large: 298278621\nencode_large: 689020713\nindented: 188745904\nutf8_bytes: 434926252\nreviver: 373962124\n",
+          "stderr": ""
+        }
+      },
+      "Forge_JS_exact_O2": true,
+      "VM_exact_O2": false
+    },
+    "typed_data": {
+      "runs": {
+        "VM": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "run",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/typed_data.dart"
+          ],
+          "exit": 0,
+          "stdout": "product_f64: 749982499.8499922\nfnv_bytes: 2948595712\n",
+          "stderr": ""
+        },
+        "raw": {
+          "command": [
+            "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+            "-e",
+            "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/typed_data/raw/program.js"
+          ],
+          "exit": 0,
+          "stdout": "product_f64: 749982499.8499922\nfnv_bytes: 1540479600\n",
+          "stderr": ""
+        },
+        "min": {
+          "command": [
+            "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+            "-e",
+            "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/typed_data/min/program.js"
+          ],
+          "exit": 0,
+          "stdout": "product_f64: 749982499.8499922\nfnv_bytes: 1540479600\n",
+          "stderr": ""
+        },
+        "O2": {
+          "command": [
+            "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+            "-e",
+            "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/typed_data/O2/program.js"
+          ],
+          "exit": 0,
+          "stdout": "product_f64: 749982499.8499922\nfnv_bytes: 1540479600\n",
+          "stderr": ""
+        }
+      },
+      "Forge_JS_exact_O2": true,
+      "VM_exact_O2": false
+    },
+    "objects_in_collections": {
+      "runs": {
+        "VM": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "run",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/objects_in_collections.dart"
+          ],
+          "exit": 0,
+          "stdout": "object_list: 129592732.5\nobject_sort: 100028\nmap_int_object: 19999900000.0\nmap_str_object: 1199980\n",
+          "stderr": ""
+        },
+        "raw": {
+          "command": [
+            "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+            "-e",
+            "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/objects_in_collections/raw/program.js"
+          ],
+          "exit": 0,
+          "stdout": "object_list: 129592732.5\nobject_sort: 100028\nmap_int_object: 19999900000\nmap_str_object: 1199980\n",
+          "stderr": ""
+        },
+        "min": {
+          "command": [
+            "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+            "-e",
+            "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/objects_in_collections/min/program.js"
+          ],
+          "exit": 0,
+          "stdout": "object_list: 129592732.5\nobject_sort: 100028\nmap_int_object: 19999900000\nmap_str_object: 1199980\n",
+          "stderr": ""
+        },
+        "O2": {
+          "command": [
+            "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+            "-e",
+            "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/objects_in_collections/O2/program.js"
+          ],
+          "exit": 0,
+          "stdout": "object_list: 129592732.5\nobject_sort: 100028\nmap_int_object: 19999900000\nmap_str_object: 1199980\n",
+          "stderr": ""
+        }
+      },
+      "Forge_JS_exact_O2": true,
+      "VM_exact_O2": false
+    },
+    "calls": {
+      "runs": {
+        "VM": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "run",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/calls.dart"
+          ],
+          "exit": 0,
+          "stdout": "shapes: 9242078840.029448\nclosures: 722784\nfib: 832040\n",
+          "stderr": ""
+        },
+        "raw": {
+          "command": [
+            "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+            "-e",
+            "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/calls/raw/program.js"
+          ],
+          "exit": 0,
+          "stdout": "shapes: 9242078840.029448\nclosures: 722784\nfib: 832040\n",
+          "stderr": ""
+        },
+        "min": {
+          "command": [
+            "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+            "-e",
+            "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/calls/min/program.js"
+          ],
+          "exit": 0,
+          "stdout": "shapes: 9242078840.029448\nclosures: 722784\nfib: 832040\n",
+          "stderr": ""
+        },
+        "O2": {
+          "command": [
+            "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+            "-e",
+            "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/calls/O2/program.js"
+          ],
+          "exit": 0,
+          "stdout": "shapes: 9242078840.029448\nclosures: 722784\nfib: 832040\n",
+          "stderr": ""
+        }
+      },
+      "Forge_JS_exact_O2": true,
+      "VM_exact_O2": true
+    }
+  },
+  "scope": "Untimed one-call kernel snapshots. JSON VM generated large integers may differ from JS exact integer policy; JS oracle is checked O2.",
+  "oracle_scope_notes": {
+    "json": "VM generated input/checksums differ from JS due integers beyond JavaScript exact integer range; only checked JS O2 comparison is eligible for these timings.",
+    "typed_data": "product_f64 exactly matches VM; fnv_bytes VM 2948595712 vs JS 1540479600 due backend integer multiplication/bitwise precision contract. Forge raw/min match checked O2.",
+    "objects_in_collections": "VM map_int_object prints 19999900000.0, JS prints 19999900000. All numeric values agree; output text differs by double formatting.",
+    "calls": "VM and all three JS profiles exact."
+  }
+}

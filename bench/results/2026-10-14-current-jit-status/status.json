@@ -1,0 +1,253 @@
+{
+  "scope": "Current immutable release CLI and freshly compiled current-source JIT correctness on macOS ARM64, SDK3.6.2. No historical executable reclassification.",
+  "compiler": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-jit",
+    "sha256": "e106c2da3f1156bdd851f45706d36644f375815b7a20fe933c765f7aef6b2354",
+    "features": [
+      "native",
+      "jit"
+    ],
+    "profile": "release"
+  },
+  "gates": {
+    "fresh_lib": {
+      "passed": 38,
+      "failed": 0,
+      "ignored": 0,
+      "include_ignored": true,
+      "binary_sha256": "5d696668194a6c5ff2950279da2162fd47dcf806082e13549a1e630656ce75ef",
+      "log": "raw/fresh-full-lib.log"
+    },
+    "fresh_hot_reload_integration": {
+      "passed": 16,
+      "failed": 0,
+      "include_ignored": true,
+      "log": "raw/fresh-retention.log"
+    },
+    "fresh_callback_retention_integration": {
+      "passed": 5,
+      "failed": 0,
+      "include_ignored": true,
+      "log": "raw/fresh-retention.log"
+    },
+    "actual_same_spelling_declared_type_regression": {
+      "passed": 1,
+      "trace": [
+        102,
+        103,
+        104
+      ],
+      "log": "raw/fresh-type-identity-actual.log"
+    },
+    "actual_native_callable_retention": {
+      "passed": 2,
+      "closed_callback_result": -99,
+      "scope": "captured closure/reload/adapter publication/session destruction",
+      "log": "raw/fresh-callbacks.log"
+    },
+    "initial_wrong_test_filter": {
+      "selected": 0,
+      "is_a_gate": false,
+      "log": "raw/fresh-type-identity.log"
+    }
+  },
+  "actual_cli": {
+    "live_reload": {
+      "exit_code": 0,
+      "states": [
+        [
+          "LIVE",
+          "one",
+          "202",
+          "1",
+          "initial"
+        ],
+        [
+          "LIVE",
+          "two",
+          "202",
+          "2",
+          "null-added"
+        ],
+        [
+          "LIVE",
+          "three",
+          "202",
+          "3",
+          "null-added"
+        ],
+        [
+          "LIVE",
+          "four",
+          "202",
+          "4",
+          "null-added"
+        ]
+      ],
+      "observations": "Same live object value202 and monotonic turns1\u21922\u21923\u21924 across three publications; nullable field added and initialized to null; same child process, ordinary async Timer code."
+    },
+    "incompatible_field_edit": {
+      "exit_code": 0,
+      "states": [
+        [
+          "LIVE",
+          "one",
+          "202",
+          "1",
+          "initial"
+        ],
+        [
+          "LIVE",
+          "restarted",
+          "new-state",
+          "1",
+          "null-added"
+        ]
+      ],
+      "observations": "CLI rejects int\u2192String at migration contract, then supervisor automatically restarts; new child state/turn reset. CLI restart is not a rollback preserving state."
+    },
+    "rollback": {
+      "observations": "Fresh real JitSession same-spelling library type regression separately rejects before publication and preserves old state; alias with same semantic type accepted."
+    }
+  },
+  "code_retention": {
+    "observations": [
+      "Fresh hot_reload integration asserts five simple reloads reclaim to one generation.",
+      "Removed reachable functions and escaping internal closures remain intentionally resident.",
+      "Fresh real NativeCallable tests require at least two retained generations after publication and validate saved closed callback addresses across session destruction."
+    ],
+    "limits": "These checks are specific ownership/retention contracts, not an all-program memory-growth proof."
+  },
+  "rss_diagnostic": {
+    "first_live_cli_process": [
+      {
+        "phase": "one",
+        "processes": [
+          {
+            "pid": 50454,
+            "ppid": 50451,
+            "rss_kib": 12640
+          },
+          {
+            "pid": 50455,
+            "ppid": 50454,
+            "rss_kib": 1488416
+          }
+        ]
+      },
+      {
+        "phase": "two",
+        "processes": [
+          {
+            "pid": 50454,
+            "ppid": 50451,
+            "rss_kib": 12640
+          },
+          {
+            "pid": 50455,
+            "ppid": 50454,
+            "rss_kib": 1489024
+          }
+        ]
+      },
+      {
+        "phase": "three",
+        "processes": [
+          {
+            "pid": 50454,
+            "ppid": 50451,
+            "rss_kib": 12640
+          },
+          {
+            "pid": 50455,
+            "ppid": 50454,
+            "rss_kib": 1489072
+          }
+        ]
+      },
+      {
+        "phase": "four",
+        "processes": [
+          {
+            "pid": 50454,
+            "ppid": 50451,
+            "rss_kib": 12640
+          },
+          {
+            "pid": 50455,
+            "ppid": 50454,
+            "rss_kib": 1489120
+          }
+        ]
+      }
+    ],
+    "separate_restart_cli_process": [
+      {
+        "phase": "one",
+        "processes": [
+          {
+            "pid": 50847,
+            "ppid": 50842,
+            "rss_kib": 12640
+          },
+          {
+            "pid": 50849,
+            "ppid": 50847,
+            "rss_kib": 87392
+          }
+        ]
+      },
+      {
+        "phase": "restarted",
+        "processes": [
+          {
+            "pid": 50847,
+            "ppid": 50842,
+            "rss_kib": 12672
+          },
+          {
+            "pid": 50861,
+            "ppid": 50847,
+            "rss_kib": 87248
+          }
+        ]
+      }
+    ],
+    "observations": "First observed CLI child RSS1488416\u21921489120KiB. Separate subsequent fixture child87392KiB before rejection and87248KiB after restart. Different cache/build states may explain the difference, but causality has not been established.",
+    "limits": "RSS observations only; not comparable latency benchmark, universal memory requirement, peak/steady-state estimate or leak proof."
+  },
+  "compiled_source_inputs_stable": true,
+  "timing_comparison": {
+    "performed": false,
+    "upstream_hot_reload_comparison": false,
+    "reason": "No paired quiet-window upstream VM hot reload harness executed; no speed/parity claim."
+  },
+  "limits": [
+    "Default tracing correctness only in this current round; no new ARC/prepared/stress matrix claim.",
+    "No browser/UI/full package compatibility readiness claim.",
+    "Synthetic retention tests distinguished from actual emitted ordinary Dart and native callback tests."
+  ],
+  "artifact_sha256": {
+    "compiler-source-snapshot.json": "3a1947c610bbe218ae2b69315d292cc9476610b1001ae4bfdacbae91df0aad9e",
+    "live-validation.json": "fc4153addf5958637252a319d9c2169016b2a40e2f73334ea33941a3a3ea9eac",
+    "fresh-integration-provenance.json": "de3a8279993068d366fa88a796932fb40e72f1729b46429a97b7f59a126206e4",
+    "fresh-test-provenance.json": "d286e7129ad024c2a618ef310896b47e774ab5c140cf54de5231f3c9947927e6",
+    "restart-validation.json": "98719bcca49f974a608fbff9bf9c97ea3a47402c38cb1c2a7de7531e3e66d373",
+    "fixtures/restart-versions.json": "1cffdfa47bdc18eae01f4f5fadb203ced8ac88ce146da7b6cd5282034bc0af1e",
+    "fixtures/verify_live.py": "88857cadf8a49de95a9b1fe93f57777a9a0ddffe1639a526f2f5f19e4441f277",
+    "fixtures/live-versions.json": "ec41decb432942e8b4a833976bb8d49ca434ee93e46c19ccc421ab277b9a2f13",
+    "fixtures/verify_restart.py": "e5dc61473eec2cd00778dcf73165dc95b29e9bcb35f0b5e2597ff1cd1831c43a",
+    "fixtures/restart-edited-source.dart": "ea3763c3167f40f0190cd8c863c5069f86369d25d03c6e7e82117cce123146f2",
+    "raw/fresh-type-identity-actual.log": "f9e3f8b166794e2c76b6ac3d30f5a3a1b5c020340fdeab5250a2da99ad25d08d",
+    "raw/fresh-callbacks.log": "7211c57fd61596f5b4335097646d4a6a64e4e132f8731fadc0d656d788022a4a",
+    "raw/fresh-full-lib.log": "b32c5c07ae8e93c70099e7307b49c4095128b52291fe4f801b1d43cdaecc32e7",
+    "raw/fresh-retention.log": "b568c3f71d8e88f304eca090b2adff65644940e2a7801f4198b5c40efa1651c4",
+    "raw/live-run.log": "76122b8d9225b9b4da6594a8783faac6754f76e48715a78434d8bf364ae32563",
+    "raw/live.stderr": "3a83b878aad55d9d3909359dc2018049ca63c0177fc225e08614f2a0995c6e44",
+    "raw/restart.stderr": "462b8b3288ad0b7ced941bea2e0b20af63a191a8a93b2b269436a19ac3f7ba58",
+    "raw/restart.stdout": "abda1d3446c6e23d3e735007fd24280d04648f86b92d7db20cbab967e004fa32",
+    "raw/fresh-type-identity.log": "7acb085a6bb2c209359da35ea3ffa743c81ea5a40b33a0cce8fb4daa95c9a7a4",
+    "raw/live.stdout": "dac07c30730c49b05bec95bbcd171b5523a9dd94d4f551faeec24c80e5313bcf",
+    "raw/restart-run.log": "fa9509f0af7c43d0e2743be229697be66cfc125aa3f2b77e62a2ad493cb738a9"
+  }
+}

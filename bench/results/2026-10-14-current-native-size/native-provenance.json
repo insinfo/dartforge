@@ -1,0 +1,11 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-toolchain-status/dartforge-native",
+  "sha256": "50c1a7a7ff7cc1b4e79ab0181c479f03c897d553913723cfdb1109d9589edfc4",
+  "source_hashes_verified": 1500,
+  "head": "8a986f9a75404f62125be849438c46f6a2d92aa6",
+  "features": [
+    "native"
+  ],
+  "profile": "release",
+  "pending": "Pub/test CLI command validation and full fresh upstream comparisons."
+}

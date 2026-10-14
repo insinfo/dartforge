@@ -1,0 +1,456 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+  "compiler_sha256": "9b4299b4eab1bb28cc833e5ff6660895ef73b2e1eba454f919a29f7bda43c86c",
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart": "9781ba5b478ef20313fe280ed5fb0b18824e55a50501d507b2d22fe8ea307c38",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/typed_data.dart": "8d182ae8eccd5b554c3db6c9997c3e2d0a01b1c5273012dec7129fd949b20973",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/objects_in_collections.dart": "85174e310ad0b75ea9e004cf8700b1c878d6a6d6c1eddab9c76a41daff64d313",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/calls.dart": "418bad90bc6fbc837261bfa1f97494b3afe54cc86f9c61c1113480d3c45510e0",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/common.dart": "d02c6fc0e3cd9b0fc42233aa9ea182c836744cafc492d41b8ae3c54045aecf95"
+  },
+  "artifacts": {
+    "correctness.json": {
+      "raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/json.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/json/raw/program.js",
+          "--no-minify"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.518854375,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/json/raw/program.js",
+        "sha256": "39aca57a839cd96da030d3dba2f24e9b962a7799db39fc3b837ebeb52dd6922e",
+        "bytes": 506570,
+        "gzip9_bytes": 82099
+      },
+      "min": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/json.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/json/min/program.js"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.2971118749999999,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/json/min/program.js",
+        "sha256": "882854802460a1474b3c8a7f5d118513c3b48cbd5b6fa3ff0053aa1187194915",
+        "bytes": 159927,
+        "gzip9_bytes": 50038
+      },
+      "O2": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "js",
+          "-O2",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/json.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/json/O2/program.js"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 1.1105832919999998,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/json/O2/program.js",
+        "sha256": "c7894b39a5b94d33345be1bc338e52939a3d815fbcd48fd630b343379b893d50",
+        "bytes": 85623,
+        "gzip9_bytes": 27301
+      }
+    },
+    "correctness.typed_data": {
+      "raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/typed_data.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/typed_data/raw/program.js",
+          "--no-minify"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.11266449999999972,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/typed_data/raw/program.js",
+        "sha256": "1546d406d742a91cd48b10dc6983bdadc5984b7e67b5c10fb878e551cf270257",
+        "bytes": 196511,
+        "gzip9_bytes": 34740
+      },
+      "min": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/typed_data.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/typed_data/min/program.js"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.14045133300000012,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/typed_data/min/program.js",
+        "sha256": "2eb1f3505324f4d4a44cb739b55e0e2a72382ef33779e58b9f29799a1d34d8c4",
+        "bytes": 57130,
+        "gzip9_bytes": 19232
+      },
+      "O2": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "js",
+          "-O2",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/typed_data.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/typed_data/O2/program.js"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.7780947079999998,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/typed_data/O2/program.js",
+        "sha256": "c43c59a000f8f2409aaddbef6100181c75798184b45d1158cbdd6bd33c1e6520",
+        "bytes": 46465,
+        "gzip9_bytes": 14411
+      }
+    },
+    "correctness.objects_in_collections": {
+      "raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/objects_in_collections.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/objects_in_collections/raw/program.js",
+          "--no-minify"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.1550212499999999,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/objects_in_collections/raw/program.js",
+        "sha256": "335aefb778149451acfe64da7ecd73936af65ddf819ba660fea87d87f468becd",
+        "bytes": 211585,
+        "gzip9_bytes": 37985
+      },
+      "min": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/objects_in_collections.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/objects_in_collections/min/program.js"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.18453108299999998,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/objects_in_collections/min/program.js",
+        "sha256": "82be9849974479707f48123500c445790d9fd26702857e36a0d0bd4db3844ae4",
+        "bytes": 61102,
+        "gzip9_bytes": 21107
+      },
+      "O2": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "js",
+          "-O2",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/objects_in_collections.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/objects_in_collections/O2/program.js"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.7350812500000004,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/objects_in_collections/O2/program.js",
+        "sha256": "9c9dfacc00c8e7cc2c2a8d9ba1a539f788ac84aac263589b14bdcf55cba74255",
+        "bytes": 43127,
+        "gzip9_bytes": 14304
+      }
+    },
+    "correctness.calls": {
+      "raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/calls.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/calls/raw/program.js",
+          "--no-minify"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.11397233300000043,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/calls/raw/program.js",
+        "sha256": "05a937bc35d54b29bfed35bc1d91dbc15771114e5eaea6989fcb6ce13a64a862",
+        "bytes": 171450,
+        "gzip9_bytes": 30998
+      },
+      "min": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/calls.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/calls/min/program.js"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.13876654099999985,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/calls/min/program.js",
+        "sha256": "2445d6c7bf723b4c96cdeafd50ba1ce571a6d195fd0041e5df5b87aa74a8c845",
+        "bytes": 47645,
+        "gzip9_bytes": 16622
+      },
+      "O2": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "js",
+          "-O2",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/calls.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/calls/O2/program.js"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.6802473749999995,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/correctness/calls/O2/program.js",
+        "sha256": "6fa823957964b01a5cb8ff372ad1070c5bf7bc5247396210fc542de644964789",
+        "bytes": 35375,
+        "gzip9_bytes": 11702
+      }
+    },
+    "timing.json": {
+      "raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/json/raw/program.js",
+          "--no-minify"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.22228099999999973,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/json/raw/program.js",
+        "sha256": "af2f08913940c204014d78edbb99429a50326320e335fd7d27eaca50d24c647f",
+        "bytes": 509018,
+        "gzip9_bytes": 82704
+      },
+      "min": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/json/min/program.js"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.2931691249999995,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/json/min/program.js",
+        "sha256": "515d82713dd5d94f7fc26b4e44ca0e799dcd0a1efc817d469b9fd57d36220818",
+        "bytes": 160784,
+        "gzip9_bytes": 50452
+      },
+      "O2": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "js",
+          "-O2",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/json/O2/program.js"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.8751502090000001,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/json/O2/program.js",
+        "sha256": "edc5885e67cfa4ddd999a6c8679fcaaf21319bb2963722e5312e9f4997043bdb",
+        "bytes": 86603,
+        "gzip9_bytes": 27673
+      }
+    },
+    "timing.typed_data": {
+      "raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/typed_data.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/typed_data/raw/program.js",
+          "--no-minify"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.11176325000000009,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/typed_data/raw/program.js",
+        "sha256": "71e53292f976f30d318d2f8267c24cc8d891fe0a185b1c3ee18e7a5cb0765197",
+        "bytes": 200691,
+        "gzip9_bytes": 35771
+      },
+      "min": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/typed_data.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/typed_data/min/program.js"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.14082258399999947,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/typed_data/min/program.js",
+        "sha256": "12416c27108105e81031130f96a268aa7f2523687e194901e5f0aadd30615c7a",
+        "bytes": 58844,
+        "gzip9_bytes": 19916
+      },
+      "O2": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "js",
+          "-O2",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/typed_data.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/typed_data/O2/program.js"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.7012406250000005,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/typed_data/O2/program.js",
+        "sha256": "978151cad3d5bcc7289021daccd53a73684e72aa03004047783bade7ba5c6621",
+        "bytes": 48184,
+        "gzip9_bytes": 15107
+      }
+    },
+    "timing.objects_in_collections": {
+      "raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/objects_in_collections.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/objects_in_collections/raw/program.js",
+          "--no-minify"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.1556130419999997,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/objects_in_collections/raw/program.js",
+        "sha256": "1876aeb2dcffffeba56042a13c010aecc911643ffb8c606b6516343af98ab299",
+        "bytes": 214696,
+        "gzip9_bytes": 38696
+      },
+      "min": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/objects_in_collections.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/objects_in_collections/min/program.js"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.18435950000000023,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/objects_in_collections/min/program.js",
+        "sha256": "061217987bf0aa861e63c643004cc8678c3a3a5fea15b3a7892113a45703166e",
+        "bytes": 62220,
+        "gzip9_bytes": 21577
+      },
+      "O2": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "js",
+          "-O2",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/objects_in_collections.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/objects_in_collections/O2/program.js"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.7458640829999998,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/objects_in_collections/O2/program.js",
+        "sha256": "ab1412df0779175344e17b6b64d96061176fc3d8f11188dbc49b62759c6beabc",
+        "bytes": 44849,
+        "gzip9_bytes": 15000
+      }
+    },
+    "timing.calls": {
+      "raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/calls.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/calls/raw/program.js",
+          "--no-minify"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.1178155830000005,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/calls/raw/program.js",
+        "sha256": "7967a6954239cbba8fa547158af21b58fb09673f0c22f33b1ad33cf35dc16ddc",
+        "bytes": 176006,
+        "gzip9_bytes": 32082
+      },
+      "min": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/calls.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/calls/min/program.js"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.14226383299999945,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/calls/min/program.js",
+        "sha256": "4796f23f52190534d486a38dafc49970e90f495ba32448fa7b4eac795bf0b88e",
+        "bytes": 49454,
+        "gzip9_bytes": 17335
+      },
+      "O2": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "js",
+          "-O2",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/calls.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/calls/O2/program.js"
+        ],
+        "exit": 0,
+        "compile_wall_seconds": 0.6960355840000005,
+        "compile_time_scope": "Single CLI process wall time; separate from Rust host build, no repeated quiet-window compile-time benchmark.",
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/timing/calls/O2/program.js",
+        "sha256": "92e44e6c725eac8b6b85ffc0850ee0e88c897b60c4a3fcbd5e53eb3f4b8f095a",
+        "bytes": 37156,
+        "gzip9_bytes": 12433
+      }
+    }
+  },
+  "scope": "Compile and untimed correctness snapshots only. Original common.dart retained for timing artifacts.",
+  "correctness_harness_sha256": "7ec9f3cb6858d61168c81d567a19831fc970a5d2fb08ae962df75f09ca7825ac",
+  "inputs_stable": true
+}

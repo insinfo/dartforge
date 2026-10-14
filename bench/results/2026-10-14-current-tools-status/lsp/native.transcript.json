@@ -1,0 +1,6441 @@
+[
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "initialize",
+      "params": {
+        "processId": 50796,
+        "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp",
+        "workspaceFolders": [
+          {
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp",
+            "name": "current-tools-status-lsp"
+          }
+        ],
+        "capabilities": {
+          "textDocument": {
+            "rename": {
+              "prepareSupport": true
+            },
+            "publishDiagnostics": {
+              "versionSupport": true
+            }
+          }
+        }
+      },
+      "id": 1
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 1,
+      "jsonrpc": "2.0",
+      "result": {
+        "capabilities": {
+          "callHierarchyProvider": true,
+          "codeActionProvider": true,
+          "codeLensProvider": {
+            "resolveProvider": false
+          },
+          "colorProvider": {},
+          "completionProvider": {
+            "resolveProvider": true,
+            "triggerCharacters": [
+              "."
+            ]
+          },
+          "definitionProvider": true,
+          "documentFormattingProvider": true,
+          "documentHighlightProvider": true,
+          "documentLinkProvider": {
+            "resolveProvider": false
+          },
+          "documentOnTypeFormattingProvider": {
+            "firstTriggerCharacter": "}",
+            "moreTriggerCharacter": [
+              ";"
+            ]
+          },
+          "documentRangeFormattingProvider": true,
+          "documentSymbolProvider": true,
+          "executeCommandProvider": {
+            "commands": [
+              "dart.edit.sortMembers",
+              "dart.edit.organizeImports",
+              "dart.edit.fixAll",
+              "dart.edit.fixAllInWorkspace.preview",
+              "dart.edit.fixAllInWorkspace",
+              "dart.edit.sendWorkspaceEdit",
+              "refactor.perform",
+              "refactor.validate",
+              "dart.logAction",
+              "dart.refactor.convert_all_formal_parameters_to_named",
+              "dart.refactor.convert_selected_formal_parameters_to_named",
+              "dart.refactor.move_selected_formal_parameters_left",
+              "dart.refactor.move_top_level_to_file"
+            ],
+            "workDoneProgress": true
+          },
+          "foldingRangeProvider": true,
+          "hoverProvider": true,
+          "implementationProvider": true,
+          "inlayHintProvider": {
+            "resolveProvider": false
+          },
+          "positionEncoding": "utf-16",
+          "referencesProvider": true,
+          "renameProvider": {
+            "prepareProvider": true
+          },
+          "selectionRangeProvider": true,
+          "semanticTokensProvider": {
+            "full": true,
+            "legend": {
+              "tokenModifiers": [
+                "documentation",
+                "constructor",
+                "declaration",
+                "importPrefix",
+                "instance",
+                "static",
+                "escape",
+                "annotation",
+                "control",
+                "label",
+                "interpolation",
+                "void",
+                "wildcard"
+              ],
+              "tokenTypes": [
+                "annotation",
+                "keyword",
+                "class",
+                "comment",
+                "method",
+                "variable",
+                "parameter",
+                "enum",
+                "enumMember",
+                "type",
+                "source",
+                "property",
+                "namespace",
+                "boolean",
+                "number",
+                "string",
+                "function",
+                "typeParameter"
+              ]
+            },
+            "range": true
+          },
+          "signatureHelpProvider": {
+            "retriggerCharacters": [
+              ","
+            ],
+            "triggerCharacters": [
+              "("
+            ]
+          },
+          "textDocumentSync": 2,
+          "typeDefinitionProvider": true,
+          "typeHierarchyProvider": true,
+          "workspace": {
+            "fileOperations": {
+              "willRename": {
+                "filters": [
+                  {
+                    "pattern": {
+                      "glob": "**/*.dart",
+                      "matches": "file"
+                    },
+                    "scheme": "file"
+                  },
+                  {
+                    "pattern": {
+                      "glob": "**/",
+                      "matches": "folder"
+                    },
+                    "scheme": "file"
+                  }
+                ]
+              }
+            },
+            "workspaceFolders": {
+              "changeNotifications": true,
+              "supported": true
+            }
+          },
+          "workspaceSymbolProvider": true
+        },
+        "serverInfo": {
+          "name": "dartforge-lsp",
+          "version": "0.1.0"
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "initialized",
+      "params": {}
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/didOpen",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/helper.dart",
+          "languageId": "dart",
+          "version": 1,
+          "text": "class Person {\n  final String name;\n  Person(this.name);\n  String greet() => 'Hello $name';\n}\nString greeting(Person person) => person.greet();\n"
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/didOpen",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart",
+          "languageId": "dart",
+          "version": 1,
+          "text": "import 'helper.dart';\nimport 'dart:typed_data';\nvoid main() {\n  final person = Person('Ada');\n  final message = greeting(person);\n  print(message.trim());\n  print(Uint8List.fromList([65]));\n}\n"
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/didOpen",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart",
+          "languageId": "dart",
+          "version": 1,
+          "text": "class Box { final int value; Box(this.value); }\nint read(Box box) { if (box case Box(:final value)) { return value; } return 0; }\n"
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/didOpen",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/format.dart",
+          "languageId": "dart",
+          "version": 1,
+          "text": "void main(){final values=<int>[1,2,3];for(final value in values){print(value);}}\n"
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/definition",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart"
+        },
+        "position": {
+          "line": 4,
+          "character": 19
+        }
+      },
+      "id": 2
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "$/analyzerStatus",
+      "params": {
+        "isAnalyzing": true
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 2,
+      "jsonrpc": "2.0",
+      "result": {
+        "range": {
+          "end": {
+            "character": 15,
+            "line": 5
+          },
+          "start": {
+            "character": 7,
+            "line": 5
+          }
+        },
+        "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/helper.dart"
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/references",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart"
+        },
+        "position": {
+          "line": 4,
+          "character": 19
+        },
+        "context": {
+          "includeDeclaration": true
+        }
+      },
+      "id": 3
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "$/analyzerStatus",
+      "params": {
+        "isAnalyzing": false
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/publishDiagnostics",
+      "params": {
+        "diagnostics": [
+          {
+            "code": "dead_code",
+            "message": "Dead code.\nTry removing the code, or fixing the code before it so that it can be reached.",
+            "range": {
+              "end": {
+                "character": 79,
+                "line": 1
+              },
+              "start": {
+                "character": 70,
+                "line": 1
+              }
+            },
+            "severity": 2,
+            "source": "dartforge"
+          }
+        ],
+        "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart",
+        "version": 1
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 3,
+      "jsonrpc": "2.0",
+      "result": [
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 4
+            },
+            "start": {
+              "character": 18,
+              "line": 4
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 5
+            },
+            "start": {
+              "character": 7,
+              "line": 5
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/helper.dart"
+        }
+      ]
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/rename",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart"
+        },
+        "position": {
+          "line": 4,
+          "character": 19
+        },
+        "newName": "welcome"
+      },
+      "id": 4
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 4,
+      "jsonrpc": "2.0",
+      "result": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/helper.dart": [
+            {
+              "newText": "welcome",
+              "range": {
+                "end": {
+                  "character": 15,
+                  "line": 5
+                },
+                "start": {
+                  "character": 7,
+                  "line": 5
+                }
+              }
+            }
+          ],
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart": [
+            {
+              "newText": "welcome",
+              "range": {
+                "end": {
+                  "character": 26,
+                  "line": 4
+                },
+                "start": {
+                  "character": 18,
+                  "line": 4
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/definition",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart"
+        },
+        "position": {
+          "line": 3,
+          "character": 18
+        }
+      },
+      "id": 5
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 5,
+      "jsonrpc": "2.0",
+      "result": {
+        "range": {
+          "end": {
+            "character": 8,
+            "line": 2
+          },
+          "start": {
+            "character": 2,
+            "line": 2
+          }
+        },
+        "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/helper.dart"
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/references",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart"
+        },
+        "position": {
+          "line": 3,
+          "character": 18
+        },
+        "context": {
+          "includeDeclaration": true
+        }
+      },
+      "id": 6
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 6,
+      "jsonrpc": "2.0",
+      "result": [
+        {
+          "range": {
+            "end": {
+              "character": 23,
+              "line": 3
+            },
+            "start": {
+              "character": 17,
+              "line": 3
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 8,
+              "line": 2
+            },
+            "start": {
+              "character": 2,
+              "line": 2
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/helper.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 22,
+              "line": 5
+            },
+            "start": {
+              "character": 16,
+              "line": 5
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/helper.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 12,
+              "line": 0
+            },
+            "start": {
+              "character": 6,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/helper.dart"
+        }
+      ]
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/rename",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart"
+        },
+        "position": {
+          "line": 3,
+          "character": 18
+        },
+        "newName": "Individual"
+      },
+      "id": 7
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 7,
+      "jsonrpc": "2.0",
+      "result": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/helper.dart": [
+            {
+              "newText": "Individual",
+              "range": {
+                "end": {
+                  "character": 12,
+                  "line": 0
+                },
+                "start": {
+                  "character": 6,
+                  "line": 0
+                }
+              }
+            },
+            {
+              "newText": "Individual",
+              "range": {
+                "end": {
+                  "character": 8,
+                  "line": 2
+                },
+                "start": {
+                  "character": 2,
+                  "line": 2
+                }
+              }
+            },
+            {
+              "newText": "Individual",
+              "range": {
+                "end": {
+                  "character": 22,
+                  "line": 5
+                },
+                "start": {
+                  "character": 16,
+                  "line": 5
+                }
+              }
+            }
+          ],
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart": [
+            {
+              "newText": "Individual",
+              "range": {
+                "end": {
+                  "character": 23,
+                  "line": 3
+                },
+                "start": {
+                  "character": 17,
+                  "line": 3
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/definition",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart"
+        },
+        "position": {
+          "line": 6,
+          "character": 9
+        }
+      },
+      "id": 8
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 8,
+      "jsonrpc": "2.0",
+      "result": {
+        "range": {
+          "end": {
+            "character": 30,
+            "line": 854
+          },
+          "start": {
+            "character": 21,
+            "line": 854
+          }
+        },
+        "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/references",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart"
+        },
+        "position": {
+          "line": 6,
+          "character": 9
+        },
+        "context": {
+          "includeDeclaration": true
+        }
+      },
+      "id": 9
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 9,
+      "jsonrpc": "2.0",
+      "result": [
+        {
+          "range": {
+            "end": {
+              "character": 17,
+              "line": 6
+            },
+            "start": {
+              "character": 8,
+              "line": 6
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 7
+            },
+            "start": {
+              "character": 9,
+              "line": 7
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/crypto.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 19,
+              "line": 8
+            },
+            "start": {
+              "character": 10,
+              "line": 8
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/crypto.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 38,
+              "line": 8
+            },
+            "start": {
+              "character": 29,
+              "line": 8
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/crypto.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 64,
+              "line": 913
+            },
+            "start": {
+              "character": 55,
+              "line": 913
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 34,
+              "line": 91
+            },
+            "start": {
+              "character": 25,
+              "line": 91
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 35,
+              "line": 220
+            },
+            "start": {
+              "character": 26,
+              "line": 220
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 37,
+              "line": 315
+            },
+            "start": {
+              "character": 28,
+              "line": 315
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 318
+            },
+            "start": {
+              "character": 2,
+              "line": 318
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 23,
+              "line": 323
+            },
+            "start": {
+              "character": 14,
+              "line": 323
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 333
+            },
+            "start": {
+              "character": 17,
+              "line": 333
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 29,
+              "line": 363
+            },
+            "start": {
+              "character": 20,
+              "line": 363
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 368
+            },
+            "start": {
+              "character": 2,
+              "line": 368
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 370
+            },
+            "start": {
+              "character": 17,
+              "line": 370
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 375
+            },
+            "start": {
+              "character": 2,
+              "line": 375
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 20,
+              "line": 377
+            },
+            "start": {
+              "character": 11,
+              "line": 377
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 17,
+              "line": 378
+            },
+            "start": {
+              "character": 8,
+              "line": 378
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 44,
+              "line": 408
+            },
+            "start": {
+              "character": 35,
+              "line": 408
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 24,
+              "line": 411
+            },
+            "start": {
+              "character": 15,
+              "line": 411
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 30,
+              "line": 437
+            },
+            "start": {
+              "character": 21,
+              "line": 437
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 62,
+              "line": 437
+            },
+            "start": {
+              "character": 53,
+              "line": 437
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 59,
+              "line": 470
+            },
+            "start": {
+              "character": 50,
+              "line": 470
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 30,
+              "line": 520
+            },
+            "start": {
+              "character": 21,
+              "line": 520
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 62,
+              "line": 520
+            },
+            "start": {
+              "character": 53,
+              "line": 520
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 30,
+              "line": 693
+            },
+            "start": {
+              "character": 21,
+              "line": 693
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 62,
+              "line": 693
+            },
+            "start": {
+              "character": 53,
+              "line": 693
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 29,
+              "line": 701
+            },
+            "start": {
+              "character": 20,
+              "line": 701
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 20,
+              "line": 703
+            },
+            "start": {
+              "character": 11,
+              "line": 703
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 57,
+              "line": 881
+            },
+            "start": {
+              "character": 48,
+              "line": 881
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 884
+            },
+            "start": {
+              "character": 2,
+              "line": 884
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 49,
+              "line": 884
+            },
+            "start": {
+              "character": 40,
+              "line": 884
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 55,
+              "line": 886
+            },
+            "start": {
+              "character": 46,
+              "line": 886
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 22,
+              "line": 894
+            },
+            "start": {
+              "character": 13,
+              "line": 894
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 25,
+              "line": 897
+            },
+            "start": {
+              "character": 16,
+              "line": 897
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 13,
+              "line": 1057
+            },
+            "start": {
+              "character": 4,
+              "line": 1057
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 45,
+              "line": 1156
+            },
+            "start": {
+              "character": 36,
+              "line": 1156
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 46,
+              "line": 1165
+            },
+            "start": {
+              "character": 37,
+              "line": 1165
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 13,
+              "line": 1308
+            },
+            "start": {
+              "character": 4,
+              "line": 1308
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 35,
+              "line": 1571
+            },
+            "start": {
+              "character": 26,
+              "line": 1571
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 13,
+              "line": 1610
+            },
+            "start": {
+              "character": 4,
+              "line": 1610
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 1635
+            },
+            "start": {
+              "character": 17,
+              "line": 1635
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 24,
+              "line": 1636
+            },
+            "start": {
+              "character": 15,
+              "line": 1636
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 1679
+            },
+            "start": {
+              "character": 2,
+              "line": 1679
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 1695
+            },
+            "start": {
+              "character": 2,
+              "line": 1695
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 36,
+              "line": 1880
+            },
+            "start": {
+              "character": 27,
+              "line": 1880
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 21,
+              "line": 1892
+            },
+            "start": {
+              "character": 12,
+              "line": 1892
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 31,
+              "line": 1923
+            },
+            "start": {
+              "character": 22,
+              "line": 1923
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 29,
+              "line": 1930
+            },
+            "start": {
+              "character": 20,
+              "line": 1930
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 19,
+              "line": 1955
+            },
+            "start": {
+              "character": 10,
+              "line": 1955
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 29,
+              "line": 1957
+            },
+            "start": {
+              "character": 20,
+              "line": 1957
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 21,
+              "line": 1976
+            },
+            "start": {
+              "character": 12,
+              "line": 1976
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 19,
+              "line": 1984
+            },
+            "start": {
+              "character": 10,
+              "line": 1984
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 25,
+              "line": 1985
+            },
+            "start": {
+              "character": 16,
+              "line": 1985
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 35,
+              "line": 2026
+            },
+            "start": {
+              "character": 26,
+              "line": 2026
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 46,
+              "line": 3498
+            },
+            "start": {
+              "character": 37,
+              "line": 3498
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 24,
+              "line": 3499
+            },
+            "start": {
+              "character": 15,
+              "line": 3499
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 30,
+              "line": 3504
+            },
+            "start": {
+              "character": 21,
+              "line": 3504
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 62,
+              "line": 3504
+            },
+            "start": {
+              "character": 53,
+              "line": 3504
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 3565
+            },
+            "start": {
+              "character": 2,
+              "line": 3565
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 77,
+              "line": 105
+            },
+            "start": {
+              "character": 68,
+              "line": 105
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 36,
+              "line": 106
+            },
+            "start": {
+              "character": 27,
+              "line": 106
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 107
+            },
+            "start": {
+              "character": 2,
+              "line": 107
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 25,
+              "line": 108
+            },
+            "start": {
+              "character": 16,
+              "line": 108
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 37,
+              "line": 127
+            },
+            "start": {
+              "character": 28,
+              "line": 127
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 52,
+              "line": 177
+            },
+            "start": {
+              "character": 43,
+              "line": 177
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 36,
+              "line": 178
+            },
+            "start": {
+              "character": 27,
+              "line": 178
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 17,
+              "line": 179
+            },
+            "start": {
+              "character": 8,
+              "line": 179
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 30,
+              "line": 183
+            },
+            "start": {
+              "character": 21,
+              "line": 183
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 62,
+              "line": 183
+            },
+            "start": {
+              "character": 53,
+              "line": 183
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 29,
+              "line": 198
+            },
+            "start": {
+              "character": 20,
+              "line": 198
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 71,
+              "line": 198
+            },
+            "start": {
+              "character": 62,
+              "line": 198
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 228
+            },
+            "start": {
+              "character": 2,
+              "line": 228
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 30,
+              "line": 264
+            },
+            "start": {
+              "character": 21,
+              "line": 264
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 28,
+              "line": 268
+            },
+            "start": {
+              "character": 19,
+              "line": 268
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 38,
+              "line": 307
+            },
+            "start": {
+              "character": 29,
+              "line": 307
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 19,
+              "line": 840
+            },
+            "start": {
+              "character": 10,
+              "line": 840
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 36,
+              "line": 840
+            },
+            "start": {
+              "character": 27,
+              "line": 840
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 24,
+              "line": 881
+            },
+            "start": {
+              "character": 15,
+              "line": 881
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 967
+            },
+            "start": {
+              "character": 2,
+              "line": 967
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 65,
+              "line": 1130
+            },
+            "start": {
+              "character": 56,
+              "line": 1130
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_parser.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 17,
+              "line": 93
+            },
+            "start": {
+              "character": 8,
+              "line": 93
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 43,
+              "line": 93
+            },
+            "start": {
+              "character": 34,
+              "line": 93
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 35,
+              "line": 122
+            },
+            "start": {
+              "character": 26,
+              "line": 122
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 55,
+              "line": 122
+            },
+            "start": {
+              "character": 46,
+              "line": 122
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 32,
+              "line": 215
+            },
+            "start": {
+              "character": 23,
+              "line": 215
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 47,
+              "line": 238
+            },
+            "start": {
+              "character": 38,
+              "line": 238
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 590
+            },
+            "start": {
+              "character": 2,
+              "line": 590
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 13,
+              "line": 617
+            },
+            "start": {
+              "character": 4,
+              "line": 617
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 25,
+              "line": 619
+            },
+            "start": {
+              "character": 16,
+              "line": 619
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 24,
+              "line": 626
+            },
+            "start": {
+              "character": 15,
+              "line": 626
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 13,
+              "line": 764
+            },
+            "start": {
+              "character": 4,
+              "line": 764
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 32,
+              "line": 764
+            },
+            "start": {
+              "character": 23,
+              "line": 764
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 17,
+              "line": 792
+            },
+            "start": {
+              "character": 8,
+              "line": 792
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 64,
+              "line": 795
+            },
+            "start": {
+              "character": 55,
+              "line": 795
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 31,
+              "line": 798
+            },
+            "start": {
+              "character": 22,
+              "line": 798
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 28,
+              "line": 799
+            },
+            "start": {
+              "character": 19,
+              "line": 799
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 28,
+              "line": 801
+            },
+            "start": {
+              "character": 19,
+              "line": 801
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 13,
+              "line": 1004
+            },
+            "start": {
+              "character": 4,
+              "line": 1004
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 35,
+              "line": 1004
+            },
+            "start": {
+              "character": 26,
+              "line": 1004
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/websocket_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 24,
+              "line": 1337
+            },
+            "start": {
+              "character": 15,
+              "line": 1337
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_internal/js_runtime/lib/native_typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 35,
+              "line": 1351
+            },
+            "start": {
+              "character": 26,
+              "line": 1351
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_internal/js_runtime/lib/native_typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 1360
+            },
+            "start": {
+              "character": 2,
+              "line": 1360
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_internal/js_runtime/lib/native_typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 40
+            },
+            "start": {
+              "character": 2,
+              "line": 40
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/ascii.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 76
+            },
+            "start": {
+              "character": 2,
+              "line": 76
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/ascii.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 80
+            },
+            "start": {
+              "character": 17,
+              "line": 80
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/ascii.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 9,
+              "line": 51
+            },
+            "start": {
+              "character": 0,
+              "line": 51
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 29,
+              "line": 79
+            },
+            "start": {
+              "character": 20,
+              "line": 79
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 23,
+              "line": 80
+            },
+            "start": {
+              "character": 14,
+              "line": 80
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 20,
+              "line": 81
+            },
+            "start": {
+              "character": 11,
+              "line": 81
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 82
+            },
+            "start": {
+              "character": 2,
+              "line": 82
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 25,
+              "line": 297
+            },
+            "start": {
+              "character": 16,
+              "line": 297
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 298
+            },
+            "start": {
+              "character": 2,
+              "line": 298
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 55,
+              "line": 298
+            },
+            "start": {
+              "character": 46,
+              "line": 298
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 302
+            },
+            "start": {
+              "character": 17,
+              "line": 302
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 311
+            },
+            "start": {
+              "character": 2,
+              "line": 311
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 28,
+              "line": 335
+            },
+            "start": {
+              "character": 19,
+              "line": 335
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 32,
+              "line": 382
+            },
+            "start": {
+              "character": 23,
+              "line": 382
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 404
+            },
+            "start": {
+              "character": 2,
+              "line": 404
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 408
+            },
+            "start": {
+              "character": 2,
+              "line": 408
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 13,
+              "line": 409
+            },
+            "start": {
+              "character": 4,
+              "line": 409
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 38,
+              "line": 411
+            },
+            "start": {
+              "character": 29,
+              "line": 411
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 20,
+              "line": 414
+            },
+            "start": {
+              "character": 11,
+              "line": 414
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 29,
+              "line": 501
+            },
+            "start": {
+              "character": 20,
+              "line": 501
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 23,
+              "line": 502
+            },
+            "start": {
+              "character": 14,
+              "line": 502
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 20,
+              "line": 503
+            },
+            "start": {
+              "character": 11,
+              "line": 503
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 504
+            },
+            "start": {
+              "character": 2,
+              "line": 504
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 38,
+              "line": 506
+            },
+            "start": {
+              "character": 29,
+              "line": 506
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 615
+            },
+            "start": {
+              "character": 17,
+              "line": 615
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 618
+            },
+            "start": {
+              "character": 2,
+              "line": 618
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 38,
+              "line": 626
+            },
+            "start": {
+              "character": 29,
+              "line": 626
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 68,
+              "line": 649
+            },
+            "start": {
+              "character": 59,
+              "line": 649
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 718
+            },
+            "start": {
+              "character": 9,
+              "line": 718
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 43,
+              "line": 718
+            },
+            "start": {
+              "character": 34,
+              "line": 718
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 723
+            },
+            "start": {
+              "character": 9,
+              "line": 723
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 42,
+              "line": 736
+            },
+            "start": {
+              "character": 33,
+              "line": 736
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/base64.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 31,
+              "line": 64
+            },
+            "start": {
+              "character": 22,
+              "line": 64
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/byte_conversion.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 27,
+              "line": 76
+            },
+            "start": {
+              "character": 18,
+              "line": 76
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/byte_conversion.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 40,
+              "line": 429
+            },
+            "start": {
+              "character": 31,
+              "line": 429
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/json.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 27,
+              "line": 445
+            },
+            "start": {
+              "character": 18,
+              "line": 445
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/json.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 21,
+              "line": 449
+            },
+            "start": {
+              "character": 12,
+              "line": 449
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/json.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 461
+            },
+            "start": {
+              "character": 17,
+              "line": 461
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/json.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 534
+            },
+            "start": {
+              "character": 17,
+              "line": 534
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/json.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 60,
+              "line": 1018
+            },
+            "start": {
+              "character": 51,
+              "line": 1018
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/json.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 31,
+              "line": 1022
+            },
+            "start": {
+              "character": 22,
+              "line": 1022
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/json.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 1023
+            },
+            "start": {
+              "character": 2,
+              "line": 1023
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/json.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 1028
+            },
+            "start": {
+              "character": 17,
+              "line": 1028
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/json.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 29,
+              "line": 1045
+            },
+            "start": {
+              "character": 20,
+              "line": 1045
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/json.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 22,
+              "line": 1063
+            },
+            "start": {
+              "character": 13,
+              "line": 1063
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/json.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 24,
+              "line": 1154
+            },
+            "start": {
+              "character": 15,
+              "line": 1154
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/json.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 45,
+              "line": 1166
+            },
+            "start": {
+              "character": 36,
+              "line": 1166
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/json.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 39
+            },
+            "start": {
+              "character": 2,
+              "line": 39
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/latin1.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 28,
+              "line": 161
+            },
+            "start": {
+              "character": 19,
+              "line": 161
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/latin1.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 66
+            },
+            "start": {
+              "character": 2,
+              "line": 66
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/utf.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 100
+            },
+            "start": {
+              "character": 2,
+              "line": 100
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/utf.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 37,
+              "line": 104
+            },
+            "start": {
+              "character": 28,
+              "line": 104
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/utf.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 17,
+              "line": 140
+            },
+            "start": {
+              "character": 8,
+              "line": 140
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/utf.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 150
+            },
+            "start": {
+              "character": 9,
+              "line": 150
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/utf.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 55,
+              "line": 150
+            },
+            "start": {
+              "character": 46,
+              "line": 150
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/utf.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 13,
+              "line": 557
+            },
+            "start": {
+              "character": 4,
+              "line": 557
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/utf.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 30,
+              "line": 559
+            },
+            "start": {
+              "character": 21,
+              "line": 559
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/utf.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 32,
+              "line": 596
+            },
+            "start": {
+              "character": 23,
+              "line": 596
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/utf.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 688
+            },
+            "start": {
+              "character": 9,
+              "line": 688
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/utf.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 19,
+              "line": 690
+            },
+            "start": {
+              "character": 10,
+              "line": 690
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/utf.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 37,
+              "line": 690
+            },
+            "start": {
+              "character": 28,
+              "line": 690
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/utf.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 39,
+              "line": 165
+            },
+            "start": {
+              "character": 30,
+              "line": 165
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/core.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 21,
+              "line": 714
+            },
+            "start": {
+              "character": 12,
+              "line": 714
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/list.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 1354
+            },
+            "start": {
+              "character": 17,
+              "line": 1354
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/uri.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 31,
+              "line": 1489
+            },
+            "start": {
+              "character": 22,
+              "line": 1489
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/uri.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 27,
+              "line": 2443
+            },
+            "start": {
+              "character": 18,
+              "line": 2443
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/uri.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 27,
+              "line": 2459
+            },
+            "start": {
+              "character": 18,
+              "line": 2459
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/uri.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 3819
+            },
+            "start": {
+              "character": 2,
+              "line": 3819
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/uri.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 13,
+              "line": 3838
+            },
+            "start": {
+              "character": 4,
+              "line": 3838
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/uri.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 32,
+              "line": 3838
+            },
+            "start": {
+              "character": 23,
+              "line": 3838
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/uri.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 20,
+              "line": 4120
+            },
+            "start": {
+              "character": 11,
+              "line": 4120
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/uri.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 14,
+              "line": 4191
+            },
+            "start": {
+              "character": 5,
+              "line": 4191
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/uri.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 29,
+              "line": 4242
+            },
+            "start": {
+              "character": 20,
+              "line": 4242
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/uri.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 68,
+              "line": 4242
+            },
+            "start": {
+              "character": 59,
+              "line": 4242
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/uri.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 4246
+            },
+            "start": {
+              "character": 2,
+              "line": 4246
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/uri.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 25,
+              "line": 4253
+            },
+            "start": {
+              "character": 16,
+              "line": 4253
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/uri.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 25,
+              "line": 4266
+            },
+            "start": {
+              "character": 16,
+              "line": 4266
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/uri.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 4273
+            },
+            "start": {
+              "character": 2,
+              "line": 4273
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/uri.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 20,
+              "line": 808
+            },
+            "start": {
+              "character": 11,
+              "line": 808
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/ffi/ffi.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 39,
+              "line": 1463
+            },
+            "start": {
+              "character": 30,
+              "line": 1463
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/ffi/ffi.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 16,
+              "line": 119
+            },
+            "start": {
+              "character": 7,
+              "line": 119
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/ffi/struct.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 16,
+              "line": 71
+            },
+            "start": {
+              "character": 7,
+              "line": 71
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/ffi/union.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 16232
+            },
+            "start": {
+              "character": 17,
+              "line": 16232
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/html/dart2js/html_dart2js.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 21976
+            },
+            "start": {
+              "character": 2,
+              "line": 21976
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/html/dart2js/html_dart2js.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 21,
+              "line": 21989
+            },
+            "start": {
+              "character": 12,
+              "line": 21989
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/html/dart2js/html_dart2js.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 20,
+              "line": 19
+            },
+            "start": {
+              "character": 11,
+              "line": 19
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 22,
+              "line": 22
+            },
+            "start": {
+              "character": 13,
+              "line": 22
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 33,
+              "line": 23
+            },
+            "start": {
+              "character": 24,
+              "line": 23
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 24,
+              "line": 27
+            },
+            "start": {
+              "character": 15,
+              "line": 27
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 16,
+              "line": 28
+            },
+            "start": {
+              "character": 7,
+              "line": 28
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 46
+            },
+            "start": {
+              "character": 2,
+              "line": 46
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 51
+            },
+            "start": {
+              "character": 2,
+              "line": 51
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 31,
+              "line": 73
+            },
+            "start": {
+              "character": 22,
+              "line": 73
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 37,
+              "line": 76
+            },
+            "start": {
+              "character": 28,
+              "line": 76
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 84
+            },
+            "start": {
+              "character": 2,
+              "line": 84
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 96
+            },
+            "start": {
+              "character": 17,
+              "line": 96
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 29,
+              "line": 126
+            },
+            "start": {
+              "character": 20,
+              "line": 126
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 131
+            },
+            "start": {
+              "character": 2,
+              "line": 131
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 133
+            },
+            "start": {
+              "character": 17,
+              "line": 133
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 138
+            },
+            "start": {
+              "character": 2,
+              "line": 138
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 20,
+              "line": 140
+            },
+            "start": {
+              "character": 11,
+              "line": 140
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 17,
+              "line": 141
+            },
+            "start": {
+              "character": 8,
+              "line": 141
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 22,
+              "line": 178
+            },
+            "start": {
+              "character": 13,
+              "line": 178
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 13,
+              "line": 181
+            },
+            "start": {
+              "character": 4,
+              "line": 181
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 182
+            },
+            "start": {
+              "character": 17,
+              "line": 182
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 28,
+              "line": 185
+            },
+            "start": {
+              "character": 19,
+              "line": 185
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 25,
+              "line": 193
+            },
+            "start": {
+              "character": 16,
+              "line": 193
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 197
+            },
+            "start": {
+              "character": 2,
+              "line": 197
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 204
+            },
+            "start": {
+              "character": 17,
+              "line": 204
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 214
+            },
+            "start": {
+              "character": 2,
+              "line": 214
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 216
+            },
+            "start": {
+              "character": 17,
+              "line": 216
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/bytes_builder.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 39,
+              "line": 20
+            },
+            "start": {
+              "character": 30,
+              "line": 20
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/internal.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 63,
+              "line": 1066
+            },
+            "start": {
+              "character": 54,
+              "line": 1066
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/internal/internal.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 122
+            },
+            "start": {
+              "character": 17,
+              "line": 122
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/common.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 31,
+              "line": 129
+            },
+            "start": {
+              "character": 22,
+              "line": 129
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/common.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 27,
+              "line": 135
+            },
+            "start": {
+              "character": 18,
+              "line": 135
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/common.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 447
+            },
+            "start": {
+              "character": 17,
+              "line": 447
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/data_transformer.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 448
+            },
+            "start": {
+              "character": 6,
+              "line": 448
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/data_transformer.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 31,
+              "line": 449
+            },
+            "start": {
+              "character": 22,
+              "line": 449
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/data_transformer.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 41,
+              "line": 120
+            },
+            "start": {
+              "character": 32,
+              "line": 120
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/directory.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 17,
+              "line": 8
+            },
+            "start": {
+              "character": 8,
+              "line": 8
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/directory_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 34,
+              "line": 14
+            },
+            "start": {
+              "character": 25,
+              "line": 14
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/directory_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 61,
+              "line": 22
+            },
+            "start": {
+              "character": 52,
+              "line": 22
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/directory_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 61,
+              "line": 23
+            },
+            "start": {
+              "character": 52,
+              "line": 23
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/directory_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 57,
+              "line": 25
+            },
+            "start": {
+              "character": 48,
+              "line": 25
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/directory_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 57,
+              "line": 26
+            },
+            "start": {
+              "character": 48,
+              "line": 26
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/directory_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 37,
+              "line": 28
+            },
+            "start": {
+              "character": 28,
+              "line": 28
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/directory_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 37,
+              "line": 30
+            },
+            "start": {
+              "character": 28,
+              "line": 30
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/directory_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 34
+            },
+            "start": {
+              "character": 6,
+              "line": 34
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/directory_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 17,
+              "line": 266
+            },
+            "start": {
+              "character": 8,
+              "line": 266
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/directory_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 39,
+              "line": 408
+            },
+            "start": {
+              "character": 30,
+              "line": 408
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/directory_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 36,
+              "line": 217
+            },
+            "start": {
+              "character": 27,
+              "line": 217
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 581
+            },
+            "start": {
+              "character": 9,
+              "line": 581
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 586
+            },
+            "start": {
+              "character": 2,
+              "line": 586
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 25,
+              "line": 750
+            },
+            "start": {
+              "character": 16,
+              "line": 750
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 752
+            },
+            "start": {
+              "character": 9,
+              "line": 752
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 25,
+              "line": 760
+            },
+            "start": {
+              "character": 16,
+              "line": 760
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 764
+            },
+            "start": {
+              "character": 2,
+              "line": 764
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 33,
+              "line": 28
+            },
+            "start": {
+              "character": 24,
+              "line": 28
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 30,
+              "line": 54
+            },
+            "start": {
+              "character": 21,
+              "line": 54
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 60,
+              "line": 54
+            },
+            "start": {
+              "character": 51,
+              "line": 54
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 48,
+              "line": 56
+            },
+            "start": {
+              "character": 39,
+              "line": 56
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 17,
+              "line": 235
+            },
+            "start": {
+              "character": 8,
+              "line": 235
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 29,
+              "line": 241
+            },
+            "start": {
+              "character": 20,
+              "line": 241
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 57,
+              "line": 268
+            },
+            "start": {
+              "character": 48,
+              "line": 268
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 37,
+              "line": 291
+            },
+            "start": {
+              "character": 28,
+              "line": 291
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 37,
+              "line": 294
+            },
+            "start": {
+              "character": 28,
+              "line": 294
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 61,
+              "line": 298
+            },
+            "start": {
+              "character": 52,
+              "line": 298
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 63,
+              "line": 319
+            },
+            "start": {
+              "character": 54,
+              "line": 319
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 67,
+              "line": 321
+            },
+            "start": {
+              "character": 58,
+              "line": 321
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 37,
+              "line": 341
+            },
+            "start": {
+              "character": 28,
+              "line": 341
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 37,
+              "line": 344
+            },
+            "start": {
+              "character": 28,
+              "line": 344
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 37,
+              "line": 361
+            },
+            "start": {
+              "character": 28,
+              "line": 361
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 65,
+              "line": 393
+            },
+            "start": {
+              "character": 56,
+              "line": 393
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 63,
+              "line": 409
+            },
+            "start": {
+              "character": 54,
+              "line": 409
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 37,
+              "line": 428
+            },
+            "start": {
+              "character": 28,
+              "line": 428
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 63,
+              "line": 448
+            },
+            "start": {
+              "character": 54,
+              "line": 448
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 37,
+              "line": 467
+            },
+            "start": {
+              "character": 28,
+              "line": 467
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 55,
+              "line": 478
+            },
+            "start": {
+              "character": 46,
+              "line": 478
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 518
+            },
+            "start": {
+              "character": 9,
+              "line": 518
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 20,
+              "line": 519
+            },
+            "start": {
+              "character": 11,
+              "line": 519
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 45,
+              "line": 521
+            },
+            "start": {
+              "character": 36,
+              "line": 521
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 20,
+              "line": 537
+            },
+            "start": {
+              "character": 11,
+              "line": 537
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 538
+            },
+            "start": {
+              "character": 17,
+              "line": 538
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 45,
+              "line": 540
+            },
+            "start": {
+              "character": 36,
+              "line": 540
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 30,
+              "line": 550
+            },
+            "start": {
+              "character": 21,
+              "line": 550
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 572
+            },
+            "start": {
+              "character": 2,
+              "line": 572
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 575
+            },
+            "start": {
+              "character": 6,
+              "line": 575
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 24,
+              "line": 588
+            },
+            "start": {
+              "character": 15,
+              "line": 588
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 601
+            },
+            "start": {
+              "character": 17,
+              "line": 601
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 782
+            },
+            "start": {
+              "character": 9,
+              "line": 782
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 62,
+              "line": 787
+            },
+            "start": {
+              "character": 53,
+              "line": 787
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 793
+            },
+            "start": {
+              "character": 2,
+              "line": 793
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 28,
+              "line": 798
+            },
+            "start": {
+              "character": 19,
+              "line": 798
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 235
+            },
+            "start": {
+              "character": 2,
+              "line": 235
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_system_entity.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 647
+            },
+            "start": {
+              "character": 9,
+              "line": 647
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_system_entity.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 650
+            },
+            "start": {
+              "character": 9,
+              "line": 650
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_system_entity.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 55,
+              "line": 650
+            },
+            "start": {
+              "character": 46,
+              "line": 650
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_system_entity.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 31,
+              "line": 652
+            },
+            "start": {
+              "character": 22,
+              "line": 652
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_system_entity.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 48,
+              "line": 660
+            },
+            "start": {
+              "character": 39,
+              "line": 660
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_system_entity.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 13,
+              "line": 661
+            },
+            "start": {
+              "character": 4,
+              "line": 661
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_system_entity.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 23,
+              "line": 664
+            },
+            "start": {
+              "character": 14,
+              "line": 664
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_system_entity.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 42,
+              "line": 699
+            },
+            "start": {
+              "character": 33,
+              "line": 699
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_system_entity.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 37,
+              "line": 740
+            },
+            "start": {
+              "character": 28,
+              "line": 740
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_system_entity.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 71,
+              "line": 743
+            },
+            "start": {
+              "character": 62,
+              "line": 743
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_system_entity.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 788
+            },
+            "start": {
+              "character": 6,
+              "line": 788
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_system_entity.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 795
+            },
+            "start": {
+              "character": 6,
+              "line": 795
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_system_entity.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 805
+            },
+            "start": {
+              "character": 6,
+              "line": 805
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_system_entity.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 815
+            },
+            "start": {
+              "character": 6,
+              "line": 815
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/file_system_entity.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 36,
+              "line": 20
+            },
+            "start": {
+              "character": 27,
+              "line": 20
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/link.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 17,
+              "line": 228
+            },
+            "start": {
+              "character": 8,
+              "line": 228
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/link.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 29,
+              "line": 234
+            },
+            "start": {
+              "character": 20,
+              "line": 234
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/link.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 16,
+              "line": 558
+            },
+            "start": {
+              "character": 7,
+              "line": 558
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/process.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 16,
+              "line": 565
+            },
+            "start": {
+              "character": 7,
+              "line": 565
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/process.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 455
+            },
+            "start": {
+              "character": 2,
+              "line": 455
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/secure_socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 461
+            },
+            "start": {
+              "character": 2,
+              "line": 461
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/secure_socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 772
+            },
+            "start": {
+              "character": 2,
+              "line": 772
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/secure_socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 840
+            },
+            "start": {
+              "character": 2,
+              "line": 840
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/secure_socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 1270
+            },
+            "start": {
+              "character": 2,
+              "line": 1270
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/secure_socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 13,
+              "line": 1277
+            },
+            "start": {
+              "character": 4,
+              "line": 1277
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/secure_socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 36,
+              "line": 1277
+            },
+            "start": {
+              "character": 27,
+              "line": 1277
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/secure_socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 1347
+            },
+            "start": {
+              "character": 6,
+              "line": 1347
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/secure_socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 231
+            },
+            "start": {
+              "character": 9,
+              "line": 231
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/security_context.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 233
+            },
+            "start": {
+              "character": 17,
+              "line": 233
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/security_context.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 29,
+              "line": 255
+            },
+            "start": {
+              "character": 20,
+              "line": 255
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/security_context.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 18,
+              "line": 279
+            },
+            "start": {
+              "character": 9,
+              "line": 279
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/security_context.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 24,
+              "line": 306
+            },
+            "start": {
+              "character": 15,
+              "line": 306
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/security_context.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 91
+            },
+            "start": {
+              "character": 2,
+              "line": 91
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 59,
+              "line": 127
+            },
+            "start": {
+              "character": 50,
+              "line": 127
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 19,
+              "line": 404
+            },
+            "start": {
+              "character": 10,
+              "line": 404
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 36,
+              "line": 404
+            },
+            "start": {
+              "character": 27,
+              "line": 404
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 17,
+              "line": 433
+            },
+            "start": {
+              "character": 8,
+              "line": 433
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 23,
+              "line": 576
+            },
+            "start": {
+              "character": 14,
+              "line": 576
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 639
+            },
+            "start": {
+              "character": 2,
+              "line": 639
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 759
+            },
+            "start": {
+              "character": 2,
+              "line": 759
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 23,
+              "line": 773
+            },
+            "start": {
+              "character": 14,
+              "line": 773
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 59,
+              "line": 780
+            },
+            "start": {
+              "character": 50,
+              "line": 780
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 866
+            },
+            "start": {
+              "character": 2,
+              "line": 866
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 906
+            },
+            "start": {
+              "character": 2,
+              "line": 906
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 1063
+            },
+            "start": {
+              "character": 2,
+              "line": 1063
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 17,
+              "line": 1071
+            },
+            "start": {
+              "character": 8,
+              "line": 1071
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 1259
+            },
+            "start": {
+              "character": 2,
+              "line": 1259
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/socket.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 62,
+              "line": 21
+            },
+            "start": {
+              "character": 53,
+              "line": 21
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/isolate/isolate.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 55,
+              "line": 1046
+            },
+            "start": {
+              "character": 46,
+              "line": 1046
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/isolate/isolate.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 25,
+              "line": 1048
+            },
+            "start": {
+              "character": 16,
+              "line": 1048
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/isolate/isolate.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 49,
+              "line": 890
+            },
+            "start": {
+              "character": 40,
+              "line": 890
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/js_interop/js_interop.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 50,
+              "line": 892
+            },
+            "start": {
+              "character": 41,
+              "line": 892
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/js_interop/js_interop.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 46,
+              "line": 895
+            },
+            "start": {
+              "character": 37,
+              "line": 895
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/js_interop/js_interop.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 69,
+              "line": 897
+            },
+            "start": {
+              "character": 60,
+              "line": 897
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/js_interop/js_interop.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 20,
+              "line": 899
+            },
+            "start": {
+              "character": 11,
+              "line": 899
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/js_interop/js_interop.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 31,
+              "line": 902
+            },
+            "start": {
+              "character": 22,
+              "line": 902
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/js_interop/js_interop.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 46,
+              "line": 903
+            },
+            "start": {
+              "character": 37,
+              "line": 903
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/js_interop/js_interop.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 30,
+              "line": 904
+            },
+            "start": {
+              "character": 21,
+              "line": 904
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/js_interop/js_interop.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 43,
+              "line": 905
+            },
+            "start": {
+              "character": 34,
+              "line": 905
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/js_interop/js_interop.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 47,
+              "line": 912
+            },
+            "start": {
+              "character": 38,
+              "line": 912
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/js_interop/js_interop.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 48,
+              "line": 915
+            },
+            "start": {
+              "character": 39,
+              "line": 915
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/js_interop/js_interop.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 60,
+              "line": 917
+            },
+            "start": {
+              "character": 51,
+              "line": 917
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/js_interop/js_interop.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 37,
+              "line": 73
+            },
+            "start": {
+              "character": 28,
+              "line": 73
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/web_audio/dart2js/web_audio_dart2js.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 38,
+              "line": 75
+            },
+            "start": {
+              "character": 29,
+              "line": 75
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/web_audio/dart2js/web_audio_dart2js.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 31
+            },
+            "start": {
+              "character": 17,
+              "line": 31
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 45
+            },
+            "start": {
+              "character": 2,
+              "line": 45
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 60,
+              "line": 396
+            },
+            "start": {
+              "character": 51,
+              "line": 396
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 855
+            },
+            "start": {
+              "character": 17,
+              "line": 855
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 28,
+              "line": 859
+            },
+            "start": {
+              "character": 19,
+              "line": 859
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 861
+            },
+            "start": {
+              "character": 17,
+              "line": 861
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 28,
+              "line": 869
+            },
+            "start": {
+              "character": 19,
+              "line": 869
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 871
+            },
+            "start": {
+              "character": 17,
+              "line": 871
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 31,
+              "line": 873
+            },
+            "start": {
+              "character": 22,
+              "line": 873
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 19,
+              "line": 900
+            },
+            "start": {
+              "character": 10,
+              "line": 900
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 905
+            },
+            "start": {
+              "character": 17,
+              "line": 905
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 19,
+              "line": 922
+            },
+            "start": {
+              "character": 10,
+              "line": 922
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 41,
+              "line": 930
+            },
+            "start": {
+              "character": 32,
+              "line": 930
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 932
+            },
+            "start": {
+              "character": 2,
+              "line": 932
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 962
+            },
+            "start": {
+              "character": 2,
+              "line": 962
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 31,
+              "line": 998
+            },
+            "start": {
+              "character": 22,
+              "line": 998
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 30,
+              "line": 854
+            },
+            "start": {
+              "character": 21,
+              "line": 854
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/typed_data/typed_data.dart"
+        }
+      ]
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/definition",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart"
+        },
+        "position": {
+          "line": 5,
+          "character": 17
+        }
+      },
+      "id": 10
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 10,
+      "jsonrpc": "2.0",
+      "result": {
+        "range": {
+          "end": {
+            "character": 13,
+            "line": 396
+          },
+          "start": {
+            "character": 9,
+            "line": 396
+          }
+        },
+        "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/string.dart"
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/references",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart"
+        },
+        "position": {
+          "line": 5,
+          "character": 17
+        },
+        "context": {
+          "includeDeclaration": true
+        }
+      },
+      "id": 11
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 11,
+      "jsonrpc": "2.0",
+      "result": [
+        {
+          "range": {
+            "end": {
+              "character": 20,
+              "line": 5
+            },
+            "start": {
+              "character": 16,
+              "line": 5
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 46,
+              "line": 924
+            },
+            "start": {
+              "character": 42,
+              "line": 924
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_headers.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 48,
+              "line": 927
+            },
+            "start": {
+              "character": 44,
+              "line": 927
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_headers.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 63,
+              "line": 928
+            },
+            "start": {
+              "character": 59,
+              "line": 928
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_headers.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 43,
+              "line": 997
+            },
+            "start": {
+              "character": 39,
+              "line": 997
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_headers.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 43,
+              "line": 1006
+            },
+            "start": {
+              "character": 39,
+              "line": 1006
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_headers.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 45,
+              "line": 1016
+            },
+            "start": {
+              "character": 41,
+              "line": 1016
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_headers.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 45,
+              "line": 1025
+            },
+            "start": {
+              "character": 41,
+              "line": 1025
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_headers.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 48,
+              "line": 1726
+            },
+            "start": {
+              "character": 44,
+              "line": 1726
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 66,
+              "line": 2987
+            },
+            "start": {
+              "character": 62,
+              "line": 2987
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 26,
+              "line": 3002
+            },
+            "start": {
+              "character": 22,
+              "line": 3002
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 24,
+              "line": 3411
+            },
+            "start": {
+              "character": 20,
+              "line": 3411
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 59,
+              "line": 3417
+            },
+            "start": {
+              "character": 55,
+              "line": 3417
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 57,
+              "line": 3421
+            },
+            "start": {
+              "character": 53,
+              "line": 3421
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 48,
+              "line": 3422
+            },
+            "start": {
+              "character": 44,
+              "line": 3422
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 56,
+              "line": 3427
+            },
+            "start": {
+              "character": 52,
+              "line": 3427
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 57,
+              "line": 3428
+            },
+            "start": {
+              "character": 53,
+              "line": 3428
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 54,
+              "line": 3435
+            },
+            "start": {
+              "character": 50,
+              "line": 3435
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 61,
+              "line": 3439
+            },
+            "start": {
+              "character": 57,
+              "line": 3439
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 29,
+              "line": 3448
+            },
+            "start": {
+              "character": 25,
+              "line": 3448
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_http/http_impl.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 31,
+              "line": 382
+            },
+            "start": {
+              "character": 27,
+              "line": 382
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_internal/js_runtime/lib/js_helper.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 30,
+              "line": 597
+            },
+            "start": {
+              "character": 26,
+              "line": 597
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/num.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 32,
+              "line": 36756
+            },
+            "start": {
+              "character": 28,
+              "line": 36756
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/html/dart2js/html_dart2js.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 32,
+              "line": 2980
+            },
+            "start": {
+              "character": 28,
+              "line": 2980
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/svg/dart2js/svg_dart2js.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 14,
+              "line": 400
+            },
+            "start": {
+              "character": 10,
+              "line": 400
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/string.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 14,
+              "line": 409
+            },
+            "start": {
+              "character": 10,
+              "line": 409
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/string.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 13,
+              "line": 396
+            },
+            "start": {
+              "character": 9,
+              "line": 396
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/string.dart"
+        }
+      ]
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/definition",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart"
+        },
+        "position": {
+          "line": 1,
+          "character": 62
+        }
+      },
+      "id": 12
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 12,
+      "jsonrpc": "2.0",
+      "result": {
+        "range": {
+          "end": {
+            "character": 49,
+            "line": 1
+          },
+          "start": {
+            "character": 44,
+            "line": 1
+          }
+        },
+        "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart"
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/references",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart"
+        },
+        "position": {
+          "line": 1,
+          "character": 62
+        },
+        "context": {
+          "includeDeclaration": true
+        }
+      },
+      "id": 13
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 13,
+      "jsonrpc": "2.0",
+      "result": [
+        {
+          "range": {
+            "end": {
+              "character": 66,
+              "line": 1
+            },
+            "start": {
+              "character": 61,
+              "line": 1
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 49,
+              "line": 1
+            },
+            "start": {
+              "character": 44,
+              "line": 1
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart"
+        }
+      ]
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/rename",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart"
+        },
+        "position": {
+          "line": 1,
+          "character": 62
+        },
+        "newName": "item"
+      },
+      "id": 14
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 14,
+      "jsonrpc": "2.0",
+      "result": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 49,
+                  "line": 1
+                },
+                "start": {
+                  "character": 44,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 66,
+                  "line": 1
+                },
+                "start": {
+                  "character": 61,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 37,
+                  "line": 1
+                },
+                "start": {
+                  "character": 37,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/definition",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart"
+        },
+        "position": {
+          "line": 0,
+          "character": 23
+        }
+      },
+      "id": 15
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 15,
+      "jsonrpc": "2.0",
+      "result": {
+        "range": {
+          "end": {
+            "character": 27,
+            "line": 0
+          },
+          "start": {
+            "character": 22,
+            "line": 0
+          }
+        },
+        "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart"
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/references",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart"
+        },
+        "position": {
+          "line": 0,
+          "character": 23
+        },
+        "context": {
+          "includeDeclaration": true
+        }
+      },
+      "id": 16
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 16,
+      "jsonrpc": "2.0",
+      "result": [
+        {
+          "range": {
+            "end": {
+              "character": 43,
+              "line": 0
+            },
+            "start": {
+              "character": 38,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 37,
+              "line": 1
+            },
+            "start": {
+              "character": 37,
+              "line": 1
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart"
+        },
+        {
+          "range": {
+            "end": {
+              "character": 27,
+              "line": 0
+            },
+            "start": {
+              "character": 22,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart"
+        }
+      ]
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/rename",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart"
+        },
+        "position": {
+          "line": 0,
+          "character": 23
+        },
+        "newName": "item"
+      },
+      "id": 17
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 17,
+      "jsonrpc": "2.0",
+      "result": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 27,
+                  "line": 0
+                },
+                "start": {
+                  "character": 22,
+                  "line": 0
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 43,
+                  "line": 0
+                },
+                "start": {
+                  "character": 38,
+                  "line": 0
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 37,
+                  "line": 1
+                },
+                "start": {
+                  "character": 37,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/formatting",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/format.dart"
+        },
+        "options": {
+          "tabSize": 2,
+          "insertSpaces": true
+        }
+      },
+      "id": 18
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 18,
+      "jsonrpc": "2.0",
+      "result": [
+        {
+          "newText": " ",
+          "range": {
+            "end": {
+              "character": 11,
+              "line": 0
+            },
+            "start": {
+              "character": 11,
+              "line": 0
+            }
+          }
+        },
+        {
+          "newText": "\n  ",
+          "range": {
+            "end": {
+              "character": 12,
+              "line": 0
+            },
+            "start": {
+              "character": 12,
+              "line": 0
+            }
+          }
+        },
+        {
+          "newText": " ",
+          "range": {
+            "end": {
+              "character": 24,
+              "line": 0
+            },
+            "start": {
+              "character": 24,
+              "line": 0
+            }
+          }
+        },
+        {
+          "newText": " ",
+          "range": {
+            "end": {
+              "character": 25,
+              "line": 0
+            },
+            "start": {
+              "character": 25,
+              "line": 0
+            }
+          }
+        },
+        {
+          "newText": " ",
+          "range": {
+            "end": {
+              "character": 33,
+              "line": 0
+            },
+            "start": {
+              "character": 33,
+              "line": 0
+            }
+          }
+        },
+        {
+          "newText": " ",
+          "range": {
+            "end": {
+              "character": 35,
+              "line": 0
+            },
+            "start": {
+              "character": 35,
+              "line": 0
+            }
+          }
+        },
+        {
+          "newText": "\n  ",
+          "range": {
+            "end": {
+              "character": 38,
+              "line": 0
+            },
+            "start": {
+              "character": 38,
+              "line": 0
+            }
+          }
+        },
+        {
+          "newText": " ",
+          "range": {
+            "end": {
+              "character": 41,
+              "line": 0
+            },
+            "start": {
+              "character": 41,
+              "line": 0
+            }
+          }
+        },
+        {
+          "newText": " ",
+          "range": {
+            "end": {
+              "character": 64,
+              "line": 0
+            },
+            "start": {
+              "character": 64,
+              "line": 0
+            }
+          }
+        },
+        {
+          "newText": "\n    ",
+          "range": {
+            "end": {
+              "character": 65,
+              "line": 0
+            },
+            "start": {
+              "character": 65,
+              "line": 0
+            }
+          }
+        },
+        {
+          "newText": "\n  ",
+          "range": {
+            "end": {
+              "character": 78,
+              "line": 0
+            },
+            "start": {
+              "character": 78,
+              "line": 0
+            }
+          }
+        },
+        {
+          "newText": "\n",
+          "range": {
+            "end": {
+              "character": 79,
+              "line": 0
+            },
+            "start": {
+              "character": 79,
+              "line": 0
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/didChange",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart",
+          "version": 2
+        },
+        "contentChanges": [
+          {
+            "text": "void main() { if (1) {} }\n"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "$/analyzerStatus",
+      "params": {
+        "isAnalyzing": true
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "$/analyzerStatus",
+      "params": {
+        "isAnalyzing": false
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/publishDiagnostics",
+      "params": {
+        "diagnostics": [
+          {
+            "code": "dead_code",
+            "message": "Dead code.\nTry removing the code, or fixing the code before it so that it can be reached.",
+            "range": {
+              "end": {
+                "character": 79,
+                "line": 1
+              },
+              "start": {
+                "character": 70,
+                "line": 1
+              }
+            },
+            "severity": 2,
+            "source": "dartforge"
+          }
+        ],
+        "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/patterns.dart",
+        "version": 1
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/publishDiagnostics",
+      "params": {
+        "diagnostics": [
+          {
+            "code": "non_bool_condition",
+            "message": "Conditions must have a static type of 'bool'.\nTry changing the condition.",
+            "range": {
+              "end": {
+                "character": 19,
+                "line": 0
+              },
+              "start": {
+                "character": 18,
+                "line": 0
+              }
+            },
+            "severity": 1,
+            "source": "dartforge"
+          }
+        ],
+        "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/current-tools-status-lsp/lib/main.dart",
+        "version": 2
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "shutdown",
+      "params": null,
+      "id": 19
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 19,
+      "jsonrpc": "2.0",
+      "result": null
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "exit",
+      "params": null
+    }
+  }
+]

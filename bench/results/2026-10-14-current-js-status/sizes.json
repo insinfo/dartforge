@@ -1,0 +1,201 @@
+{
+  "compiler_sha256": "9b4299b4eab1bb28cc833e5ff6660895ef73b2e1eba454f919a29f7bda43c86c",
+  "source_input_manifest_reference": "target/tmp-js-production-audit/size-reconciliation/input-hashes.json",
+  "source_input_manifest_sha256": "10c29a4be8fa3a5ea7408e79d2222c5aabe0368cfe468e782fb419b3943b0a96",
+  "source_manifest_durable_reference": "bench/results/2026-10-14-js-literal-fragments-rejected/input-hashes.json",
+  "all_inputs_stable": true,
+  "scope": "Compile-only size profiles for frozen captured apps, not fresh browser startup evidence. O2 checked reference; O4 omits checks/trusts primitives and has differing semantics.",
+  "cases": {
+    "limitless_ui": {
+      "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+      "source_sha256": "308471ba62a75f589dc8b070fcdef04ac7a5b123175ff5bbc0e0a8ef4cb3b280",
+      "package_config": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json",
+      "package_config_sha256": "9395450bc1340ec9640b9716221293ebdd249dc9e75fc3af59fad19c7ada69b2",
+      "profiles": {
+        "forge_checked": {
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+            "--sdk",
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/limitless_ui/forge_checked/program.js",
+            "--packages",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json"
+          ],
+          "exit": 0,
+          "compile_wall_seconds": 7.519431540999999,
+          "scope": "Single compile invocation; Rust host build recorded separately.",
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/limitless_ui/forge_checked/program.js",
+          "sha256": "0ccaccba7fce92799e62e40a7b9cbc7358b356e448e6fd406915db8686dc961a",
+          "bytes": 3535556,
+          "gzip9_bytes": 1020032
+        },
+        "dart2js_O2": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "compile",
+            "js",
+            "-O2",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/limitless_ui/dart2js_O2/program.js",
+            "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json"
+          ],
+          "exit": 0,
+          "compile_wall_seconds": 17.229714459,
+          "scope": "Single compile invocation; Rust host build recorded separately.",
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/limitless_ui/dart2js_O2/program.js",
+          "sha256": "c5bc2e6643d4ff9619a5be7369425da5b2243c6e7e5452402e7d75c1ff9a1815",
+          "bytes": 3870230,
+          "gzip9_bytes": 1020812
+        },
+        "dart2js_O4": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "compile",
+            "js",
+            "-O4",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/limitless_ui/dart2js_O4/program.js",
+            "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json"
+          ],
+          "exit": 0,
+          "compile_wall_seconds": 15.832171458000001,
+          "scope": "Single compile invocation; Rust host build recorded separately.",
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/limitless_ui/dart2js_O4/program.js",
+          "sha256": "bc80e25b30c00e0ad9019fb9e70080730579aa09634e93ca22cd5d27a5cd9fd9",
+          "bytes": 3708478,
+          "gzip9_bytes": 983801
+        }
+      }
+    },
+    "new_sali": {
+      "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/new_sali/new_sali_frontend/web/main.dart",
+      "source_sha256": "ced7b68b37b2ddc0f6acc2e24a69de2527ea98dc5b1b7420754ed862f92e2f78",
+      "package_config": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/new_sali.package_config.json",
+      "package_config_sha256": "33e7aad90e8013b888ce210202759bcd86e4377532d3dc70713c68d507206144",
+      "profiles": {
+        "forge_checked": {
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/new_sali/new_sali_frontend/web/main.dart",
+            "--sdk",
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/new_sali/forge_checked/program.js",
+            "--packages",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/new_sali.package_config.json"
+          ],
+          "exit": 0,
+          "compile_wall_seconds": 17.417993916999997,
+          "scope": "Single compile invocation; Rust host build recorded separately.",
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/new_sali/forge_checked/program.js",
+          "sha256": "9f3c080444b12c250044ea33a974d90fe972ba854fd13be689cc2e953c1d3bbf",
+          "bytes": 7625133,
+          "gzip9_bytes": 2078667
+        },
+        "dart2js_O2": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "compile",
+            "js",
+            "-O2",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/new_sali/new_sali_frontend/web/main.dart",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/new_sali/dart2js_O2/program.js",
+            "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/new_sali.package_config.json"
+          ],
+          "exit": 0,
+          "compile_wall_seconds": 27.577993415999998,
+          "scope": "Single compile invocation; Rust host build recorded separately.",
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/new_sali/dart2js_O2/program.js",
+          "sha256": "4552e529b873eeacbb614c5de3c32a3972e2e790affb0ef78a35c95da6e0aed0",
+          "bytes": 8022590,
+          "gzip9_bytes": 2110700
+        },
+        "dart2js_O4": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "compile",
+            "js",
+            "-O4",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/new_sali/new_sali_frontend/web/main.dart",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/new_sali/dart2js_O4/program.js",
+            "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/new_sali.package_config.json"
+          ],
+          "exit": 0,
+          "compile_wall_seconds": 25.267032083000004,
+          "scope": "Single compile invocation; Rust host build recorded separately.",
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/new_sali/dart2js_O4/program.js",
+          "sha256": "34711cc3871c82352cd60d406645e5a58411c533ea2e8d2098bed76fa0b451e9",
+          "bytes": 7616037,
+          "gzip9_bytes": 2018929
+        }
+      }
+    },
+    "hello": {
+      "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+      "source_sha256": "7ff298a7a3bdd940af231b9c19078e7d3aae02f16a00bb7f453022b97800e72b",
+      "package_config": null,
+      "package_config_sha256": null,
+      "profiles": {
+        "forge_checked": {
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/compiler/dartforge-jsprod",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+            "--sdk",
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/hello/forge_checked/program.js"
+          ],
+          "exit": 0,
+          "compile_wall_seconds": 0.13989583299999708,
+          "scope": "Single compile invocation; Rust host build recorded separately.",
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/hello/forge_checked/program.js",
+          "sha256": "8f893152401bef76ac1bdeb847b2a8c5ab98e8cb093b3106e3e921415d0a6a62",
+          "bytes": 46212,
+          "gzip9_bytes": 16046
+        },
+        "dart2js_O2": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "compile",
+            "js",
+            "-O2",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/hello/dart2js_O2/program.js"
+          ],
+          "exit": 0,
+          "compile_wall_seconds": 0.6658271669999891,
+          "scope": "Single compile invocation; Rust host build recorded separately.",
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/hello/dart2js_O2/program.js",
+          "sha256": "10f0d29a0ad4c8cbc2e704836fd5793eb448b99cc7c710e31eb562b807e495be",
+          "bytes": 33595,
+          "gzip9_bytes": 11106
+        },
+        "dart2js_O4": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "compile",
+            "js",
+            "-O4",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/hello.dart",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/hello/dart2js_O4/program.js"
+          ],
+          "exit": 0,
+          "compile_wall_seconds": 0.5788111250000014,
+          "scope": "Single compile invocation; Rust host build recorded separately.",
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-js-status/sizes/hello/dart2js_O4/program.js",
+          "sha256": "e1567ab4add7a2b92f77dc246c885a4517e47a7da42f47d0542f9cec0cd00a90",
+          "bytes": 5081,
+          "gzip9_bytes": 1799
+        }
+      }
+    }
+  }
+}
