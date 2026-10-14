@@ -110,6 +110,10 @@ mod tests_finalization_owner {
             });
         });
         dartforge_event_loop(run_with_reentry);
+        assert_eq!(dartforge_exception_pending(), 1, "nested event turns must be refused");
+        let error = dartforge_exception_peek_ref();
+        HEAP.with(|heap| assert_eq!(heap.borrow().object(error).unwrap().class_id, 1002));
+        dartforge_exception_clear();
         ACTIVE_COUNT.with(|a| { assert_eq!(a.borrow_mut().pop(), Some(closure)); });
         0
     }
@@ -166,5 +170,42 @@ mod tests_finalization_owner {
             assert!(!h.is_live_object(closure));
         });
         HEAP.with(|h| { h.replace(previous); });
+    }
+
+    #[test]
+    fn internal_finalization_frames_keep_nested_actions_alive() {
+        let previous = HEAP.with(|heap| heap.replace(Heap::new(true)));
+        let closures = HEAP.with(|heap| {
+            let mut heap = heap.borrow_mut();
+            heap.enable_arc();
+            let first = heap.new_closure(123, (0, false), 0, 0);
+            heap.add_ready_finalization(first);
+            let second = heap.new_closure(456, (0, false), 0, 0);
+            heap.add_ready_finalization(second);
+            [first, second]
+        });
+        let first = start_finalization().unwrap();
+        let second = start_finalization().unwrap();
+        assert_eq!([first.1, second.1], closures);
+        assert!(start_finalization().is_none());
+        HEAP.with(|heap| {
+            let mut heap = heap.borrow_mut();
+            heap.collect();
+            for closure in closures { assert!(heap.is_live_object(closure)); }
+        });
+        finish_finalization(second.0);
+        HEAP.with(|heap| {
+            let mut heap = heap.borrow_mut();
+            heap.collect();
+            assert!(heap.is_live_object(first.1));
+            assert!(!heap.is_live_object(second.1));
+        });
+        finish_finalization(first.0);
+        HEAP.with(|heap| {
+            let mut heap = heap.borrow_mut();
+            heap.collect();
+            assert!(!heap.is_live_object(first.1));
+        });
+        HEAP.with(|heap| { heap.replace(previous); });
     }
 }

@@ -34,6 +34,16 @@ const MODE_LOCAL: i64 = 1;
 const MODE_LISTENER: i64 = 2;
 const MODE_SYNC: i64 = 3;
 
+thread_local! {
+    // Only live local entries on their native owner thread modify this depth.
+    // Foreign listeners/synchronous requests and late calls never consult it.
+    static OWNER_FFI_CALLBACK_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+fn in_owner_ffi_callback() -> bool {
+    OWNER_FFI_CALLBACK_DEPTH.with(|depth| depth.get() != 0)
+}
+
 /// The state of a callback; its address is the trampoline's `nest` value.
 pub struct CallbackContext {
     mode: i64,
@@ -676,6 +686,7 @@ pub unsafe extern "C" fn dartforge_ffi_callback_enter(ctx: *mut CallbackContext)
     }
     c.active_list
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    OWNER_FFI_CALLBACK_DEPTH.with(|depth| depth.set(depth.get().checked_add(1).expect("Native callback depth overflow")));
     0
 }
 
@@ -775,6 +786,7 @@ pub unsafe extern "C" fn dartforge_ffi_callback_exit(
         .active_list
         .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     assert!(active > 0, "Callback exit without an active local entry");
+    OWNER_FFI_CALLBACK_DEPTH.with(|depth| depth.set(depth.get().checked_sub(1).expect("Native callback exit without an owner entry")));
     let threw = dartforge_exception_pending() != 0;
     if threw {
         dartforge_exception_clear();
@@ -1358,6 +1370,49 @@ mod late_callback_tests {
         ctx
     }
 
+    extern "C" fn never_dispatch(_: i64) -> i64 {
+        panic!("event work ran inside a native callback");
+    }
+
+    #[test]
+    fn owner_callback_depth_refuses_turns_and_balances_exceptional_and_normal_exit() {
+        for mode in [MODE_PERSISTENT, MODE_LOCAL, MODE_SYNC] {
+            let ctx = context(mode, 0, 91);
+            let address = ctx as *const CallbackContext as usize;
+            assert!(!in_owner_ffi_callback());
+            // SAFETY: the retained context belongs to this native thread.
+            unsafe {
+                assert_eq!(dartforge_ffi_callback_enter(address as *mut CallbackContext), 0);
+                assert_eq!(dartforge_ffi_callback_enter(address as *mut CallbackContext), 0);
+            }
+            assert_eq!(OWNER_FFI_CALLBACK_DEPTH.with(|depth| depth.get()), 2);
+            dartforge_event_loop(never_dispatch);
+            assert_eq!(dartforge_exception_pending(), 1);
+            assert!(!EVENT_LOOP_ACTIVE.with(|active| active.get()));
+            let mut result = 0;
+            // The ordinary exceptional-return protocol still catches and clears
+            // the StateError, while the outer native frame remains active.
+            assert_eq!(unsafe { dartforge_ffi_callback_exit(address as *mut CallbackContext, &mut result) }, 1);
+            assert_eq!(result, 91);
+            assert_eq!(dartforge_exception_pending(), 0);
+            assert!(in_owner_ffi_callback());
+            assert!(EventLoopGuard::enter().is_none());
+            result = 17;
+            assert_eq!(unsafe { dartforge_ffi_callback_exit(address as *mut CallbackContext, &mut result) }, 0);
+            assert_eq!(result, 17);
+            assert!(!in_owner_ffi_callback());
+            assert!(EventLoopGuard::enter().is_some());
+            dartforge_native_DartForge_ffi_callback_delete(address as i64);
+            assert_eq!(unsafe { dartforge_ffi_callback_enter(address as *mut CallbackContext) }, 2);
+            assert!(!in_owner_ffi_callback());
+        }
+        let listener = context(MODE_LISTENER, 0, 0);
+        let address = listener as *const CallbackContext as usize;
+        assert_eq!(unsafe { dartforge_ffi_callback_enter(address as *mut CallbackContext) }, 1);
+        assert!(!in_owner_ffi_callback());
+        dartforge_native_DartForge_ffi_callback_delete(address as i64);
+    }
+
     #[test]
     fn closed_local_returns_retained_bits_on_foreign_threads() {
         let exceptional = (-17.25f64).to_bits() as i64;
@@ -1542,6 +1597,7 @@ mod sync_callback_tests {
                         unsafe { dartforge_ffi_callback_enter(address as *mut CallbackContext) },
                         3
                     );
+                    assert!(!in_owner_ffi_callback());
                 });
             });
         })

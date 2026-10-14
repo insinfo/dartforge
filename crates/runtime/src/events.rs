@@ -55,6 +55,28 @@ struct Events {
 thread_local! {
     static EVENTS: RefCell<Events> = RefCell::new(Events::default());
     static MICROTASK_DRAIN_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static EVENT_LOOP_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+// Current port/message roots are single-frame state. Until nested turns have
+// their own roots and scheduling contract, reject entry before touching queues
+// or serving work inside an active Dart/native callback frame.
+struct EventLoopGuard;
+
+impl EventLoopGuard {
+    fn enter() -> Option<Self> {
+        if in_owner_ffi_callback() || EVENT_LOOP_ACTIVE.with(|active| active.get()) {
+            return None;
+        }
+        EVENT_LOOP_ACTIVE.with(|active| active.set(true));
+        Some(Self)
+    }
+}
+
+impl Drop for EventLoopGuard {
+    fn drop(&mut self) {
+        EVENT_LOOP_ACTIVE.with(|active| active.set(false));
+    }
 }
 
 /// The SDK owns callbacks still linked inside its active microtask drain.
@@ -319,6 +341,13 @@ pub extern "C" fn dartforge_native_DartForge_Timer_cancel(id: i64) {
 /// generated-code function that calls a closure without arguments.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_event_loop(call: extern "C" fn(i64) -> i64) {
+    let Some(_loop_guard) = EventLoopGuard::enter() else {
+        if dartforge_exception_pending() == 0 {
+            let error = allocate_state_error("Nested Dart event turns are unavailable");
+            with_roots(&[error], || dartforge_exception_throw(error, 3));
+        }
+        return;
+    };
     // In the loop, the isolate serves requests at the safepoint (`ports.rs`).
     register_live_isolate();
     let mut native_poll_budget = 0u8;
@@ -455,6 +484,114 @@ pub extern "C" fn dartforge_event_loop(call: extern "C" fn(i64) -> i64) {
 /// Until `Error` comes from source, there is nothing to write.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_Error_trySetStackTrace(_error: i64, _trace: i64) {}
+
+#[cfg(test)]
+mod tests_event_loop_reentry {
+    use super::*;
+
+    thread_local! {
+        static EXECUTED: RefCell<Vec<i64>> = const { RefCell::new(Vec::new()) };
+    }
+
+    extern "C" fn never_run(_: i64) -> i64 {
+        panic!("refused nested loop dispatched queued work");
+    }
+
+    extern "C" fn reenter_then_catch(closure: i64) -> i64 {
+        EXECUTED.with(|executed| executed.borrow_mut().push(closure));
+        let before = EXECUTED.with(|executed| executed.borrow().len());
+        dartforge_event_loop(never_run);
+        assert_eq!(dartforge_exception_pending(), 1);
+        assert_eq!(EXECUTED.with(|executed| executed.borrow().len()), before);
+        assert!(EVENT_LOOP_ACTIVE.with(|active| active.get()));
+        dartforge_exception_clear();
+        HEAP.with(|heap| {
+            let mut heap = heap.borrow_mut();
+            heap.collect();
+            assert!(heap.is_live_object(closure), "active callback lost its root");
+        });
+        0
+    }
+
+    #[test]
+    fn rejected_entry_preserves_queues_current_message_and_existing_exception() {
+        let previous_heap = HEAP.with(|heap| heap.replace(Heap::new(true)));
+        let previous_events = EVENTS.with(|events| events.replace(Events::default()));
+        let previous_current = CURRENT.with(|current| current.replace((17, 0)));
+        let closure = HEAP.with(|heap| heap.borrow_mut().new_closure(123, (0, false), 0, 0));
+        HEAP.with(|heap| heap.borrow_mut().set_global_root(MESSAGE_ROOT, closure));
+        CURRENT.with(|current| { current.replace((17, closure)); });
+        dartforge_native_DartForge_scheduleImmediate(closure);
+        let timer = dartforge_native_DartForge_Timer_new(100, closure, 0);
+        let was_registered = LIVE_REGISTERED.with(|live| live.get());
+        let guard = EventLoopGuard::enter().unwrap();
+        dartforge_event_loop(never_run);
+        assert_eq!(dartforge_exception_pending(), 1);
+        let error = dartforge_exception_peek_ref();
+        HEAP.with(|heap| assert_eq!(heap.borrow().object(error).unwrap().class_id, 1002));
+        dartforge_event_loop(never_run);
+        assert_eq!(dartforge_exception_peek_ref(), error, "existing exception was overwritten");
+        assert_eq!(CURRENT.with(|current| *current.borrow()), (17, closure));
+        assert_eq!(LIVE_REGISTERED.with(|live| live.get()), was_registered);
+        EVENTS.with(|events| {
+            let events = events.borrow();
+            assert_eq!(events.immediates.len(), 1);
+            assert!(events.active.contains_key(&timer));
+        });
+        HEAP.with(|heap| {
+            let mut heap = heap.borrow_mut();
+            heap.collect();
+            assert!(heap.is_live_object(closure));
+        });
+        dartforge_exception_clear();
+        let original_error = allocate_state_error("Original outer exception");
+        with_roots(&[original_error], || dartforge_exception_throw(original_error, 3));
+        dartforge_event_loop(never_run);
+        assert_eq!(dartforge_exception_peek_ref(), original_error);
+        dartforge_exception_clear();
+        // Leave only the message root. Its lifetime must not have been erased
+        // by a refused nested dispatch, even after the queued roots are gone.
+        dartforge_native_DartForge_Timer_cancel(timer);
+        let queued_root = EVENTS.with(|events| events.borrow_mut().immediates.pop_front().unwrap().0);
+        release_root(queued_root);
+        HEAP.with(|heap| {
+            let mut heap = heap.borrow_mut();
+            heap.collect();
+            assert!(heap.is_live_object(closure), "message root was overwritten");
+            heap.set_global_root(MESSAGE_ROOT, 0);
+            heap.collect();
+            assert!(!heap.is_live_object(closure));
+        });
+        drop(guard);
+        assert!(EventLoopGuard::enter().is_some(), "refusal corrupted the outer guard");
+        CURRENT.with(|current| { current.replace(previous_current); });
+        EVENTS.with(|events| { events.replace(previous_events); });
+        HEAP.with(|heap| { heap.replace(previous_heap); });
+    }
+
+    #[test]
+    fn outer_turns_continue_after_caught_refusal_in_tracing_and_arc() {
+        for arc in [false, true] {
+            let previous_heap = HEAP.with(|heap| heap.replace(Heap::new(true)));
+            let previous_events = EVENTS.with(|events| events.replace(Events::default()));
+            EXECUTED.with(|executed| executed.borrow_mut().clear());
+            if arc { HEAP.with(|heap| heap.borrow_mut().enable_arc()); }
+            let mut closures = Vec::new();
+            for code in [123, 456] {
+                let closure = HEAP.with(|heap| heap.borrow_mut().new_closure(code, (0, false), 0, 0));
+                dartforge_native_DartForge_scheduleImmediate(closure);
+                closures.push(closure);
+            }
+            dartforge_event_loop(reenter_then_catch);
+            EXECUTED.with(|executed| assert_eq!(executed.borrow().as_slice(), closures));
+            assert_eq!(dartforge_exception_pending(), 0);
+            assert!(!EVENT_LOOP_ACTIVE.with(|active| active.get()));
+            EVENTS.with(|events| assert!(events.borrow().immediates.is_empty()));
+            EVENTS.with(|events| { events.replace(previous_events); });
+            HEAP.with(|heap| { heap.replace(previous_heap); });
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests_event_owners {

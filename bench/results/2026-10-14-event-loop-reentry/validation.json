@@ -1,0 +1,29 @@
+{
+  "change": "Reject recursive general event-loop entry and entry from live owner-thread FFI callbacks before isolate registration or dequeueing work. Keep existing pending exception intact.",
+  "limitations": [
+    "This is a refusal guard, not nested/modal event-turn support.",
+    "No realtime audio kernel or foreign-thread realtime callback guarantee."
+  ],
+  "checks": {
+    "runtime_lib": {
+      "passed": 297,
+      "failed": 0,
+      "ignored": 3,
+      "log_sha256": "4bdda7101fa7e44f03520ca576e74b08b34804cdb87de2b7fc08f9b56aef374a"
+    },
+    "coverage": [
+      "Queued microtasks and timers unchanged on rejection",
+      "CURRENT and MESSAGE_ROOT preserved through forced collection",
+      "Original pending exception unchanged",
+      "Caught refusal allows the outer loop to continue in tracing and ARC",
+      "FFI normal/exceptional exit balances nested owner callback depth",
+      "Late/listener/foreign synchronous entries do not change owner depth",
+      "Independent nested finalization frames keep their roots alive"
+    ]
+  },
+  "source_sha256": {
+    "crates/runtime/src/events.rs": "1be26c16dfef9a024bbc6380ae7c16174694c65c69405f3753f10a71957b0490",
+    "crates/runtime/src/ffi_callbacks.rs": "86d40a8c1f995182cd241b5271276352d881c6900a75b4e5cdad8db58cb70aac",
+    "crates/runtime/src/finalizers.rs": "ade260369bafc422305556ea152cfccaea6b8cdb32e44760113e4e1d0bf0bd39"
+  }
+}
