@@ -1,0 +1,100 @@
+{
+  "complete": true,
+  "all_outputs_exact": true,
+  "before_compiler_sha256": "539086b6334ac61ddbaea956ddf9218aca83d0435eb54633119f9318a88987d7",
+  "after_compiler_sha256": "8d678d27f6dda1ba2f3ec4f04d8dcecafa1bda15fd09fcca963a2f6bfdc0a324",
+  "metadata_bytes_both": 32,
+  "comparisons": {
+    "legacy-arc": {
+      "before": {
+        "wall_ms": 3843.219292,
+        "rss_bytes": 181436416,
+        "kernels_ms": {
+          "fib": 15,
+          "trees": 271,
+          "numeric": 96,
+          "strings": 177,
+          "json": 356
+        }
+      },
+      "after": {
+        "wall_ms": 3826.184,
+        "rss_bytes": 184582144,
+        "kernels_ms": {
+          "fib": 15,
+          "trees": 270,
+          "numeric": 96,
+          "strings": 179,
+          "json": 356
+        }
+      },
+      "wall_change_percent": -0.4432557891104638,
+      "kernel_change_ms": {
+        "fib": 0,
+        "trees": -1,
+        "numeric": 0,
+        "strings": 2,
+        "json": 0
+      },
+      "rss_ranges_bytes": {
+        "old-legacy-arc": [
+          178782208,
+          181927936
+        ],
+        "new-legacy-arc": [
+          179273728,
+          185221120
+        ]
+      }
+    },
+    "prepared-arc": {
+      "before": {
+        "wall_ms": 7391.679083,
+        "rss_bytes": 208977920,
+        "kernels_ms": {
+          "fib": 15,
+          "trees": 411,
+          "numeric": 96,
+          "strings": 375,
+          "json": 897
+        }
+      },
+      "after": {
+        "wall_ms": 7461.403167,
+        "rss_bytes": 220348416,
+        "kernels_ms": {
+          "fib": 15,
+          "trees": 410,
+          "numeric": 96,
+          "strings": 376,
+          "json": 896
+        }
+      },
+      "wall_change_percent": 0.9432780186623413,
+      "kernel_change_ms": {
+        "fib": 0,
+        "trees": -1,
+        "numeric": 0,
+        "strings": 1,
+        "json": -1
+      },
+      "rss_ranges_bytes": {
+        "old-prepared-arc": [
+          205094912,
+          209731584
+        ],
+        "new-prepared-arc": [
+          216891392,
+          230998016
+        ]
+      }
+    }
+  },
+  "conclusion": "No material CPU speedup observed in this fixed workload. JSON is unchanged or differs by 1 ms; trees differ by 1 ms. Retain the proven queue memory optimization, but do not attribute a speed benefit to the metadata lookup change.",
+  "limits": [
+    "Three alternating fresh-process repetitions, millisecond kernel timers; no statistical equivalence claim.",
+    "Different immutable compiler checkpoints also include explicit SDK propagation and early CFG pruning; this is a checkpoint comparison, not a one-variable runtime ablation.",
+    "Peak physical RSS varies across processes; do not infer a new memory optimization from these medians."
+  ],
+  "next_action": "Prioritize physical receiver propagation, selector-domain restriction and representation/boxing reduction."
+}

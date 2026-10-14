@@ -10,11 +10,18 @@ import subprocess
 parser = argparse.ArgumentParser()
 parser.add_argument('--compiler', required=True, type=Path)
 parser.add_argument('--compiler-sha256', required=True)
+parser.add_argument('--output-dir', type=Path)
+parser.add_argument('--work-dir', type=Path)
+parser.add_argument('--fixture', type=Path)
 args = parser.parse_args()
 root = Path.cwd()
-out = root / 'bench/results/2026-10-14-arc-candidate-queue'
-work = root / 'target/native-provenance/arc-candidate-correctness'
+out = (args.output_dir or root / 'bench/results/2026-10-14-arc-candidate-queue').resolve()
+work = (args.work_dir or root / 'target/native-provenance/arc-candidate-correctness').resolve()
+out.mkdir(parents=True, exist_ok=True)
+work.mkdir(parents=True, exist_ok=True)
 fixture = work / 'candidate_lifetimes.dart'
+if args.fixture is not None and args.fixture.resolve() != fixture:
+    shutil.copy2(args.fixture, fixture)
 compiler = args.compiler.resolve()
 sdk = Path('/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk')
 

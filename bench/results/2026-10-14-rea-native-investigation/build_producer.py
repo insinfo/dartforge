@@ -1,4 +1,5 @@
 """Build and freeze a native CLI with a checked source manifest on the SSD."""
+import argparse
 import hashlib
 import json
 import os
@@ -7,8 +8,14 @@ import subprocess
 from pathlib import Path
 
 root = Path.cwd()
-out = root / "bench/results/2026-10-14-rea-native-investigation"
-work = root / "target/rea-pre-prune-producer"
+parser = argparse.ArgumentParser()
+parser.add_argument("--output-dir", type=Path)
+parser.add_argument("--producer-dir", type=Path)
+args = parser.parse_args()
+out = (args.output_dir or root / "bench/results/2026-10-14-rea-native-investigation").resolve()
+work = (args.producer_dir or root / "target/rea-pre-prune-producer").resolve()
+assert not (work / "dartforge").exists(), "Refusing to overwrite a frozen producer; choose --producer-dir"
+out.mkdir(parents=True, exist_ok=True)
 work.mkdir(parents=True, exist_ok=True)
 sha = lambda path: hashlib.sha256(Path(path).read_bytes()).hexdigest()
 

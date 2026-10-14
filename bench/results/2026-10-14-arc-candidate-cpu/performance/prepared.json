@@ -1,0 +1,91 @@
+{
+  "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/bench.dart",
+  "source_sha256": "8bacd8323aad4882d8aa8a32cbac9edf9abf1d0fdaa1d235aa20f1721ba7275c",
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-pre-prune-producer/dartforge",
+  "compiler_sha256": "8d678d27f6dda1ba2f3ec4f04d8dcecafa1bda15fd09fcca963a2f6bfdc0a324",
+  "old_producer_sha256": "539086b6334ac61ddbaea956ddf9218aca83d0435eb54633119f9318a88987d7",
+  "old_metadata_bytes": 32,
+  "new_metadata_bytes": 32,
+  "artifacts": {
+    "old-legacy-arc": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/arc-candidate-performance/legacy-arc",
+      "sha256": "1b8b26e64e683f183230a7ae34923221ba5a6971b707e1f6f08bcd96c853c4db",
+      "bytes": 3219168
+    },
+    "old-prepared-arc": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/arc-candidate-performance/prepared-arc",
+      "sha256": "96f8ccade71cbf887db49273595d3160ef4717c134ed919fffd38ad14cf21af7",
+      "bytes": 3764944
+    },
+    "old-official": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/official/bench",
+      "sha256": "f33cff89814d93457d1ad206ac3f4282fdf2e60c98375a7087d5b6fcba4867a8",
+      "bytes": 5379136
+    },
+    "new-legacy-arc": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/arc-candidate-cpu/performance/legacy-arc",
+      "sha256": "d124e1159e92db2caf67c883fa855dc6d4f926c0658a5a779124270808a3f84a",
+      "bytes": 3219168
+    },
+    "new-prepared-arc": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/arc-candidate-cpu/performance/prepared-arc",
+      "sha256": "248af13665bc963c8d226360ce4910f649dd9f522a9b9e065452a2172c7eb0e7",
+      "bytes": 3764944
+    }
+  },
+  "runs": [
+    {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-pre-prune-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/bench.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=arc",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/arc-candidate-cpu/performance/legacy-arc"
+      ],
+      "env": {
+        "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+        "DARTFORGE_ARC_CHECK": "0",
+        "DARTFORGE_ARC_PORT_PRUNING": "1",
+        "DARTFORGE_FACTORY_RECEIVER_PROVENANCE": "1",
+        "DARTFORGE_NO_PLATFORM_SPECIALIZATION": "1",
+        "DARTFORGE_ARC_PREPARED": "0"
+      },
+      "exit": 0
+    },
+    {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-pre-prune-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/bench.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=arc",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/arc-candidate-cpu/performance/prepared-arc"
+      ],
+      "env": {
+        "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+        "DARTFORGE_ARC_CHECK": "0",
+        "DARTFORGE_ARC_PORT_PRUNING": "1",
+        "DARTFORGE_FACTORY_RECEIVER_PROVENANCE": "1",
+        "DARTFORGE_NO_PLATFORM_SPECIALIZATION": "1",
+        "DARTFORGE_ARC_PREPARED": "1"
+      },
+      "exit": 0
+    }
+  ],
+  "complete": true,
+  "compiler_stable": true,
+  "source_stable": true
+}
