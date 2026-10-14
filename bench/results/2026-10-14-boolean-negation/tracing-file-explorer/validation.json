@@ -1,0 +1,138 @@
+{
+  "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/boolean-negation-tracing-explorer/file_explorer",
+  "binary_sha256": "1f9aecf5d83b4dd8fd1e3e7e9a10ecee6568cd45f9f38716f652010101194e53",
+  "binary_bytes": 28758112,
+  "cwd": "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+  "args": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+    "--lang=en"
+  ],
+  "actions": [
+    {
+      "action": "capture",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"capture\", \"window_id\": 1589, \"host_pid\": 4600, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-boolean-negation/tracing-file-explorer\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": ""
+    },
+    {
+      "action": "navigate",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"navigate\", \"window_id\": 1589, \"host_pid\": 4600, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-boolean-negation/tracing-file-explorer\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": ""
+    },
+    {
+      "action": "back-button",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"back-button\", \"window_id\": 1589, \"host_pid\": 4600, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-boolean-negation/tracing-file-explorer\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": ""
+    },
+    {
+      "action": "close-button",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"close-button\", \"window_id\": 1589, \"host_pid\": 4600, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-boolean-negation/tracing-file-explorer\", \"application_alive\": true}\n",
+      "stderr": ""
+    }
+  ],
+  "visual_review_completed": true,
+  "performance_claim": false,
+  "pid": 4599,
+  "exit_code": 0,
+  "stdout_bytes": 0,
+  "stderr_bytes": 0,
+  "binary_unchanged": true,
+  "screenshots": {
+    "navigate.png": "6a03d25e301ad1bef812922608d0e94acda03a88d4e0aebf38fc2966e868b4ca",
+    "capture.png": "344610d8b0a0a9adbda7570956cbca263b8a173b59632fc53e5354f6b2cf2684",
+    "back-button.png": "349c87f4e0f8a061e5b6aa14b7f7916ad5577aba5daf913b2b20a36dd22bbd2d"
+  },
+  "visual_review": {
+    "capture.png": {
+      "title": "file-explorer-fixture",
+      "visible_rows": [
+        "dartforge-child",
+        "dartforge-fixture.txt"
+      ],
+      "status": "2 items"
+    },
+    "navigate.png": {
+      "title": "dartforge-child",
+      "visible_rows": [
+        "child-content.txt"
+      ],
+      "status": "1 item"
+    },
+    "back-button.png": {
+      "title": "file-explorer-fixture",
+      "visible_rows": [
+        "dartforge-child",
+        "dartforge-fixture.txt"
+      ],
+      "status": "2 items"
+    },
+    "method": "Viewed all three actual window PNGs at original content, verified filenames and displayed counts. Native red chrome close returned application exit0; no synthetic app hooks or source changes."
+  },
+  "compile": {
+    "compiler_sha256": "13e75f6b4042a2f7f36de4da625e91bfaca893df2a25e6538b0580afb15032e3",
+    "entry_sha256": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--optimize",
+      "--memory=tracing",
+      "--exceptions=check",
+      "--roots=shadow",
+      "--stack-trace=none",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/boolean-negation-tracing-explorer/file_explorer"
+    ],
+    "compile_environment": {
+      "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/boolean-negation-tracing-explorer",
+      "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+      "removed_flags": [
+        "DARTFORGE_ARC_PREPARED",
+        "DARTFORGE_ARC_PREPARE",
+        "DARTFORGE_GC_STRESS"
+      ]
+    },
+    "clang_version": "clang version 22.1.8 (https://github.com/llvm/llvm-project ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)\nTarget: arm64-apple-darwin27.2.0\nThread model: posix\nInstalledDir: /Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin\n",
+    "performance_claim": false,
+    "compile_exit_code": 0,
+    "compiler_unchanged": true,
+    "entry_unchanged": true,
+    "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/boolean-negation-tracing-explorer/file_explorer",
+    "binary_sha256": "1f9aecf5d83b4dd8fd1e3e7e9a10ecee6568cd45f9f38716f652010101194e53",
+    "binary_bytes": 28758112,
+    "compiler_unchanged_after_UI": true,
+    "entry_unchanged_after_UI": true
+  },
+  "validator_source_hashes": {
+    "target/native-provenance/run_recursive_ui.py": "9011545853ae145f4a819249793c8101e52e340ceeab363a5c12e4fdf1b53b14",
+    "target/native-provenance/targeted_window_control.py": "2d4206dfe328484b246a172f0608a9d5e20d28d59ed6fee7c33fb6900b1ae3b7",
+    "target/file-explorer/ordinary_window_control.py": "ad31f92c6ae142d8c5ba61ee2255282f2d2c4d0353ff185e146bf2b68679ead8",
+    "target/native-provenance/verify_boolean_negation_tracing_explorer.py": "dc670ec2321e5a8a1a02524ae2f3abe99d57a61c22fbc4d0b14c4663e4c7cd55"
+  },
+  "artifact_hashes": {
+    "navigate.png": "6a03d25e301ad1bef812922608d0e94acda03a88d4e0aebf38fc2966e868b4ca",
+    "stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "back-button.json": "cdcbbb399c3484c19acb80c413294781b8e4d5710d09768f782c8bb42ca42ea5",
+    "stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "back-button-raise.json": "aa16cace266d6dc2758eb1a71204032175f812fe16e5ddbb434f6616406d54dd",
+    "capture.json": "de4090ce5a6986147b0165f904039a751bb2981035297b6363ce417deb3906ea",
+    "navigate.json": "ce628b8c6ec9ef010e665e8acd003d3897efd5fe1d60da19f46d29a2144a5d75",
+    "compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "close-button-raise.json": "28a7e3ec07ec820267c02be93990410c43c57e5c2621ae6426ff5fd763736bd0",
+    "capture-raise.json": "28a7e3ec07ec820267c02be93990410c43c57e5c2621ae6426ff5fd763736bd0",
+    "close-button.json": "e244efa964cbb883c26de241df64d3308ff1f6a2f8946e15206751829a2e93af",
+    "capture.png": "344610d8b0a0a9adbda7570956cbca263b8a173b59632fc53e5354f6b2cf2684",
+    "back-button.png": "349c87f4e0f8a061e5b6aa14b7f7916ad5577aba5daf913b2b20a36dd22bbd2d",
+    "navigate-raise.json": "aa16cace266d6dc2758eb1a71204032175f812fe16e5ddbb434f6616406d54dd",
+    "compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "contracts_manifest": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/boolean-negation-tracing-explorer/file_explorer.contracts.json",
+    "sha256": "209d53d8704646c75a860b58a2550a943287052ff32dd35c803c0bcb2c1e334b"
+  }
+}

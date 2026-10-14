@@ -1,0 +1,12 @@
+{
+  "native_library_passed": 584,
+  "failed": 0,
+  "ignored": 7,
+  "release_build_exit_code": 0,
+  "fixture_native_vm_exact_modes": 6,
+  "production_change": "Exact I1 literal boolean logical negation; no ARC field/ownership guard relaxation.",
+  "source_hashes": {
+    "crates/emit_native/src/optimize/representation_constants.rs": "17302547102eb645ce8a5e7cab2036d09847717e406df806162ae130da1ea3d7",
+    "crates/emit_native/tests/fixtures/arc_ports/nullable_collection_if.dart": "53f81e3cae51b57075e137eba74e81b263e887ab3d5d1c0867ff73bda6218c21"
+  }
+}

@@ -106,6 +106,10 @@ pub(super) fn fold_booleans(function: &mut Function) -> bool {
         if *ty != Type::I1 {
             continue;
         }
+        if let Instruction::LNot(Operand::Constant(Constant::Bool(boolean))) = instruction {
+            replacements.insert(*value, Operand::Constant(Constant::Bool(!boolean)));
+            continue;
+        }
         let (a, b) = match instruction {
             Instruction::And(a, b) | Instruction::Or(a, b) | Instruction::Xor(a, b) => (a, b),
             _ => continue,
@@ -169,6 +173,129 @@ pub(super) fn fold_booleans(function: &mut Function) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constant_negation_folds_exact_literals_and_propagated_boolean_ssa() {
+        for boolean in [false, true] {
+            for ssa in [false, true] {
+                let mut f = compare(Type::I1, ICmpOp::Eq, Constant::Bool(false), false);
+                f.blocks[0].instructions.clear();
+                let operand = if ssa {
+                    f.blocks[0].instructions.push((
+                        ValueId(1),
+                        Instruction::Const(Constant::Bool(boolean)),
+                        Type::I1,
+                    ));
+                    Operand::Val(ValueId(1))
+                } else {
+                    Operand::Constant(Constant::Bool(boolean))
+                };
+                f.blocks[0]
+                    .instructions
+                    .push((ValueId(2), Instruction::LNot(operand), Type::I1));
+                f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(2))));
+                assert_eq!(propagate_literals(&mut f), ssa);
+                assert!(fold_booleans(&mut f));
+                assert!(f.blocks[0].instructions.is_empty());
+                assert!(
+                    matches!(f.blocks[0].terminator, Terminator::Return(Some(Operand::Constant(Constant::Bool(value)))) if value == !boolean)
+                );
+                assert!(!fold_booleans(&mut f));
+            }
+        }
+    }
+
+    #[test]
+    fn negation_preserves_effectful_nonconstant_and_malformed_operands() {
+        let mut effectful = compare(Type::I1, ICmpOp::Eq, Constant::Bool(false), false);
+        effectful.blocks[0].instructions = vec![
+            (
+                ValueId(1),
+                Instruction::CallStatic {
+                    symbol: "observe".into(),
+                    args: vec![],
+                    ret_ty: Type::I1,
+                },
+                Type::I1,
+            ),
+            (
+                ValueId(2),
+                Instruction::LNot(Operand::Val(ValueId(1))),
+                Type::I1,
+            ),
+        ];
+        effectful.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(2))));
+        let before = format!("{effectful:?}");
+        assert!(!fold_booleans(&mut effectful));
+        super::super::simplify::remove_dead(&mut effectful);
+        assert_eq!(format!("{effectful:?}"), before);
+        for (operand, result) in [
+            (Operand::Constant(Constant::Int(0)), Type::I1),
+            (Operand::Constant(Constant::Int(1)), Type::I1),
+            (Operand::Constant(Constant::Null), Type::I1),
+            (Operand::Val(ValueId(999)), Type::I1),
+            (Operand::Constant(Constant::Bool(true)), Type::I64),
+        ] {
+            let mut f = compare(Type::I64, ICmpOp::Eq, Constant::Bool(false), false);
+            f.blocks[0].instructions = vec![(ValueId(1), Instruction::LNot(operand), result)];
+            let before = format!("{f:?}");
+            assert!(!fold_booleans(&mut f));
+            assert_eq!(format!("{f:?}"), before);
+        }
+        let mut duplicate = compare(Type::I1, ICmpOp::Eq, Constant::Bool(false), false);
+        duplicate.blocks[0].instructions = vec![(
+            ValueId(0),
+            Instruction::LNot(Operand::Constant(Constant::Bool(true))),
+            Type::I1,
+        )];
+        assert!(!fold_booleans(&mut duplicate));
+    }
+
+    #[test]
+    fn inlined_optional_null_collection_branch_leaves_no_field_access_for_arc() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/arc_ports/nullable_collection_if.dart");
+            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
+            let mut interner = dartforge_intern::Interner::new();
+            let program = dartforge_elements::load::load(&entry, &sdk, None, &mut interner).unwrap();
+            let mut table = dartforge_types::TypeTable::new();
+            let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
+            let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+            let libraries: Vec<_> = program.libraries.iter().enumerate().filter(|(_, l)| !l.is_sdk)
+                .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32)).collect();
+            let (bodies, _) = dartforge_types::infer_library_bodies_with_locals(
+                &program, &interner, &mut table, &core, &mut outline, &libraries,
+            );
+            let mut context = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies)
+                .with_source_sdk();
+            context.arc_memory = true;
+            let symbol = |name| {
+                let fid = program.functions.iter().position(|f| interner.resolve(f.name) == name
+                    && !program.library(f.library).is_sdk).unwrap();
+                crate::lower::symbol_of(&context, fid)
+            };
+            let default = symbol("defaultDescriptors");
+            let descriptors = symbol("descriptors");
+            let mut module = crate::lower::lower_program(&context);
+            assert!(module.errors.is_empty(), "{:?}", module.errors);
+            let raw = module.functions.iter().find(|f| f.symbol == default).unwrap();
+            assert!(raw.blocks.iter().flat_map(|b| &b.instructions).any(|(_, instruction, _)|
+                matches!(instruction, Instruction::CallStatic { symbol, .. } if *symbol == descriptors)));
+            super::super::prepare_for_emission(&mut module, true, false);
+            let optimized = module.functions.iter().find(|f| f.symbol == default).unwrap();
+            assert!(!optimized.blocks.iter().flat_map(|b| &b.instructions).any(|(_, instruction, _)|
+                matches!(instruction, Instruction::CallStatic { symbol, .. } if *symbol == descriptors)), "fixture must exercise inlining");
+            assert!(!optimized.blocks.iter().flat_map(|b| &b.instructions).any(|(_, instruction, _)|
+                matches!(instruction, Instruction::GetField { .. })), "omitted null buffer branch survived: {optimized:?}");
+            module.arc_external_callees = true;
+            module.arc_external_layouts = crate::lower::sdk_arc_layouts(&context);
+            let mut plans = module.functions.iter().map(|f|
+                (f.symbol.clone(), super::super::arc::DartFunctionPlan::default())).collect();
+            super::super::arc::prepare_arc_dart_module(&mut module, &mut plans).unwrap();
+            assert!(module.arc_prepared);
+        }).unwrap().join().unwrap();
+    }
 
     fn compare(ty: Type, op: ICmpOp, literal: Constant, reversed: bool) -> Function {
         let value = Operand::Val(ValueId(0));
