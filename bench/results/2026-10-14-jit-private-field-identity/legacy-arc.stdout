@@ -1,0 +1,8 @@
+
+running 1 test
+test migration::tests_mod::emitted_private_fields_migrate_by_declaration_not_spelling ... 33
+303
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 34 filtered out; finished in 44.93s
+

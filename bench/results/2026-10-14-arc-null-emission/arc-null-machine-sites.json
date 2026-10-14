@@ -1,0 +1,220 @@
+{
+  "selection": "ThinLTO objects created within 25 seconds before completed immutable pooled FileExplorer output",
+  "compiler_binary": "19eb472 (parent immutable pooled/indexed checkpoint)",
+  "rows": [
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-65D24593D131A34C91B165BD41DCA6D5FD9C0B3B",
+      "release_sites": 1258,
+      "retain_sites": 261,
+      "physical_null_release_sites": 18,
+      "physical_null_retain_sites": 5
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-853810834BB5D2F391205B81A6D514B090AA8EDF",
+      "release_sites": 19778,
+      "retain_sites": 4008,
+      "physical_null_release_sites": 396,
+      "physical_null_retain_sites": 4
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-8DD9B851C75056DE82DE6B3C6B948EE2E7EC72F1",
+      "release_sites": 18325,
+      "retain_sites": 3082,
+      "physical_null_release_sites": 299,
+      "physical_null_retain_sites": 15
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-5CCAD774FEB8943F94D039FC8BD36DE58CD4D073",
+      "release_sites": 20285,
+      "retain_sites": 3724,
+      "physical_null_release_sites": 334,
+      "physical_null_retain_sites": 21
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-3CFAFAA78FA646E61B10179526099F7C2F2C9858",
+      "release_sites": 2640,
+      "retain_sites": 665,
+      "physical_null_release_sites": 140,
+      "physical_null_retain_sites": 5
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-199A15F3C302788B316589977A59B96A968ABBCB",
+      "release_sites": 24784,
+      "retain_sites": 5184,
+      "physical_null_release_sites": 351,
+      "physical_null_retain_sites": 0
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-B2EC02A90A4B3180622675244F5C5CD084C88F61",
+      "release_sites": 22533,
+      "retain_sites": 4984,
+      "physical_null_release_sites": 347,
+      "physical_null_retain_sites": 3
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-5E2FC04321B670A4E24914EB83F0F8BF5A60A6CC",
+      "release_sites": 21021,
+      "retain_sites": 4064,
+      "physical_null_release_sites": 257,
+      "physical_null_retain_sites": 3
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-CEDFCD649DA572BEEF87668DE6C0D4D37B91A8B8",
+      "release_sites": 594,
+      "retain_sites": 108,
+      "physical_null_release_sites": 13,
+      "physical_null_retain_sites": 0
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-0555AB016D32EEFD3CAB03F0AAAC12407E865C53",
+      "release_sites": 56,
+      "retain_sites": 17,
+      "physical_null_release_sites": 2,
+      "physical_null_retain_sites": 0
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-8BCCD25C7836C211BE6E0A3225EB0F0B57C63EA1",
+      "release_sites": 51,
+      "retain_sites": 4,
+      "physical_null_release_sites": 0,
+      "physical_null_retain_sites": 0
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-98B2191B9D45BC4C20692AC739CD0BA12CFA4D9F",
+      "release_sites": 2521,
+      "retain_sites": 476,
+      "physical_null_release_sites": 44,
+      "physical_null_retain_sites": 1
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-8593AF7F52F895A8769C484840AA41E743279BC3",
+      "release_sites": 22651,
+      "retain_sites": 676,
+      "physical_null_release_sites": 97,
+      "physical_null_retain_sites": 0
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-5B3281A486C84EC746C4CB7EDB8310630ED3CE07",
+      "release_sites": 19238,
+      "retain_sites": 3556,
+      "physical_null_release_sites": 605,
+      "physical_null_retain_sites": 35
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-AFA98025EAAF0B7EA2D1063D76C5B6D2A032D372",
+      "release_sites": 20679,
+      "retain_sites": 3583,
+      "physical_null_release_sites": 289,
+      "physical_null_retain_sites": 3
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-DD51427D54594CE600794ADF2CD0031FFBDE498B",
+      "release_sites": 22370,
+      "retain_sites": 4433,
+      "physical_null_release_sites": 269,
+      "physical_null_retain_sites": 9
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-04F3FF2B0DD8BECB376E1AA3FD12DF070FF1B16D",
+      "release_sites": 22471,
+      "retain_sites": 4273,
+      "physical_null_release_sites": 386,
+      "physical_null_retain_sites": 17
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-E9AD07F33637F73DF39F3CCBE46797763063165D",
+      "release_sites": 922,
+      "retain_sites": 213,
+      "physical_null_release_sites": 10,
+      "physical_null_retain_sites": 0
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-5DC939FEB17765B1A602FA90108C5626CB376429",
+      "release_sites": 19938,
+      "retain_sites": 4191,
+      "physical_null_release_sites": 300,
+      "physical_null_retain_sites": 43
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-244D790C0161B3046C1FCBA27847874F72106DA1",
+      "release_sites": 22352,
+      "retain_sites": 4697,
+      "physical_null_release_sites": 1014,
+      "physical_null_retain_sites": 34
+    }
+  ],
+  "examples": [
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-65D24593D131A34C91B165BD41DCA6D5FD9C0B3B",
+      "address": "0x39368",
+      "kind": "_dartforge_arc_release",
+      "instructions": [
+        "mov\tx0, xzr",
+        "bl\t0x39368"
+      ]
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-65D24593D131A34C91B165BD41DCA6D5FD9C0B3B",
+      "address": "0x38f70",
+      "kind": "_dartforge_arc_release",
+      "instructions": [
+        "mov\tx0, xzr",
+        "bl\t0x38f70"
+      ]
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-65D24593D131A34C91B165BD41DCA6D5FD9C0B3B",
+      "address": "0x375dc",
+      "kind": "_dartforge_arc_release",
+      "instructions": [
+        "mov\tx0, xzr",
+        "bl\t0x375dc"
+      ]
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-65D24593D131A34C91B165BD41DCA6D5FD9C0B3B",
+      "address": "0x316f4",
+      "kind": "_dartforge_arc_release",
+      "instructions": [
+        "mov\tx0, xzr",
+        "bl\t0x316f4"
+      ]
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-65D24593D131A34C91B165BD41DCA6D5FD9C0B3B",
+      "address": "0x303ac",
+      "kind": "_dartforge_arc_release",
+      "instructions": [
+        "mov\tx0, xzr",
+        "bl\t0x303ac"
+      ]
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-65D24593D131A34C91B165BD41DCA6D5FD9C0B3B",
+      "address": "0x2ce40",
+      "kind": "_dartforge_arc_release",
+      "instructions": [
+        "mov\tx0, xzr",
+        "bl\t0x2ce40"
+      ]
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-65D24593D131A34C91B165BD41DCA6D5FD9C0B3B",
+      "address": "0x2cbb0",
+      "kind": "_dartforge_arc_release",
+      "instructions": [
+        "mov\tx0, xzr",
+        "bl\t0x2cbb0"
+      ]
+    },
+    {
+      "object": "target/p4/native_cache/thinlto/llvmcache-65D24593D131A34C91B165BD41DCA6D5FD9C0B3B",
+      "address": "0x264e8",
+      "kind": "_dartforge_arc_release",
+      "instructions": [
+        "mov\tx0, xzr",
+        "bl\t0x264e8"
+      ]
+    }
+  ]
+}

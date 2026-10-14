@@ -462,6 +462,9 @@ impl<'a> Context<'a> {
                             || self.table.get(t).is_declared_nullable();
                         crate::hir::LayoutField {
                             name: self.symbol_name(var.name).to_string(),
+                            owner: var.class.map(|class| format!("{}:{}",
+                                escape_str(&self.library_name(var.library)),
+                                escape_str(self.symbol_name(self.program.class(class).name)))),
                             nullable,
                             late: var.late,
                             ty: self.table.format(t, self.interner, self.program),

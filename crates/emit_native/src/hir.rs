@@ -959,6 +959,9 @@ pub struct FfiCallback {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LayoutField {
     pub name: String,
+    /// Stable declaring library/class identity, independent of physical slot
+    /// and class-number assignment. Absent only for legacy metadata.
+    pub owner: Option<String>,
     /// `null` is a value of the declared type (`T?`, `dynamic`, `Object?`…).
     pub nullable: bool,
     pub late: bool,

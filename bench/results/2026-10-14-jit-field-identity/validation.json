@@ -1,0 +1,38 @@
+{
+  "change": "Migration matches declaring library/class and field spelling; escaped identities are stable across class numbering and preserve separate inherited private/shadowed fields. Ambiguous legacy or changed metadata formats are refused before publication.",
+  "before_reproduction": "An initial emitted ordinary-Dart plan-only probe mapped two inherited private fields to [0,0,-1] instead of [0,1,-1]. The final fixture additionally checks persistent counter and mutated live values across actual JIT publication.",
+  "gates": {
+    "jit_lib": {
+      "passed": 35,
+      "failed": 0,
+      "ignored": 0,
+      "include_ignored": true,
+      "actual_live_fixture": "33 then 303; second entry asserts persistent turns==2, baseValue==101, childValue==202, and newly added extra==null"
+    },
+    "native_lib": {
+      "passed": 621,
+      "failed": 0,
+      "ignored": 8,
+      "log": "../2026-10-14-arc-null-emission/arc-null-full-native-lib.log"
+    }
+  },
+  "source_sha256": {
+    "crates/emit_native/src/context.rs": "2141e4393078b8b24c3fc3fdd6a0e36b1c721c9020a02bfd2b849f9ddf4d72cd",
+    "crates/emit_native/src/hir.rs": "a7392507c5bcba42ccb699ce69f7bc70618e5f6ef162cfda1394328e73af22db",
+    "crates/emit_native/src/llvm/mod.rs": "cbaf9eac91c12b93f4e45887a2df95e1a3c0533805d1fd9a61b70945f14baa6c",
+    "crates/jit/src/migration.rs": "a286b8b85ed3ebe2ef9b0358f3d912c3535cb2abc32949da0857a90cc4036858",
+    "crates/emit_native/src/llvm/arc_null_literals.rs": "a39f54487308023d4723d29ff8767f805e67105fce7e8bc8a5d86700a68e569e"
+  },
+  "log_sha256": {
+    "before-plan-failure.log": "2fcfaf3afdec35e35ec94822476d9c888982494e712010d918d86f8d7eaa3b7f",
+    "jit-lib.log": "f3839f0b26e3adf6f011222f70c5c9c89aeded77776cb58d9d6ca7fb2fbc15fd"
+  },
+  "scope": "Verified inherited private-field migration, not complete JIT reload/readiness or general VM parity.",
+  "vm_reference": {
+    "exit_code": 0,
+    "stdout": "33\n303\n",
+    "scope": "Sequential before/after bodies on the final schema, an ordinary-Dart output reference; not a VM hot-reload-service comparison.",
+    "source_sha256": "bababdb4ce8896e2e020940047f41c1295fc558f4d88870af8c972ef0b3fffec"
+  },
+  "arc_validation": "../2026-10-14-jit-private-field-identity/validation.json"
+}

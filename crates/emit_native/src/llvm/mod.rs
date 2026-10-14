@@ -30,6 +30,8 @@ const OBJECT_MASK: i64 = 7 | i64::MIN;
 mod selectors;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod arc_null_literals;
 
 use crate::hir::*;
 use std::fmt::Write;
@@ -706,13 +708,16 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(self.out, "; df.class {id} {} {}", crate::context::escape_str(lib), crate::context::escape_str(class)).unwrap();
         }
         // The layout of the objects, to migrate the live instances (J03):
-        // `name:flags:ty`, with `a` nullable and `l` late.
+        // `name:flags:ty[:owner]`, with `a` nullable and `l` late. The
+        // declaring owner distinguishes inherited fields with equal spellings.
         for (id, base, fields) in &self.module.program_fields {
             let list: Vec<String> = fields
                 .iter()
                 .map(|c| {
                     let flags = format!("{}{}", if c.nullable { "a" } else { "" }, if c.late { "l" } else { "" });
-                    format!("{}:{flags}:{}", crate::context::escape_str(&c.name), crate::context::escape_str(&c.ty))
+                    let owner = c.owner.as_ref().map_or_else(String::new,
+                        |owner| format!(":{}", crate::context::escape_str(owner)));
+                    format!("{}:{flags}:{}{owner}", crate::context::escape_str(&c.name), crate::context::escape_str(&c.ty))
                 })
                 .collect();
             writeln!(self.out, "; df.fields {id} {base} {}", list.join(",")).unwrap();
@@ -1239,15 +1244,20 @@ impl<'a> LlvmEmitter<'a> {
                 let instruction_start = self.out.len();
                 match inst {
                     Instruction::ArcCopy { value } | Instruction::ArcMove { value } => {
+                        // Null has no physical owner. Keep its logical SSA token;
+                        // the verified HIR and ownership plan remain unchanged.
                         let val_ref = self.arc_reference(value);
-                        if matches!(inst, Instruction::ArcCopy { .. }) {
+                        if matches!(inst, Instruction::ArcCopy { .. })
+                            && !matches!(value, Operand::Constant(Constant::Null)) {
                             writeln!(self.out, "  call void @dartforge_arc_retain(i64 {val_ref})").unwrap();
                         }
                         writeln!(self.out, "  %v{v} = add i64 {val_ref}, 0").unwrap();
                     }
                     Instruction::ArcDrop { value } => {
                         let val_ref = self.arc_reference(value);
-                        writeln!(self.out, "  call void @dartforge_arc_release(i64 {val_ref})").unwrap();
+                        if !matches!(value, Operand::Constant(Constant::Null)) {
+                            writeln!(self.out, "  call void @dartforge_arc_release(i64 {val_ref})").unwrap();
+                        }
                     }
                     Instruction::ArcLoadStrong { slot: StrongSlot::Global { symbol: sym_name } } => {
                         self.check_arc_global(sym_name);

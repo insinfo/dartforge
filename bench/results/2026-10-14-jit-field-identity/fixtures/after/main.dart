@@ -1,0 +1,1 @@
+import 'child.dart'; final instance = Child(); int turns = 0; void main() { if (++turns != 2 || instance.baseValue != 101 || instance.childValue != 202 || instance.extra != null) throw StateError('Live private fields were not preserved'); print(instance.baseValue + instance.childValue); }

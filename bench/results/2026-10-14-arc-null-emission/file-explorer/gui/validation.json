@@ -1,0 +1,55 @@
+{
+  "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-null-file-explorer/program",
+  "binary_sha256": "dcbea43f1e2394e1555392574483f8f256229ca0385a4f964849950643488aca",
+  "binary_bytes": 43946032,
+  "cwd": "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+  "args": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+    "--lang=en"
+  ],
+  "actions": [
+    {
+      "action": "capture",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"capture\", \"window_id\": 1659, \"host_pid\": 27358, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-null-file-explorer/gui\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": ""
+    },
+    {
+      "action": "navigate",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"navigate\", \"window_id\": 1659, \"host_pid\": 27358, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-null-file-explorer/gui\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": ""
+    },
+    {
+      "action": "back-button",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"back-button\", \"window_id\": 1659, \"host_pid\": 27358, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-null-file-explorer/gui\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": ""
+    },
+    {
+      "action": "close-button",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"close-button\", \"window_id\": 1659, \"host_pid\": 27358, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-null-file-explorer/gui\", \"application_alive\": true}\n",
+      "stderr": ""
+    }
+  ],
+  "visual_review_completed": true,
+  "performance_claim": false,
+  "pid": 27357,
+  "exit_code": 0,
+  "stdout_bytes": 0,
+  "stderr_bytes": 0,
+  "binary_unchanged": true,
+  "screenshots": {
+    "navigate.png": "6a03d25e301ad1bef812922608d0e94acda03a88d4e0aebf38fc2966e868b4ca",
+    "capture.png": "344610d8b0a0a9adbda7570956cbca263b8a173b59632fc53e5354f6b2cf2684",
+    "back-button.png": "349c87f4e0f8a061e5b6aa14b7f7916ad5577aba5daf913b2b20a36dd22bbd2d"
+  },
+  "visual_observations": [
+    "Root shows folder and file (2 items)",
+    "Child shows child-content.txt (1 item)",
+    "Back restores root (2 items)",
+    "Native close ends parent process, exit 0, empty stdout/stderr"
+  ],
+  "backend_limit": "Existing Objective-C host child, not direct AppKit/native-pump replacement."
+}

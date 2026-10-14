@@ -1,0 +1,24 @@
+{
+  "compiler_checkpoint": "19eb472",
+  "object_selection": "ThinLTO objects created within 25 seconds before completed immutable pooled FileExplorer output",
+  "selection_limit": "Timestamp-associated objects are not an exact final-link manifest. Counts are an opportunity audit, not a measured resulting binary-size saving.",
+  "totals": {
+    "release_sites": 284467,
+    "retain_sites": 52199,
+    "physical_null_release_sites": 5171,
+    "physical_null_retain_sites": 198
+  },
+  "implementation_scope": "Only HIR literal Constant::Null ArcCopy/ArcDrop physical calls; no SSA, integer, field, ownership-plan or verifier changes.",
+  "runtime_proof": {
+    "abi": "crates/runtime/src/arc_abi.rs:1650 and :1668",
+    "heap": "crates/runtime/src/heap.rs:2140-2153: non-handle values return before owner/ARC state changes"
+  },
+  "ir_audit": {
+    "prepared_core_release_calls": 26018,
+    "prepared_core_retain_calls": 2505,
+    "literal_zero_release_calls": 465,
+    "literal_zero_retain_calls": 1
+  },
+  "rejected_expansion": "Ownership wrapper coalescing and general retain/release cancellation were not implemented.",
+  "validation": "Focused LLVM 3/3; combined full native library 621 passed, 8 ignored, 0 failed (144.22s), with explicit LLVM22 CLANG and SDK3.6.2. Runtime/binary comparison belongs to parent."
+}

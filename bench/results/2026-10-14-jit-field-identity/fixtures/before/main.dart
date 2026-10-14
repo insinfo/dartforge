@@ -1,0 +1,1 @@
+import 'child.dart'; final instance = Child(); int turns = 0; void main() { if (++turns != 1 || instance.baseValue != 11 || instance.childValue != 22) throw StateError('Initial fields'); print(instance.baseValue + instance.childValue); instance.setBaseValue(101); instance.setChildValue(202); }

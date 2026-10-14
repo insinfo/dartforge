@@ -1,0 +1,21 @@
+{
+  "compiler_sha256": "02dd0c2ef1d5a4eeefdc9a1a76faf4d4ad0b4f4711989480bb5ec5e2087c2002",
+  "binary_sha256": "dcbea43f1e2394e1555392574483f8f256229ca0385a4f964849950643488aca",
+  "binary_bytes": 43946032,
+  "flags": [
+    "--optimize",
+    "--memory=arc",
+    "--exceptions=check",
+    "--roots=shadow",
+    "--stack-trace=none"
+  ],
+  "environment": {
+    "DARTFORGE_ARC_PREPARED": "1",
+    "DARTFORGE_ARC_CHECK": "1",
+    "DARTFORGE_EFFECTS": "check"
+  },
+  "compile_exit_code": 0,
+  "gui_exit_code": 0,
+  "performance_claim": false,
+  "scope": "Compile and real GUI navigation/Back/native close with frozen 02dd compiler. Runtime list_reserve optimization was implemented afterward and is not part of this executable."
+}
