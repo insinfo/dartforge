@@ -1,0 +1,28 @@
+{
+  "result": {
+    "_meta": {
+      "provenance": {
+        "untrusted_content": true,
+        "source": "analysis_target"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"result\":{\"path\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-size-followup/ascii-encode.bin\",\"format\":\"raw-binary\",\"kind\":\"executable\",\"sha256\":\"46db22cf4b62128c60a02a7074c457bbb6cafa9d301aadb0dd889ffb1b97fa45\",\"architecture\":\"arm64\",\"entry_point\":\"0x101642028\"}}"
+      }
+    ],
+    "structuredContent": {
+      "result": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-size-followup/ascii-encode.bin",
+        "format": "raw-binary",
+        "kind": "executable",
+        "sha256": "46db22cf4b62128c60a02a7074c457bbb6cafa9d301aadb0dd889ffb1b97fa45",
+        "architecture": "arm64",
+        "entry_point": "0x101642028"
+      }
+    }
+  },
+  "jsonrpc": "2.0",
+  "id": 2
+}

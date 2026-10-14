@@ -1,0 +1,71 @@
+{
+  "status": "Bounded genuine REA investigation completed; no compiler source changes, builds, or timings.",
+  "conclusions": [
+    {
+      "finding": "File Explorer remains 2.4218 times the matched official executable size. Current color function is 2.7264 times upstream function size, with equivalent source/input manifest.",
+      "evidence": "validation.json"
+    },
+    {
+      "finding": "Current color function size equals previous frozen d4 producer output. Historical reduction from 43,376 to23,044 bytes belongs to earlier changes, not the current selector/getter wave.",
+      "evidence": "validation.json previous_wave_color_map"
+    },
+    {
+      "finding": "Current enum switch cases already use raw icmp identity comparisons. Remaining selector fanout is dominated by arithmetic on num rather than enum cases:31 multiply,15 <=,11 clamp,8 division,8 toInt.",
+      "evidence": [
+        "convertFormatValue.ll",
+        "validation.json selector_histogram"
+      ]
+    },
+    {
+      "finding": "Machine code still has TLS/context acquisition, root-frame work and exception exits. Most of1680 direct BL sites enter small machine-outliner helpers; those sites cannot be equated to semantic calls or allocations.",
+      "evidence": [
+        "forge-color/color.s",
+        "forge-color/calls-mapped.json"
+      ]
+    },
+    {
+      "finding": "Separately linked AsciiCodec.encode$c remains392 bytes/98 instructions including TLS acquisition and stack guard. Its SDK body is absent from app program.ll, confirming actual linked SDK boundary differs from a unified test HIR.",
+      "evidence": [
+        "forge-ascii-encode/ascii-encode.s",
+        "forge-ascii-encode/calls-mapped.json",
+        "target/selector-getter-production/file-explorer/program.map"
+      ]
+    }
+  ],
+  "next_fix": {
+    "priority": "Build an audited int/double arithmetic specialization across real SDK/program boundaries.",
+    "implementation_obligations": [
+      "Use complete physical receiver CID sets and actual dispatch targets; retain generic wrapper and ABI at unknown/dynamic/FFI boundaries.",
+      "Specialize convertFormatValue only for proven primitive numeric callers, or guard primitive CID then preserve generic fallback. Preserve nullable, Mint overflow, integer division/toInt, NaN/infinity, negative zero, and observable operator effects.",
+      "Transport source/body-derived proofs through cached SDK summaries and validate them against selected SDK hashes; declaration field metadata alone is not return/value proof.",
+      "Maintain all exceptional child paths and stack guard propagation. Do not delete pending checks merely because a function body seems nonthrowing."
+    ],
+    "acceptance": [
+      "Actual CLI OFF/ON matched source, frozen producer, tracing/check/shadow flags; differential integer/double/error cases and GC stress.",
+      "Count lost selector dispatch and numeric boxing in original and final machine code.",
+      "Run quiet repeated color/JSON/HTTP timings separately; final app size includes outlined helpers and all retained graph edges.",
+      "File Explorer navigation/close check and complete affected native library gate."
+    ],
+    "benefit": "Unmeasured. Function size, callsite counts, and boxed HIR alone do not prove elapsed-time gain."
+  },
+  "reference_lessons": [
+    {
+      "source": "Dart SDK transformer.dart364-400",
+      "lesson": "Actual monomorphic-target evidence produces direct-call metadata and separately preserves receiver-null checking."
+    },
+    {
+      "source": "Dart SDK unboxing_info.dart56-70",
+      "lesson": "Unboxing decisions must agree across every member sharing a selector/callsite; nominal num alone is insufficient."
+    },
+    {
+      "source": "TinyGo interface-lowering.go359-377",
+      "lesson": "Runtime method metadata may be stripped only after its genuine consumer is absent. Our selector protocol needs our own complete consumer proof."
+    }
+  ],
+  "limitations": [
+    "Ghidra raw color pseudocode reports bad instruction data/type propagation warnings. Assembly covers every mapped function byte; C pseudocode is illustrative only.",
+    "Raw function slices omit external helpers, data and complete callers; mapped direct targets are static link-map evidence only.",
+    "No new timing, no whole-program reduction attributed to this work.",
+    "Sparse LLVM reference checkout lacks requested implementation paths; no invented local LLVM source attribution."
+  ]
+}

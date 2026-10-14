@@ -1,0 +1,15 @@
+{
+  "label": "forge-color",
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-size-followup/color.bin",
+  "open_options": {
+    "format": "raw-binary",
+    "architecture": "arm64",
+    "entry_point": "0x101067a18"
+  },
+  "procedures": [
+    {
+      "label": "color",
+      "address": "0x101067a18"
+    }
+  ]
+}

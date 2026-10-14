@@ -1,0 +1,22 @@
+{
+  "config": {
+    "label": "forge-color",
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-size-followup/color.bin",
+    "open_options": {
+      "format": "raw-binary",
+      "architecture": "arm64",
+      "entry_point": "0x101067a18"
+    },
+    "procedures": [
+      {
+        "label": "color",
+        "address": "0x101067a18"
+      }
+    ]
+  },
+  "target_sha256": "12a5be4f7b39f8b164fc61f8c9cd6c32a0b1d945b253cec6b23fb8572f1dc6c3",
+  "REA_version": "6.5.0",
+  "provider": "Ghidra12.1.4/JDK21.0.12.1/nativeARM64",
+  "server_exit": 0,
+  "scope": "Local static native assembly and heuristic C pseudocode; Dart custom snapshot ABI is not interpreted as recovered Dart semantics."
+}

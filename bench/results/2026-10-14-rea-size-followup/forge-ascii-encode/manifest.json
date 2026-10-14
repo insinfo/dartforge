@@ -1,0 +1,22 @@
+{
+  "config": {
+    "label": "forge-ascii-encode",
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-size-followup/ascii-encode.bin",
+    "open_options": {
+      "format": "raw-binary",
+      "architecture": "arm64",
+      "entry_point": "0x101642028"
+    },
+    "procedures": [
+      {
+        "label": "ascii-encode",
+        "address": "0x101642028"
+      }
+    ]
+  },
+  "target_sha256": "46db22cf4b62128c60a02a7074c457bbb6cafa9d301aadb0dd889ffb1b97fa45",
+  "REA_version": "6.5.0",
+  "provider": "Ghidra12.1.4/JDK21.0.12.1/nativeARM64",
+  "server_exit": 0,
+  "scope": "Local static native assembly and heuristic C pseudocode; Dart custom snapshot ABI is not interpreted as recovered Dart semantics."
+}

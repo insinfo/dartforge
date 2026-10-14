@@ -1,0 +1,164 @@
+[
+  {
+    "instruction": "0x101642054: bl 0x10165ed4c",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_193"
+    ]
+  },
+  {
+    "instruction": "0x101642068: bl 0x10165e144",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_47"
+    ]
+  },
+  {
+    "instruction": "0x101642070: bl 0x10165fd48",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_433"
+    ]
+  },
+  {
+    "instruction": "0x101642078: bl 0x10165dd70",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_13"
+    ]
+  },
+  {
+    "instruction": "0x101642084: bl 0x10165eb30",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_163"
+    ]
+  },
+  {
+    "instruction": "0x10164208c: bl 0x10165e420",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_80"
+    ]
+  },
+  {
+    "instruction": "0x101642094: bl 0x1000dd13c",
+    "mapped_symbols": [
+      "_dartforge_nsm_call"
+    ]
+  },
+  {
+    "instruction": "0x10164209c: bl 0x101661108",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_794"
+    ]
+  },
+  {
+    "instruction": "0x1016420b0: bl 0x101622e90",
+    "mapped_symbols": [
+      "_df.rti.8782f99dd997d310.dart$3aconvert"
+    ]
+  },
+  {
+    "instruction": "0x1016420b8: bl 0x10165ffb8",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_488"
+    ]
+  },
+  {
+    "instruction": "0x1016420c0: bl 0x10165e048",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_36"
+    ]
+  },
+  {
+    "instruction": "0x1016420d8: bl 0x101661764",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_903"
+    ]
+  },
+  {
+    "instruction": "0x1016420f4: bl 0x10165fe7c",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_459"
+    ]
+  },
+  {
+    "instruction": "0x101642104: bl 0x101612c04",
+    "mapped_symbols": [
+      "_dfc.723f6d9b5042a496.get"
+    ]
+  },
+  {
+    "instruction": "0x101642108: bl 0x10165f2d0",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_270"
+    ]
+  },
+  {
+    "instruction": "0x101642110: bl 0x101662c30",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_1279"
+    ]
+  },
+  {
+    "instruction": "0x101642120: bl 0x10165ecd8",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_186"
+    ]
+  },
+  {
+    "instruction": "0x101642134: bl 0x101660470",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_578"
+    ]
+  },
+  {
+    "instruction": "0x10164213c: bl 0x10165e3f0",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_77"
+    ]
+  },
+  {
+    "instruction": "0x10164214c: bl 0x10165dbb4",
+    "mapped_symbols": [
+      "_df.context.slow.llvm.2108070022506700356"
+    ]
+  },
+  {
+    "instruction": "0x101642154: bl 0x10165fd00",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_427"
+    ]
+  },
+  {
+    "instruction": "0x10164216c: bl 0x10165fcf8",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_426"
+    ]
+  },
+  {
+    "instruction": "0x101642170: bl 0x10165ef68",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_221"
+    ]
+  },
+  {
+    "instruction": "0x101642180: bl 0x10165e660",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_106"
+    ]
+  },
+  {
+    "instruction": "0x101642188: bl 0x10165e924",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_138"
+    ]
+  },
+  {
+    "instruction": "0x101642198: bl 0x10165fd74",
+    "mapped_symbols": [
+      "_OUTLINED_FUNCTION_438"
+    ]
+  },
+  {
+    "instruction": "0x1016421a4: bl 0x1000e527c",
+    "mapped_symbols": [
+      "_dartforge_stack_overflow"
+    ]
+  }
+]

@@ -1,0 +1,199 @@
+{
+  "scope": "Read-only audit of frozen compiler wave; no compiler changes, build, execution or performance claim.",
+  "source_checks": {
+    "sdk_joint_body_audit": {
+      "path": "crates/emit_native/src/sdk_module.rs",
+      "sha256": "1be58427d0018c1f786ebcdfab433c34a82eca583c1796528c94b74b9bab07d4",
+      "line": 361
+    },
+    "sdk_summary_from_llvm": {
+      "path": "crates/emit_native/src/sdk_module.rs",
+      "sha256": "1be58427d0018c1f786ebcdfab433c34a82eca583c1796528c94b74b9bab07d4",
+      "line": 719
+    },
+    "external_sdk_cid_denied": {
+      "path": "crates/emit_native/src/pruning/receiver_provenance/selector_returns.rs",
+      "sha256": "73cd31a699f6242bc4f577c6bd6ae4c7247485955428220ed889946449536a21",
+      "line": 33
+    },
+    "external_static_body_required": {
+      "path": "crates/emit_native/src/pruning/receiver_provenance.rs",
+      "sha256": "80b4c389f38108ace5d9f619caf8a9a520215161ccd39d2d9908b76432f26767",
+      "line": 282
+    },
+    "immutable_body_identity": {
+      "path": "crates/emit_native/src/pruning/receiver_provenance.rs",
+      "sha256": "80b4c389f38108ace5d9f619caf8a9a520215161ccd39d2d9908b76432f26767",
+      "line": 39
+    },
+    "canonical_global_writer_census": {
+      "path": "crates/emit_native/src/pruning/receiver_provenance/canonical_cache.rs",
+      "sha256": "3bbac69183b94ca58c4726b008682aa14ac7a34b29ba78a386bb4fbdd4fabc6f",
+      "line": 56
+    }
+  },
+  "references": {
+    "dart_tfa_summary": {
+      "path": "/Volumes/ssd_dock/references/dart-sdk/pkg/vm/lib/transformations/type_flow/summary.dart",
+      "sha256": "e4ae934b5b3158145a9c3d38ede1003482bcee84ad973ea84d1ba358f404be82"
+    },
+    "dart_tfa_dependencies": {
+      "path": "/Volumes/ssd_dock/references/dart-sdk/pkg/vm/lib/transformations/type_flow/analysis.dart",
+      "sha256": "b946e5f249fff8f24c1e56e309d5ca7a2df67bbc35bbc188464bcc97c0e397ff"
+    },
+    "tinygo_interfaces": {
+      "path": "/Volumes/ssd_dock/references/tinygo/transform/interface-lowering.go",
+      "sha256": "87bcfe2d38d2a44d4978d6f8f7e0f8e4a4a5146cf6b3f005006172ecfc32bab3"
+    }
+  },
+  "actual_cache_samples": [
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native_cache/sdk/cf013c72d375e486d4ffc645ee44e8fb/convert.poda",
+      "sha256": "fe8b376c72dae2518de44f65cbbdd95e8a2d305ce19535374aa0bfefc0b5d106",
+      "header": "dartforge-poda\t6\tdart:convert",
+      "record_prefixes": [
+        "C",
+        "D",
+        "E",
+        "K",
+        "N",
+        "P",
+        "R",
+        "S",
+        "T",
+        "X"
+      ],
+      "selected_names": [
+        "N\tdf.dart$3aconvert.AsciiCodec.new",
+        "N\tdf.dart$3aconvert.AsciiCodec.name",
+        "N\tdf.dart$3aconvert.AsciiCodec.encode",
+        "N\tdf.dart$3aconvert.AsciiCodec.decode",
+        "N\tdf.dart$3aconvert.AsciiCodec.encoder",
+        "N\tdf.mt.dart$3aconvert.AsciiEncoder",
+        "N\tdf.dart$3aconvert.AsciiCodec.decoder",
+        "N\tdf.dart$3aconvert.AsciiEncoder.new",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder._utf8Encode",
+        "N\tdf.mt.dart$3aconvert._JsonUtf8EncoderSink",
+        "N\tdf.mt.dart$3aconvert.JsonUtf8Encoder",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.new",
+        "N\tdf.dart$3aconvert.Utf8Encoder.convert",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.convert",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.convert$addChunk$e358eeb78$ent",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.convert$addChunk$e358eeb78",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.startChunkedConversion",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.bind",
+        "N\tdf.dart$3aconvert._JsonUtf8EncoderSink.new",
+        "N\tdf.dart$3aconvert._JsonUtf8EncoderSink._addChunk"
+      ]
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native_cache/sdk/700de520877e7eb2cf0dc2d31f551de4/convert.poda",
+      "sha256": "fe8b376c72dae2518de44f65cbbdd95e8a2d305ce19535374aa0bfefc0b5d106",
+      "header": "dartforge-poda\t6\tdart:convert",
+      "record_prefixes": [
+        "C",
+        "D",
+        "E",
+        "K",
+        "N",
+        "P",
+        "R",
+        "S",
+        "T",
+        "X"
+      ],
+      "selected_names": [
+        "N\tdf.dart$3aconvert.AsciiCodec.new",
+        "N\tdf.dart$3aconvert.AsciiCodec.name",
+        "N\tdf.dart$3aconvert.AsciiCodec.encode",
+        "N\tdf.dart$3aconvert.AsciiCodec.decode",
+        "N\tdf.dart$3aconvert.AsciiCodec.encoder",
+        "N\tdf.mt.dart$3aconvert.AsciiEncoder",
+        "N\tdf.dart$3aconvert.AsciiCodec.decoder",
+        "N\tdf.dart$3aconvert.AsciiEncoder.new",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder._utf8Encode",
+        "N\tdf.mt.dart$3aconvert._JsonUtf8EncoderSink",
+        "N\tdf.mt.dart$3aconvert.JsonUtf8Encoder",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.new",
+        "N\tdf.dart$3aconvert.Utf8Encoder.convert",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.convert",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.convert$addChunk$e358eeb78$ent",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.convert$addChunk$e358eeb78",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.startChunkedConversion",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.bind",
+        "N\tdf.dart$3aconvert._JsonUtf8EncoderSink.new",
+        "N\tdf.dart$3aconvert._JsonUtf8EncoderSink._addChunk"
+      ]
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native_cache/sdk/5cd6cce38e7123f5bfc4ecf24078781a/convert.poda",
+      "sha256": "fe8b376c72dae2518de44f65cbbdd95e8a2d305ce19535374aa0bfefc0b5d106",
+      "header": "dartforge-poda\t6\tdart:convert",
+      "record_prefixes": [
+        "C",
+        "D",
+        "E",
+        "K",
+        "N",
+        "P",
+        "R",
+        "S",
+        "T",
+        "X"
+      ],
+      "selected_names": [
+        "N\tdf.dart$3aconvert.AsciiCodec.new",
+        "N\tdf.dart$3aconvert.AsciiCodec.name",
+        "N\tdf.dart$3aconvert.AsciiCodec.encode",
+        "N\tdf.dart$3aconvert.AsciiCodec.decode",
+        "N\tdf.dart$3aconvert.AsciiCodec.encoder",
+        "N\tdf.mt.dart$3aconvert.AsciiEncoder",
+        "N\tdf.dart$3aconvert.AsciiCodec.decoder",
+        "N\tdf.dart$3aconvert.AsciiEncoder.new",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder._utf8Encode",
+        "N\tdf.mt.dart$3aconvert._JsonUtf8EncoderSink",
+        "N\tdf.mt.dart$3aconvert.JsonUtf8Encoder",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.new",
+        "N\tdf.dart$3aconvert.Utf8Encoder.convert",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.convert",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.convert$addChunk$e358eeb78$ent",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.convert$addChunk$e358eeb78",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.startChunkedConversion",
+        "N\tdf.dart$3aconvert.JsonUtf8Encoder.bind",
+        "N\tdf.dart$3aconvert._JsonUtf8EncoderSink.new",
+        "N\tdf.dart$3aconvert._JsonUtf8EncoderSink._addChunk"
+      ]
+    }
+  ],
+  "conclusions": [
+    "SDK producers already jointly audit final SDK HIR before emitting libraries.",
+    "Persistent .poda summary comes from LLVM and carries selector-call facts, not return body certificates.",
+    "External factory calls and SDK getter tables are intentionally rejected by current body-bound consumers.",
+    "SDK-only canonical-cache proofs cannot cross the app boundary without complete app+SDK symbol/global-writer reconciliation."
+  ],
+  "proposal": {
+    "patch": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-return-certificates-proposal.patch",
+    "sha256": "11f75c355a5be165138cfbe5ec6ee6dca0d4a800e5f8337124eab936c467262a",
+    "status": "git apply --check passed; not applied, compiled, hooked, or production-enabled",
+    "initial_scope": "Allocation/Phi/null/scalar constants/comparisons plus ABI-matched nonrecursive CallStatic closure over actual body witnesses; reject runtime calls, caches, globals, symbol addresses, field loads/stores, dynamic calls, strings, ARC and duplicate symbols.",
+    "expected_eligibility": "Not measured without compiler instrumentation/build. Ascii/Utf8 const encoder cache closures deliberately ineligible; Base64 field loads ineligible. No claimed size improvement.",
+    "next_changes": [
+      "After freeze release, add helper as test-only and test complete dependency audit and body replacement rejection.",
+      "At sdk_module.rs joint-final-HIR audit point, export candidate signatures, full possible return CID union including null and producer-body closure identity into SdkLibrary.",
+      "Publish certificates only after emitted SDK objects are finalized; bind to exact sdk_key, profile/target/policy, object hashes and compiler proof schema. Reject old/missing/corrupt records by falling back to unknown.",
+      "Introduce strict versioned .poda return records or separate proof sidecar; carry symbol linkage and independently physical class/table identity. All references must resolve to same cache closure, never declaration-only ancestry.",
+      "At lib.rs prune_program_hir load, reconcile app symbols/COMDAT with every certified dependency; conflicting or shared/interposable symbols deny certificate. Validate exact linked object manifest and table pairs.",
+      "Keep imported facts in distinct certified inventory; do not relax nominal_classes guard. Imported static calls require exact signature matching and unknown fallback.",
+      "Feed same validated inventory into hir_summary_with/prune_hir and LlvmEmitter provenance. Recompute local app SCC dependencies against imported terminal proofs, preserving local recursive rejection.",
+      "Enable only after actual cached SDK cold/warm and copied/modified SDK differential validation. Then measure OFF/ON generated code, linked retention, executable bytes and quiet runtime separately."
+    ],
+    "required_tests": [
+      "Positive fresh AllocObject or AllocList with valid body witness, supported Phi union and explicit null path; CallStatic acyclic closure with exact ABI.",
+      "Negative duplicate getter/factory symbol, COMDAT body replacement, mismatched ABI/target/policy/object hash/cache key, CID collisions, missing or conflicting whole tables, selector hash collision.",
+      "Negative canonical cache child, global load/store, function/global address operand, pointer exposure, opaque runtime call, unknown static dependency, cyclic dependency, partial closure and stale immutable-body witness.",
+      "Actual ordinary Dart const ASCII/UTF8/Base64 stays conservative until cache/global proof is implemented; no fixture expectations that incorrectly treat those as exported.",
+      "Cold then warm same compiler/cache; copied SDK same contents; custom SDK changes getter allocation/null/dependency body and independently updates external source replacement; old sidecar rejected.",
+      "VM and official AOT oracle vs OFF/ON normal and GC stress; unknown custom getter and noSuchMethod behavior unchanged; actual FileExplorer compile/GUI, before size/performance claims."
+    ]
+  }
+}

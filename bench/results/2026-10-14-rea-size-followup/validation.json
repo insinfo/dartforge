@@ -1,0 +1,72 @@
+{
+  "scope": "Static local REA 6.5/Ghidra 12.1.4 exact mapped ARM64 function evidence, no timings. Raw slices do not contain external helpers/data; pseudocode is heuristic, not recovered Dart semantics.",
+  "current_binary": {
+    "sha256": "c3f1c6e90bde7f440c03cf1f542d5a934e4d3f99d98ed5e5430c01763d6abad1",
+    "bytes": 28293696,
+    "input_manifest_sha256": "cb9bdc8c2495d25e3154c4ca8cd841506fd4ed57725331c5180be2d07f901995"
+  },
+  "upstream_binary": {
+    "sha256": "184bb06ef7e6710d57b5c2fa58df89c18e4efed53a85911cd98087aa8409fc17",
+    "bytes": 11682880,
+    "snapshot_and_function_origin": "../2026-10-14-rea-native-investigation/rea-evidence/official-color-raw-origin.json"
+  },
+  "statistics": [
+    {
+      "target": "forge-color",
+      "symbol_bytes": 23044,
+      "decoded_bytes": 23044,
+      "instructions": 5761,
+      "complete_symbol_coverage": true,
+      "direct_BL_sites": 1680,
+      "indirect_BLR_sites": 1,
+      "MRS_sites": 1
+    },
+    {
+      "target": "official-color",
+      "symbol_bytes": 8452,
+      "decoded_bytes": 8452,
+      "instructions": 2113,
+      "complete_symbol_coverage": true,
+      "direct_BL_sites": 48,
+      "indirect_BLR_sites": 86,
+      "MRS_sites": 0
+    },
+    {
+      "target": "forge-ascii-encode",
+      "symbol_bytes": 392,
+      "decoded_bytes": 392,
+      "instructions": 98,
+      "complete_symbol_coverage": true,
+      "direct_BL_sites": 27,
+      "indirect_BLR_sites": 0,
+      "MRS_sites": 1
+    }
+  ],
+  "previous_wave_color_map": [
+    "0x1010687DC\t0x00005A04\t[ 14] _df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue"
+  ],
+  "no_performance_or_this_wave_size_gain_claim": true,
+  "previous_wave_same_function_bytes": 23044,
+  "current_color_IR_static_sites": {
+    "df.selector": 88,
+    "indirect_call": 88,
+    "df.box_int": 174,
+    "df.unbox_int": 45,
+    "exception_clear": 92
+  },
+  "provider_limitations_observed": [
+    "Raw color pseudocode reports bad instruction data and unsettled type propagation; use complete instruction listing for quantitative counts.",
+    "External helpers and data are absent from raw imports; their semantics are resolved separately by current link map/IR.",
+    "AsciiCodec SDK body is present in linked machine code but absent from application program.ll because it comes from separately cached SDK module; blank excerpts removed."
+  ],
+  "selector_histogram": {
+    "c:==": 11,
+    "tc:[]": 1,
+    "tc:/": 8,
+    "tc:*": 31,
+    "tc:<=": 15,
+    "tc:clamp": 11,
+    "tc:toInt": 8,
+    "tc:<": 3
+  }
+}

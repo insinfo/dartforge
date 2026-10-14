@@ -1,0 +1,15 @@
+{
+  "label": "forge-ascii-getter",
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-size-followup/ascii-getter.bin",
+  "open_options": {
+    "format": "raw-binary",
+    "architecture": "arm64",
+    "entry_point": "0x101642788"
+  },
+  "procedures": [
+    {
+      "label": "ascii-getter",
+      "address": "0x101642788"
+    }
+  ]
+}

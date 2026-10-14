@@ -1,0 +1,35 @@
+[
+  {
+    "repository": "dart-sdk",
+    "revision": "6c4009687d2c881f880127fc12b9ad7c72111d33",
+    "path": "/Volumes/ssd_dock/references/dart-sdk/pkg/vm/lib/transformations/type_flow/transformer.dart",
+    "source_sha256": "d6e58b1dca17895ecee3544a0d498e79bbd45a6295173eb49251b0c5a2dfa388",
+    "lines": [
+      364,
+      400
+    ],
+    "excerpt": "    final callSite = _typeFlowAnalysis.callSite(node);\n    if (callSite != null) {\n      final Member? singleTarget = fieldMorpher.getMorphedMember(\n        callSite.monomorphicTarget,\n        isSetter: setter,\n      );\n      if (singleTarget != null) {\n        if (node is FunctionInvocation) {\n          final closure = _typeFlowAnalysis.getClosureByCallMethod(\n            singleTarget,\n          )!;\n          final function = closure.function;\n          int closureId;\n          if (function != null) {\n            _closureIdMetadata.indexClosures(closure.member);\n            closureId = _closureIdMetadata.getClosureId(function);\n            if (closureId < 0) {\n              return null;\n            } else {\n              assert(closureId > 0);\n            }\n          } else {\n            closureId = 0;\n          }\n          return DirectCallMetadata.targetClosure(\n            closure.member,\n            closureId,\n            callSite.isNullableReceiver,\n          );\n        } else if (!isArtificialNode(singleTarget)) {\n          final bool checkReceiverForNull =\n              callSite.isNullableReceiver &&\n              singleTarget.enclosingClass != coreTypes.objectClass;\n          return DirectCallMetadata.targetMember(\n            singleTarget,\n            checkReceiverForNull,\n          );"
+  },
+  {
+    "repository": "dart-sdk",
+    "revision": "6c4009687d2c881f880127fc12b9ad7c72111d33",
+    "path": "/Volumes/ssd_dock/references/dart-sdk/pkg/vm/lib/transformations/type_flow/unboxing_info.dart",
+    "source_sha256": "e8feaae5618deee388a538b1ecf22854f0e041ada0994e2d2cd33c91e224d646",
+    "lines": [
+      56,
+      70
+    ],
+    "excerpt": "    const kInvalidSelectorId = ProcedureAttributesMetadata.kInvalidSelectorId;\n\n    // Unboxing info for instance members is grouped by selector ID, such that\n    // the unboxing decisions match up for all members that can be called from\n    // the same call site.\n\n    // Unify the selector IDs for the getter and setter of every (writable)\n    // field, such that it can be grouped with both getters and setters.\n    // In the unified unboxing info, the return info represents the getters, and\n    // the parameter info represents the setters.\n    final selectorUnionFind = UnionFind(tableSelectorAssigner.selectorIdRange);\n    for (Library library in component.libraries) {\n      for (Class cls in library.classes) {\n        for (Field field in cls.fields) {\n          if (field.isInstanceMember && field.hasSetter) {"
+  },
+  {
+    "repository": "tinygo",
+    "revision": "f6d269f74ab45bfa53a37c5708c6661ec33531ae",
+    "path": "/Volumes/ssd_dock/references/tinygo/transform/interface-lowering.go",
+    "source_sha256": "87bcfe2d38d2a44d4978d6f8f7e0f8e4a4a5146cf6b3f005006172ecfc32bab3",
+    "lines": [
+      359,
+      377
+    ],
+    "excerpt": "\t// Check whether runtime.typeImplementsMethodSet still has uses. Now that\n\t// interface type assertions have been lowered to type-ID comparison\n\t// chains, the only remaining callers would be from reflect\n\t// (AssignableTo/Implements). If none remain, we can strip the inline\n\t// method-set data from type descriptors to save binary size.\n\tstripMethodSets := false\n\ttypeImplementsFn := p.mod.NamedFunction(\"runtime.typeImplementsMethodSet\")\n\tif !typeImplementsFn.IsNil() && !hasUses(typeImplementsFn) {\n\t\tstripMethodSets = true\n\t}\n\n\t// Collect all method signatures that appear in any interface type\n\t// descriptor. When reflect is imported and method sets are kept,\n\t// concrete type method sets are pruned: individual methods not in any\n\t// interface are removed, and types that can't fully satisfy at least\n\t// one interface have their method sets emptied entirely.\n\t//\n\t// When method sets are stripped entirely (reflect not imported),\n\t// methodFilter is nil and filterMethodSet replaces with empty."
+  }
+]

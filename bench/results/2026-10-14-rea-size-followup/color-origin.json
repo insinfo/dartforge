@@ -1,0 +1,9 @@
+{
+  "container": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-production/file-explorer/program",
+  "container_sha256": "c3f1c6e90bde7f440c03cf1f542d5a934e4d3f99d98ed5e5430c01763d6abad1",
+  "offset": 17201688,
+  "address": "0x101067a18",
+  "bytes": 23044,
+  "raw_sha256": "12a5be4f7b39f8b164fc61f8c9cd6c32a0b1d945b253cec6b23fb8572f1dc6c3",
+  "scope": "Exact mapped ARM64 function bytes; external data and call targets absent, no complete callgraph or runtime cost claim."
+}

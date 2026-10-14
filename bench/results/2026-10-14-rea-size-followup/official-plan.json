@@ -1,0 +1,15 @@
+{
+  "label": "official-color",
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-native-analysis/official-color-raw.bin",
+  "open_options": {
+    "format": "raw-binary",
+    "architecture": "arm64",
+    "entry_point": "0x3566c8"
+  },
+  "procedures": [
+    {
+      "label": "color",
+      "address": "0x3566c8"
+    }
+  ]
+}

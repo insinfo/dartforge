@@ -1,0 +1,15 @@
+{
+  "label": "forge-ascii-encode",
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-size-followup/ascii-encode.bin",
+  "open_options": {
+    "format": "raw-binary",
+    "architecture": "arm64",
+    "entry_point": "0x101642028"
+  },
+  "procedures": [
+    {
+      "label": "ascii-encode",
+      "address": "0x101642028"
+    }
+  ]
+}

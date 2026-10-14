@@ -1,0 +1,194 @@
+[
+  {
+    "instruction": "0x356768: bl 0x0047828c",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x35678c: bl 0x00513524",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x356a5c: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x356cb8: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x356d0c: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x356dfc: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x356f48: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x356f9c: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357000: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357064: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357084: bl 0x00513524",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x3570dc: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357130: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x35724c: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x3572a0: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357304: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357358: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x3573d4: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357428: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x35747c: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x3575b8: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357648: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x3576e4: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357708: bl 0x00513524",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x35777c: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x3577a4: bl 0x00513524",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357818: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357844: bl 0x00513524",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x3579d4: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357a64: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357b00: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357b90: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357bb4: bl 0x00513524",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357c28: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357c54: bl 0x00513524",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357cb0: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357d14: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357d3c: bl 0x00513524",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357e48: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357ed4: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357f70: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x357ffc: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x358088: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x3580ac: bl 0x00513524",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x358108: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x35815c: bl 0x00524eac",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x3587c0: bl 0x005133a4",
+    "mapped_symbols": []
+  },
+  {
+    "instruction": "0x3587c8: bl 0x00513934",
+    "mapped_symbols": []
+  }
+]

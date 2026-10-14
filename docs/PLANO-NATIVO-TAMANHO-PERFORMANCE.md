@@ -195,3 +195,86 @@ ficam serializadas. A investigação permanece aberta até medir as correções.
 Artefatos: `bench/results/2026-10-14-native-sdk-pre-prune/summary.json`,
 `bench/results/2026-10-14-physical-getter-prototype/validation.json` e
 `bench/results/2026-10-14-rea-native-investigation/rea-validation.json`.
+
+## Checkpoint atual e próximos critérios de aceitação
+
+Atualização de 2026-10-14. O produtor congelado `0a876b5a…` gerou o File
+Explorer original com **28.293.696 bytes**, SHA-256
+`c3f1c6e90bde7f440c03cf1f542d5a934e4d3f99d98ed5e5430c01763d6abad1`.
+São **2,42×** os 11.682.880 bytes do upstream. As 11.652 entradas permaneceram
+iguais. A rodada imediatamente anterior tinha 28.293.616 bytes: esta rodada
+acrescentou **80 bytes**, sem ganho de tamanho demonstrado. Não há nova medida
+de velocidade desse aplicativo. O lançamento ocorreu, mas a automação CUA não
+conseguiu selecionar o host; a navegação deste artefato permanece sem validação.
+
+A suíte do emissor nativo passou nos **702 testes**, incluindo ignorados,
+com fontes estáveis. Quatro execuções nativas do caso de getters, normais e com
+stress de coleta, reproduziram os resultados da VM e do AOT oficial. O IR mostra
+três pontos com conjuntos físicos menores; os executáveis OFF/ON desse caso
+são idênticos, com 3.186.192 bytes. Não converter esse resultado em ganho global.
+
+A correção da propagação de falhas de getters de constantes conserva a
+verificação da exceção do filho antes de publicar o pai. Um teste executa o LLVM
+emitido com runtime C limitado e provoca o stack guard real do filho, verificando
+falha, raízes balanceadas, retry e identidade no caminho quente. Não é prova do
+coletor completo, nem resolve a política de stack guards de todas as funções.
+
+As últimas medições pareadas disponíveis são do produtor anterior `1d2dadbc…`,
+não deste produtor. JSON: **101 ms contra 71 ms** upstream; strings: **71 contra
+44 ms**; árvores: **21 contra 11 ms**. O kernel numérico ficou em 96 contra 95 ms.
+Nesse benchmark pequeno, o DartForge ocupa 3.368.032 bytes contra 5.379.136 bytes
+upstream. Portanto, tamanho e desempenho precisam ser avaliados por programa.
+
+### Ordem de execução a partir deste checkpoint
+
+| Prioridade | Alteração ou investigação | Resultado exigido antes de aceitar |
+| --- | --- | --- |
+| 1 | Comparar no REA as funções dominantes do File Explorer atual e do snapshot upstream; relacionar assembly com HIR e mapa de retenção. | Endereços, hashes, pseudocódigo, assembly e atribuição sem sobrepor aliases; separar bytes removidos de funções ainda retidas. |
+| 2 | Transportar provas de retorno físico através da fronteira SDK em cache/programa. | Prova vinculada ao corpo efetivamente ligado, ABI, CID e tabela; rejeitar símbolos duplicados, dependências desconhecidas e SDK alterado. Testar cache frio/quente e ablação no CLI real. |
+| 3 | Reconciliar constantes COMDAT e inicialização de campos finais no conjunto ligado. | Censo completo de escritores/exposição dos globais, layout físico e caminhos de sucesso/falha; `final` ou tipo declarado não bastam. Só então habilitar otimização de getters que leem esses campos. |
+| 4 | Reduzir boxing e dispatch nos caminhos reais de JSON, strings e HTTP. | Menos alocações e operações no caminho executado, outputs/exceções iguais, stress de coleta e medições alternadas de tempo, RSS e vazão. Preservar `hashCode`/`==` com efeitos. |
+| 5 | Comparar política de inlining/outlining e perfil de tamanho após as correções de HIR. | Mesmo produtor e runtime; comparar bytes por seção e latência. Registrar regressões de desempenho e manter separados perfis de tamanho e velocidade. |
+
+O bloqueio da prioridade 2 é concreto: a análise conjunta funciona com os
+corpos HIR disponíveis, mas o resumo `.poda` do SDK não transporta essa prova.
+`sdk_module.rs` analisa as bibliotecas conjuntamente e depois emite os resumos
+do LLVM; o consumidor do programa exige corpos para aceitar retornos de
+chamadas estáticas. Metadados de declaração/layout não substituem esse corpo.
+
+Também não é seguro simplesmente exportar `{CID}` de um getter do SDK: o programa
+pode emitir globais/getters de constantes COMDAT com o mesmo nome. Provas de
+cache feitas sobre o SDK isolado não incluem os escritores do programa. A
+primeira implementação deve limitar-se a provas independentes desses caches
+ou reconciliar integralmente os corpos e globais que serão ligados. Até lá,
+conservar o fallback dinâmico de ASCII/UTF8 quando faltar a prova.
+
+Cada correção terá uma comparação OFF/ON do mesmo produtor congelado, seguida
+por File Explorer, JSON/maps/strings e HTTP. Medir tempo em janela sem builds ou
+análises REA concorrentes; conservar as falhas e as regressões. A investigação
+não está concluída enquanto a diferença do aplicativo e os kernels lentos
+permanecerem sem correção demonstrada.
+
+### Atribuição atual e REA da nova rodada
+
+O mapa atual fecha **25.098.632 bytes** de `__TEXT,__text`, sem padding ou
+intervalos não atribuídos: dart_ui **14.999.000**, runtime/suporte nativo
+**3.423.612**, j2k **1.639.716**, suporte gerado **1.164.192** e File Explorer
+**786.148**. O restante é SDK. Esses valores atribuem código ligado; não medem
+tempo nem demonstram que cada função pode ser apagada.
+
+Os maiores símbolos incluem registro do programa (**199.828 bytes**),
+`drawPixel` (**74.824**) e `PktDecoder.readPktHead` (**47.216**). Medir também
+as tabelas e entradas realmente necessárias antes de reduzir o registro.
+
+A nova análise REA de `convertFormatValue` recuperou **23.044 bytes / 5.761
+instruções ARM64**, contra **8.452 / 2.113** upstream. O binário imediatamente
+anterior também tinha 23.044 bytes; a diferença histórica para 43.376 bytes
+pertence às correções anteriores. O IR atual conserva 88 seletores/chamadas
+indiretas, 174 sítios `box_int`, 45 `unbox_int` e 92 `exception_clear`.
+As comparações dos padrões enum já usam `icmp`; o próximo alvo desse kernel
+é a representação e o dispatch aritmético, não repetir a otimização de enum.
+
+Artefatos desta rodada:
+`bench/results/2026-10-14-rea-size-followup/`,
+`bench/results/2026-10-14-selector-getter-production/` e
+`bench/results/2026-10-14-selector-getter-native/`.
