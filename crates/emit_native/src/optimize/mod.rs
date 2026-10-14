@@ -32,6 +32,8 @@ mod tables;
 mod tests;
 #[cfg(test)]
 mod pre_prune_tests;
+#[cfg(test)]
+mod physical_devirtualize;
 
 use crate::hir::*;
 use std::collections::HashMap;

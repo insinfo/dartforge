@@ -1,0 +1,54 @@
+{
+  "prototype_only": true,
+  "production_hook": false,
+  "test_only_module_hook": "crates/emit_native/src/optimize/mod.rs",
+  "source_frozen": true,
+  "scope": "Fixed-AOT tracing only; same local getter wrapper with exact Ref,Ptr,Ptr->Ref ABI; canonical immutable args[0]/descriptor[0,0]; full-body argument-use and descriptor-load0/1 audit. ARC, SDK library bodies, unknown/nullable receivers and foreign/colliding metadata remain indirect.",
+  "source_sha256": {
+    "crates/emit_native/src/optimize/physical_devirtualize.rs": "18c09a907e1f5dcd62b43f98aac3d0a43a07dad403eff464fb4fcbd2237193d9",
+    "crates/emit_native/src/optimize/physical_devirtualize/tests.rs": "332ce561f127ce03b468330050800caf9a78721a951e9aea6e041e5c216339cb",
+    "crates/emit_native/tests/fixtures/devirtualization/physical_getters.dart": "68c28137e942d74483eb5c0f542389c2800cca10b4e3b544619173a9db8985b5"
+  },
+  "focused": {
+    "command": "cargo test --locked -j2 -p dartforge-emit-native --lib physical_devirtualize -- --test-threads=2",
+    "passed": 8,
+    "exit": 0,
+    "log": "focused-tests.log"
+  },
+  "environment": {
+    "CARGO_TARGET_DIR": "target/p4",
+    "TMPDIR": "target/tmp-p8-runtime",
+    "DARTFORGE_TEST_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64"
+  },
+  "actual_source_lowering_and_emission": {
+    "getter_calls_before": 4,
+    "direct_allocator_calls_rewritten": 2,
+    "factory_calls_remaining_indirect": 2,
+    "exception_pending_instructions_preserved": true,
+    "wrapper_original_bodies_preserved": true
+  },
+  "initial_failed_eligibility": {
+    "passed": 5,
+    "failed": 1,
+    "log": "focused-initial-failure.log",
+    "actual_hir": "ordinary-hir-failure.log",
+    "original_fixture": "original-factory-getters.dart",
+    "original_fixture_sha256": "8ebb690210f9d98542f0a304f1015c5f951c576d77089e3c01589c996b373ec9",
+    "diagnosis": "Factory body returns null when its constructor leaves a pending exception; physical return summary conservatively includes CID1 and allocationCID716. Caller success-edge refinement is not proved by this pass; refusal remains preserved explicitly."
+  },
+  "vm": {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "crates/emit_native/tests/fixtures/devirtualization/physical_getters.dart"
+    ],
+    "exit": 0,
+    "stdout_sha256": "47d4cc002b5ef605ebf20666ca21c67b9f2123320d07467984306d1969e1a6cd",
+    "stderr_bytes": 0
+  },
+  "native_differential_execution_pending": true,
+  "timing_measured": false,
+  "size_measured": false,
+  "full_native_gate_owner": "windows_gui"
+}
