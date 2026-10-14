@@ -334,7 +334,12 @@ fn insert(
         super::natives::prepare(f)?;
         if let Some(layouts) = layouts {
             let plan = new_plans.get_mut(&f.symbol).unwrap();
-            super::fields::prepare(f, layouts, plan, receivers.get(&f.symbol), preserve_fields)?;
+            super::fields::prepare_with_class_cases(
+                f, layouts, plan, receivers.get(&f.symbol), preserve_fields,
+                !signatures.contains_key("dartforge_value_class")
+                    && !signatures.contains_key("dartforge_object_new")
+                    && !signatures.contains_key("dartforge_arc_object_owned_v1"),
+            )?;
             super::objects::prepare(f, layouts, plan, &signatures)?;
         }
         super::boxes::prepare(f)?;

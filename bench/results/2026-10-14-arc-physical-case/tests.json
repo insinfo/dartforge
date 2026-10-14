@@ -1,0 +1,26 @@
+{
+  "native_lib": {
+    "passed": 590,
+    "failed": 0,
+    "ignored": 7,
+    "exit_code": 0,
+    "log": {
+      "log": "arc-physical-case-native-lib.log",
+      "sha256": "8cf563724b3b2117a735a010b24eca5de43c773808d7b7156e01e08edc169241"
+    }
+  },
+  "release": {
+    "exit_code": 0,
+    "log": {
+      "log": "arc-physical-case-release.log",
+      "sha256": "35df772d5402758701d1dffcdbb3c160368280d44582590cf0226c1e3b9cc54f"
+    }
+  },
+  "sources": {
+    "crates/emit_native/src/optimize/arc/fields.rs": "20046e224a4845f83d03e06a2a69e5401e4771597372e37f31fb6e938ef0986c",
+    "crates/emit_native/src/optimize/arc/functions.rs": "466dbb7a0f5cd0ba34603a0757cc0b1ac06abf3288c0e0b18a9566f4332e86a5",
+    "crates/emit_native/src/optimize/arc/fields/class_cases.rs": "873f2efb8ff59a94efd5f0666cd0f41d995375a81620714165d694952f809634",
+    "crates/emit_native/src/optimize/arc/fields/class_cases/tests.rs": "424ba36451f0e5d5d2f33108f6e7ae43d54ef655783aa373d8fa867a107cd9fc",
+    "crates/emit_native/tests/fixtures/arc_ports/late_notifier_dispatch.dart": "1e591625dcccead374168d51010a695eb8f322fba20da52b1ca8df90219a8591"
+  }
+}

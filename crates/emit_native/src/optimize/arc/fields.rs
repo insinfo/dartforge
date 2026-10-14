@@ -11,6 +11,8 @@ use super::{DartFunctionPlan, edges::next_val};
 use crate::{hir::*, optimize::operands::operands};
 use std::collections::{HashMap, HashSet};
 
+mod class_cases;
+
 // Carries eligibility for the physical guard, without proving ownership/layout.
 // Each SCC requires a Ref/Null anchor and every external dependency checked.
 fn propagate_ref_entries(f: &Function, entries: &mut HashSet<ValueId>) {
@@ -158,18 +160,16 @@ fn origins(f: &Function, layouts: &HashMap<u32, Vec<Type>>, receivers: Option<&H
 }
 
 fn representation(
-    receiver: &Operand,
+    o: &Origin,
     index: usize,
-    origins: &HashMap<ValueId, Origin>,
     classes: &HashMap<ValueId, u32>,
     layouts: &HashMap<u32, Vec<Type>>,
     escape: &HashSet<ValueId>,
 ) -> Result<Type, String> {
-    let o = origin(receiver, origins);
     if o.unknown || o.sites.is_empty() || !o.sites.is_disjoint(escape) {
         return Err("receiver without an unpublished local origin".into());
     }
-    known_representation(&o, index, classes, layouts)
+    known_representation(o, index, classes, layouts)
 }
 
 // The unknown part of the join requires a physical guard. The nominal part
@@ -246,12 +246,24 @@ pub(super) fn check_call(
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) fn prepare(
     f: &mut Function,
     layouts: &HashMap<u32, Vec<Type>>,
     plan: &mut DartFunctionPlan,
     receivers: Option<&HashMap<ValueId, u32>>,
     preserve_fields: &HashSet<String>,
+) -> Result<(), String> {
+    prepare_with_class_cases(f, layouts, plan, receivers, preserve_fields, false)
+}
+
+pub(super) fn prepare_with_class_cases(
+    f: &mut Function,
+    layouts: &HashMap<u32, Vec<Type>>,
+    plan: &mut DartFunctionPlan,
+    receivers: Option<&HashMap<ValueId, u32>>,
+    preserve_fields: &HashSet<String>,
+    canonical_runtime: bool,
 ) -> Result<(), String> {
     // Const Null in SSA has no token. At a Phi entry, use the literal
     // shape for the nullable protocol, without confusing Const Int(0) or
@@ -282,6 +294,7 @@ pub(super) fn prepare(
         return Ok(());
     }
     let (origins, classes) = origins(f, layouts, receivers);
+    let class_cases = class_cases::Cases::new(f, canonical_runtime);
     // Borrowed entries must already be valid instances by Dart
     // semantics. A local factory without a layout may still contain zeroed fields
     // without a Ref mark; do not confuse it with an open entry receiver.
@@ -362,9 +375,8 @@ pub(super) fn prepare(
                     && let Operand::Constant(Constant::Int(n)) = idx_value.0
                     && let Ok(index) = usize::try_from(n)
                     && let Ok(repr) = representation(
-                        &receiver.0,
+                        &origin(&receiver.0, &origins),
                         index,
-                        &origins,
                         &classes,
                         layouts,
                         &HashSet::new(),
@@ -463,7 +475,8 @@ pub(super) fn prepare(
                 // Do not revive the proof after an exposure that already ran.
                 HashSet::new()
             } else { local_globals.union(&invalid_set).copied().collect() };
-            let o = origin(object, &origins);
+            let mut o = origin(object, &origins);
+            class_cases.refine(&mut o, object, b.id, &classes);
             // Without a nominal anchor, the Ref accessor checks the receiver, the index and the
             // bitmap before borrowing. Do not reinterpret scalar bits,
             // nor ignore contradictions of a known origin. Open writes
@@ -493,7 +506,7 @@ pub(super) fn prepare(
             } else if checked_scalar {
                 scalar.unwrap()
             } else {
-                representation(object, index, &origins, &classes, layouts, &current_ones)
+                representation(&o, index, &classes, layouts, &current_ones)
                     .map_err(|e| format!("ARC field in {} v{}: {e}", f.symbol, v.0))?
             };
             let idx_value = i64::try_from(index)
