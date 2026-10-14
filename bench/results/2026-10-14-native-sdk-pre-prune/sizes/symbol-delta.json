@@ -1,0 +1,249 @@
+{
+  "OFF_symbols": 65332,
+  "ON_symbols": 65282,
+  "removed": [
+    {
+      "name": "_df.ffi.i_ppmpiiiii$ent",
+      "bytes": 676
+    },
+    {
+      "name": "_df.ffi.cbentry.314",
+      "bytes": 544
+    },
+    {
+      "name": "_df.ffi.l_lppppi$ent",
+      "bytes": 436
+    },
+    {
+      "name": "_df.ffi.i_pppjpdj$ent",
+      "bytes": 420
+    },
+    {
+      "name": "_df.ffi.cbentry.311",
+      "bytes": 408
+    },
+    {
+      "name": "_df.ffi.cbentry.312",
+      "bytes": 356
+    },
+    {
+      "name": "_df.ffi.i_ppjjj$ent",
+      "bytes": 352
+    },
+    {
+      "name": "_df.ffi.cbentry.316",
+      "bytes": 352
+    },
+    {
+      "name": "_df.ffi.cbentry.315",
+      "bytes": 344
+    },
+    {
+      "name": "_df.ffi.cbentry.310",
+      "bytes": 324
+    },
+    {
+      "name": "_df.ffi.i_ppmpppp$ent",
+      "bytes": 312
+    },
+    {
+      "name": "_df.ffi.i_ppjjp$ent",
+      "bytes": 292
+    },
+    {
+      "name": "_df.ffi.cbentry.313",
+      "bytes": 280
+    },
+    {
+      "name": "l_df.fns.22",
+      "bytes": 272
+    },
+    {
+      "name": "_df.ffi.p_pj$ent",
+      "bytes": 220
+    },
+    {
+      "name": "l_df.mt.package$3adart_ui$2fsrc$2fbackends$2fx11$2fx11_protocol$2edart.X11CreateWindowAttributes$d",
+      "bytes": 144
+    },
+    {
+      "name": "l_df.mt.package$3aj2k$2fsrc$2fj2k$2fwavelet$2fsynthesis$2fsyn_wt_filter_spec$2edart.SynWTFilterSpec$d",
+      "bytes": 128
+    },
+    {
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fentropy$2fdecoder$2fstd_entropy_decoder$2edart.StdEntropyDecoder._logBlockSnapshot",
+      "bytes": 112
+    },
+    {
+      "name": "l_df.fns.21",
+      "bytes": 96
+    },
+    {
+      "name": "l_.str.17617",
+      "bytes": 64
+    },
+    {
+      "name": "l_.str.17620",
+      "bytes": 64
+    },
+    {
+      "name": "l_.str.17423",
+      "bytes": 48
+    },
+    {
+      "name": "l_.str.17476",
+      "bytes": 48
+    },
+    {
+      "name": "l_.str.17506",
+      "bytes": 48
+    },
+    {
+      "name": "l_.str.17539",
+      "bytes": 48
+    },
+    {
+      "name": "l_.str.17541",
+      "bytes": 48
+    },
+    {
+      "name": "l_.str.17588",
+      "bytes": 48
+    },
+    {
+      "name": "l_.str.17591",
+      "bytes": 48
+    },
+    {
+      "name": "l_.str.17621",
+      "bytes": 48
+    },
+    {
+      "name": "l_.str.17630",
+      "bytes": 48
+    },
+    {
+      "name": "_OUTLINED_FUNCTION_5233",
+      "bytes": 40
+    },
+    {
+      "name": "_OUTLINED_FUNCTION_5240",
+      "bytes": 36
+    },
+    {
+      "name": "_OUTLINED_FUNCTION_5241",
+      "bytes": 36
+    },
+    {
+      "name": "_OUTLINED_FUNCTION_5242",
+      "bytes": 36
+    },
+    {
+      "name": "_OUTLINED_FUNCTION_5243",
+      "bytes": 36
+    },
+    {
+      "name": "_OUTLINED_FUNCTION_5244",
+      "bytes": 36
+    },
+    {
+      "name": "l_df.seln.340",
+      "bytes": 32
+    },
+    {
+      "name": "l_df.seln.341",
+      "bytes": 32
+    },
+    {
+      "name": "l_.str.10849",
+      "bytes": 32
+    },
+    {
+      "name": "l_.str.14661",
+      "bytes": 32
+    }
+  ],
+  "added": [
+    {
+      "name": "_df.ffi.i_lppjppp$cb",
+      "bytes": 660
+    },
+    {
+      "name": "_df.ffi.i_pjlp$cb",
+      "bytes": 456
+    },
+    {
+      "name": "_df.ffi.i_pjpp$cb",
+      "bytes": 404
+    },
+    {
+      "name": "_df.ffi.i_pj$cb",
+      "bytes": 344
+    },
+    {
+      "name": "l_df.mt.package$3adart_ui$2fsrc$2fbackends$2fx11$2fx11_libc$2edart.X11Libc$d",
+      "bytes": 256
+    },
+    {
+      "name": "_df.ffi.j_p$cb",
+      "bytes": 200
+    },
+    {
+      "name": "_df.ffi.j_$cb",
+      "bytes": 176
+    },
+    {
+      "name": "l_df.fns.9",
+      "bytes": 160
+    },
+    {
+      "name": "l_df.fns.1",
+      "bytes": 144
+    },
+    {
+      "name": "l_df.mt.package$3aj2k$2fsrc$2fj2k$2fentropy$2fprecinct_size_spec$2edart.PrecinctSizeSpec$d",
+      "bytes": 128
+    },
+    {
+      "name": "l_.str.17216",
+      "bytes": 48
+    },
+    {
+      "name": "l_.str.17392",
+      "bytes": 48
+    },
+    {
+      "name": "l_.str.17398",
+      "bytes": 48
+    },
+    {
+      "name": "l_.str.17402",
+      "bytes": 48
+    },
+    {
+      "name": "l_.str.10712",
+      "bytes": 32
+    },
+    {
+      "name": "l_.str.14489",
+      "bytes": 32
+    },
+    {
+      "name": "l_.str.14490",
+      "bytes": 32
+    },
+    {
+      "name": "l_.str.14491",
+      "bytes": 32
+    },
+    {
+      "name": "l_.str.14494",
+      "bytes": 32
+    },
+    {
+      "name": "l_.str.14495",
+      "bytes": 32
+    }
+  ],
+  "scope": "Names and individual linker spans, which can alias/overlap. Not a sum or proof of semantic liveness; linked section/binary totals remain authoritative."
+}

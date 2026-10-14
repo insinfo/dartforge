@@ -1,0 +1,27 @@
+{
+  "artifact": {
+    "blake3": "11433fa5f5270fa047954eb493c2fb37affc1763b489644da85eea1c71b5bbcd",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "f18c2a3d891e5106906faf21a8156de4f875c499d7115aa8c36ae092dbe55c95",
+    "optimized": true,
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-pre-prune-validation/selected-wrapper/warm/program"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "79c53820e57858775ed28c1ecb27ca6187f6df95433688f1adf91e42ca31dc9d",
+      "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/platform_flags/main.dart"
+    },
+    {
+      "blake3": "3895c54596b2e8b4dc3b3a4d283a5214c5378eff4376f646fccd70f4779a9579",
+      "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/platform_flags/reexport.dart"
+    }
+  ],
+  "verification_implemented": false
+}

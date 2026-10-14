@@ -87,6 +87,8 @@ pub struct EmittedIr {
     /// Contract provenance for this exact emission; never an implicit proof.
     pub contracts: contracts::ContractReport,
     pub text: String,
+    /// SDK library directory selected for this emission and its linked SDK objects.
+    pub sdk_lib: PathBuf,
     pub times: EmissionTimes,
     /// Bytes of `text` that are function bodies of the SDK (`dart:`); see
     /// `sdk_bytes`.
@@ -113,7 +115,7 @@ pub const UNSUPPORTED_PREFIX: &str = "not supported by the native backend: ";
 /// [`pruning::prune_hir`] with the summaries of the SDK libraries of the profile (the
 /// SDK comes out of the cache, or is compiled now, as the link would do right
 /// after). `None` when the module does not use the source SDK.
-fn prune_program_hir(module: &mut hir::Module, production: bool) -> Result<Option<pruning::HirPruning>, String> {
+fn prune_program_hir(module: &mut hir::Module, production: bool, sdk_lib: &Path) -> Result<Option<pruning::HirPruning>, String> {
     if module.sdk_library || module.sdk_records.is_empty() {
         return Ok(None);
     }
@@ -121,7 +123,7 @@ fn prune_program_hir(module: &mut hir::Module, production: bool) -> Result<Optio
     let clang = driver::NativeDriverOptions::default().clang;
     // The same directory and the same Clang as the link (`driver::compile_and_link`):
     // the same cache key.
-    let sdk = sdk_module::compiled_sdk_in_profile(&dart_sdk()?, &clang, profile)?;
+    let sdk = sdk_module::compiled_sdk_in_profile(sdk_lib, &clang, profile)?;
     if !sdk.summaries.iter().all(|r| r.is_file()) {
         return Ok(None);
     }
@@ -471,7 +473,8 @@ fn emit_ir_internal(
     // `DARTFORGE_NO_HIR_PRUNING=1` turns it off.
     if prune && !std::env::var("DARTFORGE_NO_HIR_PRUNING").is_ok_and(|v| v == "1") {
         let t_prune = Instant::now();
-        if let Some(e) = prune_program_hir(&mut hir_module, options.optimize)?
+        optimize::prepare_for_pruning(&mut hir_module);
+        if let Some(e) = prune_program_hir(&mut hir_module, options.optimize, &sdk_dir)?
             && options.timings
         {
             eprintln!(
@@ -597,6 +600,7 @@ fn emit_ir_internal(
     Ok(EmittedIr {
         text: format!("; DartForge contract provenance {}\n{llvm_ir}", contract_report.cache_tag()),
         contracts: contract_report,
+        sdk_lib: sdk_dir,
         times: EmissionTimes {
             frontend: front_duration,
             world: world_duration,
@@ -661,6 +665,7 @@ pub fn compile_with(
         timings: options.timings,
         debug_info: options.debug,
         cpu: options.cpu,
+        sdk_lib: Some(ir.sdk_lib.clone()),
     };
 
     let linkage = driver::compile_and_link(&ir.text, exit, &driver_opts)?;

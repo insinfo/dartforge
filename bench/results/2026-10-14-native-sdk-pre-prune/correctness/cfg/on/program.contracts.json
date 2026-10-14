@@ -1,0 +1,23 @@
+{
+  "artifact": {
+    "blake3": "9520d5caa506dbb9c9c6e545d0eab52fbacdf122b242225ac57803587744de1d",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "b463beeabbe87cdca369a7478a102daf5db176edcbd04ac377ef97f5a1d81b0b",
+    "optimized": true,
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-pre-prune-validation/cfg/on/program"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "f90743c7d15bb1157c1bfa3ab3fc9370abc21b8c53c6562129e6b9d60dbe1ba1",
+      "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/pre_prune_cfg/main.dart"
+    }
+  ],
+  "verification_implemented": false
+}

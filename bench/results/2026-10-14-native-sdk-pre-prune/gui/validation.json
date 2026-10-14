@@ -1,0 +1,45 @@
+{
+  "launch": {
+    "pid": 65687,
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-pre-prune-sizes/on/program",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+      "--lang=en"
+    ],
+    "cwd": "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+    "binary_sha256": "05fae017e351db85bed7994a20673c3a297bde4e5a3b64b70ef4e3fe2791bb9e"
+  },
+  "compiler_sha256": "8d678d27f6dda1ba2f3ec4f04d8dcecafa1bda15fd09fcca963a2f6bfdc0a324",
+  "entry_source_sha256": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+  "binary_unchanged": true,
+  "entry_source_unchanged": true,
+  "visual_review": [
+    "Root directory rendered with two fixture entries",
+    "Native address navigation rendered child directory with one fixture entry",
+    "Native Back button returned to root with two fixture entries",
+    "Native window Close button closed application and native host"
+  ],
+  "owned_pids": [
+    65687,
+    65716
+  ],
+  "no_surviving_owned_pids": true,
+  "ps_exit": 1,
+  "stdout_bytes": 0,
+  "stderr_bytes": 0,
+  "process_exit_code": null,
+  "exit_observation_limit": "Detached launcher did not retain wait status. Window close and disappearance of both owned processes were observed; no exit-code-zero claim.",
+  "scope": "Actual GUI rendering/navigation/close only, no performance claim.",
+  "files": {
+    "navigate.png": "1d77ebc097986a8e66993a2bc9068a60a27fd12b8102691aced0f42dddf19484",
+    "stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "back-button.json": "72ae8a380d4884b6167535e11df25910f6fd9990a20cabcd0f5ecd7da92531dd",
+    "stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "capture.json": "052fa02e8e01526d0809c8f7ced8b362e25ba250464944d5b0e323cc065525a4",
+    "navigate.json": "8cd0e64f92368419c7fddb6eebeb4e903f1a07bd824726a4b8e3d7272e69b577",
+    "close-button.json": "0869bf824990192f71c10a68d3b57723ba32c21545cfbd9f0d6a1c9491f7c9f9",
+    "launch.json": "544d5d0dfae42593f3671d217eb25ae019aa1e3512c9745d516ad9c2218ae079",
+    "capture.png": "00c203f00cdc9fd717abf684e4cbc14607ed7ebd988341342b6bfa9cb439b852",
+    "back-button.png": "349c87f4e0f8a061e5b6aa14b7f7916ad5577aba5daf913b2b20a36dd22bbd2d"
+  }
+}

@@ -17,6 +17,8 @@ pub struct NativeDriverOptions {
     pub debug_info: bool,
     /// The target CPU (`--cpu`, `generator::Cpu`); `None`, the baseline of the target.
     pub cpu: Option<crate::generator::Cpu>,
+    /// SDK library directory matching the emitted IR. Raw IR callers may use discovery.
+    pub sdk_lib: Option<PathBuf>,
 }
 
 impl Default for NativeDriverOptions {
@@ -27,6 +29,7 @@ impl Default for NativeDriverOptions {
             timings: false,
             debug_info: false,
             cpu: None,
+            sdk_lib: None,
         }
     }
 }
@@ -80,7 +83,10 @@ pub fn compile_and_link(
     // A program with the source SDK (P5c): the entry calls the registration of the
     // SDK libraries, which live in the cached objects.
     let sdk = if llvm_ir.contains("declare void @df.register.") {
-        let dir = crate::dart_sdk()?;
+        let dir = match &options.sdk_lib {
+            Some(directory) => directory.clone(),
+            None => crate::dart_sdk()?,
+        };
         let profile = if options.optimize {
             crate::sdk_module::SdkProfile::Production
         } else {

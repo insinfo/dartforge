@@ -30,9 +30,28 @@ mod tables;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod pre_prune_tests;
 
 use crate::hir::*;
 use std::collections::HashMap;
+
+/// Remove proven unreachable CFG edges before collecting symbol/selector roots.
+/// This performs no inlining, ownership insertion, or exception-table lowering.
+pub(crate) fn prepare_for_pruning(module: &mut Module) {
+    if disabled() || std::env::var("DARTFORGE_NO_PRE_PRUNE_CFG").as_deref() == Ok("1") {
+        return;
+    }
+    prune_constant_cfg(module);
+}
+
+fn prune_constant_cfg(module: &mut Module) {
+    for function in &mut module.functions {
+        representation_constants::propagate_literals(function);
+        simplify::fold_constants(function);
+        simplify::remove_unreachable(function);
+    }
+}
 
 /// Prepares the program and the SDK libraries through the same emission pipeline.
 /// The memory model is defined before the passes; the materialization of

@@ -1,0 +1,119 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-pre-prune-producer/dartforge",
+  "compiler_sha256": "8d678d27f6dda1ba2f3ec4f04d8dcecafa1bda15fd09fcca963a2f6bfdc0a324",
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/platform_flags/main.dart": "f5763233b01764b797a3d85068153c1e0159ee8d47dafded14ea3941669f800e",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/pre_prune_cfg/main.dart": "d8856013f6057b9285ad0d0e692a9fb6d54d4c1c0e011fc8ded2daec2467ca30",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/platform_flags/reexport.dart": "f2b42076e114b8469086bc931ac08b2794820c9fc91f54e79f823f2179923136",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/io/platform_impl.dart": "29873adce212c12f826049e673aa4a208b8c38ffaa03de4f9ba4c4e0d7a01cda",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/modified-sdk/lib/io/platform_impl.dart": "656131aa88e5a0f7417e71adfd99bf23ee6c5369c1ed6636f15c0961f7571fb5"
+  },
+  "runs": {
+    "selected-wrapper.cold": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-pre-prune-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/platform_flags/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/modified-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-pre-prune-validation/selected-wrapper/cold/program"
+      ],
+      "compile_exit": 0,
+      "discovered_env_SDK": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "selected_SDK": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/modified-sdk/lib",
+      "opt_out": null,
+      "binary_sha256": "1a8237e116bac60598d427ee1e81cfb0c5a509606bd18e56f38b76b097b4806a",
+      "exit": 0,
+      "stdout": "platform wrapper\n[false, true, false, false, false, false]\ntrue\ntrue\nfalse\nfalse\nfalse\n5\n",
+      "stderr": "",
+      "expected": "platform wrapper\n[false, true, false, false, false, false]\ntrue\ntrue\nfalse\nfalse\nfalse\n5\n",
+      "exact": true
+    },
+    "selected-wrapper.warm": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-pre-prune-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/platform_flags/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/modified-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-pre-prune-validation/selected-wrapper/warm/program"
+      ],
+      "compile_exit": 0,
+      "discovered_env_SDK": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "selected_SDK": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/platform-specialization/modified-sdk/lib",
+      "opt_out": null,
+      "binary_sha256": "1a8237e116bac60598d427ee1e81cfb0c5a509606bd18e56f38b76b097b4806a",
+      "exit": 0,
+      "stdout": "platform wrapper\n[false, true, false, false, false, false]\ntrue\ntrue\nfalse\nfalse\nfalse\n5\n",
+      "stderr": "",
+      "expected": "platform wrapper\n[false, true, false, false, false, false]\ntrue\ntrue\nfalse\nfalse\nfalse\n5\n",
+      "exact": true
+    },
+    "cfg.off": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-pre-prune-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/pre_prune_cfg/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-pre-prune-validation/cfg/off/program"
+      ],
+      "compile_exit": 0,
+      "discovered_env_SDK": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "selected_SDK": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "opt_out": "1",
+      "binary_sha256": "4505d40a0eea97f3b81d971fe8dc6a431c6b4f815230ed5e68b231eb68c85955",
+      "exit": 0,
+      "stdout": "before branch\nother branch\nafter branch\n",
+      "stderr": "",
+      "expected": "before branch\nother branch\nafter branch\n",
+      "exact": true
+    },
+    "cfg.on": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-pre-prune-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/pre_prune_cfg/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-pre-prune-validation/cfg/on/program"
+      ],
+      "compile_exit": 0,
+      "discovered_env_SDK": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "selected_SDK": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "opt_out": null,
+      "binary_sha256": "4505d40a0eea97f3b81d971fe8dc6a431c6b4f815230ed5e68b231eb68c85955",
+      "exit": 0,
+      "stdout": "before branch\nother branch\nafter branch\n",
+      "stderr": "",
+      "expected": "before branch\nother branch\nafter branch\n",
+      "exact": true
+    }
+  },
+  "scope": "Actual CLI correctness only. Installed VM is the original SDK oracle; copied SDK expected wrapper effect is checked explicitly. No performance or GUI claims.",
+  "inputs_stable": true
+}

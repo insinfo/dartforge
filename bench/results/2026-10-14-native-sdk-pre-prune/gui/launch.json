@@ -1,0 +1,10 @@
+{
+  "pid": 65687,
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-pre-prune-sizes/on/program",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+    "--lang=en"
+  ],
+  "cwd": "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+  "binary_sha256": "05fae017e351db85bed7994a20673c3a297bde4e5a3b64b70ef4e3fe2791bb9e"
+}

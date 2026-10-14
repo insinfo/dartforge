@@ -1,0 +1,47 @@
+{
+  "producer_sha256": "8d678d27f6dda1ba2f3ec4f04d8dcecafa1bda15fd09fcca963a2f6bfdc0a324",
+  "SDK_selection": "Actual CLI --sdk copied wrapper cold/warm succeeds with discovered DARTFORGE_SDK_LIB pointing original SDK. Explicit wrapper effect preserved. No process-global env mutation.",
+  "correctness": {
+    "focused_tests": 3,
+    "SDK_API_cold_warm_test": 1,
+    "actual_CLI_cases": 4,
+    "all_exact": true,
+    "input_hashes_stable": true
+  },
+  "FileExplorer": {
+    "OFF_bytes": 28475840,
+    "ON_bytes": 28459152,
+    "saved_bytes": 16688,
+    "saved_percent": 0.05860406576241473,
+    "OFF_text_bytes": 25273960,
+    "ON_text_bytes": 25265832,
+    "input_count": 11652,
+    "same_prior_manifest": true,
+    "all_inputs_unchanged": true,
+    "same_runtime_archive_sha256": {
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_rtprod_0694aadecdb4601046a5bd59a4b4ce53.a": "6880fc8750bc1fe92df2acab9e32051e08c3d1afad81fd87fccd4413347b682f"
+    },
+    "scope": "Compile-only size; no GUI, startup, throughput, or compile-time speed claim."
+  },
+  "benchmark_preparation": {
+    "source_sha256": "8bacd8323aad4882d8aa8a32cbac9edf9abf1d0fdaa1d235aa20f1721ba7275c",
+    "OFF_ON_byte_identical": true,
+    "binary_sha256": "4f2b5b2486ae2e17ce1c25ad93c1892161180d7cd9ab24098fd12b74652b3c4b",
+    "scope": "Not executed. No timing claim. Repeated off/on timing would measure identical code."
+  },
+  "source_paths": [
+    "crates/emit_native/src/lib.rs",
+    "crates/emit_native/src/driver.rs",
+    "crates/emit_native/src/optimize/mod.rs",
+    "crates/emit_native/src/optimize/pre_prune_tests.rs",
+    "crates/emit_native/tests/sdk_selection.rs",
+    "crates/emit_native/tests/fixtures/pre_prune_cfg/main.dart"
+  ],
+  "limits": [
+    "Getter pass has only a test-only module hook, no production integration.",
+    "New early pass uses existing exact literal propagation, constant folding and unreachable-block removal; no inlining, ARC, or exception-table preparation.",
+    "NO_PRE_PRUNE_CFG=1 opt-out participates in existing NO_* SDK cache key.",
+    "Full native gate is owned separately by root agent.",
+    "Raw .log/.stdout/.stderr files need force-add; no binaries or link maps are archived."
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "source_hashes": {
+    "crates/emit_native/src/lib.rs": "db419de7dd840cc37668e86f02b6a65f2ee099506d6bc398887942f1fbde0e6e",
+    "crates/emit_native/src/driver.rs": "423c4c1d7a99e165d0978cfb65fb9c10537380171daea5cc85e2375f1db79044",
+    "crates/emit_native/src/optimize/mod.rs": "fa7fad90907ee6ea29f5a867d31a86bad879c08826517ded73400916704aca89",
+    "crates/emit_native/src/optimize/pre_prune_tests.rs": "69329f79fcc25ef353b70508ec62f9bb2e73001f9594ce604630f2db4b10177a",
+    "crates/emit_native/tests/sdk_selection.rs": "946fc4670af290dd677a5fb4c9a0a6a5976c9c24fe8fdcd06c67560c2ab3c07c",
+    "crates/emit_native/tests/fixtures/pre_prune_cfg/main.dart": "d8856013f6057b9285ad0d0e692a9fb6d54d4c1c0e011fc8ded2daec2467ca30"
+  },
+  "SDK_API_gate": {
+    "passed": 1,
+    "failed": 0,
+    "cold_and_warm": true,
+    "log": "sdk-focused.log"
+  },
+  "pre_prune_gate": {
+    "passed": 3,
+    "failed": 0,
+    "log": "pre-prune-final-pass.log"
+  },
+  "rejected_gates": {
+    "pre-prune-focused.log": "Initial pass omitted explicit I1 Const propagation; CFG branch stayed live. Fixed using existing exact literal propagation.",
+    "pre-prune-final-focused.log": "Literal false ordinary source raised known frontend dead-code diagnostic; fixture changed to actual host-proven Platform.isAndroid.",
+    "pre-prune-verified-focused.log": "Test assertion treated WTF8-byte HIR strings as Debug text; replaced with exact bytes inspection."
+  },
+  "scope": "Focused correctness only. Actual CLI copied-SDK selection and paired corpus size still pending immutable producer."
+}

@@ -1,0 +1,23 @@
+{
+  "artifact": {
+    "blake3": "08a5ab03e122ea39f0ad92ad2491886f7c56cc8ca6212e9fd4d5ac901f684747",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "038525aaf3417f21e37513bf1c4fbff91a337aae3d376df003dfa4c4b8e10a00",
+    "optimized": true,
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-pre-prune-cpu/on/program"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "ed517b2cdcf3a80fcc5095e0df2cdcc884a0b92fd066cb86ff8943e8a1b63f80",
+      "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/bench.dart"
+    }
+  ],
+  "verification_implemented": false
+}

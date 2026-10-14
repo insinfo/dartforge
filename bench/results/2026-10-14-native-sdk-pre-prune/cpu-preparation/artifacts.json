@@ -1,0 +1,47 @@
+{
+  "compiler_sha256": "8d678d27f6dda1ba2f3ec4f04d8dcecafa1bda15fd09fcca963a2f6bfdc0a324",
+  "source_sha256": "8bacd8323aad4882d8aa8a32cbac9edf9abf1d0fdaa1d235aa20f1721ba7275c",
+  "profiles": {
+    "off": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-pre-prune-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/bench.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-pre-prune-cpu/off/program"
+      ],
+      "exit": 0,
+      "opt_out": "1",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-pre-prune-cpu/off/program",
+      "binary_sha256": "4f2b5b2486ae2e17ce1c25ad93c1892161180d7cd9ab24098fd12b74652b3c4b"
+    },
+    "on": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rea-pre-prune-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/bench.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-pre-prune-cpu/on/program"
+      ],
+      "exit": 0,
+      "opt_out": null,
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-pre-prune-cpu/on/program",
+      "binary_sha256": "4f2b5b2486ae2e17ce1c25ad93c1892161180d7cd9ab24098fd12b74652b3c4b"
+    }
+  },
+  "scope": "Compile-only preparation. No benchmark executions/timings."
+}
