@@ -1,0 +1,7 @@
+{
+  "stage": "Postcompile evidence assertion",
+  "result": "FAILED_EXPECTATION_NOT_COMPILATION",
+  "incorrect_expected_unboxes": 16,
+  "observed_actual_app_unboxes": 8,
+  "reason": "The standalone probe has16; the whole program has different closed-world reductions. Compare the same actual app function with its previous artifact."
+}

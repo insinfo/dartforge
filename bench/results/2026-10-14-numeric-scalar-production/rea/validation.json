@@ -1,0 +1,91 @@
+{
+  "result": "REA_ASSEMBLY_AND_DECOMPILATION_OBSERVED",
+  "provider": {
+    "REA": "6.5.0",
+    "Ghidra": "12.1.4",
+    "JDK": "21.0.12.1+1",
+    "headless_max_memory_MB": 2048
+  },
+  "artifact": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-bench/on/program",
+    "bytes": 3368032,
+    "sha256": "b895e80363bc783b51761367b781d034a8d654e31b9b555edc55f8d4c0503f7d",
+    "node_count_text_bytes": 244,
+    "link_map_sha256": "6decd8d1a02a825e5303f36c9678e80aeef678a6e14f37fc3eb78cc3bf864884"
+  },
+  "producing_compiler_sha256": "1d2dadbc030f9da15f4672900ad1f9aab1ea736edb0acff6be82174b8d620655",
+  "source_sha256": "8bacd8323aad4882d8aa8a32cbac9edf9abf1d0fdaa1d235aa20f1721ba7275c",
+  "symbol": {
+    "name": "_df.bench$2edart.Node.count",
+    "address": "0x1000f40b4",
+    "bytes": 244
+  },
+  "decoded_ARM64_instructions": 61,
+  "static_calls": [
+    {
+      "instruction": "bl",
+      "target": "0x1000f40b4",
+      "mapped_symbols": [
+        {
+          "name": "_df.bench$2edart.Node.count",
+          "bytes": 244
+        }
+      ]
+    },
+    {
+      "instruction": "bl",
+      "target": "0x1000f40b4",
+      "mapped_symbols": [
+        {
+          "name": "_df.bench$2edart.Node.count",
+          "bytes": 244
+        }
+      ]
+    },
+    {
+      "instruction": "bl",
+      "target": "0x1000f947c",
+      "mapped_symbols": [
+        {
+          "name": "_df.context.slow",
+          "bytes": 4
+        }
+      ]
+    },
+    {
+      "instruction": "bl",
+      "target": "0x1000b7dd4",
+      "mapped_symbols": [
+        {
+          "name": "_dartforge_stack_overflow",
+          "bytes": 328
+        }
+      ]
+    }
+  ],
+  "decoded_implicit_indirect_BL_count": 0,
+  "pending_byte_loads": 2,
+  "stack_frame_bytes": 96,
+  "shadow_frame_observation": "Stores previous GC-chain head and root slots, publishes/restores ctx+8.",
+  "historical_same_source_symbol_sizes": {
+    "Forge_before_scalar": 688,
+    "upstream_custom_snapshot_ABI": 220
+  },
+  "size_change_from_historical_Forge_bytes": 444,
+  "scope": [
+    "Actual optimized benchmark, notthevalidationfixturecounter.",
+    "Compiler1d2dad numericwave artifactb895...; subsequentSDKcertificate/cachefixproducers are separate andnotreanalyzedhere.",
+    "Genuine Ghidra assembly and C-like decompilation; rawresponses preserveproviderlimitations.",
+    "Static instruction/call countsarenotruntime invocation counts orperformance measurements.",
+    "Upstream Dart snapshot customcallingconvention/stackmaps differ fromForge C ABI/shadowroots.",
+    "LLVMretained4HIRpendingqueries butmachineassemblycontains2pendingbytechecks, soextraqueriesalreadycollapsed byLLVM."
+  ],
+  "limitations": [
+    "The session serves operations only after Ghidra reports default auto-analysis complete; incomplete analysis does not expose partial results.",
+    "The imported Program and temporary project are ephemeral and deleted on close. Annotation operations edit session database metadata; original executable bytes are never written.",
+    "Cancelling an active Ghidra request terminates its ephemeral database and discards session annotations. The selected target remains open; the next provider query imports the original artifact again.",
+    "Default-space addresses use lowercase 0x-prefixed hexadecimal; other address spaces use <percent-encoded-space>:0x<hex>.",
+    "Assembly is Ghidra Listing text and does not claim textual equivalence with Hopper output.",
+    "macOS sessions require a matching executable Ghidra native decompiler; REA checks for it but does not build native components or change Gatekeeper quarantine state."
+  ]
+}

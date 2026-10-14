@@ -15,6 +15,7 @@ pub mod statements;
 pub mod primitive_const;
 pub mod constants;
 mod environment;
+mod double_identity;
 mod platform;
 mod native_pump;
 mod sync_native_callable;
@@ -188,6 +189,7 @@ pub fn late_field_getter_symbol(ctx: &Context, vid: VariableId) -> String {
 pub fn lower_program(ctx: &Context) -> Module {
     let mut module = Module::new();
     module.arc_memory = ctx.arc_memory;
+    module.checked_double_identity = double_identity::certified(ctx);
 
     // 1. Registers known classes
     // Default Object class as id 0

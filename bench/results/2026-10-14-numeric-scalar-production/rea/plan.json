@@ -1,0 +1,10 @@
+{
+  "label": "forge-bench-scalar-on-rea",
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-bench/on/program",
+  "procedures": [
+    {
+      "label": "Node-count",
+      "address": "0x1000f40b4"
+    }
+  ]
+}

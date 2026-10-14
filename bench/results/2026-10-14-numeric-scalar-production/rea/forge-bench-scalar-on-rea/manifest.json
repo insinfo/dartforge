@@ -1,0 +1,17 @@
+{
+  "config": {
+    "label": "forge-bench-scalar-on-rea",
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-bench/on/program",
+    "procedures": [
+      {
+        "label": "Node-count",
+        "address": "0x1000f40b4"
+      }
+    ]
+  },
+  "target_sha256": "b895e80363bc783b51761367b781d034a8d654e31b9b555edc55f8d4c0503f7d",
+  "REA_version": "6.5.0",
+  "provider": "Ghidra12.1.4/JDK21.0.12.1/nativeARM64",
+  "server_exit": 0,
+  "scope": "Local static native assembly and heuristic C pseudocode; Dart custom snapshot ABI is not interpreted as recovered Dart semantics."
+}

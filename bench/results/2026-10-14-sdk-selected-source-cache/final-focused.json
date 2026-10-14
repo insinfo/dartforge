@@ -1,0 +1,25 @@
+{
+  "source": "crates/emit_native/src/sdk_module.rs",
+  "source_sha256": "1be58427d0018c1f786ebcdfab433c34a82eca583c1796528c94b74b9bab07d4",
+  "command": "source /Volumes/ssd_dock/tools/env.zsh; TMPDIR=$PWD/target/tmp-rea-build cargo test -p dartforge-emit-native --lib selected_source_cache_tests -j2 --target-dir target/p4",
+  "result": "4 passed, 0 failed, 680 filtered out",
+  "log_sha256": "d463e90c0d011fc9b9896ca1f1c6378662c6e94033c6a39e49246920661a4a6e",
+  "closure": "Existing load_lenient_entries from available SOURCE_LIBRARIES with all unit caches None; exact logical path and selected Unit.source bytes hashed; includes transitive imports, selected conditionals, parts and augmentations",
+  "schema": "dartforge-sdk-selected-source-v4",
+  "coverage": [
+    "external replacement modified/restored with unchanged mapping",
+    "original logical part modified/restored",
+    "external original core entry -> valid helper part",
+    "external original patch -> externally replaced part modified/restored",
+    "missing selected part error",
+    "ffi file outside former census changes key",
+    "installed SDK3.6.2 and actual native overlay closure succeeds"
+  ],
+  "prior_rejected_gates": [
+    "failed-invalid-nested-part.log",
+    "failed-unselected-sdk-entry.log"
+  ],
+  "warnings": "Existing unused_mut in llvm/roots.rs:388, outside owned source scope",
+  "source_scope": "sdk_module.rs only; field metadata patch not applied",
+  "remaining_validation": "actual stale .poda observer regression using root new immutable producer"
+}

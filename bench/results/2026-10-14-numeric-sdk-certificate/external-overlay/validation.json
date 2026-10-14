@@ -1,0 +1,61 @@
+{
+  "producer_sha256": "d4e7cdfaedb2e6c1e96b36cebd98e0797469a386a985cdc1dcde66315b10902a",
+  "unchanged_inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-cache-final-producer/dartforge": "d4e7cdfaedb2e6c1e96b36cebd98e0797469a386a985cdc1dcde66315b10902a",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/external-overlay-v2/overlay/libraries.json": "d13d108174799afae66e9e3c236483cd75a5c5734b78622bc33657d0466b472d",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/external-overlay-v2/main.dart": "50ebf3e27b8ed66dc82b40b873fc26acbc793059aa05c08423c0094a28afab2f"
+  },
+  "cases": [
+    {
+      "phase": "modified",
+      "selected_source_sha256": "dbbac66155fe51bbddda251f3779f2f756822192a672974e72c32ca891f81431",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-cache-final-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/external-overlay-v2/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/external-overlay-v2/modified/program"
+      ],
+      "compile_exit": 0,
+      "run_exit": 0,
+      "stdout": "false\n",
+      "stderr": "",
+      "artifact_sha256": "5ca17ab6f8a11abcce190138b7829acb9c14526167cf3579c54c5b504177f241",
+      "double_boxes": 1
+    },
+    {
+      "phase": "restored",
+      "selected_source_sha256": "22a1563ecb6d002d5ecf9a060c7657fc9a30c34918d3edb48688f311155c967d",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-cache-final-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/external-overlay-v2/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/external-overlay-v2/restored/program"
+      ],
+      "compile_exit": 0,
+      "run_exit": 0,
+      "stdout": "throws\n",
+      "stderr": "",
+      "artifact_sha256": "f4a3737ed11d8d96c8fa1b51b08fbc094b1cb90cf4bd194d4db01ca64925b570",
+      "double_boxes": 0
+    }
+  ],
+  "scope": "One compiler, SDK, overlay mapping and source; only an external replacement file changes. Modified observer must preserve boxing; restored SDK must throw and may reuse the checked double box. No timing claim.",
+  "inputs_unchanged": true,
+  "passed": true
+}

@@ -33,6 +33,8 @@ mod tests;
 #[cfg(test)]
 mod pre_prune_tests;
 mod physical_devirtualize;
+mod checked_double_roundtrip;
+mod scalar_coalesce;
 
 use crate::hir::*;
 use std::collections::HashMap;
@@ -230,6 +232,8 @@ pub fn optimize(module: &mut Module) {
         }
         false
     });
+    scalar_coalesce::rewrite(module);
+    checked_double_roundtrip::rewrite(module);
     // Inlining and representation folding can expose literal class queries.
     // Fixed registration facts prove only the negative cases; the usual cleanup
     // removes their unreachable branches before tables or ownership plans exist.

@@ -1,0 +1,63 @@
+{
+  "status": "FOCUSED_PASS_NATIVE_HARDENED_PRODUCER_PENDING",
+  "source_sha256": {
+    "crates/emit_native/src/lower/double_identity.rs": "0c4e9c132be1106decab586e9ab9056a6acff85ee657bcc87330e92e536272a4",
+    "crates/emit_native/src/lower/double_identity/selected_sdk.rs": "ad04c6186f233d951f190ffe29d66df4e642c38808ac0ef9d9c5688af97d96d8",
+    "crates/emit_native/src/lower/double_identity/selected_sdk_manifest.json": "7002ae890f46f650269ec6730adac2c57bb0eb920aa5a2fd9ca53c4f7d1604a1",
+    "crates/emit_native/src/lower/double_identity/tests.rs": "f39887dba7320896518ce71f7fc4eb99d4bd2dd1b5a42b9b072aca272f77d0cd"
+  },
+  "baseline": {
+    "core_fingerprint": "92bfcfb55b3dab4d34ec01b0219dfd150c6daa970001720b84ab47527ca22f45",
+    "selected_unit_count": 228,
+    "libraries": {
+      "dart:_compact_hash": 1,
+      "dart:_http": 12,
+      "dart:_internal": 17,
+      "dart:async": 18,
+      "dart:collection": 16,
+      "dart:convert": 15,
+      "dart:core": 68,
+      "dart:developer": 9,
+      "dart:ffi": 17,
+      "dart:io": 42,
+      "dart:isolate": 3,
+      "dart:math": 5,
+      "dart:mirrors": 2,
+      "dart:nativewrappers": 1,
+      "dart:typed_data": 2
+    },
+    "candidate_sha256": "7002ae890f46f650269ec6730adac2c57bb0eb920aa5a2fd9ca53c4f7d1604a1",
+    "production_manifest_sha256": "7002ae890f46f650269ec6730adac2c57bb0eb920aa5a2fd9ca53c4f7d1604a1"
+  },
+  "focused": {
+    "tests_passed": 5,
+    "failed": 0,
+    "includes_read_only_ignored_baseline_validation": true,
+    "coverage": [
+      "canonicalSDK+actualFormat8reboxesgone",
+      "threemodifiedDouble/identitysourcesrejected",
+      "inheritedObject.noSuchMethodandambientcorehelperrejected",
+      "modified_internal.checkValidWeakTargetrejectsnumremoval",
+      "extraObject_getHashnativealiasoutsidecanonicalhelperrejected",
+      "copiedSDK/coldwarmderivedparentfingerprintsidentical",
+      "fabricatedparentandparserecoveryrejected"
+    ]
+  },
+  "weak_numeric_VM": {
+    "exit": 0,
+    "stdout": "ArgumentError\nArgumentError\nArgumentError\n",
+    "stderr": "",
+    "operations": [
+      "Finalizer.attach(double)",
+      "WeakReference<double>",
+      "Expando<doublekey>"
+    ]
+  },
+  "limits": [
+    "Actual hardened native counterexample rerun pending new immutable producer.",
+    "Actual FileExplorer SDK coverage is not yet measured; new actualcompile+realfunctionIR eligibility can validate it.",
+    "Certification uses selected parsed-source contents, not arbitrary disk sources outside loaded SDK graph.",
+    "Reviewed baseline deliberately disables optimization on unrecognized SDK sources/versions.",
+    "All sourcefiles frozen; no timing or performance claim."
+  ]
+}

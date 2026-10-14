@@ -1,0 +1,149 @@
+{
+  "result": "PASS",
+  "producer_sha256": "d4e7cdfaedb2e6c1e96b36cebd98e0797469a386a985cdc1dcde66315b10902a",
+  "native_executions": 8,
+  "inputs_unchanged": true,
+  "actual_format_results_per_run": 2160,
+  "static_IR_counts": {
+    "edge-off": {
+      "double_boxes": 1,
+      "double_unboxes": 1,
+      "selectors": 0
+    },
+    "edge-on": {
+      "double_boxes": 0,
+      "double_unboxes": 1,
+      "selectors": 0
+    },
+    "format-off": {
+      "double_boxes": 8,
+      "double_unboxes": 16,
+      "selectors": 88
+    },
+    "format-on": {
+      "double_boxes": 0,
+      "double_unboxes": 16,
+      "selectors": 88
+    }
+  },
+  "previous_canonical_producer_sha256": "9dfd352c506d8d961abc98ee8634a3f039d8c965944cd33f1e5bc43879c622a5",
+  "previous_final_comparison": [
+    {
+      "case": "edge-off",
+      "artifact_sha256": {
+        "previous": "7e6bc4e0d994ddc726ce4d4730b0c7e3d4d93fe8ae955b5be100d04c64431bea",
+        "final": "7e6bc4e0d994ddc726ce4d4730b0c7e3d4d93fe8ae955b5be100d04c64431bea",
+        "equal": true
+      },
+      "map_sha256": {
+        "previous": "96964227d45fbae9945ca247528abd12a2d4a120adaa4819bd3202cf0009dc57",
+        "final": "0138054b93611a3ad9cd0cd3649d8857baae6bcf72331eecee4d580580160882",
+        "equal": false
+      },
+      "contract_manifest_sha256": {
+        "previous": "96ded9645c20b4a0275b1df9690612bcba4f65d8442f3ce60b234babfaacbeff",
+        "final": "ab57c6a00493e6cea7b5105f1d98d1c5fe6b36f90a89e4bf13b60e0c0152fd2c",
+        "equal": false
+      },
+      "full_sha256": {
+        "previous": "1f415a3f4e33873bf4f36b711415b1823ba8a54af8c451693b59c12e8e17a987",
+        "final": "1f415a3f4e33873bf4f36b711415b1823ba8a54af8c451693b59c12e8e17a987",
+        "equal": true
+      },
+      "function_sha256": {
+        "previous": "ab7458360c5b411f77b82e1e757b8a39e541f81be06f3e3ef94eccc8554de51d",
+        "final": "ab7458360c5b411f77b82e1e757b8a39e541f81be06f3e3ef94eccc8554de51d",
+        "equal": true
+      },
+      "static_call_counts_equal": true
+    },
+    {
+      "case": "edge-on",
+      "artifact_sha256": {
+        "previous": "5b3f9cfd1883c9c9fe9472fa4c8b0b2f4e50bd162f8bc76528dd65f4653dccc2",
+        "final": "5b3f9cfd1883c9c9fe9472fa4c8b0b2f4e50bd162f8bc76528dd65f4653dccc2",
+        "equal": true
+      },
+      "map_sha256": {
+        "previous": "6b58a717791dbb9ced8f5d2960d5d3351ba5516bd7850d327e442aadad26ce4a",
+        "final": "e110bb321bb024b82b343b67bc78911527eb7ab049a0cea2dd948b523b083e59",
+        "equal": false
+      },
+      "contract_manifest_sha256": {
+        "previous": "52f908025ff0e8c61e64961c5a49665ca6ded588dfc471de10936ebec48fb67a",
+        "final": "1b96ebdb87950b2ecd011e075db5d7fa75443d538a4ec9867774533a0ee735e7",
+        "equal": false
+      },
+      "full_sha256": {
+        "previous": "1cd0e592ee5ee590f08e8029f8554f5e4b2e4465bd4523db1ebefae1c16d2855",
+        "final": "1cd0e592ee5ee590f08e8029f8554f5e4b2e4465bd4523db1ebefae1c16d2855",
+        "equal": true
+      },
+      "function_sha256": {
+        "previous": "b532ca859c4bddf7e72363be5ec75c2674cd9825694b199452a7bf76266528cf",
+        "final": "b532ca859c4bddf7e72363be5ec75c2674cd9825694b199452a7bf76266528cf",
+        "equal": true
+      },
+      "static_call_counts_equal": true
+    },
+    {
+      "case": "format-off",
+      "artifact_sha256": {
+        "previous": "bdb464ccf38dd20ac741fbb05650c2c09eb25187469e1d26187598d2a4fcfe00",
+        "final": "bdb464ccf38dd20ac741fbb05650c2c09eb25187469e1d26187598d2a4fcfe00",
+        "equal": true
+      },
+      "map_sha256": {
+        "previous": "d5e6bc631e2c5eb606d05408bd6870b85b2faa8e176940bcd449d05acae8722a",
+        "final": "5573f0cf869dd4fa1f06f3653d2f5c575a87d4b311aff0a8bed03dfd8dd845c6",
+        "equal": false
+      },
+      "contract_manifest_sha256": {
+        "previous": "b13dd6e7ed4c4cfeb4c438e935e23b19410cb8f57f95c8d9e8b9a33f21f1deda",
+        "final": "7600e4c51deb6de422bafa5cb2d5ff74c779a1f4fb0d087dca8a5251181580b3",
+        "equal": false
+      },
+      "full_sha256": {
+        "previous": "cb683e79713b8e9b4a10ce418a6182bbda5fd6454d673ccfe375684be2cae947",
+        "final": "cb683e79713b8e9b4a10ce418a6182bbda5fd6454d673ccfe375684be2cae947",
+        "equal": true
+      },
+      "function_sha256": {
+        "previous": "3942fa9dc0ce44bdfa5fe653689e674307167bbeb5a417041c89ad86b1f5e679",
+        "final": "3942fa9dc0ce44bdfa5fe653689e674307167bbeb5a417041c89ad86b1f5e679",
+        "equal": true
+      },
+      "static_call_counts_equal": true
+    },
+    {
+      "case": "format-on",
+      "artifact_sha256": {
+        "previous": "e4c67287c8d6aaaceb69bb3bb238488999971ddee946530b6c916253d0f07548",
+        "final": "e4c67287c8d6aaaceb69bb3bb238488999971ddee946530b6c916253d0f07548",
+        "equal": true
+      },
+      "map_sha256": {
+        "previous": "e014526b3e7369d03b2f87ed53ca5365c96641afaafee4411a3822628d9280de",
+        "final": "8b08ade820827f9a33ad500ff80dd893951474529e37599b6bac3edc491272bd",
+        "equal": false
+      },
+      "contract_manifest_sha256": {
+        "previous": "fda8bff2674214194c6b48bb2ec0f102769b7fae7332a95a30ff5d441b99445c",
+        "final": "6486ab812c4711381c42d5eb17dcc7a1299a4a5dc5e2adb1b4fed5f5ed4dc3cb",
+        "equal": false
+      },
+      "full_sha256": {
+        "previous": "e0d08092488ea2b295e3a6e5e0ce585744ab13a9075aebaea45d6cb7588c7a88",
+        "final": "e0d08092488ea2b295e3a6e5e0ce585744ab13a9075aebaea45d6cb7588c7a88",
+        "equal": true
+      },
+      "function_sha256": {
+        "previous": "6d6a3f5397dd01cd2c50dd3dd770dfaf03038c9d5d7dbc428b812614a2ec3d43",
+        "final": "6d6a3f5397dd01cd2c50dd3dd770dfaf03038c9d5d7dbc428b812614a2ec3d43",
+        "equal": true
+      },
+      "static_call_counts_equal": true
+    }
+  ],
+  "scope": "Final SDK cache-key producer correctness: tracing fixed AOT, exact VM and official AOT oracles, normal and GC stress. Static IR counts are not runtime allocations or timings. No new performance measurement; artifact equality is recorded individually without path normalization."
+}

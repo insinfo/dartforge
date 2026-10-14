@@ -1,0 +1,71 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-cache-final-producer/dartforge",
+    "compile-native",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+    "--sdk",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "--packages",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+    "--optimize",
+    "--memory=tracing",
+    "--exceptions=check",
+    "--roots=shadow",
+    "--stack-trace=none",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/file-explorer/program"
+  ],
+  "producer_sha256": "d4e7cdfaedb2e6c1e96b36cebd98e0797469a386a985cdc1dcde66315b10902a",
+  "entry_sha256": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+  "package_config_sha256": "c5c1c22ad085905aa6341ddf11b3999b001cb6ac128a61f117a1fb8d532ec934",
+  "input_count": 11652,
+  "input_manifest_sha256": "cb9bdc8c2495d25e3154c4ca8cd841506fd4ed57725331c5180be2d07f901995",
+  "differences_from_historical_input_manifest": [],
+  "environment": {
+    "DARTFORGE_ARC_CHECK": null,
+    "DARTFORGE_ARC_PORT_PRUNING": "1",
+    "DARTFORGE_ARC_PREPARE": null,
+    "DARTFORGE_ARC_PREPARED": null,
+    "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "DARTFORGE_EFFECTS": null,
+    "DARTFORGE_FACTORY_RECEIVER_PROVENANCE": "1",
+    "DARTFORGE_GC_STRESS": null,
+    "DARTFORGE_KEEP_IR": "1",
+    "DARTFORGE_LINK_MAP": "1",
+    "DARTFORGE_MEMORY": null,
+    "DARTFORGE_NO_CANONICAL_CACHE_PROVENANCE": null,
+    "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": null,
+    "DARTFORGE_NO_ENUM_PATTERN_IDENTITY": null,
+    "DARTFORGE_NO_FFI_PRUNING": null,
+    "DARTFORGE_NO_HIR_PRUNING": null,
+    "DARTFORGE_NO_PHYSICAL_GETTER_DEVIRTUALIZATION": null,
+    "DARTFORGE_NO_PLATFORM_SPECIALIZATION": null,
+    "DARTFORGE_NO_PRE_PRUNE_CFG": null,
+    "DARTFORGE_NO_PROGRAM_PRUNING": null,
+    "DARTFORGE_NO_SCALAR_COALESCE": null,
+    "DARTFORGE_NO_TABLE_PRUNING": null,
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+    "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/file-explorer"
+  },
+  "scope": "New default-ON ordinary original-entry FileExplorer compile. No throughput/startup/fullfeatureclaim; GUI pending. Historical artifact has different producer and is not samecompiler ablation.",
+  "exit_code": 0,
+  "inputs_unchanged": true,
+  "producer_unchanged": true,
+  "program": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/file-explorer/program",
+    "bytes": 28293616,
+    "sha256": "732b7d7129fbf5df75d07c374717a33b282ea81c47cd897253a9ffaee1b436cd"
+  },
+  "program.map": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/file-explorer/program.map",
+    "bytes": 11093361,
+    "sha256": "02e020efb9683e86d3f5013dd0420fea64c79e452f20c01246bd692b34b88e4d"
+  },
+  "program.contracts.json": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/file-explorer/program.contracts.json",
+    "bytes": 176666,
+    "sha256": "72d3756cbe70c87aefa609e970d79b82f09dcedfdd5737019efd9ed7bef23cb7"
+  },
+  "otool_exit": 0
+}

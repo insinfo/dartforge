@@ -1,0 +1,8 @@
+{
+  "script_sha256": "6e9077473803533c39e5d4bc25e79e70dc439c8508c8ca7fe4d58afb4d4c482f",
+  "output": "target/numeric-sdk-certificate/external-overlay",
+  "stage": "copytree with copy2 metadata",
+  "result": "FAILED_BEFORE_COMPILATION",
+  "reason": "macOS SSD copy2 metadata Operation not permitted for some native_sdk files",
+  "resolution": "Copy source contents only into a new output directory; no source metadata participates in the test."
+}

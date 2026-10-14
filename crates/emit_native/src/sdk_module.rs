@@ -216,12 +216,13 @@ fn load_source_libraries(
 pub fn sdk_class_ids(lib_dir: &Path) -> Result<std::sync::Arc<crate::context::IdTable>, String> {
     use crate::context::IdTable;
     use std::sync::{Arc, Mutex, OnceLock};
-    static MEMO: OnceLock<Mutex<std::collections::HashMap<PathBuf, Arc<IdTable>>>> = OnceLock::new();
+    static MEMO: OnceLock<Mutex<std::collections::HashMap<(PathBuf, String), Arc<IdTable>>>> = OnceLock::new();
     let memo = MEMO.get_or_init(Default::default);
-    if let Some(t) = memo.lock().unwrap_or_else(|e| e.into_inner()).get(lib_dir) {
+    let key = sdk_key(lib_dir, "class-ids", &[])?;
+    let memo_key = (lib_dir.to_path_buf(), key.clone());
+    if let Some(t) = memo.lock().unwrap_or_else(|e| e.into_inner()).get(&memo_key) {
         return Ok(t.clone());
     }
-    let key = sdk_key(lib_dir, "class-ids", &[]);
     let dir = crate::cache::native_cache_dir().join("sdk_ids");
     let file = dir.join(format!("{key}.tsv"));
     let table = match std::fs::read_to_string(&file).ok().and_then(|t| IdTable::from_string(&t)) {
@@ -254,7 +255,7 @@ pub fn sdk_class_ids(lib_dir: &Path) -> Result<std::sync::Arc<crate::context::Id
         }
     };
     let t = Arc::new(table);
-    memo.lock().unwrap_or_else(|e| e.into_inner()).insert(lib_dir.to_path_buf(), t.clone());
+    memo.lock().unwrap_or_else(|e| e.into_inner()).insert(memo_key, t.clone());
     Ok(t)
 }
 
@@ -439,44 +440,61 @@ fn defined_symbols(ir: &str, exit: &mut Vec<String>) {
 /// source libraries, the `vm` patches, `libraries.json`), of the
 /// overlay, of the compiler (`DARTFORGE_EMITTER_HASH`, `build.rs`), of the
 /// identity of Clang and of the flags.
-fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
-    fn join(dir: &Path, exit: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                join(&p, exit);
-            } else if p.extension().is_some_and(|x| x == "dart" || x == "json") {
-                exit.push(p);
+fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> Result<String, String> {
+    sdk_key_with_overlay(lib_dir, &overlay_dir(), clang_id, args)
+}
+
+fn sdk_key_with_overlay(lib_dir: &Path, overlay: &Path, clang_id: &str, args: &[&str]) -> Result<String, String> {
+    fn join(dir: &Path, files: &mut Vec<PathBuf>, visited: &mut std::collections::HashSet<PathBuf>) -> Result<(), String> {
+        let canonical = std::fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        if !visited.insert(canonical) { return Ok(()); }
+        let entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
+            let path = entry.path();
+            if path.is_dir() {
+                join(&path, files, visited)?;
+            } else if path.extension().is_some_and(|x| x == "dart" || x == "json") {
+                files.push(path);
             }
         }
+        Ok(())
     }
+    // Replacement bytes are selected by the layout, not by their physical directory.
+    // Their relative dependencies still resolve from the original SDK logical paths.
+    let sdk = SdkLayout::load_with_overlay(lib_dir, overlay, OVERLAY_TARGET)?;
     let mut files = Vec::new();
-    for d in [
-        "core",
-        "async",
-        "collection",
-        "convert",
-        "math",
-        "internal",
-        "typed_data",
-        "isolate",
-        "developer",
-        "html/dartium",
-        "_http",
-        "io",
-        "_internal/vm/lib",
-        "_internal/vm/bin",
-        "_internal/vm_shared/lib",
-    ] {
-        join(&lib_dir.join(d), &mut files);
+    join(lib_dir, &mut files, &mut Default::default())?;
+    join(overlay, &mut files, &mut Default::default())?;
+    files.extend(sdk.replacements.values().cloned());
+    // Use the same loader as native SDK compilation, without a resident or disk
+    // unit cache. It selects conditional imports and resolves parts/augmentations
+    // from their original logical paths, even when those paths leave lib_dir.
+    let temporary = tempfile::tempdir().map_err(|e| format!("SDK key source closure: {e}"))?;
+    let entry = temporary.path().join("main.dart");
+    let mut source = String::new();
+    for name in SOURCE_LIBRARIES {
+        if sdk.library(name).is_some() {
+            source.push_str(&format!("import 'dart:{name}';\n"));
+        }
     }
-    files.push(lib_dir.join("libraries.json"));
-    let overlay = overlay_dir();
-    join(&overlay, &mut files);
+    source.push_str("void main() {}\n");
+    std::fs::write(&entry, source).map_err(|e| format!("{}: {e}", entry.display()))?;
+    let mut interner = dartforge_intern::Interner::new();
+    let (program, diagnostics) = dartforge_elements::load::load_lenient_entries(
+        &[&entry], &sdk, None, &mut interner, None, None, None);
+    if let Some(diagnostic) = diagnostics.first() {
+        return Err(format!("SDK key source closure: {}", diagnostic.message));
+    }
+    let mut selected_units: Vec<_> = program.units.iter()
+        .filter_map(|unit| unit.path.as_ref().filter(|path| **path != entry)
+            .map(|path| (path, &unit.source)))
+        .collect();
+    selected_units.sort_by(|a, b| a.0.cmp(b.0));
     files.sort();
+    files.dedup();
     let mut h = blake3::Hasher::new();
-    h.update(b"dartforge-sdk-source\0");
+    h.update(b"dartforge-sdk-selected-source-v4\0");
     h.update(env!("CARGO_PKG_VERSION").as_bytes());
     h.update(b"\0");
     h.update(env!("DARTFORGE_EMITTER_HASH").as_bytes());
@@ -551,19 +569,26 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
         h.update(a.as_bytes());
         h.update(b"\0");
     }
+    h.update(b"selected-logical-unit-closure\0");
+    for (logical, source) in selected_units {
+        h.update(logical.to_string_lossy().as_bytes());
+        h.update(b"\0");
+        h.update(source.as_bytes());
+        h.update(b"\0");
+    }
     for a in &files {
         let rel = a
             .strip_prefix(lib_dir)
-            .or_else(|_| a.strip_prefix(&overlay))
+            .or_else(|_| a.strip_prefix(overlay))
             .unwrap_or(a)
             .to_string_lossy()
             .replace('\\', "/");
         h.update(rel.as_bytes());
         h.update(b"\0");
-        h.update(&std::fs::read(a).unwrap_or_default());
+        h.update(&std::fs::read(a).map_err(|e| format!("{}: {e}", a.display()))?);
         h.update(b"\0");
     }
-    h.finalize().to_hex()[..32].to_string()
+    Ok(h.finalize().to_hex()[..32].to_string())
 }
 
 /// The generation of the SDK modules in the requested profile.
@@ -626,7 +651,7 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
         Generator::choose(clang)
     };
     let generation = sdk_generation(profile);
-    let key = sdk_key(lib_dir, &generator.identity()?, &[generation.description().as_str()]);
+    let key = sdk_key(lib_dir, &generator.identity()?, &[generation.description().as_str()])?;
     let root = crate::cache::native_cache_dir().join("sdk");
     let dir = root.join(&key);
     let dll_name = format!("dfsdk_{}", &key[..16]);
@@ -1419,4 +1444,100 @@ mod tests {
             std::fs::write(file, t).unwrap();
         }
     }
+}
+
+#[cfg(test)]
+mod selected_source_cache_tests {
+    use super::*;
+
+    #[test]
+    fn external_replacement_and_logical_parts_change_sdk_key() {
+        let directory = tempfile::tempdir().unwrap();
+        let lib = directory.path().join("sdk/lib");
+        let overlay = directory.path().join("overlay");
+        std::fs::create_dir_all(lib.join("core")).unwrap();
+        std::fs::create_dir_all(&overlay).unwrap();
+        std::fs::write(lib.join("libraries.json"),
+            r#"{"vm":{"libraries":{"core":{"uri":"core/core.dart"}}}}"#).unwrap();
+        std::fs::write(lib.join("core/core.dart"), "library dart.core; part 'helper.dart';").unwrap();
+        std::fs::write(lib.join("core/helper.dart"), "part of dart.core; const value = 1;").unwrap();
+        let replacement = directory.path().join("external-core.dart");
+        let original = "library dart.core; part 'helper.dart'; const marker = 1;";
+        std::fs::write(&replacement, original).unwrap();
+        std::fs::write(overlay.join("libraries.json"),
+            r#"{"dartforge_native":{"base":"vm","replaces":{"core/core.dart":"../external-core.dart"}}}"#).unwrap();
+        let key = || sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).unwrap();
+        let baseline = key();
+        std::fs::write(&replacement, original.replace("marker = 1", "marker = 2")).unwrap();
+        assert_ne!(baseline, key());
+        std::fs::write(&replacement, original).unwrap();
+        assert_eq!(baseline, key());
+        // A replacement's part resolves beside core/core.dart, not external-core.dart.
+        std::fs::write(lib.join("core/helper.dart"), "part of dart.core; const value = 2;").unwrap();
+        assert_ne!(baseline, key());
+        std::fs::write(lib.join("core/helper.dart"), "part of dart.core; const value = 1;").unwrap();
+        assert_eq!(baseline, key());
+        std::fs::remove_file(&replacement).unwrap();
+        assert!(sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).is_err());
+    }
+
+    #[test]
+    fn selected_library_outside_historical_directory_list_changes_sdk_key() {
+        let directory = tempfile::tempdir().unwrap();
+        let lib = directory.path().join("sdk/lib");
+        let overlay = directory.path().join("overlay");
+        std::fs::create_dir_all(lib.join("ffi")).unwrap();
+        std::fs::create_dir_all(&overlay).unwrap();
+        std::fs::write(lib.join("libraries.json"),
+            r#"{"vm":{"libraries":{"ffi":{"uri":"ffi/ffi.dart"}}}}"#).unwrap();
+        std::fs::write(overlay.join("libraries.json"),
+            r#"{"dartforge_native":{"base":"vm"}}"#).unwrap();
+        std::fs::write(lib.join("ffi/ffi.dart"), "library dart.ffi; const value = 1;").unwrap();
+        let original = sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).unwrap();
+        std::fs::write(lib.join("ffi/ffi.dart"), "library dart.ffi; const value = 2;").unwrap();
+        assert_ne!(original, sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).unwrap());
+    }
+    #[test]
+    fn external_original_entry_and_patch_track_selected_parts() {
+        let directory = tempfile::tempdir().unwrap();
+        let lib = directory.path().join("lib");
+        let overlay = directory.path().join("overlay");
+        let external = directory.path().join("external");
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::create_dir_all(&overlay).unwrap();
+        std::fs::create_dir_all(&external).unwrap();
+        std::fs::write(lib.join("libraries.json"),
+            r#"{"vm":{"libraries":{"core":{"uri":"../external/core.dart","patches":"../external/patch.dart"}}}}"#).unwrap();
+        std::fs::write(overlay.join("libraries.json"),
+            r#"{"dartforge_native":{"base":"vm","replaces":{"../external/nested.dart":"../selected-nested.dart"}}}"#).unwrap();
+        std::fs::write(external.join("core.dart"), "library dart.core; part 'helper.dart';").unwrap();
+        std::fs::write(external.join("helper.dart"), "part of dart.core; const x = 1;").unwrap();
+        std::fs::write(external.join("patch.dart"), "part 'nested.dart'; const patchValue = 1;").unwrap();
+        std::fs::write(external.join("nested.dart"), "part of dart.core; const y = 1;").unwrap();
+        let nested = directory.path().join("selected-nested.dart");
+        std::fs::write(&nested, "part of dart.core; const y = 2;").unwrap();
+        let key = || sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).unwrap();
+        let baseline = key();
+        for (path, original, changed) in [
+            (external.join("helper.dart"), "part of dart.core; const x = 1;",
+                "part of dart.core; const x = 3;"),
+            (nested.clone(), "part of dart.core; const y = 2;", "part of dart.core; const y = 4;"),
+        ] {
+            std::fs::write(&path, changed).unwrap();
+            assert_ne!(baseline, key());
+            std::fs::write(&path, original).unwrap();
+            assert_eq!(baseline, key());
+        }
+        std::fs::remove_file(external.join("helper.dart")).unwrap();
+        assert!(sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).is_err());
+    }
+
+    #[test]
+    fn installed_native_sdk_selected_closure_is_accepted() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let key = sdk_key(crate::sdk_tests(), "test-clang", &[]).unwrap();
+            assert_eq!(key.len(), 32);
+        }).unwrap().join().unwrap();
+    }
+
 }

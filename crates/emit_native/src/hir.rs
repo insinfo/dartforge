@@ -1106,6 +1106,8 @@ pub struct Module {
     /// AOT registration keeps this image's ancestry facts fixed.
     /// Reloadable images leave this false: older generations may add edges.
     pub arc_fixed_ancestry: bool,
+    /// Selected canonical SDK double identity/hash overlays were independently verified.
+    pub checked_double_identity: bool,
     /// Registration facts from the same compiled SDK summaries used at link time.
     pub arc_external_ancestry: ArcExternalAncestry,
     /// The ARC preparation accepts direct calls to Dart functions of another

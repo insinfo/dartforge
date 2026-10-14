@@ -1,0 +1,25 @@
+{
+  "producer_sha256": "d4e7cdfaedb2e6c1e96b36cebd98e0797469a386a985cdc1dcde66315b10902a",
+  "artifact_sha256": "732b7d7129fbf5df75d07c374717a33b282ea81c47cd897253a9ffaee1b436cd",
+  "artifact_bytes": 28293616,
+  "previous_artifact_sha256": "732b7d7129fbf5df75d07c374717a33b282ea81c47cd897253a9ffaee1b436cd",
+  "artifact_byte_identical": true,
+  "GUI_validation": "bench/results/2026-10-14-numeric-scalar-production/gui/validation.json",
+  "GUI_validation_sha256": "bff0c23300971b4089431fdac0d168dca24ec7756bdde0cf0372c3ce0ae0b276",
+  "GUI_same_artifact": true,
+  "GUI_scope": "Prior exact-byte artifact was launched; root/child/back navigation and process exit0 verified. No new launch or timing claim.",
+  "actual_function_counts": {
+    "double_boxes": 0,
+    "double_unboxes": 8
+  },
+  "previous_actual_function_counts": {
+    "double_boxes": 0,
+    "double_unboxes": 8
+  },
+  "function_IR_byte_identical": true,
+  "full_IR_sha256": "07828f2398e9cb9cfc1ec090f30cc79dbec2343c93c7060fa546b85000c2046d",
+  "full_IR_archived": false,
+  "link_map_sha256": "02e020efb9683e86d3f5013dd0420fea64c79e452f20c01246bd692b34b88e4d",
+  "link_map_archived": false,
+  "reason": "Identical Mach-O bytes and focused actual function are sufficient; large duplicate IR/maps remain on SSD."
+}

@@ -1,0 +1,30 @@
+{
+  "result": "PASS",
+  "producer_sha256": "9dfd352c506d8d961abc98ee8634a3f039d8c965944cd33f1e5bc43879c622a5",
+  "native_executions": 8,
+  "inputs_unchanged": true,
+  "actual_format_results_per_run": 2160,
+  "static_IR_counts": {
+    "edge-off": {
+      "double_boxes": 1,
+      "double_unboxes": 1,
+      "selectors": 0
+    },
+    "edge-on": {
+      "double_boxes": 0,
+      "double_unboxes": 1,
+      "selectors": 0
+    },
+    "format-off": {
+      "double_boxes": 8,
+      "double_unboxes": 16,
+      "selectors": 88
+    },
+    "format-on": {
+      "double_boxes": 0,
+      "double_unboxes": 16,
+      "selectors": 88
+    }
+  },
+  "scope": "Hardened selectedSDKcertificate canonical SDK correctness. Static IR counts not runtime allocations/timings. ModifiedSDKcounterexample refusal and fullgate owned byroot."
+}

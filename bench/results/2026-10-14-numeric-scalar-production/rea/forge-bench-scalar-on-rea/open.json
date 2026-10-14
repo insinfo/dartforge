@@ -1,0 +1,27 @@
+{
+  "result": {
+    "_meta": {
+      "provenance": {
+        "untrusted_content": true,
+        "source": "analysis_target"
+      }
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"result\":{\"path\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-bench/on/program\",\"format\":\"mach-o\",\"kind\":\"executable\",\"sha256\":\"b895e80363bc783b51761367b781d034a8d654e31b9b555edc55f8d4c0503f7d\",\"architecture\":\"arm64\"}}"
+      }
+    ],
+    "structuredContent": {
+      "result": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-scalar-bench/on/program",
+        "format": "mach-o",
+        "kind": "executable",
+        "sha256": "b895e80363bc783b51761367b781d034a8d654e31b9b555edc55f8d4c0503f7d",
+        "architecture": "arm64"
+      }
+    }
+  },
+  "jsonrpc": "2.0",
+  "id": 2
+}

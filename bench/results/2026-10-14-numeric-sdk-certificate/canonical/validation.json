@@ -1,0 +1,712 @@
+{
+  "validator_sha256": "8917595a3732ff375ec4c2b40c977cc18759a40d7ea60446481f30fb0b4b44ba",
+  "producer_source_metadata": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate-producer/source.json": "54654f8c7ae46f8ab9db1dbdb274e77f73967c66fd5d3b6bcef3dca269d3a003",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate-producer/source.patch": "3fbe189447227d177131c9afb27c2bfdd1c80624aba55403998f2348947cf453"
+  },
+  "sdk_executable_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+  "producer_sha256": "9dfd352c506d8d961abc98ee8634a3f039d8c965944cd33f1e5bc43879c622a5",
+  "inputs_before": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate-producer/dartforge": "9dfd352c506d8d961abc98ee8634a3f039d8c965944cd33f1e5bc43879c622a5",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json": "c5c1c22ad085905aa6341ddf11b3999b001cb6ac128a61f117a1fb8d532ec934",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/lib/src/graphics/image/codecs/color/format.dart": "c7750e025311ea78a05c0ec73cec464a8845ac99599b61be9c089afee97c62db",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/checked_double_roundtrip/main.dart": "df94435661750a7b99208abef2c1344956c620ac0cbe77b493758c66e741b686",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format_probe.dart": "144237f77a487569295edd869378a1687ef806dd45778b3143cea8df0a3afb2e",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate-producer/source.json": "54654f8c7ae46f8ab9db1dbdb274e77f73967c66fd5d3b6bcef3dca269d3a003",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate-producer/source.patch": "3fbe189447227d177131c9afb27c2bfdd1c80624aba55403998f2348947cf453"
+  },
+  "commands": [
+    {
+      "label": "edge-vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/edge/main.dart"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "0c33ab6c977fc2afd56470d47e27061982cb097900a29029a0382005258e3ae0",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": null,
+        "DARTFORGE_KEEP_IR": null,
+        "DARTFORGE_LINK_MAP": null,
+        "DARTFORGE_GC_STRESS": null
+      }
+    },
+    {
+      "label": "edge-official-compile",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "exe",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/edge/main.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/edge/official"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "1110de7fdf0eb51691fee087f3b597a685078eb1333555431db1a16165936447",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": null,
+        "DARTFORGE_KEEP_IR": null,
+        "DARTFORGE_LINK_MAP": null,
+        "DARTFORGE_GC_STRESS": null
+      }
+    },
+    {
+      "label": "edge-official",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/edge/official"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "0c33ab6c977fc2afd56470d47e27061982cb097900a29029a0382005258e3ae0",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": null,
+        "DARTFORGE_KEEP_IR": null,
+        "DARTFORGE_LINK_MAP": null,
+        "DARTFORGE_GC_STRESS": null
+      }
+    },
+    {
+      "label": "edge-off-compile",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/edge/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/edge/off/program"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": "1",
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1",
+        "DARTFORGE_GC_STRESS": null
+      }
+    },
+    {
+      "label": "edge-off-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/edge/off/program"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "0c33ab6c977fc2afd56470d47e27061982cb097900a29029a0382005258e3ae0",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": "1",
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1",
+        "DARTFORGE_GC_STRESS": null
+      },
+      "exact_VM": true,
+      "stderr_bytes": 0
+    },
+    {
+      "label": "edge-off-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/edge/off/program"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "0c33ab6c977fc2afd56470d47e27061982cb097900a29029a0382005258e3ae0",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": "1",
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1",
+        "DARTFORGE_GC_STRESS": "1"
+      },
+      "exact_VM": true,
+      "stderr_bytes": 0
+    },
+    {
+      "label": "edge-on-compile",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/edge/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/edge/on/program"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": null,
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1",
+        "DARTFORGE_GC_STRESS": null
+      }
+    },
+    {
+      "label": "edge-on-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/edge/on/program"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "0c33ab6c977fc2afd56470d47e27061982cb097900a29029a0382005258e3ae0",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": null,
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1",
+        "DARTFORGE_GC_STRESS": null
+      },
+      "exact_VM": true,
+      "stderr_bytes": 0
+    },
+    {
+      "label": "edge-on-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/edge/on/program"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "0c33ab6c977fc2afd56470d47e27061982cb097900a29029a0382005258e3ae0",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": null,
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1",
+        "DARTFORGE_GC_STRESS": "1"
+      },
+      "exact_VM": true,
+      "stderr_bytes": 0
+    },
+    {
+      "label": "format-vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/format/main.dart"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "45258c53aecdd31b67512f86aedc50d0a62be401c7075c16ae69c61849c57b96",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": null,
+        "DARTFORGE_KEEP_IR": null,
+        "DARTFORGE_LINK_MAP": null,
+        "DARTFORGE_GC_STRESS": null
+      }
+    },
+    {
+      "label": "format-official-compile",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "exe",
+        "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/format/main.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/format/official"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "8499f30e05a6a9fc7462f0007c4b1b9b09bbf52ee50ffb3feb7d25bb6589aee5",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": null,
+        "DARTFORGE_KEEP_IR": null,
+        "DARTFORGE_LINK_MAP": null,
+        "DARTFORGE_GC_STRESS": null
+      }
+    },
+    {
+      "label": "format-official",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/format/official"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "45258c53aecdd31b67512f86aedc50d0a62be401c7075c16ae69c61849c57b96",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": null,
+        "DARTFORGE_KEEP_IR": null,
+        "DARTFORGE_LINK_MAP": null,
+        "DARTFORGE_GC_STRESS": null
+      }
+    },
+    {
+      "label": "format-off-compile",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/format/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/format/off/program",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": "1",
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1",
+        "DARTFORGE_GC_STRESS": null
+      }
+    },
+    {
+      "label": "format-off-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/format/off/program"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "45258c53aecdd31b67512f86aedc50d0a62be401c7075c16ae69c61849c57b96",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": "1",
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1",
+        "DARTFORGE_GC_STRESS": null
+      },
+      "exact_VM": true,
+      "stderr_bytes": 0
+    },
+    {
+      "label": "format-off-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/format/off/program"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "45258c53aecdd31b67512f86aedc50d0a62be401c7075c16ae69c61849c57b96",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": "1",
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1",
+        "DARTFORGE_GC_STRESS": "1"
+      },
+      "exact_VM": true,
+      "stderr_bytes": 0
+    },
+    {
+      "label": "format-on-compile",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/format/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/format/on/program",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": null,
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1",
+        "DARTFORGE_GC_STRESS": null
+      }
+    },
+    {
+      "label": "format-on-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/format/on/program"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "45258c53aecdd31b67512f86aedc50d0a62be401c7075c16ae69c61849c57b96",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": null,
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1",
+        "DARTFORGE_GC_STRESS": null
+      },
+      "exact_VM": true,
+      "stderr_bytes": 0
+    },
+    {
+      "label": "format-on-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/format/on/program"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "45258c53aecdd31b67512f86aedc50d0a62be401c7075c16ae69c61849c57b96",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+        "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": null,
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1",
+        "DARTFORGE_GC_STRESS": "1"
+      },
+      "exact_VM": true,
+      "stderr_bytes": 0
+    }
+  ],
+  "cases": [
+    {
+      "fixture": "edge",
+      "enabled": false,
+      "compile_exit": 0,
+      "artifact_sha256": "7e6bc4e0d994ddc726ce4d4730b0c7e3d4d93fe8ae955b5be100d04c64431bea",
+      "contract_manifest_sha256": "96ded9645c20b4a0275b1df9690612bcba4f65d8442f3ce60b234babfaacbeff",
+      "executions": [
+        {
+          "label": "edge-off-normal",
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/edge/off/program"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "0c33ab6c977fc2afd56470d47e27061982cb097900a29029a0382005258e3ae0",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "environment": {
+            "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+            "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": "1",
+            "DARTFORGE_KEEP_IR": "1",
+            "DARTFORGE_LINK_MAP": "1",
+            "DARTFORGE_GC_STRESS": null
+          },
+          "exact_VM": true,
+          "stderr_bytes": 0
+        },
+        {
+          "label": "edge-off-stress",
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/edge/off/program"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "0c33ab6c977fc2afd56470d47e27061982cb097900a29029a0382005258e3ae0",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "environment": {
+            "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+            "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": "1",
+            "DARTFORGE_KEEP_IR": "1",
+            "DARTFORGE_LINK_MAP": "1",
+            "DARTFORGE_GC_STRESS": "1"
+          },
+          "exact_VM": true,
+          "stderr_bytes": 0
+        }
+      ],
+      "IR": {
+        "full_sha256": "1f415a3f4e33873bf4f36b711415b1823ba8a54af8c451693b59c12e8e17a987",
+        "function_sha256": "ab7458360c5b411f77b82e1e757b8a39e541f81be06f3e3ef94eccc8554de51d",
+        "static_call_counts": {
+          "df.get_area": 1,
+          "df.context": 1,
+          "llvm.expect.i1": 2,
+          "dartforge_stack_overflow": 1,
+          "df.class": 1,
+          "df.subclass": 1,
+          "df.unbox_double": 1,
+          "df.rti.877bf59dd991ad96.main$2edart": 1,
+          "dartforge_rti_as_with_context": 1,
+          "df.box_double": 1,
+          "dartforge_exception_clear": 1
+        },
+        "root_slot_stores": 2,
+        "scope": "Static pre-LLVM callsite/rootstore counts, not machine execution counts or consumed allocations."
+      },
+      "map_sha256": "96964227d45fbae9945ca247528abd12a2d4a120adaa4819bd3202cf0009dc57"
+    },
+    {
+      "fixture": "edge",
+      "enabled": true,
+      "compile_exit": 0,
+      "artifact_sha256": "5b3f9cfd1883c9c9fe9472fa4c8b0b2f4e50bd162f8bc76528dd65f4653dccc2",
+      "contract_manifest_sha256": "52f908025ff0e8c61e64961c5a49665ca6ded588dfc471de10936ebec48fb67a",
+      "executions": [
+        {
+          "label": "edge-on-normal",
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/edge/on/program"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "0c33ab6c977fc2afd56470d47e27061982cb097900a29029a0382005258e3ae0",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "environment": {
+            "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+            "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": null,
+            "DARTFORGE_KEEP_IR": "1",
+            "DARTFORGE_LINK_MAP": "1",
+            "DARTFORGE_GC_STRESS": null
+          },
+          "exact_VM": true,
+          "stderr_bytes": 0
+        },
+        {
+          "label": "edge-on-stress",
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/edge/on/program"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "0c33ab6c977fc2afd56470d47e27061982cb097900a29029a0382005258e3ae0",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "environment": {
+            "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+            "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": null,
+            "DARTFORGE_KEEP_IR": "1",
+            "DARTFORGE_LINK_MAP": "1",
+            "DARTFORGE_GC_STRESS": "1"
+          },
+          "exact_VM": true,
+          "stderr_bytes": 0
+        }
+      ],
+      "IR": {
+        "full_sha256": "1cd0e592ee5ee590f08e8029f8554f5e4b2e4465bd4523db1ebefae1c16d2855",
+        "function_sha256": "b532ca859c4bddf7e72363be5ec75c2674cd9825694b199452a7bf76266528cf",
+        "static_call_counts": {
+          "df.get_area": 1,
+          "df.context": 1,
+          "llvm.expect.i1": 2,
+          "dartforge_stack_overflow": 1,
+          "df.class": 1,
+          "df.subclass": 1,
+          "df.unbox_double": 1,
+          "df.rti.877bf59dd991ad96.main$2edart": 1,
+          "dartforge_rti_as_with_context": 1,
+          "dartforge_exception_clear": 1
+        },
+        "root_slot_stores": 1,
+        "scope": "Static pre-LLVM callsite/rootstore counts, not machine execution counts or consumed allocations."
+      },
+      "map_sha256": "6b58a717791dbb9ced8f5d2960d5d3351ba5516bd7850d327e442aadad26ce4a"
+    },
+    {
+      "fixture": "format",
+      "enabled": false,
+      "compile_exit": 0,
+      "artifact_sha256": "bdb464ccf38dd20ac741fbb05650c2c09eb25187469e1d26187598d2a4fcfe00",
+      "contract_manifest_sha256": "b13dd6e7ed4c4cfeb4c438e935e23b19410cb8f57f95c8d9e8b9a33f21f1deda",
+      "executions": [
+        {
+          "label": "format-off-normal",
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/format/off/program"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "45258c53aecdd31b67512f86aedc50d0a62be401c7075c16ae69c61849c57b96",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "environment": {
+            "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+            "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": "1",
+            "DARTFORGE_KEEP_IR": "1",
+            "DARTFORGE_LINK_MAP": "1",
+            "DARTFORGE_GC_STRESS": null
+          },
+          "exact_VM": true,
+          "stderr_bytes": 0
+        },
+        {
+          "label": "format-off-stress",
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/format/off/program"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "45258c53aecdd31b67512f86aedc50d0a62be401c7075c16ae69c61849c57b96",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "environment": {
+            "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+            "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": "1",
+            "DARTFORGE_KEEP_IR": "1",
+            "DARTFORGE_LINK_MAP": "1",
+            "DARTFORGE_GC_STRESS": "1"
+          },
+          "exact_VM": true,
+          "stderr_bytes": 0
+        }
+      ],
+      "IR": {
+        "full_sha256": "cb683e79713b8e9b4a10ce418a6182bbda5fd6454d673ccfe375684be2cae947",
+        "function_sha256": "3942fa9dc0ce44bdfa5fe653689e674307167bbeb5a417041c89ad86b1f5e679",
+        "static_call_counts": {
+          "df.get_area": 1,
+          "df.context": 1,
+          "llvm.expect.i1": 93,
+          "dartforge_stack_overflow": 1,
+          "df.selector": 88,
+          "df.unbox_bool": 29,
+          "dartforge_exception_clear": 92,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.uint1": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.uint2": 10,
+          "df.box_int": 218,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.uint4": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.uint8": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.uint16": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.uint32": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.int8": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.int16": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.int32": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.float16": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.float32": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.float64": 10,
+          "df.class": 65,
+          "dartforge_native_Object_equals": 10,
+          "df.dart$3acore._Double.$3d$3d": 10,
+          "df.dart$3acore._IntegerImplementation.$3d$3d": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..formatMaxValue": 1,
+          "dartforge_null_check_error_new": 1,
+          "dartforge_exception_throw": 1,
+          "df.unbox_int": 45,
+          "df.unbox_double": 16,
+          "df.box_double": 8,
+          "df.subclass": 36,
+          "df.rti.877bf89dd991b2af.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart": 36,
+          "dartforge_rti_as_with_context": 36,
+          "df.dart$3acore._Double.clamp": 11,
+          "df.dart$3acore._IntegerImplementation.clamp": 11,
+          "df.dart$3acore._IntegerImplementation.toInt": 8,
+          "dartforge_native_DartForge_double_toInt": 8
+        },
+        "root_slot_stores": 864,
+        "scope": "Static pre-LLVM callsite/rootstore counts, not machine execution counts or consumed allocations."
+      },
+      "map_sha256": "d5e6bc631e2c5eb606d05408bd6870b85b2faa8e176940bcd449d05acae8722a"
+    },
+    {
+      "fixture": "format",
+      "enabled": true,
+      "compile_exit": 0,
+      "artifact_sha256": "e4c67287c8d6aaaceb69bb3bb238488999971ddee946530b6c916253d0f07548",
+      "contract_manifest_sha256": "fda8bff2674214194c6b48bb2ec0f102769b7fae7332a95a30ff5d441b99445c",
+      "executions": [
+        {
+          "label": "format-on-normal",
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/format/on/program"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "45258c53aecdd31b67512f86aedc50d0a62be401c7075c16ae69c61849c57b96",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "environment": {
+            "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+            "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": null,
+            "DARTFORGE_KEEP_IR": "1",
+            "DARTFORGE_LINK_MAP": "1",
+            "DARTFORGE_GC_STRESS": null
+          },
+          "exact_VM": true,
+          "stderr_bytes": 0
+        },
+        {
+          "label": "format-on-stress",
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical/format/on/program"
+          ],
+          "exit_code": 0,
+          "stdout_sha256": "45258c53aecdd31b67512f86aedc50d0a62be401c7075c16ae69c61849c57b96",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "environment": {
+            "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/numeric-sdk-certificate/canonical",
+            "DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP": null,
+            "DARTFORGE_KEEP_IR": "1",
+            "DARTFORGE_LINK_MAP": "1",
+            "DARTFORGE_GC_STRESS": "1"
+          },
+          "exact_VM": true,
+          "stderr_bytes": 0
+        }
+      ],
+      "IR": {
+        "full_sha256": "e0d08092488ea2b295e3a6e5e0ce585744ab13a9075aebaea45d6cb7588c7a88",
+        "function_sha256": "6d6a3f5397dd01cd2c50dd3dd770dfaf03038c9d5d7dbc428b812614a2ec3d43",
+        "static_call_counts": {
+          "df.get_area": 1,
+          "df.context": 1,
+          "llvm.expect.i1": 93,
+          "dartforge_stack_overflow": 1,
+          "df.selector": 88,
+          "df.unbox_bool": 29,
+          "dartforge_exception_clear": 92,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.uint1": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.uint2": 10,
+          "df.box_int": 218,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.uint4": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.uint8": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.uint16": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.uint32": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.int8": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.int16": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.int32": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.float16": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.float32": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart.Format.float64": 10,
+          "df.class": 65,
+          "dartforge_native_Object_equals": 10,
+          "df.dart$3acore._Double.$3d$3d": 10,
+          "df.dart$3acore._IntegerImplementation.$3d$3d": 10,
+          "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..formatMaxValue": 1,
+          "dartforge_null_check_error_new": 1,
+          "dartforge_exception_throw": 1,
+          "df.unbox_int": 45,
+          "df.unbox_double": 16,
+          "df.subclass": 36,
+          "df.rti.877bf89dd991b2af.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart": 36,
+          "dartforge_rti_as_with_context": 36,
+          "df.dart$3acore._Double.clamp": 11,
+          "df.dart$3acore._IntegerImplementation.clamp": 11,
+          "df.dart$3acore._IntegerImplementation.toInt": 8,
+          "dartforge_native_DartForge_double_toInt": 8
+        },
+        "root_slot_stores": 856,
+        "scope": "Static pre-LLVM callsite/rootstore counts, not machine execution counts or consumed allocations."
+      },
+      "map_sha256": "e014526b3e7369d03b2f87ed53ca5365c96641afaafee4411a3822628d9280de"
+    }
+  ],
+  "scope": "Canonical checked-double return reuse, tracing fixed AOT only. Runtime execution/oracle and static IR counts; no timing or allocation claim.",
+  "official": {
+    "edge": {
+      "artifact_sha256": "d0983a8a5386486367ed43d594bcedb7f20ac36c86175d7962064cf083c1b1d1",
+      "oracle_stdout_sha256": "0c33ab6c977fc2afd56470d47e27061982cb097900a29029a0382005258e3ae0"
+    },
+    "format": {
+      "artifact_sha256": "fa6d54f5659a749a58ddbaaee1ab12677778bc1b81e45fe96fe7c1f2581bf1b1",
+      "oracle_stdout_sha256": "45258c53aecdd31b67512f86aedc50d0a62be401c7075c16ae69c61849c57b96"
+    }
+  },
+  "result": "PASS",
+  "inputs_unchanged": true,
+  "native_executions": 8
+}

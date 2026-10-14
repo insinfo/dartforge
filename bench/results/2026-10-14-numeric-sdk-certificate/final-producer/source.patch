@@ -1,0 +1,3608 @@
+diff --git a/bench/results/2026-10-14-rea-native-investigation/build_producer.py b/bench/results/2026-10-14-rea-native-investigation/build_producer.py
+index c38b4e6c..a5a782c9 100644
+--- a/bench/results/2026-10-14-rea-native-investigation/build_producer.py
++++ b/bench/results/2026-10-14-rea-native-investigation/build_producer.py
+@@ -24,7 +24,7 @@ def sources():
+     paths = [root / "Cargo.toml", root / "Cargo.lock"]
+     for parent in [root / "crates", root / "native_sdk"]:
+         paths.extend(path for path in parent.rglob("*") if path.is_file() and
+-                     (path.suffix in {".rs", ".dart", ".c", ".h"} or path.name == "Cargo.toml"))
++                     (path.suffix in {".rs", ".dart", ".c", ".h", ".json"} or path.name == "Cargo.toml"))
+     return {str(path.relative_to(root)): sha(path) for path in sorted(paths)}
+ 
+ 
+@@ -43,7 +43,7 @@ with (out / "producer-build.log").open("wb") as log:
+     result = subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=1800)
+ after = sources()
+ ledger = {"head": head, "command": command, "exit": result.returncode,
+-          "source_scope": "Cargo manifests and Rust/Dart/C/header sources under crates and native_sdk, including tests.",
++          "source_scope": "Cargo manifests and Rust/Dart/C/header/JSON sources under crates and native_sdk, including tests.",
+           "source_hashes": before, "source_stable": before == after,
+           "changed_during_build": [path for path in sorted(set(before) | set(after)) if before.get(path) != after.get(path)]}
+ if result.returncode == 0 and before == after:
+diff --git a/crates/emit_native/src/hir.rs b/crates/emit_native/src/hir.rs
+index 41d49df6..cbfab933 100644
+--- a/crates/emit_native/src/hir.rs
++++ b/crates/emit_native/src/hir.rs
+@@ -1106,6 +1106,8 @@ pub struct Module {
+     /// AOT registration keeps this image's ancestry facts fixed.
+     /// Reloadable images leave this false: older generations may add edges.
+     pub arc_fixed_ancestry: bool,
++    /// Selected canonical SDK double identity/hash overlays were independently verified.
++    pub checked_double_identity: bool,
+     /// Registration facts from the same compiled SDK summaries used at link time.
+     pub arc_external_ancestry: ArcExternalAncestry,
+     /// The ARC preparation accepts direct calls to Dart functions of another
+diff --git a/crates/emit_native/src/lower/double_identity.rs b/crates/emit_native/src/lower/double_identity.rs
+new file mode 100644
+index 00000000..69751ad2
+--- /dev/null
++++ b/crates/emit_native/src/lower/double_identity.rs
+@@ -0,0 +1,95 @@
++//! Conservative certificate for reusing a checked primitive double box.
++use crate::context::Context;
++use dartforge_elements::model::{Element, FunctionElementId, FunctionKind, FunctionRef};
++use std::collections::HashSet;
++
++mod selected_sdk;
++
++const DOUBLE: &str = include_str!("../../../../native_sdk/core/double.dart");
++const IDENTICAL: &str = include_str!("../../../../native_sdk/core/identical_patch.dart");
++
++pub(super) fn certified(ctx: &Context) -> bool {
++    if !selected_sdk::trusted_sources(ctx) || !selected_sdk::canonical_hash_binding(ctx) {
++        return false;
++    }
++    let Some(core) = ctx.program.core else {
++        return false;
++    };
++    let library = ctx.program.library(core);
++    if library.uri != "dart:core" || !library.is_sdk {
++        return false;
++    }
++    let selected = |id: FunctionElementId, owner, name, kind, expected: &str| {
++        let mut id = id;
++        let mut seen = HashSet::new();
++        loop {
++            if !seen.insert(id) {
++                return false;
++            }
++            let f = ctx.program.function(id);
++            if f.library != core
++                || f.class != owner
++                || f.name != name
++                || f.kind != kind
++                || f.variable.is_some()
++            {
++                return false;
++            }
++            if let Some(patch) = f.patched_by {
++                id = patch;
++                continue;
++            }
++            let FunctionRef::Function { unit, .. } = f.node else {
++                return false;
++            };
++            let unit = ctx.program.unit(unit);
++            return unit.library == core && unit.source == expected;
++        }
++    };
++    let Some(name) = ctx.interner.lookup("_Double") else {
++        return false;
++    };
++    let Some(Element::Class(cid)) = ctx.program.lookup(core, name).and_then(|e| e.getter) else {
++        return false;
++    };
++    let class = ctx.program.class(cid);
++    let Some(decl) = class.decl else {
++        return false;
++    };
++    if class.library != core
++        || ctx.program.unit(decl.unit).source != DOUBLE
++        || !class.mixins.is_empty()
++        || !class.mixin_classes.is_empty()
++        || !class.shadowed_instance_members.is_empty()
++    {
++        return false;
++    }
++    for name in ["hashCode", "_identityHashCode"] {
++        let Some(symbol) = ctx.interner.lookup(name) else {
++            return false;
++        };
++        let Some(&f) = class.instance_members.get(&symbol) else {
++            return false;
++        };
++        if !selected(f, Some(cid), symbol, FunctionKind::Getter, DOUBLE) {
++            return false;
++        }
++    }
++    for name in ["identical", "identityHashCode"] {
++        let Some(symbol) = ctx.interner.lookup(name) else {
++            return false;
++        };
++        let Some(Element::Function(f)) = ctx.program.lookup(core, symbol).and_then(|e| e.getter)
++        else {
++            return false;
++        };
++        if !selected(f, None, symbol, FunctionKind::Function, IDENTICAL) {
++            return false;
++        }
++    }
++    crate::natives::native("Identical_comparison")
++        .is_some_and(|n| n.state == crate::natives::State::Runtime)
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/crates/emit_native/src/lower/double_identity/selected_sdk.rs b/crates/emit_native/src/lower/double_identity/selected_sdk.rs
+new file mode 100644
+index 00000000..9170cd3e
+--- /dev/null
++++ b/crates/emit_native/src/lower/double_identity/selected_sdk.rs
+@@ -0,0 +1,220 @@
++//! Bind identity observations to reviewed selected SDK sources and part structure.
++use crate::context::Context;
++use dartforge_elements::model::{FunctionKind, FunctionRef, UnitRole};
++use dartforge_frontend::ast::DirectiveKind;
++use std::collections::{HashMap, HashSet};
++
++fn role(role: UnitRole) -> Option<u8> {
++    match role {
++        UnitRole::Library => Some(1),
++        UnitRole::Part => Some(2),
++        UnitRole::Patch => Some(3),
++        UnitRole::Augmentation => None,
++    }
++}
++
++fn bytes(hash: &mut blake3::Hasher, value: &[u8]) {
++    hash.update(&(value.len() as u64).to_le_bytes());
++    hash.update(value);
++}
++
++pub(super) fn core_fingerprint(ctx: &Context) -> Option<String> {
++    let core = ctx.program.core?;
++    let library = ctx.program.library(core);
++    if library.uri != "dart:core" || !library.is_sdk || library.units.is_empty() {
++        return None;
++    }
++    let mut ordinals = HashMap::new();
++    for (index, id) in library.units.iter().enumerate() {
++        if ordinals.insert(*id, index).is_some() {
++            return None;
++        }
++        let unit = ctx.program.units.get(id.0 as usize)?;
++        if unit.library != core || !unit.skipped.is_empty() {
++            return None;
++        }
++        role(unit.role)?;
++    }
++    if ctx
++        .program
++        .units
++        .iter()
++        .filter(|u| u.library == core)
++        .count()
++        != library.units.len()
++    {
++        return None;
++    }
++    let first = ctx.program.unit(library.units[0]);
++    if first.role != UnitRole::Library || first.uri != "dart:core" {
++        return None;
++    }
++    let mut parents = HashMap::new();
++    for (parent, id) in library.units.iter().enumerate() {
++        let unit = ctx.program.unit(*id);
++        for directive in &unit.unit.directives {
++            let DirectiveKind::Part { uri } = &directive.kind else {
++                if matches!(
++                    directive.kind,
++                    DirectiveKind::ImportAugment { .. } | DirectiveKind::AugmentLibrary { .. }
++                ) {
++                    return None;
++                }
++                continue;
++            };
++            let relative = dartforge_elements::load::string_lit_value(uri)?;
++            let path = unit.path.as_ref()?.parent()?.join(relative);
++            let mut normalized = std::path::PathBuf::new();
++            for component in path.components() {
++                match component {
++                    std::path::Component::CurDir => {}
++                    std::path::Component::ParentDir => {
++                        if !normalized.pop() {
++                            return None;
++                        }
++                    }
++                    component => normalized.push(component.as_os_str()),
++                }
++            }
++            let path = normalized;
++            let mut matches = library.units.iter().enumerate().filter(|(_, child)| {
++                ctx.program.unit(**child).path.as_deref() == Some(path.as_path())
++            });
++            let (child, child_id) = matches.next()?;
++            if matches.next().is_some()
++                || child <= parent
++                || parents.insert(*child_id, parent).is_some()
++            {
++                return None;
++            }
++            let expected = if unit.role == UnitRole::Patch {
++                UnitRole::Patch
++            } else {
++                UnitRole::Part
++            };
++            if ctx.program.unit(*child_id).role != expected {
++                return None;
++            }
++        }
++    }
++    for (child, parent) in &library.unit_parents {
++        if parents.get(child) != Some(ordinals.get(parent)?) {
++            return None;
++        }
++    }
++    let mut hash = blake3::Hasher::new();
++    bytes(&mut hash, b"dartforge.checked-double.core.v1");
++    bytes(&mut hash, library.uri.as_bytes());
++    hash.update(&(library.units.len() as u64).to_le_bytes());
++    for (index, id) in library.units.iter().enumerate() {
++        let unit = ctx.program.unit(*id);
++        let parent = if let Some(parent) = parents.get(id) {
++            *parent as u64
++        } else {
++            if index != 0
++                && !(unit.role == UnitRole::Patch && unit.uri.starts_with("dart:core#patch_"))
++            {
++                return None;
++            }
++            if index != 0
++                && unit
++                    .unit
++                    .directives
++                    .iter()
++                    .any(|d| matches!(d.kind, DirectiveKind::PartOf { .. }))
++            {
++                return None;
++            }
++            u64::MAX
++        };
++        hash.update(&[role(unit.role)?]);
++        hash.update(&parent.to_le_bytes());
++        bytes(&mut hash, unit.source.as_bytes());
++    }
++    Some(hash.finalize().to_hex().to_string())
++}
++
++/// Every loaded SDK source must match its reviewed semantic library and role.
++pub(super) fn trusted_sources(ctx: &Context) -> bool {
++    let Ok(manifest) =
++        serde_json::from_str::<serde_json::Value>(include_str!("selected_sdk_manifest.json"))
++    else {
++        return false;
++    };
++    let Some(expected_core) = manifest["core_fingerprint"].as_str() else {
++        return false;
++    };
++    if core_fingerprint(ctx).as_deref() != Some(expected_core) {
++        return false;
++    }
++    let Some(entries) = manifest["units"].as_array() else {
++        return false;
++    };
++    let trusted: HashSet<_> = entries
++        .iter()
++        .filter_map(|e| {
++            Some((
++                e["library"].as_str()?,
++                e["role"].as_u64()? as u8,
++                e["source_blake3"].as_str()?,
++            ))
++        })
++        .collect();
++    for unit in &ctx.program.units {
++        let library = ctx.program.library(unit.library);
++        if library.is_sdk != library.uri.starts_with("dart:") {
++            return false;
++        }
++        if !library.is_sdk {
++            continue;
++        }
++        if !unit.skipped.is_empty() {
++            return false;
++        }
++        let Some(role) = role(unit.role) else {
++            return false;
++        };
++        let digest = blake3::hash(unit.source.as_bytes()).to_hex().to_string();
++        if !trusted.contains(&(library.uri.as_str(), role, digest.as_str())) {
++            return false;
++        }
++    }
++    true
++}
++
++/// Reject aliases of the header identity primitive outside its canonical helper.
++pub(super) fn canonical_hash_binding(ctx: &Context) -> bool {
++    let Some(core) = ctx.program.core else {
++        return false;
++    };
++    let Some(name) = ctx.interner.lookup("_getHash") else {
++        return false;
++    };
++    let Some(dartforge_elements::model::Element::Function(canonical)) =
++        ctx.program.lookup(core, name).and_then(|e| e.getter)
++    else {
++        return false;
++    };
++    let mut count = 0;
++    for (index, function) in ctx.program.functions.iter().enumerate() {
++        if !function.external {
++            continue;
++        }
++        let (native, _) = crate::natives::pragmas(ctx.program, ctx.interner, function);
++        if native.as_deref() != Some("Object_getHash") {
++            continue;
++        }
++        if index != canonical.0 as usize
++            || function.library != core
++            || function.class.is_some()
++            || function.name != name
++            || function.kind != FunctionKind::Function
++            || function.patched_by.is_some()
++            || !matches!(function.node, FunctionRef::Function { .. })
++        {
++            return false;
++        }
++        count += 1;
++    }
++    count == 1
++}
+diff --git a/crates/emit_native/src/lower/double_identity/selected_sdk_manifest.json b/crates/emit_native/src/lower/double_identity/selected_sdk_manifest.json
+new file mode 100644
+index 00000000..60dc9669
+--- /dev/null
++++ b/crates/emit_native/src/lower/double_identity/selected_sdk_manifest.json
+@@ -0,0 +1,1147 @@
++{
++  "baseline": "Reviewed SDK3.6.2 selected sources with DartForge native overlays; no version/path check substitutes these content hashes.",
++  "core_fingerprint": "92bfcfb55b3dab4d34ec01b0219dfd150c6daa970001720b84ab47527ca22f45",
++  "schema": 1,
++  "units": [
++    {
++      "library": "dart:_compact_hash",
++      "role": 1,
++      "source_blake3": "b90b7bf0a3a58417ae0bd816815b3735ba14b180f723b07c3a7a65862d505573"
++    },
++    {
++      "library": "dart:_http",
++      "role": 1,
++      "source_blake3": "72a2073f5dd53f9d469c24281d8ecececf6b3f67a80923ed815f13e948ad3343"
++    },
++    {
++      "library": "dart:_http",
++      "role": 2,
++      "source_blake3": "20e059d90cfc3d3c1e98d1219f1ff3a641073b6d366d46d7ccf8689c7baf8e7f"
++    },
++    {
++      "library": "dart:_http",
++      "role": 2,
++      "source_blake3": "611e67352ee98bedc9c659aca0b22b4aa8296f8569192446da0f25c84c02de2b"
++    },
++    {
++      "library": "dart:_http",
++      "role": 2,
++      "source_blake3": "64f96322bdaa9a904664b79bec75c495ad2376bfd627efc44a5c8bc71bd12607"
++    },
++    {
++      "library": "dart:_http",
++      "role": 2,
++      "source_blake3": "72d4fbc2d8fcd44e599ee4d9ba90f4a8a903cd19d0a307b2b9eab4ab1bb9df3a"
++    },
++    {
++      "library": "dart:_http",
++      "role": 2,
++      "source_blake3": "763a64a8d3e8a96f3d8ad852fd09c5db874bd8b2bcad1ffb5fb1e4479df74e91"
++    },
++    {
++      "library": "dart:_http",
++      "role": 2,
++      "source_blake3": "7b6f975ef9d3824184cf0650909f33ce2b4e459e31c9f6baa373fb23ba02a6f5"
++    },
++    {
++      "library": "dart:_http",
++      "role": 2,
++      "source_blake3": "a46ff1c5d29b25f810338598438f2ed0460e937607f4256f2f66b70219510164"
++    },
++    {
++      "library": "dart:_http",
++      "role": 2,
++      "source_blake3": "cad560b3c36353d9cccbf9d8851be70d85710adb36539f547a3ad2a830bc3691"
++    },
++    {
++      "library": "dart:_http",
++      "role": 2,
++      "source_blake3": "cd273a544debe20bf50cf82f7d2669a36f80c375f5848da32f3a3449c85aced5"
++    },
++    {
++      "library": "dart:_http",
++      "role": 2,
++      "source_blake3": "edae33ef4ab231f1048c1934fc87c91b23801af02e063c925a0c4104245ed2da"
++    },
++    {
++      "library": "dart:_http",
++      "role": 2,
++      "source_blake3": "f5d9bf54d7b921013b426ef18bea562ad24c275254e51d0faa7105e216bdadb3"
++    },
++    {
++      "library": "dart:_internal",
++      "role": 1,
++      "source_blake3": "04cc2083c580cd47983f9e3a1e1b46aecef64a9b3f91fc3195f700c24cabff19"
++    },
++    {
++      "library": "dart:_internal",
++      "role": 2,
++      "source_blake3": "03a24d0557dc46c44796cc4284a0aa9fa6bb8a318149f87b4d5f948e7a9f6bf4"
++    },
++    {
++      "library": "dart:_internal",
++      "role": 2,
++      "source_blake3": "05046412a6bf771fd51c380516cfd679cc90cd69229e5581f1f5caeb00342049"
++    },
++    {
++      "library": "dart:_internal",
++      "role": 2,
++      "source_blake3": "48f183029a3c769918b89fde9bcbfd3218bcae1022fa85594181ec57852c69d5"
++    },
++    {
++      "library": "dart:_internal",
++      "role": 2,
++      "source_blake3": "4c5b3757ce69b91875fd9098abb42d4390c1b89d422ff6dcc799cc8457573d72"
++    },
++    {
++      "library": "dart:_internal",
++      "role": 2,
++      "source_blake3": "64c2b912f0ac208cca2cb383debe92dcb9721c6b8888d5ee03721a0594d711ab"
++    },
++    {
++      "library": "dart:_internal",
++      "role": 2,
++      "source_blake3": "685a543a10f24d9e758781a5f299c40c79dae9e88e4f1ef7ab8ad2ec107c1e3d"
++    },
++    {
++      "library": "dart:_internal",
++      "role": 2,
++      "source_blake3": "68615fbf79f8ac1c2c6f6852e67f3c1a8d9d366ae6aa42170c46e119c4f2c1a3"
++    },
++    {
++      "library": "dart:_internal",
++      "role": 2,
++      "source_blake3": "77ff1139b17c775a203b8ac8db82b7297dc458ffb337476c22f1b3fff6215ce0"
++    },
++    {
++      "library": "dart:_internal",
++      "role": 2,
++      "source_blake3": "a567d52bab5a40128c58c808a9bbd57848137c241e21fa56d576da6a4e5fa3ad"
++    },
++    {
++      "library": "dart:_internal",
++      "role": 2,
++      "source_blake3": "c9f618e14215633bffb6d3910a7eef596b5f02561dfe5f3b330802e736d22938"
++    },
++    {
++      "library": "dart:_internal",
++      "role": 2,
++      "source_blake3": "f42f149273b4aed3c14dddc795e1d1755bef5024f9b547b37fac2449935be93c"
++    },
++    {
++      "library": "dart:_internal",
++      "role": 2,
++      "source_blake3": "fbc3bc4dc51d97264c69da22169cc011913f559491b639b5cc401df22d3530a0"
++    },
++    {
++      "library": "dart:_internal",
++      "role": 3,
++      "source_blake3": "35a934a991a01a99996bff7cc62ceceb833731fcc77659bd9fa657c005abaeba"
++    },
++    {
++      "library": "dart:_internal",
++      "role": 3,
++      "source_blake3": "543216a576473c74e89af49e1c4773559e892c8a51c6b1e1df9e99c58fbd1522"
++    },
++    {
++      "library": "dart:_internal",
++      "role": 3,
++      "source_blake3": "8a80d0aef989f86bfe6b2948b1ff80ff3946d91e08a04a31961ce135bef4d693"
++    },
++    {
++      "library": "dart:_internal",
++      "role": 3,
++      "source_blake3": "9bfb4644e68960e9c2444116b0145143c1e4f1ae776b553a1961799122d9ad97"
++    },
++    {
++      "library": "dart:async",
++      "role": 1,
++      "source_blake3": "f16873033c71d620e7371160b968fc9225d6ffa8ce898a2433eccfc2ca12cec4"
++    },
++    {
++      "library": "dart:async",
++      "role": 2,
++      "source_blake3": "0849f2e62b08b5bf4c19252f8c8b0e1288a9dc07f6ec808feca5e5ebb361339a"
++    },
++    {
++      "library": "dart:async",
++      "role": 2,
++      "source_blake3": "28378ae76ad5d1f360232d7bb5ffd397c315bdf211f04bc43c30faf64ec6a666"
++    },
++    {
++      "library": "dart:async",
++      "role": 2,
++      "source_blake3": "6f375650237dbf3868d70871591757627ee1651ae0ec3eb2ff8b9962eabe802c"
++    },
++    {
++      "library": "dart:async",
++      "role": 2,
++      "source_blake3": "7690cdf5b77485220112d2ae2d1158d4d96ec82c048d10b26e0cffe8eabdcf66"
++    },
++    {
++      "library": "dart:async",
++      "role": 2,
++      "source_blake3": "76bac00ab9bdfade152671b3d78aeaea1d7d7da821560078d803834dc89dbc7c"
++    },
++    {
++      "library": "dart:async",
++      "role": 2,
++      "source_blake3": "8d531ff57752b02da2f463ec3c84d4adebdcd9a51133bf7e98b76ff3321e97a3"
++    },
++    {
++      "library": "dart:async",
++      "role": 2,
++      "source_blake3": "8eb0782cb0e76c1c6f4dd6ab40122cef9b002824575b655cb318f69a65cb90d0"
++    },
++    {
++      "library": "dart:async",
++      "role": 2,
++      "source_blake3": "9c172aa3c5421e207f3f5baaf2dc378ea22a4560f3edae4033d20412eeb48441"
++    },
++    {
++      "library": "dart:async",
++      "role": 2,
++      "source_blake3": "a6e23a906b839880d58a43dd9094685a104b9c3ff02be9c695b6058c98e2ba8f"
++    },
++    {
++      "library": "dart:async",
++      "role": 2,
++      "source_blake3": "af0611b77e4bd4ea3ff964f6f942c38b59e907c5b9da80b2aa11fea5c32033a1"
++    },
++    {
++      "library": "dart:async",
++      "role": 2,
++      "source_blake3": "bfef7c4152bdef45353941bd382ff2534942a7dd85b85dc7e358ebec9fb54bc4"
++    },
++    {
++      "library": "dart:async",
++      "role": 2,
++      "source_blake3": "c18867358164bc6191cf1d171a82340e8e423c5083a737b25bed10e752828e13"
++    },
++    {
++      "library": "dart:async",
++      "role": 2,
++      "source_blake3": "c66833955ed3c49aec43563b1ea84fcc070aa7fd12cf077655b18e7d74e27f25"
++    },
++    {
++      "library": "dart:async",
++      "role": 2,
++      "source_blake3": "f0749d78a707e334c7bc39915a6e07e75674859554aa32771287ec5c7475a1e8"
++    },
++    {
++      "library": "dart:async",
++      "role": 3,
++      "source_blake3": "7e0e1ba7088fa65589cb596077211618dd9c88b15231a6ecc814938d7863d4a6"
++    },
++    {
++      "library": "dart:async",
++      "role": 3,
++      "source_blake3": "8df19dba6cbf92cc0aa230c9dba4885ef8e8f50f3ffa4c418a8b2d3045ff8f70"
++    },
++    {
++      "library": "dart:async",
++      "role": 3,
++      "source_blake3": "e37757f86fe5a85d654b4078edb282ff4a06dc1c704ddd534b70e945f674f233"
++    },
++    {
++      "library": "dart:collection",
++      "role": 1,
++      "source_blake3": "43ef5d06f163494b4cc6763b0458cd5b80fa201493799dd442af258c63b51f62"
++    },
++    {
++      "library": "dart:collection",
++      "role": 2,
++      "source_blake3": "0ca21cbaf2992ca20238dff66721ccc156b65ddca5b0a97238f25917f6d723a6"
++    },
++    {
++      "library": "dart:collection",
++      "role": 2,
++      "source_blake3": "2ca0d678debb0a7e7119c41f3464502397f3524e72dc970ac074cc9612d63417"
++    },
++    {
++      "library": "dart:collection",
++      "role": 2,
++      "source_blake3": "2ea576435a7bbe63a801476521887b116cb80456a421bd3bcfdb78a3407ad336"
++    },
++    {
++      "library": "dart:collection",
++      "role": 2,
++      "source_blake3": "440227f2dac4ee95ef06b4a4d144841746b2465da94583d678df017207be8c1f"
++    },
++    {
++      "library": "dart:collection",
++      "role": 2,
++      "source_blake3": "499ff82663e581eebd5afe19b6ede876dccdd4e8bf69b384e106c9f62d34f6d6"
++    },
++    {
++      "library": "dart:collection",
++      "role": 2,
++      "source_blake3": "724d10dc3f81e812791f23bc026ef32c098d7b9b40c84f184348f2a036827e64"
++    },
++    {
++      "library": "dart:collection",
++      "role": 2,
++      "source_blake3": "7a18b3bb85b83f30666f2fa6ea6b539b0fd695102885a74f14da5ee245fa0700"
++    },
++    {
++      "library": "dart:collection",
++      "role": 2,
++      "source_blake3": "a57e7fa96528c4d762d5ef488183d85d7fcad62907124912059c78359d7e57ea"
++    },
++    {
++      "library": "dart:collection",
++      "role": 2,
++      "source_blake3": "add4c0cf7d7ca6d8d35e10bd5012a3f2d94250029b7aa7210e82f99193c7138c"
++    },
++    {
++      "library": "dart:collection",
++      "role": 2,
++      "source_blake3": "d2a62678833e7f1a88ef73644cbb382884c74b9ba148c267cc87c75bf7934b35"
++    },
++    {
++      "library": "dart:collection",
++      "role": 2,
++      "source_blake3": "d71ed97b2478664f7587fbca563eafb0227204bea879bfb778d87e2553c5ea2f"
++    },
++    {
++      "library": "dart:collection",
++      "role": 2,
++      "source_blake3": "dac66f3a23069b4bcb85fe720096b5888fe1e7ebd391ae0529ae2f805418d6aa"
++    },
++    {
++      "library": "dart:collection",
++      "role": 2,
++      "source_blake3": "fe3e04b40ecd70867b634362ea61a9998d0fc5990f5a6053da2f4563915c134d"
++    },
++    {
++      "library": "dart:collection",
++      "role": 3,
++      "source_blake3": "8b5521690ecf895dfa5fc49026959d55b56782b6ca49af9d0cc8086c42cbd718"
++    },
++    {
++      "library": "dart:collection",
++      "role": 3,
++      "source_blake3": "c81d049770b244b6ff339c149608fb1260ed356c40f8ad4cd2578c652697320d"
++    },
++    {
++      "library": "dart:convert",
++      "role": 1,
++      "source_blake3": "0fc61f3abb45cf705f003a7a609c4e8e6ec0575fadc6a406fc8a89e26d0f948d"
++    },
++    {
++      "library": "dart:convert",
++      "role": 2,
++      "source_blake3": "33dd62c05d403b8fee2b0ee7dfc1c3ddee83224dd261803f06df2464a51fcc23"
++    },
++    {
++      "library": "dart:convert",
++      "role": 2,
++      "source_blake3": "44f5127af69c854902c7513a875fc2150f01d0a0ea6538db1cd210924eef6e3d"
++    },
++    {
++      "library": "dart:convert",
++      "role": 2,
++      "source_blake3": "45f5da24fcc440d000149ce359f638e372791711b99af326d840d3184b96f10e"
++    },
++    {
++      "library": "dart:convert",
++      "role": 2,
++      "source_blake3": "575a2f64564e6d3d023736292fc76d9930edf5bcc8521dabbdb77b7298b18b43"
++    },
++    {
++      "library": "dart:convert",
++      "role": 2,
++      "source_blake3": "5ad483eb3c61e2719ebb9bf0fd70259914f4881a1e5b2f3926e9581150f3a0f2"
++    },
++    {
++      "library": "dart:convert",
++      "role": 2,
++      "source_blake3": "6a9a4e100ba6cc7fee2edc00cd11b6f8baaf63afdc4b7867578a4c45fe695976"
++    },
++    {
++      "library": "dart:convert",
++      "role": 2,
++      "source_blake3": "7c9af76e712783fa62bc8739d47ccc132c9adbe03c00b47516038caba73ebf14"
++    },
++    {
++      "library": "dart:convert",
++      "role": 2,
++      "source_blake3": "862518f021823edf0c24270bc8c976eaf7d5d198756f0ff15cc3919d0b196560"
++    },
++    {
++      "library": "dart:convert",
++      "role": 2,
++      "source_blake3": "93ee4a71559c7c0c1d917eee3ce7d1e6c3cb637723570519aeac3364514c57ac"
++    },
++    {
++      "library": "dart:convert",
++      "role": 2,
++      "source_blake3": "9fa83a4b80c4f4c22bcc18bf5ff09732b813a11868e716f92e50847cf2553564"
++    },
++    {
++      "library": "dart:convert",
++      "role": 2,
++      "source_blake3": "c066a17f0a8e73cb42c5fda6fbb565df3006d00630ab4b49f94e7b5ec7a8bb80"
++    },
++    {
++      "library": "dart:convert",
++      "role": 2,
++      "source_blake3": "d37ce8c3cbf6f865450e6b110ace76ca1be86e0571a1e945d16c3e999ee4d30b"
++    },
++    {
++      "library": "dart:convert",
++      "role": 2,
++      "source_blake3": "da506fbae7084da1e2ba956a27d368908aa6d9b24fb52aac92a8e3727a994d01"
++    },
++    {
++      "library": "dart:convert",
++      "role": 3,
++      "source_blake3": "c676b55b88fcef18c1a7547f2940a47a1817d825bfde16948684e39e5fd3117a"
++    },
++    {
++      "library": "dart:core",
++      "role": 1,
++      "source_blake3": "772272c8c671b07342205c96b3ceb63a3bb83026de6301bbcc2ad9c1fd0c8f3c"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "0576f1defdbb2f7851277094d0925bfb041445f8f8da53452fc6d48b2812ab99"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "07a3cc39d844feb1da81896ced54824b9db6065a8908c7956d6c5925ce8b9a73"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "0927294a3b28f0ad3c703b927a571fe2bed652407b867dda78963e373c5a804e"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "1456cfb6ca201ba098b436db17f3e7891d95bb8a76034e9829224e9e20cc4f03"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "1acb62adeb37702b2b97520f5063ccbc09f8ddf3322d9c6b261019fe3f0094bf"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "2310fbb7fbb72ab0b718468cae18adee81c4fac48924d11bfc2489b7885020b4"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "26af4b04b8b7e960a3b419e614c3c828c36ca9e33c6f498ed7780c3f41ea53fd"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "26f053e45e2b7396386802628ed3a8783b9538c270d58a709a629829c7ccb3ed"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "37a13841229136e2ea581648e32b423e9ad3c14e814e2c49a9a10348d68b48b7"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "53a4d3cf8c0a57473c3d001295548bf95b697479bf70966f56ce0685fc1f9e74"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "591edda77b3d385b3add7c197d25211ffb9a15d25b9211a0dfb0b71f2c82025c"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "59b63188850807e0ad6765889bfc918669563009fe6f1e0eaa6d1103087f230f"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "5e12dc4940bd27a87552eabdd5d95d0298128a67852436594ee5f685c08fb876"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "6085dde24b60abeca50ee7eb8b82a7ee26256e31d2b4ec01fca4511843b3225e"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "61837392219217ed83b38959b813b8b345ec1bd0def58d6b63a4f0e03ef47b14"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "64e33ab102710cd3555cc95644a5f038d709cec7940977b2fb29cc0cf08690a6"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "6681b88d7db8390c35b4428d54208eb958bdefde757f0395fcadbfbe812d0187"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "6a81321f6d3965f969342efcafa5c42514eaba16718d91e33b37b25cebca7097"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "6e8fac5b16e61af704917fb982e18da2f2f13bb807d6e5bad3628b8508727d59"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "7e3f09e9e295bb4a655851aa2063858d9b8aaf2fb37389f94235cea97d446220"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "8e17e048ed7508979a351c89b555ccc709ea27c47612186c876e676ba099cc71"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "8e22a8c0ac1d778c134cbcfe32c939568cf4eb81b3272cc688ab1741e3352e3c"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "918c01ad7edf931ca92f4e99d5ff519d66d4084251bed831b167e8d829e2abc4"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "9470d66d219090dc7e0fd72ff96e3919322259f005ce5155c356171c8c288bd1"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "94be465d2d7c57dcebeef47b128124c53ffcb80d336b977e1ef76b32d132a896"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "98be4c3fdb58a1b1bfeaaa1950f503e1578edbdafe53c5cc86783718cd204470"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "a1cf7a7ccf15495ad569ad9f73ca126feab43cac683938142ebd7f4bfbd3e234"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "a6db8cab4f461e361a31db0a9b46e8c436e492292c64ac933f942ef261bd70db"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "b6d3d046a26b12f529b2b136f60204e7594f58271f2fab327ba3f90efb9bf15c"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "c6783966a8244c5a125a86508053c3c3f08e82697958cff1de56619d0bb5c83e"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "ca1cf3e39da8273cb009f5f24f25c193927d8a07ea1ffd954ea4ba3ecd909aca"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "d0107770b39f6633f24ca6478226d11d485d1d91f98a9078133fbe87ee663f17"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "de17a0a349b5edd0118eed1d6e4b9762cf77290cccabf5b8b0d1f82418f97715"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "f3e1601563f2698a3dfcda155ed5dfed1ca949d36bf879a217cb391f5233cd39"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "f56dad31d3853872532667da05c2dc5052d1aa4c38316de7b695e6d3cac08d76"
++    },
++    {
++      "library": "dart:core",
++      "role": 2,
++      "source_blake3": "fb474c7cf01a5c6e5fc2e421bd5ac38f9e866464ff3251acb86c9291786caf52"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "1519d0b2643040cc6cdbf0acc66bd23888751029fa4198cf5b0cc643583d6a3c"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "1744bf9c1bc1e041f2369c946d93a6d45a548881bf4729bd6b4ce2462d2a5328"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "1a1a24dbacf20f3f65e61b11f8fb3ab6dd82f7cc48d33b8e5286c6802e31ff23"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "1d8195e40efcd5f61e6a1d843549abf3d8e1568ded84ab8da0321dbe075aeaaf"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "301080aa6de1fe5191a55a04dfa614e38e7a34b9bc8361c2d474b7982bb734cc"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "535c8921be2f6b90db983fb28c83c42669b06de8aa547c4ab76e42e2a81d8d71"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "5d4ab31adbbd57ccbad30b6e179a219bf7aba52280772171d8d7083f0368b611"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "6365f0390b9d8bfcc12abd28dba457516ca8dc4f814ed0d32f69d3d71abca1c2"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "6657704d1ea7b26f1c2c94bf3abe5904003ab0d8c36ac65c01fe5ef851baf4df"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "6968658504d5d968c06605219768fcc085972fabd2b3e6986bce03a00a48d732"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "6cbfb2b7387add05998645a2d7a1213e9e9da17c1c87578e26edc79ac0fb16df"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "7a187d91b56d05a49eb21e75475b7971e6c11017ff9f9211325e9343dcf72ae6"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "7f267047050bf68a90733e8fa56c95cf1a67d51fcea10e0c333ff481dd8ad787"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "86586044fd3e7212c6e7d3d411d61af8850c008a2710fbe07717f3f023969fb5"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "986d77a76e20a262ab1050a4e6ca44824e83e8e2ba7623e3318034dbffd07e86"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "9d63e0f2b21d2a7bee264fdbb2c8c6430b66b7e2ea3a28f3c519a381a9e2131c"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "a1eaa1562080a89add26249bf1b9af9b65ce6a89882c20bf2e58749bec913d9d"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "a7522c9a0c83f8cf4ea491244b2e63842234c923737b909e88d346064684e934"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "ae12039b733ea52074a82a712c2c980234863fb8ba79c0da335c3205bc17dc37"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "bd895051886139bfd14a6a313faf91c996573bfa1838d67184554f0aefdf65c2"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "c45afafbd8ff1c3a95abf7a8d14e53c9c161c08294b5ccb0d726c1823f81018e"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "c4af8b95cefc29c5ebf712203b48aab15f895e1a267de0085106404b02f55cab"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "c603aa8e85c7b65f61ae531463da1d65bd8d0f5c50d83fdc88f9f5856a7fd70e"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "c652bb0ceb2989ba900424547856aae4971c84961816534eb52765faaa3e8412"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "cc2c7df8bf73c0e7b76f8616a12823d6cfb231d64bd26e79c093c6293a2b2362"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "d030494ff0dd6ea053443b0ce784306640cf22edac2e39ff2b20a00f4a1dcbf6"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "d2fb8e08c9e64942ffd91a1c5d19ac519f3d74454f2bbbb8e636ded2d2d01072"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "d844cda02c6617f18de75ad6f036b2bfa5f7ba288dcb9c7eaec26e0c64339e3c"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "e25d22da27244168d0bbb851eea66dd433884bbb94ef0f13be6a06d3e3119173"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "e3ac36d1fb9e01e5f700a44641327c6c2a0f6929c70ab3bd4001e7eebfc14ad6"
++    },
++    {
++      "library": "dart:core",
++      "role": 3,
++      "source_blake3": "ed48fad24dd9dd7e73c0fbeefb92e06a749ac80e38772579dd4ac5849b4ec7d5"
++    },
++    {
++      "library": "dart:developer",
++      "role": 1,
++      "source_blake3": "5e70bc7063574dd451e265def353eccc7f0078b016fc843d6c2190e9627b0069"
++    },
++    {
++      "library": "dart:developer",
++      "role": 2,
++      "source_blake3": "2d65a9b0128b4f107f131bf49d4d03af7b12fb3ce62a40fd7f645ed89c440b04"
++    },
++    {
++      "library": "dart:developer",
++      "role": 2,
++      "source_blake3": "3cafc99028a78aebd2d3d05d6c2792951abb225dadc73ee24a1fefb540356b0f"
++    },
++    {
++      "library": "dart:developer",
++      "role": 2,
++      "source_blake3": "50e3aa9b746f45b39f2f377c00a030b99a294945042a56c7c411422cd2f2b479"
++    },
++    {
++      "library": "dart:developer",
++      "role": 2,
++      "source_blake3": "896d2dafffe10411bea8b1de60a2e182652d93c0b07bb95b4167cd5807cc15f0"
++    },
++    {
++      "library": "dart:developer",
++      "role": 2,
++      "source_blake3": "901ef82358f07f186cd756ffaa0d7558d878a1b9383ab8e6b400fc9180e34c59"
++    },
++    {
++      "library": "dart:developer",
++      "role": 3,
++      "source_blake3": "1c0fc0f27c9a23ccaf028b837fc68000c13d66a5751f775112df63e1b31c8d52"
++    },
++    {
++      "library": "dart:developer",
++      "role": 3,
++      "source_blake3": "a51b20c8db1e760e7b7a4bf85ae0d69e50e0196a621907c30e26ab9ce9c4d151"
++    },
++    {
++      "library": "dart:developer",
++      "role": 3,
++      "source_blake3": "f18da054fc2dd27f0e6e2510aae8b88dfc3d8230796f29fcad6e2a119749b9a1"
++    },
++    {
++      "library": "dart:ffi",
++      "role": 1,
++      "source_blake3": "4edee4594f97a9740938b4433a247934a9d855901f8331f2ff3d78fe2108f936"
++    },
++    {
++      "library": "dart:ffi",
++      "role": 2,
++      "source_blake3": "1b885e7bf0425e601de42ca4aae3bfba5145cbcfdf08e8ce0693012a2978d100"
++    },
++    {
++      "library": "dart:ffi",
++      "role": 2,
++      "source_blake3": "2efee8f8de0ebad95091011f1a4b0e22d27e7e9f87563fab51523b9cf0e95481"
++    },
++    {
++      "library": "dart:ffi",
++      "role": 2,
++      "source_blake3": "3de8c0950d1405e8869b20b00a8f42ffca8b33691785d11b92d74f6f28b55839"
++    },
++    {
++      "library": "dart:ffi",
++      "role": 2,
++      "source_blake3": "43bad10915a165a6bd24da44c352d971a49f00470ba93be1ac3d14abc49dfb62"
++    },
++    {
++      "library": "dart:ffi",
++      "role": 2,
++      "source_blake3": "6e9e42a4cf320ac3a8b91f929adb0108ce9c1f38126371033bc6f29fd384c6d8"
++    },
++    {
++      "library": "dart:ffi",
++      "role": 2,
++      "source_blake3": "7b3d8c68657ed0b2c377a73b1f7c290fdfe5c8757d2547858e1562ce6195eff5"
++    },
++    {
++      "library": "dart:ffi",
++      "role": 2,
++      "source_blake3": "c3a7821ac93549f0d669512988af46dc5562b191aa6542786e38ba739a320fd4"
++    },
++    {
++      "library": "dart:ffi",
++      "role": 2,
++      "source_blake3": "cd38fe40eced98025cafc4a4472aad5b3a1e016b4facb9a43eabba6ffd381184"
++    },
++    {
++      "library": "dart:ffi",
++      "role": 2,
++      "source_blake3": "ecd9e8237e6a2d43246736b4484e5d8287fde209e4a96751354b9cbaefaa57cb"
++    },
++    {
++      "library": "dart:ffi",
++      "role": 2,
++      "source_blake3": "fe0fc3ca39eca07ec5abc22791dfa01e35de150f74cb2cbc0135ccd89063dd42"
++    },
++    {
++      "library": "dart:ffi",
++      "role": 3,
++      "source_blake3": "a54b3a9a829578f25bb6c08d96437dd7697202cb5bac412ce8e4d37a93df40c4"
++    },
++    {
++      "library": "dart:ffi",
++      "role": 3,
++      "source_blake3": "a920228dfa9c6394d0bb8f16f13e43eb0a5200042bc64d9ec464345d5efe64d1"
++    },
++    {
++      "library": "dart:ffi",
++      "role": 3,
++      "source_blake3": "d407d6e2e3ab638b2275285730d254b80cbefb8dc8a46cb508514fd8cd32d135"
++    },
++    {
++      "library": "dart:ffi",
++      "role": 3,
++      "source_blake3": "e20156b696de9839e10bc68e2b8b298b47d4a94e05a890bbc1e16427833bf282"
++    },
++    {
++      "library": "dart:ffi",
++      "role": 3,
++      "source_blake3": "e6f4a42ef36d2b266bec0f45d40d3931ed0fdd31c8440ca2d9ea7f563272e720"
++    },
++    {
++      "library": "dart:ffi",
++      "role": 3,
++      "source_blake3": "fdde8408bb645ff427f2bd1c6eb0740087a8a20ce8c7a057865da781f5119d9f"
++    },
++    {
++      "library": "dart:io",
++      "role": 1,
++      "source_blake3": "bac85876e271f10813527bac64d01b8036a542e170c1c6e435821b228ec1e54b"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "03b683914c4ec46229722a72becdc16d6268c19775eb5b4631011ab0235ac860"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "0936f147fb88538b00bf2f23c81f53a6bef074fa3db161d16f8dc7e75dd2e71b"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "0c33c3656da4d84e11e32972dc4d740b0af1a704710df95855fadb5257b53cda"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "132780da85a36c30db56d58d1ca00ce6e80ac244b381326f68245d936fd0511f"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "18c65b9b7da87ea14aa15acbde778acffc06659a0ef317e935e8470008d72a61"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "1a0bfb561a99c313084e16b6f6700bf89491a409bb2f500b7304820f64415287"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "200603cb47bedf76f6a74d9bb6a5cbfec3a5e7fef78391a1567a8e79fa747b82"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "23a4f49dc2057151e56f2b0f7cd82791382d1ef1619d897f5699fb26de6b0abb"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "3395c0669ac734315828597a98906ff3d0275ab44ef9f7766b3a61992477f243"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "46fefd4458c5f042fdaaa4ca8aab5fff93a4c776073a0adecf62be3e872846ce"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "521deed842ea24aab529bd479191fa324a0ad59c416d486f6a8d9b636a8fd9f9"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "53d3bcb5f65a015d144d39001367c61afcb7d07ee084fc1654fd18784ce2a840"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "56a8a6a96f6c87c6358b8d40caff2612eb06c93d72217ecd78ec1a9be1dd419e"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "6b39fa5478163fce252012609c9c04a3106f1614411b13abfb8333659b05db94"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "7a8ee15b0c94fcd5a39a467147962b543f7b7cd5de6e2103bbf5018297c18df2"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "9cf124dbd046b8e15dee10310e404b62c895d12a955c0cfec076ed01c103c668"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "a02a7b63f51a501f701ab814553c49ea22797ca215da051c65182645c12895c0"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "af1137523c2bb339aad60465359204895dd887783c9f2b591f78e9a49d03594f"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "b028e8774a8a9f58db7412563a7b8dc927a5b00f056913d34ae0df9adf21c235"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "b68118881f7db6c19f45adc3a49a81ec43cbd8bc4c4dec359359c94200807c79"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "bf97dfd6899851c0c41f7b77e1fd549aee4c19c6eaf2401d6db9a9b460413ac6"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "cb0696eecdb773150fec2cc9f4402f25152a22f8b43d0cb93514409863d11843"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "e30178589e65bfde299898f69aa41508e79d5bf8fae5f775a1f5a1db7315683a"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "ec0f7fac829ef85c26e561af7244b01a8ef2d0a3d4f39bbbe43f9094c79a74c2"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "eeb54db8154b8d309fa398b9b4d7a9f8f01329d16d9a6a483c5f429c983744fc"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "f16c6c48c5670e69e0692e59b3ae163aa0b30d57c6d6c11f6aba19e71d210ec1"
++    },
++    {
++      "library": "dart:io",
++      "role": 2,
++      "source_blake3": "f6d4d0378a7f872913b8c1124b183f33422f64fad5b5ccd5300d4decedd7cfde"
++    },
++    {
++      "library": "dart:io",
++      "role": 3,
++      "source_blake3": "2ca2ed18757826fa76e5eb4ca1d15b77a31131c7ad03e498b420c00b70567996"
++    },
++    {
++      "library": "dart:io",
++      "role": 3,
++      "source_blake3": "2f40b081adb7652975aa80c1b89f4e706f1e98f24703cb4a96b1d48def8e6cba"
++    },
++    {
++      "library": "dart:io",
++      "role": 3,
++      "source_blake3": "330de0d7691a5ff6c8bd7e52c1814e0abc3355bc009e0d4dcc77528419c48e7c"
++    },
++    {
++      "library": "dart:io",
++      "role": 3,
++      "source_blake3": "36670208fd7697a3e4c2f5d37e256802e2dc689eb116f3da2dd2127077772381"
++    },
++    {
++      "library": "dart:io",
++      "role": 3,
++      "source_blake3": "528dc5e08da8efa2be08a825773384e2d3f98283224a63076fc0099740a5015d"
++    },
++    {
++      "library": "dart:io",
++      "role": 3,
++      "source_blake3": "6483ac3b41dd3e4080242860c55d458580f4cc7ba82c239b5c72012e8f0aff04"
++    },
++    {
++      "library": "dart:io",
++      "role": 3,
++      "source_blake3": "6558fde4e5376adbcb4a479625305bf17d889f0ae32038a1dbd83f7a3dc403ed"
++    },
++    {
++      "library": "dart:io",
++      "role": 3,
++      "source_blake3": "9aab3011e0938b7ff3cbb295ea570e4602d6ffb73ef5a441758cd19454192ad2"
++    },
++    {
++      "library": "dart:io",
++      "role": 3,
++      "source_blake3": "9c80739309e698ae62902dbfa600d9891fde6a04c7962b454c3e1628f938495f"
++    },
++    {
++      "library": "dart:io",
++      "role": 3,
++      "source_blake3": "e207aae00e73e2201cf5637de230f069b743b7ea68f54167e7a1e7458073501f"
++    },
++    {
++      "library": "dart:io",
++      "role": 3,
++      "source_blake3": "e2a49d37437991d861c2438a8fb6afe2d2de8c28e2828f11714b435c7b700d6e"
++    },
++    {
++      "library": "dart:io",
++      "role": 3,
++      "source_blake3": "e98575b3f7c20c93120e45b6fd8d33f9965b02ea9dfdd2581d1a5617f5131134"
++    },
++    {
++      "library": "dart:io",
++      "role": 3,
++      "source_blake3": "eacb651ea334e232452778e6e1185e8aa2ec3fe1109b00aa7f4ee5a37e6ee88e"
++    },
++    {
++      "library": "dart:io",
++      "role": 3,
++      "source_blake3": "ed26cab23380ee218df6e6d3f356db95d18feb11b0d898ae30a03354d943d117"
++    },
++    {
++      "library": "dart:isolate",
++      "role": 1,
++      "source_blake3": "4784bd2db88063cf25afbd6f1807ebe80a35f4282bd33641badbe5623d8b158d"
++    },
++    {
++      "library": "dart:isolate",
++      "role": 2,
++      "source_blake3": "c6730caf88ca0bbf9ec3c1d3bd98a9024ced4992d0b06348b6d82605edd5c956"
++    },
++    {
++      "library": "dart:isolate",
++      "role": 3,
++      "source_blake3": "380d3f8624a535743b5e0c57bcdc963cfdf5de5683a8bc4afe8af838e8f29b94"
++    },
++    {
++      "library": "dart:math",
++      "role": 1,
++      "source_blake3": "fb206325e3e0d879e9f1be91c4cfa7846983073a512ec224e6c2b4b56731ccbd"
++    },
++    {
++      "library": "dart:math",
++      "role": 2,
++      "source_blake3": "1e782f3035e0d69660f7f7056941095939ff5447c81b0fd2d112126a7ae189d2"
++    },
++    {
++      "library": "dart:math",
++      "role": 2,
++      "source_blake3": "49c9607f112d79feefe7cc8c32d9632c5fa9841adbca7f45421844322f6d94df"
++    },
++    {
++      "library": "dart:math",
++      "role": 2,
++      "source_blake3": "a0505421e2eccb20dc41fd6bc371b31c2fcff8fe5f2639439d980a51479d83e8"
++    },
++    {
++      "library": "dart:math",
++      "role": 3,
++      "source_blake3": "5f8dceda83cd4a45504278528abce0e620c73cf98b6d4b6ce4c0564b4b9592c5"
++    },
++    {
++      "library": "dart:mirrors",
++      "role": 1,
++      "source_blake3": "7137dcca1b403048f8117498c34742e731826a86564861dabe7d97fcd47372b9"
++    },
++    {
++      "library": "dart:mirrors",
++      "role": 3,
++      "source_blake3": "68e3b1f2719bfc3496d411e8d2bf8fa0a8663d098fda2777b8ed90e87da478e7"
++    },
++    {
++      "library": "dart:nativewrappers",
++      "role": 1,
++      "source_blake3": "f02fbbb86130723f69498ac54c1d19341b31eb2842636653dac33d86976e502d"
++    },
++    {
++      "library": "dart:typed_data",
++      "role": 1,
++      "source_blake3": "1082c0b7f247a3dc6fd8d54eb091087c9e434f002d79d3f3be2b8b2364093b8f"
++    },
++    {
++      "library": "dart:typed_data",
++      "role": 3,
++      "source_blake3": "66ec90c01e321088bbd365180373a8b23954099bf1d0ab1972f4c783e292d4c9"
++    }
++  ]
++}
+diff --git a/crates/emit_native/src/lower/double_identity/tests.rs b/crates/emit_native/src/lower/double_identity/tests.rs
+new file mode 100644
+index 00000000..16c0e72d
+--- /dev/null
++++ b/crates/emit_native/src/lower/double_identity/tests.rs
+@@ -0,0 +1,385 @@
++use super::*;
++use std::path::{Path, PathBuf};
++fn fixture() -> PathBuf {
++    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/checked_double_roundtrip/main.dart")
++}
++fn with_context(edit: Option<(&str, &str, &str)>, action: impl FnOnce(&mut Context)) {
++    with_entry_context(&fixture(), edit, action);
++}
++fn with_entry_context(
++    entry: &Path,
++    edit: Option<(&str, &str, &str)>,
++    action: impl FnOnce(&mut Context),
++) {
++    let temporary = tempfile::tempdir().unwrap();
++    let mut sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
++    if let Some((file, old, new)) = edit {
++        let original = sdk.root.join(file);
++        let selected = sdk.replacements.get(&original).unwrap_or(&original);
++        let source = std::fs::read_to_string(selected).unwrap();
++        assert!(
++            source.contains(old),
++            "SDK test replacement must actually apply: {file}"
++        );
++        let modified = temporary.path().join("sdk-edit.dart");
++        std::fs::write(&modified, source.replace(old, new)).unwrap();
++        sdk.replacements.insert(original, modified);
++    }
++    let mut interner = dartforge_intern::Interner::new();
++    let (program, diagnostics) =
++        dartforge_elements::load::load_lenient(entry, &sdk, None, &mut interner);
++    assert!(diagnostics.is_empty(), "{diagnostics:?}");
++    let mut table = dartforge_types::TypeTable::new();
++    let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
++    let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
++    let libraries: Vec<_> = program
++        .libraries
++        .iter()
++        .enumerate()
++        .filter(|(_, l)| !l.is_sdk)
++        .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32))
++        .collect();
++    let (bodies, _) = dartforge_types::infer_library_bodies_with_locals(
++        &program,
++        &interner,
++        &mut table,
++        &core,
++        &mut outline,
++        &libraries,
++    );
++    let mut context =
++        Context::new(&program, &interner, &table, &core, &outline, &bodies).with_source_sdk();
++    action(&mut context);
++}
++
++#[test]
++fn canonical_selected_sdk_certifies_and_modified_identity_hash_fails_closed() {
++    std::thread::Builder::new()
++        .stack_size(64 << 20)
++        .spawn(|| {
++            with_context(None, |ctx| {
++                assert!(
++                    certified(ctx),
++                    "actual canonical SDK declarations must certify"
++                );
++                let mut module = crate::lower::lower_program(ctx);
++                assert!(module.checked_double_identity);
++                assert!(module.errors.is_empty(), "{:?}", module.errors);
++                let boxes = |m: &crate::hir::Module| {
++                    m.functions
++                        .iter()
++                        .filter(|f| f.name == "roundTrip")
++                        .flat_map(|f| &f.blocks)
++                        .flat_map(|b| &b.instructions)
++                        .filter(|(_, i, _)| {
++                            matches!(
++                                i,
++                                crate::hir::Instruction::Box {
++                                    from: crate::hir::Type::F64,
++                                    ..
++                                }
++                            )
++                        })
++                        .count()
++                };
++                assert!(
++                    boxes(&module) > 0,
++                    "ordinary lowering must contain the actual roundtrip"
++                );
++                module.arc_fixed_ancestry = true;
++                crate::optimize::optimize(&mut module);
++                assert_eq!(
++                    boxes(&module),
++                    0,
++                    "canonical ordinary program must actually exercise the fast path: {:#?}",
++                    module.functions.iter().find(|f| f.name == "roundTrip")
++                );
++                assert!(
++                    module
++                        .functions
++                        .iter()
++                        .filter(|f| f.name == "roundTrip")
++                        .flat_map(|f| &f.blocks)
++                        .flat_map(|b| &b.instructions)
++                        .any(|(_, i, _)| matches!(
++                            i,
++                            crate::hir::Instruction::Unbox {
++                                to: crate::hir::Type::F64,
++                                ..
++                            }
++                        )),
++                    "validation must remain"
++                );
++            });
++            for edit in [
++                (
++                    "_internal/vm/lib/double.dart",
++                    "int get _identityHashCode => hashCode;",
++                    "int get _identityHashCode => 17;",
++                ),
++                (
++                    "_internal/vm/lib/identical_patch.dart",
++                    "Identical_comparison",
++                    "Object_getHash",
++                ),
++                (
++                    "_internal/vm/lib/identical_patch.dart",
++                    "object._identityHashCode",
++                    "17",
++                ),
++            ] {
++                with_context(Some(edit), |ctx| {
++                    assert!(
++                        !certified(ctx),
++                        "actual SDK replacement must invalidate proof: {edit:?}"
++                    );
++                    assert!(!crate::lower::lower_program(ctx).checked_double_identity);
++                });
++            }
++        })
++        .unwrap()
++        .join()
++        .unwrap();
++}
++
++#[test]
++fn actual_format_widened_booleans_preserve_all_eight_checked_return_rewrites() {
++    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
++        let temporary = tempfile::tempdir().unwrap();
++        // Exact ordinary dart_ui source retained as a portable regression fixture.
++        let actual = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/checked_double_roundtrip/format.dart");
++        std::fs::copy(actual, temporary.path().join("format.dart")).unwrap();
++        let entry = temporary.path().join("main.dart");
++        std::fs::write(&entry, "import 'format.dart'; void main() { print(convertFormatValue(1, Format.uint2, Format.float32)); }").unwrap();
++        with_entry_context(&entry, None, |ctx| {
++            let mut module = crate::lower::lower_program(ctx);
++            assert!(module.errors.is_empty(), "{:?}", module.errors);
++            assert!(!module.sdk_library);
++            assert!(module.checked_double_identity);
++            module.arc_fixed_ancestry = true;
++            let counts = |module: &crate::hir::Module| {
++                let f = module.functions.iter().find(|f| f.name == "convertFormatValue").unwrap();
++                let mut boxes = 0;
++                let mut unboxes = 0;
++                let mut widened_or = 0;
++                for (_, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
++                    if matches!(inst, crate::hir::Instruction::Box { from: crate::hir::Type::F64, .. }) { boxes += 1; }
++                    if matches!(inst, crate::hir::Instruction::Unbox { to: crate::hir::Type::F64, .. }) { unboxes += 1; }
++                    if matches!(inst, crate::hir::Instruction::Or(..)) && *ty == crate::hir::Type::I1
++                        && crate::llvm::LlvmEmitter::result_type(inst, *ty) == crate::hir::Type::I64 { widened_or += 1; }
++                }
++                (boxes, unboxes, widened_or)
++            };
++            let before = counts(&module);
++            assert_eq!(before.0, 8);
++            assert!(before.2 > 0, "actual source must exercise canonical widened boolean guards");
++            crate::optimize::optimize(&mut module);
++            let after = counts(&module);
++            assert_eq!(after.0, 0, "all eight actual checked double return paths must be optimized");
++            assert_eq!(after.1, before.1, "original checks remain intact");
++            assert_eq!(after.2, before.2, "unrelated predicates remain intact");
++        });
++    }).unwrap().join().unwrap();
++}
++
++#[test]
++#[ignore = "Writes a reviewable selected SDK baseline manifest to an explicit SSD output"]
++fn dump_selected_sdk_baseline_for_review() {
++    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
++        let temporary = tempfile::tempdir().unwrap();
++        let entry = temporary.path().join("main.dart");
++        let mut source = String::new();
++        for name in crate::sdk_module::SOURCE_LIBRARIES { source.push_str(&format!("import 'dart:{name}';\n")); }
++        source.push_str("void main() {}\n");
++        std::fs::write(&entry, source).unwrap();
++        with_entry_context(&entry, None, |ctx| {
++            let core = selected_sdk::core_fingerprint(ctx).expect("canonical core relation proof");
++            let mut units = Vec::new();
++            for unit in &ctx.program.units {
++                let library = ctx.program.library(unit.library);
++                if !library.is_sdk { continue; }
++                let role = match unit.role {
++                    dartforge_elements::model::UnitRole::Library => 1,
++                    dartforge_elements::model::UnitRole::Part => 2,
++                    dartforge_elements::model::UnitRole::Patch => 3,
++                    _ => panic!("baseline must not contain augmentation"),
++                };
++                assert!(unit.skipped.is_empty());
++                units.push(serde_json::json!({"library":library.uri,"role":role,"source_blake3":blake3::hash(unit.source.as_bytes()).to_hex().to_string()}));
++            }
++            units.sort_by_cached_key(|u| u.to_string());
++            let manifest = serde_json::json!({"schema":1,"baseline":"Reviewed SDK3.6.2 selected sources with DartForge native overlays; no version/path check substitutes these content hashes.","core_fingerprint":core,"units":units});
++            if let Some(output) = std::env::var_os("DARTFORGE_SELECTED_SDK_REVIEW_OUTPUT") {
++                let output = PathBuf::from(output);
++                assert!(output.starts_with("/Volumes/ssd_dock/"));
++                std::fs::write(output, serde_json::to_string_pretty(&manifest).unwrap() + "\n").unwrap();
++            } else {
++                let reviewed: serde_json::Value = serde_json::from_str(include_str!("selected_sdk_manifest.json")).unwrap();
++                assert_eq!(manifest, reviewed, "full gate validates the reviewed baseline without writing any source");
++                assert!(selected_sdk::trusted_sources(ctx));
++                assert!(selected_sdk::canonical_hash_binding(ctx));
++            }
++        });
++    }).unwrap().join().unwrap();
++}
++
++#[test]
++fn inherited_and_ambient_sdk_observers_fail_closed() {
++    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
++        for edit in [
++            ("_internal/vm/lib/object_patch.dart", "throw new NoSuchMethodError.withInvocation(this, invocation);", "return _getHash(this);"),
++            ("_internal/vm/lib/object_patch.dart", "external int _getHash(obj);", "external int _getHash(obj); int _ambientObserver(Object value) => _getHash(value);"),
++            ("_internal/vm/lib/internal_patch.dart", "(object is num) ||", "false ||"),
++        ] {
++            with_context(Some(edit), |ctx| {
++                assert!(!selected_sdk::trusted_sources(ctx), "modified ambient SDK source must not certify: {edit:?}");
++                assert!(!certified(ctx));
++                let mut module = crate::lower::lower_program(ctx);
++                assert!(!module.checked_double_identity);
++                module.arc_fixed_ancestry = true;
++                crate::optimize::optimize(&mut module);
++                let function = module.functions.iter().find(|f| f.name == "roundTrip").unwrap();
++                assert!(function.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)| matches!(i, crate::hir::Instruction::Box { from: crate::hir::Type::F64, .. })));
++            });
++        }
++        let temporary = tempfile::tempdir().unwrap();
++        let entry = temporary.path().join("main.dart");
++        let source = std::fs::read_to_string(fixture()).unwrap();
++        std::fs::write(&entry, source + "\n@pragma('vm:external-name', 'Object_getHash') external int extraHeaderIdentity(Object value);\n").unwrap();
++        with_entry_context(&entry, None, |ctx| {
++            assert!(selected_sdk::trusted_sources(ctx), "the SDK itself remains canonical in the alias test");
++            assert!(!selected_sdk::canonical_hash_binding(ctx), "native alias outside the actual canonical helper must reject");
++            assert!(!certified(ctx));
++        });
++    }).unwrap().join().unwrap();
++}
++
++fn with_loaded_context(
++    program: &dartforge_elements::Program,
++    interner: &dartforge_intern::Interner,
++    action: impl FnOnce(&Context),
++) {
++    let mut table = dartforge_types::TypeTable::new();
++    let core = dartforge_types::CoreTypes::init(&mut table, program, interner);
++    let (mut outline, _) = dartforge_types::resolve_outline(program, interner, &mut table, &core);
++    let libraries: Vec<_> = program
++        .libraries
++        .iter()
++        .enumerate()
++        .filter(|(_, l)| !l.is_sdk)
++        .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32))
++        .collect();
++    let (bodies, _) = dartforge_types::infer_library_bodies_with_locals(
++        program,
++        interner,
++        &mut table,
++        &core,
++        &mut outline,
++        &libraries,
++    );
++    let ctx = Context::new(program, interner, &table, &core, &outline, &bodies).with_source_sdk();
++    action(&ctx);
++}
++
++fn copy_tree(source: &Path, destination: &Path) {
++    std::fs::create_dir_all(destination).unwrap();
++    for entry in std::fs::read_dir(source).unwrap() {
++        let entry = entry.unwrap();
++        let dest = destination.join(entry.file_name());
++        if entry.path().is_dir() {
++            copy_tree(&entry.path(), &dest);
++        } else {
++            std::fs::copy(entry.path(), dest).unwrap();
++        }
++    }
++}
++
++#[test]
++fn copied_sdk_and_cold_warm_parts_have_same_reviewed_identity() {
++    std::thread::Builder::new()
++        .stack_size(64 << 20)
++        .spawn(|| {
++            let temporary = tempfile::tempdir().unwrap();
++            let copy = temporary.path().join("copied-sdk-lib");
++            copy_tree(crate::sdk_tests(), &copy);
++            let sdk = crate::sdk_module::load_native_sdk(&copy).unwrap();
++            let mut cold_interner = dartforge_intern::Interner::new();
++            let (mut cold, diagnostics) =
++                dartforge_elements::load::load_lenient(&fixture(), &sdk, None, &mut cold_interner);
++            assert!(diagnostics.is_empty());
++            let mut cold_fingerprint = None;
++            with_loaded_context(&cold, &cold_interner, |ctx| {
++                assert!(
++                    certified(ctx),
++                    "copied paths must not affect source identity"
++                );
++                cold_fingerprint = selected_sdk::core_fingerprint(ctx);
++                assert!(
++                    !ctx.program
++                        .library(ctx.program.core.unwrap())
++                        .unit_parents
++                        .is_empty()
++                );
++            });
++            let mut cache_sdk = sdk.clone();
++            cache_sdk
++                .libraries
++                .retain(|name, _| crate::sdk_module::SOURCE_LIBRARIES.contains(&name.as_str()));
++            let cache = dartforge_elements::SdkCache::build_and_write(
++                &cache_sdk,
++                &temporary.path().join("sdk-cache.bin"),
++            )
++            .unwrap();
++            let mut warm_interner = dartforge_intern::Interner::new();
++            let (warm, diagnostics) = dartforge_elements::load::load_lenient_with_cache(
++                &fixture(),
++                &sdk,
++                None,
++                &mut warm_interner,
++                Some(cache),
++            );
++            assert!(diagnostics.is_empty());
++            with_loaded_context(&warm, &warm_interner, |ctx| {
++                assert!(
++                    ctx.program
++                        .library(ctx.program.core.unwrap())
++                        .unit_parents
++                        .is_empty(),
++                    "actual cached loader omits the parent map"
++                );
++                assert_eq!(
++                    selected_sdk::core_fingerprint(ctx),
++                    cold_fingerprint,
++                    "derive parsed-source relations without hashing SDK paths"
++                );
++                assert!(certified(ctx));
++            });
++            let core = cold.core.unwrap();
++            let parent = cold.library(core).units[0];
++            let patch = cold.library(core).units[1];
++            cold.libraries[core.0 as usize]
++                .unit_parents
++                .insert(patch, parent);
++            with_loaded_context(&cold, &cold_interner, |ctx| {
++                assert!(
++                    selected_sdk::core_fingerprint(ctx).is_none(),
++                    "an explicit fabricated parent must not be ignored"
++                );
++                assert!(!certified(ctx));
++            });
++            cold.libraries[core.0 as usize].unit_parents.remove(&patch);
++            cold.units[parent.0 as usize]
++                .skipped
++                .push(dartforge_diagnostics::Span { start: 0, end: 1 });
++            with_loaded_context(&cold, &cold_interner, |ctx| {
++                assert!(
++                    selected_sdk::core_fingerprint(ctx).is_none(),
++                    "parse-recovery inputs cannot certify"
++                );
++                assert!(!certified(ctx));
++            });
++        })
++        .unwrap()
++        .join()
++        .unwrap();
++}
+diff --git a/crates/emit_native/src/lower/mod.rs b/crates/emit_native/src/lower/mod.rs
+index 846cce00..a347e82a 100644
+--- a/crates/emit_native/src/lower/mod.rs
++++ b/crates/emit_native/src/lower/mod.rs
+@@ -15,6 +15,7 @@ pub mod statements;
+ pub mod primitive_const;
+ pub mod constants;
+ mod environment;
++mod double_identity;
+ mod platform;
+ mod native_pump;
+ mod sync_native_callable;
+@@ -188,6 +189,7 @@ pub fn late_field_getter_symbol(ctx: &Context, vid: VariableId) -> String {
+ pub fn lower_program(ctx: &Context) -> Module {
+     let mut module = Module::new();
+     module.arc_memory = ctx.arc_memory;
++    module.checked_double_identity = double_identity::certified(ctx);
+ 
+     // 1. Registers known classes
+     // Default Object class as id 0
+diff --git a/crates/emit_native/src/optimize/checked_double_roundtrip.rs b/crates/emit_native/src/optimize/checked_double_roundtrip.rs
+new file mode 100644
+index 00000000..d40a0a25
+--- /dev/null
++++ b/crates/emit_native/src/optimize/checked_double_roundtrip.rs
+@@ -0,0 +1,212 @@
++//! Reuse canonical double boxes only after their original checked unbox succeeds.
++use super::{
++    cfg::Cfg,
++    operands::{operands, operands_mut, terminator_operands, terminator_operands_mut},
++};
++use crate::hir::*;
++use std::collections::{HashMap, HashSet};
++
++pub(super) fn rewrite(module: &mut Module) -> usize {
++    if std::env::var("DARTFORGE_NO_CHECKED_DOUBLE_ROUNDTRIP").as_deref() == Ok("1")
++        || !module.checked_double_identity
++        || !module.arc_fixed_ancestry
++        || module.arc_memory
++        || module.arc_prepared
++        || module.arc_aot_ports.is_some()
++        || module.sdk_library
++        || module.functions.iter().any(|f| {
++            matches!(
++                f.symbol.as_str(),
++                "dartforge_unbox_double"
++                    | "dartforge_box_double"
++                    | "dartforge_native_Identical_comparison"
++                    | "dartforge_native_DartForge_double_hashCode"
++            )
++        })
++    {
++        return 0;
++    }
++    module.functions.iter_mut().map(rewrite_function).sum()
++}
++
++fn rewrite_function(f: &mut Function) -> usize {
++    if f.blocks.first().is_none_or(|b| b.id != BlockId(0)) {
++        return 0;
++    }
++    let mut ids = HashSet::new();
++    let mut types = HashMap::new();
++    let mut locations = HashMap::new();
++    for (v, _, t) in &f.params {
++        if types.insert(*v, Some(*t)).is_some() {
++            return 0;
++        }
++    }
++    for (bi, b) in f.blocks.iter().enumerate() {
++        if !ids.insert(b.id) {
++            return 0;
++        }
++        for (ii, (v, i, t)) in b.instructions.iter().enumerate() {
++            locations.insert(*v, (bi, ii));
++            let proven = (crate::llvm::LlvmEmitter::result_type(i, *t) == *t).then_some(*t);
++            if types.insert(*v, proven).is_some() {
++                return 0;
++            }
++        }
++    }
++    if f.blocks.iter().any(|b| {
++        super::cfg::successors(&b.terminator)
++            .iter()
++            .any(|id| !ids.contains(id))
++    }) {
++        return 0;
++    }
++    let cfg = Cfg::new(f);
++    let dominates = |a: usize, mut b: usize| {
++        if cfg.idom[b] == usize::MAX {
++            return false;
++        }
++        while a != b {
++            let next = cfg.idom[b];
++            if next == b {
++                return false;
++            }
++            b = next;
++        }
++        true
++    };
++    let mut replacements = HashMap::new();
++    for (bi, b) in f.blocks.iter().enumerate() {
++        if cfg.idom[bi] == usize::MAX || cfg.predecessors[bi].len() != 1 {
++            continue;
++        }
++        let Some((
++            boxed,
++            Instruction::Box {
++                op: Operand::Val(scalar),
++                from: Type::F64,
++            },
++            Type::Ref,
++        )) = b.instructions.first()
++        else {
++            continue;
++        };
++        if !b.instructions[1..].iter().all(|(_, i, t)| matches!(i, Instruction::CallRuntime { name, args, ret_ty: Type::Void } if name == "dartforge_exception_clear" && args.is_empty()) && *t == Type::Void)
++            || !matches!(b.terminator, Terminator::Return(Some(Operand::Val(v))) if v == *boxed)
++        {
++            continue;
++        }
++        let mut other_use = false;
++        for (ui, user) in f.blocks.iter().enumerate() {
++            for (_, inst, _) in &user.instructions {
++                operands(inst, &mut |op| {
++                    other_use |= matches!(op, Operand::Val(v) if v == boxed);
++                });
++            }
++            if ui != bi {
++                terminator_operands(&user.terminator, &mut |op| {
++                    other_use |= matches!(op, Operand::Val(v) if v == boxed);
++                });
++            }
++        }
++        if other_use {
++            continue;
++        }
++        let pi = cfg.predecessors[bi][0];
++        let predecessor = &f.blocks[pi];
++        let n = predecessor.instructions.len();
++        if n < 3 {
++            continue;
++        }
++        let tail = &predecessor.instructions[n - 3..];
++        let (
++            unboxed,
++            Instruction::Unbox {
++                op: Operand::Val(original),
++                to: Type::F64,
++            },
++            Type::F64,
++        ) = &tail[0]
++        else {
++            continue;
++        };
++        if scalar != unboxed || types.get(original) != Some(&Some(Type::Ref)) {
++            continue;
++        }
++        if let Some(&(definition_block, definition_position)) = locations.get(original) {
++            if !dominates(definition_block, pi)
++                || (definition_block == pi && definition_position >= n - 3)
++            {
++                continue;
++            }
++        } else if !f
++            .params
++            .iter()
++            .any(|(v, _, t)| v == original && *t == Type::Ref)
++        {
++            continue;
++        }
++        let (
++            pending,
++            Instruction::CallRuntime {
++                name,
++                args,
++                ret_ty: Type::I8,
++            },
++            Type::I8,
++        ) = &tail[1]
++        else {
++            continue;
++        };
++        if name != "dartforge_exception_pending" || !args.is_empty() {
++            continue;
++        }
++        let (
++            condition,
++            Instruction::ICmp(ICmpOp::Ne, Operand::Val(read), Operand::Constant(Constant::Int(0))),
++            Type::I1,
++        ) = &tail[2]
++        else {
++            continue;
++        };
++        if pending != read {
++            continue;
++        }
++        let Terminator::CondBranch {
++            cond: Operand::Val(test),
++            then_block,
++            else_block,
++        } = predecessor.terminator
++        else {
++            continue;
++        };
++        if test != *condition || else_block != b.id || then_block == b.id {
++            continue;
++        }
++        // The checked-success edge is the sole entrance. There is no intervening
++        // call, allocation, mutation, join, or backedge between the load and reuse.
++        replacements.insert(*boxed, Operand::Val(*original));
++    }
++    let count = replacements.len();
++    if count == 0 {
++        return 0;
++    }
++    let replace = &mut |op: &mut Operand| {
++        if let Operand::Val(v) = op
++            && let Some(value) = replacements.get(v)
++        {
++            *op = value.clone();
++        }
++    };
++    for b in &mut f.blocks {
++        for (_, i, _) in &mut b.instructions {
++            operands_mut(i, replace);
++        }
++        terminator_operands_mut(&mut b.terminator, replace);
++        b.instructions
++            .retain(|(v, _, _)| !replacements.contains_key(v));
++    }
++    count
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/crates/emit_native/src/optimize/checked_double_roundtrip/tests.rs b/crates/emit_native/src/optimize/checked_double_roundtrip/tests.rs
+new file mode 100644
+index 00000000..ff7ef0da
+--- /dev/null
++++ b/crates/emit_native/src/optimize/checked_double_roundtrip/tests.rs
+@@ -0,0 +1,204 @@
++use super::*;
++
++fn fixture() -> Function {
++    Function {
++        symbol: "checked".into(),
++        name: "checked".into(),
++        params: vec![(ValueId(0), "value".into(), Type::Ref)],
++        return_ty: Type::Ref,
++        debug_info: None,
++        blocks: vec![
++            BasicBlock {
++                id: BlockId(0),
++                instructions: vec![
++                    (
++                        ValueId(1),
++                        Instruction::Unbox {
++                            op: Operand::Val(ValueId(0)),
++                            to: Type::F64,
++                        },
++                        Type::F64,
++                    ),
++                    (
++                        ValueId(2),
++                        Instruction::CallRuntime {
++                            name: "dartforge_exception_pending".into(),
++                            args: vec![],
++                            ret_ty: Type::I8,
++                        },
++                        Type::I8,
++                    ),
++                    (
++                        ValueId(3),
++                        Instruction::ICmp(
++                            ICmpOp::Ne,
++                            Operand::Val(ValueId(2)),
++                            Operand::Constant(Constant::Int(0)),
++                        ),
++                        Type::I1,
++                    ),
++                ],
++                terminator: Terminator::CondBranch {
++                    cond: Operand::Val(ValueId(3)),
++                    then_block: BlockId(2),
++                    else_block: BlockId(1),
++                },
++            },
++            BasicBlock {
++                id: BlockId(1),
++                instructions: vec![(
++                    ValueId(4),
++                    Instruction::Box {
++                        op: Operand::Val(ValueId(1)),
++                        from: Type::F64,
++                    },
++                    Type::Ref,
++                )],
++                terminator: Terminator::Return(Some(Operand::Val(ValueId(4)))),
++            },
++            BasicBlock {
++                id: BlockId(2),
++                instructions: vec![],
++                terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
++            },
++        ],
++    }
++}
++
++#[test]
++fn keeps_validation_error_edge_and_returns_original_on_success() {
++    let mut f = fixture();
++    assert_eq!(rewrite_function(&mut f), 1);
++    assert!(matches!(
++        f.blocks[0].instructions[0].1,
++        Instruction::Unbox { to: Type::F64, .. }
++    ));
++    assert_eq!(f.blocks[1].instructions.len(), 0);
++    assert!(matches!(
++        f.blocks[1].terminator,
++        Terminator::Return(Some(Operand::Val(ValueId(0))))
++    ));
++    assert!(matches!(
++        f.blocks[2].terminator,
++        Terminator::Return(Some(Operand::Constant(Constant::Null)))
++    ));
++}
++
++#[test]
++fn refuses_mutation_calls_ambiguous_entry_wrong_scalar_and_invalid_types() {
++    for variant in 0..5 {
++        let mut f = fixture();
++        match variant {
++            0 => f.blocks[1].instructions.insert(
++                0,
++                (
++                    ValueId(5),
++                    Instruction::CallRuntime {
++                        name: "mutate".into(),
++                        args: vec![],
++                        ret_ty: Type::I64,
++                    },
++                    Type::I64,
++                ),
++            ),
++            1 => f.blocks[2].terminator = Terminator::Branch(BlockId(1)),
++            2 => f.blocks[0].instructions.insert(
++                1,
++                (
++                    ValueId(5),
++                    Instruction::CallRuntime {
++                        name: "mutate".into(),
++                        args: vec![],
++                        ret_ty: Type::I64,
++                    },
++                    Type::I64,
++                ),
++            ),
++            3 => {
++                f.blocks[1].instructions[0].1 = Instruction::Box {
++                    op: Operand::Val(ValueId(2)),
++                    from: Type::F64,
++                }
++            }
++            _ => f.params[0].2 = Type::I64,
++        }
++        assert_eq!(rewrite_function(&mut f), 0, "variant {variant}");
++    }
++}
++
++#[test]
++fn rejects_missing_targets_duplicate_blocks_and_non_dominating_refs() {
++    for variant in 0..3 {
++        let mut f = fixture();
++        match variant {
++            0 => f.blocks[2].terminator = Terminator::Branch(BlockId(99)),
++            1 => f.blocks[2].id = BlockId(1),
++            _ => {
++                f.blocks[2].instructions.push((
++                    ValueId(5),
++                    Instruction::Const(Constant::Null),
++                    Type::Ref,
++                ));
++                f.blocks[0].instructions[0].1 = Instruction::Unbox {
++                    op: Operand::Val(ValueId(5)),
++                    to: Type::F64,
++                };
++            }
++        }
++        assert_eq!(rewrite_function(&mut f), 0, "variant {variant}");
++    }
++}
++
++#[test]
++fn refuses_unknown_sdk_and_arc_or_reloadable_images() {
++    for variant in 0..5 {
++        let mut module = Module::new();
++        module.checked_double_identity = true;
++        module.arc_fixed_ancestry = true;
++        module.functions.push(fixture());
++        match variant {
++            0 => module.checked_double_identity = false,
++            1 => module.arc_memory = true,
++            2 => module.arc_prepared = true,
++            3 => module.arc_fixed_ancestry = false,
++            _ => module.functions[0].symbol = "dartforge_unbox_double".into(),
++        }
++        assert_eq!(rewrite(&mut module), 0, "variant {variant}");
++    }
++}
++
++#[test]
++fn unrelated_widened_boolean_or_is_not_a_ref_representation_proof() {
++    let mut f = fixture();
++    f.blocks[0].instructions.insert(
++        0,
++        (
++            ValueId(5),
++            Instruction::Or(
++                Operand::Constant(Constant::Bool(false)),
++                Operand::Constant(Constant::Bool(true)),
++            ),
++            Type::I1,
++        ),
++    );
++    assert_eq!(rewrite_function(&mut f), 1);
++    assert!(matches!(f.blocks[0].instructions[0].1, Instruction::Or(..)));
++    let mut malformed = fixture();
++    malformed.blocks[0].instructions.insert(
++        0,
++        (
++            ValueId(5),
++            Instruction::Const(Constant::Double(1.0)),
++            Type::Ref,
++        ),
++    );
++    malformed.blocks[0].instructions[1].1 = Instruction::Unbox {
++        op: Operand::Val(ValueId(5)),
++        to: Type::F64,
++    };
++    assert_eq!(
++        rewrite_function(&mut malformed),
++        0,
++        "the original Ref must have a physically compatible definition"
++    );
++}
+diff --git a/crates/emit_native/src/optimize/mod.rs b/crates/emit_native/src/optimize/mod.rs
+index dfec432c..77db6d0d 100644
+--- a/crates/emit_native/src/optimize/mod.rs
++++ b/crates/emit_native/src/optimize/mod.rs
+@@ -33,6 +33,8 @@ mod tests;
+ #[cfg(test)]
+ mod pre_prune_tests;
+ mod physical_devirtualize;
++mod checked_double_roundtrip;
++mod scalar_coalesce;
+ 
+ use crate::hir::*;
+ use std::collections::HashMap;
+@@ -230,6 +232,8 @@ pub fn optimize(module: &mut Module) {
+         }
+         false
+     });
++    scalar_coalesce::rewrite(module);
++    checked_double_roundtrip::rewrite(module);
+     // Inlining and representation folding can expose literal class queries.
+     // Fixed registration facts prove only the negative cases; the usual cleanup
+     // removes their unreachable branches before tables or ownership plans exist.
+diff --git a/crates/emit_native/src/optimize/scalar_coalesce.rs b/crates/emit_native/src/optimize/scalar_coalesce.rs
+new file mode 100644
+index 00000000..267ea905
+--- /dev/null
++++ b/crates/emit_native/src/optimize/scalar_coalesce.rs
+@@ -0,0 +1,324 @@
++//! Keep guarded nullable integer intermediates scalar without changing exception edges.
++
++use super::{
++    cfg::Cfg,
++    operands::{operands, terminator_operands},
++};
++use crate::hir::*;
++use std::collections::{HashMap, HashSet};
++
++/// Removes closed integer box/null merges in tracing code, including SDK bodies.
++pub(super) fn rewrite(module: &mut Module) -> usize {
++    if module.arc_memory
++        || module.arc_prepared
++        || module.arc_aot_ports.is_some()
++        || std::env::var("DARTFORGE_NO_SCALAR_COALESCE").as_deref() == Ok("1")
++        || module.functions.iter().any(|f| {
++            matches!(
++                f.symbol.as_str(),
++                "dartforge_unbox_int" | "df.box_int" | "df.unbox_int" | "df.allocate"
++            )
++        })
++    {
++        return 0;
++    }
++    module.functions.iter_mut().map(rewrite_function).sum()
++}
++
++/// Preserves predecessor labels and all calls, pending checks and terminators.
++fn rewrite_function(f: &mut Function) -> usize {
++    if f.blocks.is_empty()
++        || f.blocks.len() > 512
++        || f.blocks.iter().map(|b| b.instructions.len()).sum::<usize>() > 8192
++    {
++        return 0;
++    }
++    let mut blocks = HashMap::new();
++    let mut types = HashMap::new();
++    let mut definitions = HashMap::new();
++    let mut uses: HashMap<ValueId, Vec<(usize, usize)>> = HashMap::new();
++    for (v, _, t) in &f.params {
++        if types.insert(*v, Some(*t)).is_some() {
++            return 0;
++        }
++    }
++    for (bi, b) in f.blocks.iter().enumerate() {
++        if blocks.insert(b.id, bi).is_some() {
++            return 0;
++        }
++        for (ii, (v, i, t)) in b.instructions.iter().enumerate() {
++            if types
++                .insert(
++                    *v,
++                    (crate::llvm::LlvmEmitter::result_type(i, *t) == *t).then_some(*t),
++                )
++                .is_some()
++            {
++                return 0;
++            }
++            definitions.insert(*v, (bi, ii));
++            operands(i, &mut |op| {
++                if let Operand::Val(v) = op {
++                    uses.entry(*v).or_default().push((bi, ii));
++                }
++            });
++        }
++        terminator_operands(&b.terminator, &mut |op| {
++            if let Operand::Val(v) = op {
++                uses.entry(*v).or_default().push((bi, usize::MAX));
++            }
++        });
++    }
++    if f.blocks.iter().any(|b| {
++        super::cfg::successors(&b.terminator)
++            .iter()
++            .any(|id| !blocks.contains_key(id))
++    }) {
++        return 0;
++    }
++    let cfg = Cfg::new(f);
++    if !cfg.predecessors[0].is_empty() {
++        return 0;
++    }
++    // Acyclic functions make edge availability and exclusion of reentry explicit.
++    let mut indegree: Vec<_> = cfg.predecessors.iter().map(Vec::len).collect();
++    let mut ready: Vec<_> = indegree
++        .iter()
++        .enumerate()
++        .filter_map(|(i, n)| (*n == 0).then_some(i))
++        .collect();
++    let mut seen = 0;
++    while let Some(b) = ready.pop() {
++        seen += 1;
++        for &s in &cfg.successors[b] {
++            indegree[s] -= 1;
++            if indegree[s] == 0 {
++                ready.push(s);
++            }
++        }
++    }
++    if seen != f.blocks.len() {
++        return 0;
++    }
++    let dominates = |a: usize, mut b: usize| {
++        if cfg.idom[b] == usize::MAX {
++            return false;
++        }
++        while a != b {
++            let next = cfg.idom[b];
++            if next == b {
++                return false;
++            }
++            b = next;
++        }
++        true
++    };
++    let available = |op: &Operand, bi: usize, ii: usize| match op {
++        Operand::Constant(Constant::Int(_)) => true,
++        Operand::Val(v) if types.get(v) == Some(&Some(Type::I64)) => definitions
++            .get(v)
++            .map_or(true, |&(db, di)| dominates(db, bi) && (db != bi || di < ii)),
++        _ => false,
++    };
++    let Some(mut fresh) = types.keys().map(|v| v.0).max().unwrap_or(0).checked_add(1) else {
++        return 0;
++    };
++    let mut edits = Vec::new();
++    for (bi, b) in f.blocks.iter().enumerate() {
++        if cfg.idom[bi] == usize::MAX {
++            continue;
++        }
++        for (ii, (phi, inst, tuple)) in b.instructions.iter().enumerate() {
++            let Instruction::Phi {
++                incoming,
++                ty: Type::Ref,
++            } = inst
++            else {
++                continue;
++            };
++            if *tuple != Type::Ref || incoming.len() != 2 || cfg.predecessors[bi].len() != 2 {
++                continue;
++            }
++            let labels: HashSet<_> = incoming.iter().map(|(id, _)| *id).collect();
++            if labels.len() != 2
++                || cfg.predecessors[bi]
++                    .iter()
++                    .any(|p| !labels.contains(&f.blocks[*p].id))
++            {
++                continue;
++            }
++            let mut scalar_inputs = Vec::new();
++            let mut null_inputs = Vec::new();
++            let mut boxed_location = None;
++            let mut valid = true;
++            for (label, op) in incoming {
++                match op {
++                    Operand::Constant(Constant::Null) => {
++                        scalar_inputs.push((*label, Operand::Constant(Constant::Int(0))));
++                        null_inputs.push((*label, Operand::Constant(Constant::Bool(true))));
++                    }
++                    Operand::Val(v) => {
++                        let Some(&(db, di)) = definitions.get(v) else {
++                            valid = false;
++                            break;
++                        };
++                        let (_, producer, ty) = &f.blocks[db].instructions[di];
++                        let Instruction::Box {
++                            op: scalar,
++                            from: Type::I64,
++                        } = producer
++                        else {
++                            valid = false;
++                            break;
++                        };
++                        if *ty != Type::Ref
++                            || types.get(v) != Some(&Some(Type::Ref))
++                            || uses.get(v).map(Vec::as_slice) != Some(&[(bi, ii)][..])
++                            || f.blocks[db].id != *label
++                            || !available(scalar, db, di)
++                            || boxed_location.is_some()
++                        {
++                            valid = false;
++                            break;
++                        }
++                        boxed_location = Some((db, di));
++                        scalar_inputs.push((*label, scalar.clone()));
++                        null_inputs.push((*label, Operand::Constant(Constant::Bool(false))));
++                    }
++                    _ => {
++                        valid = false;
++                        break;
++                    }
++                }
++            }
++            let Some(box_location) = boxed_location else {
++                continue;
++            };
++            if !valid {
++                continue;
++            }
++            let Some(phi_uses) = uses.get(phi) else {
++                continue;
++            };
++            if phi_uses.len() != 2 {
++                continue;
++            }
++            let mut query = None;
++            let mut unbox = None;
++            for &(ub, ui) in phi_uses {
++                if ui == usize::MAX {
++                    valid = false;
++                    break;
++                }
++                let (v, user, ty) = &f.blocks[ub].instructions[ui];
++                match user {
++                    Instruction::ICmp(
++                        op @ (ICmpOp::Eq | ICmpOp::Ne),
++                        Operand::Val(p),
++                        Operand::Constant(Constant::Null),
++                    ) if p == phi && *ty == Type::I1 && ub == bi && ui > ii => {
++                        query = Some((*v, ui, *op))
++                    }
++                    Instruction::Unbox {
++                        op: Operand::Val(p),
++                        to: Type::I64,
++                    } if p == phi && *ty == Type::I64 && ui == 0 => unbox = Some((ub, ui)),
++                    _ => valid = false,
++                }
++            }
++            let (Some((condition, qi, comparison)), Some((ub, ui))) = (query, unbox) else {
++                continue;
++            };
++            let Terminator::CondBranch {
++                cond: Operand::Val(c),
++                then_block,
++                else_block,
++            } = b.terminator
++            else {
++                continue;
++            };
++            let nonnull = if comparison == ICmpOp::Eq {
++                else_block
++            } else {
++                then_block
++            };
++            if !valid
++                || c != condition
++                || then_block == else_block
++                || f.blocks[ub].id != nonnull
++                || cfg.predecessors[ub] != [bi]
++                || !dominates(bi, ub)
++                || types.get(&condition) != Some(&Some(Type::I1))
++                || types.get(&f.blocks[ub].instructions[ui].0) != Some(&Some(Type::I64))
++            {
++                continue;
++            }
++            let Some(next) = fresh.checked_add(1) else {
++                return 0;
++            };
++            edits.push((
++                bi,
++                ii,
++                qi,
++                ub,
++                ui,
++                box_location,
++                ValueId(fresh),
++                comparison,
++                scalar_inputs,
++                null_inputs,
++            ));
++            fresh = next;
++        }
++    }
++    let count = edits.len();
++    let mut removals = HashSet::new();
++    let mut additions = Vec::new();
++    for (bi, ii, qi, ub, ui, boxed, null_id, comparison, scalar_inputs, null_inputs) in edits {
++        let phi = f.blocks[bi].instructions[ii].0;
++        f.blocks[bi].instructions[ii].1 = Instruction::Phi {
++            incoming: scalar_inputs,
++            ty: Type::I64,
++        };
++        f.blocks[bi].instructions[ii].2 = Type::I64;
++        f.blocks[bi].instructions[qi].1 = Instruction::ICmp(
++            ICmpOp::Eq,
++            Operand::Val(null_id),
++            Operand::Constant(Constant::Bool(comparison == ICmpOp::Eq)),
++        );
++        f.blocks[ub].instructions[ui].1 =
++            Instruction::Add(Operand::Val(phi), Operand::Constant(Constant::Int(0)));
++        additions.push((bi, null_id, null_inputs));
++        removals.insert(boxed);
++    }
++    for (bi, b) in f.blocks.iter_mut().enumerate() {
++        let mut ii = 0;
++        b.instructions.retain(|_| {
++            let keep = !removals.contains(&(bi, ii));
++            ii += 1;
++            keep
++        });
++    }
++    for (bi, null_id, null_inputs) in additions {
++        let prefix = f.blocks[bi]
++            .instructions
++            .iter()
++            .take_while(|(_, i, _)| matches!(i, Instruction::Phi { .. }))
++            .count();
++        f.blocks[bi].instructions.insert(
++            prefix,
++            (
++                null_id,
++                Instruction::Phi {
++                    incoming: null_inputs,
++                    ty: Type::I1,
++                },
++                Type::I1,
++            ),
++        );
++    }
++    count
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/crates/emit_native/src/optimize/scalar_coalesce/tests.rs b/crates/emit_native/src/optimize/scalar_coalesce/tests.rs
+new file mode 100644
+index 00000000..19292ed3
+--- /dev/null
++++ b/crates/emit_native/src/optimize/scalar_coalesce/tests.rs
+@@ -0,0 +1,259 @@
++//! Representation and exceptional-control-flow tests for nullable integer merges.
++use super::*;
++
++fn value(n: u32) -> Operand {
++    Operand::Val(ValueId(n))
++}
++fn sample() -> Function {
++    Function {
++        symbol: "count".into(),
++        name: "count".into(),
++        debug_info: None,
++        params: vec![
++            (ValueId(0), "nullable".into(), Type::Ref),
++            (ValueId(1), "integer".into(), Type::I64),
++        ],
++        return_ty: Type::I64,
++        blocks: vec![
++            BasicBlock {
++                id: BlockId(0),
++                instructions: vec![(
++                    ValueId(2),
++                    Instruction::ICmp(ICmpOp::Eq, value(0), Operand::Constant(Constant::Null)),
++                    Type::I1,
++                )],
++                terminator: Terminator::CondBranch {
++                    cond: value(2),
++                    then_block: BlockId(2),
++                    else_block: BlockId(1),
++                },
++            },
++            BasicBlock {
++                id: BlockId(1),
++                instructions: vec![(
++                    ValueId(3),
++                    Instruction::Box {
++                        op: value(1),
++                        from: Type::I64,
++                    },
++                    Type::Ref,
++                )],
++                terminator: Terminator::Branch(BlockId(2)),
++            },
++            BasicBlock {
++                id: BlockId(2),
++                instructions: vec![
++                    (
++                        ValueId(4),
++                        Instruction::Phi {
++                            incoming: vec![
++                                (BlockId(0), Operand::Constant(Constant::Null)),
++                                (BlockId(1), value(3)),
++                            ],
++                            ty: Type::Ref,
++                        },
++                        Type::Ref,
++                    ),
++                    (
++                        ValueId(5),
++                        Instruction::ICmp(ICmpOp::Eq, value(4), Operand::Constant(Constant::Null)),
++                        Type::I1,
++                    ),
++                ],
++                terminator: Terminator::CondBranch {
++                    cond: value(5),
++                    then_block: BlockId(3),
++                    else_block: BlockId(4),
++                },
++            },
++            BasicBlock {
++                id: BlockId(3),
++                instructions: vec![],
++                terminator: Terminator::Return(Some(Operand::Constant(Constant::Int(0)))),
++            },
++            BasicBlock {
++                id: BlockId(4),
++                instructions: vec![
++                    (
++                        ValueId(6),
++                        Instruction::Unbox {
++                            op: value(4),
++                            to: Type::I64,
++                        },
++                        Type::I64,
++                    ),
++                    (
++                        ValueId(7),
++                        Instruction::CallRuntime {
++                            name: "dartforge_exception_pending".into(),
++                            args: vec![],
++                            ret_ty: Type::I8,
++                        },
++                        Type::I8,
++                    ),
++                    (
++                        ValueId(8),
++                        Instruction::ICmp(
++                            ICmpOp::Ne,
++                            value(7),
++                            Operand::Constant(Constant::Int(0)),
++                        ),
++                        Type::I1,
++                    ),
++                ],
++                terminator: Terminator::CondBranch {
++                    cond: value(8),
++                    then_block: BlockId(5),
++                    else_block: BlockId(6),
++                },
++            },
++            BasicBlock {
++                id: BlockId(5),
++                instructions: vec![],
++                terminator: Terminator::Return(Some(Operand::Constant(Constant::Int(-1)))),
++            },
++            BasicBlock {
++                id: BlockId(6),
++                instructions: vec![],
++                terminator: Terminator::Return(Some(value(6))),
++            },
++        ],
++    }
++}
++
++#[test]
++fn preserves_pending_edges_and_full_width_integer_values() {
++    for integer in [0, -1, i64::MIN, i64::MAX, 1i64 << 62] {
++        let mut f = sample();
++        if let Instruction::Box { op, .. } = &mut f.blocks[1].instructions[0].1 {
++            *op = Operand::Constant(Constant::Int(integer));
++        }
++        let edges: Vec<_> = f
++            .blocks
++            .iter()
++            .map(|b| format!("{:?}", b.terminator))
++            .collect();
++        let pending = format!("{:?}", f.blocks[4].instructions[1]);
++        assert_eq!(rewrite_function(&mut f), 1);
++        assert!(f.blocks[1].instructions.is_empty());
++        assert!(
++            matches!(&f.blocks[2].instructions[0].1, Instruction::Phi { incoming, ty: Type::I64 } if incoming[1].1 == Operand::Constant(Constant::Int(integer)))
++        );
++        assert!(matches!(
++            f.blocks[2].instructions[1].1,
++            Instruction::Phi { ty: Type::I1, .. }
++        ));
++        assert!(matches!(
++            f.blocks[4].instructions[0].1,
++            Instruction::Add(
++                Operand::Val(ValueId(4)),
++                Operand::Constant(Constant::Int(0))
++            )
++        ));
++        assert_eq!(format!("{:?}", f.blocks[4].instructions[1]), pending);
++        assert_eq!(
++            f.blocks
++                .iter()
++                .map(|b| format!("{:?}", b.terminator))
++                .collect::<Vec<_>>(),
++            edges
++        );
++    }
++}
++
++#[test]
++fn refuses_shared_values_loops_wrong_types_and_unavailable_definitions() {
++    for variant in 0..16 {
++        let mut f = sample();
++        match variant {
++            0 => f.blocks[3].terminator = Terminator::Return(Some(value(4))),
++            1 => f.blocks[3].terminator = Terminator::Return(Some(value(3))),
++            2 => f.blocks[6].terminator = Terminator::Branch(BlockId(2)),
++            3 => f.blocks[3].terminator = Terminator::Branch(BlockId(4)),
++            4 => f.blocks[1].instructions[0].2 = Type::I64,
++            5 => {
++                if let Instruction::Box { from, .. } = &mut f.blocks[1].instructions[0].1 {
++                    *from = Type::F64;
++                }
++            }
++            6 => {
++                if let Instruction::Phi { incoming, .. } = &mut f.blocks[2].instructions[0].1 {
++                    incoming[0].0 = BlockId(1);
++                }
++            }
++            7 => f.blocks[4].instructions[0].2 = Type::Ref,
++            8 => f.blocks[2].terminator = Terminator::Branch(BlockId(4)),
++            9 => f.blocks[0].terminator = Terminator::Branch(BlockId(99)),
++            10 => {
++                f.params.pop();
++                f.blocks[3].instructions.push((
++                    ValueId(1),
++                    Instruction::Const(Constant::Int(9)),
++                    Type::I64,
++                ));
++            }
++            11 => f.blocks[6].id = BlockId(5),
++            12 => f.params[1].2 = Type::Ref,
++            13 => {
++                if let Instruction::Phi { incoming, .. } = &mut f.blocks[2].instructions[0].1 {
++                    incoming[0].1 = value(0);
++                }
++            }
++            14 => {
++                f.blocks[1].instructions[0].1 = Instruction::CallRuntime {
++                    name: "opaque_integer_box".into(),
++                    args: vec![(value(1), Type::I64)],
++                    ret_ty: Type::Ref,
++                }
++            }
++            15 => f.blocks[2].instructions[0].2 = Type::I64,
++            _ => unreachable!(),
++        }
++        let original = format!("{f:?}");
++        assert_eq!(rewrite_function(&mut f), 0, "variant {variant}");
++        assert_eq!(format!("{f:?}"), original);
++    }
++}
++
++#[test]
++fn local_proof_allows_sdk_and_refuses_arc_and_runtime_homonyms() {
++    let mut module = Module::new();
++    module.sdk_library = true;
++    module.functions.push(sample());
++    assert_eq!(rewrite(&mut module), 1);
++    for variant in 0..4 {
++        let mut module = Module::new();
++        module.functions.push(sample());
++        match variant {
++            0 => module.arc_memory = true,
++            1 => module.arc_prepared = true,
++            2 => module.functions[0].symbol = "dartforge_unbox_int".into(),
++            3 => module.functions[0].symbol = "df.allocate".into(),
++            _ => unreachable!(),
++        }
++        assert_eq!(rewrite(&mut module), 0);
++    }
++}
++
++#[test]
++fn ordinary_recursive_nullable_count_removes_both_box_unbox_pairs() {
++    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
++        let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/devirtualization/scalar_nullable_count.dart");
++        let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
++        let mut interner = dartforge_intern::Interner::new();
++        let program = dartforge_elements::load::load(&entry, &sdk, None, &mut interner).unwrap();
++        let mut table = dartforge_types::TypeTable::new();
++        let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
++        let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
++        let libraries: Vec<_> = program.libraries.iter().enumerate().filter(|(_, library)| !library.is_sdk).map(|(i, _)| dartforge_elements::model::LibraryId(i as u32)).collect();
++        let (bodies, _) = dartforge_types::infer_library_bodies_with_locals(&program, &interner, &mut table, &core, &mut outline, &libraries);
++        let context = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies).with_source_sdk();
++        let mut module = crate::lower::lower_program(&context);
++        assert!(module.errors.is_empty(), "{:?}", module.errors);
++        // Production optimize invokes this pass; the ordinary method remains recursive.
++        super::super::optimize(&mut module);
++        let f = module.functions.iter().find(|f| f.name == "Node.count" || f.symbol.contains("Node.count")).expect("ordinary count method");
++        assert_eq!(f.blocks.iter().flat_map(|b| &b.instructions).filter(|(_, i, _)| matches!(i, Instruction::Box { .. } | Instruction::Unbox { .. })).count(), 0, "{f:#?}");
++        assert_eq!(f.blocks.iter().flat_map(|b| &b.instructions).filter(|(_, i, _)| matches!(i, Instruction::CallStatic { symbol, .. } if symbol.contains("Node.count"))).count(), 2);
++    }).unwrap().join().unwrap();
++}
+diff --git a/crates/emit_native/src/sdk_module.rs b/crates/emit_native/src/sdk_module.rs
+index c311efc1..53c2ac1f 100644
+--- a/crates/emit_native/src/sdk_module.rs
++++ b/crates/emit_native/src/sdk_module.rs
+@@ -216,12 +216,13 @@ fn load_source_libraries(
+ pub fn sdk_class_ids(lib_dir: &Path) -> Result<std::sync::Arc<crate::context::IdTable>, String> {
+     use crate::context::IdTable;
+     use std::sync::{Arc, Mutex, OnceLock};
+-    static MEMO: OnceLock<Mutex<std::collections::HashMap<PathBuf, Arc<IdTable>>>> = OnceLock::new();
++    static MEMO: OnceLock<Mutex<std::collections::HashMap<(PathBuf, String), Arc<IdTable>>>> = OnceLock::new();
+     let memo = MEMO.get_or_init(Default::default);
+-    if let Some(t) = memo.lock().unwrap_or_else(|e| e.into_inner()).get(lib_dir) {
++    let key = sdk_key(lib_dir, "class-ids", &[])?;
++    let memo_key = (lib_dir.to_path_buf(), key.clone());
++    if let Some(t) = memo.lock().unwrap_or_else(|e| e.into_inner()).get(&memo_key) {
+         return Ok(t.clone());
+     }
+-    let key = sdk_key(lib_dir, "class-ids", &[]);
+     let dir = crate::cache::native_cache_dir().join("sdk_ids");
+     let file = dir.join(format!("{key}.tsv"));
+     let table = match std::fs::read_to_string(&file).ok().and_then(|t| IdTable::from_string(&t)) {
+@@ -254,7 +255,7 @@ pub fn sdk_class_ids(lib_dir: &Path) -> Result<std::sync::Arc<crate::context::Id
+         }
+     };
+     let t = Arc::new(table);
+-    memo.lock().unwrap_or_else(|e| e.into_inner()).insert(lib_dir.to_path_buf(), t.clone());
++    memo.lock().unwrap_or_else(|e| e.into_inner()).insert(memo_key, t.clone());
+     Ok(t)
+ }
+ 
+@@ -439,44 +440,61 @@ fn defined_symbols(ir: &str, exit: &mut Vec<String>) {
+ /// source libraries, the `vm` patches, `libraries.json`), of the
+ /// overlay, of the compiler (`DARTFORGE_EMITTER_HASH`, `build.rs`), of the
+ /// identity of Clang and of the flags.
+-fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
+-    fn join(dir: &Path, exit: &mut Vec<PathBuf>) {
+-        let Ok(entries) = std::fs::read_dir(dir) else { return };
+-        for e in entries.flatten() {
+-            let p = e.path();
+-            if p.is_dir() {
+-                join(&p, exit);
+-            } else if p.extension().is_some_and(|x| x == "dart" || x == "json") {
+-                exit.push(p);
++fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> Result<String, String> {
++    sdk_key_with_overlay(lib_dir, &overlay_dir(), clang_id, args)
++}
++
++fn sdk_key_with_overlay(lib_dir: &Path, overlay: &Path, clang_id: &str, args: &[&str]) -> Result<String, String> {
++    fn join(dir: &Path, files: &mut Vec<PathBuf>, visited: &mut std::collections::HashSet<PathBuf>) -> Result<(), String> {
++        let canonical = std::fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
++        if !visited.insert(canonical) { return Ok(()); }
++        let entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
++        for entry in entries {
++            let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
++            let path = entry.path();
++            if path.is_dir() {
++                join(&path, files, visited)?;
++            } else if path.extension().is_some_and(|x| x == "dart" || x == "json") {
++                files.push(path);
+             }
+         }
++        Ok(())
+     }
++    // Replacement bytes are selected by the layout, not by their physical directory.
++    // Their relative dependencies still resolve from the original SDK logical paths.
++    let sdk = SdkLayout::load_with_overlay(lib_dir, overlay, OVERLAY_TARGET)?;
+     let mut files = Vec::new();
+-    for d in [
+-        "core",
+-        "async",
+-        "collection",
+-        "convert",
+-        "math",
+-        "internal",
+-        "typed_data",
+-        "isolate",
+-        "developer",
+-        "html/dartium",
+-        "_http",
+-        "io",
+-        "_internal/vm/lib",
+-        "_internal/vm/bin",
+-        "_internal/vm_shared/lib",
+-    ] {
+-        join(&lib_dir.join(d), &mut files);
++    join(lib_dir, &mut files, &mut Default::default())?;
++    join(overlay, &mut files, &mut Default::default())?;
++    files.extend(sdk.replacements.values().cloned());
++    // Use the same loader as native SDK compilation, without a resident or disk
++    // unit cache. It selects conditional imports and resolves parts/augmentations
++    // from their original logical paths, even when those paths leave lib_dir.
++    let temporary = tempfile::tempdir().map_err(|e| format!("SDK key source closure: {e}"))?;
++    let entry = temporary.path().join("main.dart");
++    let mut source = String::new();
++    for name in SOURCE_LIBRARIES {
++        if sdk.library(name).is_some() {
++            source.push_str(&format!("import 'dart:{name}';\n"));
++        }
+     }
+-    files.push(lib_dir.join("libraries.json"));
+-    let overlay = overlay_dir();
+-    join(&overlay, &mut files);
++    source.push_str("void main() {}\n");
++    std::fs::write(&entry, source).map_err(|e| format!("{}: {e}", entry.display()))?;
++    let mut interner = dartforge_intern::Interner::new();
++    let (program, diagnostics) = dartforge_elements::load::load_lenient_entries(
++        &[&entry], &sdk, None, &mut interner, None, None, None);
++    if let Some(diagnostic) = diagnostics.first() {
++        return Err(format!("SDK key source closure: {}", diagnostic.message));
++    }
++    let mut selected_units: Vec<_> = program.units.iter()
++        .filter_map(|unit| unit.path.as_ref().filter(|path| **path != entry)
++            .map(|path| (path, &unit.source)))
++        .collect();
++    selected_units.sort_by(|a, b| a.0.cmp(b.0));
+     files.sort();
++    files.dedup();
+     let mut h = blake3::Hasher::new();
+-    h.update(b"dartforge-sdk-source\0");
++    h.update(b"dartforge-sdk-selected-source-v4\0");
+     h.update(env!("CARGO_PKG_VERSION").as_bytes());
+     h.update(b"\0");
+     h.update(env!("DARTFORGE_EMITTER_HASH").as_bytes());
+@@ -551,19 +569,26 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
+         h.update(a.as_bytes());
+         h.update(b"\0");
+     }
++    h.update(b"selected-logical-unit-closure\0");
++    for (logical, source) in selected_units {
++        h.update(logical.to_string_lossy().as_bytes());
++        h.update(b"\0");
++        h.update(source.as_bytes());
++        h.update(b"\0");
++    }
+     for a in &files {
+         let rel = a
+             .strip_prefix(lib_dir)
+-            .or_else(|_| a.strip_prefix(&overlay))
++            .or_else(|_| a.strip_prefix(overlay))
+             .unwrap_or(a)
+             .to_string_lossy()
+             .replace('\\', "/");
+         h.update(rel.as_bytes());
+         h.update(b"\0");
+-        h.update(&std::fs::read(a).unwrap_or_default());
++        h.update(&std::fs::read(a).map_err(|e| format!("{}: {e}", a.display()))?);
+         h.update(b"\0");
+     }
+-    h.finalize().to_hex()[..32].to_string()
++    Ok(h.finalize().to_hex()[..32].to_string())
+ }
+ 
+ /// The generation of the SDK modules in the requested profile.
+@@ -626,7 +651,7 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
+         Generator::choose(clang)
+     };
+     let generation = sdk_generation(profile);
+-    let key = sdk_key(lib_dir, &generator.identity()?, &[generation.description().as_str()]);
++    let key = sdk_key(lib_dir, &generator.identity()?, &[generation.description().as_str()])?;
+     let root = crate::cache::native_cache_dir().join("sdk");
+     let dir = root.join(&key);
+     let dll_name = format!("dfsdk_{}", &key[..16]);
+@@ -1420,3 +1445,99 @@ mod tests {
+         }
+     }
+ }
++
++#[cfg(test)]
++mod selected_source_cache_tests {
++    use super::*;
++
++    #[test]
++    fn external_replacement_and_logical_parts_change_sdk_key() {
++        let directory = tempfile::tempdir().unwrap();
++        let lib = directory.path().join("sdk/lib");
++        let overlay = directory.path().join("overlay");
++        std::fs::create_dir_all(lib.join("core")).unwrap();
++        std::fs::create_dir_all(&overlay).unwrap();
++        std::fs::write(lib.join("libraries.json"),
++            r#"{"vm":{"libraries":{"core":{"uri":"core/core.dart"}}}}"#).unwrap();
++        std::fs::write(lib.join("core/core.dart"), "library dart.core; part 'helper.dart';").unwrap();
++        std::fs::write(lib.join("core/helper.dart"), "part of dart.core; const value = 1;").unwrap();
++        let replacement = directory.path().join("external-core.dart");
++        let original = "library dart.core; part 'helper.dart'; const marker = 1;";
++        std::fs::write(&replacement, original).unwrap();
++        std::fs::write(overlay.join("libraries.json"),
++            r#"{"dartforge_native":{"base":"vm","replaces":{"core/core.dart":"../external-core.dart"}}}"#).unwrap();
++        let key = || sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).unwrap();
++        let baseline = key();
++        std::fs::write(&replacement, original.replace("marker = 1", "marker = 2")).unwrap();
++        assert_ne!(baseline, key());
++        std::fs::write(&replacement, original).unwrap();
++        assert_eq!(baseline, key());
++        // A replacement's part resolves beside core/core.dart, not external-core.dart.
++        std::fs::write(lib.join("core/helper.dart"), "part of dart.core; const value = 2;").unwrap();
++        assert_ne!(baseline, key());
++        std::fs::write(lib.join("core/helper.dart"), "part of dart.core; const value = 1;").unwrap();
++        assert_eq!(baseline, key());
++        std::fs::remove_file(&replacement).unwrap();
++        assert!(sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).is_err());
++    }
++
++    #[test]
++    fn selected_library_outside_historical_directory_list_changes_sdk_key() {
++        let directory = tempfile::tempdir().unwrap();
++        let lib = directory.path().join("sdk/lib");
++        let overlay = directory.path().join("overlay");
++        std::fs::create_dir_all(lib.join("ffi")).unwrap();
++        std::fs::create_dir_all(&overlay).unwrap();
++        std::fs::write(lib.join("libraries.json"),
++            r#"{"vm":{"libraries":{"ffi":{"uri":"ffi/ffi.dart"}}}}"#).unwrap();
++        std::fs::write(overlay.join("libraries.json"),
++            r#"{"dartforge_native":{"base":"vm"}}"#).unwrap();
++        std::fs::write(lib.join("ffi/ffi.dart"), "library dart.ffi; const value = 1;").unwrap();
++        let original = sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).unwrap();
++        std::fs::write(lib.join("ffi/ffi.dart"), "library dart.ffi; const value = 2;").unwrap();
++        assert_ne!(original, sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).unwrap());
++    }
++    #[test]
++    fn external_original_entry_and_patch_track_selected_parts() {
++        let directory = tempfile::tempdir().unwrap();
++        let lib = directory.path().join("lib");
++        let overlay = directory.path().join("overlay");
++        let external = directory.path().join("external");
++        std::fs::create_dir_all(&lib).unwrap();
++        std::fs::create_dir_all(&overlay).unwrap();
++        std::fs::create_dir_all(&external).unwrap();
++        std::fs::write(lib.join("libraries.json"),
++            r#"{"vm":{"libraries":{"core":{"uri":"../external/core.dart","patches":"../external/patch.dart"}}}}"#).unwrap();
++        std::fs::write(overlay.join("libraries.json"),
++            r#"{"dartforge_native":{"base":"vm","replaces":{"../external/nested.dart":"../selected-nested.dart"}}}"#).unwrap();
++        std::fs::write(external.join("core.dart"), "library dart.core; part 'helper.dart';").unwrap();
++        std::fs::write(external.join("helper.dart"), "part of dart.core; const x = 1;").unwrap();
++        std::fs::write(external.join("patch.dart"), "part 'nested.dart'; const patchValue = 1;").unwrap();
++        std::fs::write(external.join("nested.dart"), "part of dart.core; const y = 1;").unwrap();
++        let nested = directory.path().join("selected-nested.dart");
++        std::fs::write(&nested, "part of dart.core; const y = 2;").unwrap();
++        let key = || sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).unwrap();
++        let baseline = key();
++        for (path, original, changed) in [
++            (external.join("helper.dart"), "part of dart.core; const x = 1;",
++                "part of dart.core; const x = 3;"),
++            (nested.clone(), "part of dart.core; const y = 2;", "part of dart.core; const y = 4;"),
++        ] {
++            std::fs::write(&path, changed).unwrap();
++            assert_ne!(baseline, key());
++            std::fs::write(&path, original).unwrap();
++            assert_eq!(baseline, key());
++        }
++        std::fs::remove_file(external.join("helper.dart")).unwrap();
++        assert!(sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).is_err());
++    }
++
++    #[test]
++    fn installed_native_sdk_selected_closure_is_accepted() {
++        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
++            let key = sdk_key(crate::sdk_tests(), "test-clang", &[]).unwrap();
++            assert_eq!(key.len(), 32);
++        }).unwrap().join().unwrap();
++    }
++
++}
+diff --git a/crates/emit_native/tests/fixtures/checked_double_roundtrip/format.dart b/crates/emit_native/tests/fixtures/checked_double_roundtrip/format.dart
+new file mode 100644
+index 00000000..d33fb7c3
+--- /dev/null
++++ b/crates/emit_native/tests/fixtures/checked_double_roundtrip/format.dart
+@@ -0,0 +1,304 @@
++/// The format of a color or image.
++enum Format {
++  uint1,
++  uint2,
++  uint4,
++  uint8,
++  uint16,
++  uint32,
++  int8,
++  int16,
++  int32,
++  float16,
++  float32,
++  float64
++}
++
++enum FormatType { uint, int, float }
++
++const formatSize = <Format, int>{
++  Format.uint1: 1,
++  Format.uint2: 1,
++  Format.uint4: 1,
++  Format.uint8: 1,
++  Format.uint16: 2,
++  Format.uint32: 4,
++  Format.int8: 1,
++  Format.int16: 2,
++  Format.int32: 4,
++  Format.float16: 2,
++  Format.float32: 4,
++  Format.float64: 8
++};
++
++const formatMaxValue = <Format, int>{
++  Format.uint1: 0x1,
++  Format.uint2: 0x3,
++  Format.uint4: 0xf,
++  Format.uint8: 0xff,
++  Format.uint16: 0xffff,
++  Format.uint32: 0xffffffff,
++  Format.int8: 0x7f,
++  Format.int16: 0x7fff,
++  Format.int32: 0x7fffffff,
++  Format.float16: 1,
++  Format.float32: 1,
++  Format.float64: 1
++};
++
++int getRowStride(int width, int numChannels, Format format) =>
++    (format == Format.uint1)
++        ? ((width * numChannels) / 8).ceil()
++        : (format == Format.uint2)
++            ? ((width * numChannels) / 4).ceil()
++            : (format == Format.uint4)
++                ? ((width * numChannels) / 2).ceil()
++                : width * numChannels * formatSize[format]!;
++
++/// Convert a value from the [from] [Format] to the [to] Format.
++num convertFormatValue(num value, Format from, Format to) {
++  if (from == to) {
++    return value;
++  }
++
++  switch (from) {
++    case Format.uint1:
++      return value == 0 ? 0 : formatMaxValue[to]!;
++    case Format.uint2:
++      switch (to) {
++        case Format.uint1:
++          return value == 0 ? 0 : 1;
++        case Format.uint2:
++          return value;
++        case Format.uint4:
++          return value * 5;
++        case Format.uint8:
++          return value * 75;
++        case Format.uint16:
++          return value * 21845;
++        case Format.uint32:
++          return value * 1431655765;
++        case Format.int8:
++          return value * 42;
++        case Format.int16:
++          return value * 10922;
++        case Format.int32:
++          return value * 715827882;
++        case Format.float16:
++        case Format.float32:
++        case Format.float64:
++          return value / 3;
++      }
++    case Format.uint4:
++      switch (to) {
++        case Format.uint1:
++          return value == 0 ? 0 : 1;
++        case Format.uint2:
++          return (value as int) >> 1;
++        case Format.uint4:
++          return value;
++        case Format.uint8:
++          return value * 17;
++        case Format.uint16:
++          return value * 4369;
++        case Format.uint32:
++          return value * 286331153;
++        case Format.int8:
++          return value * 8;
++        case Format.int16:
++          return value * 2184;
++        case Format.int32:
++          return value * 143165576;
++        case Format.float16:
++        case Format.float32:
++        case Format.float64:
++          return value / 3;
++      }
++    case Format.uint8:
++      switch (to) {
++        case Format.uint1:
++          return value == 0 ? 0 : 1;
++        case Format.uint2:
++          return (value as int) >> 6;
++        case Format.uint4:
++          return (value as int) >> 4;
++        case Format.uint8:
++          return value;
++        case Format.uint16:
++          return value * 257;
++        case Format.uint32:
++          return value * 16843009;
++        case Format.int8:
++          return (value as int) >> 1;
++        case Format.int16:
++          return value * 128;
++        case Format.int32:
++          return value * 8421504;
++        case Format.float16:
++        case Format.float32:
++        case Format.float64:
++          return value / 255;
++      }
++    case Format.uint16:
++      switch (to) {
++        case Format.uint1:
++          return value == 0 ? 0 : 1;
++        case Format.uint2:
++          return (value as int) >> 14;
++        case Format.uint4:
++          return (value as int) >> 12;
++        case Format.uint8:
++          return (value as int) >> 8;
++        case Format.uint16:
++          return value;
++        case Format.uint32:
++          return (value as int) << 8;
++        case Format.int8:
++          return (value as int) >> 9;
++        case Format.int16:
++          return (value as int) >> 1;
++        case Format.int32:
++          return value * 524296;
++        case Format.float16:
++        case Format.float32:
++        case Format.float64:
++          return value / 0xffff;
++      }
++    case Format.uint32:
++      switch (to) {
++        case Format.uint1:
++          return value == 0 ? 0 : 1;
++        case Format.uint2:
++          return (value as int) >> 30;
++        case Format.uint4:
++          return (value as int) >> 28;
++        case Format.uint8:
++          return (value as int) >> 24;
++        case Format.uint16:
++          return (value as int) >> 16;
++        case Format.uint32:
++          return value;
++        case Format.int8:
++          return (value as int) >> 25;
++        case Format.int16:
++          return (value as int) >> 17;
++        case Format.int32:
++          return (value as int) >> 1;
++        case Format.float16:
++        case Format.float32:
++        case Format.float64:
++          return value / 0xffffffff;
++      }
++    case Format.int8:
++      switch (to) {
++        case Format.uint1:
++          return value == 0 ? 0 : 1;
++        case Format.uint2:
++          return value <= 0 ? 0 : (value as int) >> 5;
++        case Format.uint4:
++          return value <= 0 ? 0 : (value as int) >> 3;
++        case Format.uint8:
++          return value <= 0 ? 0 : (value as int) << 1;
++        case Format.uint16:
++          return value <= 0 ? 0 : (value as int) * 516;
++        case Format.uint32:
++          return value <= 0 ? 0 : (value as int) * 33818640;
++        case Format.int8:
++          return value;
++        case Format.int16:
++          return value * 258;
++        case Format.int32:
++          return value * 16909320;
++        case Format.float16:
++        case Format.float32:
++        case Format.float64:
++          return value / 127;
++      }
++    case Format.int16:
++      switch (to) {
++        case Format.uint1:
++          return value == 0 ? 0 : 1;
++        case Format.uint2:
++          return value <= 0 ? 0 : (value as int) >> 15;
++        case Format.uint4:
++          return value <= 0 ? 0 : (value as int) >> 11;
++        case Format.uint8:
++          return value <= 0 ? 0 : (value as int) >> 7;
++        case Format.uint16:
++          return value <= 0 ? 0 : (value as int) << 1;
++        case Format.uint32:
++          return value <= 0 ? 0 : (value as int) * 131076;
++        case Format.int8:
++          return (value as int) >> 8;
++        case Format.int16:
++          return value;
++        case Format.int32:
++          return (value as int) * 65538;
++        case Format.float16:
++        case Format.float32:
++        case Format.float64:
++          return value / 0x7fff;
++      }
++    case Format.int32:
++      switch (to) {
++        case Format.uint1:
++          return value == 0 ? 0 : 1;
++        case Format.uint2:
++          return value <= 0 ? 0 : (value as int) >> 29;
++        case Format.uint4:
++          return value <= 0 ? 0 : (value as int) >> 27;
++        case Format.uint8:
++          return value <= 0 ? 0 : (value as int) >> 23;
++        case Format.uint16:
++          return value <= 0 ? 0 : (value as int) >> 16;
++        case Format.uint32:
++          return value <= 0 ? 0 : (value as int) << 1;
++        case Format.int8:
++          return (value as int) >> 24;
++        case Format.int16:
++          return (value as int) >> 16;
++        case Format.int32:
++          return value;
++        case Format.float16:
++        case Format.float32:
++        case Format.float64:
++          return value / 0x7fffffff;
++      }
++    case Format.float16:
++    case Format.float32:
++    case Format.float64:
++      switch (to) {
++        case Format.uint1:
++          return value == 0 ? 0 : 1;
++        case Format.uint2:
++          return (value.clamp(0, 1) * 3).toInt();
++        case Format.uint4:
++          return (value.clamp(0, 1) * 15).toInt();
++        case Format.uint8:
++          return (value.clamp(0, 1) * 255).toInt();
++        case Format.uint16:
++          return (value.clamp(0, 1) * 0xffff).toInt();
++        case Format.uint32:
++          return (value.clamp(0, 1) * 0xffffffff).toInt();
++        case Format.int8:
++          return (value < 0
++                  ? value.clamp(-1, 1) * 128
++                  : value.clamp(-1, 1) * 127)
++              .toInt();
++        case Format.int16:
++          return (value < 0
++                  ? value.clamp(-1, 1) * 32768
++                  : value.clamp(-1, 1) * 32767)
++              .toInt();
++        case Format.int32:
++          return (value < 0
++                  ? value.clamp(-1, 1) * 2147483648
++                  : value.clamp(-1, 1) * 2147483647)
++              .toInt();
++        case Format.float16:
++        case Format.float32:
++        case Format.float64:
++          return value;
++      }
++  }
++}
+diff --git a/crates/emit_native/tests/fixtures/checked_double_roundtrip/main.dart b/crates/emit_native/tests/fixtures/checked_double_roundtrip/main.dart
+new file mode 100644
+index 00000000..0a8df8ad
+--- /dev/null
++++ b/crates/emit_native/tests/fixtures/checked_double_roundtrip/main.dart
+@@ -0,0 +1,22 @@
++import 'dart:typed_data';
++@pragma('vm:never-inline')
++Object roundTrip(dynamic value) {
++  final double scalar = value;
++  return scalar;
++}
++String bits(double value) {
++  final data = ByteData(8)..setFloat64(0, value, Endian.little);
++  return data.buffer.asUint8List().join(',');
++}
++void main() {
++  final data = ByteData(8)..setUint64(0, 0x7ff8000000000042, Endian.little);
++  for (final value in <double>[0.0, -0.0, 1.25, double.infinity,
++      double.negativeInfinity, double.nan, data.getFloat64(0, Endian.little)]) {
++    final result = roundTrip(value) as double;
++    print('${bits(result)}:${identical(value, result)}:${identityHashCode(value) == identityHashCode(result)}');
++  }
++  for (final value in <dynamic>[null, '1', true, Object()]) {
++    try { roundTrip(value); print('unexpected'); }
++    on TypeError { print('TypeError'); }
++  }
++}
+diff --git a/crates/emit_native/tests/fixtures/devirtualization/scalar_nullable_count.dart b/crates/emit_native/tests/fixtures/devirtualization/scalar_nullable_count.dart
+new file mode 100644
+index 00000000..2f6b5482
+--- /dev/null
++++ b/crates/emit_native/tests/fixtures/devirtualization/scalar_nullable_count.dart
+@@ -0,0 +1,31 @@
++class Node {
++  final Node? left;
++  final Node? right;
++  Node(this.left, this.right);
++  int count() => 1 + (left?.count() ?? 0) + (right?.count() ?? 0);
++}
++
++class NumberSource {
++  final int value;
++  final bool fails;
++  NumberSource(this.value, [this.fails = false]);
++  int read() {
++    if (fails) throw StateError('read failed');
++    return value;
++  }
++}
++
++int readNullable(NumberSource? source) => source?.read() ?? -7;
++
++void main() {
++  print(Node(Node(null, null), Node(Node(null, null), null)).count());
++  for (final value in [0, -1, 4611686018427387904, -9223372036854775808, 9223372036854775807]) {
++    print(readNullable(NumberSource(value)));
++  }
++  print(readNullable(null));
++  try {
++    print(readNullable(NumberSource(12, true)));
++  } catch (_) {
++    print('caught');
++  }
++}

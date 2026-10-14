@@ -24,7 +24,7 @@ def sources():
     paths = [root / "Cargo.toml", root / "Cargo.lock"]
     for parent in [root / "crates", root / "native_sdk"]:
         paths.extend(path for path in parent.rglob("*") if path.is_file() and
-                     (path.suffix in {".rs", ".dart", ".c", ".h"} or path.name == "Cargo.toml"))
+                     (path.suffix in {".rs", ".dart", ".c", ".h", ".json"} or path.name == "Cargo.toml"))
     return {str(path.relative_to(root)): sha(path) for path in sorted(paths)}
 
 
@@ -43,7 +43,7 @@ with (out / "producer-build.log").open("wb") as log:
     result = subprocess.run(command, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=1800)
 after = sources()
 ledger = {"head": head, "command": command, "exit": result.returncode,
-          "source_scope": "Cargo manifests and Rust/Dart/C/header sources under crates and native_sdk, including tests.",
+          "source_scope": "Cargo manifests and Rust/Dart/C/header/JSON sources under crates and native_sdk, including tests.",
           "source_hashes": before, "source_stable": before == after,
           "changed_during_build": [path for path in sorted(set(before) | set(after)) if before.get(path) != after.get(path)]}
 if result.returncode == 0 and before == after:

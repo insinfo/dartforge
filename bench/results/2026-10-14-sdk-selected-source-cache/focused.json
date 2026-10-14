@@ -1,0 +1,15 @@
+{
+  "source": "crates/emit_native/src/sdk_module.rs",
+  "source_sha256": "87f91711a5d922b8cfb902c9dfae9d632946366b6107b3363c3e16a80db8fe69",
+  "command": "source /Volumes/ssd_dock/tools/env.zsh; cargo test -p dartforge-emit-native --lib selected_source_cache_tests -j2 --target-dir target/p4",
+  "result": "2 passed, 0 failed, 680 filtered out",
+  "log_sha256": "c2c4a2825941285b543efacc51747c90cb9c06c6451b2ab276badeac808723e6",
+  "coverage": [
+    "external replacement bytes modified/restored without manifest changes",
+    "logical part bytes modified/restored beside original SDK file",
+    "missing selected replacement errors instead of empty-source key",
+    "ffi selected source outside former fixed directory list"
+  ],
+  "source_scope": "sdk_module.rs only; no declared-field metadata patch applied",
+  "remaining_validation": "actual stale .poda observer regression after root builds immutable updated producer"
+}
