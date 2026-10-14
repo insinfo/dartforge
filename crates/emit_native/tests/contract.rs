@@ -577,3 +577,24 @@ fn top_level_function_with_int_return_prints_scalar() {
     assert!(main.contains("= call i64 @df.") || main.contains("add i64 %v"), "{main}");
     assert!(!main.contains("@dartforge_print_handle"), "{main}");
 }
+
+#[test]
+fn constant_interpolation_folds_values_and_preserves_unknowns() {
+    let source = include_str!("fixtures/constant_string_interpolation.dart");
+    let Some(ir) = source_ir(source) else { return };
+    let function = |name: &str| {
+        let marker = format!("..{name}()");
+        let start = ir.lines().find(|line| line.starts_with("define ") && line.contains(&marker)).expect(name);
+        ir.split(start).nth(1).unwrap().split("\n}\n").next().unwrap()
+    };
+    for name in ["joined", "emoji"] {
+        assert!(!function(name).contains("call i64 @dartforge_string_join_typed"), "{name}");
+    }
+    assert!(function("floating").contains("call i64 @dartforge_to_string_f64"));
+    assert!(function("nestedFloating").contains("call i64 @dartforge_string_join_typed"));
+    assert!(function("environmentText").contains("call i64 @dartforge_string_join_typed"));
+    assert!(ir.contains("ABABABABABABABAB"));
+    // The unknown getter and user toString remain observable, rather than being
+    // evaluated by the compilation-time constant engine.
+    assert!(ir.contains("call i64 @df.main$2edart..observed()"));
+}

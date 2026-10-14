@@ -121,6 +121,9 @@ pub struct Engine<'a> {
     /// Offsets of the names of formal parameters, per inferred unit (inference
     /// resolves a read of a parameter as that of a local).
     parameters: std::cell::RefCell<HashMap<UnitId, HashSet<usize>>>,
+    /// Native folding keeps double interpolation unknown until its exact
+    /// runtime formatting contract can be reproduced at compile time.
+    pub conservative_string_interpolation: bool,
     depth: u32,
     sym_identical: Option<SymbolId>,
     sym_length: Option<SymbolId>,
@@ -163,6 +166,7 @@ impl<'a> Engine<'a> {
             analyzer_break: false,
             witnesses: None,
             parameters: std::cell::RefCell::new(HashMap::new()),
+            conservative_string_interpolation: false,
             depth: 0,
             sym_identical: interner.lookup("identical"),
             sym_length: interner.lookup("length"),
@@ -799,6 +803,12 @@ impl<'a> Engine<'a> {
                     if !v.state.is_bool_num_string_or_null() {
                         let s = self.interpolation_span(u, *x);
                         return Constant::Invalid(Box::new(self.error(u, s, c::CONST_EVAL_TYPE_BOOL_NUM_STRING)));
+                    }
+                    if self.conservative_string_interpolation
+                        && matches!(v.state, InstanceState::Double(_) | InstanceState::Null { invalid: true })
+                    {
+                        unknown = true;
+                        continue;
                     }
                     match v.state.to_text(&|_| String::new(), &|_| String::new()) {
                         Ok(InstanceState::Str(Some(s))) => acc.extend(s.iter()),

@@ -1,0 +1,26 @@
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 8 tests
+test sdk_module::tests::compile_with_source_sdk ... ok
+test linker_windows::tests::links_and_runs_c_program ... ok
+test llvm::numeric_vectors::tests::independent_macho_objects_coalesce_equal_vectors_and_keep_different_contents ... ok
+test sdk_module::tests::measure_source_library_inference ... ok
+test sdk_module::tests::measure_source_library_lowering ... ok
+test sdk_module::tests::pruning_removes_unused_members ... ok
+test sdk_module::tests::production_is_a_self_contained_executable ... ok
+test sdk_module::tests::emit_the_sdk ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 627 filtered out; finished in 37.22s
+

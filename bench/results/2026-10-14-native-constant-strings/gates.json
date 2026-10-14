@@ -1,0 +1,38 @@
+{
+  "SDK_lib": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+  "types_passed": 116,
+  "native_lib_passed": 635,
+  "native_contract_passed": 23,
+  "logs": {
+    "focused.log": {
+      "passed": 1,
+      "failed": 0,
+      "sha256": "9ba8731a923e4b1af3710e479d841fb86d1e61a4ee3cdf622040971320874065"
+    },
+    "types-tests.log": {
+      "passed": 110,
+      "failed": 0,
+      "sha256": "cb70817da97b481fac204eb7a96a7a2fe210d3ea7c096a944b745fc19a994eff"
+    },
+    "types-ignored.log": {
+      "passed": 6,
+      "failed": 0,
+      "sha256": "5d0e4c988993785e6df123d1af363dbf512c825ac2056493b8ca1720ecdcac1f"
+    },
+    "native-full.log": {
+      "passed": 637,
+      "failed": 0,
+      "sha256": "13c3130af11c4c7ff589367f9637a32769622efa3b0ee3fd9dc56513ea3b5c76"
+    },
+    "native-contract-full.log": {
+      "passed": 23,
+      "failed": 0,
+      "sha256": "3de777462e49da280d26037e73287664c1e5d9c145370c8ab558bbb22ff24792"
+    },
+    "native-lib-ignored.log": {
+      "passed": 8,
+      "failed": 0,
+      "sha256": "e3eae3a3020131d10356d25e4d7e4db196c9ff9f8a6280842ac456490b3d66d5"
+    }
+  }
+}

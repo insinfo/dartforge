@@ -1,0 +1,67 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_types-88e25f54b067a054)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+
+     Running tests/bodies.rs (target/debug/deps/bodies-fff58cd796a94992)
+
+running 3 tests
+test pub_corpus_type_checks ... ok
+test new_sali_type_checks ... ok
+test sdk_bodies_type_check ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 58 filtered out; finished in 0.82s
+
+     Running tests/corpus_inference.rs (target/debug/deps/corpus_inference-00449c9bc8f8a7c5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/inference_groups.rs (target/debug/deps/inference_groups-baf7de446278d73c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+     Running tests/optimization_annotations.rs (target/debug/deps/optimization_annotations-b0c15d621fc47656)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s
+
+     Running tests/sdk.rs (target/debug/deps/sdk-ea38c32d408a45ee)
+
+running 3 tests
+test sdk_hierarchy_instantiates ... ok
+test known_subtyping ... ok
+test sdk_outline_resolves ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s
+
+     Running tests/sdk_without_bodies.rs (target/debug/deps/sdk_without_bodies-a87f86acfb1a87fa)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/shadow_index.rs (target/debug/deps/shadow_index-016486ba56b4cbd4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/subtyping_cases.rs (target/debug/deps/subtyping_cases-9b1f0935cec90c39)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/unit_tests.rs (target/debug/deps/unit_tests-3bf43a2f424586a2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s
+

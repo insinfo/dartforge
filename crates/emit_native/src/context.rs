@@ -1,6 +1,7 @@
 //! Compilation context of the `dartforge-emit-native` crate.
 
 mod layout_type_identity;
+mod constant_strings;
 
 use dartforge_elements::model::{LibraryId, Program, UnitId};
 use dartforge_intern::{Interner, SymbolId};
@@ -16,6 +17,8 @@ pub struct Context<'a> {
     pub core: &'a CoreTypes,
     pub outline: &'a OutlineTypes,
     pub bodies: &'a BodyTypes,
+    /// Proven interpolated strings for this module, evaluated once during lowering.
+    constant_strings: std::sync::OnceLock<std::collections::HashMap<(UnitId, dartforge_frontend::ast::ExprId), Vec<u8>>>,
     /// Identity of the SDK marker, never of a same-named user class.
     finalizable_class: Option<dartforge_elements::model::ClassId>,
     pub entry_lib: Option<LibraryId>,
@@ -293,6 +296,7 @@ impl<'a> Context<'a> {
             core,
             outline,
             bodies,
+            constant_strings: std::sync::OnceLock::new(),
             finalizable_class: program.classes.iter().enumerate().find_map(|(i, c)| {
                 (program.library(c.library).uri == "dart:ffi" && interner.resolve(c.name) == "Finalizable")
                     .then_some(dartforge_elements::model::ClassId(i as u32))

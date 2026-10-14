@@ -1,0 +1,14 @@
+ordinary.baseline-tracing.normal True
+ordinary.tracing.normal True
+ordinary.tracing.stress True
+ordinary.arc.normal True
+ordinary.arc.stress True
+ordinary.prepared.normal True
+ordinary.prepared.stress True
+utf8.baseline-tracing.normal True
+utf8.tracing.normal True
+utf8.tracing.stress True
+utf8.arc.normal True
+utf8.arc.stress True
+utf8.prepared.normal True
+utf8.prepared.stress True

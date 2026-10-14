@@ -381,6 +381,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::String(str_lit) => {
                 if let Some(text) = str_lit.constant_value() {
                     self.emit(Instruction::Const(Constant::StringWtf8(text.as_bytes().to_vec())), Type::Ref)
+                } else if let Some(text) = self.ctx.constant_string(self.unit_id, expr_id) {
+                    self.emit(Instruction::Const(Constant::StringWtf8(text.to_vec())), Type::Ref)
                 } else {
                     let mut parts: Vec<Operand> = Vec::with_capacity(str_lit.parts.len());
                     for part in &str_lit.parts {

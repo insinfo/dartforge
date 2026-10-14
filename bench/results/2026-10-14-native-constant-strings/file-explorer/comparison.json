@@ -1,0 +1,43 @@
+{
+  "compilers": {
+    "before": {
+      "path": "target/native-provenance/latin1-type-identity-compiler/dartforge",
+      "sha256": "528e4ceac3d471ee9784b2aea19e1cfe0e5530de8ed137feb2393d4657cdbffc"
+    },
+    "after": {
+      "path": "target/native-provenance/constant-strings-compiler/dartforge",
+      "sha256": "d6c7ce9b91576186c2a376fa5c093ba6f8f269689f73bfe2ddc6f65e0ed8c4b2"
+    }
+  },
+  "flags": [
+    "--optimize",
+    "--memory=arc",
+    "--exceptions=check",
+    "--roots=shadow",
+    "--stack-trace=none"
+  ],
+  "environment": {
+    "DARTFORGE_ARC_PREPARED": "1",
+    "DARTFORGE_ARC_CHECK": "1",
+    "DARTFORGE_EFFECTS": "check",
+    "DARTFORGE_LINK_MAP": "1"
+  },
+  "compile_exit": {
+    "before": 0,
+    "after": 0
+  },
+  "input_count": 2758,
+  "inputs_unchanged": true,
+  "binary_bytes": {
+    "before": 43946032,
+    "after": 43747840
+  },
+  "saved_bytes": 198192,
+  "transition_getter_bytes": {
+    "before": 190272,
+    "after": 364
+  },
+  "gui_passed": true,
+  "visual_review_completed": true,
+  "scope": "Matched prepared-ARC File Explorer builds from frozen528/d6 producers. GUI inspected on d6: navigate, Back, native close0; existing Objective-C host backend. No compile-time, startup or throughput claim."
+}

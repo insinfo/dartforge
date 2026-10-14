@@ -1,0 +1,21 @@
+   Compiling libc v0.2.189
+   Compiling errno v0.3.14
+   Compiling getrandom v0.4.3
+   Compiling rustix v1.1.5
+   Compiling tempfile v3.27.0
+   Compiling dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.91s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_types-88e25f54b067a054)
+
+running 8 tests
+test const_eval::graph::tests::acyclic_chain_evaluates_from_leaves_to_root ... ok
+test const_eval::graph::tests::self_reference_and_trivial_cycle ... ok
+test const_eval::graph::tests::same_thing_with_class_after_gives_no_false_cycle ... ok
+test const_eval::graph::tests::cycle_constructor_seen_before_gives_false_cycle ... ok
+test const_eval::graph::tests::three_cycle_with_clean_dependent ... ok
+test inference::integers::tests::exact_doubles ... ok
+test inference::integers::tests::integer_range ... ok
+test phase_sdk::tests::constraints ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

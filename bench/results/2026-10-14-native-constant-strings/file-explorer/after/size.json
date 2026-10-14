@@ -1,0 +1,477 @@
+{
+  "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/constant-strings-file-explorer/program",
+  "binary_sha256": "18f3f9a42805edb226e6d940a4be6339ed14b5c68a9e16dcb34fdc86011373c4",
+  "binary_bytes": 43747840,
+  "link_map_sha256": "fa5f09ad329da620316d7ce491961d7190abc1c98a5b14c5730e8b0d2c6cb22e",
+  "sections": [
+    {
+      "address": 4294969808,
+      "bytes": 40191164,
+      "segment": "__TEXT",
+      "section": "__text"
+    },
+    {
+      "address": 4335160972,
+      "bytes": 2028,
+      "segment": "__TEXT",
+      "section": "__stubs"
+    },
+    {
+      "address": 4335163000,
+      "bytes": 2052,
+      "segment": "__TEXT",
+      "section": "__stub_helper"
+    },
+    {
+      "address": 4335165056,
+      "bytes": 11552,
+      "segment": "__TEXT",
+      "section": "__literals"
+    },
+    {
+      "address": 4335176608,
+      "bytes": 5532,
+      "segment": "__TEXT",
+      "section": "__gcc_except_tab"
+    },
+    {
+      "address": 4335182144,
+      "bytes": 1040065,
+      "segment": "__TEXT",
+      "section": "__const"
+    },
+    {
+      "address": 4336222209,
+      "bytes": 21561,
+      "segment": "__TEXT",
+      "section": "__cstring"
+    },
+    {
+      "address": 4336243772,
+      "bytes": 22288,
+      "segment": "__TEXT",
+      "section": "__unwind_info"
+    },
+    {
+      "address": 4336266064,
+      "bytes": 141680,
+      "segment": "__TEXT",
+      "section": "__eh_frame"
+    },
+    {
+      "address": 4336418816,
+      "bytes": 40,
+      "segment": "__DATA_CONST",
+      "section": "__got"
+    },
+    {
+      "address": 4336418864,
+      "bytes": 769120,
+      "segment": "__DATA_CONST",
+      "section": "__const"
+    },
+    {
+      "address": 4337187984,
+      "bytes": 1058792,
+      "segment": "__DATA_CONST",
+      "section": "__dfimg"
+    },
+    {
+      "address": 4338253824,
+      "bytes": 1352,
+      "segment": "__DATA",
+      "section": "__la_symbol_ptr"
+    },
+    {
+      "address": 4338255176,
+      "bytes": 5512,
+      "segment": "__DATA",
+      "section": "__data"
+    },
+    {
+      "address": 4338260688,
+      "bytes": 1512,
+      "segment": "__DATA",
+      "section": "__thread_vars"
+    },
+    {
+      "address": 4338262208,
+      "bytes": 19585,
+      "segment": "__DATA",
+      "section": "__thread_data"
+    },
+    {
+      "address": 4338281808,
+      "bytes": 5720,
+      "segment": "__DATA",
+      "section": "__thread_bss"
+    },
+    {
+      "address": 4338287528,
+      "bytes": 440,
+      "segment": "__DATA",
+      "section": "__bss"
+    },
+    {
+      "address": 4338287968,
+      "bytes": 192,
+      "segment": "__DATA",
+      "section": "__common"
+    }
+  ],
+  "text_symbol_entries": 33740,
+  "text_bytes_covered_by_symbol_range_union": 40191164,
+  "largest_text_symbols": [
+    {
+      "address": 4329438236,
+      "bytes": 251360,
+      "object": 102,
+      "name": "_df.register.program",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4324849296,
+      "bytes": 116516,
+      "object": 14,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fdraw$2fdraw_pixel$2edart..drawPixel",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/0c/0c87a9fa2c8839888bd6c1eaca63e208.obj"
+    },
+    {
+      "address": 4329825888,
+      "bytes": 97152,
+      "object": 102,
+      "name": "_df.arc.ports.program",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4315180024,
+      "bytes": 84864,
+      "object": 95,
+      "name": "_df.package$3adart_ui$2fsrc$2frendering$2fgpu$2fvulkan$2fvulkan_shaders$2edart..buildVulkanGradientFragmentShader",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4320329420,
+      "bytes": 81424,
+      "object": 97,
+      "name": "_df.package$3adart_ui$2fsrc$2frendering$2fgpu$2fvulkan$2fvulkan_sparse_strips$2edart..buildVulkanSparseFragmentShader",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4328485984,
+      "bytes": 71232,
+      "object": 16,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fexif$2fexif_tag$2edart..exifImageTags",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/d6/d66080f0e6d6cf96aec2af6a1c792573.obj"
+    },
+    {
+      "address": 4322078940,
+      "bytes": 66800,
+      "object": 98,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.PktDecoder.readPktHead",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4315647736,
+      "bytes": 63772,
+      "object": 10,
+      "name": "_df.package$3adart_ui$2fsrc$2frendering$2fgpu$2fvulkan$2fvulkan_mesh_shaders$2edart..buildVulkanMeshFragmentShader",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/f4/f482f54bf423546f769b09ab465787a1.obj"
+    },
+    {
+      "address": 4296906176,
+      "bytes": 63716,
+      "object": 86,
+      "name": "_df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.openWindow$async$q4ba2df9e",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4322582056,
+      "bytes": 62436,
+      "object": 98,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4307288240,
+      "bytes": 60284,
+      "object": 6,
+      "name": "_df.package$3adart_ui$2fsrc$2frendering$2fgpu$2fd3d11$2fd3d11_mesh_pipeline$2edart.D3d11MeshRenderer.drawInto",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/93/932781d963c7db2f6fe0293cf1060ac5.obj"
+    },
+    {
+      "address": 4301744088,
+      "bytes": 59264,
+      "object": 88,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fcff$2edart._Type2Interpreter._escaped",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4330427916,
+      "bytes": 54888,
+      "object": 19,
+      "name": "_df.dart$3acore.Object.hash",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/sdk/f2119ba246c1dac6a660c1c23201df82/core.o"
+    },
+    {
+      "address": 4324310736,
+      "bytes": 52580,
+      "object": 99,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fentropy$2fdecoder$2fstd_entropy_decoder$2edart.StdEntropyDecoder._sigProgPass",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4323966488,
+      "bytes": 51228,
+      "object": 14,
+      "name": "_df.package$3aj2k$2fsrc$2ficc$2ficc_profiler$2edart.ICCProfiler.getCompData",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/0c/0c87a9fa2c8839888bd6c1eaca63e208.obj"
+    },
+    {
+      "address": 4324448452,
+      "bytes": 49220,
+      "object": 99,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fentropy$2fdecoder$2fstd_entropy_decoder$2edart.StdEntropyDecoder._cleanupPass",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4328873700,
+      "bytes": 48128,
+      "object": 101,
+      "name": "_df.$record.equals",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4330068472,
+      "bytes": 46852,
+      "object": 103,
+      "name": "_df.dart$3a_internal.Sort._dualPivotQuicksortIntWith",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4321875000,
+      "bytes": 45932,
+      "object": 13,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.FileBitstreamReaderAgent.getCodeBlock",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/69/69d409972706942f2c7107ea28fc43fb.obj"
+    },
+    {
+      "address": 4297156784,
+      "bytes": 42780,
+      "object": 86,
+      "name": "_df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.run$async$q05e3e5ff",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4318753376,
+      "bytes": 42540,
+      "object": 11,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fexif$2fexif_data$2edart.ExifData.write",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/24/24de0e23f94a08ec2ac7d9f18583d750.obj"
+    },
+    {
+      "address": 4318961232,
+      "bytes": 42136,
+      "object": 96,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fheader_decoder$2edart.HeaderDecoder.parsePocMarker",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4327196152,
+      "bytes": 41716,
+      "object": 16,
+      "name": "_df.package$3aj2k$2fsrc$2ficc$2flut$2fmatrix_based_transform_to_srgb$2edart.MatrixBasedTransformTosRGB.applyFloat",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/d6/d66080f0e6d6cf96aec2af6a1c792573.obj"
+    },
+    {
+      "address": 4301476716,
+      "bytes": 41416,
+      "object": 88,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fbidi$2edart._BidiResolver._resolveSequence",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4319455052,
+      "bytes": 41224,
+      "object": 12,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fimage$2fimage$2edart.Image.convert",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/a9/a949726a149dcd893c00863014102a02.obj"
+    },
+    {
+      "address": 4329982932,
+      "bytes": 41128,
+      "object": 103,
+      "name": "_df.dart$3a_internal.Sort._dualPivotQuicksort",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4301690376,
+      "bytes": 40908,
+      "object": 88,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fcff$2edart._Type2Interpreter._execute",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4318114588,
+      "bytes": 40904,
+      "object": 96,
+      "name": "_df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_window$2edart.Win32Window.handleMessage",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4302682708,
+      "bytes": 40448,
+      "object": 4,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fparagraph$2edart._ParagraphBuilder._buildLine",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/11/11bca428355b88506e2a82ffb704cfd2.obj"
+    },
+    {
+      "address": 4319413268,
+      "bytes": 40372,
+      "object": 12,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fimage$2fimage$2edart.Image.setPixel",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/a9/a949726a149dcd893c00863014102a02.obj"
+    },
+    {
+      "address": 4314905824,
+      "bytes": 39188,
+      "object": 9,
+      "name": "_df.package$3adart_ui$2fsrc$2frendering$2fgpu$2fvulkan$2fvulkan_shaders$2edart..buildVulkanFragmentShader",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/d3/d3dec9cabc72ab0e22e13c304e90ef0a.obj"
+    },
+    {
+      "address": 4320289928,
+      "bytes": 38792,
+      "object": 97,
+      "name": "_df.package$3adart_ui$2fsrc$2frendering$2fgpu$2fvulkan$2fvulkan_sparse_strips$2edart..buildVulkanSparseVertexShader",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4302134036,
+      "bytes": 38688,
+      "object": 88,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fline_break$2edart._LineBreakScanner._decide",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4309464288,
+      "bytes": 38476,
+      "object": 92,
+      "name": "_df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fd3d12$2fd3d12_mesh_pipeline$2edart.D3d12MeshRenderer.drawInto",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4306837192,
+      "bytes": 37876,
+      "object": 91,
+      "name": "_df.package$3adart_ui$2fsrc$2frendering$2fgpu$2fd3d11$2fd3d11_backend$2edart.D3d11RenderDevice._bindPipeline",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4323584148,
+      "bytes": 37448,
+      "object": 99,
+      "name": "_df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fuia$2fcom_server$2edart.ComServerClass._buildVtable",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4306928436,
+      "bytes": 37424,
+      "object": 91,
+      "name": "_df.package$3adart_ui$2fsrc$2frendering$2fgpu$2fd3d11$2fd3d11_backend$2edart.D3d11RenderDevice._initialise",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4307214716,
+      "bytes": 37388,
+      "object": 91,
+      "name": "_df.package$3adart_ui$2fsrc$2frendering$2fgpu$2fd3d11$2fd3d11_mesh_pipeline$2edart.D3d11MeshRenderer._build",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4322231556,
+      "bytes": 37108,
+      "object": 98,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.PktDecoder._populateHlPrecinct",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4308480000,
+      "bytes": 36936,
+      "object": 6,
+      "name": "_df.package$3adart_ui$2fsrc$2frendering$2fgpu$2fvulkan$2fvulkan_mesh_pipeline$2edart.VulkanMeshRenderer._record$clo0$ea5df1ee6",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/93/932781d963c7db2f6fe0293cf1060ac5.obj"
+    },
+    {
+      "address": 4301210992,
+      "bytes": 36640,
+      "object": 88,
+      "name": "_df.package$3adart_ui$2fsrc$2frendering$2ftext$2ftext_painter$2edart.TextPainter._paintStyledParagraph",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4323532516,
+      "bytes": 36584,
+      "object": 14,
+      "name": "_df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fuia$2fuia_events$2edart.UiaEventTranslator.translate",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/0c/0c87a9fa2c8839888bd6c1eaca63e208.obj"
+    },
+    {
+      "address": 4330027760,
+      "bytes": 36520,
+      "object": 103,
+      "name": "_df.dart$3a_internal.Sort._dualPivotQuicksortInt",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4326609952,
+      "bytes": 36296,
+      "object": 15,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fimage$2fpixel_uint8$2edart.PixelUint8.set",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/70/70b5fd747b446cac972d74f401a21d2a.obj"
+    },
+    {
+      "address": 4315608556,
+      "bytes": 35324,
+      "object": 10,
+      "name": "_df.package$3adart_ui$2fsrc$2frendering$2fgpu$2fvulkan$2fvulkan_mesh_shaders$2edart..buildVulkanMeshVertexShader",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/f4/f482f54bf423546f769b09ab465787a1.obj"
+    },
+    {
+      "address": 4325921144,
+      "bytes": 35316,
+      "object": 15,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fimage$2fpixel_float16$2edart.PixelFloat16.set",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/70/70b5fd747b446cac972d74f401a21d2a.obj"
+    },
+    {
+      "address": 4313339160,
+      "bytes": 35108,
+      "object": 94,
+      "name": "_df.package$3adart_ui$2fsrc$2frendering$2fgpu$2fd3d11$2fd3d11_vector_executors$2edart.D3d11VectorPipeline._build",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4296839180,
+      "bytes": 34888,
+      "object": 86,
+      "name": "_df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.start$async$q5c1c72fe",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4324383448,
+      "bytes": 34808,
+      "object": 99,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fentropy$2fdecoder$2fstd_entropy_decoder$2edart.StdEntropyDecoder._rawSigProgPass",
+      "object_path": "/tmp/lto.tmp"
+    },
+    {
+      "address": 4334609588,
+      "bytes": 34736,
+      "object": 31,
+      "name": "_df.dart$3aio._FileSystemWatcher._listenOnSocket$clo0$ea5717ce1",
+      "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/sdk/f2119ba246c1dac6a660c1c23201df82/io.o"
+    }
+  ],
+  "scope": "Linked symbol size only. Aliases and overlapping symbol ranges may exist; union avoids summing them twice. No performance or future size reduction claim."
+}

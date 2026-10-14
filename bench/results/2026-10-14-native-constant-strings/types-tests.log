@@ -1,0 +1,178 @@
+   Compiling dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.17s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_types-88e25f54b067a054)
+
+running 8 tests
+test const_eval::graph::tests::acyclic_chain_evaluates_from_leaves_to_root ... ok
+test const_eval::graph::tests::cycle_constructor_seen_before_gives_false_cycle ... ok
+test inference::integers::tests::exact_doubles ... ok
+test inference::integers::tests::integer_range ... ok
+test const_eval::graph::tests::self_reference_and_trivial_cycle ... ok
+test const_eval::graph::tests::three_cycle_with_clean_dependent ... ok
+test const_eval::graph::tests::same_thing_with_class_after_gives_no_false_cycle ... ok
+test phase_sdk::tests::constraints ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/bodies.rs (target/debug/deps/bodies-fff58cd796a94992)
+
+running 61 tests
+test assign_to_types_and_top_level_function ... ok
+test assignment_to_final_local_marks_only_identifier ... ok
+test class_method_is_not_setter_even_with_extension ... ok
+test class_getter_without_setter_in_simple_assignment ... ok
+test cases_sharing_body_and_irrefutable_case_assign ... ok
+test augmentation_inherits_omitted_types ... ok
+test binary_operator_in_override_per_oracle ... ok
+test const_local_and_top_level_final_are_not_final_local ... ok
+test constant_in_case_and_promotion_on_rhs_of_if_null ... ok
+test creation_via_alias_with_written_argument_keeps_incompatible_type ... ok
+test enum_augmentation_adds_values_and_members ... ok
+test creation_of_non_class_name ... ok
+test dead_code_snippets_like_analyzer ... ok
+test creation_via_alias_infers_nested_argument_from_context ... ok
+test explicit_extension_override_rejects_static_members ... ok
+test explicit_override_without_method_uses_extension_code ... ok
+test explicit_extension_override_without_setter ... ok
+test explicit_override_without_getter_uses_extension_code ... ok
+test final_field_without_setter_and_assignable_late_final ... ok
+test extension_getter_without_setter ... ok
+test enum_generative_constructor_reference_is_not_missing_constructor ... ok
+test inherited_member_uses_most_specific_declaration ... ok
+test imported_same_name_extensions_remain_applicable ... ok
+test lexical_getter_without_setter_in_assignments_and_increments ... ok
+test instance_member_in_explicit_instantiation_has_own_code_and_span ... ok
+test enum_generative_constructor_invocation_with_new_const_and_unnamed ... ok
+test local_function_is_not_assignable_final_variable ... ok
+test missing_static_getter_in_extension_per_oracle ... ok
+test missing_new_after_instantiated_type_keeps_constructor_diagnostic ... ok
+test index_operators_in_override_per_oracle ... ok
+test new_sali_type_checks ... ignored
+test missing_static_method_in_extension_per_oracle ... ok
+test missing_static_setter_in_extension_per_oracle ... ok
+test override_without_call_per_oracle ... ok
+test promotion_and_inference ... ok
+test pub_corpus_type_checks ... ignored
+test read_only_static_members_in_assignments ... ok
+test redirecting_factory_to_enum_generative_reports_at_target ... ok
+test sdk_bodies_type_check ... ignored
+test static_access_to_class_instance_members_per_oracle ... ok
+test static_access_to_extension_instance_members_per_oracle ... ok
+test static_call_in_extension_override ... ok
+test static_member_through_instance ... ok
+test static_method_in_extension_override ... ok
+test static_or_unknown_member_in_explicit_instantiation ... ok
+test analyzer_negatives_40_cases ... ok
+test switch_on_nullable_sealed_is_exhaustive ... ok
+test top_level_getter_without_setter_and_pair_with_setter ... ok
+test top_level_late_final_without_initializer_accepts_write ... ok
+test type_arguments_out_of_bounds ... ok
+test unary_operator_in_override_per_oracle ... ok
+test void_result_use ... ok
+test write_to_instance_method_via_type_and_undefined_setter ... ok
+test completing_finally_carries_promotions_past_try ... ok
+test member_from_different_interfaces_uses_most_specific_signature ... ok
+test horizontal_inference_follows_dependencies_between_closures ... ok
+test generator_without_yield_and_empty_return_like_analyzer_3_6_2 ... ok
+test override_inherits_inferred_type_of_untyped_field ... ok
+test instantiation_to_bounds_follows_dependencies_and_written_bound ... ok
+test property_access_on_never_receiver ... ok
+test if_null_with_non_completing_rhs_promotes_lhs ... ok
+
+test result: ok. 58 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests/corpus_inference.rs (target/debug/deps/corpus_inference-00449c9bc8f8a7c5)
+
+running 1 test
+test inference_corpus_against_oracle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.67s
+
+     Running tests/inference_groups.rs (target/debug/deps/inference_groups-baf7de446278d73c)
+
+running 19 tests
+test named_constructors_and_references ... ok
+test never_as_type_literal ... ok
+test extension_type_implements_extension_type ... ok
+test extension_override_and_closure ... ok
+test field_promotion_depends_on_version ... ok
+test condition_variable ... ok
+test late_final_setter ... ok
+test implicit_call_restricts_generic_invocation ... ok
+test chain_clamp_and_local_function ... ok
+test new_engine_base ... ok
+test private_field_promotion ... ok
+test old_nullable_function_parameter ... ok
+test raw_type_instantiated_to_bounds ... ok
+test patch_in_part_of_patch ... ok
+test sdk_bodies ... ok
+test same_name_write_in_other_closure_does_not_capture ... ok
+test type_variable_promotion ... ok
+test system_import_loses_conflict ... ok
+test pattern_variable_shadowing_scrutinee ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+     Running tests/optimization_annotations.rs (target/debug/deps/optimization_annotations-b0c15d621fc47656)
+
+running 9 tests
+test optimization_annotations_ignore_homonyms_and_shadowed_metadata ... ok
+test optimization_annotations_reject_invalid_constructor_arguments_and_values ... ok
+test optimization_annotations_require_an_actual_constant_annotation_value ... ok
+test optimization_annotations_validate_targets_and_keep_external_noescape_pending ... ok
+test optimization_annotations_resolve_prefix_reexport_static_and_local_aliases ... ok
+test optimization_annotations_local_binding_overrides_ambiguous_library_names ... ok
+test optimization_annotations_do_not_recognize_ambiguous_import_recovery ... ok
+test optimization_annotations_reject_unsupported_or_malformed_designated_schema ... ok
+test optimization_annotations_schema_policy_includes_future_class_use_but_not_imports ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/sdk.rs (target/debug/deps/sdk-ea38c32d408a45ee)
+
+running 3 tests
+test known_subtyping ... ignored
+test sdk_hierarchy_instantiates ... ignored
+test sdk_outline_resolves ... ignored
+
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sdk_without_bodies.rs (target/debug/deps/sdk_without_bodies-a87f86acfb1a87fa)
+
+running 1 test
+test sdk_without_bodies_and_typed_user ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/shadow_index.rs (target/debug/deps/shadow_index-016486ba56b4cbd4)
+
+running 1 test
+test index_answers_like_the_walk ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.91s
+
+     Running tests/subtyping_cases.rs (target/debug/deps/subtyping_cases-9b1f0935cec90c39)
+
+running 1 test
+test test_table_60_normative_subtyping_cases ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/unit_tests.rs (target/debug/deps/unit_tests-3bf43a2f424586a2)
+
+running 12 tests
+test superclass_of_itself_terminates ... ok
+test test_generic_typedef_expansion ... ok
+test test_extension_type_erasure_and_subtyping ... ok
+test abstract_members_in_concrete_class ... ok
+test corpus_invalid_overrides ... ok
+test getter_and_setter_with_incompatible_types ... ok
+test test_mixin_application_instantiated_supertypes ... ok
+test members_forbidden_in_enum_implementers ... ok
+test conflicting_members_and_default_values ... ok
+test test_accumulated_diagnostics_unknown_type ... ok
+test test_override_inference ... ok
+test type_parameter_variance ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+

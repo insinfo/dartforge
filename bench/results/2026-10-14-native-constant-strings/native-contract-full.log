@@ -1,0 +1,41 @@
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running tests/contract.rs (target/debug/deps/contract-ab694e49608d8f67)
+
+running 23 tests
+test implicit_enum_name_index_reads_value_fields ... ok
+test implicit_enum_values_becomes_value_list ... ok
+test constant_interpolation_folds_values_and_preserves_unknowns ... ok
+test for_with_reassigned_variable_reads_local ... ok
+test method_call_with_return ... ok
+test nsm_forwarder_getter_emits_nsm ... ok
+test generic_class_default_tostring_in_sdk ... ok
+test closure_arity_throws_no_such_method_error_from_source ... ok
+test implicit_enum_name_index_in_sdk ... ok
+test enum_is_subtype_of_enum_in_sdk ... ok
+test implicit_enum_values_in_sdk ... ok
+test interface_getter_dispatches_field_and_getter ... ok
+test covariant_collection_write_throws_type_error_without_mutating ... ok
+test iterable_generate_checks_generic_signature_in_sdk ... ok
+test symbol_literal_uses_sdk_class_and_canonical_constant ... ok
+test top_level_function_with_int_return_prints_scalar ... ok
+test self_referential_late_field_emits_guarded_getter ... ok
+test nsm_forwarder_positional_method_emits_nsm ... ok
+test nsm_forwarder_getter_in_sdk ... ok
+test redirecting_factory_preserves_target_rti ... ok
+test nsm_forwarder_method_in_sdk ... ok
+test wrong_dynamic_sdk_argument_throws_type_error ... ok
+test static_getter_returning_function_is_called_as_value ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.90s
+
