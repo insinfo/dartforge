@@ -1,0 +1,13 @@
+{
+  "decision": "Guarded physical dispatch enabled only in explicit ARC modules; tracing default unchanged. Measured modest CPU gains with larger ARC binaries; full ARC-versus-tracing readiness remains unproven. Existing DARTFORGE_NO_ARC_TAG_GUARDS=1 allows size-oriented ablation.",
+  "json_on_over_off": [
+    0.9658893544387529,
+    0.9782838887323718,
+    0.9717518862111868
+  ],
+  "artifact_size_ratios": {
+    "json": 1.0628069074959157,
+    "objects": 1.0654244962644328
+  },
+  "scope": "Matched fixed70fc native producer experiment, not current full-toolchain upstream comparison requested later. Three alternating pairs; usual idle desktop background; agents CPU jobs paused."
+}

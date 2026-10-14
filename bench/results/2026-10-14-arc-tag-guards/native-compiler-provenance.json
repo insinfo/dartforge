@@ -1,0 +1,18 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-tag-guards-final-compiler/dartforge",
+  "sha256": "70fc11430b03771d0b1155eb1454aac9fbd032454de1f7a2aeb7fb2190fb5708",
+  "features": [
+    "native"
+  ],
+  "profile": "release",
+  "source_hashes_verified": 1486,
+  "head": "3eb77e08b299891debab5ff66870037f4f63f9ba",
+  "independent_js_work": [
+    "crates/emit_js/src/lib.rs",
+    "crates/emit_js/src/module.rs",
+    "crates/emit_js/src/own_sdk.rs",
+    "crates/emit_js/src/typed_loops.rs",
+    "crates/emit_js/src/typed_read_guards.rs"
+  ],
+  "native_checkpoint_excludes_js_changes": true
+}

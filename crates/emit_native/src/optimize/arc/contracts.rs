@@ -1603,7 +1603,7 @@ mod tests {
             .next()
             .unwrap();
         let release = function
-            .find("call void @dartforge_arc_release(i64 %v1)")
+            .find("call void @df.arc_release_ref(i64 %v1)")
             .unwrap();
         // The first throw may be the prologue guard, before creating
         // any token; the last one is the Throw exit of the prepared body.

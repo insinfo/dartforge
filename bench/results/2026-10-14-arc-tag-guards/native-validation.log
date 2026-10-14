@@ -1,0 +1,12 @@
+on-tracing build starting
+on-tracing-normal exact VM True
+on-tracing-stress exact VM True
+on-legacy-arc build starting
+on-legacy-arc-normal exact VM True
+on-legacy-arc-stress exact VM True
+on-prepared-arc build starting
+on-prepared-arc-normal exact VM True
+on-prepared-arc-stress exact VM True
+off-prepared-arc build starting
+off-prepared-arc-normal exact VM True
+off-prepared-arc-stress exact VM True

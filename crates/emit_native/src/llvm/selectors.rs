@@ -387,6 +387,7 @@ impl LlvmEmitter<'_> {
     /// pending exception, null without an owner — the same protocol as
     /// `owner_em_escopo_nativo` in the runtime.
     fn emit_owned_thunks(&mut self) {
+        let retain = self.arc_retain_target();
         let thunks = std::mem::take(&mut self.owned_thunks);
         for (name, (base, types)) in thunks {
             let params: Vec<String> = types.iter().enumerate().map(|(i, t)| format!("{} %a{i}", t.llvm_ir())).collect();
@@ -401,7 +402,7 @@ impl LlvmEmitter<'_> {
                  \x20 %z = icmp ne i8 %p, 0\n\
                  \x20 br i1 %z, label %fim, label %ok\n\
                  ok:\n\
-                 \x20 call void @dartforge_arc_retain(i64 %r)\n\
+                 \x20 call void @{retain}(i64 %r)\n\
                  \x20 br label %fim\n\
                  fim:\n\
                  \x20 %res = phi i64 [ 0, %entrada ], [ %r, %ok ]\n\

@@ -1133,7 +1133,7 @@ mod tests {
         assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (1, 0));
         let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
         let read = ir.find("call i64 @dartforge_arc_read_field_ref_v1").unwrap();
-        let retain = ir.find("call void @dartforge_arc_retain").unwrap();
+        let retain = ir.find("call void @df.arc_retain_ref(i64 %v1)").unwrap();
         assert!(read < retain);
         assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
     }

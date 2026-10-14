@@ -51,8 +51,7 @@ fn literal_null_elides_physical_calls_but_preserves_copy_ssa_and_hir() {
     let ir = LlvmEmitter::new(&module).emit_all();
     assert!(ir.contains("%v1 = add i64 0, 0"));
     assert!(ir.contains("ret i64 %v1"));
-    assert!(!ir.contains("call void @dartforge_arc_retain(i64 0)"));
-    assert!(!ir.contains("call void @dartforge_arc_release(i64 0)"));
+    assert_no_physical_calls(&ir, "0");
     assert_eq!(format!("{:?}", module.functions), before);
     assert_eq!(format!("{classes:?}/{plan:?}"), verified);
 }
@@ -61,8 +60,8 @@ fn literal_null_elides_physical_calls_but_preserves_copy_ssa_and_hir() {
 fn nullable_reference_keeps_calls_but_exact_null_ssa_elides_them() {
     let module = module(Operand::Val(ValueId(0)), Some(Type::Ref));
     let ir = LlvmEmitter::new(&module).emit_all();
-    assert!(ir.contains("call void @dartforge_arc_retain(i64 %v0)"));
-    assert!(ir.contains("call void @dartforge_arc_release(i64 %v0)"));
+    assert!(ir.contains("call void @df.arc_retain_ref(i64 %v0)"));
+    assert!(ir.contains("call void @df.arc_release_ref(i64 %v0)"));
     let mut module = module;
     module.functions[0].params.clear();
     module.functions[0].blocks[0].instructions.insert(
@@ -70,8 +69,7 @@ fn nullable_reference_keeps_calls_but_exact_null_ssa_elides_them() {
         (ValueId(0), Instruction::Const(Constant::Null), Type::Ref),
     );
     let ir = LlvmEmitter::new(&module).emit_all();
-    assert!(!ir.contains("call void @dartforge_arc_retain(i64 %v0)"));
-    assert!(!ir.contains("call void @dartforge_arc_release(i64 %v0)"));
+    assert_no_physical_calls(&ir, "%v0");
 }
 
 fn produced(instruction: Instruction, ty: Type) -> Module {
@@ -84,8 +82,19 @@ fn produced(instruction: Instruction, ty: Type) -> Module {
 
 fn emits_calls(module: &Module) -> bool {
     let ir = LlvmEmitter::new(module).emit_all();
-    ir.contains("call void @dartforge_arc_retain(i64 %v0)")
-        && ir.contains("call void @dartforge_arc_release(i64 %v0)")
+    ir.contains("call void @df.arc_retain_ref(i64 %v0)")
+        && ir.contains("call void @df.arc_release_ref(i64 %v0)")
+}
+
+fn assert_no_physical_calls(ir: &str, operand: &str) {
+    for target in [
+        "dartforge_arc_retain",
+        "dartforge_arc_release",
+        super::arc_tag_guards::RETAIN,
+        super::arc_tag_guards::RELEASE,
+    ] {
+        assert!(!ir.contains(&format!("call void @{target}(i64 {operand})")));
+    }
 }
 
 #[test]
@@ -118,7 +127,7 @@ fn boxed_smi_boundaries_elide_calls_without_changing_verified_tokens() {
         let ir = LlvmEmitter::new(&module).emit_all();
         assert!(ir.contains("%v0 = call i64 @df.box_int"));
         assert!(ir.contains("%v1 = add i64 %v0, 0"));
-        assert!(!emits_calls(&module));
+        assert_no_physical_calls(&ir, "%v0");
         assert_eq!(
             format!("{:?}/{classes:?}/{plan:?}", module.functions),
             snapshot
@@ -209,7 +218,7 @@ fn physical_elision_preserves_intervening_collection_call_and_box_producer() {
     assert!(ir.contains("%v0 = call i64 @df.box_int(i64 17)"));
     assert!(ir.contains("call void @dartforge_arc_collect()"));
     assert!(ir.contains("%v1 = add i64 %v0, 0"));
-    assert!(!emits_calls(&module));
+    assert_no_physical_calls(&ir, "%v0");
 }
 
 #[test]
@@ -250,8 +259,7 @@ fn earlier_i64_constant_and_copy_move_chain_are_physical_facts_only() {
     ]);
     let ir = LlvmEmitter::new(&module).emit_all();
     for value in [0, 4, 5] {
-        assert!(!ir.contains(&format!("call void @dartforge_arc_retain(i64 %v{value})")));
-        assert!(!ir.contains(&format!("call void @dartforge_arc_release(i64 %v{value})")));
+        assert_no_physical_calls(&ir, &format!("%v{value}"));
     }
     assert!(ir.contains("%v4 = add i64 %v1, 0"));
     assert!(ir.contains("%v5 = add i64 %v4, 0"));
@@ -265,7 +273,7 @@ fn canonical_owned_box_requires_exact_abi_and_no_hir_homonym() {
         ret_ty: Type::Ref,
     };
     let mut module = produced(instruction.clone(), Type::Ref);
-    assert!(!emits_calls(&module));
+    assert_no_physical_calls(&LlvmEmitter::new(&module).emit_all(), "%v0");
     let mut homonym = module.functions[0].clone();
     homonym.symbol = "dartforge_arc_box_int_owned_v1".into();
     homonym.params = vec![(ValueId(10), "x".into(), Type::I64)];

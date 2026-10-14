@@ -236,7 +236,7 @@ mod tests {
         )
         .unwrap();
         let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-        let retention = ir.find("call void @dartforge_arc_retain(i64 %v2)").unwrap();
+        let retention = ir.find("call void @df.arc_retain_ref(i64 %v2)").unwrap();
         let cleanup = ir[retention..].find("store i64 0, ptr %ga3").unwrap();
         assert!(cleanup > 0);
     }

@@ -1317,7 +1317,7 @@ mod tests {
                 );
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
                 assert!(ir.contains("call i64 @dartforge_arc_read_field_ref_v1(i64 %v0, i64 39)"));
-                assert!(ir.contains("call void @dartforge_arc_retain(i64 %v1)"));
+                assert!(ir.contains("call void @df.arc_retain_ref(i64 %v1)"));
                 let prepared = format!("{m:?}/{plans:?}");
                 assert_eq!(
                     prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
@@ -1438,8 +1438,8 @@ mod tests {
                     "call void @dartforge_arc_write_field_ref_v1(i64 %v0, i64 37, i64 %v1)"
                 ));
                 assert!(ir.contains("call void @dartforge_arc_write_field_scalar_v1(i64 %v0, i64 39, i64 9223372036854775807)"));
-                assert!(ir.contains("call void @dartforge_arc_release(i64 %v0)"));
-                assert!(ir.contains("call void @dartforge_arc_release(i64 %v1)"));
+                assert!(ir.contains("call void @df.arc_release_ref(i64 %v0)"));
+                assert!(ir.contains("call void @df.arc_release_ref(i64 %v1)"));
                 let prepared = format!("{m:?}/{plans:?}");
                 assert_eq!(
                     prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
@@ -1544,7 +1544,7 @@ mod tests {
                     ir.contains("declare i64 @dartforge_arc_object_owned_v1(i64, i64) nounwind")
                 );
                 assert!(ir.contains("call i64 @dartforge_arc_object_owned_v1(i64 123, i64 40)"));
-                assert!(ir.contains("call void @dartforge_arc_release(i64 %v0)"));
+                assert!(ir.contains("call void @df.arc_release_ref(i64 %v0)"));
                 let prepared = format!("{m:?}/{plans:?}");
                 assert_eq!(
                     prepare_arc_dart_module(&mut m, &mut plans).unwrap(),

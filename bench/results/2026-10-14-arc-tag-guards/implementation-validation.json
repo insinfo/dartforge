@@ -1,0 +1,45 @@
+{
+  "source_sha256": {
+    "crates/emit_native/src/llvm/arc_tag_guards.rs": "9b6f346ca2d6a5508016fa0cc90bb854c23eed5139daf5a74cedc1bef69ec9d4",
+    "crates/emit_native/src/llvm/arc_tag_guards/tests.rs": "943dd250380f96acb989d18982033854c54f2cb8d477e44ac6df5b80bdc604da",
+    "crates/emit_native/src/llvm/arc_null_literals.rs": "251ee2ead8f3715bc482f379eab5381d1c35c5afd80408b71bd51bc9410e444d",
+    "crates/emit_native/src/llvm/mod.rs": "bb4eba33de33a6f61e33a24cc5dfb2c4895c9848b6a6a4b7209694c49eec28a6",
+    "crates/emit_native/src/llvm/selectors.rs": "9acb0e1d1e34a4304e287c973eea87b2052d4558b588101ecc0713fe025109eb",
+    "crates/emit_native/src/optimize/arc/contracts.rs": "6f4e2b675dbc5944d9132d02146d3e1a7e6ef6076c947f105a9b0bdbc3443686",
+    "crates/emit_native/src/optimize/arc/fields.rs": "2a94aeb27a4c9eb295322f0171962b6a1f88c2688f0281bd8a6318a78a0f4d35",
+    "crates/emit_native/src/optimize/arc/functions.rs": "438b2ace21482173573814ecb895b450a02e69d8442e5cc15b35e216855ccd0c",
+    "crates/emit_native/src/optimize/arc/globals.rs": "ce10d734099d11c6a78beeef09c10052ba24c0059b4fba4e621d28f3502533f8"
+  },
+  "focused_tests": {
+    "passed": 13,
+    "failed": 0
+  },
+  "affected_optimizer_tests": {
+    "passed": 370,
+    "failed": 0
+  },
+  "full_native_library_tests": {
+    "passed": 636,
+    "ignored": 8,
+    "failed": 0
+  },
+  "scope": "ARC modules only, private internal alwaysinline nounwind gc-leaf helpers. Exact runtime e_handle = value != 0 && (value & 1) == 0. Null/odd values skip native ARC; all nonzero even values, including invalid negative-even, preserve native dispatch. HIR/token plans/checkers/caller CFG/PHI unchanged.",
+  "inventory": "Boolean static and Mint inventory audit calls real runtime ABI separately from generated LLVM execution test; booleans remain tracked, Smi no physical inventory, Mint release queues reclamation until collect.",
+  "generated_execution": "Compiled LLVM guard helpers with recording C stubs at O0/O2. Exact argument/call counts cover both Smi boundaries, null/zero/odd values, Mints-shaped/nonzero-even values, static-object-shaped pointers and invalid negative-even values.",
+  "dispatch": "ArcCopy/Drop, global strong load/copy publication, foreign cleanup and generic owned thunks use guarded helpers. Explicit HIR CallRuntime retain/release targets remain canonical and effects instrumentation unchanged.",
+  "ablation": "DARTFORGE_NO_ARC_TAG_GUARDS=1 disables dynamic guards. Existing SDK fingerprint hashes all DARTFORGE_NO_* variables. Static proven null/Smi elision remains enabled in both modes.",
+  "attributes": "No purity, readonly, memory(none), willreturn or extra collection/deopt claims. Exact helper names registered MAP_LEAVES; runtime effects000 justify leaf/nounwind.",
+  "initial_failures": "Test-only classifier name typo, missing bundled-clang SDK sysroot, and six optimizer emitted-callee assertions corrected with operand/order checks preserved. Logs retained. First concurrently started producer invalidated by premature test edit and discarded by parent; not used for validation.",
+  "pending": "Full-toolchain current/upstream benchmarks remain separate. Matched production ARC guard off/on measurement completed in ../2026-10-14-native-arc-tag-guard-performance/measurement.json; modest gains and larger binaries recorded in decision.json.",
+  "ordinary_native_differential": {
+    "compiler_sha256": "70fc11430b03771d0b1155eb1454aac9fbd032454de1f7a2aeb7fb2190fb5708",
+    "runs_exact_vm": 8,
+    "guard_on": "tracing, legacy ARC and prepared ARC, normal and GC stress",
+    "guard_off": "prepared ARC normal and GC stress",
+    "ARC_CHECK": "1",
+    "EFFECTS": "check",
+    "all_stderr_empty": true,
+    "native_guard_checkpoint_sources_unchanged": true,
+    "runtime_archives_unchanged": true
+  }
+}

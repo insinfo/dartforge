@@ -1,0 +1,201 @@
+{
+  "records": [
+    {
+      "pair": 1,
+      "kind": "json",
+      "setting": "off",
+      "kernels_us": {
+        "ascii/json": 434.36631944444446,
+        "ascii/string_buffer": 12.035834616865614,
+        "latin1/json": 445.4991197183099,
+        "latin1/string_buffer": 12.042605973025049,
+        "mixed_utf16/json": 435.9739583333333,
+        "mixed_utf16/string_buffer": 11.930415076335878
+      }
+    },
+    {
+      "pair": 1,
+      "kind": "json",
+      "setting": "on",
+      "kernels_us": {
+        "ascii/json": 401.5272435897436,
+        "ascii/string_buffer": 11.086489003192622,
+        "latin1/json": 402.18028846153845,
+        "latin1/string_buffer": 11.183161896243291,
+        "mixed_utf16/json": 401.70512820512823,
+        "mixed_utf16/string_buffer": 11.192872492836676
+      }
+    },
+    {
+      "pair": 1,
+      "kind": "objects",
+      "setting": "off",
+      "kernels_us": {
+        "object_list": 107929,
+        "object_sort": 723659,
+        "map_int_object": 88556,
+        "map_str_object": 104679
+      }
+    },
+    {
+      "pair": 1,
+      "kind": "objects",
+      "setting": "on",
+      "kernels_us": {
+        "object_list": 106376,
+        "object_sort": 696326,
+        "map_int_object": 85844,
+        "map_str_object": 103659
+      }
+    },
+    {
+      "pair": 2,
+      "kind": "json",
+      "setting": "on",
+      "kernels_us": {
+        "ascii/json": 410.3831168831169,
+        "ascii/string_buffer": 11.197397886062344,
+        "latin1/json": 401.16987179487177,
+        "latin1/string_buffer": 11.26802451333814,
+        "mixed_utf16/json": 401.51602564102564,
+        "mixed_utf16/string_buffer": 11.260626801152737
+      }
+    },
+    {
+      "pair": 2,
+      "kind": "json",
+      "setting": "off",
+      "kernels_us": {
+        "ascii/json": 422.3783783783784,
+        "ascii/string_buffer": 11.38747723132969,
+        "latin1/json": 409.48944805194805,
+        "latin1/string_buffer": 11.361663940385315,
+        "mixed_utf16/json": 413.3824013157895,
+        "mixed_utf16/string_buffer": 11.329059441826749
+      }
+    },
+    {
+      "pair": 2,
+      "kind": "objects",
+      "setting": "on",
+      "kernels_us": {
+        "object_list": 106481,
+        "object_sort": 699670,
+        "map_int_object": 88438,
+        "map_str_object": 105465
+      }
+    },
+    {
+      "pair": 2,
+      "kind": "objects",
+      "setting": "off",
+      "kernels_us": {
+        "object_list": 107920,
+        "object_sort": 750640,
+        "map_int_object": 86732,
+        "map_str_object": 108512
+      }
+    },
+    {
+      "pair": 3,
+      "kind": "json",
+      "setting": "off",
+      "kernels_us": {
+        "ascii/json": 411.671875,
+        "ascii/string_buffer": 11.487941014332966,
+        "latin1/json": 411.10795454545456,
+        "latin1/string_buffer": 11.301224692697035,
+        "mixed_utf16/json": 409.8538961038961,
+        "mixed_utf16/string_buffer": 11.35655886627907
+      }
+    },
+    {
+      "pair": 3,
+      "kind": "json",
+      "setting": "on",
+      "kernels_us": {
+        "ascii/json": 407.9707792207792,
+        "ascii/string_buffer": 11.215150699677071,
+        "latin1/json": 411.5419407894737,
+        "latin1/string_buffer": 11.349491648511256,
+        "mixed_utf16/json": 428.138698630137,
+        "mixed_utf16/string_buffer": 11.175723989989274
+      }
+    },
+    {
+      "pair": 3,
+      "kind": "objects",
+      "setting": "off",
+      "kernels_us": {
+        "object_list": 107479,
+        "object_sort": 758879,
+        "map_int_object": 87400,
+        "map_str_object": 108637
+      }
+    },
+    {
+      "pair": 3,
+      "kind": "objects",
+      "setting": "on",
+      "kernels_us": {
+        "object_list": 106935,
+        "object_sort": 705050,
+        "map_int_object": 85485,
+        "map_str_object": 103885
+      }
+    }
+  ],
+  "summary": {
+    "json/ascii/json": {
+      "off": 422.3783783783784,
+      "on": 407.9707792207792,
+      "on_over_off": 0.9658893544387529
+    },
+    "json/ascii/string_buffer": {
+      "off": 11.487941014332966,
+      "on": 11.197397886062344,
+      "on_over_off": 0.9747088596722315
+    },
+    "json/latin1/json": {
+      "off": 411.10795454545456,
+      "on": 402.18028846153845,
+      "on_over_off": 0.9782838887323718
+    },
+    "json/latin1/string_buffer": {
+      "off": 11.361663940385315,
+      "on": 11.26802451333814,
+      "on_over_off": 0.9917582998812058
+    },
+    "json/mixed_utf16/json": {
+      "off": 413.3824013157895,
+      "on": 401.70512820512823,
+      "on_over_off": 0.9717518862111868
+    },
+    "json/mixed_utf16/string_buffer": {
+      "off": 11.35655886627907,
+      "on": 11.192872492836676,
+      "on_over_off": 0.9855866222004602
+    },
+    "objects/object_list": {
+      "off": 107920,
+      "on": 106481,
+      "on_over_off": 0.9866660489251298
+    },
+    "objects/object_sort": {
+      "off": 750640,
+      "on": 699670,
+      "on_over_off": 0.9320979430885644
+    },
+    "objects/map_int_object": {
+      "off": 87400,
+      "on": 85844,
+      "on_over_off": 0.9821967963386727
+    },
+    "objects/map_str_object": {
+      "off": 108512,
+      "on": 103885,
+      "on_over_off": 0.9573595547036272
+    }
+  },
+  "scope": "Three alternating pairs in a root-coordinated quiet window; JSON microseconds per encoding and object kernels median excluding first sample. Production ARC checks disabled; no upstream or global ARC speed claim."
+}

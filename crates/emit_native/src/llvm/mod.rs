@@ -29,6 +29,7 @@ const TLAB_N: i64 = layout::TLAB_N as i64;
 const OBJECT_MASK: i64 = 7 | i64::MIN;
 mod selectors;
 mod arc_immediates;
+mod arc_tag_guards;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -45,6 +46,7 @@ pub struct LlvmEmitter<'a> {
     /// new_sali/backend, docs/NATIVO-PROJETOS-REAIS.md).
     function_by_symbol: std::collections::HashMap<&'a str, &'a Function>,
     out: String,
+    arc_tag_guards: bool,
     /// The string constants, in emission order (deterministic); the
     /// index of each one is its position.
     string_constants: Vec<Vec<u8>>,
@@ -259,6 +261,14 @@ pub struct LlvmEmitter<'a> {
 }
 
 impl<'a> LlvmEmitter<'a> {
+    fn arc_retain_target(&self) -> &'static str {
+        if self.arc_tag_guards { arc_tag_guards::RETAIN } else { "dartforge_arc_retain" }
+    }
+
+    fn arc_release_target(&self) -> &'static str {
+        if self.arc_tag_guards { arc_tag_guards::RELEASE } else { "dartforge_arc_release" }
+    }
+
     /// Supplies a jointly audited SDK snapshot. Its Function borrows prevent
     /// changing a callee after its return fact was used to prove a receiver.
     pub(crate) fn with_receiver_provenance(mut self, proof: crate::pruning::receiver_provenance::Provenance<'a>) -> Self {
@@ -269,6 +279,7 @@ impl<'a> LlvmEmitter<'a> {
         Self {
             module,
             out: String::new(),
+            arc_tag_guards: module.arc_memory && !std::env::var("DARTFORGE_NO_ARC_TAG_GUARDS").is_ok_and(|value| value == "1"),
             string_constants: Vec::new(),
             string_index: std::collections::HashMap::new(),
             types: std::collections::HashMap::new(),
@@ -776,6 +787,7 @@ impl<'a> LlvmEmitter<'a> {
         let helpers_start = self.out.len();
         self.out.push_str(ir_strings::HELPERS);
         self.out.push_str(ir_boxes::HELPERS);
+        if self.arc_tag_guards { self.out.push_str(arc_tag_guards::HELPERS); }
         self.out.push_str(&ir_lists::helpers(self.module.arc_memory));
         self.out.push_str(ir_typed::HELPERS);
         let value_class = value_class(&self.module.runtime_cids);
@@ -858,6 +870,8 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn emit_function(&mut self, func: &Function) {
+        let arc_retain_target = self.arc_retain_target();
+        let arc_release_target = self.arc_release_target();
         self.current_function.clone_from(&func.symbol);
         self.current_exact_receivers = self.receiver_provenance.as_ref()
             .and_then(|proof| proof.values_for(func)).cloned().unwrap_or_default();
@@ -1073,7 +1087,7 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "lpad{b}.estrangeira:").unwrap();
                     if let Some(c) = tab.and_then(|t| t.foreign_cleanup.as_ref()) {
                         for v in c.owners(block.id) {
-                            writeln!(self.out, "  call void @dartforge_arc_release(i64 %v{})", v.0).unwrap();
+                            writeln!(self.out, "  call void @{arc_release_target}(i64 %v{})", v.0).unwrap();
                         }
                         for q in c.frames(block.id).iter().rev() {
                             writeln!(self.out, "  call void @dartforge_arc_frame_close_v1(i64 %v{})", q.0).unwrap();
@@ -1253,28 +1267,28 @@ impl<'a> LlvmEmitter<'a> {
                         let val_ref = self.arc_reference(value);
                         if matches!(inst, Instruction::ArcCopy { .. })
                             && !immediate_refs.contains(value, block.id, instruction_index) {
-                            writeln!(self.out, "  call void @dartforge_arc_retain(i64 {val_ref})").unwrap();
+                            writeln!(self.out, "  call void @{arc_retain_target}(i64 {val_ref})").unwrap();
                         }
                         writeln!(self.out, "  %v{v} = add i64 {val_ref}, 0").unwrap();
                     }
                     Instruction::ArcDrop { value } => {
                         let val_ref = self.arc_reference(value);
                         if !immediate_refs.contains(value, block.id, instruction_index) {
-                            writeln!(self.out, "  call void @dartforge_arc_release(i64 {val_ref})").unwrap();
+                            writeln!(self.out, "  call void @{arc_release_target}(i64 {val_ref})").unwrap();
                         }
                     }
                     Instruction::ArcLoadStrong { slot: StrongSlot::Global { symbol: sym_name } } => {
                         self.check_arc_global(sym_name);
                         self.global_address(v, sym_name);
                         writeln!(self.out, "  %v{v} = load i64, ptr %ga{v}").unwrap();
-                        writeln!(self.out, "  call void @dartforge_arc_retain(i64 %v{v})").unwrap();
+                        writeln!(self.out, "  call void @{arc_retain_target}(i64 %v{v})").unwrap();
                     }
                     Instruction::ArcStoreStrong { slot: StrongSlot::Global { symbol: sym_name }, value, mode } => {
                         self.check_arc_global(sym_name);
                         let val_ref = self.arc_reference(value);
                         self.global_address(v, sym_name);
                         if *mode == StrongStoreMode::Copy {
-                            writeln!(self.out, "  call void @dartforge_arc_retain(i64 {val_ref})").unwrap();
+                            writeln!(self.out, "  call void @{arc_retain_target}(i64 {val_ref})").unwrap();
                         }
                         writeln!(self.out, "  store i64 {val_ref}, ptr %ga{v}").unwrap();
                         writeln!(self.out, "  %gr{v} = ptrtoint ptr %ga{v} to i64").unwrap();
@@ -1282,7 +1296,7 @@ impl<'a> LlvmEmitter<'a> {
                             writeln!(self.out, "  call void @dartforge_arc_global_receive_v1(i64 %gr{v}, i64 {val_ref})").unwrap();
                         } else {
                             writeln!(self.out, "  call void @dartforge_gc_global_root(i64 %gr{v}, i64 {val_ref}) nounwind").unwrap();
-                            writeln!(self.out, "  call void @dartforge_arc_release(i64 {val_ref})").unwrap();
+                            writeln!(self.out, "  call void @{arc_release_target}(i64 {val_ref})").unwrap();
                         }
                     }
                     Instruction::ArcLoadStrong { slot } => {
@@ -4313,6 +4327,8 @@ impl<'a> LlvmEmitter<'a> {
 /// effects table marks that way — the leaf helpers ([`leaf_helpers`]),
 /// the unwinding and the frame of the effects check.
 const MAP_LEAVES: &[&str] = &[
+    arc_tag_guards::RETAIN,
+    arc_tag_guards::RELEASE,
     "df.body",
     "df.barrier",
     "df.element_barrier",

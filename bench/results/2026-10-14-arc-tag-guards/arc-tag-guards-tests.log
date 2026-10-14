@@ -1,0 +1,32 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.42s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 13 tests
+test llvm::arc_context::tests::ref_alloca_requires_frame_even_without_live_ssa_values ... ok
+test llvm::arc_null_literals::boolean_static_boxes_and_dynamic_scalars_keep_runtime_inventory_calls ... ok
+test llvm::arc_null_literals::canonical_owned_box_requires_exact_abi_and_no_hir_homonym ... ok
+test llvm::arc_null_literals::earlier_i64_constant_and_copy_move_chain_are_physical_facts_only ... ok
+test llvm::arc_null_literals::invalid_scalar_operands_are_not_silently_reinterpreted_as_null ... ok
+test llvm::arc_null_literals::boxed_smi_boundaries_elide_calls_without_changing_verified_tokens ... ok
+test llvm::arc_null_literals::malformed_types_order_duplicate_ids_and_cross_block_facts_are_refused ... ok
+test llvm::arc_null_literals::literal_null_elides_physical_calls_but_preserves_copy_ssa_and_hir ... ok
+test llvm::arc_null_literals::nullable_reference_keeps_calls_but_exact_null_ssa_elides_them ... ok
+test llvm::arc_null_literals::physical_elision_preserves_intervening_collection_call_and_box_producer ... ok
+test llvm::arc_tag_guards::tests::canonical_runtime_inventory_counts_boolean_statics_and_heap_mints_but_not_smi ... ok
+test llvm::arc_tag_guards::tests::ablation_changes_only_physical_dispatch_and_guards_are_exact_leaf_functions ... ok
+test llvm::arc_tag_guards::tests::emitted_guards_execute_exact_runtime_handle_predicate_at_both_optimization_levels ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 631 filtered out; finished in 0.56s
+
