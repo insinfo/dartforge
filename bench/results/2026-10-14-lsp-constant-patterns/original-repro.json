@@ -1,0 +1,61 @@
+{
+  "forge": {
+    "binary_sha256": "7e1b716d1720ad7cd053b0eb4f834ff945730f0bacfec6ed3b877183a0857b55",
+    "results": {
+      "textDocument/definition": null,
+      "textDocument/rename": null
+    }
+  },
+  "official": {
+    "binary_sha256": "12d14da7bbbcacffd1f0f860a8c999a85fd180a3e865f72676e570ae1e1de1f9",
+    "results": {
+      "textDocument/definition": [
+        {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 0
+            },
+            "start": {
+              "character": 6,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/main.dart"
+        }
+      ],
+      "textDocument/rename": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 15,
+                  "line": 0
+                },
+                "start": {
+                  "character": 6,
+                  "line": 0
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 41,
+                  "line": 1
+                },
+                "start": {
+                  "character": 32,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

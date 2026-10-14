@@ -1,0 +1,2121 @@
+{
+  "baseline": {
+    "binary_sha256": "7e1b716d1720ad7cd053b0eb4f834ff945730f0bacfec6ed3b877183a0857b55",
+    "rows": [
+      {
+        "case": "top",
+        "source": "const threshold = 1;\nint read(int x) => switch (x) { threshold => 42, _ => 0 };\n",
+        "model": "",
+        "source_sha256": "4e2b18cce97b97e193597da16981cf1df5321ecb1f6a3b8d6611d29d3a5c23bb",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 1,
+          "character": 34
+        },
+        "definition": null,
+        "normalized_definition": null,
+        "rename_from_pattern": null,
+        "applied_rename_source": "const threshold = 1;\nint read(int x) => switch (x) { threshold => 42, _ => 0 };\n",
+        "applied_rename_model": "",
+        "rename_from_declaration": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/top/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 15,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 6,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "declaration_applied_source": "const item = 1;\nint read(int x) => switch (x) { threshold => 42, _ => 0 };\n",
+        "declaration_applied_model": "",
+        "references_from_declaration": [
+          {
+            "range": {
+              "end": {
+                "character": 15,
+                "line": 0
+              },
+              "start": {
+                "character": 6,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/top/main.dart"
+          }
+        ]
+      },
+      {
+        "case": "imported",
+        "source": "import 'model.dart' show threshold;\nimport 'model.dart' as a;\nimport 'other.dart' as b;\nint read(int x) => switch (x) { threshold => a.threshold + b.threshold, _ => 0 };\nint binding(int x) { if (x case final threshold) { return threshold; } return 0; }\n",
+        "model": "const threshold = 1;\n",
+        "source_sha256": "e161ae695e8652d34af7b96dd1b3d271b8fef8a329768d18e40e42c268c899eb",
+        "model_sha256": "0a61be5ed38947232869f63517a12224d41d621035adc0df0af00433005ceae0",
+        "cursor": {
+          "line": 3,
+          "character": 34
+        },
+        "definition": null,
+        "normalized_definition": null,
+        "rename_from_pattern": null,
+        "applied_rename_source": "import 'model.dart' show threshold;\nimport 'model.dart' as a;\nimport 'other.dart' as b;\nint read(int x) => switch (x) { threshold => a.threshold + b.threshold, _ => 0 };\nint binding(int x) { if (x case final threshold) { return threshold; } return 0; }\n",
+        "applied_rename_model": "const threshold = 1;\n",
+        "rename_from_declaration": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 34,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 25,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 56,
+                    "line": 3
+                  },
+                  "start": {
+                    "character": 47,
+                    "line": 3
+                  }
+                }
+              }
+            ],
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/model.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 15,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 6,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "declaration_applied_source": "import 'model.dart' show item;\nimport 'model.dart' as a;\nimport 'other.dart' as b;\nint read(int x) => switch (x) { threshold => a.item + b.threshold, _ => 0 };\nint binding(int x) { if (x case final threshold) { return threshold; } return 0; }\n",
+        "declaration_applied_model": "const item = 1;\n",
+        "references_from_declaration": [
+          {
+            "range": {
+              "end": {
+                "character": 34,
+                "line": 0
+              },
+              "start": {
+                "character": 25,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 56,
+                "line": 3
+              },
+              "start": {
+                "character": 47,
+                "line": 3
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 15,
+                "line": 0
+              },
+              "start": {
+                "character": 6,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/model.dart"
+          }
+        ]
+      },
+      {
+        "case": "static",
+        "source": "class C { static const threshold = 1; static int read(int x) => switch (x) { threshold => 42, _ => 0 }; }\n",
+        "model": "",
+        "source_sha256": "fc1850d2324fcbcb9173f43ea876b2d870419cddc2f501e618edc0a7d00df43c",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 0,
+          "character": 79
+        },
+        "definition": null,
+        "normalized_definition": null,
+        "rename_from_pattern": null,
+        "applied_rename_source": "class C { static const threshold = 1; static int read(int x) => switch (x) { threshold => 42, _ => 0 }; }\n",
+        "applied_rename_model": "",
+        "rename_from_declaration": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/static/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 32,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 23,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "declaration_applied_source": "class C { static const item = 1; static int read(int x) => switch (x) { threshold => 42, _ => 0 }; }\n",
+        "declaration_applied_model": "",
+        "references_from_declaration": [
+          {
+            "range": {
+              "end": {
+                "character": 32,
+                "line": 0
+              },
+              "start": {
+                "character": 23,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/static/main.dart"
+          }
+        ]
+      },
+      {
+        "case": "enum",
+        "source": "enum E { first, second; int read() => switch (this) { first => 1, _ => 0 }; }\n",
+        "model": "",
+        "source_sha256": "098f4c02f7aa9e3087308366cc45ecdc57fc9b3b65d25075344ce2f654379866",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 0,
+          "character": 56
+        },
+        "definition": null,
+        "normalized_definition": null,
+        "rename_from_pattern": null,
+        "applied_rename_source": "enum E { first, second; int read() => switch (this) { first => 1, _ => 0 }; }\n",
+        "applied_rename_model": "",
+        "rename_from_declaration": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/enum/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 14,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 9,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "declaration_applied_source": "enum E { item, second; int read() => switch (this) { first => 1, _ => 0 }; }\n",
+        "declaration_applied_model": "",
+        "references_from_declaration": [
+          {
+            "range": {
+              "end": {
+                "character": 14,
+                "line": 0
+              },
+              "start": {
+                "character": 9,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/enum/main.dart"
+          }
+        ]
+      },
+      {
+        "case": "list",
+        "source": "const threshold = 1;\nint read(List<int> values) { if (values case [threshold, threshold]) { return 1; } return 0; }\n",
+        "model": "",
+        "source_sha256": "5b2158915c88f477554073c84d927e286649b847cc069c4898033c18d3e965e6",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 1,
+          "character": 48
+        },
+        "definition": null,
+        "normalized_definition": null,
+        "rename_from_pattern": null,
+        "applied_rename_source": "const threshold = 1;\nint read(List<int> values) { if (values case [threshold, threshold]) { return 1; } return 0; }\n",
+        "applied_rename_model": "",
+        "rename_from_declaration": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/list/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 15,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 6,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "declaration_applied_source": "const item = 1;\nint read(List<int> values) { if (values case [threshold, threshold]) { return 1; } return 0; }\n",
+        "declaration_applied_model": "",
+        "references_from_declaration": [
+          {
+            "range": {
+              "end": {
+                "character": 15,
+                "line": 0
+              },
+              "start": {
+                "character": 6,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/list/main.dart"
+          }
+        ]
+      },
+      {
+        "case": "binding",
+        "source": "const threshold = 1;\nint read(int x) { if (x case final threshold) { return threshold; } return 0; }\n",
+        "model": "",
+        "source_sha256": "f38107446fc169f770565b808a9d7bfc48a5b967666af966a11a0721bd88a568",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 1,
+          "character": 37
+        },
+        "definition": {
+          "range": {
+            "end": {
+              "character": 44,
+              "line": 1
+            },
+            "start": {
+              "character": 35,
+              "line": 1
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/binding/main.dart"
+        },
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 44,
+              "line": 1
+            },
+            "start": {
+              "character": 35,
+              "line": 1
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/binding/main.dart"
+        }
+      },
+      {
+        "case": "unresolved",
+        "source": "int read(int x) => switch (x) { missing => 1, _ => 0 };\nint other() { const missing = 1; return missing; }\n",
+        "model": "",
+        "source_sha256": "a4c451080a6939568523eccca4016d3cfff4357317aa33a006d8729d68001bc7",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 0,
+          "character": 34
+        },
+        "definition": null,
+        "normalized_definition": null
+      }
+    ]
+  },
+  "fixed": {
+    "binary_sha256": "05f95e1ebe08a2f2dd56677fc7bddafb6ddf5b7358dd2ff5821f49b686123893",
+    "rows": [
+      {
+        "case": "top",
+        "source": "const threshold = 1;\nint read(int x) => switch (x) { threshold => 42, _ => 0 };\n",
+        "model": "",
+        "source_sha256": "4e2b18cce97b97e193597da16981cf1df5321ecb1f6a3b8d6611d29d3a5c23bb",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 1,
+          "character": 34
+        },
+        "definition": {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 0
+            },
+            "start": {
+              "character": 6,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/top/main.dart"
+        },
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 0
+            },
+            "start": {
+              "character": 6,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/top/main.dart"
+        },
+        "rename_from_pattern": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/top/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 15,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 6,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 41,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 32,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied_rename_source": "const item = 1;\nint read(int x) => switch (x) { item => 42, _ => 0 };\n",
+        "applied_rename_model": "",
+        "rename_from_declaration": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/top/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 15,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 6,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 41,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 32,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "declaration_applied_source": "const item = 1;\nint read(int x) => switch (x) { item => 42, _ => 0 };\n",
+        "declaration_applied_model": "",
+        "references_from_declaration": [
+          {
+            "range": {
+              "end": {
+                "character": 41,
+                "line": 1
+              },
+              "start": {
+                "character": 32,
+                "line": 1
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/top/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 15,
+                "line": 0
+              },
+              "start": {
+                "character": 6,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/top/main.dart"
+          }
+        ]
+      },
+      {
+        "case": "imported",
+        "source": "import 'model.dart' show threshold;\nimport 'model.dart' as a;\nimport 'other.dart' as b;\nint read(int x) => switch (x) { threshold => a.threshold + b.threshold, _ => 0 };\nint binding(int x) { if (x case final threshold) { return threshold; } return 0; }\n",
+        "model": "const threshold = 1;\n",
+        "source_sha256": "e161ae695e8652d34af7b96dd1b3d271b8fef8a329768d18e40e42c268c899eb",
+        "model_sha256": "0a61be5ed38947232869f63517a12224d41d621035adc0df0af00433005ceae0",
+        "cursor": {
+          "line": 3,
+          "character": 34
+        },
+        "definition": {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 0
+            },
+            "start": {
+              "character": 6,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/model.dart"
+        },
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 0
+            },
+            "start": {
+              "character": 6,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/model.dart"
+        },
+        "rename_from_pattern": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 34,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 25,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 41,
+                    "line": 3
+                  },
+                  "start": {
+                    "character": 32,
+                    "line": 3
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 56,
+                    "line": 3
+                  },
+                  "start": {
+                    "character": 47,
+                    "line": 3
+                  }
+                }
+              }
+            ],
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/model.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 15,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 6,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied_rename_source": "import 'model.dart' show item;\nimport 'model.dart' as a;\nimport 'other.dart' as b;\nint read(int x) => switch (x) { item => a.item + b.threshold, _ => 0 };\nint binding(int x) { if (x case final threshold) { return threshold; } return 0; }\n",
+        "applied_rename_model": "const item = 1;\n",
+        "rename_from_declaration": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 34,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 25,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 41,
+                    "line": 3
+                  },
+                  "start": {
+                    "character": 32,
+                    "line": 3
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 56,
+                    "line": 3
+                  },
+                  "start": {
+                    "character": 47,
+                    "line": 3
+                  }
+                }
+              }
+            ],
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/model.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 15,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 6,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "declaration_applied_source": "import 'model.dart' show item;\nimport 'model.dart' as a;\nimport 'other.dart' as b;\nint read(int x) => switch (x) { item => a.item + b.threshold, _ => 0 };\nint binding(int x) { if (x case final threshold) { return threshold; } return 0; }\n",
+        "declaration_applied_model": "const item = 1;\n",
+        "references_from_declaration": [
+          {
+            "range": {
+              "end": {
+                "character": 34,
+                "line": 0
+              },
+              "start": {
+                "character": 25,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 41,
+                "line": 3
+              },
+              "start": {
+                "character": 32,
+                "line": 3
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 56,
+                "line": 3
+              },
+              "start": {
+                "character": 47,
+                "line": 3
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 15,
+                "line": 0
+              },
+              "start": {
+                "character": 6,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/model.dart"
+          }
+        ]
+      },
+      {
+        "case": "static",
+        "source": "class C { static const threshold = 1; static int read(int x) => switch (x) { threshold => 42, _ => 0 }; }\n",
+        "model": "",
+        "source_sha256": "fc1850d2324fcbcb9173f43ea876b2d870419cddc2f501e618edc0a7d00df43c",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 0,
+          "character": 79
+        },
+        "definition": {
+          "range": {
+            "end": {
+              "character": 32,
+              "line": 0
+            },
+            "start": {
+              "character": 23,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/static/main.dart"
+        },
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 32,
+              "line": 0
+            },
+            "start": {
+              "character": 23,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/static/main.dart"
+        },
+        "rename_from_pattern": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/static/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 32,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 23,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 86,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 77,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied_rename_source": "class C { static const item = 1; static int read(int x) => switch (x) { item => 42, _ => 0 }; }\n",
+        "applied_rename_model": "",
+        "rename_from_declaration": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/static/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 32,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 23,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 86,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 77,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "declaration_applied_source": "class C { static const item = 1; static int read(int x) => switch (x) { item => 42, _ => 0 }; }\n",
+        "declaration_applied_model": "",
+        "references_from_declaration": [
+          {
+            "range": {
+              "end": {
+                "character": 86,
+                "line": 0
+              },
+              "start": {
+                "character": 77,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/static/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 32,
+                "line": 0
+              },
+              "start": {
+                "character": 23,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/static/main.dart"
+          }
+        ]
+      },
+      {
+        "case": "enum",
+        "source": "enum E { first, second; int read() => switch (this) { first => 1, _ => 0 }; }\n",
+        "model": "",
+        "source_sha256": "098f4c02f7aa9e3087308366cc45ecdc57fc9b3b65d25075344ce2f654379866",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 0,
+          "character": 56
+        },
+        "definition": {
+          "range": {
+            "end": {
+              "character": 14,
+              "line": 0
+            },
+            "start": {
+              "character": 9,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/enum/main.dart"
+        },
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 14,
+              "line": 0
+            },
+            "start": {
+              "character": 9,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/enum/main.dart"
+        },
+        "rename_from_pattern": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/enum/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 14,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 9,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 59,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 54,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied_rename_source": "enum E { item, second; int read() => switch (this) { item => 1, _ => 0 }; }\n",
+        "applied_rename_model": "",
+        "rename_from_declaration": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/enum/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 14,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 9,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 59,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 54,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "declaration_applied_source": "enum E { item, second; int read() => switch (this) { item => 1, _ => 0 }; }\n",
+        "declaration_applied_model": "",
+        "references_from_declaration": [
+          {
+            "range": {
+              "end": {
+                "character": 59,
+                "line": 0
+              },
+              "start": {
+                "character": 54,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/enum/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 14,
+                "line": 0
+              },
+              "start": {
+                "character": 9,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/enum/main.dart"
+          }
+        ]
+      },
+      {
+        "case": "list",
+        "source": "const threshold = 1;\nint read(List<int> values) { if (values case [threshold, threshold]) { return 1; } return 0; }\n",
+        "model": "",
+        "source_sha256": "5b2158915c88f477554073c84d927e286649b847cc069c4898033c18d3e965e6",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 1,
+          "character": 48
+        },
+        "definition": {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 0
+            },
+            "start": {
+              "character": 6,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/list/main.dart"
+        },
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 0
+            },
+            "start": {
+              "character": 6,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/list/main.dart"
+        },
+        "rename_from_pattern": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/list/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 15,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 6,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 55,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 46,
+                    "line": 1
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 66,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 57,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied_rename_source": "const item = 1;\nint read(List<int> values) { if (values case [item, item]) { return 1; } return 0; }\n",
+        "applied_rename_model": "",
+        "rename_from_declaration": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/list/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 15,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 6,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 55,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 46,
+                    "line": 1
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 66,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 57,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "declaration_applied_source": "const item = 1;\nint read(List<int> values) { if (values case [item, item]) { return 1; } return 0; }\n",
+        "declaration_applied_model": "",
+        "references_from_declaration": [
+          {
+            "range": {
+              "end": {
+                "character": 55,
+                "line": 1
+              },
+              "start": {
+                "character": 46,
+                "line": 1
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/list/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 66,
+                "line": 1
+              },
+              "start": {
+                "character": 57,
+                "line": 1
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/list/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 15,
+                "line": 0
+              },
+              "start": {
+                "character": 6,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/list/main.dart"
+          }
+        ]
+      },
+      {
+        "case": "binding",
+        "source": "const threshold = 1;\nint read(int x) { if (x case final threshold) { return threshold; } return 0; }\n",
+        "model": "",
+        "source_sha256": "f38107446fc169f770565b808a9d7bfc48a5b967666af966a11a0721bd88a568",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 1,
+          "character": 37
+        },
+        "definition": {
+          "range": {
+            "end": {
+              "character": 44,
+              "line": 1
+            },
+            "start": {
+              "character": 35,
+              "line": 1
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/binding/main.dart"
+        },
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 44,
+              "line": 1
+            },
+            "start": {
+              "character": 35,
+              "line": 1
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/binding/main.dart"
+        }
+      },
+      {
+        "case": "unresolved",
+        "source": "int read(int x) => switch (x) { missing => 1, _ => 0 };\nint other() { const missing = 1; return missing; }\n",
+        "model": "",
+        "source_sha256": "a4c451080a6939568523eccca4016d3cfff4357317aa33a006d8729d68001bc7",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 0,
+          "character": 34
+        },
+        "definition": null,
+        "normalized_definition": null
+      }
+    ]
+  },
+  "official": {
+    "binary_sha256": "12d14da7bbbcacffd1f0f860a8c999a85fd180a3e865f72676e570ae1e1de1f9",
+    "rows": [
+      {
+        "case": "top",
+        "source": "const threshold = 1;\nint read(int x) => switch (x) { threshold => 42, _ => 0 };\n",
+        "model": "",
+        "source_sha256": "4e2b18cce97b97e193597da16981cf1df5321ecb1f6a3b8d6611d29d3a5c23bb",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 1,
+          "character": 34
+        },
+        "definition": [
+          {
+            "range": {
+              "end": {
+                "character": 15,
+                "line": 0
+              },
+              "start": {
+                "character": 6,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/top/main.dart"
+          }
+        ],
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 0
+            },
+            "start": {
+              "character": 6,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/top/main.dart"
+        },
+        "rename_from_pattern": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/top/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 15,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 6,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 41,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 32,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied_rename_source": "const item = 1;\nint read(int x) => switch (x) { item => 42, _ => 0 };\n",
+        "applied_rename_model": "",
+        "rename_from_declaration": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/top/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 15,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 6,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 41,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 32,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "declaration_applied_source": "const item = 1;\nint read(int x) => switch (x) { item => 42, _ => 0 };\n",
+        "declaration_applied_model": "",
+        "references_from_declaration": [
+          {
+            "range": {
+              "end": {
+                "character": 41,
+                "line": 1
+              },
+              "start": {
+                "character": 32,
+                "line": 1
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/top/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 15,
+                "line": 0
+              },
+              "start": {
+                "character": 6,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/top/main.dart"
+          }
+        ]
+      },
+      {
+        "case": "imported",
+        "source": "import 'model.dart' show threshold;\nimport 'model.dart' as a;\nimport 'other.dart' as b;\nint read(int x) => switch (x) { threshold => a.threshold + b.threshold, _ => 0 };\nint binding(int x) { if (x case final threshold) { return threshold; } return 0; }\n",
+        "model": "const threshold = 1;\n",
+        "source_sha256": "e161ae695e8652d34af7b96dd1b3d271b8fef8a329768d18e40e42c268c899eb",
+        "model_sha256": "0a61be5ed38947232869f63517a12224d41d621035adc0df0af00433005ceae0",
+        "cursor": {
+          "line": 3,
+          "character": 34
+        },
+        "definition": [
+          {
+            "range": {
+              "end": {
+                "character": 15,
+                "line": 0
+              },
+              "start": {
+                "character": 6,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/model.dart"
+          }
+        ],
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 0
+            },
+            "start": {
+              "character": 6,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/model.dart"
+        },
+        "rename_from_pattern": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/model.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 15,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 6,
+                    "line": 0
+                  }
+                }
+              }
+            ],
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 34,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 25,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 41,
+                    "line": 3
+                  },
+                  "start": {
+                    "character": 32,
+                    "line": 3
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 56,
+                    "line": 3
+                  },
+                  "start": {
+                    "character": 47,
+                    "line": 3
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied_rename_source": "import 'model.dart' show item;\nimport 'model.dart' as a;\nimport 'other.dart' as b;\nint read(int x) => switch (x) { item => a.item + b.threshold, _ => 0 };\nint binding(int x) { if (x case final threshold) { return threshold; } return 0; }\n",
+        "applied_rename_model": "const item = 1;\n",
+        "rename_from_declaration": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/model.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 15,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 6,
+                    "line": 0
+                  }
+                }
+              }
+            ],
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 34,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 25,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 41,
+                    "line": 3
+                  },
+                  "start": {
+                    "character": 32,
+                    "line": 3
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 56,
+                    "line": 3
+                  },
+                  "start": {
+                    "character": 47,
+                    "line": 3
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "declaration_applied_source": "import 'model.dart' show item;\nimport 'model.dart' as a;\nimport 'other.dart' as b;\nint read(int x) => switch (x) { item => a.item + b.threshold, _ => 0 };\nint binding(int x) { if (x case final threshold) { return threshold; } return 0; }\n",
+        "declaration_applied_model": "const item = 1;\n",
+        "references_from_declaration": [
+          {
+            "range": {
+              "end": {
+                "character": 34,
+                "line": 0
+              },
+              "start": {
+                "character": 25,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 41,
+                "line": 3
+              },
+              "start": {
+                "character": 32,
+                "line": 3
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 56,
+                "line": 3
+              },
+              "start": {
+                "character": 47,
+                "line": 3
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 15,
+                "line": 0
+              },
+              "start": {
+                "character": 6,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/imported/model.dart"
+          }
+        ]
+      },
+      {
+        "case": "static",
+        "source": "class C { static const threshold = 1; static int read(int x) => switch (x) { threshold => 42, _ => 0 }; }\n",
+        "model": "",
+        "source_sha256": "fc1850d2324fcbcb9173f43ea876b2d870419cddc2f501e618edc0a7d00df43c",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 0,
+          "character": 79
+        },
+        "definition": [
+          {
+            "range": {
+              "end": {
+                "character": 32,
+                "line": 0
+              },
+              "start": {
+                "character": 23,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/static/main.dart"
+          }
+        ],
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 32,
+              "line": 0
+            },
+            "start": {
+              "character": 23,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/static/main.dart"
+        },
+        "rename_from_pattern": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/static/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 32,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 23,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 86,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 77,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied_rename_source": "class C { static const item = 1; static int read(int x) => switch (x) { item => 42, _ => 0 }; }\n",
+        "applied_rename_model": "",
+        "rename_from_declaration": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/static/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 32,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 23,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 86,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 77,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "declaration_applied_source": "class C { static const item = 1; static int read(int x) => switch (x) { item => 42, _ => 0 }; }\n",
+        "declaration_applied_model": "",
+        "references_from_declaration": [
+          {
+            "range": {
+              "end": {
+                "character": 86,
+                "line": 0
+              },
+              "start": {
+                "character": 77,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/static/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 32,
+                "line": 0
+              },
+              "start": {
+                "character": 23,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/static/main.dart"
+          }
+        ]
+      },
+      {
+        "case": "enum",
+        "source": "enum E { first, second; int read() => switch (this) { first => 1, _ => 0 }; }\n",
+        "model": "",
+        "source_sha256": "098f4c02f7aa9e3087308366cc45ecdc57fc9b3b65d25075344ce2f654379866",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 0,
+          "character": 56
+        },
+        "definition": [
+          {
+            "range": {
+              "end": {
+                "character": 14,
+                "line": 0
+              },
+              "start": {
+                "character": 9,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/enum/main.dart"
+          }
+        ],
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 14,
+              "line": 0
+            },
+            "start": {
+              "character": 9,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/enum/main.dart"
+        },
+        "rename_from_pattern": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/enum/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 14,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 9,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 59,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 54,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied_rename_source": "enum E { item, second; int read() => switch (this) { item => 1, _ => 0 }; }\n",
+        "applied_rename_model": "",
+        "rename_from_declaration": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/enum/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 14,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 9,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 59,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 54,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "declaration_applied_source": "enum E { item, second; int read() => switch (this) { item => 1, _ => 0 }; }\n",
+        "declaration_applied_model": "",
+        "references_from_declaration": [
+          {
+            "range": {
+              "end": {
+                "character": 59,
+                "line": 0
+              },
+              "start": {
+                "character": 54,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/enum/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 14,
+                "line": 0
+              },
+              "start": {
+                "character": 9,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/enum/main.dart"
+          }
+        ]
+      },
+      {
+        "case": "list",
+        "source": "const threshold = 1;\nint read(List<int> values) { if (values case [threshold, threshold]) { return 1; } return 0; }\n",
+        "model": "",
+        "source_sha256": "5b2158915c88f477554073c84d927e286649b847cc069c4898033c18d3e965e6",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 1,
+          "character": 48
+        },
+        "definition": [
+          {
+            "range": {
+              "end": {
+                "character": 15,
+                "line": 0
+              },
+              "start": {
+                "character": 6,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/list/main.dart"
+          }
+        ],
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 15,
+              "line": 0
+            },
+            "start": {
+              "character": 6,
+              "line": 0
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/list/main.dart"
+        },
+        "rename_from_pattern": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/list/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 15,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 6,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 55,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 46,
+                    "line": 1
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 66,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 57,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied_rename_source": "const item = 1;\nint read(List<int> values) { if (values case [item, item]) { return 1; } return 0; }\n",
+        "applied_rename_model": "",
+        "rename_from_declaration": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/list/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 15,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 6,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 55,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 46,
+                    "line": 1
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 66,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 57,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "declaration_applied_source": "const item = 1;\nint read(List<int> values) { if (values case [item, item]) { return 1; } return 0; }\n",
+        "declaration_applied_model": "",
+        "references_from_declaration": [
+          {
+            "range": {
+              "end": {
+                "character": 55,
+                "line": 1
+              },
+              "start": {
+                "character": 46,
+                "line": 1
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/list/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 66,
+                "line": 1
+              },
+              "start": {
+                "character": 57,
+                "line": 1
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/list/main.dart"
+          },
+          {
+            "range": {
+              "end": {
+                "character": 15,
+                "line": 0
+              },
+              "start": {
+                "character": 6,
+                "line": 0
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/list/main.dart"
+          }
+        ]
+      },
+      {
+        "case": "binding",
+        "source": "const threshold = 1;\nint read(int x) { if (x case final threshold) { return threshold; } return 0; }\n",
+        "model": "",
+        "source_sha256": "f38107446fc169f770565b808a9d7bfc48a5b967666af966a11a0721bd88a568",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 1,
+          "character": 37
+        },
+        "definition": [
+          {
+            "range": {
+              "end": {
+                "character": 44,
+                "line": 1
+              },
+              "start": {
+                "character": 35,
+                "line": 1
+              }
+            },
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/binding/main.dart"
+          }
+        ],
+        "normalized_definition": {
+          "range": {
+            "end": {
+              "character": 44,
+              "line": 1
+            },
+            "start": {
+              "character": 35,
+              "line": 1
+            }
+          },
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-constant-pattern/final/binding/main.dart"
+        }
+      },
+      {
+        "case": "unresolved",
+        "source": "int read(int x) => switch (x) { missing => 1, _ => 0 };\nint other() { const missing = 1; return missing; }\n",
+        "model": "",
+        "source_sha256": "a4c451080a6939568523eccca4016d3cfff4357317aa33a006d8729d68001bc7",
+        "model_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "cursor": {
+          "line": 0,
+          "character": 34
+        },
+        "definition": [],
+        "normalized_definition": null
+      }
+    ]
+  },
+  "sdk_version": "3.6.2",
+  "sdk_binary_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+  "source_sha256": {
+    "crates/lsp/src/project.rs": "1289f78be644d4425db9031091ef1cc18808f1ed28c5c91364ab011cdb11cc49",
+    "crates/lsp/tests/constant_pattern_navigation.rs": "08ea5559400ce8d07cf40bf592f7b91db668a01323ff88c64da1d5ce8a191f3a"
+  },
+  "definitions_fixed_exact_sdk": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "definitions_baseline_exact_sdk": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    true,
+    true
+  ],
+  "applied_rename_fixed_exact_sdk": [
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "references_fixed_exact_sdk": [
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "gates": {
+    "command": "source /Volumes/ssd_dock/tools/env.zsh; CARGO_TARGET_DIR=target/p4 TMPDIR=target/tmp-p8-runtime cargo test --locked -p dartforge-lsp --lib --test constant_pattern_navigation --test semantic_navigation --test references --test rename --test rename_patterns --test rename_pattern_fields --test pattern_selector_navigation -j2",
+    "exit_code": 0,
+    "total_passed": 107,
+    "counts": {
+      "library": 42,
+      "new_constant_patterns": 4,
+      "semantic_navigation": 13,
+      "references": 14,
+      "rename": 22,
+      "binding_patterns": 4,
+      "field_patterns": 3,
+      "selector_navigation": 5
+    },
+    "log_sha256": "cef9e327f981155ef820e5803d1d43500b025e209f387a86f377c335a3738687"
+  },
+  "scope": "Bare constant patterns with existing body-resolution pattern_names facts: top-level/imported constants, static class constants, enum values. No lexical guesses, analyzer/type changes or general LSP readiness claim.",
+  "source_inputs_unchanged": true
+}

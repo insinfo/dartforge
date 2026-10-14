@@ -1,0 +1,157 @@
+   Compiling dartforge-lsp v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/lsp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.05s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_lsp-17d2965a4811165f)
+
+running 42 tests
+test fix_all::tests::constructor_conflicts ... ok
+test fix_all::tests::applicability ... ok
+test fix_all::tests::insertions_at_same_offset_keep_arrival_order ... ok
+test fix_all::tests::merge_of_overlapping_edits ... ok
+test fix_all::tests::merge_of_two_passes ... ok
+test assists2::tests::digit_separators ... ok
+test dartdoc::tests::string_with_slashes_is_not_comment ... ok
+test colors::tests::colors_and_presentations ... ok
+test organize_imports::tests::package_prefix_of_another_comes_first ... ok
+test dartdoc::tests::text_with_multibyte_characters ... ok
+test move_file::tests::paths_and_quotes ... ok
+test dartdoc::tests::block_with_asterisks_and_without_documentation ... ok
+test dartdoc::tests::line_block_and_references ... ok
+test ignore_diagnostic::tests::ignore_yaml ... ok
+test fuzzy_matcher::tests::spec_examples ... ok
+test organize_imports::tests::special_comments ... ok
+test organize_imports::tests::edit_starts_at_offset_zero ... ok
+test organize_imports::tests::spec_example_one ... ok
+test registration::tests::reads_configuration_with_defaults ... ok
+test rename::tests::file_names ... ok
+test signature::tests::qualified_name_without_type_arguments ... ok
+test snippets::tests::groups_with_suggestions_become_choices ... ok
+test snippets::tests::outside_text_exits ... ok
+test snippets::tests::selection_becomes_final_tab_stop ... ok
+test snippets::tests::single_choice_with_several_suggestions_is_not_zero ... ok
+test snippets::tests::single_group_without_selection_uses_zero ... ok
+test sort_members::tests::already_sorted_has_no_edit ... ok
+test sort_members::tests::directives_reordered_without_removing_duplicates ... ok
+test sort_members::tests::enum_with_comment_between_constants ... ok
+test outline::tests::class_with_documentation_and_annotation ... ok
+test sort_members::tests::top_level_with_main_first_and_classes_after_functions ... ok
+test structure::tests::arguments_on_several_lines ... ok
+test utf16::tests::crlf_and_lone_cr_break_lines ... ok
+test utf16::tests::emoji_counts_two_units_both_ways ... ok
+test sort_members::tests::spec_example ... ok
+test utf16::tests::outside_document_saturates_without_panic ... ok
+test structure::tests::class_method_comment_and_directives ... ok
+test utf16::tests::partial_recompute_preserves_prefix ... ok
+test workspace_symbols::tests::suffixes_by_return ... ok
+test workspace_symbols::tests::union_like_analyzer ... ok
+test registration::tests::registers_only_what_client_asks_and_applies_difference ... ok
+test links::tests::links_example_code_of_tool_block ... ok
+
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/constant_pattern_navigation.rs (target/p4/debug/deps/constant_pattern_navigation-82a3d5a33fb9af59)
+
+running 4 tests
+test unresolved_pattern_name_does_not_acquire_an_unrelated_local_declaration ... ok
+test bare_constant_definition_and_rename_include_pattern_occurrences ... ok
+test imported_constant_identity_does_not_capture_other_library_or_local_binding ... ok
+test lexical_static_constant_and_enum_value_resolve_to_their_members ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/pattern_selector_navigation.rs (target/p4/debug/deps/pattern_selector_navigation-7c1995fe98fdebb4)
+
+running 5 tests
+test nested_prefixed_pattern_resolves_inherited_field_not_same_named_getter ... ok
+test extension_selector_resolves_actual_extension_getter ... ok
+test shorthand_binding_and_record_label_do_not_become_getter_references ... ok
+test explicit_selector_resolves_cross_file_getter_and_preserves_binding_navigation ... ok
+test explicit_selector_rename_changes_only_the_resolved_member_family ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/references.rs (target/p4/debug/deps/references-bc2325e76d756b24)
+
+running 14 tests
+test references_announces_provider ... ok
+test local_shadow_refuses_references ... ok
+test show_import_refuses_references ... ok
+test closed_owner_refuses_references ... ok
+test prefixed_import_refuses_references ... ok
+test top_level_function_lists_declaration_and_call ... ok
+test single_local_type_lists_declaration_and_uses ... ok
+test present_import_refuses_references ... ok
+test shadow_in_importer_skips_file ... ok
+test two_owners_refuses_references ... ok
+test function_across_open_lists_declaration_and_calls ... ok
+test top_level_variable_lists_declaration_and_use ... ok
+test type_across_open_lists_declaration_and_uses ... ok
+test variable_across_open_lists_declaration_and_uses ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/rename.rs (target/p4/debug/deps/rename-f1de2817e4a73f41)
+
+running 22 tests
+test announces_prepare_when_client_accepts ... ok
+test homonym_in_other_library_stays_intact ... ok
+test factory_redirection_outside_candidates ... ok
+test field_through_super_formal_and_unnamed_constructor_doc ... ok
+test family_through_implicit_extends_object ... ok
+test field_with_getter_setter_this_and_initializer ... ok
+test enum_extension_getter_and_setter ... ok
+test field_with_positional_this_argument_and_docs_by_declaration ... ok
+test class_file_with_versioned_document_changes ... ok
+test conflicts_by_scope ... ok
+test local_and_parameter ... ok
+test member_with_overrides_and_instance_uses_in_other_file ... ok
+test import_prefix ... ok
+test named_parameter_through_hierarchy ... ok
+test named_in_overrides_and_documentation ... ok
+test named_parameter_renames_labels ... ok
+test named_constructor ... ok
+test package_import_from_bin ... ok
+test incomplete_code_in_file ... ok
+test type_parameter_respects_shadowing ... ok
+test top_level_across_files_with_types_constructors_and_show ... ok
+test refusals ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/rename_pattern_fields.rs (target/p4/debug/deps/rename_pattern_fields-5de1532d9baf1e4a)
+
+running 3 tests
+test private_getter_rename_keeps_shorthand_selector_insertion ... ok
+test inherited_getter_and_nested_pattern_use_resolved_member_identity ... ok
+test field_rename_updates_resolved_selectors_without_renaming_bindings ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/rename_patterns.rs (target/p4/debug/deps/rename_patterns-d0cc1d3454ada982)
+
+running 4 tests
+test unrelated_local_does_not_rewrite_pattern_labels_or_comments ... ok
+test explicit_object_label_and_positional_record_need_no_insertions ... ok
+test nested_object_and_named_record_shorthands_preserve_labels ... ok
+test shorthand_object_binding_or_use_preserves_foreign_getter ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/semantic_navigation.rs (target/p4/debug/deps/semantic_navigation-c24cb6e572ac598e)
+
+running 13 tests
+test documentation_references_like_the_index ... ok
+test definition_like_the_navigation_computer ... ok
+test hover_of_writes_labels_and_unresolved_names ... ok
+test references_follow_the_searched_elements ... ok
+test open_texts_and_parts ... ok
+test member_references_through_family_and_sdk ... ok
+test class_references_in_new_and_const_creations ... ok
+test hover_documentation_like_compute_documentation ... ok
+test uri_with_different_case_than_disk ... ok
+test hover_by_shape_with_documentation ... ok
+test definition_by_shape ... ok
+test references_without_false_positives_from_shadow_homonym_and_library ... ok
+test workspace_symbols_include_closed_project_files ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.70s
+

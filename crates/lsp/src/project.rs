@@ -732,6 +732,27 @@ impl Project {
                 _ => Err(format!("'{text}' is not resolved.")),
             };
         }
+        // Bare constant patterns have no expression node. Body resolution
+        // records their actual element separately from pattern bindings.
+        for (index, pattern) in ast.patterns.iter().enumerate() {
+            let ast::PatternKind::Variable { name, .. } = &pattern.kind else { continue };
+            if name.span != name_ {
+                continue;
+            }
+            match bodies.pattern_names.get(&ast::PatternId(index as u32)) {
+                Some(Resolved::Element(element)) => {
+                    let (target, concrete) = self.top(*element);
+                    return denoted(target, None, concrete);
+                }
+                Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => {
+                    return denoted(self.function_member(*f), None, Some(self.function_concrete(*f)));
+                }
+                Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => {
+                    return denoted(self.variable_member(*v), None, Some(Concrete::Variable(*v)));
+                }
+                _ => {}
+            }
+        }
         // Explicit object-pattern labels are member reads without an ExprId.
         // A shorthand name belongs to its local binding instead; its inferred
         // getter name shares that span and must not intercept the local cursor.
@@ -2302,6 +2323,19 @@ impl Project {
                     index.functions.entry(*f).or_default().push(s)
                 }
                 Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => index.variables.entry(*v).or_default().push(s),
+                _ => {}
+            }
+        }
+        // Bare constant names resolve through the pattern side table, not the
+        // expression arena. Index only its resolved facts, never equal spellings.
+        for (&id, resolved) in &bodies.pattern_names {
+            let ast::PatternKind::Variable { name, .. } = &unit.ast.pattern(id).kind else { continue };
+            match resolved {
+                Resolved::Element(element) => index.elements.entry(*element).or_default().push(name.span),
+                Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => {
+                    index.functions.entry(*f).or_default().push(name.span);
+                }
+                Resolved::Member { member: MemberRef::Variable(v), .. } => index.variables.entry(*v).or_default().push(name.span),
                 _ => {}
             }
         }
