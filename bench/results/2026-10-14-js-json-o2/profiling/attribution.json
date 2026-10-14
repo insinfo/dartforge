@@ -1,0 +1,496 @@
+{
+  "scope": "Diagnostic statistical and CPU sampling of unchanged ordinary full JSON benchmark. No new performance window or timing claim; diagnostic stdout elapsed values ignored. All deterministic headers/results exact O2, source artifacts unchanged.",
+  "profiles": {
+    "min": {
+      "artifact_sha256": "02afea0310a2803b88bbcd851d95bdc879c4c957f5a05ccdf8a042ccbc722a74",
+      "sample_count": 3520,
+      "top_exclusive_all_kernels": [
+        {
+          "function": "fe",
+          "line": 21,
+          "column": 6275,
+          "samples": 385
+        },
+        {
+          "function": "(garbage collector)",
+          "line": 0,
+          "column": 0,
+          "samples": 283
+        },
+        {
+          "function": "Ee",
+          "line": 24,
+          "column": 7329,
+          "samples": 265
+        },
+        {
+          "function": "Gr",
+          "line": 4,
+          "column": 1828,
+          "samples": 233
+        },
+        {
+          "function": "st",
+          "line": 12,
+          "column": 30231,
+          "samples": 178
+        },
+        {
+          "function": "h",
+          "line": 24,
+          "column": 25928,
+          "samples": 157
+        },
+        {
+          "function": "en",
+          "line": 12,
+          "column": 31246,
+          "samples": 132
+        },
+        {
+          "function": "pe",
+          "line": 12,
+          "column": 2109,
+          "samples": 132
+        },
+        {
+          "function": "w",
+          "line": 18,
+          "column": 1902,
+          "samples": 129
+        },
+        {
+          "function": "t",
+          "line": 21,
+          "column": 4884,
+          "samples": 119
+        },
+        {
+          "function": "toString",
+          "line": 12,
+          "column": 4913,
+          "samples": 115
+        },
+        {
+          "function": "ee",
+          "line": 21,
+          "column": 3435,
+          "samples": 107
+        },
+        {
+          "function": "nn",
+          "line": 12,
+          "column": 31693,
+          "samples": 90
+        },
+        {
+          "function": "tn",
+          "line": 12,
+          "column": 31589,
+          "samples": 82
+        },
+        {
+          "function": "J",
+          "line": 12,
+          "column": 31075,
+          "samples": 70
+        },
+        {
+          "function": "_set",
+          "line": 24,
+          "column": 2468,
+          "samples": 70
+        },
+        {
+          "function": "ce",
+          "line": 18,
+          "column": 1260,
+          "samples": 67
+        },
+        {
+          "function": "ee",
+          "line": 21,
+          "column": 3365,
+          "samples": 58
+        },
+        {
+          "function": "zt",
+          "line": 24,
+          "column": 5085,
+          "samples": 47
+        },
+        {
+          "function": "c",
+          "line": 18,
+          "column": 1232,
+          "samples": 45
+        }
+      ],
+      "fused_closure_1based": {
+        "line": 24,
+        "column": 27605
+      },
+      "fused_subtree_sample_count": 798,
+      "fused_exclusive": [
+        {
+          "function": "w",
+          "line": 18,
+          "column": 1902,
+          "samples": 129
+        },
+        {
+          "function": "_set",
+          "line": 24,
+          "column": 2468,
+          "samples": 69
+        },
+        {
+          "function": "ce",
+          "line": 18,
+          "column": 1260,
+          "samples": 66
+        },
+        {
+          "function": "en",
+          "line": 12,
+          "column": 31246,
+          "samples": 48
+        },
+        {
+          "function": "c",
+          "line": 18,
+          "column": 1232,
+          "samples": 45
+        },
+        {
+          "function": "st",
+          "line": 12,
+          "column": 30231,
+          "samples": 43
+        },
+        {
+          "function": "zt",
+          "line": 24,
+          "column": 5085,
+          "samples": 39
+        },
+        {
+          "function": "Ee",
+          "line": 24,
+          "column": 7329,
+          "samples": 36
+        },
+        {
+          "function": "Gr",
+          "line": 4,
+          "column": 1828,
+          "samples": 34
+        },
+        {
+          "function": "pe",
+          "line": 12,
+          "column": 2109,
+          "samples": 25
+        },
+        {
+          "function": "t",
+          "line": 21,
+          "column": 4884,
+          "samples": 24
+        },
+        {
+          "function": "h",
+          "line": 24,
+          "column": 25928,
+          "samples": 23
+        },
+        {
+          "function": "nn",
+          "line": 12,
+          "column": 31693,
+          "samples": 21
+        },
+        {
+          "function": "rn",
+          "line": 18,
+          "column": 1151,
+          "samples": 21
+        },
+        {
+          "function": "J",
+          "line": 12,
+          "column": 31075,
+          "samples": 19
+        },
+        {
+          "function": "tn",
+          "line": 12,
+          "column": 31589,
+          "samples": 19
+        },
+        {
+          "function": "ee",
+          "line": 21,
+          "column": 3435,
+          "samples": 13
+        },
+        {
+          "function": "_create1",
+          "line": 24,
+          "column": 5246,
+          "samples": 12
+        },
+        {
+          "function": "forEach",
+          "line": 18,
+          "column": 11405,
+          "samples": 9
+        },
+        {
+          "function": "ee",
+          "line": 21,
+          "column": 3365,
+          "samples": 7
+        },
+        {
+          "function": "Se",
+          "line": 18,
+          "column": 12090,
+          "samples": 6
+        },
+        {
+          "function": "",
+          "line": 12,
+          "column": 31788,
+          "samples": 6
+        },
+        {
+          "function": "t",
+          "line": 12,
+          "column": 30965,
+          "samples": 5
+        },
+        {
+          "function": "ee",
+          "line": 21,
+          "column": 1692,
+          "samples": 5
+        },
+        {
+          "function": "decode",
+          "line": 482,
+          "column": 9,
+          "samples": 5
+        },
+        {
+          "function": "decodeUTF8",
+          "line": 0,
+          "column": 0,
+          "samples": 5
+        },
+        {
+          "function": "Hr",
+          "line": 4,
+          "column": 2281,
+          "samples": 5
+        },
+        {
+          "function": "z",
+          "line": 4,
+          "column": 8277,
+          "samples": 4
+        },
+        {
+          "function": "es",
+          "line": 4,
+          "column": 8382,
+          "samples": 4
+        },
+        {
+          "function": "Qe",
+          "line": 24,
+          "column": 7433,
+          "samples": 4
+        }
+      ]
+    },
+    "O2": {
+      "artifact_sha256": "edc5885e67cfa4ddd999a6c8679fcaaf21319bb2963722e5312e9f4997043bdb",
+      "sample_count": 2215,
+      "top_exclusive_all_kernels": [
+        {
+          "function": "de",
+          "line": 1333,
+          "column": 3,
+          "samples": 369
+        },
+        {
+          "function": "(garbage collector)",
+          "line": 0,
+          "column": 0,
+          "samples": 337
+        },
+        {
+          "function": "cH",
+          "line": 1299,
+          "column": 3,
+          "samples": 248
+        },
+        {
+          "function": "a7",
+          "line": 2244,
+          "column": 3,
+          "samples": 157
+        },
+        {
+          "function": "$0",
+          "line": 2714,
+          "column": 3,
+          "samples": 128
+        },
+        {
+          "function": "R",
+          "line": 1591,
+          "column": 2,
+          "samples": 126
+        },
+        {
+          "function": "am",
+          "line": 2300,
+          "column": 3,
+          "samples": 106
+        },
+        {
+          "function": "h",
+          "line": 1752,
+          "column": 2,
+          "samples": 99
+        },
+        {
+          "function": "K",
+          "line": 1941,
+          "column": 2,
+          "samples": 75
+        },
+        {
+          "function": "ao",
+          "line": 2326,
+          "column": 3,
+          "samples": 66
+        },
+        {
+          "function": "K",
+          "line": 2147,
+          "column": 2,
+          "samples": 66
+        },
+        {
+          "function": "aK",
+          "line": 856,
+          "column": 3,
+          "samples": 49
+        },
+        {
+          "function": "fB",
+          "line": 1588,
+          "column": 3,
+          "samples": 26
+        },
+        {
+          "function": "c1",
+          "line": 1305,
+          "column": 3,
+          "samples": 25
+        },
+        {
+          "function": "eV",
+          "line": 686,
+          "column": 3,
+          "samples": 22
+        },
+        {
+          "function": "q",
+          "line": 1707,
+          "column": 2,
+          "samples": 21
+        },
+        {
+          "function": "$1",
+          "line": 2127,
+          "column": 3,
+          "samples": 20
+        },
+        {
+          "function": "an",
+          "line": 2320,
+          "column": 3,
+          "samples": 19
+        },
+        {
+          "function": "ap",
+          "line": 2403,
+          "column": 3,
+          "samples": 16
+        },
+        {
+          "function": "V",
+          "line": 2287,
+          "column": 2,
+          "samples": 11
+        }
+      ]
+    }
+  },
+  "native_symbolization_limit": "Bundled Node --prof-process attributes much native execution to SeaConfig destructor incorrectly; native labels are not interpreted as cost owners. CPU call tree used for JS attribution.",
+  "finding": "Exact fused-kernel subtree shows writeByte and checked Uint8Array _set/length dispatch among the largest costs. Whole-program NativeString.codeUnitAt hotspot is mainly sample() checksum work and cannot justify a UTF8 string-read claim.",
+  "candidate_only": "Explore a guarded exact-native typed-array store or canonical SDK byte-writer inlining preserving checks, value conversion, effects and order; fake/custom List values must keep fallback. No optimization is implemented and no speedup predicted.",
+  "source_locations": {
+    "sdk_json_byte_writer": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/convert/json.dart:1151",
+    "sdk_native_typed_array_store": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_internal/js_dev_runtime/private/native_typed_data.dart:735",
+    "forge_generated_writer": "target/tmp-js-production-audit/json-collections/timing/json/min/program.js:18:1902",
+    "forge_generated_checked_store": "target/tmp-js-production-audit/json-collections/timing/json/min/program.js:24:2468",
+    "O2_generated_writer": "target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2433",
+    "O2_sdk_native_typed_array_store": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/_internal/js_runtime/lib/native_typed_data.dart:935"
+  },
+  "evidence_hashes": {
+    "O2.run.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "min.cpu-run.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "O2.v8.log.gz": "301594d8e608737a617d05f6381cf5799b8fa2421e3861d99f7814dbf0105d19",
+    "min.processed.stdout": "38351f185851bb586d89ca06fdd81186fff13d150be15afc6a1e03f1b29a3f76",
+    "min.processed.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "profile.py": "1a6abf82b0ecfcaebff0cb5c6f2348c45fd5b408fa42b7b26cb92d720cada635",
+    "min.cpu-run.stdout": "3aec9a40cd525b20f893e72853be089ed99e11bb9505a51ab7763f736ab20d04",
+    "commands.json": "ff223261ce5a833daffa3131a58cb0b7d811c5e3594eff707fd52b9cb7dd7cbf",
+    "O2.run.stdout": "c91ccedec0908439c9a0df1329dbc56f333e3b8529720dbd583f5227baf2f967",
+    "min.v8.log.gz": "ebd097e21471b667be9004526a957eb69574c68327506e45b4d779949948d150",
+    "O2.processed.stdout": "275877cecedbb9bceefd0a66317f4139bf8ce9bedf744b3e99662f2962a21156",
+    "O2.cpu-run.stdout": "e0033010ba141d3f9d36a36c55e327992a636ac9d257b3518d776975d5bd290e",
+    "min.cpu.json.gz": "761ace108ba036f18095ed3b6bfca2a47c43b59c3bd498ea2c9ba2e5668c388b",
+    "min.run.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "O2.cpu.json.gz": "60f8a99c9c9b8a404829a5683ce0991daa9ea9a47d21c83afef61aab2cb3debc",
+    "min.run.stdout": "3c5f2206f643d509d9187035defe7aec52271758009b8a32c4bc6bf60d5cd06c",
+    "O2.processed.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "O2.cpu-run.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "cpu_profile_commands": {
+    "min": [
+      "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+      "--cpu-prof",
+      "--cpu-prof-dir=/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/profiling/min",
+      "--cpu-prof-name=cpu.json",
+      "-e",
+      "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/min/program.js"
+    ],
+    "O2": [
+      "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+      "--cpu-prof",
+      "--cpu-prof-dir=/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/profiling/O2",
+      "--cpu-prof-name=cpu.json",
+      "-e",
+      "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js"
+    ]
+  },
+  "source_locations_note": "Forge own SDK resolves the DDC js_dev_runtime private library; dart2js O2 resolves js_runtime/lib. Actual generated code and artifact hashes remain the evidence; these distinct SDK paths must not be conflated."
+}

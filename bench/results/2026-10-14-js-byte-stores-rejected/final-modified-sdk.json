@@ -1,0 +1,26 @@
+{
+  "scope": "Diagnostic SDK source alteration, not shipping. Canonical setter gains an observable counter; optimization must refuse full-body mismatch and preserve counter. Other SDK files hardlinked immutable on SSD, modified file unlinked before rewrite.",
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-store/current-jsprod",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_stores.dart",
+    "--sdk",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-store/modified-sdk",
+    "--no-minify",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-store/modified-sdk.js"
+  ],
+  "run_command": [
+    "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+    "-e",
+    "globalThis.self=globalThis;require(process.argv[1]);console.log(\"writes=\"+globalThis.__typedWrites)",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-store/modified-sdk.js"
+  ],
+  "compiler_sha256": "0f8920ef37f498542eeb2b08149b9cccb201b4ea7197baf04ef6ec6a26a7ad3b",
+  "original_sdk_source_sha256": "ebb7e23a2d2c52d2bd5e4fe1ee0b09b58eb36bf6cea2d4005f6a7b9a33966037",
+  "modified_sdk_source_sha256": "07eb23d83fbf7a0cfecda678c08dd89b16331ef10dfc3c36b062fa577c19e07a",
+  "fixture_sha256": "b3776128cea47bac1ed825f956d214aacf0d966cb8caee7a6a103d3d18763897",
+  "artifact_sha256": "c3ef52b5aa443ccafc0206e18744f781c173db2b1e521edc2922e634ff992276",
+  "guard_helper_absent": true,
+  "counter": 16451,
+  "exit": 0
+}

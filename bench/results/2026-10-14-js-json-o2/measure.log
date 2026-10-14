@@ -1,0 +1,11 @@
+raw 0 2.54213175
+min 0 2.5154825830000003
+O2 0 1.621411459
+O2 1 1.6035581669999992
+min 1 2.5396367499999997
+raw 1 2.578675875
+raw 2 2.518461042
+min 2 2.506419041999999
+O2 2 1.6205928749999998
+{"raw": {"decode_small": 15306, "encode_small": 31692, "decode_medium": 19878, "encode_medium": 39529, "decode_large": 40915, "encode_large": 110989, "indented": 37938, "utf8_bytes": 89981, "reviver": 16487}, "min": {"decode_small": 14846, "encode_small": 27737, "decode_medium": 19021, "encode_medium": 40531, "decode_large": 39689, "encode_large": 109154, "indented": 38767, "utf8_bytes": 91403, "reviver": 14427}, "O2": {"decode_small": 10150, "encode_small": 15694, "decode_medium": 13624, "encode_medium": 25302, "decode_large": 31222, "encode_large": 83304, "indented": 28271, "utf8_bytes": 24610, "reviver": 9717}}
+timing window terminal

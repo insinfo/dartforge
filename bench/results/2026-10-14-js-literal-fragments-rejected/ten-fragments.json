@@ -1,0 +1,148 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/current-jsprod",
+  "compiler_sha256": "a04ac12cc4e9547e873ab4c1b83559762637a0fc3109a058a9b439e6baa5b4e8",
+  "scope": "Compile-only exact same-input current compiler codec disabled/enabled; no runtime performance timing or broad parity claim. Gzip9 uses mtime=0.",
+  "inputs_baseline": "bench/results/2026-10-14-js-size-profiles/comparison.json",
+  "cases": {
+    "limitless_ui": {
+      "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+      "source_sha256": "308471ba62a75f589dc8b070fcdef04ac7a5b123175ff5bbc0e0a8ef4cb3b280",
+      "config": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json",
+      "config_sha256": "9395450bc1340ec9640b9716221293ebdd249dc9e75fc3af59fad19c7ada69b2",
+      "profiles": {
+        "disabled": {
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/current-jsprod",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+            "--sdk",
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/limitless_ui/disabled/program.js",
+            "--packages",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json"
+          ],
+          "environment": {
+            "DARTFORGE_JSPROD_LITERAL_FRAGMENTS": "0"
+          },
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/limitless_ui/disabled/program.js",
+          "bytes": 3533442,
+          "gzip9_bytes": 1019065,
+          "sha256": "b27c4e1988d5eaeac957797a279972cf47c75ca99c44ceb8ffb78aa7726ae817"
+        },
+        "enabled": {
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/current-jsprod",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+            "--sdk",
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/limitless_ui/enabled/program.js",
+            "--packages",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json"
+          ],
+          "environment": {
+            "DARTFORGE_JSPROD_LITERAL_FRAGMENTS": "1"
+          },
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/limitless_ui/enabled/program.js",
+          "bytes": 3490796,
+          "gzip9_bytes": 1019597,
+          "sha256": "bcd9269ffdc3c944f5c071c5f515ed12197d7eb668ffb460596fee4fd821171d"
+        }
+      }
+    },
+    "new_sali": {
+      "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/new_sali/new_sali_frontend/web/main.dart",
+      "source_sha256": "ced7b68b37b2ddc0f6acc2e24a69de2527ea98dc5b1b7420754ed862f92e2f78",
+      "config": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/new_sali.package_config.json",
+      "config_sha256": "33e7aad90e8013b888ce210202759bcd86e4377532d3dc70713c68d507206144",
+      "profiles": {
+        "disabled": {
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/current-jsprod",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/new_sali/new_sali_frontend/web/main.dart",
+            "--sdk",
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/new_sali/disabled/program.js",
+            "--packages",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/new_sali.package_config.json"
+          ],
+          "environment": {
+            "DARTFORGE_JSPROD_LITERAL_FRAGMENTS": "0"
+          },
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/new_sali/disabled/program.js",
+          "bytes": 7606092,
+          "gzip9_bytes": 2072353,
+          "sha256": "d2f4c9e844ff83556de95daef240d1a0c4edb092f48a2d2c22f06e64550d955a"
+        },
+        "enabled": {
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/current-jsprod",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/new_sali/new_sali_frontend/web/main.dart",
+            "--sdk",
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/new_sali/enabled/program.js",
+            "--packages",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/new_sali.package_config.json"
+          ],
+          "environment": {
+            "DARTFORGE_JSPROD_LITERAL_FRAGMENTS": "1"
+          },
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/new_sali/enabled/program.js",
+          "bytes": 7572836,
+          "gzip9_bytes": 2075964,
+          "sha256": "9ea9b7bee142ba155206aa9ae58d8b2202bf97ff086d691b7ad74cd96b322059"
+        }
+      }
+    },
+    "hello": {
+      "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/hello.dart",
+      "source_sha256": "35b588df25e6a17a07c0530c01d0d93c065028094f08357308fa27863f4ded9c",
+      "config": null,
+      "config_sha256": null,
+      "profiles": {
+        "disabled": {
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/current-jsprod",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/hello.dart",
+            "--sdk",
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/hello/disabled/program.js"
+          ],
+          "environment": {
+            "DARTFORGE_JSPROD_LITERAL_FRAGMENTS": "0"
+          },
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/hello/disabled/program.js",
+          "bytes": 46203,
+          "gzip9_bytes": 16037,
+          "sha256": "5c6b269babca3bff98de7da9c1f92ec4be272ecf53047acdd710e7e2a5fbc06f"
+        },
+        "enabled": {
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/current-jsprod",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/hello.dart",
+            "--sdk",
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/hello/enabled/program.js"
+          ],
+          "environment": {
+            "DARTFORGE_JSPROD_LITERAL_FRAGMENTS": "1"
+          },
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/hello/enabled/program.js",
+          "bytes": 46203,
+          "gzip9_bytes": 16037,
+          "sha256": "5c6b269babca3bff98de7da9c1f92ec4be272ecf53047acdd710e7e2a5fbc06f"
+        }
+      }
+    }
+  }
+}

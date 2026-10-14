@@ -1,0 +1,482 @@
+diff --git a/crates/emit_js_production/src/minify.rs b/crates/emit_js_production/src/minify.rs
+index 17b55bea..3c691cec 100644
+--- a/crates/emit_js_production/src/minify.rs
++++ b/crates/emit_js_production/src/minify.rs
+@@ -29,6 +29,8 @@
+ //! in the same order as the input — that is what the test checks, besides
+ //! the whole corpus run with the compacted file.
+ 
++mod literal_fragments;
++
+ /// Kind of the last significant token, to decide regex vs. division and the
+ /// whitespace between tokens.
+ #[derive(Clone, Copy, PartialEq, Eq)]
+@@ -930,6 +932,19 @@ pub fn minify_with_properties(js: &str, names: &crate::properties::Names) -> Res
+     // it creates. `DARTFORGE_JSPROD_COMPRESS=0` turns compression off.
+     let mut strings = IdentifierStrings::new(marker_start(&program));
+     strings.visit_program(&program);
++    // Reserve original literal names before transporting their contents.
++    let transported =
++        if std::env::var("DARTFORGE_JSPROD_LITERAL_FRAGMENTS").map_or(true, |value| value != "0") {
++            literal_fragments::apply(&source)?
++        } else {
++            source.clone()
++        };
++    let reparsed = Parser::new(&allocator, &transported, SourceType::cjs()).parse();
++    if let Some(error) = reparsed.diagnostics.first() {
++        return Err(format!("oxc could not parse transported literals: {error}"));
++    }
++    program = reparsed.program;
++    strings.sdk_end = marker_start(&program);
+     if std::env::var("DARTFORGE_JSPROD_COMPRESS").map_or(true, |v| v != "0") {
+         let mut c = oxc_minifier::CompressOptions::smallest();
+         // `Object.create(dart.library)` of a namespace nobody cites: no effect.
+@@ -1039,6 +1054,12 @@ pub fn minify_names(js: &str) -> Result<String, String> {
+     use oxc_parser::Parser;
+     use oxc_span::SourceType;
+     let source = format!("(function () {{\n{js}\n}})();\n");
++    let source =
++        if std::env::var("DARTFORGE_JSPROD_LITERAL_FRAGMENTS").map_or(true, |value| value != "0") {
++            literal_fragments::apply(&source)?
++        } else {
++            source
++        };
+     let allocator = Allocator::default();
+     let kind = SourceType::cjs();
+     let parsed = Parser::new(&allocator, &source, kind).parse();
+diff --git a/crates/emit_js_production/src/minify/literal_fragments.rs b/crates/emit_js_production/src/minify/literal_fragments.rs
+new file mode 100644
+index 00000000..65ccf4dc
+--- /dev/null
++++ b/crates/emit_js_production/src/minify/literal_fragments.rs
+@@ -0,0 +1,297 @@
++//! Transport profitable ASCII data literals without changing their values.
++//!
++//! The private decoder reads only primitive string indices and owned dictionary
++//! slots. It does not call mutable String/Array prototype methods. Unicode,
++//! directives, literal keys, dynamic scopes and unprofitable inputs stay intact.
++
++use super::StringOccurrences;
++use oxc_ast::ast::{
++    BindingIdentifier, CallExpression, Expression, IdentifierReference, Statement, WithStatement,
++};
++use oxc_ast_visit::{Visit, walk};
++use std::collections::{BTreeMap, HashSet};
++
++const HEAD: &str = "(function () {\n";
++const MIN_LITERAL: usize = 128;
++const MAX_BYTES: usize = 2 * 1024 * 1024;
++const MAX_FRAGMENTS: usize = 2;
++
++#[derive(Default)]
++struct Names {
++    used: HashSet<String>,
++    dynamic_scope: bool,
++}
++
++impl<'a> Visit<'a> for Names {
++    fn visit_binding_identifier(&mut self, node: &BindingIdentifier<'a>) {
++        self.used.insert(node.name.to_string());
++    }
++    fn visit_identifier_reference(&mut self, node: &IdentifierReference<'a>) {
++        self.used.insert(node.name.to_string());
++    }
++    fn visit_call_expression(&mut self, node: &CallExpression<'a>) {
++        if matches!(&node.callee, Expression::Identifier(name) if name.name == "eval") {
++            self.dynamic_scope = true;
++        }
++        walk::walk_call_expression(self, node);
++    }
++    fn visit_with_statement(&mut self, _node: &WithStatement<'a>) {
++        self.dynamic_scope = true;
++    }
++}
++
++fn fresh(names: &mut HashSet<String>, prefix: &str) -> String {
++    for index in 0.. {
++        let name = format!("{prefix}{index}");
++        if names.insert(name.clone()) {
++            return name;
++        }
++    }
++    unreachable!()
++}
++
++fn word(byte: u8) -> bool {
++    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'%')
++}
++
++fn words(value: &str) -> impl Iterator<Item = &str> {
++    value
++        .split(|ch: char| !ch.is_ascii() || !word(ch as u8))
++        .filter(|part| (8..=64).contains(&part.len()))
++}
++
++fn encode(value: &str, dictionary: &[&str]) -> String {
++    let bytes = value.as_bytes();
++    let mut result = String::with_capacity(value.len());
++    let mut index = 0;
++    while index < bytes.len() {
++        if word(bytes[index]) {
++            let begin = index;
++            while index < bytes.len() && word(bytes[index]) {
++                index += 1;
++            }
++            let part = &value[begin..index];
++            if let Some(slot) = dictionary.iter().position(|candidate| *candidate == part) {
++                result.push('~');
++                result.push((b'0' + slot as u8) as char);
++            } else {
++                result.push_str(part);
++            }
++        } else {
++            let byte = bytes[index];
++            if byte == b'~' {
++                result.push('~');
++            }
++            result.push(byte as char);
++            index += 1;
++        }
++    }
++    result
++}
++
++pub(super) fn apply(source: &str) -> Result<String, String> {
++    if !source.starts_with(HEAD) {
++        return Ok(source.to_string());
++    }
++    let allocator = oxc_allocator::Allocator::default();
++    let parsed = oxc_parser::Parser::new(&allocator, source, oxc_span::SourceType::cjs()).parse();
++    if let Some(error) = parsed.diagnostics.first() {
++        return Err(format!(
++            "oxc could not parse literal transport input: {error}"
++        ));
++    }
++    let Some(Statement::ExpressionStatement(statement)) = parsed.program.body.first() else {
++        return Ok(source.to_string());
++    };
++    let Expression::CallExpression(call) = &statement.expression else {
++        return Ok(source.to_string());
++    };
++    let Expression::ParenthesizedExpression(parenthesized) = &call.callee else {
++        return Ok(source.to_string());
++    };
++    let Expression::FunctionExpression(function) = &parenthesized.expression else {
++        return Ok(source.to_string());
++    };
++    let Some(body) = &function.body else {
++        return Ok(source.to_string());
++    };
++    let insertion = body
++        .directives
++        .last()
++        .map_or(HEAD.len(), |directive| directive.span.end as usize);
++    let mut names = Names::default();
++    names.visit_program(&parsed.program);
++    if names.dynamic_scope {
++        return Ok(source.to_string());
++    }
++    let mut occurrences = StringOccurrences {
++        map: Default::default(),
++        sdk_end: super::marker_start(&parsed.program),
++        stack: Vec::new(),
++    };
++    occurrences.visit_program(&parsed.program);
++    let mut values = occurrences
++        .map
++        .into_iter()
++        .filter(|(value, _)| value.is_ascii() && value.len() >= MIN_LITERAL)
++        .collect::<Vec<_>>();
++    values.sort_by(|left, right| left.0.cmp(&right.0));
++    if values
++        .iter()
++        .try_fold(0usize, |total, (value, spans)| {
++            total.checked_add(value.len().checked_mul(spans.len())?)
++        })
++        .is_none_or(|bytes| bytes > MAX_BYTES)
++    {
++        return Ok(source.to_string());
++    }
++    let mut counts = BTreeMap::<&str, usize>::new();
++    for (value, spans) in &values {
++        for fragment in words(value) {
++            *counts.entry(fragment).or_default() += spans.len();
++        }
++    }
++    let mut candidates = counts
++        .into_iter()
++        .filter_map(|(fragment, count)| {
++            let cost = dartforge_emit_js::js::string_literal(fragment).len() + 1;
++            let saved = (fragment.len() - 2) * count;
++            (count >= 2 && saved > cost).then_some((saved.saturating_sub(cost), fragment))
++        })
++        .collect::<Vec<_>>();
++    candidates.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(right.1)));
++    let dictionary = candidates
++        .iter()
++        .take(MAX_FRAGMENTS)
++        .map(|(_, fragment)| *fragment)
++        .collect::<Vec<_>>();
++    if dictionary.is_empty() {
++        return Ok(source.to_string());
++    }
++    let decoder = fresh(&mut names.used, "t$L");
++    let table = fresh(&mut names.used, "t$SF");
++    let helper = format!(
++        "var {table} = [{}];\nfunction {decoder}(s) {{ let r = ''; for (let i = 0; i < s.length; i++) {{ let c = s[i]; if (c === '~') {{ let k = s[++i]; r += k === '~' ? '~' : {table}[k]; }} else r += c; }} return r; }}\n",
++        dictionary
++            .iter()
++            .map(|fragment| dartforge_emit_js::js::string_literal(fragment))
++            .collect::<Vec<_>>()
++            .join(",")
++    );
++    let mut edits = Vec::new();
++    let mut savings = 0usize;
++    for (value, spans) in &values {
++        let encoded = encode(value, &dictionary);
++        let replacement = format!(
++            "{decoder}({})",
++            dartforge_emit_js::js::string_literal(&encoded)
++        );
++        for &(begin, end) in spans {
++            let size = (end - begin) as usize;
++            if replacement.len() < size {
++                savings += size - replacement.len();
++                edits.push((begin as usize, end as usize, replacement.clone()));
++            }
++        }
++    }
++    // Pay the complete unminified helper/table cost plus a conservative margin.
++    if savings <= helper.len() + 1024 {
++        return Ok(source.to_string());
++    }
++    edits.sort_by_key(|edit| edit.0);
++    let mut result = String::with_capacity(source.len());
++    result.push_str(&source[..insertion]);
++    result.push('\n');
++    result.push_str(&helper);
++    let mut position = insertion;
++    for (begin, end, replacement) in edits {
++        if begin < position {
++            return Ok(source.to_string());
++        }
++        result.push_str(&source[position..begin]);
++        result.push_str(&replacement);
++        position = end;
++    }
++    result.push_str(&source[position..]);
++    Ok(result)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn large() -> String {
++        "shared-fragment-alpha shared-fragment-beta ~0 ~~ ".repeat(100)
++    }
++
++    #[test]
++    fn small_unicode_and_dynamic_scope_inputs_remain_unchanged() {
++        for source in [
++            format!("{HEAD}console.log('small');\n}})();\n"),
++            format!(
++                "{HEAD}console.log({});\n}})();\n",
++                dartforge_emit_js::js::string_literal(&(large() + "é"))
++            ),
++            format!(
++                "{HEAD}console.log({}); eval('1');\n}})();\n",
++                dartforge_emit_js::js::string_literal(&large())
++            ),
++            format!(
++                "{HEAD}with (o) {{ console.log({}); }}\n}})();\n",
++                dartforge_emit_js::js::string_literal(&large())
++            ),
++        ] {
++            assert_eq!(apply(&source).unwrap(), source);
++        }
++    }
++
++    #[test]
++    fn marker_roundtrip_and_fresh_names_are_deterministic() {
++        let source = format!(
++            "{HEAD}let t$L0 = 1, t$SF0 = 2; console.log({}, t$L0, t$SF0);\n}})();\n",
++            dartforge_emit_js::js::string_literal(&large())
++        );
++        let output = apply(&source).unwrap();
++        assert!(output.len() + 1024 < source.len());
++        assert!(output.contains("function t$L1(s)"));
++        assert!(output.contains("var t$SF1 ="));
++        assert_eq!(output, apply(&source).unwrap());
++    }
++
++    #[test]
++    #[ignore = "requires Node"]
++    fn decoder_ignores_mutated_prototype_methods_and_preserves_keys() {
++        use std::io::Write;
++        use std::process::{Command, Stdio};
++        let value = large();
++        let quoted = dartforge_emit_js::js::string_literal(&value);
++        let source = format!(
++            "{HEAD}'use strict'; const object = {{{quoted}: 7}}; const saved = [String.prototype.split, String.prototype.slice, String.prototype.replace, Array.prototype.join, Array.prototype[Symbol.iterator]]; String.prototype.split = String.prototype.slice = String.prototype.replace = Array.prototype.join = Array.prototype[Symbol.iterator] = () => {{ throw Error('prototype invoked'); }}; const output = {quoted}; String.prototype.split=saved[0];String.prototype.slice=saved[1];String.prototype.replace=saved[2];Array.prototype.join=saved[3];Array.prototype[Symbol.iterator]=saved[4]; if(output !== {quoted} || object[output] !== 7) throw Error('transport mismatch'); console.log('exact');\n}})();\n"
++        );
++        let changed = apply(&source).unwrap();
++        assert!(
++            changed.contains(&format!("{{{quoted}: 7}}")),
++            "literal key changed"
++        );
++        assert!(changed.starts_with("(function () {\n'use strict';\n"));
++        let mut process = Command::new("node")
++            .stdin(Stdio::piped())
++            .stdout(Stdio::piped())
++            .stderr(Stdio::piped())
++            .spawn()
++            .unwrap();
++        process
++            .stdin
++            .take()
++            .unwrap()
++            .write_all(changed.as_bytes())
++            .unwrap();
++        let result = process.wait_with_output().unwrap();
++        assert!(
++            result.status.success(),
++            "{}",
++            String::from_utf8_lossy(&result.stderr)
++        );
++        assert_eq!(String::from_utf8(result.stdout).unwrap(), "exact\n");
++    }
++}
+diff --git a/crates/emit_js_production/tests/literal_fragments.rs b/crates/emit_js_production/tests/literal_fragments.rs
+new file mode 100644
+index 00000000..1bf01fee
+--- /dev/null
++++ b/crates/emit_js_production/tests/literal_fragments.rs
+@@ -0,0 +1,95 @@
++//! Encoded long data strings preserve ordinary Dart values and effects.
++
++use std::io::Write;
++use std::path::Path;
++use std::process::{Command, Stdio};
++
++fn node_output(js: &str) -> String {
++    let mut node = Command::new("node")
++        .stdin(Stdio::piped())
++        .stdout(Stdio::piped())
++        .stderr(Stdio::piped())
++        .spawn()
++        .expect("Node");
++    node.stdin
++        .take()
++        .unwrap()
++        .write_all(format!("globalThis.self=globalThis;\n{js}").as_bytes())
++        .unwrap();
++    let result = node.wait_with_output().unwrap();
++    assert!(
++        result.status.success(),
++        "{}",
++        String::from_utf8_lossy(&result.stderr)
++    );
++    assert!(
++        result.stderr.is_empty(),
++        "{}",
++        String::from_utf8_lossy(&result.stderr)
++    );
++    String::from_utf8(result.stdout)
++        .unwrap()
++        .replace("\r\n", "\n")
++}
++
++#[test]
++#[ignore = "requires Dart 3.6.2 and Node on PATH"]
++fn long_literals_keys_unicode_and_effect_order_match_vm_and_o2() {
++    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
++        .join("../emit_js/tests/programs/literal_fragments.dart");
++    let oracle = Command::new("dart")
++        .arg("run")
++        .arg(&source)
++        .output()
++        .expect("Dart");
++    assert!(
++        oracle.status.success(),
++        "{}",
++        String::from_utf8_lossy(&oracle.stderr)
++    );
++    let expected = String::from_utf8(oracle.stdout)
++        .unwrap()
++        .replace("\r\n", "\n");
++    let directory = std::env::temp_dir().join(format!(
++        "dartforge-literals-{}-{}",
++        std::process::id(),
++        std::time::SystemTime::now()
++            .duration_since(std::time::UNIX_EPOCH)
++            .unwrap()
++            .as_nanos()
++    ));
++    std::fs::create_dir(&directory).unwrap();
++    let official = directory.join("official-O2.js");
++    let result = Command::new("dart")
++        .args(["compile", "js", "-O2"])
++        .arg(&source)
++        .arg("-o")
++        .arg(&official)
++        .output()
++        .expect("dart2js");
++    assert!(
++        result.status.success(),
++        "{}",
++        String::from_utf8_lossy(&result.stderr)
++    );
++    assert_eq!(
++        node_output(&std::fs::read_to_string(&official).unwrap()),
++        expected
++    );
++    for minify in [false, true] {
++        let options = dartforge_emit_js_production::Options {
++            minify,
++            ..Default::default()
++        };
++        let production = dartforge_emit_js_production::compile_own_sdk(
++            &source,
++            None,
++            None,
++            options,
++            &Default::default(),
++        )
++        .expect("production compilation");
++        assert_eq!(node_output(&production.js), expected, "minify={minify}");
++    }
++    std::fs::remove_dir_all(directory).unwrap();
++}
+diff --git a/crates/emit_js/tests/programs/literal_fragments.dart b/crates/emit_js/tests/programs/literal_fragments.dart
+new file mode 100644
+index 00000000..b3d0bf4c
+--- /dev/null
++++ b/crates/emit_js/tests/programs/literal_fragments.dart
+@@ -0,0 +1,26 @@
++class Data {
++  int sharedFragmentAlpha = 7;
++}
++
++const first = "row0:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=0;} ~0 ~~ \\\" '\n\trow1:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=1;} ~0 ~~ \\\" '\n\trow2:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=2;} ~0 ~~ \\\" '\n\trow3:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=3;} ~0 ~~ \\\" '\n\trow4:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=4;} ~0 ~~ \\\" '\n\trow5:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=5;} ~0 ~~ \\\" '\n\trow6:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=6;} ~0 ~~ \\\" '\n\trow7:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=7;} ~0 ~~ \\\" '\n\trow8:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=8;} ~0 ~~ \\\" '\n\trow9:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=9;} ~0 ~~ \\\" '\n\trow10:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=10;} ~0 ~~ \\\" '\n\trow11:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=11;} ~0 ~~ \\\" '\n\trow12:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=12;} ~0 ~~ \\\" '\n\trow13:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=13;} ~0 ~~ \\\" '\n\trow14:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=14;} ~0 ~~ \\\" '\n\trow15:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=15;} ~0 ~~ \\\" '\n\trow16:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=16;} ~0 ~~ \\\" '\n\trow17:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=17;} ~0 ~~ \\\" '\n\trow18:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=18;} ~0 ~~ \\\" '\n\trow19:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=19;} ~0 ~~ \\\" '\n\trow20:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=20;} ~0 ~~ \\\" '\n\trow21:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=21;} ~0 ~~ \\\" '\n\trow22:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=22;} ~0 ~~ \\\" '\n\trow23:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=23;} ~0 ~~ \\\" '\n\trow24:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=24;} ~0 ~~ \\\" '\n\trow25:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=25;} ~0 ~~ \\\" '\n\trow26:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=26;} ~0 ~~ \\\" '\n\trow27:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=27;} ~0 ~~ \\\" '\n\trow28:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=28;} ~0 ~~ \\\" '\n\trow29:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=29;} ~0 ~~ \\\" '\n\trow30:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=30;} ~0 ~~ \\\" '\n\trow31:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=31;} ~0 ~~ \\\" '\n\trow32:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=32;} ~0 ~~ \\\" '\n\trow33:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=33;} ~0 ~~ \\\" '\n\trow34:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=34;} ~0 ~~ \\\" '\n\trow35:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=35;} ~0 ~~ \\\" '\n\trow36:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=36;} ~0 ~~ \\\" '\n\trow37:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=37;} ~0 ~~ \\\" '\n\trow38:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=38;} ~0 ~~ \\\" '\n\trow39:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=39;} ~0 ~~ \\\" '\n\trow40:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=40;} ~0 ~~ \\\" '\n\trow41:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=41;} ~0 ~~ \\\" '\n\trow42:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=42;} ~0 ~~ \\\" '\n\trow43:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=43;} ~0 ~~ \\\" '\n\trow44:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=44;} ~0 ~~ \\\" '\n\trow45:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=45;} ~0 ~~ \\\" '\n\trow46:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=46;} ~0 ~~ \\\" '\n\trow47:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=47;} ~0 ~~ \\\" '\n\trow48:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=48;} ~0 ~~ \\\" '\n\trow49:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=49;} ~0 ~~ \\\" '\n\trow50:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=50;} ~0 ~~ \\\" '\n\trow51:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=51;} ~0 ~~ \\\" '\n\trow52:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=52;} ~0 ~~ \\\" '\n\trow53:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=53;} ~0 ~~ \\\" '\n\trow54:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=54;} ~0 ~~ \\\" '\n\trow55:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=55;} ~0 ~~ \\\" '\n\trow56:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=56;} ~0 ~~ \\\" '\n\trow57:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=57;} ~0 ~~ \\\" '\n\trow58:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=58;} ~0 ~~ \\\" '\n\trow59:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=59;} ~0 ~~ \\\" '\n\t";
++const second = "row59:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=59;} ~0 ~~ \\\" '\n\trow58:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=58;} ~0 ~~ \\\" '\n\trow57:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=57;} ~0 ~~ \\\" '\n\trow56:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=56;} ~0 ~~ \\\" '\n\trow55:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=55;} ~0 ~~ \\\" '\n\trow54:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=54;} ~0 ~~ \\\" '\n\trow53:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=53;} ~0 ~~ \\\" '\n\trow52:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=52;} ~0 ~~ \\\" '\n\trow51:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=51;} ~0 ~~ \\\" '\n\trow50:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=50;} ~0 ~~ \\\" '\n\trow49:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=49;} ~0 ~~ \\\" '\n\trow48:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=48;} ~0 ~~ \\\" '\n\trow47:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=47;} ~0 ~~ \\\" '\n\trow46:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=46;} ~0 ~~ \\\" '\n\trow45:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=45;} ~0 ~~ \\\" '\n\trow44:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=44;} ~0 ~~ \\\" '\n\trow43:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=43;} ~0 ~~ \\\" '\n\trow42:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=42;} ~0 ~~ \\\" '\n\trow41:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=41;} ~0 ~~ \\\" '\n\trow40:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=40;} ~0 ~~ \\\" '\n\trow39:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=39;} ~0 ~~ \\\" '\n\trow38:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=38;} ~0 ~~ \\\" '\n\trow37:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=37;} ~0 ~~ \\\" '\n\trow36:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=36;} ~0 ~~ \\\" '\n\trow35:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=35;} ~0 ~~ \\\" '\n\trow34:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=34;} ~0 ~~ \\\" '\n\trow33:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=33;} ~0 ~~ \\\" '\n\trow32:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=32;} ~0 ~~ \\\" '\n\trow31:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=31;} ~0 ~~ \\\" '\n\trow30:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=30;} ~0 ~~ \\\" '\n\trow29:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=29;} ~0 ~~ \\\" '\n\trow28:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=28;} ~0 ~~ \\\" '\n\trow27:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=27;} ~0 ~~ \\\" '\n\trow26:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=26;} ~0 ~~ \\\" '\n\trow25:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=25;} ~0 ~~ \\\" '\n\trow24:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=24;} ~0 ~~ \\\" '\n\trow23:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=23;} ~0 ~~ \\\" '\n\trow22:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=22;} ~0 ~~ \\\" '\n\trow21:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=21;} ~0 ~~ \\\" '\n\trow20:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=20;} ~0 ~~ \\\" '\n\trow19:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=19;} ~0 ~~ \\\" '\n\trow18:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=18;} ~0 ~~ \\\" '\n\trow17:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=17;} ~0 ~~ \\\" '\n\trow16:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=16;} ~0 ~~ \\\" '\n\trow15:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=15;} ~0 ~~ \\\" '\n\trow14:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=14;} ~0 ~~ \\\" '\n\trow13:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=13;} ~0 ~~ \\\" '\n\trow12:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=12;} ~0 ~~ \\\" '\n\trow11:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=11;} ~0 ~~ \\\" '\n\trow10:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=10;} ~0 ~~ \\\" '\n\trow9:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=9;} ~0 ~~ \\\" '\n\trow8:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=8;} ~0 ~~ \\\" '\n\trow7:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=7;} ~0 ~~ \\\" '\n\trow6:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=6;} ~0 ~~ \\\" '\n\trow5:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=5;} ~0 ~~ \\\" '\n\trow4:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=4;} ~0 ~~ \\\" '\n\trow3:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=3;} ~0 ~~ \\\" '\n\trow2:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=2;} ~0 ~~ \\\" '\n\trow1:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=1;} ~0 ~~ \\\" '\n\trow0:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=0;} ~0 ~~ \\\" '\n\t";
++const unicode = "row0:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=0;} ~0 ~~ \\\" '\n\trow1:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=1;} ~0 ~~ \\\" '\n\trow2:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=2;} ~0 ~~ \\\" '\n\trow3:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=3;} ~0 ~~ \\\" '\n\trow4:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=4;} ~0 ~~ \\\" '\n\trow5:{sharedFragmentAlpha sharedFragmentBeta shared-fragment-gamma;tail-token-long;value=5;} ~0 ~~ \\\" '\n\téΩ😀";
++String events = '';
++String observe(String tag, String value) { events += tag; return value; }
++String summary(String value) {
++  var hash = 0;
++  for (var i = 0; i < value.length; i++) { hash = (hash * 31 + value.codeUnitAt(i)) & 0x7fffffff; }
++  return '${value.length}:$hash';
++}
++void main() {
++  final map = {first: 11, second: 22};
++  print('first=${summary(first)}:key=${map[first]}');
++  print('second=${summary(second)}:key=${map[second]}');
++  print('unicode=${summary(unicode)}');
++  print('order=${summary(observe('a', first) + observe('b', second))}:$events');
++  print('field=${Data().sharedFragmentAlpha}');
++  final t$L0 = 3, t$SF0 = 4;
++  print('locals=${t$L0 + t$SF0}:marker=${first.contains('~0')}:${first.contains('~~')}');
++  const nested = (first, label: second);
++  print('record=${summary(nested.$1)}:${summary(nested.label)}');
++}

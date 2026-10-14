@@ -1,0 +1,12 @@
+   Compiling dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.36s
+     Running unittests src/lib.rs (target/js/debug/deps/dartforge_emit_js-3f9c348d235f5895)
+
+running 4 tests
+test sdk_patches::tests::every_patch_changes_its_text ... ok
+test typed_stores::tests::certificate_keeps_quoted_template_contents ... ok
+test module::const_record_cache_tests::derived_and_reused_fragments_preserve_per_library_const_record_uses ... ok
+test typed_stores::tests::physical_store_and_checked_refusals_preserve_dispatch ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+

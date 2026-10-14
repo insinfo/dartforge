@@ -1,0 +1,547 @@
+Statistical profiling result from /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/profiling/O2/v8.log, (1144 ticks, 3 unaccounted, 0 excluded).
+
+ [Shared libraries]:
+   ticks  total  nonlib   name
+      4    0.3%          /usr/lib/system/libsystem_malloc.dylib
+      4    0.3%          /usr/lib/system/libsystem_c.dylib
+      4    0.3%          /usr/lib/libc++.1.dylib
+      3    0.3%          /usr/lib/system/libdyld.dylib
+      1    0.1%          /usr/lib/libobjc.A.dylib
+
+ [JavaScript]:
+   ticks  total  nonlib   name
+     73    6.4%    6.5%  JS: *a7 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2244:3
+     42    3.7%    3.7%  JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+     23    2.0%    2.0%  JS: *fB /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1588:3
+     23    2.0%    2.0%  JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1941:2
+     22    1.9%    2.0%  JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+     20    1.7%    1.8%  JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+     12    1.0%    1.1%  JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      8    0.7%    0.7%  JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      7    0.6%    0.6%  JS: *P /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2407:2
+      6    0.5%    0.5%  JS: *gE /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1704:3
+      6    0.5%    0.5%  JS: *f3 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:696:3
+      6    0.5%    0.5%  JS: *eP /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:720:3
+      5    0.4%    0.4%  JS: *eV /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:686:3
+      4    0.3%    0.4%  JS: *c1 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1305:3
+      4    0.3%    0.4%  JS: *V /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2287:2
+      3    0.3%    0.3%  JS: *eX /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:689:3
+      3    0.3%    0.3%  JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2351:3
+      2    0.2%    0.2%  JS: +fc /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1565:3
+      2    0.2%    0.2%  JS: +P /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2395:2
+      2    0.2%    0.2%  JS: *u /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1928:2
+      2    0.2%    0.2%  JS: *sad /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1726:4
+      2    0.2%    0.2%  JS: *k /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2406:2
+      2    0.2%    0.2%  JS: *gj /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2143:3
+      2    0.2%    0.2%  JS: *eU /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:703:3
+      2    0.2%    0.2%  JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      2    0.2%    0.2%  JS: *aM /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1748:3
+      1    0.1%    0.1%  JS: +u /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1709:2
+      1    0.1%    0.1%  JS: +f0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1561:3
+      1    0.1%    0.1%  JS: +d1 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:77:3
+      1    0.1%    0.1%  JS: +c1 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1305:3
+      1    0.1%    0.1%  JS: +bC /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1418:3
+      1    0.1%    0.1%  JS: +ap /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1283:3
+      1    0.1%    0.1%  JS: +am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1    0.1%    0.1%  JS: +R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      1    0.1%    0.1%  JS: *k /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2394:2
+      1    0.1%    0.1%  JS: *i /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2075:2
+      1    0.1%    0.1%  JS: *co /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1605:3
+      1    0.1%    0.1%  JS: *cJ /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1550:3
+      1    0.1%    0.1%  JS: *bC /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1418:3
+      1    0.1%    0.1%  JS: *ap /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1283:3
+      1    0.1%    0.1%  JS: *ae /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:92:3
+      1    0.1%    0.1%  JS: *aT /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1737:3
+      1    0.1%    0.1%  JS: *aC /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1350:15
+      1    0.1%    0.1%  JS: *$2 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2343:3
+
+ [C++]:
+   ticks  total  nonlib   name
+    685   59.9%   60.7%  t node::sea::(anonymous namespace)::SeaConfig::~SeaConfig()
+    106    9.3%    9.4%  T __kernelrpc_mach_port_get_refs
+      9    0.8%    0.8%  T _chmod
+      6    0.5%    0.5%  t __pthread_mutex_global_init
+      3    0.3%    0.3%  t std::__1::ostreambuf_iterator<char, std::__1::char_traits<char>> std::__1::__pad_and_output[abi:nn180100]<char, std::__1::char_traits<char>>(std::__1::ostreambuf_iterator<char, std::__1::char_traits<char>>, char const*, char const*, char const*, std::__1::ios_base&, char)
+      3    0.3%    0.3%  T _pthread_key_create
+      3    0.3%    0.3%  T _mach_vm_region
+      2    0.2%    0.2%  T _pwrite
+      1    0.1%    0.1%  T node::NodePlatform::ForIsolate(v8::Isolate*)
+      1    0.1%    0.1%  T _mach_voucher_extract_attr_recipe
+      1    0.1%    0.1%  T ___pthread_init
+      1    0.1%    0.1%  T ___process_policy
+      1    0.1%    0.1%  T ___platform_sigaction
+
+ [Summary]:
+   ticks  total  nonlib   name
+    303   26.5%   26.9%  JavaScript
+    822   71.9%   72.9%  C++
+    180   15.7%   16.0%  GC
+     16    1.4%          Shared libraries
+      3    0.3%          Unaccounted
+
+ [C++ entry points]:
+   ticks    cpp   total   name
+    620   96.7%   54.2%  t node::sea::(anonymous namespace)::SeaConfig::~SeaConfig()
+      6    0.9%    0.5%  t __pthread_mutex_global_init
+      4    0.6%    0.3%  T _chmod
+      3    0.5%    0.3%  t std::__1::ostreambuf_iterator<char, std::__1::char_traits<char>> std::__1::__pad_and_output[abi:nn180100]<char, std::__1::char_traits<char>>(std::__1::ostreambuf_iterator<char, std::__1::char_traits<char>>, char const*, char const*, char const*, std::__1::ios_base&, char)
+      3    0.5%    0.3%  T _pthread_key_create
+      1    0.2%    0.1%  T node::NodePlatform::ForIsolate(v8::Isolate*)
+      1    0.2%    0.1%  T _pwrite
+      1    0.2%    0.1%  T _mach_vm_region
+      1    0.2%    0.1%  T ___pthread_init
+      1    0.2%    0.1%  T ___platform_sigaction
+
+ [Bottom up (heavy) profile]:
+  Note: percentage shows a share of a particular caller in the total
+  amount of its parent calls.
+  Callers occupying less than 1.0% are not shown.
+
+   ticks parent  name
+    685   59.9%  t node::sea::(anonymous namespace)::SeaConfig::~SeaConfig()
+    115   16.8%    JS: +de /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1333:3
+    114   99.1%      JS: +J /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2205:2
+     64   56.1%        JS: ~$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2711:3
+     64  100.0%          JS: ^Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+     64  100.0%            JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+     42   36.8%        JS: ~$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2703:3
+     42  100.0%          JS: ^Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+     42  100.0%            JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+      8    7.0%        JS: ^$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2703:3
+      8  100.0%          JS: ^Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+      8  100.0%            JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+    111   16.2%    t node::sea::(anonymous namespace)::SeaConfig::~SeaConfig()
+     73   65.8%      JS: ~$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2714:3
+     73  100.0%        JS: ^Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+     73  100.0%          JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+     73  100.0%            JS: ~<anonymous> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:3000:188
+     36   32.4%      JS: ~de /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1333:3
+     35   97.2%        JS: ~J /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2205:2
+     35  100.0%          JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+     35  100.0%            JS: ~<anonymous> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:3000:188
+      1    2.8%        JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+      1  100.0%          JS: ~<anonymous> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:3000:188
+      1  100.0%            JS: ~<anonymous> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2997:33
+     79   11.5%    JS: +cH /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1299:3
+     58   73.4%      JS: +L /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2201:2
+     34   58.6%        JS: ~$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2708:3
+     34  100.0%          JS: ^Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+     34  100.0%            JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+     22   37.9%        JS: ^$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2698:3
+     20   90.9%          JS: ^Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+     20  100.0%            JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+      2    9.1%          JS: ~Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+      2  100.0%            JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+      2    3.4%        JS: ~$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2698:3
+      2  100.0%          JS: ~Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+      2  100.0%            JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+     19   24.1%      JS: ^C /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2242:2
+     19  100.0%        JS: ^C /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2193:2
+     18   94.7%          JS: ^$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2722:3
+     18  100.0%            JS: ^Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+      1    5.3%          JS: ~$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2722:3
+      1  100.0%            JS: ^Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+      2    2.5%      JS: ~C /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2242:2
+      2  100.0%        JS: ~C /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2193:2
+      2  100.0%          JS: ~$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2722:3
+      2  100.0%            JS: ^Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+     64    9.3%    JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+     28   43.8%      JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+     21   75.0%        JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+     21  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+     14   66.7%            JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      7   33.3%            JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      7   25.0%        JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      7  100.0%          JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      7  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+     14   21.9%      JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+     13   92.9%        JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      8   61.5%          JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2351:3
+      8  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      5   38.5%          JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      5  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1    7.1%        JS: *H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1  100.0%          JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2351:3
+      1  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+     10   15.6%      JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+     10  100.0%        JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      6   60.0%          JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      6  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      3   30.0%          JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      3  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1   10.0%          JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1  100.0%            JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      7   10.9%      JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      2   28.6%        JS: +an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      2  100.0%          JS: +am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      2  100.0%            JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      2   28.6%        JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      1   50.0%          JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1   50.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1   14.3%        JS: +ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1   14.3%        JS: +ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1   14.3%        JS: +an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2351:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      4    6.3%      JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2351:3
+      4  100.0%        JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      4  100.0%          JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      3   75.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1   25.0%            JS: *H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1    1.6%      JS: *$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2693:3
+      1  100.0%        JS: ~Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+      1  100.0%          JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+      1  100.0%            JS: ~<anonymous> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:3000:188
+     52    7.6%    JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+     33   63.5%      JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+     26   78.8%        JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+     26  100.0%          JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+     26  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      5   15.2%        JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      4   80.0%          JS: +an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      4  100.0%            JS: +am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1   20.0%          JS: +de /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1333:3
+      1  100.0%            JS: +J /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2205:2
+      1    3.0%        JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1    3.0%        JS: *$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2693:3
+      1  100.0%          JS: ~Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+      1  100.0%            JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+     19   36.5%      JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+     13   68.4%        JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+     11   84.6%          JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+     11  100.0%            JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      2   15.4%          JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      2  100.0%            JS: +an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      6   31.6%        JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      6  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      4   66.7%            JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      2   33.3%            JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+     34    5.0%    JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+     17   50.0%      JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+     17  100.0%        JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+     17  100.0%          JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      6   35.3%            JS: ^$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2698:3
+      5   29.4%            JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      3   17.6%            JS: ^$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2722:3
+      1    5.9%            JS: ~$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2722:3
+      1    5.9%            JS: ~$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2708:3
+      1    5.9%            JS: *$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2688:3
+     14   41.2%      JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+     14  100.0%        JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+     12   85.7%          JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+     12  100.0%            JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+      1    7.1%          JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+      1  100.0%            JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      1    7.1%          JS: *$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2688:3
+      1  100.0%            JS: ~Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+      2    5.9%      JS: ^R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      2  100.0%        JS: ~$2 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2684:3
+      2  100.0%          JS: ^K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+      2  100.0%            JS: ~R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      1    2.9%      JS: *$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2688:3
+      1  100.0%        JS: ~Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+      1  100.0%          JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+      1  100.0%            JS: ~<anonymous> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:3000:188
+     26    3.8%    JS: *$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2693:3
+     26  100.0%      JS: ~Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+     26  100.0%        JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+     26  100.0%          JS: ~<anonymous> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:3000:188
+     26  100.0%            JS: ~<anonymous> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2997:33
+     20    2.9%    JS: *$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2688:3
+     20  100.0%      JS: ~Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+     20  100.0%        JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+     20  100.0%          JS: ~<anonymous> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:3000:188
+     20  100.0%            JS: ~<anonymous> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2997:33
+     18    2.6%    JS: ~cH /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1299:3
+     18  100.0%      JS: ~L /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2201:2
+     16   88.9%        JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+     16  100.0%          JS: ~<anonymous> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:3000:188
+     16  100.0%            JS: ~<anonymous> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2997:33
+      2   11.1%        JS: ~$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2688:3
+      2  100.0%          JS: ~Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+      2  100.0%            JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+     16    2.3%    JS: ^cH /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1299:3
+     16  100.0%      JS: ^L /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2201:2
+     16  100.0%        JS: ~$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2730:3
+     16  100.0%          JS: ^Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+     16  100.0%            JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+     13    1.9%    JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+     13  100.0%      JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      8   61.5%        JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      8  100.0%          JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+      8  100.0%            JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      4   30.8%        JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+      4  100.0%          JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      3   75.0%            JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      1   25.0%            JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+      1    7.7%        JS: *$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2688:3
+      1  100.0%          JS: ~Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+      1  100.0%            JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+      9    1.3%    JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      8   88.9%      JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      8  100.0%        JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      4   50.0%          JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      4  100.0%            JS: +an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      4   50.0%          JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      4  100.0%            JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1   11.1%      JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%        JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+
+    106    9.3%  T __kernelrpc_mach_port_get_refs
+
+     73    6.4%  JS: *a7 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2244:3
+     58   79.5%    JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+     38   65.5%      JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+     31   81.6%        JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+     28   90.3%          JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+     28  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      3    9.7%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      3  100.0%            JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      6   15.8%        JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      4   66.7%          JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      3   75.0%            JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1   25.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      2   33.3%          JS: +an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      2  100.0%            JS: +am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1    2.6%        JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+     20   34.5%      JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+     19   95.0%        JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+     18   94.7%          JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+     18  100.0%            JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1    5.3%          JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1  100.0%            JS: +an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      1    5.0%        JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      8   11.0%    JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      4   50.0%      JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      3   75.0%        JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      2   66.7%          JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2351:3
+      2  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1   33.3%          JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      1  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1   25.0%        JS: *H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1  100.0%          JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2351:3
+      1  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      2   25.0%      JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      2  100.0%        JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      2  100.0%          JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      2  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1   12.5%      JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1  100.0%        JS: +an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2351:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1   12.5%      JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      1  100.0%        JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      3    4.1%    JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      2   66.7%      JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1   50.0%        JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2351:3
+      1   50.0%        JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2351:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      1   33.3%      JS: *H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1  100.0%        JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2351:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      2    2.7%    JS: +ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      2  100.0%      JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      2  100.0%        JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      2  100.0%          JS: +an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2351:3
+      2  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1    1.4%    JS: +am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%      JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1  100.0%        JS: +ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1  100.0%          JS: +am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+
+     42    3.7%  JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+     26   61.9%    JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+     26  100.0%      JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+     19   73.1%        JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+     19  100.0%          JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+     19  100.0%            JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      6   23.1%        JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+      6  100.0%          JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      4   66.7%            JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+      2   33.3%            JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      1    3.8%        JS: ^R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      1  100.0%          JS: ~$2 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2684:3
+      1  100.0%            JS: ^K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+     16   38.1%    JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+     15   93.8%      JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+     15  100.0%        JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+     11   73.3%          JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+     11  100.0%            JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+      2   13.3%          JS: ^R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      2  100.0%            JS: ~$2 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2684:3
+      1    6.7%          JS: ~$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2708:3
+      1  100.0%            JS: ^Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+      1    6.7%          JS: ^$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2698:3
+      1  100.0%            JS: ^Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+      1    6.3%      JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      1  100.0%        JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+      1  100.0%          JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      1  100.0%            JS: ^$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2698:3
+
+     23    2.0%  JS: *fB /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1588:3
+     23  100.0%    JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+     23  100.0%      JS: ~<anonymous> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:3000:188
+     23  100.0%        JS: ~<anonymous> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2997:33
+     23  100.0%          JS: ~dartProgram /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1:22
+     23  100.0%            JS: ~<anonymous> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1:1
+
+     23    2.0%  JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1941:2
+     19   82.6%    JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+     14   73.7%      JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+     12   85.7%        JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      9   75.0%          JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      9  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      3   25.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      3  100.0%            JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1    7.1%        JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1  100.0%          JS: +an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      1  100.0%            JS: +am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1    7.1%        JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      5   26.3%      JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      4   80.0%        JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      2   50.0%          JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      2  100.0%            JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      2   50.0%          JS: *$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2693:3
+      2  100.0%            JS: ~Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+      1   20.0%        JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      2    8.7%    JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      1   50.0%      JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%        JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2351:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      1   50.0%      JS: *H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1  100.0%        JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2351:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      1    4.3%    JS: ^ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1  100.0%      JS: +am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%        JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1  100.0%          JS: +an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      1  100.0%            JS: +am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1    4.3%    JS: +ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      1  100.0%      JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%        JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1  100.0%          JS: +ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      1  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+
+     22    1.9%  JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+     22  100.0%    JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+     15   68.2%      JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+     15  100.0%        JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+     15  100.0%          JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      5   33.3%            JS: ~$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2708:3
+      3   20.0%            JS: ~$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2730:3
+      3   20.0%            JS: ^$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2722:3
+      1    6.7%            JS: ~$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2722:3
+      1    6.7%            JS: ^$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2698:3
+      1    6.7%            JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      1    6.7%            JS: *$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2688:3
+      5   22.7%      JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+      5  100.0%        JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      2   40.0%          JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      2  100.0%            JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+      2   40.0%          JS: *K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+      2  100.0%            JS: *R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      1   20.0%          JS: ^R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      1  100.0%            JS: ~$2 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2684:3
+      1    4.5%      JS: ~$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2708:3
+      1  100.0%        JS: ^Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+      1  100.0%          JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+      1  100.0%            JS: ~<anonymous> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:3000:188
+      1    4.5%      JS: ^R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+      1  100.0%        JS: ~$2 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2684:3
+      1  100.0%          JS: ^K /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2147:2
+      1  100.0%            JS: ~R /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1591:2
+
+     20    1.7%  JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+     12   60.0%    JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      4   33.3%      JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      3   75.0%        JS: +an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      3  100.0%          JS: +am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      3  100.0%            JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1   25.0%        JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      1  100.0%          JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      4   33.3%      JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      4  100.0%        JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      4  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      4  100.0%            JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      3   25.0%      JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      3  100.0%        JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      2   66.7%          JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      2  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1   33.3%          JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      1  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1    8.3%      JS: *$0 /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2693:3
+      1  100.0%        JS: ~Q /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1648:2
+      1  100.0%          JS: ~fy /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:1608:3
+      1  100.0%            JS: ~<anonymous> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:3000:188
+      8   40.0%    JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      5   62.5%      JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      4   80.0%        JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      4  100.0%          JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      4  100.0%            JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1   20.0%        JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1  100.0%          JS: +an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      1  100.0%            JS: +am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      3   37.5%      JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      3  100.0%        JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      2   66.7%          JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      2  100.0%            JS: +an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      1   33.3%          JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      1  100.0%            JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+
+     12    1.0%  JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      8   66.7%    JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      7   87.5%      JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      7  100.0%        JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      7  100.0%          JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      7  100.0%            JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1   12.5%      JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%        JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      2   16.7%    JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      2  100.0%      JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1   50.0%        JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1  100.0%          JS: +an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      1  100.0%            JS: +am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1   50.0%        JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1    8.3%    JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1  100.0%      JS: +an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2320:3
+      1  100.0%        JS: +am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%          JS: +H /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2290:2
+      1  100.0%            JS: +ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2326:3
+      1    8.3%    JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2351:3
+      1  100.0%      JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%        JS: *ao /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2361:3
+      1  100.0%          JS: *am /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2300:3
+      1  100.0%            JS: *an /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js:2351:3
+

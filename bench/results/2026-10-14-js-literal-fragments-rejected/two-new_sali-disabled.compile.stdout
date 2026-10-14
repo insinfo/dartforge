@@ -1,0 +1,3 @@
+/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/new_sali/new_sali_frontend/web/main.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/literal-fragments/new_sali/disabled/program.js (7428 KB; 1827 modules; user 29451 KB; runtime 1860 -> 1860 KB, 0/0 live units)
+compaction: 27431 -> 7428 KB
+world: classes 3456/6419 instantiated + 368 type only; functions 55120/102666; 4566 selectors; 6 round(s); world 329 ms, emission 6516 ms, verifier 1893 ms

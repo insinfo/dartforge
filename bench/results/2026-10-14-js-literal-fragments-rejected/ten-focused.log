@@ -1,0 +1,11 @@
+   Compiling dartforge-emit-js-production v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js_production)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.77s
+     Running unittests src/lib.rs (target/js/debug/deps/dartforge_emit_js_production-fb6c86a20c8ec7b0)
+
+running 3 tests
+test minify::literal_fragments::tests::small_unicode_and_dynamic_scope_inputs_remain_unchanged ... ok
+test minify::literal_fragments::tests::marker_roundtrip_and_fresh_names_are_deterministic ... ok
+test minify::literal_fragments::tests::decoder_ignores_mutated_prototype_methods_and_preserves_keys ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 67 filtered out; finished in 0.04s
+

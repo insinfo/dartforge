@@ -1,0 +1,203 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+  "compiler_sha256": "96a34ad807a15943ba5ab041653e7d64b84ff76e99a7331cf32278592eedfa7a",
+  "sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk",
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart": "9781ba5b478ef20313fe280ed5fb0b18824e55a50501d507b2d22fe8ea307c38",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/collections.dart": "24d09e967e07f1bd2e30e7e0eb31c6ac358f81b1bb6322a19ad8bb907ce655ae",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/common.dart": "d02c6fc0e3cd9b0fc42233aa9ea182c836744cafc492d41b8ae3c54045aecf95"
+  },
+  "artifacts": {
+    "timing.json": {
+      "raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/raw/program.js",
+          "--no-minify"
+        ],
+        "exit": 0,
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/raw/program.js",
+        "sha256": "1b81267075844beda5f6e0d07194bcc98a60c3c2ffdfa691ad9f0cdcd94ab5ee",
+        "bytes": 508756,
+        "gzip9_bytes": 82681
+      },
+      "min": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/min/program.js"
+        ],
+        "exit": 0,
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/min/program.js",
+        "sha256": "02afea0310a2803b88bbcd851d95bdc879c4c957f5a05ccdf8a042ccbc722a74",
+        "bytes": 160684,
+        "gzip9_bytes": 50431
+      },
+      "O2": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "js",
+          "-O2",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js"
+        ],
+        "exit": 0,
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js",
+        "sha256": "edc5885e67cfa4ddd999a6c8679fcaaf21319bb2963722e5312e9f4997043bdb",
+        "bytes": 86603,
+        "gzip9_bytes": 27673
+      }
+    },
+    "timing.collections": {
+      "raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/collections.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/collections/raw/program.js",
+          "--no-minify"
+        ],
+        "exit": 0,
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/collections/raw/program.js",
+        "sha256": "4d814b2d6755c14b6d5f986c02ec6701af2fadfefb9acc1cd827713f60a2c185",
+        "bytes": 228547,
+        "gzip9_bytes": 40557
+      },
+      "min": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/collections.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/collections/min/program.js"
+        ],
+        "exit": 0,
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/collections/min/program.js",
+        "sha256": "4f716b5040a9dd48211208017ec217315a57e8f9fd226b74e6de59920b9836f6",
+        "bytes": 67461,
+        "gzip9_bytes": 22841
+      },
+      "O2": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "js",
+          "-O2",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/collections.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/collections/O2/program.js"
+        ],
+        "exit": 1
+      }
+    },
+    "correctness.json": {
+      "raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/json.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/json/raw/program.js",
+          "--no-minify"
+        ],
+        "exit": 0,
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/json/raw/program.js",
+        "sha256": "d187067964463560ded061654bb8b0789a62b58d48f385a85d173494451ed4d9",
+        "bytes": 506308,
+        "gzip9_bytes": 82074
+      },
+      "min": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/json.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/json/min/program.js"
+        ],
+        "exit": 0,
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/json/min/program.js",
+        "sha256": "88e2fd37d83d9b7a1a0ef856abefe188059c74274c097b70c0331812b8b2d642",
+        "bytes": 159827,
+        "gzip9_bytes": 50021
+      },
+      "O2": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "js",
+          "-O2",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/json.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/json/O2/program.js"
+        ],
+        "exit": 0,
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/json/O2/program.js",
+        "sha256": "c7894b39a5b94d33345be1bc338e52939a3d815fbcd48fd630b343379b893d50",
+        "bytes": 85623,
+        "gzip9_bytes": 27301
+      }
+    },
+    "correctness.collections": {
+      "raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/collections.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/collections/raw/program.js",
+          "--no-minify"
+        ],
+        "exit": 0,
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/collections/raw/program.js",
+        "sha256": "8840aa55fde4518262899bdc16cdc851555df3bc8a3d128a75787c8493820aa0",
+        "bytes": 225760,
+        "gzip9_bytes": 39892
+      },
+      "min": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/collections.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/collections/min/program.js"
+        ],
+        "exit": 0,
+        "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/collections/min/program.js",
+        "sha256": "d938dc87d5b2f961a13b4b51485e3ddb195defcf3d50290c66cf4a6d4f904739",
+        "bytes": 66478,
+        "gzip9_bytes": 22423
+      },
+      "O2": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "js",
+          "-O2",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/collections.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/collections/O2/program.js"
+        ],
+        "exit": 1
+      }
+    }
+  },
+  "inputs_stable": true,
+  "scope": "Artifact preparation only, no performance timings. Correctness snapshot uses byte-identical benchmark bodies with a one-call untimed common.dart harness; timing artifacts use original common.dart.",
+  "correctness_harness_sha256": "7ec9f3cb6858d61168c81d567a19831fc970a5d2fb08ae962df75f09ca7825ac"
+}

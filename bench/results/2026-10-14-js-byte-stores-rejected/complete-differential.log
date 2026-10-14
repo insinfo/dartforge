@@ -1,0 +1,10 @@
+   Compiling dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+   Compiling dartforge-emit-js-production v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js_production)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.13s
+     Running tests/typed_stores.rs (target/js/debug/deps/typed_stores-630116720841bb8a)
+
+running 1 test
+test byte_encoders_match_vm_and_o2_with_guard_enabled_or_disabled ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.83s
+

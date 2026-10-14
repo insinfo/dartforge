@@ -1,0 +1,1006 @@
+{
+  "window_start_utc": "2026-10-14T13:10:36.117827+00:00",
+  "window_end_utc": "2026-10-14T13:11:01.707801+00:00",
+  "contract": "Fresh Node process per unchanged original artifact; alternating profile order over three repetitions. Per kernel discard first call warmup, median remaining calls (five normally, three for large decode/encode), then median three process medians. No VM timing parity claim: exact JavaScript output matches O2, VM intentionally differs for generated values beyond JS exact integer range.",
+  "timer_contract": "Uniform self/window global aliases expose Node performance.now to installed SDK initTicker; all profiles use microsecond floor ticks, not Date.now millisecond fallback.",
+  "node_version": "v24.21.0",
+  "input_hashes": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart": "9781ba5b478ef20313fe280ed5fb0b18824e55a50501d507b2d22fe8ea307c38",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/json.dart": "9781ba5b478ef20313fe280ed5fb0b18824e55a50501d507b2d22fe8ea307c38",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/hello.dart": "35b588df25e6a17a07c0530c01d0d93c065028094f08357308fa27863f4ded9c",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/common.dart": "d02c6fc0e3cd9b0fc42233aa9ea182c836744cafc492d41b8ae3c54045aecf95",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/common.dart": "7ec9f3cb6858d61168c81d567a19831fc970a5d2fb08ae962df75f09ca7825ac",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/src/typed_stores.rs": "174b21ab4a625544bbf59a623e45439478d015646c9e09576bbe73ba55e5dc90",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/src/expr.rs": "af2de0f6fa0e408eabc2ecccd43c7cdf1685382c92433cdc37a1e1c262c5fc98",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/src/module.rs": "423c4b7ccdec75a9de77539aadeb70cd579e252111381ca5d3af89859ed30434",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/src/own_sdk.rs": "07a3e869e6cc8e129e174753a0fd54feb6815f987d8e69b0dd759ac0be5b4536",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/src/lib.rs": "6879468c2040e6e67e477abceec41f0606d87dbeebefa72778a240de1afbc13b",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-store/timing-json/off.min/program.js": "02afea0310a2803b88bbcd851d95bdc879c4c957f5a05ccdf8a042ccbc722a74",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-store/timing-json/on.min/program.js": "535401b46bc7dd9368f86013339c853e70a1ce3617054318a72d091a2992d567",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js": "edc5885e67cfa4ddd999a6c8679fcaaf21319bb2963722e5312e9f4997043bdb"
+  },
+  "inputs_stable": true,
+  "all_output_exact_O2": true,
+  "runs": [
+    {
+      "profile": "off.min",
+      "rep": 0,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-store/timing-json/off.min/program.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 2.4576887910000003,
+      "samples_us": {
+        "decode_small": [
+          15100,
+          13774,
+          13706,
+          13966,
+          13583,
+          13711
+        ],
+        "encode_small": [
+          28568,
+          27217,
+          26707,
+          26644,
+          26532,
+          27048
+        ],
+        "decode_medium": [
+          18223,
+          17835,
+          18124,
+          18111,
+          17992,
+          18075
+        ],
+        "encode_medium": [
+          39328,
+          39937,
+          38846,
+          39296,
+          39755,
+          39043
+        ],
+        "decode_large": [
+          36121,
+          37464,
+          37163,
+          38434
+        ],
+        "encode_large": [
+          123227,
+          113232,
+          117303,
+          103960
+        ],
+        "indented": [
+          42096,
+          39212,
+          37459,
+          37647,
+          37641,
+          37472
+        ],
+        "utf8_bytes": [
+          96467,
+          90615,
+          91186,
+          90825,
+          90783,
+          89963
+        ],
+        "reviver": [
+          16311,
+          14125,
+          14485,
+          13999,
+          13851,
+          14176
+        ]
+      },
+      "medians_us": {
+        "decode_small": 13711,
+        "encode_small": 26707,
+        "decode_medium": 18075,
+        "encode_medium": 39296,
+        "decode_large": 37464,
+        "encode_large": 113232,
+        "indented": 37641,
+        "utf8_bytes": 90783,
+        "reviver": 14125
+      },
+      "results": {
+        "decode_small": "1024686864",
+        "encode_small": "552014064",
+        "decode_medium": "649351068",
+        "encode_medium": "195067402",
+        "decode_large": "298278621",
+        "encode_large": "689020713",
+        "indented": "188745904",
+        "utf8_bytes": "434926252",
+        "reviver": "373962124"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "on.min",
+      "rep": 0,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-store/timing-json/on.min/program.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 4.472174958,
+      "samples_us": {
+        "decode_small": [
+          15182,
+          13736,
+          13887,
+          14088,
+          13696,
+          13855
+        ],
+        "encode_small": [
+          31656,
+          31643,
+          31398,
+          31847,
+          32529,
+          29442
+        ],
+        "decode_medium": [
+          18460,
+          18575,
+          17948,
+          17878,
+          18268,
+          18074
+        ],
+        "encode_medium": [
+          40587,
+          40274,
+          39395,
+          39772,
+          39860,
+          39587
+        ],
+        "decode_large": [
+          36699,
+          37933,
+          37361,
+          37832
+        ],
+        "encode_large": [
+          123707,
+          119156,
+          107096,
+          101955
+        ],
+        "indented": [
+          40418,
+          37914,
+          38254,
+          38735,
+          37831,
+          37795
+        ],
+        "utf8_bytes": [
+          424679,
+          426395,
+          424009,
+          420968,
+          417517,
+          405787
+        ],
+        "reviver": [
+          16472,
+          14230,
+          14190,
+          13899,
+          14103,
+          14252
+        ]
+      },
+      "medians_us": {
+        "decode_small": 13855,
+        "encode_small": 31643,
+        "decode_medium": 18074,
+        "encode_medium": 39772,
+        "decode_large": 37832,
+        "encode_large": 107096,
+        "indented": 37914,
+        "utf8_bytes": 420968,
+        "reviver": 14190
+      },
+      "results": {
+        "decode_small": "1024686864",
+        "encode_small": "552014064",
+        "decode_medium": "649351068",
+        "encode_medium": "195067402",
+        "decode_large": "298278621",
+        "encode_large": "689020713",
+        "indented": "188745904",
+        "utf8_bytes": "434926252",
+        "reviver": "373962124"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "O2",
+      "rep": 0,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 1.5745453330000005,
+      "samples_us": {
+        "decode_small": [
+          10305,
+          11596,
+          10083,
+          10927,
+          9733,
+          9875
+        ],
+        "encode_small": [
+          15862,
+          15209,
+          15408,
+          15397,
+          15389,
+          15390
+        ],
+        "decode_medium": [
+          13148,
+          13420,
+          13253,
+          13091,
+          13512,
+          13495
+        ],
+        "encode_medium": [
+          25128,
+          25098,
+          24404,
+          24899,
+          24371,
+          24881
+        ],
+        "decode_large": [
+          34519,
+          30346,
+          30446,
+          32998
+        ],
+        "encode_large": [
+          87395,
+          83060,
+          81554,
+          79485
+        ],
+        "indented": [
+          28512,
+          27998,
+          26450,
+          27174,
+          27947,
+          26820
+        ],
+        "utf8_bytes": [
+          28093,
+          24484,
+          24749,
+          23904,
+          24184,
+          23577
+        ],
+        "reviver": [
+          11728,
+          9406,
+          9641,
+          9403,
+          9580,
+          9226
+        ]
+      },
+      "medians_us": {
+        "decode_small": 10083,
+        "encode_small": 15390,
+        "decode_medium": 13420,
+        "encode_medium": 24881,
+        "decode_large": 30446,
+        "encode_large": 81554,
+        "indented": 27174,
+        "utf8_bytes": 24184,
+        "reviver": 9406
+      },
+      "results": {
+        "decode_small": "1024686864",
+        "encode_small": "552014064",
+        "decode_medium": "649351068",
+        "encode_medium": "195067402",
+        "decode_large": "298278621",
+        "encode_large": "689020713",
+        "indented": "188745904",
+        "utf8_bytes": "434926252",
+        "reviver": "373962124"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "O2",
+      "rep": 1,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 1.5899748749999993,
+      "samples_us": {
+        "decode_small": [
+          10293,
+          10751,
+          10039,
+          11204,
+          9964,
+          10131
+        ],
+        "encode_small": [
+          15767,
+          15546,
+          15251,
+          15692,
+          15399,
+          15790
+        ],
+        "decode_medium": [
+          13551,
+          13437,
+          13514,
+          13340,
+          13202,
+          13433
+        ],
+        "encode_medium": [
+          24890,
+          24525,
+          24624,
+          24733,
+          24423,
+          24569
+        ],
+        "decode_large": [
+          33677,
+          30082,
+          30537,
+          33657
+        ],
+        "encode_large": [
+          87323,
+          83576,
+          96582,
+          80099
+        ],
+        "indented": [
+          28186,
+          27845,
+          27221,
+          27870,
+          27829,
+          27236
+        ],
+        "utf8_bytes": [
+          28205,
+          24627,
+          24660,
+          24168,
+          24229,
+          24125
+        ],
+        "reviver": [
+          11688,
+          9459,
+          9666,
+          9456,
+          9695,
+          9339
+        ]
+      },
+      "medians_us": {
+        "decode_small": 10131,
+        "encode_small": 15546,
+        "decode_medium": 13433,
+        "encode_medium": 24569,
+        "decode_large": 30537,
+        "encode_large": 83576,
+        "indented": 27829,
+        "utf8_bytes": 24229,
+        "reviver": 9459
+      },
+      "results": {
+        "decode_small": "1024686864",
+        "encode_small": "552014064",
+        "decode_medium": "649351068",
+        "encode_medium": "195067402",
+        "decode_large": "298278621",
+        "encode_large": "689020713",
+        "indented": "188745904",
+        "utf8_bytes": "434926252",
+        "reviver": "373962124"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "on.min",
+      "rep": 1,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-store/timing-json/on.min/program.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 4.497457042000001,
+      "samples_us": {
+        "decode_small": [
+          15477,
+          14091,
+          14153,
+          14535,
+          14310,
+          14318
+        ],
+        "encode_small": [
+          31283,
+          31798,
+          31283,
+          31790,
+          31155,
+          28859
+        ],
+        "decode_medium": [
+          18577,
+          18401,
+          18488,
+          18614,
+          18301,
+          18302
+        ],
+        "encode_medium": [
+          40438,
+          39567,
+          39436,
+          39394,
+          39825,
+          39928
+        ],
+        "decode_large": [
+          36750,
+          37692,
+          38249,
+          38249
+        ],
+        "encode_large": [
+          128053,
+          113204,
+          104361,
+          101577
+        ],
+        "indented": [
+          39973,
+          37635,
+          37648,
+          38182,
+          37727,
+          37306
+        ],
+        "utf8_bytes": [
+          427560,
+          426375,
+          421959,
+          423536,
+          419462,
+          411254
+        ],
+        "reviver": [
+          16871,
+          14082,
+          14452,
+          14037,
+          14137,
+          14413
+        ]
+      },
+      "medians_us": {
+        "decode_small": 14310,
+        "encode_small": 31283,
+        "decode_medium": 18401,
+        "encode_medium": 39567,
+        "decode_large": 38249,
+        "encode_large": 104361,
+        "indented": 37648,
+        "utf8_bytes": 421959,
+        "reviver": 14137
+      },
+      "results": {
+        "decode_small": "1024686864",
+        "encode_small": "552014064",
+        "decode_medium": "649351068",
+        "encode_medium": "195067402",
+        "decode_large": "298278621",
+        "encode_large": "689020713",
+        "indented": "188745904",
+        "utf8_bytes": "434926252",
+        "reviver": "373962124"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "off.min",
+      "rep": 1,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-store/timing-json/off.min/program.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 2.435724541999999,
+      "samples_us": {
+        "decode_small": [
+          15413,
+          14163,
+          14137,
+          14156,
+          13888,
+          13986
+        ],
+        "encode_small": [
+          28630,
+          26886,
+          26647,
+          26818,
+          26696,
+          26997
+        ],
+        "decode_medium": [
+          18496,
+          18430,
+          18061,
+          18223,
+          18216,
+          18157
+        ],
+        "encode_medium": [
+          39495,
+          39103,
+          38965,
+          38736,
+          38907,
+          38677
+        ],
+        "decode_large": [
+          36143,
+          37098,
+          37655,
+          38576
+        ],
+        "encode_large": [
+          122647,
+          116500,
+          103863,
+          99862
+        ],
+        "indented": [
+          40028,
+          37660,
+          37505,
+          37600,
+          37284,
+          37442
+        ],
+        "utf8_bytes": [
+          94340,
+          89635,
+          89542,
+          88754,
+          89761,
+          89909
+        ],
+        "reviver": [
+          16983,
+          14092,
+          14426,
+          13822,
+          13764,
+          13833
+        ]
+      },
+      "medians_us": {
+        "decode_small": 14137,
+        "encode_small": 26818,
+        "decode_medium": 18216,
+        "encode_medium": 38907,
+        "decode_large": 37655,
+        "encode_large": 103863,
+        "indented": 37505,
+        "utf8_bytes": 89635,
+        "reviver": 13833
+      },
+      "results": {
+        "decode_small": "1024686864",
+        "encode_small": "552014064",
+        "decode_medium": "649351068",
+        "encode_medium": "195067402",
+        "decode_large": "298278621",
+        "encode_large": "689020713",
+        "indented": "188745904",
+        "utf8_bytes": "434926252",
+        "reviver": "373962124"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "off.min",
+      "rep": 2,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-store/timing-json/off.min/program.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 2.480741375000001,
+      "samples_us": {
+        "decode_small": [
+          15945,
+          14399,
+          14703,
+          14528,
+          14135,
+          14234
+        ],
+        "encode_small": [
+          28816,
+          27781,
+          27391,
+          27587,
+          27190,
+          27536
+        ],
+        "decode_medium": [
+          18825,
+          18647,
+          18759,
+          18589,
+          18697,
+          18532
+        ],
+        "encode_medium": [
+          40618,
+          40246,
+          39868,
+          40536,
+          40637,
+          39928
+        ],
+        "decode_large": [
+          37907,
+          39265,
+          38942,
+          39455
+        ],
+        "encode_large": [
+          128568,
+          116263,
+          105239,
+          102594
+        ],
+        "indented": [
+          40617,
+          37994,
+          37962,
+          38249,
+          38097,
+          37532
+        ],
+        "utf8_bytes": [
+          95631,
+          89719,
+          90088,
+          90482,
+          90047,
+          92507
+        ],
+        "reviver": [
+          16570,
+          14084,
+          14334,
+          14315,
+          14007,
+          14064
+        ]
+      },
+      "medians_us": {
+        "decode_small": 14399,
+        "encode_small": 27536,
+        "decode_medium": 18647,
+        "encode_medium": 40246,
+        "decode_large": 39265,
+        "encode_large": 105239,
+        "indented": 37994,
+        "utf8_bytes": 90088,
+        "reviver": 14084
+      },
+      "results": {
+        "decode_small": "1024686864",
+        "encode_small": "552014064",
+        "decode_medium": "649351068",
+        "encode_medium": "195067402",
+        "decode_large": "298278621",
+        "encode_large": "689020713",
+        "indented": "188745904",
+        "utf8_bytes": "434926252",
+        "reviver": "373962124"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "on.min",
+      "rep": 2,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-store/timing-json/on.min/program.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 4.478288584000001,
+      "samples_us": {
+        "decode_small": [
+          15156,
+          13927,
+          14125,
+          14172,
+          14137,
+          14200
+        ],
+        "encode_small": [
+          31544,
+          32103,
+          31955,
+          31792,
+          31479,
+          28951
+        ],
+        "decode_medium": [
+          18293,
+          18245,
+          18224,
+          18131,
+          18558,
+          18444
+        ],
+        "encode_medium": [
+          40906,
+          40151,
+          39481,
+          39885,
+          40153,
+          40225
+        ],
+        "decode_large": [
+          36530,
+          37213,
+          38077,
+          38293
+        ],
+        "encode_large": [
+          126622,
+          115861,
+          105458,
+          101241
+        ],
+        "indented": [
+          40908,
+          38367,
+          37960,
+          37958,
+          38438,
+          38188
+        ],
+        "utf8_bytes": [
+          423214,
+          427879,
+          423259,
+          424570,
+          416887,
+          406236
+        ],
+        "reviver": [
+          15900,
+          13629,
+          13732,
+          13532,
+          13536,
+          13792
+        ]
+      },
+      "medians_us": {
+        "decode_small": 14137,
+        "encode_small": 31792,
+        "decode_medium": 18245,
+        "encode_medium": 40151,
+        "decode_large": 38077,
+        "encode_large": 105458,
+        "indented": 38188,
+        "utf8_bytes": 423259,
+        "reviver": 13629
+      },
+      "results": {
+        "decode_small": "1024686864",
+        "encode_small": "552014064",
+        "decode_medium": "649351068",
+        "encode_medium": "195067402",
+        "decode_large": "298278621",
+        "encode_large": "689020713",
+        "indented": "188745904",
+        "utf8_bytes": "434926252",
+        "reviver": "373962124"
+      },
+      "stderr_empty": true
+    },
+    {
+      "profile": "O2",
+      "rep": 2,
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js"
+      ],
+      "exit": 0,
+      "wall_seconds": 1.594248540999999,
+      "samples_us": {
+        "decode_small": [
+          10454,
+          11094,
+          10278,
+          11604,
+          10248,
+          10162
+        ],
+        "encode_small": [
+          16256,
+          15518,
+          15377,
+          15776,
+          15552,
+          15303
+        ],
+        "decode_medium": [
+          13760,
+          13413,
+          13541,
+          13557,
+          13670,
+          13733
+        ],
+        "encode_medium": [
+          24710,
+          25294,
+          24685,
+          25155,
+          25275,
+          25513
+        ],
+        "decode_large": [
+          34977,
+          31300,
+          31648,
+          34366
+        ],
+        "encode_large": [
+          87122,
+          83016,
+          82491,
+          80689
+        ],
+        "indented": [
+          28515,
+          28273,
+          27396,
+          28106,
+          28437,
+          27510
+        ],
+        "utf8_bytes": [
+          28484,
+          24761,
+          25017,
+          24284,
+          24846,
+          24368
+        ],
+        "reviver": [
+          11810,
+          9618,
+          10005,
+          9677,
+          9788,
+          9439
+        ]
+      },
+      "medians_us": {
+        "decode_small": 10278,
+        "encode_small": 15518,
+        "decode_medium": 13557,
+        "encode_medium": 25275,
+        "decode_large": 31648,
+        "encode_large": 82491,
+        "indented": 28106,
+        "utf8_bytes": 24761,
+        "reviver": 9677
+      },
+      "results": {
+        "decode_small": "1024686864",
+        "encode_small": "552014064",
+        "decode_medium": "649351068",
+        "encode_medium": "195067402",
+        "decode_large": "298278621",
+        "encode_large": "689020713",
+        "indented": "188745904",
+        "utf8_bytes": "434926252",
+        "reviver": "373962124"
+      },
+      "stderr_empty": true
+    }
+  ],
+  "summary_medians_us": {
+    "off.min": {
+      "decode_small": 14137,
+      "encode_small": 26818,
+      "decode_medium": 18216,
+      "encode_medium": 39296,
+      "decode_large": 37655,
+      "encode_large": 105239,
+      "indented": 37641,
+      "utf8_bytes": 90088,
+      "reviver": 14084
+    },
+    "on.min": {
+      "decode_small": 14137,
+      "encode_small": 31643,
+      "decode_medium": 18245,
+      "encode_medium": 39772,
+      "decode_large": 38077,
+      "encode_large": 105458,
+      "indented": 37914,
+      "utf8_bytes": 421959,
+      "reviver": 14137
+    },
+    "O2": {
+      "decode_small": 10131,
+      "encode_small": 15518,
+      "decode_medium": 13433,
+      "encode_medium": 24881,
+      "decode_large": 30537,
+      "encode_large": 82491,
+      "indented": 27829,
+      "utf8_bytes": 24229,
+      "reviver": 9459
+    }
+  }
+}

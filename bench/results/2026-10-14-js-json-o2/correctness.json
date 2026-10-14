@@ -1,0 +1,51 @@
+{
+  "scope": "One untimed call per kernel; benchmark bodies unchanged, common.dart alone replaced as documented in artifacts.json. No elapsed values collected or interpreted.",
+  "runs": {
+    "vm": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "run",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/json.dart"
+      ],
+      "exit": 0,
+      "stdout": "small: 1074 units, sum 857085424, round trip true\nmedium: 100733 units, sum 1063291676, round trip true\nlarge: 5923393 units, sum 577431855, round trip true\nindented: 178455 units, sum 203103296, round trip true\nbytes: 103091, true\ndecoded: 158414064\ndecode_small: 999993056\nencode_small: 948440368\ndecode_medium: 298456378\nencode_medium: 128399358\ndecode_large: 158414064\nencode_large: 303257809\nindented: 788061168\nutf8_bytes: 558946680\nreviver: 548498912\n",
+      "stderr": ""
+    },
+    "raw": {
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/json/raw/program.js"
+      ],
+      "exit": 0,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 1024686864\nencode_small: 552014064\ndecode_medium: 649351068\nencode_medium: 195067402\ndecode_large: 298278621\nencode_large: 689020713\nindented: 188745904\nutf8_bytes: 434926252\nreviver: 373962124\n",
+      "stderr": ""
+    },
+    "min": {
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/json/min/program.js"
+      ],
+      "exit": 0,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 1024686864\nencode_small: 552014064\ndecode_medium: 649351068\nencode_medium: 195067402\ndecode_large: 298278621\nencode_large: 689020713\nindented: 188745904\nutf8_bytes: 434926252\nreviver: 373962124\n",
+      "stderr": ""
+    },
+    "O2": {
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "-e",
+        "globalThis.self=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/json/O2/program.js"
+      ],
+      "exit": 0,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 1024686864\nencode_small: 552014064\ndecode_medium: 649351068\nencode_medium: 195067402\ndecode_large: 298278621\nencode_large: 689020713\nindented: 188745904\nutf8_bytes: 434926252\nreviver: 373962124\n",
+      "stderr": ""
+    }
+  },
+  "forge_raw_equals_O2": true,
+  "forge_min_equals_O2": true,
+  "all_VM_exact": false
+}

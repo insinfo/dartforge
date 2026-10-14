@@ -1,0 +1,50 @@
+{
+  "status": "rejected; candidate not enabled or retained in compiler source",
+  "decision": "Both bounded dictionaries increase actual gzip9 bytes for gallery and new_sali, despite smaller minified bytes. Added decoding cost is unwarranted; no runtime/performance timing or broad parity claim.",
+  "base_git_commit": "dc03c84f9044f580a3bcc8fd19dfb18c7b23803b",
+  "candidate_patch": "candidate-two.patch",
+  "candidate_patch_sha256": "934a3852d959f96deb70e9561b1342a7019232a5fc54d47d05f9d71ddb5e0e7c",
+  "candidate_two_source_hashes": {
+    "crates/emit_js_production/src/minify.rs": "766234adf7e038677867cca4b5555547f430cba2e3ea9a4f6487426eafd3d67a",
+    "crates/emit_js_production/src/minify/literal_fragments.rs": "bee47bbdf9090128a594e84ace2b3e6accecb453bd66b238b4ef7b42b77b30fa",
+    "crates/emit_js_production/tests/literal_fragments.rs": "15ee4b0ce4520703134feae8a7ae8882ae7e2e3ac7db5413690cdac2d009560f",
+    "crates/emit_js/tests/programs/literal_fragments.dart": "a4d65657ec649f823255623d84a8abb2fb44f4bebd28358d72a39a44ca1c137e"
+  },
+  "ten_candidate_provenance": "Same algorithm with MAX_FRAGMENTS=10. Focused and full-lib gates and differential fixture ran against this variant; exact earlier source whitespace was not snapshotted before formatting. Compiler binary hash and measured artifacts are preserved in ten-fragments.json; two-fragment patch is an exact snapshot of the final two-fragment source.",
+  "input_manifest_reference": "input-hashes.json",
+  "input_manifest_sha256": "10c29a4be8fa3a5ea7408e79d2222c5aabe0368cfe468e782fb419b3943b0a96",
+  "inputs_count": 9161,
+  "all_inputs_stable": true,
+  "compiler_binaries_not_archived": true,
+  "gates": {
+    "ten_full_lib": "70 passed including ignored Node tests; 0 failed",
+    "ten_differential": "ordinary Dart fixture exact VM/dart2js O2/Forge raw/min",
+    "ten_mutated_builtins": "private primitive decoder exact with mutated String and Array methods; keys and strict directives retained",
+    "two": "compile-only size validation; rejected before renewed semantic/browser gates"
+  },
+  "hello": "identical enabled/disabled artifacts in both variants; 46,203 minified and 16,037 gzip9 bytes",
+  "log_hashes": {
+    "ten-lib.log": "6c14d413044585ab10755bff017ba42a47c82841eaf80427d194c0e0982a3296",
+    "two-hello-enabled.compile.stderr": "a4c55081ecce086da4eb19a0942c9964f76bf45fef55927e251599c92f32d784",
+    "ten-fragments.json": "640719ef3f73eb7436102cc2ebe85d643d87635022e211f227665d195b96d189",
+    "two-profile.log": "e1916366d4f40b86f3e611a351f68925a734fa08d70fadc1a9f5d01da7df4f00",
+    "two-fragments.json": "0bb9bf0dd113f0d4478c5c46ff247702d8efdf9fe1072d883229519520d3bc33",
+    "two-new_sali-enabled.compile.stdout": "e77880212986b4706438fd4822a263985039938b26f37f84c3e53267f32c651c",
+    "two-release.log": "d88ee773b9ed3ca886646a4824f67ec9df6620846a39da1b31185fc55bfcfeb2",
+    "two-new_sali-enabled.compile.stderr": "b1440c9bc8b9600faedd315df525c47fe32c7cb4ee2d53e9426bd3c3bd7666db",
+    "two-hello-enabled.compile.stdout": "3ebd03486d97d55f4e5a64f2bf9d8fcb782ecb39efb41e3d41028f9c21a3f879",
+    "ten-focused.log": "ee0bf14f87c2b954efc62625a384197fb32aa5e193ca8904ebdcb87197f8af09",
+    "ten-release.log": "7e945427dd0f0468fb324f4bc1a551f6e8bee89f82951d8c8526404c412de2c1",
+    "two-limitless_ui-enabled.compile.stdout": "ba21ea397a26e56004a2b51596fc933e00ad71ec2ffed773acf7d479dfd27219",
+    "two-new_sali-disabled.compile.stdout": "5250f8c5a714e3bfbddf0da1b0ec62a849889461d9201ee5296fe312d99ccfaf",
+    "two-hello-disabled.compile.stdout": "f273e0c991c21194e44aadd9c142039cf2a789dae55966a96c2e1a18fb536288",
+    "candidate-two.patch": "934a3852d959f96deb70e9561b1342a7019232a5fc54d47d05f9d71ddb5e0e7c",
+    "two-limitless_ui-disabled.compile.stdout": "5acfcf28f17b7c5d4207d55d5efb5ae71d440858200866b70c5b81a33df2b5cf",
+    "two-limitless_ui-disabled.compile.stderr": "d7a68cf55fe5054e1af2d7a853b163da09970076d605b079741c1ef722ca6bc7",
+    "two-new_sali-disabled.compile.stderr": "b1440c9bc8b9600faedd315df525c47fe32c7cb4ee2d53e9426bd3c3bd7666db",
+    "two-hello-disabled.compile.stderr": "a4c55081ecce086da4eb19a0942c9964f76bf45fef55927e251599c92f32d784",
+    "two-limitless_ui-enabled.compile.stderr": "d7a68cf55fe5054e1af2d7a853b163da09970076d605b079741c1ef722ca6bc7",
+    "ten-differential.log": "e5ef0ae9c6a25c2c98c7416f29df1951b2044566651d2a6bd25a692b7c06809f",
+    "ten-profile.log": "43db34fb34c81a687e627a7510e75368d7f7ce0bddf32f8316cc5ce46e2a84ea"
+  }
+}

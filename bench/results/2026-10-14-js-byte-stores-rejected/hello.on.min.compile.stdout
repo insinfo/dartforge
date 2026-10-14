@@ -1,0 +1,3 @@
+/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/hello.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-store/hello/on.min/program.js (45 KB; 1 modules; user 0 KB; runtime 176 -> 176 KB, 0/0 live units)
+compaction: 164 -> 45 KB
+world: classes 0/0 instantiated + 0 type only; functions 1/1; 245 selectors; 5 round(s); world 3 ms, emission 28 ms, verifier 12 ms

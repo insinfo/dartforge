@@ -1,0 +1,41 @@
+{
+  "scope": "Diagnostic V8 sampling on unchanged full ordinary JSON benchmark. Runs may overlap authorized correctness builds; elapsed fields in benchmark stdout are not performance evidence. Profiles cover all kernels, not only fused UTF8.",
+  "profiles": {
+    "min": {
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "--prof",
+        "--no-logfile-per-isolate",
+        "--logfile=/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/profiling/min/v8.log",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/min/program.js"
+      ],
+      "processing_command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "--prof-process",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/profiling/min/v8.log"
+      ],
+      "exit": 0,
+      "artifact_sha256": "02afea0310a2803b88bbcd851d95bdc879c4c957f5a05ccdf8a042ccbc722a74"
+    },
+    "O2": {
+      "command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "--prof",
+        "--no-logfile-per-isolate",
+        "--logfile=/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/profiling/O2/v8.log",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1])",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js"
+      ],
+      "processing_command": [
+        "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+        "--prof-process",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/profiling/O2/v8.log"
+      ],
+      "exit": 0,
+      "artifact_sha256": "edc5885e67cfa4ddd999a6c8679fcaaf21319bb2963722e5312e9f4997043bdb"
+    }
+  }
+}

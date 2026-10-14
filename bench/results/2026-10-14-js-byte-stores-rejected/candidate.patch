@@ -1,0 +1,641 @@
+diff --git a/crates/emit_js/src/expr.rs b/crates/emit_js/src/expr.rs
+index 3458b695..1a5a7cb9 100644
+--- a/crates/emit_js/src/expr.rs
++++ b/crates/emit_js/src/expr.rs
+@@ -3283,7 +3283,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
+                     ti
+                 };
+                 parts.push(format!("{t} = {}", v.code));
+-                parts.push(format!("{recv_js}{access}({idx_js}, {t})"));
++                if self.guarded_sdk_byte_store(recv_ty, &access) {
++                    let slot = self.m.dartx("_set");
++                    parts.push(format!("t$ByteStore({recv_js}, {idx_js}, {t}, {slot})"));
++                } else {
++                    parts.push(format!("{recv_js}{access}({idx_js}, {t})"));
++                }
+                 parts.push(t);
+                 Js::new(parts.join(", "), P_COMMA).paren()
+             }
+diff --git a/crates/emit_js/src/lib.rs b/crates/emit_js/src/lib.rs
+index b380203f..bfda5a83 100644
+--- a/crates/emit_js/src/lib.rs
++++ b/crates/emit_js/src/lib.rs
+@@ -7,6 +7,7 @@ pub mod body;
+ pub mod call;
+ pub mod type_check;
+ mod typed_loops;
++mod typed_stores;
+ mod counter_loops;
+ pub mod ctx;
+ pub mod expr;
+diff --git a/crates/emit_js/src/module.rs b/crates/emit_js/src/module.rs
+index cb5c95cc..7fcd80c6 100644
+--- a/crates/emit_js/src/module.rs
++++ b/crates/emit_js/src/module.rs
+@@ -9,11 +9,12 @@ use crate::Emitted;
+ use dartforge_diagnostics::Diagnostic;
+ use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, UnitId, VariableId, VariableRef};
+ use dartforge_frontend::ast::{self, DeclKind, FunctionBody, MemberKind};
+-use std::cell::RefCell;
++use std::cell::{Cell, RefCell};
+ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+ 
+ /// Per-module state: library uses, `dartx` symbols and private names.
+ pub struct ModState {
++    pub(crate) byte_stores: Cell<bool>,
+     pub lib: LibraryId,
+     /// Libraries emitted in this module (a strongly connected component of imports).
+     pub group: Vec<LibraryId>,
+@@ -29,6 +30,7 @@ pub struct ModState {
+ impl ModState {
+     pub fn new(lib: LibraryId) -> Self {
+         ModState {
++            byte_stores: Cell::new(false),
+             lib,
+             group: vec![lib],
+             sdk_used: RefCell::new(BTreeSet::new()),
+@@ -91,6 +93,7 @@ impl ModState {
+     /// `$P_<lib>_<name>`), so merging is commutative — that is what makes the
+     /// per-fragment cache correct.
+     pub fn merge(&self, other: &ModState) {
++        self.byte_stores.set(self.byte_stores.get() || other.byte_stores.get());
+         self.sdk_used.borrow_mut().extend(other.sdk_used.borrow().iter().cloned());
+         self.user_imports.borrow_mut().extend(other.user_imports.borrow().iter().copied());
+         self.dartx_used.borrow_mut().extend(other.dartx_used.borrow().iter().map(|(k, v)| (k.clone(), v.clone())));
+@@ -104,6 +107,7 @@ impl ModState {
+ /// [`ModState`]. Kept across compilations by the session (`crates/dev`) so that an
+ /// edit re-emits only the classes of the changed library.
+ pub struct Fragment {
++    byte_stores: bool,
+     pub text: String,
+     pub sdk_used: BTreeSet<String>,
+     pub user_imports: BTreeSet<u32>,
+@@ -116,6 +120,7 @@ pub struct Fragment {
+ impl Fragment {
+     fn new(text: String, m: &ModState) -> Fragment {
+         Fragment {
++            byte_stores: m.byte_stores.get(),
+             text,
+             sdk_used: m.sdk_used.borrow().clone(),
+             user_imports: m.user_imports.borrow().clone(),
+@@ -126,6 +131,7 @@ impl Fragment {
+         }
+     }
+     fn apply_to(&self, m: &ModState) {
++        m.byte_stores.set(m.byte_stores.get() || self.byte_stores);
+         m.sdk_used.borrow_mut().extend(self.sdk_used.iter().cloned());
+         m.user_imports.borrow_mut().extend(self.user_imports.iter().copied());
+         m.dartx_used.borrow_mut().extend(self.dartx_used.iter().map(|(k, v)| (k.clone(), v.clone())));
+diff --git a/crates/emit_js/src/own_sdk.rs b/crates/emit_js/src/own_sdk.rs
+index 8cc0e987..c76ef29e 100644
+--- a/crates/emit_js/src/own_sdk.rs
++++ b/crates/emit_js/src/own_sdk.rs
+@@ -1396,6 +1396,8 @@ pub fn emit_sdk_module(ctx: &Ctx) -> (String, BTreeSet<String>) {
+     let rules = crate::module::emit_rules_with(ctx, &m, true);
+     body.push_raw(&rules);
+ 
++    crate::typed_stores::emit(ctx, &m, &mut body.out);
++
+     // Module prelude: `dartx` aliases, private names, the rti and async symbols
+     // the emitter references unqualified, constant caches.
+     let mut out = String::new();
+diff --git a/crates/emit_js/src/typed_stores.rs b/crates/emit_js/src/typed_stores.rs
+new file mode 100644
+index 00000000..8a5dc389
+--- /dev/null
++++ b/crates/emit_js/src/typed_stores.rs
+@@ -0,0 +1,404 @@
++//! Guard canonical SDK byte stores with their original checked dispatch.
++//!
++//! A nominal typed-list type is only an eligibility hint. The runtime must
++//! certify the physical view, current operator/dependencies and fixed storage.
++//! A failed guard invokes the original selector after all arguments evaluated.
++
++use crate::{body::FnEmitter, ctx::Ctx, module::ModState, ty::Ty};
++use dartforge_elements::model::{
++    ClassId, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId,
++};
++use dartforge_frontend::ast;
++
++struct Plan {
++    library: LibraryId,
++    array: ClassId,
++    setter: ClassId,
++}
++
++fn compact(text: &str) -> String {
++    let mut out = String::new();
++    let mut quote = None;
++    let mut escaped = false;
++    for ch in text.chars() {
++        if let Some(end) = quote {
++            out.push(ch);
++            if escaped {
++                escaped = false;
++            } else if ch == '\\' {
++                escaped = true;
++            } else if ch == end {
++                quote = None;
++            }
++        } else if ch == '\'' || ch == '"' {
++            quote = Some(ch);
++            out.push(ch);
++        } else if !ch.is_whitespace() {
++            out.push(ch);
++        }
++    }
++    out
++}
++
++fn body_matches(ctx: &Ctx, fid: FunctionElementId, expected: &str, parameters: &[&str]) -> bool {
++    let f = ctx.program.function(fid);
++    if f.patched_by.is_some() || f.external {
++        return false;
++    }
++    let FunctionRef::Function { unit, function } = f.node else {
++        return false;
++    };
++    let u = ctx.program.unit(unit);
++    let a = u.ast.function(function);
++    if a.modifier != ast::AsyncModifier::None || !a.type_params.is_empty() {
++        return false;
++    }
++    let params = a.parameters.as_deref().unwrap_or(&[]);
++    if params.len() != parameters.len()
++        || !params.iter().zip(parameters).all(|(p, n)| {
++            p.kind == ast::ParameterKind::Required
++                && p.name.is_some_and(|name| ctx.name(name.sym) == *n)
++        })
++    {
++        return false;
++    }
++    let span = match a.body {
++        ast::FunctionBody::Block(s) => u.ast.stmt(s).span,
++        ast::FunctionBody::Expression(e) => u.ast.expr(e).span,
++        _ => return false,
++    };
++    compact(&u.source[span.start..span.end]) == compact(expected)
++}
++
++fn plan(ctx: &Ctx) -> Option<Plan> {
++    let (li, lib) = ctx
++        .program
++        .libraries
++        .iter()
++        .enumerate()
++        .find(|(_, l)| l.uri == "dart:_native_typed_data")?;
++    let class = |name| match lib.declared.get(&ctx.sym(name)?)?.getter? {
++        Element::Class(c) => Some(c),
++        _ => None,
++    };
++    let array = class("NativeUint8List")?;
++    let setter = class("NativeTypedArrayOfInt")?;
++    if !ctx.program.class(array).modifiers.final_ || !ctx.program.class(setter).modifiers.final_ {
++        return None;
++    }
++    let method = |c: ClassId, name| {
++        ctx.program
++            .class(c)
++            .instance_members
++            .get(&ctx.sym(name)?)
++            .copied()
++    };
++    let set = method(setter, "[]=")?;
++    let length = method(array, "length")?;
++    let library = LibraryId(li as u32);
++    if ctx.program.function(set).kind != FunctionKind::Operator
++        || ctx.program.function(set).class != Some(setter)
++        || ctx.program.function(set).library != library
++        || ctx.program.function(set).static_
++        || ctx.program.function(length).kind != FunctionKind::Getter
++        || ctx.program.function(length).class != Some(array)
++        || ctx.program.function(length).library != library
++        || ctx.program.function(length).static_
++    {
++        return None;
++    }
++    if !body_matches(
++        ctx,
++        set,
++        "{_checkValidIndex(index, this, this.length); JS('void', '#[#] = #', this, index, value);}",
++        &["index", "value"],
++    ) || !body_matches(ctx, length, "JS<int>('!', '#.length', this)", &[])
++    {
++        return None;
++    }
++    let function = |name| match lib.declared.get(&ctx.sym(name)?)?.getter? {
++        Element::Function(f) => Some(f),
++        _ => None,
++    };
++    let check = function("_checkValidIndex")?;
++    let invalid = function("_isInvalidArrayIndex")?;
++    if [check, invalid].iter().any(|fid| {
++        let f = ctx.program.function(*fid);
++        f.library != library || f.class.is_some() || f.extension.is_some()
++    }) {
++        return None;
++    }
++    let Ty::Fn {
++        pos: gp,
++        opt: go,
++        named: gn,
++        ret: gr,
++        ..
++    } = ctx.fn_ty(length)
++    else {
++        return None;
++    };
++    let Ty::Fn {
++        pos: cp,
++        opt: co,
++        named: cn,
++        ret: cr,
++        ..
++    } = ctx.fn_ty(check)
++    else {
++        return None;
++    };
++    let Ty::Fn {
++        pos: ip,
++        opt: io,
++        named: inn,
++        ret: ir,
++        ..
++    } = ctx.fn_ty(invalid)
++    else {
++        return None;
++    };
++    if !gp.is_empty()
++        || !go.is_empty()
++        || !gn.is_empty()
++        || !ctx.is_int(&gr)
++        || gr.is_nullable()
++        || cp.len() != 3
++        || !ctx.is_int(&cp[0])
++        || cp[0].is_nullable()
++        || cp[1].class() != ctx.list_
++        || cp[1].is_nullable()
++        || !ctx.is_int(&cp[2])
++        || cp[2].is_nullable()
++        || !co.is_empty()
++        || !cn.is_empty()
++        || !matches!(*cr, Ty::Void)
++        || ip.len() != 1
++        || !ctx.is_int(&ip[0])
++        || ip[0].is_nullable()
++        || !io.is_empty()
++        || !inn.is_empty()
++        || !ctx.is_bool(&ir)
++        || ir.is_nullable()
++    {
++        return None;
++    }
++    if !body_matches(
++        ctx,
++        check,
++        "{if (_isInvalidArrayIndex(index) || JS<int>('!', '#', index) >= length) {throw diagnoseIndexError(list, index);}}",
++        &["index", "list", "length"],
++    ) || !body_matches(
++        ctx,
++        invalid,
++        "{return (JS<bool>('!', '(# >>> 0 !== #)', index, index));}",
++        &["index"],
++    ) {
++        return None;
++    }
++    let Ty::Fn {
++        pos,
++        opt,
++        named,
++        ret,
++        ..
++    } = ctx.fn_ty(set)
++    else {
++        return None;
++    };
++    if pos.len() != 2
++        || !pos.iter().all(|t| ctx.is_int(t) && !t.is_nullable())
++        || !opt.is_empty()
++        || !named.is_empty()
++        || !matches!(*ret, Ty::Void)
++    {
++        return None;
++    }
++    Some(Plan {
++        library: LibraryId(li as u32),
++        array,
++        setter,
++    })
++}
++
++impl FnEmitter<'_, '_> {
++    pub(crate) fn guarded_sdk_byte_store(&self, ty: &Ty, access: &str) -> bool {
++        if !self.ctx.production()
++            || !self.ctx.libs[self.lib.0 as usize].is_sdk
++            || std::env::var("DARTFORGE_JSPROD_BYTE_STORES").is_ok_and(|v| v == "0")
++        {
++            return false;
++        }
++        let Ty::Iface {
++            class,
++            nullable: false,
++            ..
++        } = ty
++        else {
++            return false;
++        };
++        let c = self.ctx.program.class(*class);
++        if !matches!(
++            (
++                self.ctx.program.library(c.library).uri.as_str(),
++                self.ctx.class_name(*class)
++            ),
++            ("dart:typed_data", "Uint8List") | ("dart:_native_typed_data", "NativeUint8List")
++        ) || plan(self.ctx).is_none()
++        {
++            return false;
++        }
++        if access != format!("[{}]", self.m.dartx("_set")) {
++            return false;
++        }
++        self.m.byte_stores.set(true);
++        true
++    }
++}
++
++/// Definitions are hoisted so an eager SDK initializer keeps the original
++/// dispatch until the post-class capture has completed.
++pub(crate) fn emit(ctx: &Ctx, m: &ModState, output: &mut String) {
++    if !m.byte_stores.get() {
++        return;
++    }
++    let Some(p) = plan(ctx) else { return };
++    let namespace = &ctx.libs[p.library.0 as usize].js_var;
++    let array = format!("{namespace}.{}", ctx.class_name(p.array));
++    let setter = format!("{namespace}.{}", ctx.class_name(p.setter));
++    let slot = m.dartx("_set");
++    let length = m.dartx("length");
++    output.push_str(RUNTIME);
++    output.push_str(&format!("t$ByteStoreState = t$ByteStoreCapture({namespace}, {array}.prototype, {setter}.prototype._set, {slot}, {length});\n"));
++}
++
++const RUNTIME: &str = r#"
++var t$ByteStoreState;
++function t$ByteStoreCapture(lib, cls, expected, slot, length) {
++  try {
++    const desc = Object.getOwnPropertyDescriptor, proto = Object.getPrototypeOf, apply = Reflect.apply;
++    const view = ArrayBuffer.isView, physical = Uint8Array.prototype, typed = proto(physical);
++    const own = Object.prototype.hasOwnProperty;
++    const read = (object, key, field) => { const d = desc(object, key); return d && apply(own, d, [field]) ? d[field] : undefined; }; 
++    const setter = read(physical, slot, 'value'), len = read(physical, length, 'get'), canonical = read(cls, length, 'get');
++    if (typeof setter !== 'function' || setter !== expected || typeof len !== 'function' || len !== canonical) return null;
++    return { desc, read, proto, apply, view, physical, typed, slot, length, setter, getter: len,
++      buffer: read(typed, 'buffer', 'get'), size: read(typed, 'length', 'get'),
++      bytes: read(ArrayBuffer.prototype, 'byteLength', 'get'),
++      resize: read(ArrayBuffer.prototype, 'resizable', 'get'),
++      lib, check: read(lib, '_checkValidIndex', 'value'), invalid: read(lib, '_isInvalidArrayIndex', 'value') };
++  } catch (_) { return null; }
++}
++function t$ByteStore(array, index, value, slot) {
++  const c = t$ByteStoreState;
++  if (c && slot === c.slot && typeof index === 'number' && (index >>> 0) === index &&
++      typeof value === 'number' && value % 1 === 0) {
++    try {
++      if (c.view(array) && c.proto(array) === c.physical &&
++          c.proto(c.physical) === c.typed && !c.desc(c.physical, 'length') && c.read(c.typed, 'length', 'get') === c.size &&
++          c.read(c.physical, slot, 'value') === c.setter && c.read(c.physical, c.length, 'get') === c.getter &&
++          c.read(c.lib, '_checkValidIndex', 'value') === c.check && c.read(c.lib, '_isInvalidArrayIndex', 'value') === c.invalid &&
++          !c.desc(array, slot) && !c.desc(array, c.length) && !c.desc(array, 'length') &&
++          !c.desc(array, 'buffer') && !c.desc(array, '$flags')) {
++        const buffer = c.apply(c.buffer, array, []);
++        c.apply(c.bytes, buffer, []);
++        if ((!c.resize || !c.apply(c.resize, buffer, [])) && index < c.apply(c.size, array, [])) {
++          array[index] = value;
++          return value;
++        }
++      }
++    } catch (_) { /* Intrinsic brand/storage refusal keeps original dispatch. */ }
++  }
++  array[slot](index, value);
++  return value;
++}
++"#;
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn certificate_keeps_quoted_template_contents() {
++        assert_eq!(
++            compact("{ JS('void', '#[#] = #', this, index, value); }"),
++            compact("{JS('void', '#[#] = #',this,index,value);}")
++        );
++        assert_ne!(
++            compact("JS('void', '#[#] = #', this, index, value)"),
++            compact("JS('void', '#[#]=#',this,index,value)")
++        );
++    }
++
++    #[test]
++    #[ignore = "requires Node"]
++    fn physical_store_and_checked_refusals_preserve_dispatch() {
++        use std::io::Write;
++        use std::process::{Command, Stdio};
++        let script = format!(
++            "{RUNTIME}\n{}",
++            r#"
++const slot=Symbol('set'), length=Symbol('length'); let calls=0, order=[];
++const lib={_isInvalidArrayIndex:i=>(i>>>0)!==i};
++lib._checkValidIndex=(i,a,n)=>{if(lib._isInvalidArrayIndex(i)||i>=n)throw new RangeError('index');};
++function setter(i,v){calls++;lib._checkValidIndex(i,this,this[length]);this[i]=v;}
++function getter(){return this.length;}
++Object.defineProperty(Uint8Array.prototype,slot,{value:setter,writable:true,configurable:true});
++Object.defineProperty(Uint8Array.prototype,length,{get:getter,configurable:true});
++const cls={};Object.defineProperty(cls,length,{get:getter});
++t$ByteStoreState=t$ByteStoreCapture(lib,cls,setter,slot,length);
++if(!t$ByteStoreState)throw Error('capture failed');
++const a=new Uint8Array(2);if(t$ByteStore(a,0,300,slot)!==300||a[0]!==44||calls!==0)throw Error('fast path missing');
++function refused(array,index,value){let before=calls;t$ByteStore(array,index,value,slot);if(calls!==before+1)throw Error('missing fallback');}
++refused(new (class extends Uint8Array {})(2),0,3);
++const flags=new Uint8Array(2);flags.$flags=0;refused(flags,0,3);
++const own=new Uint8Array(2);Object.defineProperty(own,'length',{value:2});refused(own,0,4);
++for(const v of [null,1.5,NaN,Infinity])refused(a,0,v);
++for(const i of [-1,2,0.5,NaN]){let before=calls;try{t$ByteStore(a,i,1,slot);throw Error('index accepted');}catch(e){if(!(e instanceof RangeError))throw e;}if(calls!==before+1)throw Error('error fallback missing');}
++const fake={ [slot](i,v){order.push('setter');this[i]=v;}, get length(){throw Error('guard called fake getter');} };
++t$ByteStore((order.push('receiver'),fake),(order.push('index'),0),(order.push('value'),9),slot);
++if(order.join(',')!=='receiver,index,value,setter'||fake[0]!==9)throw Error('effect order');
++const old=Object.getOwnPropertyDescriptor(Uint8Array.prototype,slot);
++let changed=0;Object.defineProperty(Uint8Array.prototype,slot,{value:function(i,v){changed++;this[i]=v;},configurable:true});
++t$ByteStore(a,0,11,slot);if(changed!==1)throw Error('mutated operator skipped');Object.defineProperty(Uint8Array.prototype,slot,old);
++const check=lib._checkValidIndex;let checks=0;lib._checkValidIndex=(...args)=>{checks++;return check(...args);};refused(a,0,7);if(checks!==1)throw Error('mutated dependency skipped');lib._checkValidIndex=check;
++const invalid=lib._isInvalidArrayIndex;let invalids=0;lib._isInvalidArrayIndex=i=>{invalids++;return invalid(i);};refused(a,0,7);if(invalids!==1)throw Error('mutated index dependency skipped');lib._isInvalidArrayIndex=invalid;
++const beforeLength=Object.getOwnPropertyDescriptor(Uint8Array.prototype,length);let lengths=0;
++Object.defineProperty(Uint8Array.prototype,length,{get(){lengths++;return this.length;},configurable:true});refused(a,0,7);if(lengths!==1)throw Error('mutated length skipped');Object.defineProperty(Uint8Array.prototype,length,beforeLength);
++if(typeof SharedArrayBuffer==='function')refused(new Uint8Array(new SharedArrayBuffer(2)),0,7);
++const resizable=new ArrayBuffer(2,{maxByteLength:4});if(resizable.resizable)refused(new Uint8Array(resizable),0,7);
++const detached=new Uint8Array(2);structuredClone(detached.buffer,{transfer:[detached.buffer]});let before=calls;try{t$ByteStore(detached,0,1,slot);throw Error('detached accepted');}catch(e){if(!(e instanceof RangeError))throw e;}if(calls!==before+1)throw Error('detached missing fallback');
++const typed=Object.getPrototypeOf(Uint8Array.prototype), nativeLength=Object.getOwnPropertyDescriptor(typed,'length');let nativeReads=0;
++Object.defineProperty(typed,'length',{get(){nativeReads++;return nativeLength.get.call(this);},configurable:true});refused(a,0,7);if(nativeReads!==1)throw Error('mutated native length skipped');Object.defineProperty(typed,'length',nativeLength);
++Object.defineProperty(Uint8Array.prototype,'length',{get(){nativeReads++;return nativeLength.get.call(this);},configurable:true});let oldReads=nativeReads;refused(a,0,7);if(nativeReads!==oldReads+1)throw Error('inherited length override skipped');delete Uint8Array.prototype.length;
++const intermediate=Object.create(typed);Object.defineProperty(intermediate,'length',{get(){nativeReads++;return nativeLength.get.call(this);}});Object.setPrototypeOf(Uint8Array.prototype,intermediate);oldReads=nativeReads;refused(a,0,7);if(nativeReads!==oldReads+1)throw Error('prototype chain mutation skipped');Object.setPrototypeOf(Uint8Array.prototype,typed);
++let pollution=0;Object.defineProperty(Object.prototype,'value',{get(){pollution++;throw Error('descriptor inherited value');},configurable:true});Object.defineProperty(Uint8Array.prototype,slot,{__proto__:null,get(){return setter;},configurable:true});refused(a,0,7);if(pollution!==0)throw Error('inherited descriptor field read');Object.defineProperty(Uint8Array.prototype,slot,old);delete Object.prototype.value;
++Object.defineProperty(Uint8Array.prototype,length,{value:2,configurable:true});Object.defineProperty(Object.prototype,'get',{__proto__:null,get(){pollution++;throw Error('descriptor inherited get');},configurable:true});refused(a,0,7);if(pollution!==0)throw Error('inherited getter descriptor field read');delete Object.prototype.get;Object.defineProperty(Uint8Array.prototype,length,beforeLength);
++const saved=[Object.getPrototypeOf,Object.getOwnPropertyDescriptor,ArrayBuffer.isView,Reflect.apply];
++Object.getPrototypeOf=Object.getOwnPropertyDescriptor=ArrayBuffer.isView=Reflect.apply=()=>{throw Error('mutable builtin invoked');};
++const mark=calls;t$ByteStore(a,0,13,slot);if(a[0]!==13||calls!==mark)throw Error('private intrinsics lost');
++[Object.getPrototypeOf,Object.getOwnPropertyDescriptor,ArrayBuffer.isView,Reflect.apply]=saved;
++console.log('exact');
++"#
++        );
++        let mut process = Command::new("node")
++            .stdin(Stdio::piped())
++            .stdout(Stdio::piped())
++            .stderr(Stdio::piped())
++            .spawn()
++            .unwrap();
++        process
++            .stdin
++            .take()
++            .unwrap()
++            .write_all(script.as_bytes())
++            .unwrap();
++        let output = process.wait_with_output().unwrap();
++        assert!(
++            output.status.success(),
++            "{}",
++            String::from_utf8_lossy(&output.stderr)
++        );
++        assert_eq!(String::from_utf8(output.stdout).unwrap(), "exact\n");
++    }
++}
+diff --git a/crates/emit_js/tests/programs/typed_stores.dart b/crates/emit_js/tests/programs/typed_stores.dart
+new file mode 100644
+index 00000000..93e814eb
+--- /dev/null
++++ b/crates/emit_js/tests/programs/typed_stores.dart
+@@ -0,0 +1,35 @@
++import 'dart:convert';
++import 'dart:typed_data';
++
++int checksum(List<int> bytes) {
++  var result = bytes.length;
++  for (final byte in bytes) result = (result * 31 + byte) & 0x3fffffff;
++  return result;
++}
++
++void main() {
++  final codec = json.fuse(utf8);
++  final documents = <Object?>[
++    {'name': 'plain', 'items': [1, 2, 3], 'enabled': true, 'nothing': null},
++    {'escaped': 'quotes " and \\ slash\n\t\u0001', 'unicode': 'ação 中文 😀𝄞'},
++    [for (var i = 0; i < 300; i++) {'id': i, 'text': 'value $i 😀'}],
++  ];
++  for (final document in documents) {
++    final bytes = codec.encode(document);
++    print('${bytes.length} ${checksum(bytes)}');
++    print(jsonEncode(codec.decode(bytes)) == jsonEncode(document));
++  }
++  for (final text in ['ASCII', 'ação 中文 😀𝄞', 'x' * 6000]) {
++    final bytes = utf8.encode(text);
++    print('${bytes.length} ${checksum(bytes)} ${utf8.decode(bytes) == text}');
++  }
++  final data = Uint8List.fromList([-1, 0, 255, 256, 511]);
++  print(data);
++  try {
++    data.asUnmodifiableView()[0] = 99;
++    print('readonly accepted');
++  } catch (error) {
++    print(error is UnsupportedError);
++  }
++  print(data);
++}
+diff --git a/crates/emit_js_production/tests/typed_stores.rs b/crates/emit_js_production/tests/typed_stores.rs
+new file mode 100644
+index 00000000..55b2c23d
+--- /dev/null
++++ b/crates/emit_js_production/tests/typed_stores.rs
+@@ -0,0 +1,83 @@
++//! Canonical SDK byte stores retain ordinary Dart output with checked fallback.
++
++use std::path::Path;
++use std::process::Command;
++
++#[test]
++#[ignore = "requires Dart 3.6.2 and Node on PATH"]
++fn byte_encoders_match_vm_and_o2_with_guard_enabled_or_disabled() {
++    let source =
++        Path::new(env!("CARGO_MANIFEST_DIR")).join("../emit_js/tests/programs/typed_stores.dart");
++    let directory =
++        std::env::temp_dir().join(format!("dartforge-byte-stores-{}", std::process::id()));
++    std::fs::create_dir_all(&directory).unwrap();
++    let sdk = Command::new("dart").args(["--version"]).output().unwrap();
++    assert!(sdk.status.success());
++    let vm = Command::new("dart")
++        .arg("run")
++        .arg(&source)
++        .output()
++        .unwrap();
++    assert!(
++        vm.status.success(),
++        "{}",
++        String::from_utf8_lossy(&vm.stderr)
++    );
++    let expected = String::from_utf8(vm.stdout).unwrap().replace("\r\n", "\n");
++    for profile in ["O2", "raw.off", "raw.on", "min.off", "min.on"] {
++        let output = directory.join(format!("{profile}.js"));
++        let mut command = if profile == "O2" {
++            let mut c = Command::new("dart");
++            c.args(["compile", "js", "-O2"]);
++            c
++        } else {
++            let mut c = Command::new(env!("CARGO_BIN_EXE_dartforge-jsprod"));
++            if profile.starts_with("raw") {
++                c.arg("--no-minify");
++            }
++            c.env(
++                "DARTFORGE_JSPROD_BYTE_STORES",
++                if profile.ends_with("on") { "1" } else { "0" },
++            );
++            c
++        };
++        let result = command
++            .arg(&source)
++            .arg("-o")
++            .arg(&output)
++            .output()
++            .unwrap();
++        assert!(
++            result.status.success(),
++            "{profile}: {}{}",
++            String::from_utf8_lossy(&result.stdout),
++            String::from_utf8_lossy(&result.stderr)
++        );
++        if profile.starts_with("raw") {
++            assert_eq!(
++                std::fs::read_to_string(&output)
++                    .unwrap()
++                    .contains("function t$ByteStore("),
++                profile.ends_with("on")
++            );
++        }
++        let result = Command::new("node")
++            .args(["-e", "globalThis.self=globalThis;require(process.argv[1])"])
++            .arg(&output)
++            .output()
++            .unwrap();
++        assert!(
++            result.status.success() && result.stderr.is_empty(),
++            "{profile}: {}",
++            String::from_utf8_lossy(&result.stderr)
++        );
++        assert_eq!(
++            String::from_utf8(result.stdout)
++                .unwrap()
++                .replace("\r\n", "\n"),
++            expected,
++            "{profile}"
++        );
++    }
++    std::fs::remove_dir_all(directory).unwrap();
++}

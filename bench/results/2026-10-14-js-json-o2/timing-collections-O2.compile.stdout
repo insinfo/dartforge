@@ -1,0 +1,13 @@
+bench/performance/collections.dart:46:41:
+Error: The integer literal 9223372036854775807 can't be represented exactly in JavaScript.
+  const mn = -9223372036854775808, mx = 9223372036854775807;
+                                        ^^^^^^^^^^^^^^^^^^^
+bench/performance/collections.dart:48:11:
+Error: The integer literal 88172645463325252 can't be represented exactly in JavaScript.
+  var x = 88172645463325252;
+          ^^^^^^^^^^^^^^^^^
+bench/performance/collections.dart:59:35:
+Error: The argument type 'num' can't be assigned to the parameter type 'int'.
+        l.add((1 << 62) + (x % 3) - 1);
+                                  ^
+Error: Compilation failed.

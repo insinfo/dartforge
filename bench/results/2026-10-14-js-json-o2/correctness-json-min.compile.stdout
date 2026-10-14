@@ -1,0 +1,3 @@
+/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/json.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/correctness/json/min/program.js (156 KB; 2 modules; user 11 KB; runtime 525 -> 525 KB, 0/0 live units)
+compaction: 494 -> 156 KB
+world: classes 1/1 instantiated + 0 type only; functions 17/17; 335 selectors; 6 round(s); world 8 ms, emission 94 ms, verifier 39 ms

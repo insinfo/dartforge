@@ -1,0 +1,217 @@
+{
+  "status": "Measured actual JSON kernels; parity not achieved. Original collections O2 compile refusal recorded; no altered-input substitute measured.",
+  "scope": "Node execution of unchanged bench/performance/json.dart and common.dart. Exact Forge raw/min vs O2 deterministic outputs, including every document checksum and round-trip, verified before and on all timing executions. VM differs from all JS profiles for fixture arithmetic involving integers beyond JavaScript exact range; no VM semantic/performance parity or broad compiler parity claim.",
+  "git_head_at_archive": "1e4998f328a2cd09f9a0e1ed2b28139fdcd883e1",
+  "compiler_sha256": "96a34ad807a15943ba5ab041653e7d64b84ff76e99a7331cf32278592eedfa7a",
+  "immutable_compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+  "node_version": "v24.21.0",
+  "sdk_version": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\"",
+  "sdk_source_manifest_reference": "../2026-10-14-js-literal-fragments-rejected/input-hashes.json",
+  "sdk_source_manifest_sha256": "10c29a4be8fa3a5ea7408e79d2222c5aabe0368cfe468e782fb419b3943b0a96",
+  "sdk_file_count_verified_stable": 427,
+  "input_source_hashes": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart": "9781ba5b478ef20313fe280ed5fb0b18824e55a50501d507b2d22fe8ea307c38",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/collections.dart": "24d09e967e07f1bd2e30e7e0eb31c6ac358f81b1bb6322a19ad8bb907ce655ae",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/common.dart": "d02c6fc0e3cd9b0fc42233aa9ea182c836744cafc492d41b8ae3c54045aecf95"
+  },
+  "correctness_snapshot_bodies": {
+    "json": "9781ba5b478ef20313fe280ed5fb0b18824e55a50501d507b2d22fe8ea307c38",
+    "collections": "24d09e967e07f1bd2e30e7e0eb31c6ac358f81b1bb6322a19ad8bb907ce655ae"
+  },
+  "correctness_harness_sha256": "7ec9f3cb6858d61168c81d567a19831fc970a5d2fb08ae962df75f09ca7825ac",
+  "timing_contract": "Fresh Node process per unchanged original artifact; alternating profile order over three repetitions. Per kernel discard first call warmup, median remaining calls (five normally, three for large decode/encode), then median three process medians. No VM timing parity claim: exact JavaScript output matches O2, VM intentionally differs for generated values beyond JS exact integer range.",
+  "timer_contract": "Uniform self/window global aliases expose Node performance.now to installed SDK initTicker; all profiles use microsecond floor ticks, not Date.now millisecond fallback.",
+  "timer_observations": {
+    "raw": {
+      "all_samples_positive": true,
+      "has_non_millisecond_samples": true,
+      "minimum_sample_us": 14601
+    },
+    "min": {
+      "all_samples_positive": true,
+      "has_non_millisecond_samples": true,
+      "minimum_sample_us": 13867
+    },
+    "O2": {
+      "all_samples_positive": true,
+      "has_non_millisecond_samples": true,
+      "minimum_sample_us": 9573
+    }
+  },
+  "window_start_utc": "2026-10-14T12:16:19.266093+00:00",
+  "window_end_utc": "2026-10-14T12:16:39.324951+00:00",
+  "cpu_policy": "Root explicitly granted quiet window after native/JIT/LSP jobs terminal and ps check; no builds/tests/push started until terminal notification. Usual idle desktop background was not eliminated.",
+  "raw_min_gzip_sizes": {
+    "raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/raw/program.js",
+        "--no-minify"
+      ],
+      "exit": 0,
+      "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/raw/program.js",
+      "sha256": "1b81267075844beda5f6e0d07194bcc98a60c3c2ffdfa691ad9f0cdcd94ab5ee",
+      "bytes": 508756,
+      "gzip9_bytes": 82681
+    },
+    "min": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/min/program.js"
+      ],
+      "exit": 0,
+      "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/min/program.js",
+      "sha256": "02afea0310a2803b88bbcd851d95bdc879c4c957f5a05ccdf8a042ccbc722a74",
+      "bytes": 160684,
+      "gzip9_bytes": 50431
+    },
+    "O2": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "js",
+        "-O2",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js"
+      ],
+      "exit": 0,
+      "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/json-collections/timing/json/O2/program.js",
+      "sha256": "edc5885e67cfa4ddd999a6c8679fcaaf21319bb2963722e5312e9f4997043bdb",
+      "bytes": 86603,
+      "gzip9_bytes": 27673
+    }
+  },
+  "median_us": {
+    "raw": {
+      "decode_small": 15306,
+      "encode_small": 31692,
+      "decode_medium": 19878,
+      "encode_medium": 39529,
+      "decode_large": 40915,
+      "encode_large": 110989,
+      "indented": 37938,
+      "utf8_bytes": 89981,
+      "reviver": 16487
+    },
+    "min": {
+      "decode_small": 14846,
+      "encode_small": 27737,
+      "decode_medium": 19021,
+      "encode_medium": 40531,
+      "decode_large": 39689,
+      "encode_large": 109154,
+      "indented": 38767,
+      "utf8_bytes": 91403,
+      "reviver": 14427
+    },
+    "O2": {
+      "decode_small": 10150,
+      "encode_small": 15694,
+      "decode_medium": 13624,
+      "encode_medium": 25302,
+      "decode_large": 31222,
+      "encode_large": 83304,
+      "indented": 28271,
+      "utf8_bytes": 24610,
+      "reviver": 9717
+    }
+  },
+  "ratios_vs_O2": {
+    "raw": {
+      "decode_small": 1.508,
+      "encode_small": 2.019,
+      "decode_medium": 1.459,
+      "encode_medium": 1.562,
+      "decode_large": 1.31,
+      "encode_large": 1.332,
+      "indented": 1.342,
+      "utf8_bytes": 3.656,
+      "reviver": 1.697
+    },
+    "min": {
+      "decode_small": 1.463,
+      "encode_small": 1.767,
+      "decode_medium": 1.396,
+      "encode_medium": 1.602,
+      "decode_large": 1.271,
+      "encode_large": 1.31,
+      "indented": 1.371,
+      "utf8_bytes": 3.714,
+      "reviver": 1.485
+    }
+  },
+  "all_outputs_exact_O2": true,
+  "all_input_hashes_stable": true,
+  "collections_O2_refusal": "Non-exact JS integer literals 9223372036854775807 and 88172645463325252; downstream num/int diagnostic. No collections runtime/performance comparison made.",
+  "reproduce": "prepare.py builds unchanged original timing artifacts and untimed one-call correctness snapshots; check.py checks VM/JS outputs; measure.py requires an isolated quiet CPU window and verifies exact checksums/hashes. All work/cache paths are on SSD.",
+  "log_hashes": {
+    "json.min.rep1.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "timing-json-min.compile.stderr": "6aa2de88e92e56017f2c47882503569f4907f594f12b6c5749fabfe74651fd6a",
+    "correctness-collections-O2.compile.stdout": "503e83f37e9bc2f2454f75679e69d08e2c20e53e0a919e8d92e4e13a0bea682e",
+    "measure.log": "1e3283af64a9335f62dd93ff617083a9ed9f59583cae7875a30c54b8fbdedc7e",
+    "timing-collections-raw.compile.stderr": "31970b57d6d0c23f5f52b00f4e353c415d88732b8d9c46fec345ac4da17f273f",
+    "json.raw.rep2.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "measure.py": "c5e5fb2308ed1f584ad5b9ef5346b86130ec5a78533eab240d5c393b2d8df3d1",
+    "correctness-collections-min.compile.stdout": "93257ebd6644bd02dd454c70ff9afcffb74fb7a979829723821d3cdf611a5455",
+    "json.raw.rep0.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "correctness-json-raw.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "check.py": "6981ba2b0e91614cbba6baec8a8c632ba392f71bd1fc719ede48ed08117f94ae",
+    "correctness-json-raw.compile.stderr": "a9195b5e4c092624590422ccb985bd9d4ad93ebc092ae5ae04c42b7727d1e284",
+    "json.O2.rep1.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "json.O2.rep1.stdout": "fbb020a1d84f70e45542db37c142f58ffa89a40225e86dbe9471655fffb99e2a",
+    "correctness.json": "3150f31864cf1d68877a829ee6678c5891034fe1efca06c6f03122f6eff5bbd3",
+    "json.raw.rep0.stdout": "30ef2c8eabfa46e64c1d6397dce9c58b36f006956da074d09f0e9c64f7c5dda5",
+    "correctness-json-raw.compile.stdout": "efc8269409f39f4b75de3956e85f83603de1b7b1a1070693caeb7b1142725501",
+    "correctness-json-raw.stdout": "4682834a236b3c590a0ae156e43b5cb46437715ca3227683f30d38409d49280f",
+    "correctness-collections-min.compile.stderr": "fb17538e802730163f9179613a84904237c40221cbf8345f3ddeb4aab9b59eeb",
+    "json.raw.rep2.stdout": "98dc0126947c1ec9c23967cdd7f7ad66e8aea197465422004347c2e349443935",
+    "correctness-collections-O2.compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "json.min.rep1.stdout": "317cdc0a8d8d53be5f07927e930f5dc7b5678f76fa671745dd0a4f4ddd287b2b",
+    "timing-json-min.compile.stdout": "b63349e3c4bf374689a84f9b24b8a552a45908072bf1a2759d4ea62be1aecd1f",
+    "timing-collections-raw.compile.stdout": "a578198485a62430fa718004aaa280f5bead95db2c51d3d09dbf93c797e8e594",
+    "correctness-json-min.compile.stderr": "a9195b5e4c092624590422ccb985bd9d4ad93ebc092ae5ae04c42b7727d1e284",
+    "correctness-json-O2.stdout": "4682834a236b3c590a0ae156e43b5cb46437715ca3227683f30d38409d49280f",
+    "performance.json": "16cf9bcea997ae7acf8ca2d86a024aa32bcfc6ccfb17169766f997fc53d9f469",
+    "json.O2.rep2.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "timing-collections-O2.compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "json.min.rep0.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "correctness-json-vm.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "correctness-json-min.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "timing-collections-min.compile.stderr": "31970b57d6d0c23f5f52b00f4e353c415d88732b8d9c46fec345ac4da17f273f",
+    "correctness-json-O2.compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "timing-json-raw.compile.stderr": "6aa2de88e92e56017f2c47882503569f4907f594f12b6c5749fabfe74651fd6a",
+    "json.min.rep2.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "json.O2.rep0.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "timing-json-O2.compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "correctness-collections-raw.compile.stdout": "5bb4a63e21111dc3bf2e4fbc5b4207c60e1e5928f7027090bfa51f17fe583b33",
+    "prepare.log": "f6a78d8bce8942abdb169a9fdd66d8daf76e9233ae7cbe62537415bd2610ae78",
+    "json.raw.rep1.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "timing-json-O2.compile.stdout": "2701283259d7224fadaf11ca2c7d4476d09a41a40592ed97b0c2cccacdb35ca9",
+    "json.raw.rep1.stdout": "b2ffcf596038dacc1eb4a8b6d9278d32b3edfcb45b73c0ddf60fb8d5e75021cf",
+    "check.log": "fe40d08c1b0a73a1582bbb355aa577038a9cddf2fc11cd04661bf2e7f9e8fc58",
+    "correctness-collections-raw.compile.stderr": "fb17538e802730163f9179613a84904237c40221cbf8345f3ddeb4aab9b59eeb",
+    "timing-collections-min.compile.stdout": "c9eeaef12b1495bacafdb70bd33c916afc6b14d375cbf00f10af8efb86a47b4d",
+    "correctness-json-min.stdout": "4682834a236b3c590a0ae156e43b5cb46437715ca3227683f30d38409d49280f",
+    "json.min.rep2.stdout": "88f379a679cc58cac5e9eaf2b97800608db7abd12f01d0dcd42c68a4495c3631",
+    "timing-json-raw.compile.stdout": "2b3e0f51a9e4c09d9da8643fa3426fcd542eee339e8bf7084e3ecd3d40905db8",
+    "json.O2.rep0.stdout": "0485253cfd868f7a981803d58a8cd11c466640ef12a8e80f5450518c8b6a54bd",
+    "correctness-json-O2.compile.stdout": "4e08769a2c830eb08704c9af7695eb22a3441dbf1fd1b3b9b8ef3e7df4816246",
+    "correctness-json-vm.stdout": "143f593ae6b75f2c024989f9d4e3a81e2c9b05c4fcffc41cf3df684b5d0313f6",
+    "json.O2.rep2.stdout": "fac949187944ffcbc36ed3aca74234b8b8f4c3b0a69cd1c09d4f662ae010a648",
+    "prepare.py": "6ea660ad207395db691377ec5df457b8ea91606467cb6c0403344203f4aef23d",
+    "json.min.rep0.stdout": "1d4fb2f497876ebadda6efc509ca7f20bd40dc8beeb50fff091f6572e1480eee",
+    "timing-collections-O2.compile.stdout": "33a599eeb050718792967b20924a3db3f3e9f13ab8b8679dc9c06f3838840d04",
+    "correctness-json-O2.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "artifacts.json": "a9496c713f3866655ffb3d363eed757fba546d63e7d1508db9fac9da1ae2b5af",
+    "correctness-json-min.compile.stdout": "3621aaf8b8e3881d5e6dac40e2a1beaa7b9ec20fd7b478c0c7d2dd11721202b6"
+  }
+}

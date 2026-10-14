@@ -1,0 +1,2 @@
+/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_stores.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-store/modified-sdk.js (464 KB; 1 modules; user 3 KB; runtime 502 -> 502 KB, 0/0 live units)
+world: classes 0/0 instantiated + 0 type only; functions 2/2; 313 selectors; 6 round(s); world 7 ms, emission 88 ms, verifier 36 ms

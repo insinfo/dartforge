@@ -1,0 +1,9 @@
+   Compiling dartforge-emit-js-production v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js_production)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.24s
+     Running tests/literal_fragments.rs (target/js/debug/deps/literal_fragments-0240250d4449aa5a)
+
+running 1 test
+test long_literals_keys_unicode_and_effect_order_match_vm_and_o2 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.98s
+

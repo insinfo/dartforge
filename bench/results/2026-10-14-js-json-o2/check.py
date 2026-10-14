@@ -1,0 +1,6 @@
+from pathlib import Path
+import subprocess,json,os
+root=Path.cwd();out=root/'target/tmp-js-production-audit/json-collections';node='/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node';dart='/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart';runs={}
+for profile in ['vm','raw','min','O2']:
+ cmd=[dart,'run',str(out/'correctness/json.dart')] if profile=='vm' else [node,'-e','globalThis.self=globalThis;require(process.argv[1])',str(out/f'correctness/json/{profile}/program.js')];r=subprocess.run(cmd,capture_output=True,text=True,timeout=120,env=dict(os.environ,TMPDIR=str(out)));(out/f'correctness-json-{profile}.stdout').write_text(r.stdout);(out/f'correctness-json-{profile}.stderr').write_text(r.stderr);runs[profile]={'command':cmd,'exit':r.returncode,'stdout':r.stdout,'stderr':r.stderr};print(profile,r.returncode,r.stdout,flush=True)
+(out/'correctness.json').write_text(json.dumps({'scope':'One untimed call per kernel; benchmark bodies unchanged, common.dart alone replaced as documented in artifacts.json. No elapsed values collected or interpreted.','runs':runs,'forge_raw_equals_O2':runs['raw']['stdout']==runs['O2']['stdout'],'forge_min_equals_O2':runs['min']['stdout']==runs['O2']['stdout'],'all_VM_exact':all(v['stdout']==runs['vm']['stdout'] for v in runs.values())},indent=2)+'\n')
