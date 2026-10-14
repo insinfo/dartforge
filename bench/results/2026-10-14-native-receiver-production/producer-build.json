@@ -1,0 +1,21 @@
+{
+  "head": "c35f13d31a31ccde0433bd2ba74435e97897b170",
+  "command": [
+    "cargo",
+    "build",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-cli",
+    "--release",
+    "--features",
+    "native"
+  ],
+  "exit": 0,
+  "source_scope": "Cargo manifests and Rust/Dart/C/header sources under crates and native_sdk, including tests.",
+  "source_stable": true,
+  "changed_during_build": [],
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+  "compiler_sha256": "bee770c7623e94439a5df1d5b792af9c53577c682398c6491c379befe51ef171",
+  "compiler_bytes": 25160064
+}

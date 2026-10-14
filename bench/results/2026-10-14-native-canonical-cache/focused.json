@@ -1,0 +1,50 @@
+{
+  "source_sha256": {
+    "crates/emit_native/src/pruning/receiver_provenance.rs": "9e10ed7e0101eb35f539a0990172c36bd6d9a4753274469685ea3ea73258d125",
+    "crates/emit_native/src/pruning/receiver_provenance/canonical_cache.rs": "99405c5ac265c108b68508e9e2cc6611889c0bd773a798cef5d059599956ea0d",
+    "crates/emit_native/src/pruning/receiver_provenance/canonical_cache/tests.rs": "ea9b705b4d1313a5472d8e45b7f7f50abd3f19d9876e14c2b60cb2c30ab694e7"
+  },
+  "final_focused_gate": {
+    "passed": 16,
+    "failed": 0,
+    "log": "canonical-cache-verified-gate.log",
+    "scope": "Entire receiver_provenance suite, including actual SDK AsciiCodec.encode$c source lowering and emitted table CID witness."
+  },
+  "original_retention_boundary": {
+    "caller": "df.dart$3aconvert.AsciiCodec.encode$c",
+    "selector": "tc:convert and c:convert fallback",
+    "actual_receiver": "Inlined getter CallStatic canonical-cache factory; physical AsciiEncoder allocation, not a nominal Dart type guess.",
+    "old_unknown_reason": "Canonical factory has cached LoadGlobal return; existing physical return summaries refused it."
+  },
+  "certificate": {
+    "fixed_AOT_only": true,
+    "template": "Exactly 3 blocks: ready flag LoadGlobal I8 Ne0; cached Ref load/return; object allocation plus numeric in-bounds field writes, canonicalize, cached store, permanent mark, ready=1 store, same-value return.",
+    "census": "One pass across all audited modules; unique Ref declaration/root ID, exactly one cache and one flag writer owned by exact function body; ARC stores and explicit area/cache address exposure refuse.",
+    "runtime_contract_sources": [
+      "crates/runtime/src/text.rs:983",
+      "crates/runtime/src/layout.rs:277",
+      "crates/runtime/src/heap.rs:1898"
+    ],
+    "runtime_contract": "canonical_constant returns identical handle for non-strings; string check uses only CID6/7. Proof restricts allocation to object CID>=128 and rejects strings/collections. No hash/equality/Dart callback on this branch. mark_constant only records permanence/getter without changing header CID.",
+    "opt_out": "DARTFORGE_NO_CANONICAL_CACHE_PROVENANCE=1; existing SDK cache key includes all DARTFORGE_NO_* variables.",
+    "borrowed_witness": "Existing values_for exact-body pointer check and static-call ABI checks remain unchanged."
+  },
+  "negatives": [
+    "getter/cache name alone; missing/duplicate storage; duplicate root ID",
+    "different stores/publication/flag/comparison; null/error return paths",
+    "opaque callback; unknown initializer; malformed canonical arguments",
+    "duplicate symbols and native runtime homonyms",
+    "external/ARC cache or ready-flag writers",
+    "area API call/shadow; function/table/string address exposure",
+    "strings/collections/scalars and reloadable modules",
+    "unknown receiver keeps both same-name cross-domain tc/c selectors"
+  ],
+  "rejected_gate": "canonical-cache-final-focused.log exposed missing explicit Const(Function) handling in operands visitor; fixed census with direct Const scan and final tests.",
+  "limits": [
+    "No production HIR schema or selector runtime changes.",
+    "Only the closed numeric-field object-cache template is eligible; broader constant cache shapes remain unknown.",
+    "No measured final binary size, startup, GUI or performance claim yet.",
+    "Full native gate is coordinated separately by root.",
+    "No binaries or full SDK/app IR archived."
+  ]
+}

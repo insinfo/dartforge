@@ -32,7 +32,6 @@ mod tables;
 mod tests;
 #[cfg(test)]
 mod pre_prune_tests;
-#[cfg(test)]
 mod physical_devirtualize;
 
 use crate::hir::*;
@@ -177,6 +176,7 @@ pub fn optimize(module: &mut Module) {
         mem2reg::promote(f);
         false
     });
+    physical_devirtualize::rewrite_getters(module);
     for _ in 0..3 {
         let do_not_throw = effects::do_not_throw(module);
         in_parallel(&mut module.functions, &|f| {

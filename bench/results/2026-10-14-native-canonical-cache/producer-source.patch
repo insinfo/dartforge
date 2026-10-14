@@ -1,0 +1,432 @@
+diff --git a/crates/emit_native/src/context.rs b/crates/emit_native/src/context.rs
+index 8d3f8f01..d7490b7a 100644
+--- a/crates/emit_native/src/context.rs
++++ b/crates/emit_native/src/context.rs
+@@ -41,6 +41,8 @@ pub struct Context<'a> {
+     root: Option<std::path::PathBuf>,
+     /// This context lowers an SDK library into a separate object.
+     pub sdk_library: bool,
++    /// Enables certified enum identity comparisons during constant-pattern lowering.
++    pub(crate) enum_pattern_identity_enabled: bool,
+     /// Produces ownership facts only for the --memory=arc policy.
+     pub arc_memory: bool,
+     /// Per library: the body of its functions is compiled (the program's;
+@@ -307,6 +309,7 @@ impl<'a> Context<'a> {
+             record_shapes: Vec::new(),
+             root,
+             sdk_library: false,
++            enum_pattern_identity_enabled: std::env::var("DARTFORGE_NO_ENUM_PATTERN_IDENTITY").as_deref() != Ok("1"),
+             arc_memory: false,
+             compiled: program.libraries.iter().map(|l| !l.is_sdk).collect(),
+             in_module: program.libraries.iter().map(|l| !l.is_sdk).collect(),
+diff --git a/crates/emit_native/src/lower/enums.rs b/crates/emit_native/src/lower/enums.rs
+index 92120ff4..4e5d9d85 100644
+--- a/crates/emit_native/src/lower/enums.rs
++++ b/crates/emit_native/src/lower/enums.rs
+@@ -16,8 +16,172 @@ use super::fn_builder::FnBuilder;
+ use crate::context::Context;
+ use crate::hir::*;
+ use dartforge_diagnostics::Span;
+-use dartforge_elements::model::{ClassId, ClassKind, VariableId, VariableRef};
++use dartforge_elements::model::{
++    ClassId, ClassKind, Element, FunctionKind, VariableId, VariableRef,
++};
+ use dartforge_frontend::ast::DeclKind;
++use dartforge_types::resolved::{MemberRef, Resolved};
++
++/// Certifies a direct enum constant, not an arbitrary expression with enum type.
++fn pattern_enum_class(
++    ctx: &Context,
++    unit: dartforge_elements::model::UnitId,
++    expr: dartforge_frontend::ast::ExprId,
++) -> Option<ClassId> {
++    let variable = match ctx.get_resolved(unit, expr)? {
++        Resolved::Element(Element::Variable(v))
++        | Resolved::Member {
++            member: MemberRef::Variable(v),
++            ..
++        } => *v,
++        _ => return None,
++    };
++    let value = ctx.program.variable(variable);
++    let VariableRef::EnumConstant { unit, decl, index } = value.node else {
++        return None;
++    };
++    let cid = value.class?;
++    let class = ctx.program.class(cid);
++    let declaration = class.decl?;
++    if !is_enum(ctx, cid)
++        || declaration.unit != unit
++        || declaration.decl != decl
++        || class.enum_constants.get(index) != Some(&variable)
++        || value.library != class.library
++    {
++        return None;
++    }
++    let DeclKind::Enum(declaration) = &ctx.program.unit(unit).ast.decl(decl).kind else {
++        return None;
++    };
++    (declaration.constants.get(index)?.name.sym == value.name).then_some(cid)
++}
++
++/// Missing synthetic enum ancestry is not evidence that the SDK kept identity.
++/// Verify both implicit SDK classes and the actual patched Object operator.
++fn enum_identity_operator(ctx: &Context, cid: ClassId) -> bool {
++    let Some(core) = ctx.program.core else {
++        return false;
++    };
++    if ctx.program.library(core).uri != "dart:core"
++        || !ctx.program.library(core).is_sdk
++        || !ctx.compiled_library(core)
++    {
++        return false;
++    }
++    let class_named = |name: &str| {
++        let symbol = ctx.interner.lookup(name)?;
++        match ctx.program.lookup(core, symbol)?.getter? {
++            Element::Class(c) if ctx.program.class(c).library == core => Some(c),
++            _ => None,
++        }
++    };
++    let (Some(object), Some(enum_interface), Some(enum_base), Some(eq)) = (
++        ctx.core.object_class,
++        class_named("Enum"),
++        class_named("_Enum"),
++        ctx.interner.lookup("=="),
++    ) else {
++        return false;
++    };
++    if class_named("Object") != Some(object) {
++        return false;
++    }
++    let enum_class = ctx.program.class(cid);
++    // Mixins are left on the general path, including otherwise valid mixins.
++    // Their inherited equality must never be inferred from a missing edge.
++    if !is_enum(ctx, cid)
++        || !enum_class.mixins.is_empty()
++        || !enum_class.mixin_classes.is_empty()
++        || enum_class.supertype.is_some()
++        || enum_class
++            .supertype_class
++            .is_some_and(|c| c != object && c != enum_interface && c != enum_base)
++        || enum_class.instance_members.contains_key(&eq)
++        || enum_class
++            .shadowed_instance_members
++            .iter()
++            .any(|(name, _)| *name == eq)
++    {
++        return false;
++    }
++    for c in [enum_interface, enum_base] {
++        let class = ctx.program.class(c);
++        if class.kind != ClassKind::Class
++            || !class.modifiers.abstract_
++            || class.supertype_class != Some(object)
++            || !class.mixins.is_empty()
++            || !class.mixin_classes.is_empty()
++            || class.instance_members.contains_key(&eq)
++            || class
++                .shadowed_instance_members
++                .iter()
++                .any(|(name, _)| *name == eq)
++        {
++            return false;
++        }
++    }
++    let object_class = ctx.program.class(object);
++    if object_class.supertype_class.is_some()
++        || !object_class.mixins.is_empty()
++        || !object_class.mixin_classes.is_empty()
++    {
++        return false;
++    }
++    let Some(mut function) = object_class.instance_members.get(&eq).copied() else {
++        return false;
++    };
++    let mut seen = std::collections::HashSet::new();
++    loop {
++        if !seen.insert(function) {
++            return false;
++        }
++        let member = ctx.program.function(function);
++        if member.class != Some(object)
++            || member.library != core
++            || member.name != eq
++            || member.kind != FunctionKind::Operator
++            || member.static_
++            || member.variable.is_some()
++            || !member.external
++            || member.abstract_
++        {
++            return false;
++        }
++        if let Some(patch) = member.patched_by {
++            function = patch;
++            continue;
++        }
++        let dartforge_elements::model::FunctionRef::Function {
++            unit,
++            function: ast_function,
++        } = member.node
++        else {
++            return false;
++        };
++        if !matches!(
++            ctx.program.unit(unit).ast.function(ast_function).body,
++            dartforge_frontend::ast::FunctionBody::Empty
++        ) {
++            return false;
++        }
++        let Some(signature) = ctx.outline.functions.get(function.0 as usize) else {
++            return false;
++        };
++        if signature.return_type != ctx.core.bool_
++            || !signature.type_params.is_empty()
++            || signature.parameters.len() != 1
++            || signature.parameters[0].ty != ctx.core.object
++            || signature.parameters[0].kind != dartforge_frontend::ast::ParameterKind::Required
++        {
++            return false;
++        }
++        let (native, _) = crate::natives::pragmas(ctx.program, ctx.interner, member);
++        return native.as_deref() == Some("Object_equals")
++            && crate::natives::native("Object_equals")
++                .is_some_and(|n| n.state == crate::natives::State::Runtime);
++    }
++}
+ 
+ /// The class is an `enum` of the program.
+ pub fn is_enum(ctx: &Context, cid: ClassId) -> bool {
+@@ -31,6 +195,24 @@ pub fn layout_base(ctx: &Context, cid: ClassId) -> usize {
+ }
+ 
+ impl<'a, 'c> FnBuilder<'a, 'c> {
++    /// Matches a certified direct enum constant without invoking the candidate's operator.
++    pub(super) fn enum_constant_pattern_identity(
++        &mut self,
++        expr: dartforge_frontend::ast::ExprId,
++        constant: Operand,
++        candidate: Operand,
++    ) -> Option<Operand> {
++        if !self.ctx.enum_pattern_identity_enabled
++            || self.operand_type(&constant) != Type::Ref
++            || !enum_identity_operator(self.ctx, pattern_enum_class(self.ctx, self.unit_id, expr)?)
++        {
++            return None;
++        }
++        // Preserve the general equality path's right-side boxing/coercion.
++        let candidate = self.coerce(candidate, Type::Ref);
++        Some(self.emit(Instruction::ICmp(ICmpOp::Eq, constant, candidate), Type::I1))
++    }
++
+     /// `index`/`name` of an enum value of class `cid`.
+     pub fn enum_member(&mut self, cid: ClassId, name: &str, value: Operand) -> Option<Operand> {
+         if !is_enum(self.ctx, cid) {
+@@ -157,7 +339,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
+             let written_set = e.constants[index].type_args.to_vec();
+             let recipe = if written_set.is_empty() {
+                 let params = self.ctx.outline.classes[cid.0 as usize].type_params.clone();
+-                let mut r = super::rti::Recipe { text: String::new(), variables: false };
++                let mut r = super::rti::Recipe {
++                    text: String::new(),
++                    variables: false,
++                };
+                 for (i, p) in params.iter().enumerate() {
+                     if i > 0 {
+                         r.text.push(',');
+@@ -201,7 +386,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
+         self.emit(
+             Instruction::CallRuntime {
+                 name: "dartforge_mark_constant".to_string(),
+-                args: vec![(obj.clone(), Type::Ref), (Operand::Constant(Constant::Function(self.func.symbol.clone())), Type::I64)],
++                args: vec![
++                    (obj.clone(), Type::Ref),
++                    (
++                        Operand::Constant(Constant::Function(self.func.symbol.clone())),
++                        Type::I64,
++                    ),
++                ],
+                 ret_ty: Type::Void,
+             },
+             Type::Void,
+@@ -276,8 +467,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
+             self.dart_ref_returns.insert(self.func.symbol.clone());
+         }
+         let this = Operand::Val(self.add_param("this".to_string(), Type::Ref));
+-        let name = self.ctx.symbol_name(self.ctx.program.classes[cid.0 as usize].name).to_string();
+-        let prefix = self.emit(Instruction::Const(Constant::String(format!("{name}."))), Type::Ref);
++        let name = self
++            .ctx
++            .symbol_name(self.ctx.program.classes[cid.0 as usize].name)
++            .to_string();
++        let prefix = self.emit(
++            Instruction::Const(Constant::String(format!("{name}."))),
++            Type::Ref,
++        );
+         let n = self.enum_member(cid, "name", this).expect("enum");
+         let r = self.emit(
+             Instruction::CallRuntime {
+@@ -290,3 +487,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
+         self.terminate(Terminator::Return(Some(r)));
+     }
+ }
++
++#[cfg(test)]
++mod pattern_identity_tests;
+diff --git a/crates/emit_native/src/lower/patterns.rs b/crates/emit_native/src/lower/patterns.rs
+index 6cdd193b..53d09221 100644
+--- a/crates/emit_native/src/lower/patterns.rs
++++ b/crates/emit_native/src/lower/patterns.rs
+@@ -275,7 +275,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
+                     _ => e,
+                 };
+                 let c = self.lower_expr(ast, *e);
+-                let ok = self.operate(BinaryOp::Eq, c, val_ref, false, span);
++                let ok = self.enum_constant_pattern_identity(*e, c.clone(), val_ref.clone())
++                    .unwrap_or_else(|| self.operate(BinaryOp::Eq, c, val_ref, false, span));
+                 self.require(ok, failure);
+             }
+             PatternKind::Relational { op, value } => {
+diff --git a/crates/emit_native/src/optimize/mod.rs b/crates/emit_native/src/optimize/mod.rs
+index 4f3674d7..dfec432c 100644
+--- a/crates/emit_native/src/optimize/mod.rs
++++ b/crates/emit_native/src/optimize/mod.rs
+@@ -32,7 +32,6 @@ mod tables;
+ mod tests;
+ #[cfg(test)]
+ mod pre_prune_tests;
+-#[cfg(test)]
+ mod physical_devirtualize;
+ 
+ use crate::hir::*;
+@@ -177,6 +176,7 @@ pub fn optimize(module: &mut Module) {
+         mem2reg::promote(f);
+         false
+     });
++    physical_devirtualize::rewrite_getters(module);
+     for _ in 0..3 {
+         let do_not_throw = effects::do_not_throw(module);
+         in_parallel(&mut module.functions, &|f| {
+diff --git a/crates/emit_native/src/optimize/physical_devirtualize.rs b/crates/emit_native/src/optimize/physical_devirtualize.rs
+index d1b0b3ce..61270a8b 100644
+--- a/crates/emit_native/src/optimize/physical_devirtualize.rs
++++ b/crates/emit_native/src/optimize/physical_devirtualize.rs
+@@ -9,7 +9,8 @@ use std::collections::{HashMap, HashSet};
+ /// Descriptor readers must use the canonical zero-argument counts exclusively;
+ /// argument readers, writes, escapes, unknown bodies and ARC boundaries stay indirect.
+ pub(crate) fn rewrite_getters(module: &mut Module) -> usize {
+-    if !module.arc_fixed_ancestry
++    if std::env::var("DARTFORGE_NO_PHYSICAL_GETTER_DEVIRTUALIZATION").as_deref() == Ok("1")
++        || !module.arc_fixed_ancestry
+         || module.arc_memory
+         || module.arc_prepared
+         || module.arc_aot_ports.is_some()
+diff --git a/crates/emit_native/src/optimize/physical_devirtualize/tests.rs b/crates/emit_native/src/optimize/physical_devirtualize/tests.rs
+index 654003ae..0123a20b 100644
+--- a/crates/emit_native/src/optimize/physical_devirtualize/tests.rs
++++ b/crates/emit_native/src/optimize/physical_devirtualize/tests.rs
+@@ -426,3 +426,47 @@ fn nominal_receiver_hint_and_shadowed_runtime_registration_do_not_certify() {
+         assert_eq!(rewrite_getters(&mut module), 0, "shadow {shadow}");
+     }
+ }
++
++#[test]
++fn production_optimizer_hook_rewrites_before_inlining() {
++    let mut module = sample();
++    super::super::optimize(&mut module);
++    assert!(
++        !module.functions[1]
++            .blocks
++            .iter()
++            .flat_map(|b| &b.instructions)
++            .any(|(_, instruction, _)| matches!(instruction, Instruction::CallSelector { .. }))
++    );
++    assert!(module.functions[1].blocks.iter().flat_map(|b| &b.instructions).any(|(_, instruction, _)| matches!(instruction, Instruction::CallStatic { symbol, .. } if symbol == "getter")), "descriptor reads intentionally keep the same uniform wrapper out of inlining");
++}
++
++#[test]
++fn ordinary_nullable_factory_unknown_and_override_boundaries_remain_indirect() {
++    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
++        let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/devirtualization/physical_getter_boundaries.dart");
++        let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
++        let mut interner = dartforge_intern::Interner::new();
++        let program = dartforge_elements::load::load(&entry, &sdk, None, &mut interner).unwrap();
++        let mut table = dartforge_types::TypeTable::new();
++        let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
++        let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
++        let libraries: Vec<_> = program.libraries.iter().enumerate().filter(|(_, library)| !library.is_sdk).map(|(i, _)| dartforge_elements::model::LibraryId(i as u32)).collect();
++        let (bodies, _) = dartforge_types::infer_library_bodies_with_locals(&program, &interner, &mut table, &core, &mut outline, &libraries);
++        let context = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies).with_source_sdk();
++        let mut module = crate::lower::lower_program(&context);
++        assert!(module.errors.is_empty(), "{:?}", module.errors);
++        module.arc_fixed_ancestry = true;
++        for function in &mut module.functions { super::super::mem2reg::promote(function); }
++        let original = module.functions.clone();
++        assert_eq!(rewrite_getters(&mut module), 2, "only direct.value and direct.failure qualify");
++        for suffix in ["..readUnknown", "..probeMixed"] {
++            let before = original.iter().find(|f| f.symbol.ends_with(suffix)).unwrap();
++            let after = module.functions.iter().find(|f| f.symbol.ends_with(suffix)).unwrap();
++            assert_eq!(format!("{before:?}"), format!("{after:?}"), "unknown parameter or actual overriding receiver union must remain untouched");
++        }
++        let main = module.functions.iter().find(|f| f.symbol == "dart_main").unwrap();
++        assert!(main.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)| matches!(i, Instruction::CallSelector { args, names, .. } if !args.is_empty() && names == &["named"])));
++        assert!(main.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)| matches!(i, Instruction::CallStatic { symbol, .. } if symbol.ends_with("..namedValue"))));
++    }).unwrap().join().unwrap();
++}
+diff --git a/crates/emit_native/src/pruning/receiver_provenance.rs b/crates/emit_native/src/pruning/receiver_provenance.rs
+index 996a18cb..21e99939 100644
+--- a/crates/emit_native/src/pruning/receiver_provenance.rs
++++ b/crates/emit_native/src/pruning/receiver_provenance.rs
+@@ -3,6 +3,8 @@
+ //! Facts concern only normal returns and remain unknown across loads, parameters,
+ //! dynamic calls, and recursive return summaries. They are not ownership/effect proofs.
+ 
++mod canonical_cache;
++
+ use crate::hir::{
+     BlockId, Constant, Function, Instruction as I, Module, Operand, Terminator, Type, ValueId,
+ };
+@@ -107,6 +109,15 @@ pub(crate) fn analyze<'a>(modules: &[&'a Module]) -> Provenance<'a> {
+         })
+         .collect();
+     let mut result = Provenance::default();
++    if std::env::var("DARTFORGE_NO_CANONICAL_CACHE_PROVENANCE").as_deref() != Ok("1") {
++        let caches = canonical_cache::Inventory::new(modules);
++        for (symbol, function) in &functions {
++            if !duplicates.contains(symbol) && shapes.contains_key(symbol)
++                && let Some(classes) = canonical_cache::classes(function, &caches, &functions) {
++                result.returns.insert(symbol.clone(), classes);
++            }
++        }
++    }
+     // SCCs are emitted after their dependencies. Recursive components have no
+     // body-return summary, even if a particular recursive path happens to throw.
+     // Their local allocations and calls to independently proved factories still
+@@ -1133,11 +1144,27 @@ mod tests {
+                         .with_source_sdk()
+                         .only_the_library(lib);
+                         let mut module = crate::lower::lower_program(&ctx);
++                        module.arc_fixed_ancestry = true;
+                         crate::optimize::prepare_for_emission(&mut module, false, false);
+                         module
+                     })
+                     .collect();
+                 let proof = analyze(&modules.iter().collect::<Vec<_>>());
++                let encoder = modules.iter().flat_map(|m| &m.functions)
++                    .find(|f| f.symbol == "df.dart$3aconvert.AsciiCodec.encode$c").unwrap();
++                let encoder_classes: Classes = modules.iter().flat_map(|m| &m.method_tables)
++                    .filter(|(_, symbol, _)| symbol.ends_with(".AsciiEncoder"))
++                    .map(|(cid, _, _)| *cid).collect();
++                assert_eq!(encoder_classes.len(), 1);
++                let encoder_calls: Vec<_> = encoder.blocks.iter().flat_map(|b| &b.instructions)
++                    .filter_map(|(_, instruction, _)| match instruction {
++                        I::CallSelector { selector, recv: Operand::Val(receiver), .. } if selector == "tc:convert" =>
++                            Some(proof.values_for(encoder).and_then(|values| values.get(receiver))),
++                        _ => None,
++                    }).collect();
++                assert!(!encoder_calls.is_empty());
++                assert!(encoder_calls.iter().all(|classes| *classes == Some(&encoder_classes)),
++                    "canonical AsciiEncoder receiver must be physically proved: {encoder_calls:?}");
+                 let public_factory = "df.dart$3acore.List.new$3afilled";
+                 if proof.returns.get(public_factory) != Some(&BTreeSet::from([1, 8, 10])) {
+                     let bodies: Vec<_> = modules

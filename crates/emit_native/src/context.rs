@@ -41,6 +41,8 @@ pub struct Context<'a> {
     root: Option<std::path::PathBuf>,
     /// This context lowers an SDK library into a separate object.
     pub sdk_library: bool,
+    /// Enables certified enum identity comparisons during constant-pattern lowering.
+    pub(crate) enum_pattern_identity_enabled: bool,
     /// Produces ownership facts only for the --memory=arc policy.
     pub arc_memory: bool,
     /// Per library: the body of its functions is compiled (the program's;
@@ -307,6 +309,7 @@ impl<'a> Context<'a> {
             record_shapes: Vec::new(),
             root,
             sdk_library: false,
+            enum_pattern_identity_enabled: std::env::var("DARTFORGE_NO_ENUM_PATTERN_IDENTITY").as_deref() != Ok("1"),
             arc_memory: false,
             compiled: program.libraries.iter().map(|l| !l.is_sdk).collect(),
             in_module: program.libraries.iter().map(|l| !l.is_sdk).collect(),

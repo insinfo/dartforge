@@ -1,0 +1,51 @@
+{
+  "result": "PASS",
+  "producer": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+    "sha256": "bee770c7623e94439a5df1d5b792af9c53577c682398c6491c379befe51ef171"
+  },
+  "full_native_lib": {
+    "passed": 666,
+    "failed": 0,
+    "ignored": 0,
+    "source_unchanged": true,
+    "ledger": "full-lib-gate/validation.json"
+  },
+  "native_enum_matrix": {
+    "executions": 12,
+    "ledger": "native-matrix/validation.json"
+  },
+  "real_format": {
+    "oracle_results": 2160,
+    "implementations": [
+      "SDK3.6.2 VM",
+      "SDK3.6.2 AOT",
+      "Forge OFF",
+      "Forge ON"
+    ],
+    "ledger": "real-format/validation.json",
+    "function_bytes": {
+      "OFF": 66904,
+      "ON": 37092
+    },
+    "static_selector_calls": {
+      "OFF": 208,
+      "ON": 88
+    },
+    "static_equality_selector_calls": {
+      "OFF": 131,
+      "ON": 11
+    }
+  },
+  "limits": [
+    "No runtime performance timing measured.",
+    "Focused real-kernel linked symbol size is not full File Explorer bundle size; machine outlining differs across profiles.",
+    "Unknown aliases, mixins, custom constants and changed SDK equality remain on generic equality path."
+  ],
+  "source_sha256": {
+    "crates/emit_native/src/lower/enums.rs": "d49732389be506a6e2fbddc274dfb1dbdb6db3d85f06e33c2b19e93086cfdf8d",
+    "crates/emit_native/src/lower/patterns.rs": "ae359dce42a98858770fc186eae19f465ea7a9875666b645a82ba5d7dd55f512",
+    "crates/emit_native/src/lower/enums/pattern_identity_tests.rs": "dea7f9f421580b7dd992b6d92d3143d0d02abce639402777fe0901b1047c953b",
+    "crates/emit_native/src/context.rs": "2ea26a18fd7e5f35a3f6da75fa24b1b9df1939fb8f5ac5ede633fd48047a8533"
+  }
+}

@@ -1,0 +1,281 @@
+{
+  "producer": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+  "producer_sha256": "bee770c7623e94439a5df1d5b792af9c53577c682398c6491c379befe51ef171",
+  "source_before": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/fixture/b.dart": "a4f1aa2ab41bf0b0870098beb55fcc357815ad86ae0aa56a59bfcf1569bdab80",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/fixture/main.dart": "37164cf6b8a7ad395bf3ca9e48bea03ef7724168ff1495572fc7863f9c05353c",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/fixture/a.dart": "a4f1aa2ab41bf0b0870098beb55fcc357815ad86ae0aa56a59bfcf1569bdab80"
+  },
+  "expected_stdout": "1|2|0|0|0|0|0|3|4|0|5|6|7|0|8|0|true|false|throw|9|10|0|true|1|5\n",
+  "cases": [
+    {
+      "mode": "tracing",
+      "enabled": false,
+      "compile_command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/fixture/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/tracing-off/program"
+      ],
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/tracing-off/tmp",
+        "DARTFORGE_ARC_PREPARED": null,
+        "DARTFORGE_NO_ENUM_PATTERN_IDENTITY": "1",
+        "DARTFORGE_ARC_CHECK": null,
+        "DARTFORGE_EFFECTS": null
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "1a72d844b06935cf24f13e62f51c8e6f980a324e723630f0d1d2cf0d89b6edfc",
+      "manifest_sha256": "078f5c26453bf1c0acfedb95a0cc8936307748d27107b5a01536066551f73c85",
+      "runs": [
+        {
+          "stress": false,
+          "exit": 0,
+          "exact_oracle": true,
+          "stderr_bytes": 0,
+          "pass": true
+        },
+        {
+          "stress": true,
+          "exit": 0,
+          "exact_oracle": true,
+          "stderr_bytes": 0,
+          "pass": true
+        }
+      ]
+    },
+    {
+      "mode": "tracing",
+      "enabled": true,
+      "compile_command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/fixture/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/tracing-on/program"
+      ],
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/tracing-on/tmp",
+        "DARTFORGE_ARC_PREPARED": null,
+        "DARTFORGE_NO_ENUM_PATTERN_IDENTITY": null,
+        "DARTFORGE_ARC_CHECK": null,
+        "DARTFORGE_EFFECTS": null
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "85a4d506a15c80e2b505f00e5fa54a6474bd2d605b53cb4e2ec8becb4304bc78",
+      "manifest_sha256": "c7657918995e4be55c1fca91982493c7982e0439666e70327136526fceda705a",
+      "runs": [
+        {
+          "stress": false,
+          "exit": 0,
+          "exact_oracle": true,
+          "stderr_bytes": 0,
+          "pass": true
+        },
+        {
+          "stress": true,
+          "exit": 0,
+          "exact_oracle": true,
+          "stderr_bytes": 0,
+          "pass": true
+        }
+      ]
+    },
+    {
+      "mode": "arc",
+      "enabled": false,
+      "compile_command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/fixture/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=arc",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/arc-off/program"
+      ],
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/arc-off/tmp",
+        "DARTFORGE_ARC_PREPARED": null,
+        "DARTFORGE_NO_ENUM_PATTERN_IDENTITY": "1",
+        "DARTFORGE_ARC_CHECK": "1",
+        "DARTFORGE_EFFECTS": "check"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "d6a647ed4b785f170008385488fac401f1fdae37985cf6233615a82df74ba364",
+      "manifest_sha256": "50ce6ad006d7b267e00fef6aa67773dc390a32a9f4fe03a556904c1461ec1d6c",
+      "runs": [
+        {
+          "stress": false,
+          "exit": 0,
+          "exact_oracle": true,
+          "stderr_bytes": 0,
+          "pass": true
+        },
+        {
+          "stress": true,
+          "exit": 0,
+          "exact_oracle": true,
+          "stderr_bytes": 0,
+          "pass": true
+        }
+      ]
+    },
+    {
+      "mode": "arc",
+      "enabled": true,
+      "compile_command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/fixture/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=arc",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/arc-on/program"
+      ],
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/arc-on/tmp",
+        "DARTFORGE_ARC_PREPARED": null,
+        "DARTFORGE_NO_ENUM_PATTERN_IDENTITY": null,
+        "DARTFORGE_ARC_CHECK": "1",
+        "DARTFORGE_EFFECTS": "check"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "b3f382a004c7b2d81c0b49302a1a3f00cf346a9cf4730e072925276d24c21fdb",
+      "manifest_sha256": "81660dc4a288355da73f16f23145c714f5f7ad805fc1c89bdf8d45594915d88c",
+      "runs": [
+        {
+          "stress": false,
+          "exit": 0,
+          "exact_oracle": true,
+          "stderr_bytes": 0,
+          "pass": true
+        },
+        {
+          "stress": true,
+          "exit": 0,
+          "exact_oracle": true,
+          "stderr_bytes": 0,
+          "pass": true
+        }
+      ]
+    },
+    {
+      "mode": "prepared",
+      "enabled": false,
+      "compile_command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/fixture/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=arc",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/prepared-off/program"
+      ],
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/prepared-off/tmp",
+        "DARTFORGE_ARC_PREPARED": "1",
+        "DARTFORGE_NO_ENUM_PATTERN_IDENTITY": "1",
+        "DARTFORGE_ARC_CHECK": "1",
+        "DARTFORGE_EFFECTS": "check"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "c8840874831e81b9a77f0f3108142b391d203ad397b8731fbb6058739baec607",
+      "manifest_sha256": "315866583c575fb930db446f6cc771bafb172203a56641a0d7fb5de2050765d4",
+      "runs": [
+        {
+          "stress": false,
+          "exit": 0,
+          "exact_oracle": true,
+          "stderr_bytes": 0,
+          "pass": true
+        },
+        {
+          "stress": true,
+          "exit": 0,
+          "exact_oracle": true,
+          "stderr_bytes": 0,
+          "pass": true
+        }
+      ]
+    },
+    {
+      "mode": "prepared",
+      "enabled": true,
+      "compile_command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/fixture/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=arc",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/prepared-on/program"
+      ],
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/prepared-on/tmp",
+        "DARTFORGE_ARC_PREPARED": "1",
+        "DARTFORGE_NO_ENUM_PATTERN_IDENTITY": null,
+        "DARTFORGE_ARC_CHECK": "1",
+        "DARTFORGE_EFFECTS": "check"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "87ce7529d4e4595a14007902f399128e0e013aa8d89ab78c69ffc0c812af682c",
+      "manifest_sha256": "6cbb54cbc5c3781574cc39ca540e9f208849dca3ce230f860e57403a20924ca9",
+      "runs": [
+        {
+          "stress": false,
+          "exit": 0,
+          "exact_oracle": true,
+          "stderr_bytes": 0,
+          "pass": true
+        },
+        {
+          "stress": true,
+          "exit": 0,
+          "exact_oracle": true,
+          "stderr_bytes": 0,
+          "pass": true
+        }
+      ]
+    }
+  ],
+  "scope": "Actual immutable native AOT execution, same source ON/OFF, normal/GCstress in tracing/legacyARC/preparedARC. Correctness only; no timing/performance claim.",
+  "producer_unchanged": true,
+  "sources_unchanged": true,
+  "result": "PASS",
+  "native_executions": 12
+}

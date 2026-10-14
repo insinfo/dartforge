@@ -1,0 +1,56 @@
+{
+  "source_hashes": {
+    "crates/emit_native/src/lower/enums.rs": "d49732389be506a6e2fbddc274dfb1dbdb6db3d85f06e33c2b19e93086cfdf8d",
+    "crates/emit_native/src/lower/patterns.rs": "ae359dce42a98858770fc186eae19f465ea7a9875666b645a82ba5d7dd55f512",
+    "crates/emit_native/src/lower/enums/pattern_identity_tests.rs": "dea7f9f421580b7dd992b6d92d3143d0d02abce639402777fe0901b1047c953b",
+    "crates/emit_native/src/context.rs": "2ea26a18fd7e5f35a3f6da75fa24b1b9df1939fb8f5ac5ede633fd48047a8533",
+    "crates/emit_native/tests/fixtures/enum_pattern_identity/main.dart": "37164cf6b8a7ad395bf3ca9e48bea03ef7724168ff1495572fc7863f9c05353c",
+    "crates/emit_native/tests/fixtures/enum_pattern_identity/a.dart": "a4f1aa2ab41bf0b0870098beb55fcc357815ad86ae0aa56a59bfcf1569bdab80",
+    "crates/emit_native/tests/fixtures/enum_pattern_identity/b.dart": "a4f1aa2ab41bf0b0870098beb55fcc357815ad86ae0aa56a59bfcf1569bdab80"
+  },
+  "focused_command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-emit-native",
+    "--lib",
+    "lower::enums::pattern_identity_tests",
+    "--",
+    "--test-threads=2"
+  ],
+  "focused_result": {
+    "passed": 2,
+    "failed": 0,
+    "exit_code": 0
+  },
+  "SDK": "3.6.2",
+  "LLVM": "22.1.8",
+  "CARGO_TARGET_DIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4",
+  "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/tmp",
+  "official_binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/oracle/official-final",
+  "official_binary_sha256": "020ca7cb6127832b75d8c7a1aaae38a8855da6b96f0d88eba553fb3c19b0a7b4",
+  "expected_stdout": "1|2|0|0|0|0|0|3|4|0|5|6|7|0|8|0|true|false|throw|9|10|0|true|1|5\n",
+  "scope": "Focused actual lowering source-SDK guards + ordinary SDK VM/AOT oracle only. Native execution/matrix and real convertFormatValue on/off counts pending final producer. No performance claim.",
+  "early_oracle_limit": "Earlier unsuffixed official compile did not explicitly set TMPDIR; final-suffixed oracle rerun sets SSD TMPDIR and is authoritative. Original logs preserved.",
+  "files": {
+    "focused-final.log": "9585b1f2e409394d0f836d5f27dec5d56f49052475eba3eae774240ea6b73431",
+    "focused.log": "9f787f1154b9658f95210b985b71273580dae945bfa5afacf93ebfeae2572242",
+    "fixture/b.dart": "a4f1aa2ab41bf0b0870098beb55fcc357815ad86ae0aa56a59bfcf1569bdab80",
+    "fixture/main.dart": "37164cf6b8a7ad395bf3ca9e48bea03ef7724168ff1495572fc7863f9c05353c",
+    "fixture/a.dart": "a4f1aa2ab41bf0b0870098beb55fcc357815ad86ae0aa56a59bfcf1569bdab80",
+    "oracle/vm-final.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "oracle/official-compile.stdout": "2cdbb054cb0c36450bf14d011f5a0decca0fde0d310f64f1d84a690684638536",
+    "oracle/vm.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "oracle/vm.stdout": "b1a4187799d0a41884770523bda169c16c3397b17007b7e00a2706b789afd6eb",
+    "oracle/official-compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "oracle/vm-final.stdout": "b1a4187799d0a41884770523bda169c16c3397b17007b7e00a2706b789afd6eb",
+    "oracle/official-final-compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "oracle/official-final.stdout": "b1a4187799d0a41884770523bda169c16c3397b17007b7e00a2706b789afd6eb",
+    "oracle/official.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "oracle/official.stdout": "b1a4187799d0a41884770523bda169c16c3397b17007b7e00a2706b789afd6eb",
+    "oracle/official-final.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "oracle/official-final-compile.stdout": "fc2241d2ee66eeb6137dfa331a2d4683dbe03f35b1d10f14b9b59cadb1e9b926"
+  }
+}

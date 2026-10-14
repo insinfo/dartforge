@@ -1,0 +1,33 @@
+{
+  "source_frozen": true,
+  "production_hook": true,
+  "memory_scope": "tracing only; every ARC mode remains excluded",
+  "optout": "DARTFORGE_NO_PHYSICAL_GETTER_DEVIRTUALIZATION=1",
+  "sdk_cache_optout_fingerprint": "existing sdk_module.rs DARTFORGE_NO_* rule",
+  "source_sha256": {
+    "crates/emit_native/src/optimize/mod.rs": "c07b27cc401614a3c4a4f648bcc01dfad4c887b50a8f4c0964f3c08299c8c08b",
+    "crates/emit_native/src/optimize/physical_devirtualize.rs": "b4658e8c643f22a5b132667816405ebfa7953d2b987a56515c2129cb59d41b7b",
+    "crates/emit_native/src/optimize/physical_devirtualize/tests.rs": "1e85a8fbd7a196df24f8ed84698bf1756b8be504c14ce311f4c83f4a01f6ef41",
+    "crates/emit_native/tests/fixtures/devirtualization/physical_getters.dart": "68c28137e942d74483eb5c0f542389c2800cca10b4e3b544619173a9db8985b5",
+    "crates/emit_native/tests/fixtures/devirtualization/physical_getter_boundaries.dart": "1bf7d8e0a5eb2cbd995a5023551cac9d5093aa51c7c93c6f36d51c70f889c9a3"
+  },
+  "focused": {
+    "command": "cargo test --locked -j2 -p dartforge-emit-native --lib physical_devirtualize -- --test-threads=2",
+    "passed": 10,
+    "exit": 0,
+    "log": "focused-tests.log"
+  },
+  "actual_native_validation_pending": false,
+  "timing_measured": false,
+  "size_improvement_claim": false,
+  "actual_native_validation": {
+    "compiler_sha256": "bee770c7623e94439a5df1d5b792af9c53577c682398c6491c379befe51ef171",
+    "native_runs_exact_vm": 8,
+    "tracing_only": true,
+    "ir_proves_direct_calls": true,
+    "source_unchanged": true,
+    "inputs_unchanged": true,
+    "compiler_unchanged": true,
+    "ledger": "native-validation.json"
+  }
+}

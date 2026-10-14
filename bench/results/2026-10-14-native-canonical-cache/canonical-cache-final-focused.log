@@ -1,0 +1,38 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.92s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 4 tests
+test pruning::receiver_provenance::canonical_cache::tests::cache_allocation_propagates_to_callers_without_using_getter_name ... ok
+test pruning::receiver_provenance::canonical_cache::tests::cache_rejects_changed_returns_publication_and_opaque_effects ... ok
+test pruning::receiver_provenance::canonical_cache::tests::cache_rejects_external_writers_arc_stores_duplicates_and_runtime_homonyms ... FAILED
+test pruning::receiver_provenance::canonical_cache::tests::certified_receiver_limits_both_typed_and_untyped_selector_domains ... ok
+
+failures:
+
+---- pruning::receiver_provenance::canonical_cache::tests::cache_rejects_external_writers_arc_stores_duplicates_and_runtime_homonyms stdout ----
+
+thread 'pruning::receiver_provenance::canonical_cache::tests::cache_rejects_external_writers_arc_stores_duplicates_and_runtime_homonyms' (1640933) panicked at crates/emit_native/src/pruning/receiver_provenance/canonical_cache/tests.rs:115:9:
+assertion `left == right` failed
+  left: Some({315})
+ right: None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    pruning::receiver_provenance::canonical_cache::tests::cache_rejects_external_writers_arc_stores_duplicates_and_runtime_homonyms
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 660 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

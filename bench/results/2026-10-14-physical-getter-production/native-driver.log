@@ -1,0 +1,38 @@
+sdk-version starting
+sdk-version terminal 0
+physical_getters-vm starting
+physical_getters-vm terminal 0
+physical_getters-on-build starting
+physical_getters-on-build terminal 0
+physical_getters-on-normal starting
+physical_getters-on-normal terminal 0
+physical_getters-on-normal exact VM True
+physical_getters-on-stress starting
+physical_getters-on-stress terminal 0
+physical_getters-on-stress exact VM True
+physical_getters-off-build starting
+physical_getters-off-build terminal 0
+physical_getters-off-normal starting
+physical_getters-off-normal terminal 0
+physical_getters-off-normal exact VM True
+physical_getters-off-stress starting
+physical_getters-off-stress terminal 0
+physical_getters-off-stress exact VM True
+physical_getter_boundaries-vm starting
+physical_getter_boundaries-vm terminal 0
+physical_getter_boundaries-on-build starting
+physical_getter_boundaries-on-build terminal 0
+physical_getter_boundaries-on-normal starting
+physical_getter_boundaries-on-normal terminal 0
+physical_getter_boundaries-on-normal exact VM True
+physical_getter_boundaries-on-stress starting
+physical_getter_boundaries-on-stress terminal 0
+physical_getter_boundaries-on-stress exact VM True
+physical_getter_boundaries-off-build starting
+physical_getter_boundaries-off-build terminal 0
+physical_getter_boundaries-off-normal starting
+physical_getter_boundaries-off-normal terminal 0
+physical_getter_boundaries-off-normal exact VM True
+physical_getter_boundaries-off-stress starting
+physical_getter_boundaries-off-stress terminal 0
+physical_getter_boundaries-off-stress exact VM True

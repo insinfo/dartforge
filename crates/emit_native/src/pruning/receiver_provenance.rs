@@ -3,6 +3,8 @@
 //! Facts concern only normal returns and remain unknown across loads, parameters,
 //! dynamic calls, and recursive return summaries. They are not ownership/effect proofs.
 
+mod canonical_cache;
+
 use crate::hir::{
     BlockId, Constant, Function, Instruction as I, Module, Operand, Terminator, Type, ValueId,
 };
@@ -107,6 +109,15 @@ pub(crate) fn analyze<'a>(modules: &[&'a Module]) -> Provenance<'a> {
         })
         .collect();
     let mut result = Provenance::default();
+    if std::env::var("DARTFORGE_NO_CANONICAL_CACHE_PROVENANCE").as_deref() != Ok("1") {
+        let caches = canonical_cache::Inventory::new(modules);
+        for (symbol, function) in &functions {
+            if !duplicates.contains(symbol) && shapes.contains_key(symbol)
+                && let Some(classes) = canonical_cache::classes(function, &caches, &functions) {
+                result.returns.insert(symbol.clone(), classes);
+            }
+        }
+    }
     // SCCs are emitted after their dependencies. Recursive components have no
     // body-return summary, even if a particular recursive path happens to throw.
     // Their local allocations and calls to independently proved factories still
@@ -1133,11 +1144,27 @@ mod tests {
                         .with_source_sdk()
                         .only_the_library(lib);
                         let mut module = crate::lower::lower_program(&ctx);
+                        module.arc_fixed_ancestry = true;
                         crate::optimize::prepare_for_emission(&mut module, false, false);
                         module
                     })
                     .collect();
                 let proof = analyze(&modules.iter().collect::<Vec<_>>());
+                let encoder = modules.iter().flat_map(|m| &m.functions)
+                    .find(|f| f.symbol == "df.dart$3aconvert.AsciiCodec.encode$c").unwrap();
+                let encoder_classes: Classes = modules.iter().flat_map(|m| &m.method_tables)
+                    .filter(|(_, symbol, _)| symbol.ends_with(".AsciiEncoder"))
+                    .map(|(cid, _, _)| *cid).collect();
+                assert_eq!(encoder_classes.len(), 1);
+                let encoder_calls: Vec<_> = encoder.blocks.iter().flat_map(|b| &b.instructions)
+                    .filter_map(|(_, instruction, _)| match instruction {
+                        I::CallSelector { selector, recv: Operand::Val(receiver), .. } if selector == "tc:convert" =>
+                            Some(proof.values_for(encoder).and_then(|values| values.get(receiver))),
+                        _ => None,
+                    }).collect();
+                assert!(!encoder_calls.is_empty());
+                assert!(encoder_calls.iter().all(|classes| *classes == Some(&encoder_classes)),
+                    "canonical AsciiEncoder receiver must be physically proved: {encoder_calls:?}");
                 let public_factory = "df.dart$3acore.List.new$3afilled";
                 if proof.returns.get(public_factory) != Some(&BTreeSet::from([1, 8, 10])) {
                     let bodies: Vec<_> = modules

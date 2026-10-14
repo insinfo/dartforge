@@ -1,0 +1,122 @@
+{
+  "inputs_before": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge": "bee770c7623e94439a5df1d5b792af9c53577c682398c6491c379befe51ef171",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/probe.dart": "6fb4e41442c7748deef988bb21c0e5a2438bacb62dfd0629e42387cf1422ef0d",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json": "c5c1c22ad085905aa6341ddf11b3999b001cb6ac128a61f117a1fb8d532ec934",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/lib/src/graphics/image/codecs/color/format.dart": "c7750e025311ea78a05c0ec73cec464a8845ac99599b61be9c089afee97c62db"
+  },
+  "commands": [
+    {
+      "label": "vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/probe.dart",
+        "1"
+      ],
+      "exit": 0,
+      "enum_optout": null
+    },
+    {
+      "label": "official-compile",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "exe",
+        "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/probe.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/official"
+      ],
+      "exit": 0,
+      "enum_optout": null
+    },
+    {
+      "label": "off-compile",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/off"
+      ],
+      "exit": 0,
+      "enum_optout": "1"
+    },
+    {
+      "label": "on-compile",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/on"
+      ],
+      "exit": 0,
+      "enum_optout": null
+    },
+    {
+      "label": "official-check",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/official",
+        "1"
+      ],
+      "exit": 0,
+      "enum_optout": null
+    },
+    {
+      "label": "off-check",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/off",
+        "1"
+      ],
+      "exit": 0,
+      "enum_optout": null
+    },
+    {
+      "label": "on-check",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/on",
+        "1"
+      ],
+      "exit": 0,
+      "enum_optout": null
+    }
+  ],
+  "artifacts": {
+    "official": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/official",
+      "sha256": "d9f08755507e8c4a94638271c00d0e087d0a8686658463a42f109c8423758cb8"
+    },
+    "off": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/off",
+      "sha256": "280405175398dd6ff71fe87fc64b08eed67a8355099c01f902d4311f72b44cce"
+    },
+    "on": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/on",
+      "sha256": "775eeb10bf302e09f4b5f34105a18e3f2f0e8dd801ea45333bd4a22a2ee1582e"
+    }
+  },
+  "scope": "Compile-only paired real convertFormatValue throughput harness. Runs with rounds=1 below verify checksum, not performance. Timing not measured.",
+  "inputs_unchanged": true,
+  "result": "READY",
+  "expected_one_round_stdout": "576:137,116,211,148,103,232,111,66\n"
+}

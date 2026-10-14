@@ -1,0 +1,175 @@
+{
+  "inputs_before": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge": "bee770c7623e94439a5df1d5b792af9c53577c682398c6491c379befe51ef171",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json": "c5c1c22ad085905aa6341ddf11b3999b001cb6ac128a61f117a1fb8d532ec934",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/lib/src/graphics/image/codecs/color/format.dart": "c7750e025311ea78a05c0ec73cec464a8845ac99599b61be9c089afee97c62db",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final/probe.dart": "144237f77a487569295edd869378a1687ef806dd45778b3143cea8df0a3afb2e"
+  },
+  "commands": [
+    {
+      "label": "vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final/probe.dart"
+      ],
+      "exit": 0,
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final",
+        "DARTFORGE_NO_ENUM_PATTERN_IDENTITY": null,
+        "DARTFORGE_KEEP_IR": null,
+        "DARTFORGE_LINK_MAP": null
+      }
+    },
+    {
+      "label": "official-compile",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "exe",
+        "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final/probe.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final/official"
+      ],
+      "exit": 0,
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final",
+        "DARTFORGE_NO_ENUM_PATTERN_IDENTITY": null,
+        "DARTFORGE_KEEP_IR": null,
+        "DARTFORGE_LINK_MAP": null
+      }
+    },
+    {
+      "label": "official",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final/official"
+      ],
+      "exit": 0,
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final",
+        "DARTFORGE_NO_ENUM_PATTERN_IDENTITY": null,
+        "DARTFORGE_KEEP_IR": null,
+        "DARTFORGE_LINK_MAP": null
+      }
+    },
+    {
+      "label": "off-compile",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final/probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final/off/program"
+      ],
+      "exit": 0,
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final",
+        "DARTFORGE_NO_ENUM_PATTERN_IDENTITY": "1",
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1"
+      }
+    },
+    {
+      "label": "off",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final/off/program"
+      ],
+      "exit": 0,
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final",
+        "DARTFORGE_NO_ENUM_PATTERN_IDENTITY": "1",
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1"
+      }
+    },
+    {
+      "label": "on-compile",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final/probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final/on/program"
+      ],
+      "exit": 0,
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final",
+        "DARTFORGE_NO_ENUM_PATTERN_IDENTITY": null,
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1"
+      }
+    },
+    {
+      "label": "on",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final/on/program"
+      ],
+      "exit": 0,
+      "environment": {
+        "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final",
+        "DARTFORGE_NO_ENUM_PATTERN_IDENTITY": null,
+        "DARTFORGE_KEEP_IR": "1",
+        "DARTFORGE_LINK_MAP": "1"
+      }
+    }
+  ],
+  "cases": [
+    {
+      "enabled": false,
+      "compile_exit": 0,
+      "artifact_sha256": "99f68deec661afa289c14e4f1a77a234ba5d6496dd6393a17e7d6b573616b316",
+      "map_sha256": "20a4c1fcbfafaddd3480c0b9b47e3b2cd7f65227a5b1967875bf3cf857172780",
+      "native_exit": 0,
+      "exact_VM": true,
+      "stderr_bytes": 0,
+      "convertFormatValue_symbols": [
+        {
+          "address": "0x1000F92A8",
+          "bytes": 66904,
+          "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue"
+        }
+      ],
+      "IR_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final/off/program.df_tmp/program.ll"
+    },
+    {
+      "enabled": true,
+      "compile_exit": 0,
+      "artifact_sha256": "48566e916b281f2403d23f4995f61e0952641dc7d54a40b3978835f86037d83a",
+      "map_sha256": "0c60e445016f5ae80abb275bcea7df664fb5bf465371d1db2b2e7d1e46161d81",
+      "native_exit": 0,
+      "exact_VM": true,
+      "stderr_bytes": 0,
+      "convertFormatValue_symbols": [
+        {
+          "address": "0x1000F92A8",
+          "bytes": 37092,
+          "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue"
+        }
+      ],
+      "IR_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final/on/program.df_tmp/program.ll"
+    }
+  ],
+  "scope": "Actual imported convertFormatValue, same compiler enum ON/OFF. 12x12 formats x15 values including casts,NaN,Infinity,signedzero andfinitefloatbits. No timing/performance claim.",
+  "inputs_unchanged": true,
+  "ON_OFF_identical": true,
+  "result": "PASS"
+}

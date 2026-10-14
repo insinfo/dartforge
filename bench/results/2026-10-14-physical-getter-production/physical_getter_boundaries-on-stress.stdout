@@ -1,0 +1,10 @@
+direct
+expected getter failure
+factory
+nullable dispatch preserved
+named call rejection preserved
+1
+unknown base
+derived:unknown override
+base
+derived:override

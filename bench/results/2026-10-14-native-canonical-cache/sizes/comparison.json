@@ -1,0 +1,864 @@
+{
+  "entry": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+  "package_config": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+  "compiler_sha256": "bee770c7623e94439a5df1d5b792af9c53577c682398c6491c379befe51ef171",
+  "SDK_version": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\"",
+  "SDK_binary_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+  "clang_sha256": "9a690e9e11d4774d63e95ed2ab90abd82889f949b0bb9db8208f7e18f278ea50",
+  "input_count": 11652,
+  "input_manifest_sha256": "cb9bdc8c2495d25e3154c4ca8cd841506fd4ed57725331c5180be2d07f901995",
+  "environment": {
+    "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/canonical-cache-sizes",
+    "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_LINK_MAP": "1",
+    "DARTFORGE_FACTORY_RECEIVER_PROVENANCE": "1",
+    "DARTFORGE_ARC_PORT_PRUNING": "1",
+    "DARTFORGE_NO_PHYSICAL_GETTER_DEVIRTUALIZATION": "1",
+    "DARTFORGE_NO_ENUM_PATTERN_IDENTITY": "1",
+    "DARTFORGE_KEEP_IR": "1"
+  },
+  "unset_environment": [
+    "DARTFORGE_NO_CANONICAL_CACHE_PROVENANCE",
+    "DARTFORGE_NO_PRE_PRUNE_CFG",
+    "DARTFORGE_NO_PLATFORM_SPECIALIZATION",
+    "DARTFORGE_ARC_CHECK",
+    "DARTFORGE_EFFECTS",
+    "DARTFORGE_GC_STRESS",
+    "DARTFORGE_ARC_PREPARED",
+    "DARTFORGE_ARC_PREPARE",
+    "DARTFORGE_MEMORY",
+    "DARTFORGE_NO_PROGRAM_PRUNING",
+    "DARTFORGE_NO_HIR_PRUNING",
+    "DARTFORGE_NO_TABLE_PRUNING",
+    "DARTFORGE_NO_FFI_PRUNING"
+  ],
+  "profiles": {
+    "off": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/canonical-cache-sizes/off/program"
+      ],
+      "exit": 0,
+      "NO_CANONICAL_CACHE_PROVENANCE": "1",
+      "NO_PHYSICAL_GETTER_DEVIRTUALIZATION": "1",
+      "NO_ENUM_PATTERN_IDENTITY": "1",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/canonical-cache-sizes/off/program",
+      "binary_bytes": 28459152,
+      "binary_sha256": "05fae017e351db85bed7994a20673c3a297bde4e5a3b64b70ef4e3fe2791bb9e",
+      "sections": {
+        "__TEXT,__text": {
+          "address": 4294969808,
+          "bytes": 25265832,
+          "offset": 2512
+        },
+        "__TEXT,__stubs": {
+          "address": 4320235640,
+          "bytes": 2016,
+          "offset": 25268344
+        },
+        "__TEXT,__stub_helper": {
+          "address": 4320237656,
+          "bytes": 2040,
+          "offset": 25270360
+        },
+        "__TEXT,__literals": {
+          "address": 4320239696,
+          "bytes": 11008,
+          "offset": 25272400
+        },
+        "__TEXT,__gcc_except_tab": {
+          "address": 4320250704,
+          "bytes": 5496,
+          "offset": 25283408
+        },
+        "__TEXT,__const": {
+          "address": 4320256208,
+          "bytes": 783681,
+          "offset": 25288912
+        },
+        "__TEXT,__cstring": {
+          "address": 4321039889,
+          "bytes": 19173,
+          "offset": 26072593
+        },
+        "__TEXT,__unwind_info": {
+          "address": 4321059064,
+          "bytes": 18172,
+          "offset": 26091768
+        },
+        "__TEXT,__eh_frame": {
+          "address": 4321077240,
+          "bytes": 120480,
+          "offset": 26109944
+        },
+        "__DATA_CONST,__got": {
+          "address": 4321198080,
+          "bytes": 40,
+          "offset": 26230784
+        },
+        "__DATA_CONST,__const": {
+          "address": 4321198128,
+          "bytes": 761104,
+          "offset": 26230832
+        },
+        "__DATA_CONST,__dfimg": {
+          "address": 4321959232,
+          "bytes": 1038576,
+          "offset": 26991936
+        },
+        "__DATA,__la_symbol_ptr": {
+          "address": 4323000320,
+          "bytes": 1344,
+          "offset": 28033024
+        },
+        "__DATA,__data": {
+          "address": 4323001664,
+          "bytes": 5512,
+          "offset": 28034368
+        },
+        "__DATA,__thread_vars": {
+          "address": 4323007176,
+          "bytes": 1488,
+          "offset": 28039880
+        },
+        "__DATA,__thread_data": {
+          "address": 4323008672,
+          "bytes": 19553,
+          "offset": 28041376
+        },
+        "__DATA,__thread_bss": {
+          "address": 4323028240,
+          "bytes": 5720,
+          "offset": 0
+        },
+        "__DATA,__bss": {
+          "address": 4323033960,
+          "bytes": 448,
+          "offset": 0
+        },
+        "__DATA,__common": {
+          "address": 4323034408,
+          "bytes": 184,
+          "offset": 0
+        }
+      },
+      "link_map": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/canonical-cache-sizes/off/program.map",
+      "link_map_bytes": 11121271,
+      "link_map_sha256": "78de3b518e6ba53522132c2673923edbeb42e94db37020b3da14ba5599e3b98a",
+      "text_section_bytes": 25265832,
+      "text_symbol_entries": 123414,
+      "largest_text_symbols": [
+        {
+          "address": 4316428776,
+          "bytes": 199832,
+          "object": 104,
+          "name": "_df.register.program",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4314127572,
+          "bytes": 75936,
+          "object": 16,
+          "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fdraw$2fdraw_pixel$2edart..drawPixel",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/26/26596f4d5119f4c1530e5cdbc77ceb74.obj"
+        },
+        {
+          "address": 4311947100,
+          "bytes": 47252,
+          "object": 100,
+          "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.PktDecoder.readPktHead",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4312297684,
+          "bytes": 43368,
+          "object": 14,
+          "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/df/df31774d9b163369c9db02b5503edcab.obj"
+        },
+        {
+          "address": 4317142956,
+          "bytes": 43340,
+          "object": 20,
+          "name": "_df.dart$3acore.Object.hash",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/sdk/87fff7b4ec1433268a1e84f8bd04127e/core.o"
+        },
+        {
+          "address": 4299293300,
+          "bytes": 39064,
+          "object": 89,
+          "name": "_df.package$3adart_ui$2fsrc$2ftext$2fbidi$2edart._BidiResolver._resolveSequence",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4313612732,
+          "bytes": 36520,
+          "object": 101,
+          "name": "_df.package$3aj2k$2fsrc$2fj2k$2fentropy$2fdecoder$2fstd_entropy_decoder$2edart.StdEntropyDecoder._cleanupPass",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4313519792,
+          "bytes": 35476,
+          "object": 101,
+          "name": "_df.package$3aj2k$2fsrc$2fj2k$2fentropy$2fdecoder$2fstd_entropy_decoder$2edart.StdEntropyDecoder._sigProgPass",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4316886844,
+          "bytes": 35460,
+          "object": 105,
+          "name": "_df.dart$3a_internal.Sort._dualPivotQuicksortIntWith",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4313311204,
+          "bytes": 34480,
+          "object": 15,
+          "name": "_df.package$3aj2k$2fsrc$2ficc$2ficc_profiler$2edart.ICCProfiler.getCompData",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/0b/0bcd8b2f08488a1e1cc7ab5c690e862b.obj"
+        },
+        {
+          "address": 4311789780,
+          "bytes": 33908,
+          "object": 14,
+          "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.FileBitstreamReaderAgent.getCodeBlock",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/df/df31774d9b163369c9db02b5503edcab.obj"
+        },
+        {
+          "address": 4296486800,
+          "bytes": 33532,
+          "object": 87,
+          "name": "_df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.openWindow$async$qdbcd5e34",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4299732244,
+          "bytes": 31624,
+          "object": 90,
+          "name": "_df.package$3adart_ui$2fsrc$2ftext$2fcff$2edart._Type2Interpreter._escaped",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4310840572,
+          "bytes": 31548,
+          "object": 99,
+          "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fheader_decoder$2edart.HeaderDecoder.parsePocMarker",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4315954260,
+          "bytes": 31128,
+          "object": 17,
+          "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fexif$2fexif_tag$2edart..exifImageTags",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/f5/f509de68e2a39fecf0ab3439da6665e0.obj"
+        },
+        {
+          "address": 4315255424,
+          "bytes": 29232,
+          "object": 17,
+          "name": "_df.package$3aj2k$2fsrc$2ficc$2flut$2fmatrix_based_transform_to_srgb$2edart.MatrixBasedTransformTosRGB.applyFloat",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/f5/f509de68e2a39fecf0ab3439da6665e0.obj"
+        },
+        {
+          "address": 4316822384,
+          "bytes": 29020,
+          "object": 105,
+          "name": "_df.dart$3a_internal.Sort._dualPivotQuicksort",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4316854708,
+          "bytes": 28324,
+          "object": 105,
+          "name": "_df.dart$3a_internal.Sort._dualPivotQuicksortInt",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4309405372,
+          "bytes": 28268,
+          "object": 98,
+          "name": "_df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_window$2edart.Win32Window.handleMessage",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4316153424,
+          "bytes": 28248,
+          "object": 103,
+          "name": "_df.$record.equals",
+          "object_path": "/tmp/lto.tmp"
+        }
+      ],
+      "map_scope": "Individual symbol spans can overlap due aliases. Text section total is authoritative; spans are not summed.",
+      "linked_static_archives_sha256": {
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_rtprod_0694aadecdb4601046a5bd59a4b4ce53.a": "6880fc8750bc1fe92df2acab9e32051e08c3d1afad81fd87fccd4413347b682f"
+      }
+    },
+    "on": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/canonical-cache-sizes/on/program"
+      ],
+      "exit": 0,
+      "NO_CANONICAL_CACHE_PROVENANCE": null,
+      "NO_PHYSICAL_GETTER_DEVIRTUALIZATION": "1",
+      "NO_ENUM_PATTERN_IDENTITY": "1",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/canonical-cache-sizes/on/program",
+      "binary_bytes": 28459152,
+      "binary_sha256": "05fae017e351db85bed7994a20673c3a297bde4e5a3b64b70ef4e3fe2791bb9e",
+      "sections": {
+        "__TEXT,__text": {
+          "address": 4294969808,
+          "bytes": 25265832,
+          "offset": 2512
+        },
+        "__TEXT,__stubs": {
+          "address": 4320235640,
+          "bytes": 2016,
+          "offset": 25268344
+        },
+        "__TEXT,__stub_helper": {
+          "address": 4320237656,
+          "bytes": 2040,
+          "offset": 25270360
+        },
+        "__TEXT,__literals": {
+          "address": 4320239696,
+          "bytes": 11008,
+          "offset": 25272400
+        },
+        "__TEXT,__gcc_except_tab": {
+          "address": 4320250704,
+          "bytes": 5496,
+          "offset": 25283408
+        },
+        "__TEXT,__const": {
+          "address": 4320256208,
+          "bytes": 783681,
+          "offset": 25288912
+        },
+        "__TEXT,__cstring": {
+          "address": 4321039889,
+          "bytes": 19173,
+          "offset": 26072593
+        },
+        "__TEXT,__unwind_info": {
+          "address": 4321059064,
+          "bytes": 18172,
+          "offset": 26091768
+        },
+        "__TEXT,__eh_frame": {
+          "address": 4321077240,
+          "bytes": 120480,
+          "offset": 26109944
+        },
+        "__DATA_CONST,__got": {
+          "address": 4321198080,
+          "bytes": 40,
+          "offset": 26230784
+        },
+        "__DATA_CONST,__const": {
+          "address": 4321198128,
+          "bytes": 761104,
+          "offset": 26230832
+        },
+        "__DATA_CONST,__dfimg": {
+          "address": 4321959232,
+          "bytes": 1038576,
+          "offset": 26991936
+        },
+        "__DATA,__la_symbol_ptr": {
+          "address": 4323000320,
+          "bytes": 1344,
+          "offset": 28033024
+        },
+        "__DATA,__data": {
+          "address": 4323001664,
+          "bytes": 5512,
+          "offset": 28034368
+        },
+        "__DATA,__thread_vars": {
+          "address": 4323007176,
+          "bytes": 1488,
+          "offset": 28039880
+        },
+        "__DATA,__thread_data": {
+          "address": 4323008672,
+          "bytes": 19553,
+          "offset": 28041376
+        },
+        "__DATA,__thread_bss": {
+          "address": 4323028240,
+          "bytes": 5720,
+          "offset": 0
+        },
+        "__DATA,__bss": {
+          "address": 4323033960,
+          "bytes": 448,
+          "offset": 0
+        },
+        "__DATA,__common": {
+          "address": 4323034408,
+          "bytes": 184,
+          "offset": 0
+        }
+      },
+      "link_map": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/canonical-cache-sizes/on/program.map",
+      "link_map_bytes": 11121270,
+      "link_map_sha256": "be7b395cd0e98466901661dd97215409f299023fe7501c37f431f8f484a8565d",
+      "text_section_bytes": 25265832,
+      "text_symbol_entries": 123414,
+      "largest_text_symbols": [
+        {
+          "address": 4316428776,
+          "bytes": 199832,
+          "object": 104,
+          "name": "_df.register.program",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4314127572,
+          "bytes": 75936,
+          "object": 16,
+          "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fdraw$2fdraw_pixel$2edart..drawPixel",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/26/26596f4d5119f4c1530e5cdbc77ceb74.obj"
+        },
+        {
+          "address": 4311947100,
+          "bytes": 47252,
+          "object": 100,
+          "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.PktDecoder.readPktHead",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4312297684,
+          "bytes": 43368,
+          "object": 14,
+          "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/df/df31774d9b163369c9db02b5503edcab.obj"
+        },
+        {
+          "address": 4317142956,
+          "bytes": 43340,
+          "object": 20,
+          "name": "_df.dart$3acore.Object.hash",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/sdk/aaf5c05c92094b0c034f108e7b1148a7/core.o"
+        },
+        {
+          "address": 4299293300,
+          "bytes": 39064,
+          "object": 89,
+          "name": "_df.package$3adart_ui$2fsrc$2ftext$2fbidi$2edart._BidiResolver._resolveSequence",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4313612732,
+          "bytes": 36520,
+          "object": 101,
+          "name": "_df.package$3aj2k$2fsrc$2fj2k$2fentropy$2fdecoder$2fstd_entropy_decoder$2edart.StdEntropyDecoder._cleanupPass",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4313519792,
+          "bytes": 35476,
+          "object": 101,
+          "name": "_df.package$3aj2k$2fsrc$2fj2k$2fentropy$2fdecoder$2fstd_entropy_decoder$2edart.StdEntropyDecoder._sigProgPass",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4316886844,
+          "bytes": 35460,
+          "object": 105,
+          "name": "_df.dart$3a_internal.Sort._dualPivotQuicksortIntWith",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4313311204,
+          "bytes": 34480,
+          "object": 15,
+          "name": "_df.package$3aj2k$2fsrc$2ficc$2ficc_profiler$2edart.ICCProfiler.getCompData",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/0b/0bcd8b2f08488a1e1cc7ab5c690e862b.obj"
+        },
+        {
+          "address": 4311789780,
+          "bytes": 33908,
+          "object": 14,
+          "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.FileBitstreamReaderAgent.getCodeBlock",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/df/df31774d9b163369c9db02b5503edcab.obj"
+        },
+        {
+          "address": 4296486800,
+          "bytes": 33532,
+          "object": 87,
+          "name": "_df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.openWindow$async$qdbcd5e34",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4299732244,
+          "bytes": 31624,
+          "object": 90,
+          "name": "_df.package$3adart_ui$2fsrc$2ftext$2fcff$2edart._Type2Interpreter._escaped",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4310840572,
+          "bytes": 31548,
+          "object": 99,
+          "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fheader_decoder$2edart.HeaderDecoder.parsePocMarker",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4315954260,
+          "bytes": 31128,
+          "object": 17,
+          "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fexif$2fexif_tag$2edart..exifImageTags",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/f5/f509de68e2a39fecf0ab3439da6665e0.obj"
+        },
+        {
+          "address": 4315255424,
+          "bytes": 29232,
+          "object": 17,
+          "name": "_df.package$3aj2k$2fsrc$2ficc$2flut$2fmatrix_based_transform_to_srgb$2edart.MatrixBasedTransformTosRGB.applyFloat",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/f5/f509de68e2a39fecf0ab3439da6665e0.obj"
+        },
+        {
+          "address": 4316822384,
+          "bytes": 29020,
+          "object": 105,
+          "name": "_df.dart$3a_internal.Sort._dualPivotQuicksort",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4316854708,
+          "bytes": 28324,
+          "object": 105,
+          "name": "_df.dart$3a_internal.Sort._dualPivotQuicksortInt",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4309405372,
+          "bytes": 28268,
+          "object": 98,
+          "name": "_df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_window$2edart.Win32Window.handleMessage",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4316153424,
+          "bytes": 28248,
+          "object": 103,
+          "name": "_df.$record.equals",
+          "object_path": "/tmp/lto.tmp"
+        }
+      ],
+      "map_scope": "Individual symbol spans can overlap due aliases. Text section total is authoritative; spans are not summed.",
+      "linked_static_archives_sha256": {
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_rtprod_0694aadecdb4601046a5bd59a4b4ce53.a": "6880fc8750bc1fe92df2acab9e32051e08c3d1afad81fd87fccd4413347b682f"
+      }
+    },
+    "combined_default": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/canonical-cache-sizes/combined_default/program"
+      ],
+      "exit": 0,
+      "NO_CANONICAL_CACHE_PROVENANCE": null,
+      "NO_PHYSICAL_GETTER_DEVIRTUALIZATION": null,
+      "NO_ENUM_PATTERN_IDENTITY": null,
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/canonical-cache-sizes/combined_default/program",
+      "binary_bytes": 28310160,
+      "binary_sha256": "ed101cc8d4d0c544feb14ce736a82cbd3a9ff1914fa16f5ca9e5230c8c71eb83",
+      "sections": {
+        "__TEXT,__text": {
+          "address": 4294969808,
+          "bytes": 25116428,
+          "offset": 2512
+        },
+        "__TEXT,__stubs": {
+          "address": 4320086236,
+          "bytes": 2016,
+          "offset": 25118940
+        },
+        "__TEXT,__stub_helper": {
+          "address": 4320088252,
+          "bytes": 2040,
+          "offset": 25120956
+        },
+        "__TEXT,__literals": {
+          "address": 4320090304,
+          "bytes": 11008,
+          "offset": 25123008
+        },
+        "__TEXT,__gcc_except_tab": {
+          "address": 4320101312,
+          "bytes": 5496,
+          "offset": 25134016
+        },
+        "__TEXT,__const": {
+          "address": 4320106816,
+          "bytes": 783729,
+          "offset": 25139520
+        },
+        "__TEXT,__cstring": {
+          "address": 4320890545,
+          "bytes": 19173,
+          "offset": 25923249
+        },
+        "__TEXT,__unwind_info": {
+          "address": 4320909720,
+          "bytes": 18172,
+          "offset": 25942424
+        },
+        "__TEXT,__eh_frame": {
+          "address": 4320927896,
+          "bytes": 120480,
+          "offset": 25960600
+        },
+        "__DATA_CONST,__got": {
+          "address": 4321050624,
+          "bytes": 40,
+          "offset": 26083328
+        },
+        "__DATA_CONST,__const": {
+          "address": 4321050672,
+          "bytes": 761104,
+          "offset": 26083376
+        },
+        "__DATA_CONST,__dfimg": {
+          "address": 4321811776,
+          "bytes": 1038576,
+          "offset": 26844480
+        },
+        "__DATA,__la_symbol_ptr": {
+          "address": 4322852864,
+          "bytes": 1344,
+          "offset": 27885568
+        },
+        "__DATA,__data": {
+          "address": 4322854208,
+          "bytes": 5512,
+          "offset": 27886912
+        },
+        "__DATA,__thread_vars": {
+          "address": 4322859720,
+          "bytes": 1488,
+          "offset": 27892424
+        },
+        "__DATA,__thread_data": {
+          "address": 4322861216,
+          "bytes": 19553,
+          "offset": 27893920
+        },
+        "__DATA,__thread_bss": {
+          "address": 4322880784,
+          "bytes": 5720,
+          "offset": 0
+        },
+        "__DATA,__bss": {
+          "address": 4322886504,
+          "bytes": 448,
+          "offset": 0
+        },
+        "__DATA,__common": {
+          "address": 4322886952,
+          "bytes": 184,
+          "offset": 0
+        }
+      },
+      "link_map": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/canonical-cache-sizes/combined_default/program.map",
+      "link_map_bytes": 11094744,
+      "link_map_sha256": "dc4b1f0a836cda8dc6a62ce28a6a8413d3f35f6523042484927ed0a53804a387",
+      "text_section_bytes": 25116428,
+      "text_symbol_entries": 122930,
+      "largest_text_symbols": [
+        {
+          "address": 4316317372,
+          "bytes": 199828,
+          "object": 104,
+          "name": "_df.register.program",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4313985740,
+          "bytes": 74812,
+          "object": 16,
+          "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fdraw$2fdraw_pixel$2edart..drawPixel",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/e2/e2ef6f3822c2a8a03de6e30b2c9041f9.obj"
+        },
+        {
+          "address": 4311829200,
+          "bytes": 47232,
+          "object": 100,
+          "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.PktDecoder.readPktHead",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4316994272,
+          "bytes": 43340,
+          "object": 20,
+          "name": "_df.dart$3acore.Object.hash",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/sdk/2d4f24d23b416236538dc613e187aa23/core.o"
+        },
+        {
+          "address": 4299290792,
+          "bytes": 39352,
+          "object": 89,
+          "name": "_df.package$3adart_ui$2fsrc$2ftext$2fbidi$2edart._BidiResolver._resolveSequence",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4313469976,
+          "bytes": 36304,
+          "object": 101,
+          "name": "_df.package$3aj2k$2fsrc$2fj2k$2fentropy$2fdecoder$2fstd_entropy_decoder$2edart.StdEntropyDecoder._cleanupPass",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4313376136,
+          "bytes": 35468,
+          "object": 101,
+          "name": "_df.package$3aj2k$2fsrc$2fj2k$2fentropy$2fdecoder$2fstd_entropy_decoder$2edart.StdEntropyDecoder._sigProgPass",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4316738160,
+          "bytes": 35460,
+          "object": 105,
+          "name": "_df.dart$3a_internal.Sort._dualPivotQuicksortIntWith",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4313167536,
+          "bytes": 34412,
+          "object": 15,
+          "name": "_df.package$3aj2k$2fsrc$2ficc$2ficc_profiler$2edart.ICCProfiler.getCompData",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/04/0428c628adfd46c00e9c0bc6786ebeeb.obj"
+        },
+        {
+          "address": 4311671888,
+          "bytes": 33904,
+          "object": 14,
+          "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.FileBitstreamReaderAgent.getCodeBlock",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/88/88ea53734b25dc5260ada7eddc456fcd.obj"
+        },
+        {
+          "address": 4296485036,
+          "bytes": 33520,
+          "object": 87,
+          "name": "_df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.openWindow$async$qdbcd5e34",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4299728900,
+          "bytes": 31644,
+          "object": 90,
+          "name": "_df.package$3adart_ui$2fsrc$2ftext$2fcff$2edart._Type2Interpreter._escaped",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4310784016,
+          "bytes": 31524,
+          "object": 99,
+          "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fheader_decoder$2edart.HeaderDecoder.parsePocMarker",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4315784752,
+          "bytes": 31124,
+          "object": 17,
+          "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fexif$2fexif_tag$2edart..exifImageTags",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/5c/5c16708774b741298b2125e6d5efbef7.obj"
+        },
+        {
+          "address": 4315104724,
+          "bytes": 29208,
+          "object": 17,
+          "name": "_df.package$3aj2k$2fsrc$2ficc$2flut$2fmatrix_based_transform_to_srgb$2edart.MatrixBasedTransformTosRGB.applyFloat",
+          "object_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../target/native_cache/obj/5c/5c16708774b741298b2125e6d5efbef7.obj"
+        },
+        {
+          "address": 4316673700,
+          "bytes": 29020,
+          "object": 105,
+          "name": "_df.dart$3a_internal.Sort._dualPivotQuicksort",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4309312664,
+          "bytes": 28348,
+          "object": 98,
+          "name": "_df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_window$2edart.Win32Window.handleMessage",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4316706024,
+          "bytes": 28324,
+          "object": 105,
+          "name": "_df.dart$3a_internal.Sort._dualPivotQuicksortInt",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4315983988,
+          "bytes": 28196,
+          "object": 103,
+          "name": "_df.$record.equals",
+          "object_path": "/tmp/lto.tmp"
+        },
+        {
+          "address": 4309918268,
+          "bytes": 28000,
+          "object": 99,
+          "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fexif$2fexif_data$2edart.ExifData.write",
+          "object_path": "/tmp/lto.tmp"
+        }
+      ],
+      "map_scope": "Individual symbol spans can overlap due aliases. Text section total is authoritative; spans are not summed.",
+      "linked_static_archives_sha256": {
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_rtprod_0694aadecdb4601046a5bd59a4b4ce53.a": "6880fc8750bc1fe92df2acab9e32051e08c3d1afad81fd87fccd4413347b682f"
+      }
+    }
+  },
+  "scope": "Matched off/on canonical-cache physical receiver proof; enum pattern and getter devirtualization disabled equally under one frozen compiler/runtime. Current compile-only size evidence. No execution, startup, GUI, throughput or compile-time performance claim. Full input inventory hashes before and after.",
+  "inputs_unchanged": true,
+  "compiler_unchanged": true,
+  "section_comparison_limit": "Mach-O section names and totals are layout facts. Official Dart includes VM and AOT snapshot images; __TEXT,__text alone is not a comparable total Dart instruction footprint.",
+  "inspection_scope": "Raw binary and linked section/symbol sizes only. No runtime performance or execution claim."
+}

@@ -1,0 +1,10 @@
+vm 0
+official-compile 0
+official 0
+off-compile 0
+off 0
+off VM_EXACT True SIZE [{'address': '0x1000F92A8', 'bytes': 66904, 'name': '_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue'}]
+on-compile 0
+on 0
+on VM_EXACT True SIZE [{'address': '0x1000F92A8', 'bytes': 37092, 'name': '_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue'}]
+RESULT PASS

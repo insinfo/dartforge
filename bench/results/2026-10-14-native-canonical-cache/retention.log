@@ -1,0 +1,1 @@
+{'off': {'exact': [], 'unrestricted': ['tc:convert', 'c:convert'], 'E_count': 127}, 'on': {'exact': [{'selector': 'tc:convert', 'CID': 498, 'raw': 'E\t1359\t5181780973078530013\t498'}, {'selector': 'c:convert', 'CID': 498, 'raw': 'E\t1359\t-1047269154501687337\t498'}], 'unrestricted': [], 'E_count': 171}}

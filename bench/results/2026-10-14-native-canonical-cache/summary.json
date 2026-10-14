@@ -1,0 +1,67 @@
+{
+  "producer_sha256": "bee770c7623e94439a5df1d5b792af9c53577c682398c6491c379befe51ef171",
+  "source_paths": [
+    "crates/emit_native/src/pruning/receiver_provenance.rs",
+    "crates/emit_native/src/pruning/receiver_provenance/canonical_cache.rs",
+    "crates/emit_native/src/pruning/receiver_provenance/canonical_cache/tests.rs",
+    "crates/emit_native/tests/fixtures/canonical_cache/main.dart"
+  ],
+  "fixture_sha256": "aa80fa9338bef11fce91f5d27cedd304f612fa10638735623e999e9ec604fda9",
+  "correctness": {
+    "focused_tests_passed": 16,
+    "actual_native_runs": 4,
+    "normal_and_GC_stress_exact_VM": true,
+    "same_fixture_inputs": true,
+    "covers": "Numeric const-object identity, ASCII/Latin1/UTF8/base64/JSON, unknown Pixel.convert, Function.apply tear-off, ASCII exception, repeated warm cache."
+  },
+  "receiver_proof": {
+    "actual_linked_SDK_summary": "sizes/receiver-retention.json",
+    "AsciiCodec_encode_c_OFF_unrestricted": [
+      "tc:convert",
+      "c:convert"
+    ],
+    "AsciiCodec_encode_c_ON_exact": [
+      {
+        "selector": "tc:convert",
+        "CID": 498,
+        "raw": "E\t1359\t5181780973078530013\t498"
+      },
+      {
+        "selector": "c:convert",
+        "CID": 498,
+        "raw": "E\t1359\t-1047269154501687337\t498"
+      }
+    ],
+    "convert_E_records_OFF": 127,
+    "convert_E_records_ON": 171,
+    "PixelUint8_remaining_cause": "OFF AsciiCodec.encode$c changes to ON Codec.encode$c. Generic Codec.encode still has unknown dynamic encoder getter result; it retains the same unrelated-domain convert graph."
+  },
+  "FileExplorer": {
+    "all_three_OFF_bytes": 28459152,
+    "canonical_only_ON_bytes": 28459152,
+    "isolated_saved_bytes": 0,
+    "isolated_byte_identical": true,
+    "combined_default_bytes": 28310160,
+    "combined_saved_bytes": 148992,
+    "combined_saved_percent": 0.5235293026299589,
+    "input_count": 11652,
+    "input_hashes_stable": true,
+    "same_prior_11652_input_manifest": true,
+    "same_runtime_archive": {
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_rtprod_0694aadecdb4601046a5bd59a4b4ce53.a": "6880fc8750bc1fe92df2acab9e32051e08c3d1afad81fd87fccd4413347b682f"
+    },
+    "combined_binary_sha256": "ed101cc8d4d0c544feb14ce736a82cbd3a9ff1914fa16f5ca9e5230c8c71eb83",
+    "text_OFF": 25265832,
+    "text_canonical_ON": 25265832,
+    "text_combined": 25116428
+  },
+  "limits": [
+    "Canonical proof is structurally effective but has ZERO isolated File Explorer binary saving; no size/speed win claim for this feature.",
+    "Combined 148,992-byte saving is shared enum/getter/canonical endpoint evidence; not isolated attribution.",
+    "Compile-only large app: no GUI, startup, throughput, or compile-time performance claims.",
+    "No performance measurements here.",
+    "Getter and enum agents own their separate semantic gates and attribution.",
+    "Full native gate is root-owned.",
+    "Raw logs/stdout/stderr need force-add; no binary, map, full app or SDK IR archived."
+  ]
+}

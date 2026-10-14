@@ -1,0 +1,27 @@
+{
+  "artifact": {
+    "blake3": "41087f202f3081f4e8a8c45728b73a0fbc9a3060f8eaecaf4d559cb58e724420",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "145fabe5733a9fb3b73f61bfdea4b64edfb46fa8ea0b908d4efedc6aa3417050",
+    "optimized": true,
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final/on/program"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "efe590c3d526a8ca11e8f01244082a1dda8c6de2c088dc07ac35499a4b4efe22",
+      "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-final/probe.dart"
+    },
+    {
+      "blake3": "7d0d912847bda9081dbbb67baf5719b54ec206deb83e1cf6b465d97652a94a38",
+      "uri": "package:dart_ui/src/graphics/image/codecs/color/format.dart"
+    }
+  ],
+  "verification_implemented": false
+}

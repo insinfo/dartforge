@@ -9,7 +9,8 @@ use std::collections::{HashMap, HashSet};
 /// Descriptor readers must use the canonical zero-argument counts exclusively;
 /// argument readers, writes, escapes, unknown bodies and ARC boundaries stay indirect.
 pub(crate) fn rewrite_getters(module: &mut Module) -> usize {
-    if !module.arc_fixed_ancestry
+    if std::env::var("DARTFORGE_NO_PHYSICAL_GETTER_DEVIRTUALIZATION").as_deref() == Ok("1")
+        || !module.arc_fixed_ancestry
         || module.arc_memory
         || module.arc_prepared
         || module.arc_aot_ports.is_some()

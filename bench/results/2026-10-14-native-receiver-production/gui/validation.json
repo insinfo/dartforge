@@ -1,0 +1,15 @@
+{
+  "control": {
+    "navigation": "child one item, Back returned root two items",
+    "exit_code": 0
+  },
+  "combined_first_attempt": {
+    "navigation": "child reached; Back screenshot did not confirm return",
+    "exit_code": 0
+  },
+  "combined_retry": {
+    "navigation": "child one item, Back returned root two items; screenshots visually inspected",
+    "exit_code": 0
+  },
+  "limitation": "First Back attempt inconclusive; successful repetition preserved separately. This is functional GUI validation, not latency measurement."
+}

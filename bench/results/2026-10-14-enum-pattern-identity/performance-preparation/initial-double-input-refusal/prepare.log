@@ -1,0 +1,7 @@
+vm 255
+Traceback (most recent call last):
+  File "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/prepare.py", line 10, in <module>
+    run('vm',[str(sdk/'bin/dart'),'--packages='+str(pkg),str(source),'1'],env)
+  File "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/prepare.py", line 9, in run
+    ledger['commands'].append({'label':label,'command':cmd,'exit':r.returncode,'enum_optout':e.get('DARTFORGE_NO_ENUM_PATTERN_IDENTITY')});save();print(label,r.returncode,flush=True);assert r.returncode==0
+AssertionError

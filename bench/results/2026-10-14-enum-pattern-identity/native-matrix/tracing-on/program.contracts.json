@@ -1,0 +1,31 @@
+{
+  "artifact": {
+    "blake3": "8ee7f0ce17f9c5202055e96956eebd1965db13c2d666702514d07e51396ebbb9",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "62edb4e7297952c67eaba372bab8c5f31d806cec178dad546fbbf44e5d86998c",
+    "optimized": true,
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/tracing-on/program"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "0639eabc649f3812c5520d0ffb937aead0f6e0a495f6ed4faf84ce3b8da7c4de",
+      "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/fixture/main.dart"
+    },
+    {
+      "blake3": "ba049eb07705b4da58c19e9d039a2f64c59cd5de84045d4f2bf3d43e874a03f4",
+      "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/fixture/a.dart"
+    },
+    {
+      "blake3": "ba049eb07705b4da58c19e9d039a2f64c59cd5de84045d4f2bf3d43e874a03f4",
+      "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/native-final/fixture/b.dart"
+    }
+  ],
+  "verification_implemented": false
+}

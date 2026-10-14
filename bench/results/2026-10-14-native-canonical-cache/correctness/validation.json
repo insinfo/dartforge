@@ -1,0 +1,86 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+  "compiler_sha256": "bee770c7623e94439a5df1d5b792af9c53577c682398c6491c379befe51ef171",
+  "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/canonical_cache/main.dart",
+  "source_sha256": "aa80fa9338bef11fce91f5d27cedd304f612fa10638735623e999e9ec604fda9",
+  "SDK_binary_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+  "SDK_vm_command": [
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+    "run",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/canonical_cache/main.dart"
+  ],
+  "VM_stdout": "[7, 11, true]\n[65, 83, 67, 73, 73]\nABC\n[79, 108, 225]\nOl\u00e1\nA\u00e7\u00e3o \ud83d\ude42\nAAEC/f7/\n{\"mask\":127,\"ok\":true}\npixel:unknown\npixel:apply\nascii error\n[119, 97, 114, 109]\n",
+  "common_environment": {
+    "DARTFORGE_NO_PHYSICAL_GETTER_DEVIRTUALIZATION": "1",
+    "DARTFORGE_NO_ENUM_PATTERN_IDENTITY": "1"
+  },
+  "enum_setting": "DARTFORGE_NO_ENUM_PATTERN_IDENTITY=1 in both profiles.",
+  "runs": {
+    "off": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/canonical_cache/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/canonical-cache-validation/off/program"
+      ],
+      "compile_exit": 0,
+      "opt_out": "1",
+      "binary_sha256": "4ee5b9c984db61d8aea224b900ec138e206366d9f1418bfcbdb9d92aca430981",
+      "binary_bytes": 3202704,
+      "normal": {
+        "exit": 0,
+        "stdout": "[7, 11, true]\n[65, 83, 67, 73, 73]\nABC\n[79, 108, 225]\nOl\u00e1\nA\u00e7\u00e3o \ud83d\ude42\nAAEC/f7/\n{\"mask\":127,\"ok\":true}\npixel:unknown\npixel:apply\nascii error\n[119, 97, 114, 109]\n",
+        "stderr": "",
+        "exact": true
+      },
+      "stress": {
+        "exit": 0,
+        "stdout": "[7, 11, true]\n[65, 83, 67, 73, 73]\nABC\n[79, 108, 225]\nOl\u00e1\nA\u00e7\u00e3o \ud83d\ude42\nAAEC/f7/\n{\"mask\":127,\"ok\":true}\npixel:unknown\npixel:apply\nascii error\n[119, 97, 114, 109]\n",
+        "stderr": "",
+        "exact": true
+      }
+    },
+    "on": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/canonical_cache/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/canonical-cache-validation/on/program"
+      ],
+      "compile_exit": 0,
+      "opt_out": null,
+      "binary_sha256": "4ee5b9c984db61d8aea224b900ec138e206366d9f1418bfcbdb9d92aca430981",
+      "binary_bytes": 3202704,
+      "normal": {
+        "exit": 0,
+        "stdout": "[7, 11, true]\n[65, 83, 67, 73, 73]\nABC\n[79, 108, 225]\nOl\u00e1\nA\u00e7\u00e3o \ud83d\ude42\nAAEC/f7/\n{\"mask\":127,\"ok\":true}\npixel:unknown\npixel:apply\nascii error\n[119, 97, 114, 109]\n",
+        "stderr": "",
+        "exact": true
+      },
+      "stress": {
+        "exit": 0,
+        "stdout": "[7, 11, true]\n[65, 83, 67, 73, 73]\nABC\n[79, 108, 225]\nOl\u00e1\nA\u00e7\u00e3o \ud83d\ude42\nAAEC/f7/\n{\"mask\":127,\"ok\":true}\npixel:unknown\npixel:apply\nascii error\n[119, 97, 114, 109]\n",
+        "stderr": "",
+        "exact": true
+      }
+    }
+  },
+  "scope": "Actual CLI correctness only. No timing, startup or GUI claims.",
+  "inputs_stable": true
+}

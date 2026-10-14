@@ -1,0 +1,9 @@
+{
+  "pid": 68951,
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/canonical-cache-sizes/off/program",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+    "--lang=en"
+  ],
+  "binary_sha256": "05fae017e351db85bed7994a20673c3a297bde4e5a3b64b70ef4e3fe2791bb9e"
+}

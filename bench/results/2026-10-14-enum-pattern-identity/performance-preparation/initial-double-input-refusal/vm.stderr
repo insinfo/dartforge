@@ -1,0 +1,6 @@
+Unhandled exception:
+type 'double' is not a subtype of type 'int' in type cast
+#0      convertFormatValue (package:dart_ui/src/graphics/image/codecs/color/format.dart:97:25)
+#1      main (file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/probe.dart:15:23)
+#2      _delayEntrypointInvocation.<anonymous closure> (dart:isolate-patch/isolate_patch.dart:295:33)
+#3      _RawReceivePort._handleMessage (dart:isolate-patch/isolate_patch.dart:184:12)

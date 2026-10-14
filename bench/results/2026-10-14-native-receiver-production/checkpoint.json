@@ -1,0 +1,21 @@
+{
+  "producer_sha256": "bee770c7623e94439a5df1d5b792af9c53577c682398c6491c379befe51ef171",
+  "changes": [
+    "Enable certified tracing getter wrapper direct calls",
+    "Propagate certified canonical scalar object cache receiver identities",
+    "Lower certified SDK enum constant patterns to identity comparison"
+  ],
+  "native_gate": {
+    "passed": 666,
+    "failed": 0
+  },
+  "file_explorer_bytes": {
+    "all_disabled": 28459152,
+    "all_enabled": 28310160,
+    "saved": 148992
+  },
+  "isolated_canonical_cache_size_gain_bytes": 0,
+  "gui": "gui/validation.json",
+  "performance": "../2026-10-14-enum-pattern-identity/performance/measurement.json",
+  "remaining": "File Explorer remains approximately 2.42 times the official AOT size. Generic Codec receiver reachability remains broad; ARC aggregate CPU gap persists."
+}

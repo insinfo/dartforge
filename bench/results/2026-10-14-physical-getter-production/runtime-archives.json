@@ -1,0 +1,20 @@
+{
+  "scope": "Exact archive names recovered from immutable compiler and matching producer build files; MAIN and PRODUCTION are selected for native executable/source-SDK static link. DLL recorded for completeness.",
+  "archives": [
+    {
+      "path": "target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_runtime_061d7439b74a879e7150e9c745a04006.a",
+      "bytes": 12284744,
+      "sha256": "64e62821aab8b1f0af0c2a7acd69ab56ab77e52031721ae810437aaa796464e1"
+    },
+    {
+      "path": "target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_rtprod_0694aadecdb4601046a5bd59a4b4ce53.a",
+      "bytes": 12284528,
+      "sha256": "6880fc8750bc1fe92df2acab9e32051e08c3d1afad81fd87fccd4413347b682f"
+    },
+    {
+      "path": "target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_rtdll_c3f4c938c822f8afaaa628066f0d8b9f.a",
+      "bytes": 12885632,
+      "sha256": "33f11ffd535730fb4307c83e2f45ba2f83d54e772fa130f1f5657a2a4b49dbb0"
+    }
+  ]
+}

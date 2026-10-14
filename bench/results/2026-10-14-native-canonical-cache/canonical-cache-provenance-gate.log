@@ -1,0 +1,35 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.75s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 16 tests
+test pruning::receiver_provenance::tests::allocation_call_and_cfg_phi_union_are_body_proved ... ok
+test pruning::receiver_provenance::tests::borrowed_witness_rejects_same_symbol_body_replacement ... ok
+test pruning::receiver_provenance::tests::cycles_duplicates_wrong_call_abi_and_bad_cfg_are_unknown ... ok
+test pruning::receiver_provenance::canonical_cache::tests::cache_allocation_propagates_to_callers_without_using_getter_name ... ok
+test pruning::receiver_provenance::tests::mutations_keep_physical_class_but_loaded_alias_does_not_gain_fact ... ok
+test pruning::receiver_provenance::tests::throws_do_not_pollute_normal_returns_and_dead_returns_are_not_evidence ... ok
+test pruning::receiver_provenance::tests::parameter_load_capture_and_opaque_returns_stay_unknown ... ok
+test pruning::receiver_provenance::tests::unreviewed_prepared_arc_allocation_abi_stays_unknown ... ok
+test pruning::receiver_provenance::tests::native_homonym_or_substituted_factory_body_is_not_a_certificate ... ok
+test pruning::receiver_provenance::tests::phi_unknown_arm_and_non_dominating_definition_do_not_narrow ... ok
+test pruning::receiver_provenance::tests::instance_allocation_cids_and_factory_returns_are_physical ... ok
+test pruning::receiver_provenance::canonical_cache::tests::cache_rejects_changed_returns_publication_and_opaque_effects ... ok
+test pruning::receiver_provenance::tests::instance_runtime_allocations_reject_unproved_abi_ranges_and_homonyms ... ok
+test pruning::receiver_provenance::canonical_cache::tests::cache_rejects_external_writers_arc_stores_duplicates_and_runtime_homonyms ... ok
+test pruning::receiver_provenance::canonical_cache::tests::certified_receiver_limits_both_typed_and_untyped_selector_domains ... ok
+test pruning::receiver_provenance::tests::actual_sdk_list_filled_returns_are_proved_without_trusting_captured_receivers ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 648 filtered out; finished in 8.35s
+

@@ -426,3 +426,47 @@ fn nominal_receiver_hint_and_shadowed_runtime_registration_do_not_certify() {
         assert_eq!(rewrite_getters(&mut module), 0, "shadow {shadow}");
     }
 }
+
+#[test]
+fn production_optimizer_hook_rewrites_before_inlining() {
+    let mut module = sample();
+    super::super::optimize(&mut module);
+    assert!(
+        !module.functions[1]
+            .blocks
+            .iter()
+            .flat_map(|b| &b.instructions)
+            .any(|(_, instruction, _)| matches!(instruction, Instruction::CallSelector { .. }))
+    );
+    assert!(module.functions[1].blocks.iter().flat_map(|b| &b.instructions).any(|(_, instruction, _)| matches!(instruction, Instruction::CallStatic { symbol, .. } if symbol == "getter")), "descriptor reads intentionally keep the same uniform wrapper out of inlining");
+}
+
+#[test]
+fn ordinary_nullable_factory_unknown_and_override_boundaries_remain_indirect() {
+    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+        let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/devirtualization/physical_getter_boundaries.dart");
+        let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
+        let mut interner = dartforge_intern::Interner::new();
+        let program = dartforge_elements::load::load(&entry, &sdk, None, &mut interner).unwrap();
+        let mut table = dartforge_types::TypeTable::new();
+        let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
+        let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+        let libraries: Vec<_> = program.libraries.iter().enumerate().filter(|(_, library)| !library.is_sdk).map(|(i, _)| dartforge_elements::model::LibraryId(i as u32)).collect();
+        let (bodies, _) = dartforge_types::infer_library_bodies_with_locals(&program, &interner, &mut table, &core, &mut outline, &libraries);
+        let context = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies).with_source_sdk();
+        let mut module = crate::lower::lower_program(&context);
+        assert!(module.errors.is_empty(), "{:?}", module.errors);
+        module.arc_fixed_ancestry = true;
+        for function in &mut module.functions { super::super::mem2reg::promote(function); }
+        let original = module.functions.clone();
+        assert_eq!(rewrite_getters(&mut module), 2, "only direct.value and direct.failure qualify");
+        for suffix in ["..readUnknown", "..probeMixed"] {
+            let before = original.iter().find(|f| f.symbol.ends_with(suffix)).unwrap();
+            let after = module.functions.iter().find(|f| f.symbol.ends_with(suffix)).unwrap();
+            assert_eq!(format!("{before:?}"), format!("{after:?}"), "unknown parameter or actual overriding receiver union must remain untouched");
+        }
+        let main = module.functions.iter().find(|f| f.symbol == "dart_main").unwrap();
+        assert!(main.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)| matches!(i, Instruction::CallSelector { args, names, .. } if !args.is_empty() && names == &["named"])));
+        assert!(main.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)| matches!(i, Instruction::CallStatic { symbol, .. } if symbol.ends_with("..namedValue"))));
+    }).unwrap().join().unwrap();
+}

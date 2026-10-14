@@ -1,0 +1,19 @@
+tracing-off compile 0
+tracing-off normal PASS
+tracing-off stress PASS
+tracing-on compile 0
+tracing-on normal PASS
+tracing-on stress PASS
+arc-off compile 0
+arc-off normal PASS
+arc-off stress PASS
+arc-on compile 0
+arc-on normal PASS
+arc-on stress PASS
+prepared-off compile 0
+prepared-off normal PASS
+prepared-off stress PASS
+prepared-on compile 0
+prepared-on normal PASS
+prepared-on stress PASS
+ALL_NATIVE_PASS 12

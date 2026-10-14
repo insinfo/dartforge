@@ -275,7 +275,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     _ => e,
                 };
                 let c = self.lower_expr(ast, *e);
-                let ok = self.operate(BinaryOp::Eq, c, val_ref, false, span);
+                let ok = self.enum_constant_pattern_identity(*e, c.clone(), val_ref.clone())
+                    .unwrap_or_else(|| self.operate(BinaryOp::Eq, c, val_ref, false, span));
                 self.require(ok, failure);
             }
             PatternKind::Relational { op, value } => {

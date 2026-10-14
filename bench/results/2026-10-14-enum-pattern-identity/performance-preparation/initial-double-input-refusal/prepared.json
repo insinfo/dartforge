@@ -1,0 +1,23 @@
+{
+  "inputs_before": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-receiver-producer/dartforge": "bee770c7623e94439a5df1d5b792af9c53577c682398c6491c379befe51ef171",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/probe.dart": "14200bab8704aa5b4fe2303897a71a7f3876389440dca3b506ae9f9d913fa59d",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json": "c5c1c22ad085905aa6341ddf11b3999b001cb6ac128a61f117a1fb8d532ec934",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/lib/src/graphics/image/codecs/color/format.dart": "c7750e025311ea78a05c0ec73cec464a8845ac99599b61be9c089afee97c62db"
+  },
+  "commands": [
+    {
+      "label": "vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/enum-pattern-identity/format-performance/probe.dart",
+        "1"
+      ],
+      "exit": 255,
+      "enum_optout": null
+    }
+  ],
+  "artifacts": {},
+  "scope": "Compile-only paired real convertFormatValue throughput harness. Runs with rounds=1 below verify checksum, not performance. Timing not measured."
+}
