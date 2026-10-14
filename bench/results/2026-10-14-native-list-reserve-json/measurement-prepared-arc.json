@@ -1,0 +1,679 @@
+{
+  "mode": "prepared-arc",
+  "environment": {
+    "DARTFORGE_ARC_CHECK": "1",
+    "DARTFORGE_EFFECTS": "check"
+  },
+  "records": [
+    {
+      "pair": 1,
+      "label": "before",
+      "wall_ns": 72594199917,
+      "kernels": {
+        "decode_small": {
+          "rounds_us": [
+            802499,
+            813236,
+            812054,
+            813790,
+            817847,
+            817551
+          ],
+          "median_after_first_us": 813790,
+          "result": "999993056"
+        },
+        "encode_small": {
+          "rounds_us": [
+            942987,
+            943428,
+            987698,
+            945445,
+            946794,
+            991229
+          ],
+          "median_after_first_us": 946794,
+          "result": "948440368"
+        },
+        "decode_medium": {
+          "rounds_us": [
+            963864,
+            975496,
+            1000302,
+            987784,
+            1034142,
+            985816
+          ],
+          "median_after_first_us": 987784,
+          "result": "298456378"
+        },
+        "encode_medium": {
+          "rounds_us": [
+            1359242,
+            1441841,
+            1378131,
+            1373185,
+            1363506,
+            1362079
+          ],
+          "median_after_first_us": 1373185,
+          "result": "128399358"
+        },
+        "decode_large": {
+          "rounds_us": [
+            3054372,
+            3095189,
+            3114197,
+            2992816
+          ],
+          "median_after_first_us": 3095189,
+          "result": "158414064"
+        },
+        "encode_large": {
+          "rounds_us": [
+            2113182,
+            2054044,
+            2025389,
+            2035512
+          ],
+          "median_after_first_us": 2035512,
+          "result": "303257809"
+        },
+        "indented": {
+          "rounds_us": [
+            1290252,
+            1295164,
+            1333887,
+            1287751,
+            1334280,
+            1288941
+          ],
+          "median_after_first_us": 1295164,
+          "result": "788061168"
+        },
+        "utf8_bytes": {
+          "rounds_us": [
+            794860,
+            775153,
+            782046,
+            781575,
+            782137,
+            778472
+          ],
+          "median_after_first_us": 781575,
+          "result": "558946680"
+        },
+        "reviver": {
+          "rounds_us": [
+            385854,
+            394174,
+            392779,
+            390585,
+            388302,
+            385671
+          ],
+          "median_after_first_us": 390585,
+          "result": "548498912"
+        }
+      }
+    },
+    {
+      "pair": 1,
+      "label": "after",
+      "wall_ns": 72358409459,
+      "kernels": {
+        "decode_small": {
+          "rounds_us": [
+            815477,
+            821642,
+            811969,
+            806458,
+            804820,
+            811053
+          ],
+          "median_after_first_us": 811053,
+          "result": "999993056"
+        },
+        "encode_small": {
+          "rounds_us": [
+            934960,
+            936538,
+            980348,
+            934888,
+            933973,
+            978127
+          ],
+          "median_after_first_us": 936538,
+          "result": "948440368"
+        },
+        "decode_medium": {
+          "rounds_us": [
+            962283,
+            970524,
+            973497,
+            967831,
+            1036802,
+            984501
+          ],
+          "median_after_first_us": 973497,
+          "result": "298456378"
+        },
+        "encode_medium": {
+          "rounds_us": [
+            1349145,
+            1346838,
+            1357400,
+            1363164,
+            1346959,
+            1369162
+          ],
+          "median_after_first_us": 1357400,
+          "result": "128399358"
+        },
+        "decode_large": {
+          "rounds_us": [
+            3081799,
+            3147005,
+            3128092,
+            2991919
+          ],
+          "median_after_first_us": 3128092,
+          "result": "158414064"
+        },
+        "encode_large": {
+          "rounds_us": [
+            2098615,
+            2095102,
+            2008798,
+            2017270
+          ],
+          "median_after_first_us": 2017270,
+          "result": "303257809"
+        },
+        "indented": {
+          "rounds_us": [
+            1269979,
+            1268405,
+            1319041,
+            1269807,
+            1314920,
+            1279685
+          ],
+          "median_after_first_us": 1279685,
+          "result": "788061168"
+        },
+        "utf8_bytes": {
+          "rounds_us": [
+            781470,
+            782215,
+            774505,
+            771616,
+            772108,
+            768601
+          ],
+          "median_after_first_us": 772108,
+          "result": "558946680"
+        },
+        "reviver": {
+          "rounds_us": [
+            385955,
+            418221,
+            394060,
+            392765,
+            390624,
+            401599
+          ],
+          "median_after_first_us": 394060,
+          "result": "548498912"
+        }
+      }
+    },
+    {
+      "pair": 2,
+      "label": "after",
+      "wall_ns": 71991283167,
+      "kernels": {
+        "decode_small": {
+          "rounds_us": [
+            798197,
+            810520,
+            811174,
+            810215,
+            812994,
+            811015
+          ],
+          "median_after_first_us": 811015,
+          "result": "999993056"
+        },
+        "encode_small": {
+          "rounds_us": [
+            940199,
+            936600,
+            987837,
+            940537,
+            949486,
+            984364
+          ],
+          "median_after_first_us": 949486,
+          "result": "948440368"
+        },
+        "decode_medium": {
+          "rounds_us": [
+            1046812,
+            968987,
+            972819,
+            971037,
+            1023123,
+            972076
+          ],
+          "median_after_first_us": 972076,
+          "result": "298456378"
+        },
+        "encode_medium": {
+          "rounds_us": [
+            1366360,
+            1353839,
+            1379347,
+            1351314,
+            1355926,
+            1352887
+          ],
+          "median_after_first_us": 1353839,
+          "result": "128399358"
+        },
+        "decode_large": {
+          "rounds_us": [
+            3066319,
+            3112155,
+            3094177,
+            2964864
+          ],
+          "median_after_first_us": 3094177,
+          "result": "158414064"
+        },
+        "encode_large": {
+          "rounds_us": [
+            2104028,
+            2016963,
+            2010753,
+            2021632
+          ],
+          "median_after_first_us": 2016963,
+          "result": "303257809"
+        },
+        "indented": {
+          "rounds_us": [
+            1275581,
+            1291785,
+            1352454,
+            1272676,
+            1327581,
+            1279924
+          ],
+          "median_after_first_us": 1291785,
+          "result": "788061168"
+        },
+        "utf8_bytes": {
+          "rounds_us": [
+            788132,
+            768361,
+            767583,
+            772190,
+            773503,
+            771746
+          ],
+          "median_after_first_us": 771746,
+          "result": "558946680"
+        },
+        "reviver": {
+          "rounds_us": [
+            385191,
+            391386,
+            384454,
+            384383,
+            385643,
+            395331
+          ],
+          "median_after_first_us": 385643,
+          "result": "548498912"
+        }
+      }
+    },
+    {
+      "pair": 2,
+      "label": "before",
+      "wall_ns": 71830322042,
+      "kernels": {
+        "decode_small": {
+          "rounds_us": [
+            794767,
+            809287,
+            807285,
+            808738,
+            809669,
+            811362
+          ],
+          "median_after_first_us": 809287,
+          "result": "999993056"
+        },
+        "encode_small": {
+          "rounds_us": [
+            936107,
+            934506,
+            998863,
+            940813,
+            934650,
+            981643
+          ],
+          "median_after_first_us": 940813,
+          "result": "948440368"
+        },
+        "decode_medium": {
+          "rounds_us": [
+            960358,
+            967340,
+            965919,
+            966843,
+            1020410,
+            975146
+          ],
+          "median_after_first_us": 967340,
+          "result": "298456378"
+        },
+        "encode_medium": {
+          "rounds_us": [
+            1348055,
+            1344256,
+            1347465,
+            1343285,
+            1340780,
+            1345536
+          ],
+          "median_after_first_us": 1344256,
+          "result": "128399358"
+        },
+        "decode_large": {
+          "rounds_us": [
+            3058406,
+            3105250,
+            3118572,
+            3003103
+          ],
+          "median_after_first_us": 3105250,
+          "result": "158414064"
+        },
+        "encode_large": {
+          "rounds_us": [
+            2100834,
+            2017258,
+            2010013,
+            2014296
+          ],
+          "median_after_first_us": 2014296,
+          "result": "303257809"
+        },
+        "indented": {
+          "rounds_us": [
+            1266988,
+            1261049,
+            1316821,
+            1275384,
+            1315789,
+            1271311
+          ],
+          "median_after_first_us": 1275384,
+          "result": "788061168"
+        },
+        "utf8_bytes": {
+          "rounds_us": [
+            790189,
+            775176,
+            794185,
+            781772,
+            781374,
+            779091
+          ],
+          "median_after_first_us": 781374,
+          "result": "558946680"
+        },
+        "reviver": {
+          "rounds_us": [
+            385035,
+            396832,
+            389602,
+            391390,
+            385501,
+            388958
+          ],
+          "median_after_first_us": 389602,
+          "result": "548498912"
+        }
+      }
+    },
+    {
+      "pair": 3,
+      "label": "before",
+      "wall_ns": 72906760041,
+      "kernels": {
+        "decode_small": {
+          "rounds_us": [
+            828905,
+            821141,
+            824230,
+            821393,
+            826242,
+            819594
+          ],
+          "median_after_first_us": 821393,
+          "result": "999993056"
+        },
+        "encode_small": {
+          "rounds_us": [
+            947475,
+            949909,
+            999524,
+            953480,
+            960243,
+            990205
+          ],
+          "median_after_first_us": 960243,
+          "result": "948440368"
+        },
+        "decode_medium": {
+          "rounds_us": [
+            977870,
+            986490,
+            984108,
+            987043,
+            1038702,
+            993591
+          ],
+          "median_after_first_us": 987043,
+          "result": "298456378"
+        },
+        "encode_medium": {
+          "rounds_us": [
+            1380012,
+            1374545,
+            1376773,
+            1377796,
+            1367618,
+            1375505
+          ],
+          "median_after_first_us": 1375505,
+          "result": "128399358"
+        },
+        "decode_large": {
+          "rounds_us": [
+            3095685,
+            3229306,
+            3162652,
+            3003626
+          ],
+          "median_after_first_us": 3162652,
+          "result": "158414064"
+        },
+        "encode_large": {
+          "rounds_us": [
+            2138451,
+            2048492,
+            2054025,
+            2043612
+          ],
+          "median_after_first_us": 2048492,
+          "result": "303257809"
+        },
+        "indented": {
+          "rounds_us": [
+            1293069,
+            1313328,
+            1343074,
+            1298660,
+            1348282,
+            1306716
+          ],
+          "median_after_first_us": 1313328,
+          "result": "788061168"
+        },
+        "utf8_bytes": {
+          "rounds_us": [
+            788473,
+            782398,
+            781732,
+            811127,
+            778618,
+            789699
+          ],
+          "median_after_first_us": 782398,
+          "result": "558946680"
+        },
+        "reviver": {
+          "rounds_us": [
+            386308,
+            396483,
+            391668,
+            389790,
+            388288,
+            388771
+          ],
+          "median_after_first_us": 389790,
+          "result": "548498912"
+        }
+      }
+    },
+    {
+      "pair": 3,
+      "label": "after",
+      "wall_ns": 71799706083,
+      "kernels": {
+        "decode_small": {
+          "rounds_us": [
+            793973,
+            809231,
+            809625,
+            812254,
+            815559,
+            809144
+          ],
+          "median_after_first_us": 809625,
+          "result": "999993056"
+        },
+        "encode_small": {
+          "rounds_us": [
+            937066,
+            936572,
+            981413,
+            940141,
+            945723,
+            980105
+          ],
+          "median_after_first_us": 945723,
+          "result": "948440368"
+        },
+        "decode_medium": {
+          "rounds_us": [
+            990098,
+            980123,
+            974937,
+            971754,
+            1025528,
+            971833
+          ],
+          "median_after_first_us": 974937,
+          "result": "298456378"
+        },
+        "encode_medium": {
+          "rounds_us": [
+            1350306,
+            1351360,
+            1352023,
+            1369005,
+            1357489,
+            1438453
+          ],
+          "median_after_first_us": 1357489,
+          "result": "128399358"
+        },
+        "decode_large": {
+          "rounds_us": [
+            3039441,
+            3073064,
+            3082735,
+            2958649
+          ],
+          "median_after_first_us": 3073064,
+          "result": "158414064"
+        },
+        "encode_large": {
+          "rounds_us": [
+            2109346,
+            2016131,
+            2019871,
+            2016634
+          ],
+          "median_after_first_us": 2016634,
+          "result": "303257809"
+        },
+        "indented": {
+          "rounds_us": [
+            1280334,
+            1278242,
+            1318869,
+            1274673,
+            1353312,
+            1278373
+          ],
+          "median_after_first_us": 1278373,
+          "result": "788061168"
+        },
+        "utf8_bytes": {
+          "rounds_us": [
+            779859,
+            770523,
+            774730,
+            771985,
+            775178,
+            764259
+          ],
+          "median_after_first_us": 771985,
+          "result": "558946680"
+        },
+        "reviver": {
+          "rounds_us": [
+            383893,
+            393857,
+            385254,
+            388306,
+            386705,
+            385141
+          ],
+          "median_after_first_us": 386705,
+          "result": "548498912"
+        }
+      }
+    }
+  ],
+  "timing_scope": "Fresh process wall includes deterministic setup and all kernels; kernel medians exclude first round. Three alternating pairs, ARC checks enabled, stress disabled.",
+  "diagnostic_scope": "Diagnostic-enabled before/after comparison only: ARC_CHECK=1 and EFFECTS=check. Includes ARC synchronization audits; not production throughput, not a cross-mode ARC comparison.",
+  "all_stdout_checksums_exact_vm": true,
+  "all_exits_zero_and_stderr_empty": true
+}

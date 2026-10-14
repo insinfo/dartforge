@@ -1,0 +1,6 @@
+before tracing -normal {'exit': 0, 'stdout_exact_vm': True, 'stderr_empty': True}
+before tracing -stress {'exit': 0, 'stdout_exact_vm': True, 'stderr_empty': True}
+before legacy-arc -normal {'exit': 0, 'stdout_exact_vm': True, 'stderr_empty': True}
+before legacy-arc -stress {'exit': -15, 'stdout_exact_vm': False, 'stderr_empty': True}
+before prepared-arc -normal {'exit': 0, 'stdout_exact_vm': True, 'stderr_empty': True}
+before prepared-arc -stress {'exit': -15, 'stdout_exact_vm': False, 'stderr_empty': True}

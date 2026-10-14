@@ -1,0 +1,103 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/list-reserve-after-compiler/dartforge",
+  "compiler_sha256": "2919f3ffadb7e8d2b01b7766b82cd768482548edc0be8d58599bb902ac2d2c99",
+  "sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk",
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart": "9781ba5b478ef20313fe280ed5fb0b18824e55a50501d507b2d22fe8ea307c38",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/common.dart": "d02c6fc0e3cd9b0fc42233aa9ea182c836744cafc492d41b8ae3c54045aecf95"
+  },
+  "phase": "timing",
+  "label": "after",
+  "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+  "source_sha256": "9781ba5b478ef20313fe280ed5fb0b18824e55a50501d507b2d22fe8ea307c38",
+  "harness_sha256": "d02c6fc0e3cd9b0fc42233aa9ea182c836744cafc492d41b8ae3c54045aecf95",
+  "artifacts": {
+    "tracing": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/list-reserve-after-compiler/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/list-reserve-json/timing/after/tracing/program"
+      ],
+      "arc_prepared": "0",
+      "compile_exit": 0,
+      "environment": {
+        "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+        "DARTFORGE_ARC_CHECK": "1",
+        "DARTFORGE_EFFECTS": "check",
+        "DARTFORGE_ARC_PORT_PRUNING": "1",
+        "DARTFORGE_FACTORY_RECEIVER_PROVENANCE": "1",
+        "DARTFORGE_ARC_PREPARED": "0"
+      },
+      "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/list-reserve-json/timing/after/tracing/program",
+      "artifact_sha256": "c0dbd0eb2c8c452ade72cbe722b6efe06612f7d2405736c8d255de80dcf7a865",
+      "artifact_bytes": 3550080
+    },
+    "legacy-arc": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/list-reserve-after-compiler/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=arc",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/list-reserve-json/timing/after/legacy-arc/program"
+      ],
+      "arc_prepared": "0",
+      "compile_exit": 0,
+      "environment": {
+        "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+        "DARTFORGE_ARC_CHECK": "1",
+        "DARTFORGE_EFFECTS": "check",
+        "DARTFORGE_ARC_PORT_PRUNING": "1",
+        "DARTFORGE_FACTORY_RECEIVER_PROVENANCE": "1",
+        "DARTFORGE_ARC_PREPARED": "0"
+      },
+      "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/list-reserve-json/timing/after/legacy-arc/program",
+      "artifact_sha256": "afcf6037c291bf2577ac074bbc89cbcd13a4040b6c0bcc330c95a213236715bf",
+      "artifact_bytes": 3401424
+    },
+    "prepared-arc": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/list-reserve-after-compiler/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=arc",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/list-reserve-json/timing/after/prepared-arc/program"
+      ],
+      "arc_prepared": "1",
+      "compile_exit": 0,
+      "environment": {
+        "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+        "DARTFORGE_ARC_CHECK": "1",
+        "DARTFORGE_EFFECTS": "check",
+        "DARTFORGE_ARC_PORT_PRUNING": "1",
+        "DARTFORGE_FACTORY_RECEIVER_PROVENANCE": "1",
+        "DARTFORGE_ARC_PREPARED": "1"
+      },
+      "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/list-reserve-json/timing/after/prepared-arc/program",
+      "artifact_sha256": "d8f44493f71bf8e25de54c00c1cca8aca917f05194c25f67fc446d033a3d0418",
+      "artifact_bytes": 4112368
+    }
+  }
+}

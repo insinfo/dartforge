@@ -1,0 +1,51 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-null-metadata-compiler/dartforge",
+  "compiler_sha256": "02dd0c2ef1d5a4eeefdc9a1a76faf4d4ad0b4f4711989480bb5ec5e2087c2002",
+  "sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk",
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart": "9781ba5b478ef20313fe280ed5fb0b18824e55a50501d507b2d22fe8ea307c38",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/common.dart": "d02c6fc0e3cd9b0fc42233aa9ea182c836744cafc492d41b8ae3c54045aecf95"
+  },
+  "phase": "correctness",
+  "label": "before",
+  "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/list-reserve-json/correctness-source/json.dart",
+  "source_sha256": "9781ba5b478ef20313fe280ed5fb0b18824e55a50501d507b2d22fe8ea307c38",
+  "harness_sha256": "7ec9f3cb6858d61168c81d567a19831fc970a5d2fb08ae962df75f09ca7825ac",
+  "artifacts": {
+    "tracing": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/arc-null-metadata-compiler/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/list-reserve-json/correctness-source/json.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/list-reserve-json/correctness/before/tracing/program"
+      ],
+      "arc_prep": "0",
+      "compile_exit": 0,
+      "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/list-reserve-json/correctness/before/tracing/program",
+      "artifact_sha256": "5fd0c66be1e74f1736ec6ed1bbc0e5265e719f226f855f6bb667babdd4a400ec",
+      "artifact_bytes": 3533504,
+      "runs": {
+        "-normal": {
+          "exit": 0,
+          "stdout_exact_vm": true,
+          "stderr_empty": true
+        },
+        "-stress": {
+          "exit": 0,
+          "stdout_exact_vm": true,
+          "stderr_empty": true
+        }
+      }
+    }
+  },
+  "vm_exit": 0,
+  "vm_stdout_sha256": "143f593ae6b75f2c024989f9d4e3a81e2c9b05c4fcffc41cf3df684b5d0313f6"
+}

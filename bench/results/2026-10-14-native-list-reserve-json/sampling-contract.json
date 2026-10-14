@@ -1,0 +1,31 @@
+{
+  "scope": "Native JSON benchmark, not HTTP or overall application performance.",
+  "benchmark": "bench/performance/json.dart byte-identical bodies",
+  "correctness": "Untimed one-call common.dart snapshot; exact VM stdout and empty stderr in normal execution. Optional full JSON stress is supplementary; reserve lifetime stress is covered by focused runtime tests.",
+  "timing": "Original common.dart only after parent grants isolated quiet window.",
+  "profiles": [
+    "tracing",
+    "legacy-arc",
+    "prepared-arc"
+  ],
+  "pairs": 3,
+  "fresh_process_order": [
+    [
+      "before",
+      "after"
+    ],
+    [
+      "after",
+      "before"
+    ],
+    [
+      "before",
+      "after"
+    ]
+  ],
+  "kernel_statistic": "Each fresh process retains raw rounds; compare process median excluding first round. No pooling across modes.",
+  "process_wall_scope": "Includes document generation, deterministic validation and all nine kernels; not interchangeable with per-kernel time.",
+  "provenance": "Pin compiler/input/harness/artifact SHA256; identical SDK and profile flags; ARC_CHECK=1 both sides; no GC stress during timing.",
+  "limitation": "JSON contains list growth amid parsing, map/string/number work; a supplemental growth-only kernel may be needed if the effect is buried. No causal speed claim without isolated results.",
+  "diagnostic_scope": "DARTFORGE_ARC_CHECK=1 and DARTFORGE_EFFECTS=check are enabled. ARC synchronization audits are included; these samples are not production throughput and do not support cross-mode ARC comparisons."
+}

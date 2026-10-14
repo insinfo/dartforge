@@ -1,0 +1,22 @@
+{
+  "normal_correctness_all_six_vm_exact": true,
+  "timing_artifacts_all_six_compile_exit0": true,
+  "timing_measured": true,
+  "compiler_sha256": {
+    "before": "02dd0c2ef1d5a4eeefdc9a1a76faf4d4ad0b4f4711989480bb5ec5e2087c2002",
+    "after": "2919f3ffadb7e8d2b01b7766b82cd768482548edc0be8d58599bb902ac2d2c99"
+  },
+  "sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk",
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart": "9781ba5b478ef20313fe280ed5fb0b18824e55a50501d507b2d22fe8ea307c38",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/common.dart": "d02c6fc0e3cd9b0fc42233aa9ea182c836744cafc492d41b8ae3c54045aecf95"
+  },
+  "mode_scope": [
+    "tracing",
+    "legacy-arc",
+    "prepared-arc"
+  ],
+  "stress_scope": "Before tracing passed; before legacy/prepared optional full JSON stress incomplete/cancelled. After normal only.",
+  "timing_scope": "Diagnostic-enabled before/after comparison only: ARC_CHECK=1 and EFFECTS=check. Includes ARC synchronization audits; not production throughput, not a cross-mode ARC comparison.",
+  "all18_timed_runs_exact_vm": true
+}

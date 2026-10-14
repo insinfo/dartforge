@@ -1,0 +1,63 @@
+{
+  "scope": "Diagnostic-enabled before/after comparison only: ARC_CHECK=1 and EFFECTS=check. Includes ARC synchronization audits; not production throughput, not a cross-mode ARC comparison.",
+  "complete": true,
+  "pairs_per_mode": 3,
+  "fresh_process_runs": 18,
+  "all_timed_results_exact_vm": true,
+  "profiles": {
+    "tracing": {
+      "paired_process_wall_after_over_before": 0.9920262601741308,
+      "paired_process_wall_percent_change": -0.7973739825869242,
+      "kernel_percent_changes": {
+        "decode_small": 0.013531189391557952,
+        "encode_small": -1.3886282604616218,
+        "decode_medium": -1.0992599042229045,
+        "encode_medium": -1.5569161564413347,
+        "decode_large": -1.0374826943784554,
+        "encode_large": 0.5053600545835035,
+        "indented": 0.5078161565103434,
+        "utf8_bytes": 0.7597742845626865,
+        "reviver": 0.9102402022755918
+      },
+      "kernel_statistic": "Median of three paired after/before ratios; each sample uses kernel median excluding first round. Raw rounds retained.",
+      "mode_scope": "Diagnostic-enabled before/after comparison only: ARC_CHECK=1 and EFFECTS=check. Includes ARC synchronization audits; not production throughput, not a cross-mode ARC comparison."
+    },
+    "legacy-arc": {
+      "paired_process_wall_after_over_before": 1.0118923042014039,
+      "paired_process_wall_percent_change": 1.1892304201403858,
+      "kernel_percent_changes": {
+        "decode_small": 0.5463451394122076,
+        "encode_small": 0.5632389129246462,
+        "decode_medium": 2.440103036473662,
+        "encode_medium": 0.9084488763604126,
+        "decode_large": 0.9823752997094815,
+        "encode_large": 0.5844691178756412,
+        "indented": 2.403115898607888,
+        "utf8_bytes": 0.29070036998228854,
+        "reviver": -0.16193840268008408
+      },
+      "kernel_statistic": "Median of three paired after/before ratios; each sample uses kernel median excluding first round. Raw rounds retained.",
+      "mode_scope": "Diagnostic-enabled before/after comparison only: ARC_CHECK=1 and EFFECTS=check. Includes ARC synchronization audits; not production throughput, not a cross-mode ARC comparison."
+    },
+    "prepared-arc": {
+      "paired_process_wall_after_over_before": 0.9967519380574538,
+      "paired_process_wall_percent_change": -0.3248061942546232,
+      "kernel_percent_changes": {
+        "decode_small": -0.3363275537915156,
+        "encode_small": -1.08323457901085,
+        "decode_medium": -1.2264916523393565,
+        "encode_medium": -1.1495173629190503,
+        "decode_large": -0.35658964656629655,
+        "encode_large": -0.8961872983308417,
+        "indented": -1.1951382218776896,
+        "utf8_bytes": -1.2321884270528605,
+        "reviver": -0.7914518073834587
+      },
+      "kernel_statistic": "Median of three paired after/before ratios; each sample uses kernel median excluding first round. Raw rounds retained.",
+      "mode_scope": "Diagnostic-enabled before/after comparison only: ARC_CHECK=1 and EFFECTS=check. Includes ARC synchronization audits; not production throughput, not a cross-mode ARC comparison."
+    }
+  },
+  "compiler_before_sha256": "02dd0c2ef1d5a4eeefdc9a1a76faf4d4ad0b4f4711989480bb5ec5e2087c2002",
+  "compiler_after_sha256": "2919f3ffadb7e8d2b01b7766b82cd768482548edc0be8d58599bb902ac2d2c99",
+  "interpretation": "Small mixed before/after changes in this diagnostic workload do not demonstrate a broad native JSON speed gain. Eliminating one temporary list-growth copy is supported by implementation and lifetime tests, not a production-throughput claim."
+}

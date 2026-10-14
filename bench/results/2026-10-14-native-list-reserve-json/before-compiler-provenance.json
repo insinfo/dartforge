@@ -1,0 +1,14 @@
+{
+  "compiler_sha256": "02dd0c2ef1d5a4eeefdc9a1a76faf4d4ad0b4f4711989480bb5ec5e2087c2002",
+  "features": [
+    "native"
+  ],
+  "source_sha256": {
+    "crates/emit_native/src/context.rs": "2141e4393078b8b24c3fc3fdd6a0e36b1c721c9020a02bfd2b849f9ddf4d72cd",
+    "crates/emit_native/src/hir.rs": "a7392507c5bcba42ccb699ce69f7bc70618e5f6ef162cfda1394328e73af22db",
+    "crates/emit_native/src/llvm/mod.rs": "cbaf9eac91c12b93f4e45887a2df95e1a3c0533805d1fd9a61b70945f14baa6c",
+    "crates/runtime/src/natives_lists.rs": "63cb0a0def7e03fc98aa49560a3a78528afff728a4fc5df1fdfc05ea2410c3dd",
+    "crates/runtime/src/events.rs": "1be26c16dfef9a024bbc6380ae7c16174694c65c69405f3753f10a71957b0490",
+    "crates/runtime/src/ffi_callbacks.rs": "86d40a8c1f995182cd241b5271276352d881c6900a75b4e5cdad8db58cb70aac"
+  }
+}

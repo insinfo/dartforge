@@ -1,0 +1,50 @@
+{
+  "before": {
+    "compiler": "target/native-provenance/arc-null-metadata-compiler/dartforge",
+    "compiler_sha256": "02dd0c2ef1d5a4eeefdc9a1a76faf4d4ad0b4f4711989480bb5ec5e2087c2002",
+    "archives": {
+      "dartforge_rtdll_e1c5635a37626174b2e35557085e6e8d.a": [
+        {
+          "path": "target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_rtdll_e1c5635a37626174b2e35557085e6e8d.a",
+          "sha256": "a3e58ff469000a542154936de20e925890aba0067d16d8b8326195bbd94cdee4"
+        }
+      ],
+      "dartforge_rtprod_4dc4411db1e532cc325d15feaf70e33b.a": [
+        {
+          "path": "target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_rtprod_4dc4411db1e532cc325d15feaf70e33b.a",
+          "sha256": "948b191cd8b00f10e3c7b4b6fb1c89efa372d225a1c571ce89450486c18173ef"
+        }
+      ],
+      "dartforge_runtime_aef8eb5e455d5b523ae9fc034a4b2fb5.a": [
+        {
+          "path": "target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_runtime_aef8eb5e455d5b523ae9fc034a4b2fb5.a",
+          "sha256": "f38e20b56274e908aa529b2017a9a18f8af405a309f0f8c8f9cf56088b3a7553"
+        }
+      ]
+    }
+  },
+  "after": {
+    "compiler": "target/native-provenance/list-reserve-after-compiler/dartforge",
+    "compiler_sha256": "2919f3ffadb7e8d2b01b7766b82cd768482548edc0be8d58599bb902ac2d2c99",
+    "archives": {
+      "dartforge_rtdll_ea3d26de25a55dea5962988ad79f0be3.a": [
+        {
+          "path": "target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_rtdll_ea3d26de25a55dea5962988ad79f0be3.a",
+          "sha256": "e412002c62c98f4358b2e1067abfc63ebfcf5656279a46fe8985b10b09faaf8b"
+        }
+      ],
+      "dartforge_rtprod_e7942b864f3346c0e5443a071b3b388a.a": [
+        {
+          "path": "target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_rtprod_e7942b864f3346c0e5443a071b3b388a.a",
+          "sha256": "b9cecf5e144d540f661ac0856b06b81d090bccf3eca9cb1b7ceb5d62f32a0fb7"
+        }
+      ],
+      "dartforge_runtime_5d0bf7faa4d9c063d9035a5c1c3c694c.a": [
+        {
+          "path": "target/p4/release/build/dartforge-emit-native-721dc41f3a5ab7b6/out/dartforge_runtime_5d0bf7faa4d9c063d9035a5c1c3c694c.a",
+          "sha256": "2771b8e94bc53bb303c20ab70f9f35f1efeb7b653d966f6d1e0102a7d8f7f167"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,15 @@
+small: 1074 units, sum 857085424, round trip true
+medium: 100733 units, sum 1063291676, round trip true
+large: 5923393 units, sum 577431855, round trip true
+indented: 178455 units, sum 203103296, round trip true
+bytes: 103091, true
+decoded: 158414064
+decode_small: 999993056
+encode_small: 948440368
+decode_medium: 298456378
+encode_medium: 128399358
+decode_large: 158414064
+encode_large: 303257809
+indented: 788061168
+utf8_bytes: 558946680
+reviver: 548498912

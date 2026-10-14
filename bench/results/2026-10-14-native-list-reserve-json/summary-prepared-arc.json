@@ -1,0 +1,242 @@
+{
+  "process_wall": {
+    "pairs": [
+      {
+        "pair": 1,
+        "before": 72594199917,
+        "after": 72358409459,
+        "after_over_before": 0.9967519380574538
+      },
+      {
+        "pair": 2,
+        "before": 71830322042,
+        "after": 71991283167,
+        "after_over_before": 1.0022408520583534
+      },
+      {
+        "pair": 3,
+        "before": 72906760041,
+        "after": 71799706083,
+        "after_over_before": 0.9848154827154926
+      }
+    ],
+    "median_after_over_before": 0.9967519380574538,
+    "scope": "Diagnostic-enabled before/after comparison only: ARC_CHECK=1 and EFFECTS=check. Includes ARC synchronization audits; not production throughput, not a cross-mode ARC comparison."
+  },
+  "decode_small": {
+    "pairs": [
+      {
+        "pair": 1,
+        "before": 813790,
+        "after": 811053,
+        "after_over_before": 0.9966367244620848
+      },
+      {
+        "pair": 2,
+        "before": 809287,
+        "after": 811015,
+        "after_over_before": 1.0021352128478525
+      },
+      {
+        "pair": 3,
+        "before": 821393,
+        "after": 809625,
+        "after_over_before": 0.9856731187141843
+      }
+    ],
+    "median_after_over_before": 0.9966367244620848,
+    "scope": "Diagnostic-enabled before/after comparison only: ARC_CHECK=1 and EFFECTS=check. Includes ARC synchronization audits; not production throughput, not a cross-mode ARC comparison."
+  },
+  "encode_small": {
+    "pairs": [
+      {
+        "pair": 1,
+        "before": 946794,
+        "after": 936538,
+        "after_over_before": 0.9891676542098915
+      },
+      {
+        "pair": 2,
+        "before": 940813,
+        "after": 949486,
+        "after_over_before": 1.0092186226168218
+      },
+      {
+        "pair": 3,
+        "before": 960243,
+        "after": 945723,
+        "after_over_before": 0.9848788275467772
+      }
+    ],
+    "median_after_over_before": 0.9891676542098915,
+    "scope": "Diagnostic-enabled before/after comparison only: ARC_CHECK=1 and EFFECTS=check. Includes ARC synchronization audits; not production throughput, not a cross-mode ARC comparison."
+  },
+  "decode_medium": {
+    "pairs": [
+      {
+        "pair": 1,
+        "before": 987784,
+        "after": 973497,
+        "after_over_before": 0.9855363115822893
+      },
+      {
+        "pair": 2,
+        "before": 967340,
+        "after": 972076,
+        "after_over_before": 1.0048959000971738
+      },
+      {
+        "pair": 3,
+        "before": 987043,
+        "after": 974937,
+        "after_over_before": 0.9877350834766064
+      }
+    ],
+    "median_after_over_before": 0.9877350834766064,
+    "scope": "Diagnostic-enabled before/after comparison only: ARC_CHECK=1 and EFFECTS=check. Includes ARC synchronization audits; not production throughput, not a cross-mode ARC comparison."
+  },
+  "encode_medium": {
+    "pairs": [
+      {
+        "pair": 1,
+        "before": 1373185,
+        "after": 1357400,
+        "after_over_before": 0.9885048263708095
+      },
+      {
+        "pair": 2,
+        "before": 1344256,
+        "after": 1353839,
+        "after_over_before": 1.0071288504570557
+      },
+      {
+        "pair": 3,
+        "before": 1375505,
+        "after": 1357489,
+        "after_over_before": 0.9869022649863142
+      }
+    ],
+    "median_after_over_before": 0.9885048263708095,
+    "scope": "Diagnostic-enabled before/after comparison only: ARC_CHECK=1 and EFFECTS=check. Includes ARC synchronization audits; not production throughput, not a cross-mode ARC comparison."
+  },
+  "decode_large": {
+    "pairs": [
+      {
+        "pair": 1,
+        "before": 3095189,
+        "after": 3128092,
+        "after_over_before": 1.0106303686140006
+      },
+      {
+        "pair": 2,
+        "before": 3105250,
+        "after": 3094177,
+        "after_over_before": 0.996434103534337
+      },
+      {
+        "pair": 3,
+        "before": 3162652,
+        "after": 3073064,
+        "after_over_before": 0.9716731401368219
+      }
+    ],
+    "median_after_over_before": 0.996434103534337,
+    "scope": "Diagnostic-enabled before/after comparison only: ARC_CHECK=1 and EFFECTS=check. Includes ARC synchronization audits; not production throughput, not a cross-mode ARC comparison."
+  },
+  "encode_large": {
+    "pairs": [
+      {
+        "pair": 1,
+        "before": 2035512,
+        "after": 2017270,
+        "after_over_before": 0.9910381270166916
+      },
+      {
+        "pair": 2,
+        "before": 2014296,
+        "after": 2016963,
+        "after_over_before": 1.0013240357921576
+      },
+      {
+        "pair": 3,
+        "before": 2048492,
+        "after": 2016634,
+        "after_over_before": 0.9844480720451922
+      }
+    ],
+    "median_after_over_before": 0.9910381270166916,
+    "scope": "Diagnostic-enabled before/after comparison only: ARC_CHECK=1 and EFFECTS=check. Includes ARC synchronization audits; not production throughput, not a cross-mode ARC comparison."
+  },
+  "indented": {
+    "pairs": [
+      {
+        "pair": 1,
+        "before": 1295164,
+        "after": 1279685,
+        "after_over_before": 0.9880486177812231
+      },
+      {
+        "pair": 2,
+        "before": 1275384,
+        "after": 1291785,
+        "after_over_before": 1.0128596563858414
+      },
+      {
+        "pair": 3,
+        "before": 1313328,
+        "after": 1278373,
+        "after_over_before": 0.973384409682882
+      }
+    ],
+    "median_after_over_before": 0.9880486177812231,
+    "scope": "Diagnostic-enabled before/after comparison only: ARC_CHECK=1 and EFFECTS=check. Includes ARC synchronization audits; not production throughput, not a cross-mode ARC comparison."
+  },
+  "utf8_bytes": {
+    "pairs": [
+      {
+        "pair": 1,
+        "before": 781575,
+        "after": 772108,
+        "after_over_before": 0.9878872788919809
+      },
+      {
+        "pair": 2,
+        "before": 781374,
+        "after": 771746,
+        "after_over_before": 0.9876781157294714
+      },
+      {
+        "pair": 3,
+        "before": 782398,
+        "after": 771985,
+        "after_over_before": 0.9866909168990718
+      }
+    ],
+    "median_after_over_before": 0.9876781157294714,
+    "scope": "Diagnostic-enabled before/after comparison only: ARC_CHECK=1 and EFFECTS=check. Includes ARC synchronization audits; not production throughput, not a cross-mode ARC comparison."
+  },
+  "reviver": {
+    "pairs": [
+      {
+        "pair": 1,
+        "before": 390585,
+        "after": 394060,
+        "after_over_before": 1.008896911043691
+      },
+      {
+        "pair": 2,
+        "before": 389602,
+        "after": 385643,
+        "after_over_before": 0.9898383478524237
+      },
+      {
+        "pair": 3,
+        "before": 389790,
+        "after": 386705,
+        "after_over_before": 0.9920854819261654
+      }
+    ],
+    "median_after_over_before": 0.9920854819261654,
+    "scope": "Diagnostic-enabled before/after comparison only: ARC_CHECK=1 and EFFECTS=check. Includes ARC synchronization audits; not production throughput, not a cross-mode ARC comparison."
+  }
+}

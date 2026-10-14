@@ -1,0 +1,3 @@
+after tracing -normal {'exit': 0, 'stdout_exact_vm': True, 'stderr_empty': True}
+after legacy-arc -normal {'exit': 0, 'stdout_exact_vm': True, 'stderr_empty': True}
+after prepared-arc -normal {'exit': 0, 'stdout_exact_vm': True, 'stderr_empty': True}
