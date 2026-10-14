@@ -523,3 +523,9 @@ return_of_invalid_type_from_closure
 unchecked_use_of_nullable_value
 unused_import
 variable_type_mismatch
+
+# 2026-10-14: invalid_assignment matches all 274 current corpus diagnostics,
+# with no false positives, wrong positions or wrong messages. Fresh SDK 3.6.2
+# checks over 1,497 ordinary, application and hosted-library Dart files also
+# match this code exactly (10 diagnostics); unrelated codes remain gated.
+invalid_assignment

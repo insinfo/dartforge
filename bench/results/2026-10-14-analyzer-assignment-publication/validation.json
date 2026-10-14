@@ -1,0 +1,62 @@
+{
+  "change": "Promote only invalid_assignment after exact currentcorpus and freshSDKproject evidence. Publication logic/typeinference unchanged; unverifiedsemanticerrors remainhidden. SharedCLI/LSPpublication follows oneverifiedcodeentry.",
+  "source_sha256": {
+    "crates/analysis/verified.txt": "2419557010455e6e4b0f6b5963aa1ac2f11ecf1202d1aab26f6a51dab2947305",
+    "crates/analysis/src/publication.rs": "9da827920ae831394c5159d656a63cf52f121449d3ef3e735263c5b10305da66",
+    "crates/cli/tests/analyze_publication.rs": "d45a18737a9ea293c9dcb1e4a133bfa54e559c83e12ac123fcee896db9bb0429",
+    "crates/lsp/tests/typed.rs": "a62839ea4a736e5a8bf9653d1ee22d90b2f6a63112271a4ae7359a50076145b8"
+  },
+  "current_corpus_candidate": {
+    "oracle": 274,
+    "ours": 274,
+    "exact_position_and_message": 274,
+    "false_positive": 0,
+    "wrong_position": 0,
+    "wrong_message": 0,
+    "raw_evidence": "bench/results/2026-10-14-current-tools-status/analyzer-scoreboard.stdout"
+  },
+  "fresh_sdk_candidate_proof": {
+    "targets": 29,
+    "dart_input_files": 1497,
+    "candidate_diagnostics": 10,
+    "candidate_exact_all": true,
+    "scope": "Fresh SDK3.6.2 oracles for15ordinary invalid/valid cases, FileExplorer wholeproject, dart_ui library and12current downloaded hostedpackage libraries. Only invalid_assignment is candidate; othercode differences are retained separately. No historical209packageclaim.",
+    "not_claimed": "Historical209packages/567mutations not rerun or claimed."
+  },
+  "actual_fixed_cli": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/analyzer-assignment-publication/fixed-compiler/dartforge",
+    "sha256": "26000d8673a93d6bd5a5a3d91d96a0cfbf7ef705f030b0715e44fe0635c6ca66",
+    "profile": "debug withnativefeature, copied from CLItest producer; immutable throughout validation",
+    "ordinary_default_and_all_exact_sdk": 15,
+    "file_explorer_default_and_all_exact": true,
+    "literal_assignment_exit": "default3 == all3 == SDK3; baseline default0failure retained",
+    "full_othercode_limit": "dart_ui library contains unrelatedunfiltered diagnosticdifferences, preserved inrawproof; candidateinvalid_assignment remains exact0/0."
+  },
+  "gates": {
+    "cli_publication": {
+      "passed": 4,
+      "failed": 0
+    },
+    "analysis_publication_unit": {
+      "passed": 1,
+      "failed": 0
+    },
+    "existing_analyzer_rules": {
+      "passed": 4,
+      "failed": 0
+    },
+    "existing_lsp_typed": {
+      "passed": 8,
+      "failed": 0
+    }
+  },
+  "preserved_controls": [
+    "validassignments remainclear",
+    "comment/analysis-option ignore",
+    "cannot-ignore keeps error",
+    "unverifiedsemanticcode stayshidden",
+    "LSPtypedpublication ordering,immediatewarnings andstaleversion cases"
+  ],
+  "timing_measured": false,
+  "complete": true
+}

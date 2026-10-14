@@ -1,0 +1,13 @@
+   Compiling dartforge-analysis v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/analysis)
+   Compiling dartforge-parity v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/parity)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.94s
+     Running tests/analyzer_rules.rs (target/p4/debug/deps/analyzer_rules-af6a2874abe8a7d9)
+
+running 4 tests
+test internal_is_the_meta_getter ... ok
+test literal_constructor_in_a_constant_context ... ok
+test root_spelled_differently_from_the_file_system ... ok
+test ported_rules_give_what_analyzer_3_6_2_gives ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.66s
+

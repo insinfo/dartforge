@@ -82,9 +82,8 @@ fn published_typed_code_reaches_editor() {
 #[test]
 fn only_published_codes_and_ignore_respected() {
     let mut p = Project::new("tipado-publicados");
-    // `invalid_assignment` is not in `verified.txt`: it does not appear.
-    // `// ignore:` works as in `dartforge analyze` (for warnings; an error
-    // cannot be ignored), in both flows.
+    // Verified assignment errors join the typed publication. Comment ignores
+    // work in both flows; `cannot-ignore` options can prevent silencing a code.
     let text = "void f() {\n  int a = ''; print(a);\n  // ignore: unused_local_variable\n  var y = 1;\n  var z = 2;\n  if (1) {}\n}\n";
     p.server.pause_typed_analysis(true);
     let immediate = p.open("lib/a.dart", text);
@@ -101,15 +100,19 @@ fn only_published_codes_and_ignore_respected() {
     // The order of `dart language-server` 3.6.2: errors before warnings.
     assert_eq!(
         codes(&typed),
-        vec!["non_bool_condition", "unused_local_variable"],
+        vec!["invalid_assignment", "non_bool_condition", "unused_local_variable"],
         "{typed}"
     );
     assert_eq!(
         typed["params"]["diagnostics"][0]["range"]["start"]["line"],
-        5
+        1
     );
     assert_eq!(
         typed["params"]["diagnostics"][1]["range"]["start"]["line"],
+        5
+    );
+    assert_eq!(
+        typed["params"]["diagnostics"][2]["range"]["start"]["line"],
         4
     );
     let published = dartforge_analysis::publication::verified();
