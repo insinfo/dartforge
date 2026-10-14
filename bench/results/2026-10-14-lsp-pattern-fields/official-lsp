@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart language-server --protocol=lsp

@@ -1,0 +1,1098 @@
+{
+  "baseline": {
+    "binary_sha256": "5219c7775502df6685bdf58213baaf3cafd052d90a1e1eb8cfef06e793d74603",
+    "rows": [
+      {
+        "case": "field-0",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(:var value)) { return value; } return 0; }\n",
+        "source_sha256": "397e098669dc2b9b6eb43c6443d62ddd806a507a9227e8022109a4860c51df1d",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-0.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(:var value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "field-1",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(:final value)) { return value; } return 0; }\n",
+        "source_sha256": "a5ac9b17c7ea69d3cecf438952b1dd215b84d4278144ae503de52c02db8d6172",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-1.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(:final value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "field-2",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(:final int value)) { return value; } return 0; }\n",
+        "source_sha256": "7553847c946879035f89b8d326be9d6c626fc5a0c72a04f71d3225316bc15cd4",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-2.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(:final int value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "field-3",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(:int value)) { return value; } return 0; }\n",
+        "source_sha256": "40a8fd9dc60e666c912ed4dbfb5f4a99322fb3cfea8356f3abdb69ade20aa27f",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-3.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(:int value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "field-4",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(: /* colon: keep */ final value)) { return value; } return 0; }\n",
+        "source_sha256": "172bff07ff939b15cc4bd93b13af943c8bcb64de2feab367b6a9e90fc2e0c736",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-4.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(: /* colon: keep */ final value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "field-5",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:final value)) { return value; } return 0; }\n",
+        "source_sha256": "977d496fdcd155a8100bacfb06a985db7b9ac78358c46a9e6f4d3eb5989bac8e",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-5.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(value:final value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "inherited",
+        "source": "class Base { int get value => 1; }\nclass C extends Base {}\nclass Outer { C get inner => C(); }\nint read(Outer o) { if (o case Outer(inner:C(:final value))) { return value; } return 0; }\n",
+        "source_sha256": "d059421eb517d2c2b44de546fc71fd25a4b34d63abb7ecf7489ee5279aa29a47",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/inherited.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 26,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 21,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class Base { int get item => 1; }\nclass C extends Base {}\nclass Outer { C get inner => C(); }\nint read(Outer o) { if (o case Outer(inner:C(:final value))) { return value; } return 0; }\n"
+      },
+      {
+        "case": "private",
+        "source": "class C { int get value => 1; }\nint read(C c) { if (c case C(:final value)) { return value; } return 0; }\n",
+        "source_sha256": "1f22c50f82ec19780384c477a53fedde4527fe3f6461a869272b7c63ebdc1883",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/private.dart": [
+              {
+                "newText": "_item",
+                "range": {
+                  "end": {
+                    "character": 23,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 18,
+                    "line": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { int get _item => 1; }\nint read(C c) { if (c case C(:final value)) { return value; } return 0; }\n"
+      }
+    ]
+  },
+  "fixed": {
+    "binary_sha256": "ecebce99ece11f07402fa7a5842796d2ce576d5709d5922c4a07b9d48b045fc9",
+    "rows": [
+      {
+        "case": "field-0",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(:var value)) { return value; } return 0; }\n",
+        "source_sha256": "397e098669dc2b9b6eb43c6443d62ddd806a507a9227e8022109a4860c51df1d",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-0.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 29,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 29,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(item:var value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "field-1",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(:final value)) { return value; } return 0; }\n",
+        "source_sha256": "a5ac9b17c7ea69d3cecf438952b1dd215b84d4278144ae503de52c02db8d6172",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-1.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 29,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 29,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(item:final value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "field-2",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(:final int value)) { return value; } return 0; }\n",
+        "source_sha256": "7553847c946879035f89b8d326be9d6c626fc5a0c72a04f71d3225316bc15cd4",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-2.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 29,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 29,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(item:final int value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "field-3",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(:int value)) { return value; } return 0; }\n",
+        "source_sha256": "40a8fd9dc60e666c912ed4dbfb5f4a99322fb3cfea8356f3abdb69ade20aa27f",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-3.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 29,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 29,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(item:int value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "field-4",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(: /* colon: keep */ final value)) { return value; } return 0; }\n",
+        "source_sha256": "172bff07ff939b15cc4bd93b13af943c8bcb64de2feab367b6a9e90fc2e0c736",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-4.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 29,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 29,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(item: /* colon: keep */ final value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "field-5",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:final value)) { return value; } return 0; }\n",
+        "source_sha256": "977d496fdcd155a8100bacfb06a985db7b9ac78358c46a9e6f4d3eb5989bac8e",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-5.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 34,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 29,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(item:final value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "inherited",
+        "source": "class Base { int get value => 1; }\nclass C extends Base {}\nclass Outer { C get inner => C(); }\nint read(Outer o) { if (o case Outer(inner:C(:final value))) { return value; } return 0; }\n",
+        "source_sha256": "d059421eb517d2c2b44de546fc71fd25a4b34d63abb7ecf7489ee5279aa29a47",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/inherited.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 26,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 21,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 45,
+                    "line": 3
+                  },
+                  "start": {
+                    "character": 45,
+                    "line": 3
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class Base { int get item => 1; }\nclass C extends Base {}\nclass Outer { C get inner => C(); }\nint read(Outer o) { if (o case Outer(inner:C(item:final value))) { return value; } return 0; }\n"
+      },
+      {
+        "case": "private",
+        "source": "class C { int get value => 1; }\nint read(C c) { if (c case C(:final value)) { return value; } return 0; }\n",
+        "source_sha256": "1f22c50f82ec19780384c477a53fedde4527fe3f6461a869272b7c63ebdc1883",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/private.dart": [
+              {
+                "newText": "_item",
+                "range": {
+                  "end": {
+                    "character": 23,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 18,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "_item",
+                "range": {
+                  "end": {
+                    "character": 29,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 29,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { int get _item => 1; }\nint read(C c) { if (c case C(_item:final value)) { return value; } return 0; }\n"
+      }
+    ]
+  },
+  "official": {
+    "binary_sha256": "12d14da7bbbcacffd1f0f860a8c999a85fd180a3e865f72676e570ae1e1de1f9",
+    "rows": [
+      {
+        "case": "field-0",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(:var value)) { return value; } return 0; }\n",
+        "source_sha256": "397e098669dc2b9b6eb43c6443d62ddd806a507a9227e8022109a4860c51df1d",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-0.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 29,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 29,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(item:var value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "field-1",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(:final value)) { return value; } return 0; }\n",
+        "source_sha256": "a5ac9b17c7ea69d3cecf438952b1dd215b84d4278144ae503de52c02db8d6172",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-1.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 29,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 29,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(item:final value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "field-2",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(:final int value)) { return value; } return 0; }\n",
+        "source_sha256": "7553847c946879035f89b8d326be9d6c626fc5a0c72a04f71d3225316bc15cd4",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-2.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 29,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 29,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(item:final int value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "field-3",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(:int value)) { return value; } return 0; }\n",
+        "source_sha256": "40a8fd9dc60e666c912ed4dbfb5f4a99322fb3cfea8356f3abdb69ade20aa27f",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-3.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 29,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 29,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(item:int value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "field-4",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(: /* colon: keep */ final value)) { return value; } return 0; }\n",
+        "source_sha256": "172bff07ff939b15cc4bd93b13af943c8bcb64de2feab367b6a9e90fc2e0c736",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-4.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 29,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 29,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(item: /* colon: keep */ final value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "field-5",
+        "source": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:final value)) { return value; } return 0; }\n",
+        "source_sha256": "977d496fdcd155a8100bacfb06a985db7b9ac78358c46a9e6f4d3eb5989bac8e",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/field-5.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 25,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 20,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 39,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 34,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 34,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 29,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { final int item; C(this.item); }\nint read(C c) { if (c case C(item:final value)) { return value; } return 0; }\n"
+      },
+      {
+        "case": "inherited",
+        "source": "class Base { int get value => 1; }\nclass C extends Base {}\nclass Outer { C get inner => C(); }\nint read(Outer o) { if (o case Outer(inner:C(:final value))) { return value; } return 0; }\n",
+        "source_sha256": "d059421eb517d2c2b44de546fc71fd25a4b34d63abb7ecf7489ee5279aa29a47",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/inherited.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 26,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 21,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 45,
+                    "line": 3
+                  },
+                  "start": {
+                    "character": 45,
+                    "line": 3
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class Base { int get item => 1; }\nclass C extends Base {}\nclass Outer { C get inner => C(); }\nint read(Outer o) { if (o case Outer(inner:C(item:final value))) { return value; } return 0; }\n"
+      },
+      {
+        "case": "private",
+        "source": "class C { int get value => 1; }\nint read(C c) { if (c case C(:final value)) { return value; } return 0; }\n",
+        "source_sha256": "1f22c50f82ec19780384c477a53fedde4527fe3f6461a869272b7c63ebdc1883",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-field-pattern/final/private.dart": [
+              {
+                "newText": "_item",
+                "range": {
+                  "end": {
+                    "character": 23,
+                    "line": 0
+                  },
+                  "start": {
+                    "character": 18,
+                    "line": 0
+                  }
+                }
+              },
+              {
+                "newText": "_item",
+                "range": {
+                  "end": {
+                    "character": 29,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 29,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "applied": "class C { int get _item => 1; }\nint read(C c) { if (c case C(_item:final value)) { return value; } return 0; }\n"
+      }
+    ]
+  },
+  "sdk_binary_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+  "sdk_version": "3.6.2",
+  "sources": {
+    "crates/lsp/src/project.rs": "80a796b64292f18aaa89841c5bbee92ba51965e09a8d1c75abda43b76650f88f",
+    "crates/lsp/src/rename.rs": "3a21afda7a7b672ac7b1a8f9b2e357b5bc0a28822c1e930225f1ab329aa77fb8",
+    "crates/lsp/tests/rename_pattern_fields.rs": "cdb50c66e8b493bef28cfc1ee8730177daad4416fd0e57011acffb5bfe5607dd"
+  },
+  "fixed_matches_official": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "baseline_matches_official": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+  ],
+  "scope": "Object-pattern resolved getter/field rename; local bindings unchanged. No general LSP readiness claim.",
+  "gates": {
+    "command": "source /Volumes/ssd_dock/tools/env.zsh; CARGO_TARGET_DIR=target/p4 TMPDIR=target/tmp-p8-runtime DARTFORGE_CLANG=/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang DARTFORGE_SDK_LIB=/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib cargo test --locked -p dartforge-lsp --test rename_pattern_fields --test rename_patterns --test rename --lib -j2",
+    "exit": 0,
+    "library": 42,
+    "rename": 22,
+    "local_pattern_rename": 4,
+    "field_pattern_rename": 3,
+    "log_sha256": "3a394790b0a96f469c23c9c6868ad4e3b6d790daca97143759515f05c555bdd1"
+  },
+  "sdk_command": "dart language-server --protocol=lsp",
+  "oracle": "Applied WorkspaceEdit text exact equality, eight ordinary-Dart cases, baseline differs in all eight. Session.request returns the unwrapped JSON-RPC result; apply consumes result.changes directly."
+}

@@ -2283,6 +2283,27 @@ impl Project {
                 _ => {}
             }
         }
+        // Object-pattern selectors are member reads too. A shorthand selector
+        // shares its name with a local binding; represent the getter by an
+        // insertion at its AST colon so renaming it preserves that binding.
+        for pattern in &unit.ast.patterns {
+            let ast::PatternKind::Object { fields, .. } = &pattern.kind else { continue };
+            for field in fields.iter() {
+                let Some(name) = field.name else { continue };
+                let span = if unit.source.as_bytes().get(field.span.start) == Some(&b':') {
+                    Span { start: field.span.start, end: field.span.start }
+                } else {
+                    name.span
+                };
+                match bodies.field_elements.get(&field.pattern) {
+                    Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => {
+                        index.functions.entry(*f).or_default().push(span);
+                    }
+                    Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => index.variables.entry(*v).or_default().push(span),
+                    _ => {}
+                }
+            }
+        }
         // The type annotations (`T`, `p.T`, the `A` of `new A.n()`, the `T` of
         // `new p.T.n()`) and the metadata (`@name`, `@p.name`): the top-level
         // element the name reaches in the library scope (the binding's getter), as

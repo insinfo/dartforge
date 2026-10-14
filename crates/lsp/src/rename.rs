@@ -1063,6 +1063,20 @@ impl Project {
 
     // -- The edits -------------------------------------------------------------
 
+    // Only AST-proven object selectors may bypass the private constructor
+    // parameter insertion rules. Record labels do not name class members.
+    fn is_shorthand_object_selector(&self, unit: UnitId, span: Span) -> bool {
+        if span.start != span.end {
+            return false;
+        }
+        let unit = self.program().unit(unit);
+        unit.source.as_bytes().get(span.start) == Some(&b':')
+            && unit.ast.patterns.iter().any(|pattern| {
+                matches!(&pattern.kind, ast::PatternKind::Object { fields, .. }
+                    if fields.iter().any(|field| field.name.is_some() && field.span.start == span.start))
+            })
+    }
+
     // Renaming a shorthand binding must preserve the selected object/record
     // field. The parser records its colon at the field span, independently of
     // comments or whitespace between the colon and the variable pattern.
@@ -1132,6 +1146,10 @@ impl Project {
                     by(u, Span { start: a, end: b }, new, &mut edits);
                 }
                 for (u, s) in self.target_references(target) {
+                    if self.is_shorthand_object_selector(u, s) {
+                        by(u, s, new, &mut edits);
+                        continue;
+                    }
                     // The named `this.x` that becomes private: `{T x}` and the initializer
                     // `_new = x`.
                     if new.starts_with('_')
