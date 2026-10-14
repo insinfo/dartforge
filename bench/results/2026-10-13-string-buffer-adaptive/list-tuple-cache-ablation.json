@@ -1,0 +1,883 @@
+{
+  "summary": {
+    "same_binary_sha256": "586075a9e0c21127117e588acab727dc50f311db94ab1061aac389e114a2e255",
+    "cache_disabled_vs_enabled": true,
+    "inputs_stable": true,
+    "rows": [
+      {
+        "scenario": "ascii",
+        "kernel": "json",
+        "before_us": 57.43153669724771,
+        "after_us": 57.14465265082267,
+        "change_percent": -0.4995235421565658,
+        "samples_us": {
+          "before": [
+            63.098160282258064,
+            57.43153669724771,
+            57.066263686131386
+          ],
+          "after": [
+            57.14465265082267,
+            56.18907091561939,
+            60.18774038461538
+          ]
+        }
+      },
+      {
+        "scenario": "ascii",
+        "kernel": "string_buffer",
+        "before_us": 1.30414,
+        "after_us": 1.26618,
+        "change_percent": -2.910730443050591,
+        "samples_us": {
+          "before": [
+            1.30699,
+            1.23861,
+            1.30414
+          ],
+          "after": [
+            1.26618,
+            1.26117,
+            1.27509
+          ]
+        }
+      },
+      {
+        "scenario": "latin1",
+        "kernel": "json",
+        "before_us": 57.77599353049908,
+        "after_us": 56.46841155234657,
+        "change_percent": -2.263192544602899,
+        "samples_us": {
+          "before": [
+            58.68609287054409,
+            56.75362976406534,
+            57.77599353049908
+          ],
+          "after": [
+            56.46841155234657,
+            56.10951526032316,
+            57.42637614678899
+          ]
+        }
+      },
+      {
+        "scenario": "latin1",
+        "kernel": "string_buffer",
+        "before_us": 1.27814,
+        "after_us": 1.26083,
+        "change_percent": -1.3543117342388333,
+        "samples_us": {
+          "before": [
+            1.30357,
+            1.26381,
+            1.27814
+          ],
+          "after": [
+            1.26083,
+            1.25992,
+            1.28848
+          ]
+        }
+      },
+      {
+        "scenario": "mixed_utf16",
+        "kernel": "json",
+        "before_us": 58.24068901303538,
+        "after_us": 57.43761467889908,
+        "change_percent": -1.3788887936345584,
+        "samples_us": {
+          "before": [
+            58.24068901303538,
+            57.63294198895028,
+            58.68726547842402
+          ],
+          "after": [
+            57.43761467889908,
+            56.757259528130675,
+            57.98527365491651
+          ]
+        }
+      },
+      {
+        "scenario": "mixed_utf16",
+        "kernel": "string_buffer",
+        "before_us": 1.28411,
+        "after_us": 1.24858,
+        "change_percent": -2.7668969169307944,
+        "samples_us": {
+          "before": [
+            1.29381,
+            1.28196,
+            1.28411
+          ],
+          "after": [
+            1.24807,
+            1.24858,
+            1.348
+          ]
+        }
+      }
+    ],
+    "limits": [
+      "Three short alternating process pairs; small differences may be noise.",
+      "No HTTP throughput or whole-program performance claim."
+    ]
+  },
+  "ledger": {
+    "schema": 1,
+    "phase": "compare",
+    "input_hashes": {
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/json_encode.dart": "a40040549e71180bfb569712d35a3dc2e2544e6d447119bbb92060f265626de3",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge": "27650699d790d08164a8a372da49ab96bb9ce806e4a76125cde6fc6307b92c82",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22": "9a690e9e11d4774d63e95ed2ab90abd82889f949b0bb9db8208f7e18f278ea50"
+    },
+    "commands": [
+      {
+        "label": "dart-version",
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "--version"
+        ],
+        "exit_code": 0
+      },
+      {
+        "label": "clang-version",
+        "command": [
+          "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22",
+          "--version"
+        ],
+        "exit_code": 0
+      },
+      {
+        "label": "vm-validation",
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/json_encode.dart",
+          "--validate"
+        ],
+        "exit_code": 0
+      },
+      {
+        "label": "native-validation",
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/json-list-tuple-cache-ablation-final/native",
+          "--validate"
+        ],
+        "exit_code": 0
+      },
+      {
+        "label": "pair-1-before",
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/json-list-tuple-cache-final-prepared/native",
+          "--duration-ms=500"
+        ],
+        "exit_code": 0,
+        "environment_overrides": {
+          "DARTFORGE_RTI_LIST_TUPLE_CACHE": "0"
+        }
+      },
+      {
+        "label": "pair-1-after",
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/json-list-tuple-cache-ablation-final/native",
+          "--duration-ms=500"
+        ],
+        "exit_code": 0,
+        "environment_overrides": {
+          "DARTFORGE_RTI_LIST_TUPLE_CACHE": "1"
+        }
+      },
+      {
+        "label": "pair-2-after",
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/json-list-tuple-cache-ablation-final/native",
+          "--duration-ms=500"
+        ],
+        "exit_code": 0,
+        "environment_overrides": {
+          "DARTFORGE_RTI_LIST_TUPLE_CACHE": "1"
+        }
+      },
+      {
+        "label": "pair-2-before",
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/json-list-tuple-cache-final-prepared/native",
+          "--duration-ms=500"
+        ],
+        "exit_code": 0,
+        "environment_overrides": {
+          "DARTFORGE_RTI_LIST_TUPLE_CACHE": "0"
+        }
+      },
+      {
+        "label": "pair-3-before",
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/json-list-tuple-cache-final-prepared/native",
+          "--duration-ms=500"
+        ],
+        "exit_code": 0,
+        "environment_overrides": {
+          "DARTFORGE_RTI_LIST_TUPLE_CACHE": "0"
+        }
+      },
+      {
+        "label": "pair-3-after",
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/json-list-tuple-cache-ablation-final/native",
+          "--duration-ms=500"
+        ],
+        "exit_code": 0,
+        "environment_overrides": {
+          "DARTFORGE_RTI_LIST_TUPLE_CACHE": "1"
+        }
+      }
+    ],
+    "measurements": [
+      {
+        "pair": 1,
+        "variant": "before",
+        "report": {
+          "schema": 1,
+          "validation_only": false,
+          "duration_millis_per_kernel": 500,
+          "iteration_cap_per_kernel": 100000,
+          "units": "utf16_code_units",
+          "reusable_input_graph": true,
+          "speedup_asserted": false,
+          "scenarios": [
+            {
+              "scenario": "ascii",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 7936,
+                "elapsed_micros": 500747,
+                "encoded_units": 5577,
+                "checksum": 2136375318,
+                "consumed": 44960141,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 130699,
+                "encoded_units": 1718,
+                "checksum": 485170544,
+                "consumed": 181367554,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            },
+            {
+              "scenario": "latin1",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 8528,
+                "elapsed_micros": 500475,
+                "encoded_units": 5577,
+                "checksum": 1060943444,
+                "consumed": 48682814,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 130357,
+                "encoded_units": 1718,
+                "checksum": 249570658,
+                "consumed": 190658419,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            },
+            {
+              "scenario": "mixed_utf16",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 8592,
+                "elapsed_micros": 500404,
+                "encoded_units": 5649,
+                "checksum": 128183832,
+                "consumed": 67329720,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 129381,
+                "encoded_units": 1766,
+                "checksum": 1355090330,
+                "consumed": 631770635,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            }
+          ]
+        }
+      },
+      {
+        "pair": 1,
+        "variant": "after",
+        "report": {
+          "schema": 1,
+          "validation_only": false,
+          "duration_millis_per_kernel": 500,
+          "iteration_cap_per_kernel": 100000,
+          "units": "utf16_code_units",
+          "reusable_input_graph": true,
+          "speedup_asserted": false,
+          "scenarios": [
+            {
+              "scenario": "ascii",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 8752,
+                "elapsed_micros": 500130,
+                "encoded_units": 5577,
+                "checksum": 2136375318,
+                "consumed": 49583036,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 126618,
+                "encoded_units": 1718,
+                "checksum": 485170544,
+                "consumed": 181367554,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            },
+            {
+              "scenario": "latin1",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 8864,
+                "elapsed_micros": 500536,
+                "encoded_units": 5577,
+                "checksum": 1060943444,
+                "consumed": 50599597,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 126083,
+                "encoded_units": 1718,
+                "checksum": 249570658,
+                "consumed": 190658419,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            },
+            {
+              "scenario": "mixed_utf16",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 8720,
+                "elapsed_micros": 500856,
+                "encoded_units": 5649,
+                "checksum": 128183832,
+                "consumed": 68392413,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 124807,
+                "encoded_units": 1766,
+                "checksum": 1355090330,
+                "consumed": 631770635,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            }
+          ]
+        }
+      },
+      {
+        "pair": 2,
+        "variant": "after",
+        "report": {
+          "schema": 1,
+          "validation_only": false,
+          "duration_millis_per_kernel": 500,
+          "iteration_cap_per_kernel": 100000,
+          "units": "utf16_code_units",
+          "reusable_input_graph": true,
+          "speedup_asserted": false,
+          "scenarios": [
+            {
+              "scenario": "ascii",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 8912,
+                "elapsed_micros": 500757,
+                "encoded_units": 5577,
+                "checksum": 2136375318,
+                "consumed": 50489353,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 126117,
+                "encoded_units": 1718,
+                "checksum": 485170544,
+                "consumed": 181367554,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            },
+            {
+              "scenario": "latin1",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 8912,
+                "elapsed_micros": 500048,
+                "encoded_units": 5577,
+                "checksum": 1060943444,
+                "consumed": 50873592,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 125992,
+                "encoded_units": 1718,
+                "checksum": 249570658,
+                "consumed": 190658419,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            },
+            {
+              "scenario": "mixed_utf16",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 8816,
+                "elapsed_micros": 500372,
+                "encoded_units": 5649,
+                "checksum": 128183832,
+                "consumed": 69107011,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 124858,
+                "encoded_units": 1766,
+                "checksum": 1355090330,
+                "consumed": 631770635,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            }
+          ]
+        }
+      },
+      {
+        "pair": 2,
+        "variant": "before",
+        "report": {
+          "schema": 1,
+          "validation_only": false,
+          "duration_millis_per_kernel": 500,
+          "iteration_cap_per_kernel": 100000,
+          "units": "utf16_code_units",
+          "reusable_input_graph": true,
+          "speedup_asserted": false,
+          "scenarios": [
+            {
+              "scenario": "ascii",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 8720,
+                "elapsed_micros": 500803,
+                "encoded_units": 5577,
+                "checksum": 2136375318,
+                "consumed": 49401315,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 123861,
+                "encoded_units": 1718,
+                "checksum": 485170544,
+                "consumed": 181367554,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            },
+            {
+              "scenario": "latin1",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 8816,
+                "elapsed_micros": 500340,
+                "encoded_units": 5577,
+                "checksum": 1060943444,
+                "consumed": 50324437,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 126381,
+                "encoded_units": 1718,
+                "checksum": 249570658,
+                "consumed": 190658419,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            },
+            {
+              "scenario": "mixed_utf16",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 8688,
+                "elapsed_micros": 500715,
+                "encoded_units": 5649,
+                "checksum": 128183832,
+                "consumed": 68044739,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 128196,
+                "encoded_units": 1766,
+                "checksum": 1355090330,
+                "consumed": 631770635,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            }
+          ]
+        }
+      },
+      {
+        "pair": 3,
+        "variant": "before",
+        "report": {
+          "schema": 1,
+          "validation_only": false,
+          "duration_millis_per_kernel": 500,
+          "iteration_cap_per_kernel": 100000,
+          "units": "utf16_code_units",
+          "reusable_input_graph": true,
+          "speedup_asserted": false,
+          "scenarios": [
+            {
+              "scenario": "ascii",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 8768,
+                "elapsed_micros": 500357,
+                "encoded_units": 5577,
+                "checksum": 2136375318,
+                "consumed": 49673455,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 130414,
+                "encoded_units": 1718,
+                "checksum": 485170544,
+                "consumed": 181367554,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            },
+            {
+              "scenario": "latin1",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 8656,
+                "elapsed_micros": 500109,
+                "encoded_units": 5577,
+                "checksum": 1060943444,
+                "consumed": 49411332,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 127814,
+                "encoded_units": 1718,
+                "checksum": 249570658,
+                "consumed": 190658419,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            },
+            {
+              "scenario": "mixed_utf16",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 8528,
+                "elapsed_micros": 500485,
+                "encoded_units": 5649,
+                "checksum": 128183832,
+                "consumed": 66798760,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 128411,
+                "encoded_units": 1766,
+                "checksum": 1355090330,
+                "consumed": 631770635,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            }
+          ]
+        }
+      },
+      {
+        "pair": 3,
+        "variant": "after",
+        "report": {
+          "schema": 1,
+          "validation_only": false,
+          "duration_millis_per_kernel": 500,
+          "iteration_cap_per_kernel": 100000,
+          "units": "utf16_code_units",
+          "reusable_input_graph": true,
+          "speedup_asserted": false,
+          "scenarios": [
+            {
+              "scenario": "ascii",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 8320,
+                "elapsed_micros": 500762,
+                "encoded_units": 5577,
+                "checksum": 2136375318,
+                "consumed": 47135641,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 127509,
+                "encoded_units": 1718,
+                "checksum": 485170544,
+                "consumed": 181367554,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            },
+            {
+              "scenario": "latin1",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 8720,
+                "elapsed_micros": 500758,
+                "encoded_units": 5577,
+                "checksum": 1060943444,
+                "consumed": 49777040,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 128848,
+                "encoded_units": 1718,
+                "checksum": 249570658,
+                "consumed": 190658419,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            },
+            {
+              "scenario": "mixed_utf16",
+              "graph_rows": 24,
+              "buffer_chunks": 48,
+              "json": {
+                "kernel": "json_encode",
+                "iterations": 8624,
+                "elapsed_micros": 500065,
+                "encoded_units": 5649,
+                "checksum": 128183832,
+                "consumed": 67677621,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              },
+              "string_buffer": {
+                "kernel": "string_buffer",
+                "iterations": 100000,
+                "elapsed_micros": 134800,
+                "encoded_units": 1766,
+                "checksum": 1355090330,
+                "consumed": 631770635,
+                "warmup_iterations": 8,
+                "validation_outside_timing": true
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "http_performance_claim": false,
+    "limitations": [
+      "Isolated JSON/StringBuffer kernels, not an HTTP workload.",
+      "Fresh processes reuse their input graph within each kernel.",
+      "Short samples do not establish production throughput."
+    ],
+    "compile_environment": {
+      "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/json-list-tuple-cache-ablation-final",
+      "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22",
+      "DARTFORGE_EFFECTS": "check",
+      "DARTFORGE_ARC_CHECK": "1"
+    },
+    "oracle": {
+      "schema": 1,
+      "validation_only": true,
+      "duration_millis_per_kernel": 500,
+      "iteration_cap_per_kernel": 100000,
+      "units": "utf16_code_units",
+      "reusable_input_graph": true,
+      "speedup_asserted": false,
+      "scenarios": [
+        {
+          "scenario": "ascii",
+          "graph_rows": 24,
+          "buffer_chunks": 48,
+          "json": {
+            "kernel": "json_encode",
+            "iterations": 1,
+            "elapsed_micros": 0,
+            "encoded_units": 5577,
+            "checksum": 2136375318,
+            "consumed": 5668,
+            "warmup_iterations": 0,
+            "validation_outside_timing": true
+          },
+          "string_buffer": {
+            "kernel": "string_buffer",
+            "iterations": 1,
+            "elapsed_micros": 0,
+            "encoded_units": 1718,
+            "checksum": 485170544,
+            "consumed": 1815,
+            "warmup_iterations": 0,
+            "validation_outside_timing": true
+          }
+        },
+        {
+          "scenario": "latin1",
+          "graph_rows": 24,
+          "buffer_chunks": 48,
+          "json": {
+            "kernel": "json_encode",
+            "iterations": 1,
+            "elapsed_micros": 0,
+            "encoded_units": 5577,
+            "checksum": 1060943444,
+            "consumed": 5668,
+            "warmup_iterations": 0,
+            "validation_outside_timing": true
+          },
+          "string_buffer": {
+            "kernel": "string_buffer",
+            "iterations": 1,
+            "elapsed_micros": 0,
+            "encoded_units": 1718,
+            "checksum": 249570658,
+            "consumed": 1943,
+            "warmup_iterations": 0,
+            "validation_outside_timing": true
+          }
+        },
+        {
+          "scenario": "mixed_utf16",
+          "graph_rows": 24,
+          "buffer_chunks": 48,
+          "json": {
+            "kernel": "json_encode",
+            "iterations": 1,
+            "elapsed_micros": 0,
+            "encoded_units": 5649,
+            "checksum": 128183832,
+            "consumed": 5740,
+            "warmup_iterations": 0,
+            "validation_outside_timing": true
+          },
+          "string_buffer": {
+            "kernel": "string_buffer",
+            "iterations": 1,
+            "elapsed_micros": 0,
+            "encoded_units": 1766,
+            "checksum": 1355090330,
+            "consumed": 1831,
+            "warmup_iterations": 0,
+            "validation_outside_timing": true
+          }
+        }
+      ]
+    },
+    "prepared_after_ledger": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/json-list-tuple-cache-final-prepared/ledger.json",
+    "binary_sha256": "586075a9e0c21127117e588acab727dc50f311db94ab1061aac389e114a2e255",
+    "baseline_ledger": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/json-list-tuple-cache-final-prepared/ledger.json",
+    "baseline_binary_sha256": "586075a9e0c21127117e588acab727dc50f311db94ab1061aac389e114a2e255",
+    "inputs_stable": true
+  }
+}

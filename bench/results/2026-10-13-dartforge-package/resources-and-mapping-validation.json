@@ -1,0 +1,680 @@
+{
+  "scope": "Functional parity; no performance claim",
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+  "compiler_sha256": "ab3c245e7128765041316d41ffaa6f36227762c518dd55ca6c7fb160526fa781",
+  "inputs_sha256": {
+    "packages/dartforge/.dart_tool/package_config.json": "47262a4e532ce50705a57198678021dd7e908611d4ab15729d316f1570d7b669",
+    "packages/dartforge/pubspec.yaml": "2d8426c67cf0fc97a3552917fcb21950164d2e3c33b5b44044dd1b55c636e0bf",
+    "packages/dartforge/lib/annotations.dart": "5e2c7b13e957da6ba74800ed7fc1eb7440fbc905551f296ad85f848b1d10b3b8",
+    "packages/dartforge/lib/dartforge.dart": "8a0f1d90f876e8de607b08ab9d8608e243818d56aa688ac378c578fe402e5b63",
+    "packages/dartforge/lib/memory.dart": "932e5adcd1a03a3acb5b21b5b1151c29d567b35aba098aa51cbff3c794aefe99",
+    "packages/dartforge/lib/native_library.dart": "459647e646862d7996b44f315b55de0219119a0b1efc87ec7566d6b077a1d912",
+    "packages/dartforge/lib/resources.dart": "9d35ce626c961b72605fad49c2abdc400164575d90220b84620941b5dceb8a29",
+    "packages/dartforge/lib/simd.dart": "b1dedd94a952ce5055c8356668d0882a2c55e71c196bfc4de8ea8352e40fab9a",
+    "packages/dartforge/lib/src/annotations.dart": "769a2a85a5bfe3415652413084f8bb613014fbda392292fa78574fdc54bdf9bf",
+    "packages/dartforge/lib/src/mapped_memory.dart": "e0e5e956b5d9bb555d144378dbc1cf98f7d41a18b312b51cd07dd61c664c2002",
+    "packages/dartforge/lib/src/native_library.dart": "171c3f0768260321ececb1d8c3ab6a73aa12f8da58f0c822421afa7eab2efdd8",
+    "packages/dartforge/lib/src/native_pump.dart": "fc1459a8c75502e55fa1ef341bb8894fd9895d93185fb5734055aca7b86fe9e5",
+    "packages/dartforge/lib/src/scoped_resource.dart": "39600c42b1c8d36a92533cb57b05b962a8f11766e388b51f9413bad94f04e2bd",
+    "packages/dartforge/lib/src/simd/int32x4_3_14.dart": "526449d79ff9cd3ed6bd3cb79449eca829f2ab6cc882d3b3b16efb9214833c1a",
+    "packages/dartforge/test/native_library_probe.dart": "962071b8b7df58a6b8f98c6b37e667e028e603c958cd4ac906c8c118ee912489",
+    "packages/dartforge/test/resources_probe.dart": "2c7231963c99b7c5b6f8afa45e4acc8619564f8a6db26f667d41bbfdfb28a882",
+    "packages/dartforge/test/mapped_memory_probe.dart": "c31053fcd6c53e3fc921967a8a7f0c99b5217ca655d4769f2237ef9cd11bfd0f"
+  },
+  "commands": [
+    {
+      "label": "sdk",
+      "command": [
+        "dart",
+        "--version"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "native_library_probe-vm",
+      "command": [
+        "dart",
+        "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "run",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/native_library_probe.dart"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "native_library_probe-official-build",
+      "command": [
+        "dart",
+        "compile",
+        "exe",
+        "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/native_library_probe.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/native_library_probe.official"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "native_library_probe-official",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/native_library_probe.official"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "native_library_probe-tracing-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/native_library_probe.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "tracing",
+        "--dartforge-contracts=verify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/native_library_probe.tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "native_library_probe-tracing-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/native_library_probe.tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "native_library_probe-tracing-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/native_library_probe.tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "native_library_probe-arc-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/native_library_probe.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "arc",
+        "--dartforge-contracts=verify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/native_library_probe.arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "native_library_probe-arc-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/native_library_probe.arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "native_library_probe-arc-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/native_library_probe.arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "native_library_probe-prepared-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/native_library_probe.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "arc",
+        "--dartforge-contracts=verify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/native_library_probe.prepared"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "native_library_probe-prepared-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/native_library_probe.prepared"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "native_library_probe-prepared-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/native_library_probe.prepared"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "resources_probe-vm",
+      "command": [
+        "dart",
+        "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "run",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/resources_probe.dart"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "resources_probe-official-build",
+      "command": [
+        "dart",
+        "compile",
+        "exe",
+        "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/resources_probe.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/resources_probe.official"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "resources_probe-official",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/resources_probe.official"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "resources_probe-tracing-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/resources_probe.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "tracing",
+        "--dartforge-contracts=verify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/resources_probe.tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "resources_probe-tracing-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/resources_probe.tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "resources_probe-tracing-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/resources_probe.tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "resources_probe-arc-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/resources_probe.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "arc",
+        "--dartforge-contracts=verify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/resources_probe.arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "resources_probe-arc-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/resources_probe.arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "resources_probe-arc-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/resources_probe.arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "resources_probe-prepared-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/resources_probe.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "arc",
+        "--dartforge-contracts=verify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/resources_probe.prepared"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "resources_probe-prepared-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/resources_probe.prepared"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "resources_probe-prepared-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/resources_probe.prepared"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-vm",
+      "command": [
+        "dart",
+        "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "run",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/mapped_memory_probe.dart"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-official-build",
+      "command": [
+        "dart",
+        "compile",
+        "exe",
+        "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/mapped_memory_probe.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/mapped_memory_probe.official"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-official",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/mapped_memory_probe.official"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-tracing-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/mapped_memory_probe.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "tracing",
+        "--dartforge-contracts=verify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/mapped_memory_probe.tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-tracing-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/mapped_memory_probe.tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-tracing-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/mapped_memory_probe.tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-arc-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/mapped_memory_probe.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "arc",
+        "--dartforge-contracts=verify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/mapped_memory_probe.arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-arc-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/mapped_memory_probe.arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-arc-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/mapped_memory_probe.arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-prepared-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/mapped_memory_probe.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "arc",
+        "--dartforge-contracts=verify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/mapped_memory_probe.prepared"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-prepared-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/mapped_memory_probe.prepared"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-prepared-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/mapped_memory_probe.prepared"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "runs": [
+    {
+      "probe": "native_library_probe.dart",
+      "mode": "tracing",
+      "gc_stress": false,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 56,
+      "stdout_sha256": "a84737278479cd089cfc99db604d0a9531c48814398ce27b86348bc06613eed0"
+    },
+    {
+      "probe": "native_library_probe.dart",
+      "mode": "tracing",
+      "gc_stress": true,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 56,
+      "stdout_sha256": "a84737278479cd089cfc99db604d0a9531c48814398ce27b86348bc06613eed0"
+    },
+    {
+      "probe": "native_library_probe.dart",
+      "mode": "arc",
+      "gc_stress": false,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 56,
+      "stdout_sha256": "a84737278479cd089cfc99db604d0a9531c48814398ce27b86348bc06613eed0"
+    },
+    {
+      "probe": "native_library_probe.dart",
+      "mode": "arc",
+      "gc_stress": true,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 56,
+      "stdout_sha256": "a84737278479cd089cfc99db604d0a9531c48814398ce27b86348bc06613eed0"
+    },
+    {
+      "probe": "native_library_probe.dart",
+      "mode": "prepared",
+      "gc_stress": false,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 56,
+      "stdout_sha256": "a84737278479cd089cfc99db604d0a9531c48814398ce27b86348bc06613eed0"
+    },
+    {
+      "probe": "native_library_probe.dart",
+      "mode": "prepared",
+      "gc_stress": true,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 56,
+      "stdout_sha256": "a84737278479cd089cfc99db604d0a9531c48814398ce27b86348bc06613eed0"
+    },
+    {
+      "probe": "resources_probe.dart",
+      "mode": "tracing",
+      "gc_stress": false,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 440,
+      "stdout_sha256": "28fcb9b1d52efa1959b0916a3a9d405a1607daadd8c6d949808ea2a399ea5daf"
+    },
+    {
+      "probe": "resources_probe.dart",
+      "mode": "tracing",
+      "gc_stress": true,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 440,
+      "stdout_sha256": "28fcb9b1d52efa1959b0916a3a9d405a1607daadd8c6d949808ea2a399ea5daf"
+    },
+    {
+      "probe": "resources_probe.dart",
+      "mode": "arc",
+      "gc_stress": false,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 440,
+      "stdout_sha256": "28fcb9b1d52efa1959b0916a3a9d405a1607daadd8c6d949808ea2a399ea5daf"
+    },
+    {
+      "probe": "resources_probe.dart",
+      "mode": "arc",
+      "gc_stress": true,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 440,
+      "stdout_sha256": "28fcb9b1d52efa1959b0916a3a9d405a1607daadd8c6d949808ea2a399ea5daf"
+    },
+    {
+      "probe": "resources_probe.dart",
+      "mode": "prepared",
+      "gc_stress": false,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 440,
+      "stdout_sha256": "28fcb9b1d52efa1959b0916a3a9d405a1607daadd8c6d949808ea2a399ea5daf"
+    },
+    {
+      "probe": "resources_probe.dart",
+      "mode": "prepared",
+      "gc_stress": true,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 440,
+      "stdout_sha256": "28fcb9b1d52efa1959b0916a3a9d405a1607daadd8c6d949808ea2a399ea5daf"
+    },
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "tracing",
+      "gc_stress": false,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 66,
+      "stdout_sha256": "f3d1d7fe917117db5d2aa9b98b6dc5fe7800de1615b95d23937c7c48522d9bff"
+    },
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "tracing",
+      "gc_stress": true,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 66,
+      "stdout_sha256": "f3d1d7fe917117db5d2aa9b98b6dc5fe7800de1615b95d23937c7c48522d9bff"
+    },
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "arc",
+      "gc_stress": false,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 66,
+      "stdout_sha256": "f3d1d7fe917117db5d2aa9b98b6dc5fe7800de1615b95d23937c7c48522d9bff"
+    },
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "arc",
+      "gc_stress": true,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 66,
+      "stdout_sha256": "f3d1d7fe917117db5d2aa9b98b6dc5fe7800de1615b95d23937c7c48522d9bff"
+    },
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "prepared",
+      "gc_stress": false,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 66,
+      "stdout_sha256": "f3d1d7fe917117db5d2aa9b98b6dc5fe7800de1615b95d23937c7c48522d9bff"
+    },
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "prepared",
+      "gc_stress": true,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 66,
+      "stdout_sha256": "f3d1d7fe917117db5d2aa9b98b6dc5fe7800de1615b95d23937c7c48522d9bff"
+    }
+  ],
+  "artifacts": [
+    {
+      "probe": "native_library_probe.dart",
+      "mode": "tracing",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/native_library_probe.tracing",
+      "sha256": "a3fa05e4df0e7f1c8584ccd14f1eb203fa55775dd99c12c7bb6ffeb51ac39e32",
+      "manifest": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/native_library_probe.tracing.contracts.json",
+      "manifest_sha256": "39120e8648a2445507102fcc2a745e906d5a791e75b3f8cfb53f6eb1404b2466"
+    },
+    {
+      "probe": "native_library_probe.dart",
+      "mode": "arc",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/native_library_probe.arc",
+      "sha256": "d24309edcbbbc9efceb58eadde51619ceb09ee3012a2f0a6d9e91941abf33629",
+      "manifest": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/native_library_probe.arc.contracts.json",
+      "manifest_sha256": "2823c7acde2ec3e3f750d396cd510f19bb1e75a505132040e4372d8cd103eb16"
+    },
+    {
+      "probe": "native_library_probe.dart",
+      "mode": "prepared",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/native_library_probe.prepared",
+      "sha256": "182ac7622128418f020564637a32d3c7edf54d54fa0a73af572664342c1a706a",
+      "manifest": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/native_library_probe.prepared.contracts.json",
+      "manifest_sha256": "96d581156f52886aabd9a1c14592815c0604c476bb4745d5d358b71c3ddaf6ad"
+    },
+    {
+      "probe": "resources_probe.dart",
+      "mode": "tracing",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/resources_probe.tracing",
+      "sha256": "4d9d4b81237af10d9673338273b4585b73ba8ef51cdeb24a1aeda5a38cacc50e",
+      "manifest": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/resources_probe.tracing.contracts.json",
+      "manifest_sha256": "c9e76f4154a5c847f69b4cb0047bdf7949f1ea44b13ff45dea7a96aee7b01ff7"
+    },
+    {
+      "probe": "resources_probe.dart",
+      "mode": "arc",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/resources_probe.arc",
+      "sha256": "dbe4541e71d37e7f80ee31648052adeaedb8281336fb57b24355a37034f8741d",
+      "manifest": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/resources_probe.arc.contracts.json",
+      "manifest_sha256": "da3ef7a26318bb51ea5336d88862806052a814a1a3604e35dc59aa61c38bd301"
+    },
+    {
+      "probe": "resources_probe.dart",
+      "mode": "prepared",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/resources_probe.prepared",
+      "sha256": "3ec57696fe6f4f9d31b1d94576fb147c87e63c64beb9d8e0294c0aea15eb4531",
+      "manifest": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/resources_probe.prepared.contracts.json",
+      "manifest_sha256": "2ab723f65d7534933382ef7d1ab4c1c3ffebe6889eb89475980e63ad7ba0242b"
+    },
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "tracing",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/mapped_memory_probe.tracing",
+      "sha256": "e776ae4fad2d7e7dc6915c4f96388b7545620b9819bb5094f702f76638787795",
+      "manifest": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/mapped_memory_probe.tracing.contracts.json",
+      "manifest_sha256": "04e93afa9fc9f8a1e837b6880071b81bba86a3020bc2b3373d9332994d872e0b"
+    },
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "arc",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/mapped_memory_probe.arc",
+      "sha256": "9567b885560d638db75aa310242ca61d7a7fa37b778c0b7596dc6630111d8c80",
+      "manifest": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/mapped_memory_probe.arc.contracts.json",
+      "manifest_sha256": "6345b3fcf8b7c155d90f0b653dafa907bc8fc6bc4de4c4847595b36215ca73f8"
+    },
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "prepared",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/mapped_memory_probe.prepared",
+      "sha256": "41e10cebdf1d58aedb760b8b4f977e142a12fa670e2c8496a40ef066bb6f7286",
+      "manifest": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/package-resources-stable/mapped_memory_probe.prepared.contracts.json",
+      "manifest_sha256": "dbe535011a466a272cb7c0a30b6a9c49eab5202b9ff01fbbb6082c203e239ead"
+    }
+  ],
+  "inputs_stable_through_run": true,
+  "sdk": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\""
+}

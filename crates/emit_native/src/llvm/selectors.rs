@@ -74,6 +74,16 @@ impl LlvmEmitter<'_> {
         let h = selector_hash(selector);
         let slot = self.cache_slot();
         writeln!(self.out, "  %sic{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
+        if let Operand::Val(value) = recv
+            && let Some(classes) = self.current_exact_receivers.get(value)
+        {
+            let classes = classes.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+            writeln!(self.out, "  ; df.selector-exact {classes}").unwrap();
+        } else if let Some((parameter, cid)) = self.current_receiver_cone.as_ref()
+            && recv == &Operand::Val(*parameter)
+        {
+            writeln!(self.out, "  ; df.selector-cone {cid}").unwrap();
+        }
         if self.compact_selector {
             // The hash, the name and the length in a static descriptor
             // (`@df.seld.<k>`): three arguments instead of five.
@@ -122,6 +132,16 @@ impl LlvmEmitter<'_> {
         let h = selector_hash(selector);
         let slot = self.cache_slot();
         writeln!(self.out, "  %sic{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
+        if let Operand::Val(value) = recv
+            && let Some(classes) = self.current_exact_receivers.get(value)
+        {
+            let classes = classes.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+            writeln!(self.out, "  ; df.selector-exact {classes}").unwrap();
+        } else if let Some((parameter, cid)) = self.current_receiver_cone.as_ref()
+            && recv == &Operand::Val(*parameter)
+        {
+            writeln!(self.out, "  ; df.selector-cone {cid}").unwrap();
+        }
         if self.compact_selector {
             // The hash, the name and the length in a static descriptor
             // (`@df.seld.<k>`): three arguments instead of five.

@@ -41,7 +41,7 @@ fn ir(debug_info: bool) -> Option<String> {
     let text = std::thread::Builder::new()
         .stack_size(64 << 20)
         .spawn(move || {
-            let options = CompileOptions {
+            let options = CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
                 sdk: Some(Path::new(&sdk)),
                 packages: None,
                 timings: false,

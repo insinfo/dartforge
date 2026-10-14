@@ -1,0 +1,19 @@
+{
+  "command": "cargo test --locked -p dartforge-jit --lib --test callback_retention --test plain_sdk_residency --config profile.dev.package.dartforge-emit-native.opt-level=2 -j2 -- --include-ignored --test-threads=1",
+  "exit_code": 0,
+  "results": [
+    "test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.95s",
+    "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+    "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.18s"
+  ],
+  "test_binary_sha256": "73d7de90d2167a50d97c2ef9590779de0b764abe8a1924d295b6060819f7c50a",
+  "source_sha256": {
+    "crates/jit/src/ffi.rs": "dd621f4fdf0a1c374bd34133937132e891625e9d26f2801e6d6e15ac65502d6b",
+    "crates/jit/src/lib.rs": "f819d3547a5367e465b621ae7bd97f4f4175ccdf0722cff4f68121cc79820e90",
+    "crates/jit/src/reload.rs": "ef3f5c3e798ba9961567fa3d97d4ef1235d8e620a7d0c85dbee914abb8034c6e",
+    "crates/runtime/src/ffi_callbacks.rs": "1dc8fce2978d9a7555033fc8427026bd45de24073e7a0f239b532a26af2d6d37",
+    "crates/runtime/src/ffi_callback_code_owners.rs": "f9d4be6b6efae375a20a5dfb02146a414d3520c219dce25d70c708e864a0dd5e",
+    "crates/runtime/src/isolates.rs": "af6f791596ef9d0614592ef9d5cffd70c7880cc1fe85fec9e3f8c5192df086a8"
+  },
+  "scope": "38 focused tests; full-SDK metadata-only generation reclamation, callback retention and captured closures. Exception check mode. Exception ports, escaping internal handles and callable isolate registrations remain conservatively resident."
+}

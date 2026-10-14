@@ -388,7 +388,34 @@ fn arc_contracts_cover_exports_without_inventing_contracts_for_other_externs() {
                 || NATIVES_WITHOUT_RESULT.contains(n)
                 || matches!(
                     **n,
-                    "dartforge_gc_global_root"
+                    "dartforge_native_DartForge_Timer_tick"
+                        | "dartforge_ffi_callback_late_calls"
+                        | "dartforge_ffi_callback_late_return"
+                        | "dartforge_ffi_callback_owner_cancel_retire"
+                        | "dartforge_ffi_callback_owner_finish_retire"
+                        | "dartforge_ffi_callback_owner_new"
+                        | "dartforge_ffi_callback_owner_prepare_retire"
+                        | "dartforge_ffi_callback_owner_published"
+                        | "dartforge_ffi_register_callback_owned"
+                        | "dartforge_ffi_callback_sync"
+                        | "dartforge_native_DartForge_ffi_callback_sync_claim"
+                        | "dartforge_native_DartForge_ffi_callback_sync_complete"
+                        | "dartforge_native_DartForge_ffi_callback_sync_new"
+                        | "dartforge_native_DartForge_event_next_deadline_micros"
+                        | "dartforge_native_DartForge_isolate_thread_id"
+                        | "dartforge_native_DartForge_gc_policy_supported"
+                        | "dartforge_native_DartForge_gc_policy_elapsed_micros"
+                        | "dartforge_native_DartForge_gc_policy_defer"
+                        | "dartforge_native_DartForge_gc_policy_cancel"
+                        | "dartforge_native_DartForge_gc_policy_request_idle"
+                        | "dartforge_native_DartForge_gc_policy_collections"
+                        | "dartforge_native_DartForge_native_pump_supported"
+                        | "dartforge_native_DartForge_native_pump_enable"
+                        | "dartforge_native_DartForge_native_pump_disable"
+                        | "dartforge_native_DartForge_native_pump_dispatcher_supported"
+                        | "dartforge_native_DartForge_native_pump_set_dispatcher"
+                        | "dartforge_native_DartForge_native_pump_clear_dispatcher"
+                        | "dartforge_gc_global_root"
                         | "dartforge_mark_constant"
                         | "dartforge_gc_collect"
                         | "dartforge_mark_permanent"
@@ -609,4 +636,29 @@ fn copied_borrowed_capture_survives_env_and_preserves_pending() {
         dartforge_arc_collect();
         assert_eq!(dartforge_arc_observe_heap_v1(capture), 0);
     }).join().unwrap();
+}
+
+#[test]
+fn callback_code_owners_use_native_metadata_without_managed_ownership() {
+    let mut expected = vec![("dartforge_ffi_callback_owner_new", vec![], ResultMode::ScalarI64)];
+    for name in [
+        "dartforge_ffi_callback_owner_published",
+        "dartforge_ffi_callback_owner_prepare_retire",
+        "dartforge_ffi_callback_owner_cancel_retire",
+        "dartforge_ffi_callback_owner_finish_retire",
+    ] {
+        expected.push((name, vec![ParamMode::Scalar], ResultMode::ScalarI8));
+    }
+    expected.push(("dartforge_ffi_register_callback_owned",
+        vec![ParamMode::NativeAddress, ParamMode::Scalar, ParamMode::Native, ParamMode::Scalar],
+        ResultMode::ScalarI8));
+    for (name, parameters, result) in expected {
+        let contract = CONTRACTS.iter().find(|c| c.name == name).unwrap();
+        assert_eq!(contract.parameters, parameters);
+        assert_eq!(contract.result, result);
+        assert!(!contract.persistent_retention && !contract.invalidates_borrows);
+        assert!(!contract.may_fail && !contract.calls_dart);
+        let effect = EFFECTS.iter().find(|e| e.0 == name).unwrap();
+        assert_eq!((effect.1, effect.2, effect.3), (false, false, false));
+    }
 }

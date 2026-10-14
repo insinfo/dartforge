@@ -230,7 +230,7 @@ com sinal dão -1/0; `anyTrue` = alguma pista ≠ 0, `allTrue` = todas ≠ 0.
 **Como fica disponível sem quebrar a paridade com o 3.6.2** (decisão):
 `dart:typed_data` continua a do 3.6.2 (D1 de `docs/VERSOES-LINGUAGEM.md`). A
 API vem numa **extensão comum** de Dart 3.6,
-`packages/dartforge_simd/lib/int32x4_3_14.dart` (`extension Int32x4Api314 on
+`packages/dartforge/lib/src/simd/int32x4_3_14.dart` (`extension Int32x4Api314 on
 Int32x4`), com as assinaturas acima e os corpos do patch da VM, marcada com
 `@pragma('dartforge:simd-api', '3.14')`:
 

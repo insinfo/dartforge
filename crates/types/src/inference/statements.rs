@@ -1255,6 +1255,9 @@ pub(crate) fn validate_local_annotation(inf: &mut BodyInferrer<'_>, cx: &Body, m
     match cx.lookup(n1.sym) {
         Some(MemberName::Local(id)) => {
             let l = cx.local(id);
+            if inf.record_locals {
+                inf.body_types.units[cx.unit.0 as usize].metadata_local_declarations.insert(m.span.start, l.offset);
+            }
             if cx.local_functions.contains(&id) || !l.const_ || m.arguments.is_some() || m.name.len() > 1 {
                 inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INVALID_ANNOTATION, m.span, &[]);
             }

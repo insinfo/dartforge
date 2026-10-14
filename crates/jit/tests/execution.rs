@@ -422,7 +422,7 @@ void main() {
 /// (`emit_reloadable_ir`: without static objects, which the JIT does not have,
 /// docs/NATIVO-ESPACO-UNIFICADO.md §2.11); the AOT driver links that same text.
 fn emit_ir(input: &Path) -> String {
-    let options = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+    let options = dartforge_emit_native::CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify, sdk: None, packages: None, timings: false, optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
     dartforge_emit_native::emit_reloadable_ir(input, &options, None)
         .unwrap_or_else(|error| panic!("the test program did not emit IR: {error}"))
         .text

@@ -70,12 +70,17 @@ const FRAGMENTS: &[&str] = &[
     "simd",
     // P6: the event loop (microtasks and timers).
     "events",
+    "gc_policy",
+    "isolate_identity",
+    // Opt-in macOS process-main-thread run-loop integration.
+    "native_pump",
     // Ports and the isolate's message queue.
     "ports",
     // Isolates (`Isolate.spawn`, the control port).
     "isolates",
     // dart:ffi (dynamic libraries, native memory, call trampolines).
     "ffi",
+    "ffi_callback_code_owners",
     "ffi_callbacks",
     // The native port API (Dart_PostCObject…) and the DL API data.
     "ffi_native_api",
@@ -249,6 +254,7 @@ fn ownership_table(manifest: &std::path::Path, names: &[String]) -> String {
             ("u8:scalar", false) => ("u8", "ParamMode::ScalarI8"),
             ("i8:scalar", false) => ("i8", "ParamMode::ScalarI8"),
             ("i64:native", false) => ("i64", "ParamMode::Native"),
+            ("usize:native", false) => ("usize", "ParamMode::Native"),
             ("ptr:native", false) => ("*const i64", "ParamMode::NativeAddress"),
             // Constant module bytes (a UTF-8 name), the same native address.
             ("bytes:native", false) => ("*const u8", "ParamMode::NativeAddress"),

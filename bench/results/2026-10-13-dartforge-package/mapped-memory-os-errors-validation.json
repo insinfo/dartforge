@@ -1,0 +1,252 @@
+{
+  "scope": "Functional parity; no performance claim",
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+  "compiler_sha256": "ab3c245e7128765041316d41ffaa6f36227762c518dd55ca6c7fb160526fa781",
+  "inputs_sha256": {
+    "packages/dartforge/.dart_tool/package_config.json": "47262a4e532ce50705a57198678021dd7e908611d4ab15729d316f1570d7b669",
+    "packages/dartforge/pubspec.yaml": "2d8426c67cf0fc97a3552917fcb21950164d2e3c33b5b44044dd1b55c636e0bf",
+    "packages/dartforge/lib/annotations.dart": "5e2c7b13e957da6ba74800ed7fc1eb7440fbc905551f296ad85f848b1d10b3b8",
+    "packages/dartforge/lib/dartforge.dart": "8a0f1d90f876e8de607b08ab9d8608e243818d56aa688ac378c578fe402e5b63",
+    "packages/dartforge/lib/memory.dart": "932e5adcd1a03a3acb5b21b5b1151c29d567b35aba098aa51cbff3c794aefe99",
+    "packages/dartforge/lib/native_library.dart": "459647e646862d7996b44f315b55de0219119a0b1efc87ec7566d6b077a1d912",
+    "packages/dartforge/lib/resources.dart": "9d35ce626c961b72605fad49c2abdc400164575d90220b84620941b5dceb8a29",
+    "packages/dartforge/lib/simd.dart": "b1dedd94a952ce5055c8356668d0882a2c55e71c196bfc4de8ea8352e40fab9a",
+    "packages/dartforge/lib/src/annotations.dart": "769a2a85a5bfe3415652413084f8bb613014fbda392292fa78574fdc54bdf9bf",
+    "packages/dartforge/lib/src/mapped_memory.dart": "e0e5e956b5d9bb555d144378dbc1cf98f7d41a18b312b51cd07dd61c664c2002",
+    "packages/dartforge/lib/src/native_library.dart": "171c3f0768260321ececb1d8c3ab6a73aa12f8da58f0c822421afa7eab2efdd8",
+    "packages/dartforge/lib/src/native_pump.dart": "fc1459a8c75502e55fa1ef341bb8894fd9895d93185fb5734055aca7b86fe9e5",
+    "packages/dartforge/lib/src/scoped_resource.dart": "39600c42b1c8d36a92533cb57b05b962a8f11766e388b51f9413bad94f04e2bd",
+    "packages/dartforge/lib/src/simd/int32x4_3_14.dart": "526449d79ff9cd3ed6bd3cb79449eca829f2ab6cc882d3b3b16efb9214833c1a",
+    "packages/dartforge/test/mapped_memory_probe.dart": "fa54d50014decc99c32eb0ca77dcb1f8cfa342880253452239fc82cbd79b783f"
+  },
+  "commands": [
+    {
+      "label": "sdk",
+      "command": [
+        "dart",
+        "--version"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-vm",
+      "command": [
+        "dart",
+        "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "run",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/mapped_memory_probe.dart"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-official-build",
+      "command": [
+        "dart",
+        "compile",
+        "exe",
+        "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/mapped_memory_probe.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mapped-memory-os-errors/mapped_memory_probe.official"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-official",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mapped-memory-os-errors/mapped_memory_probe.official"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-tracing-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/mapped_memory_probe.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "tracing",
+        "--dartforge-contracts=verify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mapped-memory-os-errors/mapped_memory_probe.tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-tracing-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mapped-memory-os-errors/mapped_memory_probe.tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-tracing-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mapped-memory-os-errors/mapped_memory_probe.tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-arc-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/mapped_memory_probe.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "arc",
+        "--dartforge-contracts=verify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mapped-memory-os-errors/mapped_memory_probe.arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-arc-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mapped-memory-os-errors/mapped_memory_probe.arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-arc-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mapped-memory-os-errors/mapped_memory_probe.arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-prepared-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/mapped_memory_probe.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "arc",
+        "--dartforge-contracts=verify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mapped-memory-os-errors/mapped_memory_probe.prepared"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-prepared-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mapped-memory-os-errors/mapped_memory_probe.prepared"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mapped_memory_probe-prepared-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mapped-memory-os-errors/mapped_memory_probe.prepared"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "runs": [
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "tracing",
+      "gc_stress": false,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 66,
+      "stdout_sha256": "f3d1d7fe917117db5d2aa9b98b6dc5fe7800de1615b95d23937c7c48522d9bff"
+    },
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "tracing",
+      "gc_stress": true,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 66,
+      "stdout_sha256": "f3d1d7fe917117db5d2aa9b98b6dc5fe7800de1615b95d23937c7c48522d9bff"
+    },
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "arc",
+      "gc_stress": false,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 66,
+      "stdout_sha256": "f3d1d7fe917117db5d2aa9b98b6dc5fe7800de1615b95d23937c7c48522d9bff"
+    },
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "arc",
+      "gc_stress": true,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 66,
+      "stdout_sha256": "f3d1d7fe917117db5d2aa9b98b6dc5fe7800de1615b95d23937c7c48522d9bff"
+    },
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "prepared",
+      "gc_stress": false,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 66,
+      "stdout_sha256": "f3d1d7fe917117db5d2aa9b98b6dc5fe7800de1615b95d23937c7c48522d9bff"
+    },
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "prepared",
+      "gc_stress": true,
+      "matches_vm_and_official_aot": true,
+      "stdout_bytes": 66,
+      "stdout_sha256": "f3d1d7fe917117db5d2aa9b98b6dc5fe7800de1615b95d23937c7c48522d9bff"
+    }
+  ],
+  "artifacts": [
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "tracing",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mapped-memory-os-errors/mapped_memory_probe.tracing",
+      "sha256": "04e39e384c47906dbc19cce0411d45c7c1e0a3377c8770d8cb2a19e13e3facd8",
+      "manifest": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mapped-memory-os-errors/mapped_memory_probe.tracing.contracts.json",
+      "manifest_sha256": "df479ad24e8e91f8ea98b0c672903c0076ea9ce4316072ba8a9b7a4ad8aef7b0"
+    },
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "arc",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mapped-memory-os-errors/mapped_memory_probe.arc",
+      "sha256": "0ab746d08b793e24fafbc1079c81ba38bfd3cdb96715fd7afba1e2312270bc2a",
+      "manifest": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mapped-memory-os-errors/mapped_memory_probe.arc.contracts.json",
+      "manifest_sha256": "4b6353621ac36a4c4f7fa655e1292fba6f81916ea990ecbcfe68085012fbed4c"
+    },
+    {
+      "probe": "mapped_memory_probe.dart",
+      "mode": "prepared",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mapped-memory-os-errors/mapped_memory_probe.prepared",
+      "sha256": "5cce2c72601cc7d6840b5f78ab253399a0f4bf188c3c75b7ba8d993f631624ac",
+      "manifest": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mapped-memory-os-errors/mapped_memory_probe.prepared.contracts.json",
+      "manifest_sha256": "f1da14af45e2511a2b1db3e1175ff60d836e7ca13b3874ffb22aaabc5efcfa9a"
+    }
+  ],
+  "inputs_stable_through_run": true,
+  "sdk": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\""
+}

@@ -348,6 +348,7 @@ pub(super) fn remap_facts(m: &mut Module, map: &HashMap<String, String>) {
             .map(|s| map.get(&s).cloned().unwrap_or(s))
             .collect();
     }
+    keys(&mut m.inline_policies, map);
     keys(&mut m.dart_scalar_parameters, map);
     keys(&mut m.dart_rti_parameters, map);
     keys(&mut m.dart_vector_parameters, map);
@@ -665,5 +666,19 @@ mod tests {
                 assert!(c.frames(BlockId(1)).is_empty());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod inline_policy_tests {
+    use super::*;
+
+    #[test]
+    fn physical_body_names_preserve_inline_policy() {
+        let mut module = Module::new();
+        module.inline_policies.insert("body".into(), crate::hir::InlinePolicy::Never);
+        remap_facts(&mut module, &HashMap::from([("body".into(), "body$arcslots_v1".into())]));
+        assert!(!module.inline_policies.contains_key("body"));
+        assert_eq!(module.inline_policies["body$arcslots_v1"], crate::hir::InlinePolicy::Never);
     }
 }

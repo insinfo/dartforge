@@ -1,0 +1,796 @@
+{
+  "date": "2026-10-13",
+  "platform": "macOS arm64",
+  "base_commit": "2f68f91037bbd47eac498b05eed1e672bfe7f736",
+  "implementation": [
+    "Native reserved compilation definition dartforge.compiler=true",
+    "Bounded vm:prefer-inline and vm:never-inline policies in native HIR/LLVM, including local/async bodies and ARC remaps",
+    "CLI Windows PE subsystem console/gui, typed linker policy and matching CRT app type"
+  ],
+  "tests": {
+    "native_emitter": {
+      "passed": 487,
+      "failed": 0,
+      "ignored": 7
+    },
+    "subsystem_cli": {
+      "passed": 3,
+      "failed": 0
+    },
+    "windows_cross_link": {
+      "passed": 1,
+      "gui_pe_subsystem": 2,
+      "console_pe_subsystem": 3,
+      "entrypoint_nonzero": true,
+      "windows_runtime_executed": false
+    }
+  },
+  "aot_validation": [
+    {
+      "source": "corpus/native/140_compiler_environment.dart",
+      "memory": "tracing",
+      "prepared": false,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/140_compiler_environment.dart",
+      "memory": "tracing",
+      "prepared": false,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/140_compiler_environment.dart",
+      "memory": "arc",
+      "prepared": false,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/140_compiler_environment.dart",
+      "memory": "arc",
+      "prepared": false,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/140_compiler_environment.dart",
+      "memory": "arc",
+      "prepared": true,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/140_compiler_environment.dart",
+      "memory": "arc",
+      "prepared": true,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/141_inline_pragmas.dart",
+      "memory": "tracing",
+      "prepared": false,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/141_inline_pragmas.dart",
+      "memory": "tracing",
+      "prepared": false,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/141_inline_pragmas.dart",
+      "memory": "arc",
+      "prepared": false,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/141_inline_pragmas.dart",
+      "memory": "arc",
+      "prepared": false,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/141_inline_pragmas.dart",
+      "memory": "arc",
+      "prepared": true,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/141_inline_pragmas.dart",
+      "memory": "arc",
+      "prepared": true,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/138_json_error_unwind.dart",
+      "memory": "tracing",
+      "prepared": false,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/138_json_error_unwind.dart",
+      "memory": "tracing",
+      "prepared": false,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/138_json_error_unwind.dart",
+      "memory": "arc",
+      "prepared": false,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/138_json_error_unwind.dart",
+      "memory": "arc",
+      "prepared": false,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/138_json_error_unwind.dart",
+      "memory": "arc",
+      "prepared": true,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/138_json_error_unwind.dart",
+      "memory": "arc",
+      "prepared": true,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/139_socket_read_buffers.dart",
+      "memory": "tracing",
+      "prepared": false,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/139_socket_read_buffers.dart",
+      "memory": "tracing",
+      "prepared": false,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/139_socket_read_buffers.dart",
+      "memory": "arc",
+      "prepared": false,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/139_socket_read_buffers.dart",
+      "memory": "arc",
+      "prepared": false,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/139_socket_read_buffers.dart",
+      "memory": "arc",
+      "prepared": true,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "corpus/native/139_socket_read_buffers.dart",
+      "memory": "arc",
+      "prepared": true,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "target/tmp-dart-ui-integration/blend_probe.dart",
+      "memory": "tracing",
+      "prepared": false,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "target/tmp-dart-ui-integration/blend_probe.dart",
+      "memory": "tracing",
+      "prepared": false,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "target/tmp-dart-ui-integration/blend_probe.dart",
+      "memory": "arc",
+      "prepared": false,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "target/tmp-dart-ui-integration/blend_probe.dart",
+      "memory": "arc",
+      "prepared": false,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "target/tmp-dart-ui-integration/blend_probe.dart",
+      "memory": "arc",
+      "prepared": true,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "target/tmp-dart-ui-integration/blend_probe.dart",
+      "memory": "arc",
+      "prepared": true,
+      "stress": true,
+      "matches_dart": true
+    }
+  ],
+  "actual_dart_ui_probes": [
+    {
+      "source": "repro/dart_sdk_isolate_event_loop/bin/nested_callback_probe.dart",
+      "aot_build_exit": 0,
+      "executed": true,
+      "run_exit": 0,
+      "reproduced": true,
+      "stdout": "SDK: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\"\nnative frame: qsort comparator, blocking 1500 ms\n  ticks before the call        : 2\n  comparator reached           : true\n  wall time inside qsort       : 1505 ms\n  ticks a live loop would see  : about 30\n  ticks delivered during call  : 0\n  ticks after qsort returned   : 34\nRESULT=REPRODUCED no timer tick was delivered while Dart ran under a native frame\n"
+    },
+    {
+      "source": "tool/isolate_frame_handoff_probe.dart",
+      "aot_build_exit": 0,
+      "executed": false
+    }
+  ],
+  "frame_handoff_execution": {
+    "source": "tool/isolate_frame_handoff_probe.dart",
+    "run_exit": 0,
+    "visibility_200_rounds_passed": true,
+    "completed_four_paths": true,
+    "performance_measurement": false
+  },
+  "limitations": [
+    "Native environment constant key evaluation is a supported subset; unsupported const names reject compilation with a diagnostic. No general -D option introduced.",
+    "Detection outside native AOT has not been validated.",
+    "Inlining changes have no performance improvement measurement yet.",
+    "GUI Windows execution unavailable on this Mac; cross-link tests check headers/entrypoints/CRT and linking only.",
+    "Frame handoff run is a functional check during build activity, not a controlled performance comparison.",
+    "Portable nested-callback probe still delivers no timer ticks under a native callback. Native resumes with 34 ticks after return versus 4 on VM; periodic timer catch-up requires investigation.",
+    "Native event pump, AppKit dispatch, runOneTurn and package:dartforge remain unimplemented.",
+    "General fmt/Clippy/JIT workspace issues recorded in ESTADO remain."
+  ],
+  "local_logs": "target/dart-ui-evidence/phase1/",
+  "root_corpus_ir_emission": [
+    {
+      "source": "corpus/native/01_io_sincrono.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/02_io_assincrono.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/03_processos.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/04_soquetes_http.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/05_udp_sinais.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/06_escuta_compartilhada.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/07_isolados.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/08_ffi.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/09_simd.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/100_mapas_conjuntos_chave_int.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/101_json_pilha_e_mapas.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/10_colecoes_e_referencias_fracas.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/110_identidade_de_literais_dev.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/11_zlib.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/122_literais_grandes_constantes.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/123_fuso_horario_por_ano.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/124_atribuicao_encadeada_anulavel.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/125_tipos_capturados_entre_isolados.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/126_tearoff_entre_isolados.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/127_const_padrao_com_variavel_de_tipo.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/128_ffi_anotacoes_por_alias.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/129_importa_a_si_mesma.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/12_ffi_structs.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/130_extensao_sobre_registro.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/131_const_no_argumento_de_fabrica.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/132_mapas_entre_isolados.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/134_estouro_de_pilha.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/135_void_de_seta_devolve_o_valor.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/136_estouro_de_pilha_e_coleta.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/137_constantes_grandes_por_tabela.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/138_json_error_unwind.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/139_socket_read_buffers.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/13_ffi_callbacks.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/140_compiler_environment.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/141_inline_pragmas.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/14_finalizadores.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/15_ffi_api_nativa.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/16_ffi_structs_por_valor.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/17_ffi_varargs.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/18_ffi_handle.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/19_ffi_native_variaveis.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/20_listas_tipadas_acesso_direto.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/21_listas_do_nucleo_acesso_direto.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/22_listas_validade_do_buffer.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/23_resto_por_constante.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/24_simd_sem_caixa.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/25_int_double_em_linha.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/26_for_in_de_lista.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/27_listas_covariancia.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/28_closures_tipadas.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/29_divisao_por_zero.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/30_listas_cabecalho_add_filled.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/31_udp_multicast.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/32_soquete_sincrono.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/33_mensagens_de_controle.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/34_observar_arquivos.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/35_interromper_laco.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/36_tipos_de_extensao.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/37_laco_de_lista.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/38_observar_arquivos_windows.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/39_observar_arquivos_macos.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/40_listas_compactas.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/41_closures_genericas.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/42_padrao_constante_de_enum.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/43_tipo_de_extensao_new_nomeado.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/44_atribuicao_composta_pela_interface.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/45_mirrors_reflect_class.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/46_factory_redirecionadora_padrao_do_alvo.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/46_ordenar_com_comparador_e_copiar.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/47_inferencia_pelo_supertipo.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/47_mapas_e_conjuntos_int_string.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/48_tearoff_de_construtor_inferido.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/49_strings_busca_divisao_e_buffer.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/49_typedef_tearoff_e_mixin_sem_aplicacao.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/50_extensao_sobre_record_campo_implicito.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/50_receptor_int_e_objetos_do_espaco.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/51_enum_index_por_seletor.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/52_chamada_tipada_e_covariancia.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/53_constantes_genericas_distintas.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/54_campo_de_mixin_generico.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/54_funcoes_locais_diretas.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/55_listas_tipadas_cabecalho.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/56_despacho_em_linha_e_igualdade_de_string.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/57_await_em_operandos_e_future_runtime_type.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/58_atribuicao_com_curto_circuito_nulo.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/59_constantes_primitivas_e_switch.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/60_closures_de_ambiente_direto.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/61_string_de_codigos.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/62_cache_de_cabecalho_tipado.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/63_funcao_direta_grava_bool_por_endereco.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/64_tearoff_por_alias_instanciado.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/65_enum_generico_com_argumentos.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/66_aplicacao_de_mixin_nomeada_generica.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/67_simd_gravacao_e_late.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/68_tearoff_confere_pela_implementacao.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/69_simd_int32x4_api_3_14.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/70_rti_cache_no_ponto_de_uso.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/75_json_textos_e_numeros.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/77_versionamento_listas_tipadas.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/78_simd_conversao_de_pistas.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/80_tearoffs_de_corpo_identico.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/81_poda_de_tabelas.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/85_is_as_listas_fixas_imutaveis.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/86_is_hierarquias_mixins_interfaces.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/87_classe_do_slot_sob_coleta.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/90_textos_um_e_dois_bytes.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/91_textos_grandes_e_interpolacao.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/93_textos_entre_isolados.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/94_utf8_e_bytes.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/95_caixas_closures_records.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/96_listas_formas_e_cartoes.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/97_mapas_conjuntos_grandes.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/98_tipadas_visoes_externas.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/99_pressao_de_coleta.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/gc_d01_argumento_vivo.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/gc_d02_muitos_vivos.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/gc_d03_excecao_profunda.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/gc_d04_finally.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/gc_d05_slot_antes_de_escrito.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/gc_d06_valores_brutos.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/gc_d08_estouro_de_pilha.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/gc_d09_callback_ffi.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/gc_d09_fronteira_rust.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/gc_d09_isolate_exit_em_finally.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/gc_d10_closures_async.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/gc_d11_campos_de_objeto_morto.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/gc_d12_cache_do_runtime.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/gc_d13_estaticos_e_constantes.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/gc_d14_quadro_residual.dart",
+      "exit": 0
+    },
+    {
+      "source": "corpus/native/gc_d15_retorno_no_nop.dart",
+      "exit": 0
+    }
+  ],
+  "root_corpus_ir_emission_note": "130 root Dart files emitted IR; this does not execute the full corpus."
+}

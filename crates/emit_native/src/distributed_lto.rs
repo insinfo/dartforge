@@ -123,7 +123,7 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
             let mut args = lw::arguments(
                 sysroot,
                 &lw::Linkage {
-                    product: lw::Product::Executable,
+                    product: lw::Product::Executable { subsystem: lw::Subsystem::from_environment()? },
                     entries: p.entries.to_vec(),
                     lto: true,
                     cpu: p.cpu.map(Cpu::name),

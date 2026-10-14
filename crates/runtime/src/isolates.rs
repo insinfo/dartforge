@@ -45,17 +45,28 @@ const OOB_ERRORS_FATAL: i64 = 9;
 /// touched).
 const ISOLATE_STACK: usize = 64 * 1024 * 1024;
 
-/// What generated code hands over at entry: the preparation of an isolate and the
-/// closure call (0 = not registered yet).
-static PREPARE_ISOLATE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-static CALL_CLOSURE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// A spawn keeps one registration snapshot through worker startup. Loading the
+/// two addresses separately could mix programs during concurrent registration.
+#[derive(Clone, Copy)]
+struct IsolateEntrypoints {
+    prepare: extern "C" fn(),
+    call: extern "C" fn(i64) -> i64,
+}
+
+static ISOLATE_ENTRYPOINTS: std::sync::Mutex<Option<IsolateEntrypoints>> = std::sync::Mutex::new(None);
+
+fn isolate_entrypoints() -> Option<IsolateEntrypoints> {
+    *ISOLATE_ENTRYPOINTS.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// `dartforge_register_isolates(prepare, call)`: the program entry hands over the
 /// isolate preparation and the closure call.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_register_isolates(prepare: extern "C" fn(), call: Option<extern "C" fn(i64) -> i64>) {
-    PREPARE_ISOLATE.store(prepare as usize, std::sync::atomic::Ordering::Release);
-    CALL_CLOSURE.store(call.map_or(0, |c| c as usize), std::sync::atomic::Ordering::Release);
+    // Without a closure-call capability no preparation pointer is retained.
+    // Executable registrations must remain mapped while a worker uses its copy.
+    *ISOLATE_ENTRYPOINTS.lock().unwrap_or_else(|e| e.into_inner()) =
+        call.map(|call| IsolateEntrypoints { prepare, call });
 }
 
 /// The control state of an isolate.
@@ -483,13 +494,16 @@ fn report_error_guarded(error: i64, trace: i64, frame: i64) -> bool {
 /// close.
 fn shut_down_isolate() {
     let (control, listeners) = with_state(|e| (e.control, std::mem::take(&mut e.exit_listeners)));
+    isolate_names().remove(&control);
+    shutdown_isolate_finalizers();
+    retire_isolate_callbacks();
+    remove_live_isolate();
+    close_isolate_ports();
+    // Exit observers must not receive a callback pointer before its owner's
+    // roots have been retired and its late-call tombstone is published.
     for (port, response) in listeners {
         post(port, response);
     }
-    isolate_names().remove(&control);
-    shutdown_isolate_finalizers();
-    remove_live_isolate();
-    close_isolate_ports();
 }
 
 /// The event loop of an isolate with the handling of unhandled errors: a non-fatal
@@ -538,6 +552,7 @@ pub extern "C" fn dartforge_pending_interrupt() -> u8 {
 
 /// What the new thread receives from the isolate that created it.
 struct IsolateRequest {
+    entrypoints: IsolateEntrypoints,
     ready_flag: i64,
     input: Graph,
     message: Graph,
@@ -563,13 +578,8 @@ fn with_isolate_entry<R>(input: &Graph, message: &Graph, handle_it: impl FnOnce(
 
 /// The life of an isolate created by `Isolate.spawn`, on its thread.
 fn run_isolate(p: IsolateRequest) {
-    let prepare = PREPARE_ISOLATE.load(std::sync::atomic::Ordering::Acquire);
-    let call = CALL_CLOSURE.load(std::sync::atomic::Ordering::Acquire);
-    // SAFETY: registered by `dartforge_register_isolates` with these signatures,
-    // before any `Isolate.spawn`.
-    let prepare = { let dart_target: usize = prepare; move || { dart_v0(dart_target) } };
-    let call: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(call) };
-    prepare();
+    let call = p.entrypoints.call;
+    dart_v0(p.entrypoints.prepare as usize);
     let (control, pause, termination) = with_state(|e| {
         e.errors_fatal = p.errors_fatal;
         if p.paused {
@@ -632,15 +642,16 @@ pub extern "C" fn dartforge_native_Isolate_spawnFunction(
         throw_argument_error("readyPort is not a SendPort");
         return;
     };
-    if PREPARE_ISOLATE.load(std::sync::atomic::Ordering::Acquire) == 0 || CALL_CLOSURE.load(std::sync::atomic::Ordering::Acquire) == 0 {
+    let Some(entrypoints) = isolate_entrypoints() else {
         throw_internal_error("Isolate.spawn without the program entry registered");
         return;
-    }
+    };
     let Some(g_input) = copy_to_other_isolate(input) else { return };
     let Some(g_message) = copy_to_other_isolate(message) else { return };
     let text = |h: i64| HEAP.with(|heap| heap.borrow().text(h).map(|t| t.to_dart_string()));
     let name = text(name).unwrap_or_else(|| format!("{}:spawn()", text(uri).unwrap_or_default()));
     let request = IsolateRequest {
+        entrypoints,
         ready_flag,
         input: g_input,
         message: g_message,
@@ -768,4 +779,37 @@ pub extern "C" fn dartforge_native_Isolate_exit_(port: i64, message: i64) -> i64
     }
     begin_unwind();
     0
+}
+
+#[cfg(test)]
+mod isolate_registration_tests {
+    use super::{dartforge_register_isolates, isolate_entrypoints};
+    use std::sync::{Arc, Barrier};
+
+    extern "C" fn prepare_first() {}
+    extern "C" fn prepare_second() {}
+    extern "C" fn call_first(value: i64) -> i64 { value + 1 }
+    extern "C" fn call_second(value: i64) -> i64 { value + 1000 }
+
+    #[test]
+    fn delayed_worker_keeps_validated_registration_after_replacement_and_disable() {
+        dartforge_register_isolates(prepare_first, Some(call_first));
+        let entrypoints = isolate_entrypoints().unwrap();
+        let barrier = Arc::new(Barrier::new(2));
+        let worker_barrier = barrier.clone();
+        let worker = std::thread::spawn(move || {
+            worker_barrier.wait();
+            assert_eq!(entrypoints.prepare as usize, prepare_first as *const () as usize);
+            (entrypoints.prepare)();
+            assert_eq!((entrypoints.call)(41), 42);
+        });
+        dartforge_register_isolates(prepare_second, Some(call_second));
+        let replacement = isolate_entrypoints().unwrap();
+        assert_eq!(replacement.prepare as usize, prepare_second as *const () as usize);
+        assert_eq!((replacement.call)(41), 1041);
+        dartforge_register_isolates(prepare_second, None);
+        assert!(isolate_entrypoints().is_none());
+        barrier.wait();
+        worker.join().unwrap();
+    }
 }

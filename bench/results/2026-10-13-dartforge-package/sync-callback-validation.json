@@ -1,0 +1,236 @@
+{
+  "compiler_sha256": "9eb0fdb83416b7c8718c612275cf58c3b7c849f810561f3f8b4a7292bfe0ba4c",
+  "sources": {
+    "packages/dartforge/test/sync_native_callable_probe.dart": "953e4cfb92ecd6d6fffd7d416d072361dd93ed3994e36fec9b82915bcc3b50be",
+    "packages/dartforge/test/native/sync_native_callable_probe.c": "231f427272c370e2df7e825b206fefc3282cf60d849b9b391f13c1cbdfe96502",
+    "scripts/verify-sync-native-callable.py": "0a3a0239cc7d551fd1ef8f9b79b7a6c39dd02210180f74b7b90d64c26c2012ff",
+    "packages/dartforge/lib/src/sync_native_callable.dart": "e405213f5bbddf2b661e99d19a039e6e4150f76ddd9da372452fbfb884b9f613"
+  },
+  "commands": [
+    {
+      "label": "analyze",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "analyze",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "mac-sdk",
+      "command": [
+        "xcrun",
+        "--show-sdk-path"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "helper-build",
+      "command": [
+        "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-isysroot",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+        "-dynamiclib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/native/sync_native_callable_probe.c",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/helper.dylib"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_probe.dart"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "official-build",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "exe",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_probe.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/official"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "official",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/official"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "tracing-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "tracing-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/tracing",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/helper.dylib"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "tracing-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/tracing",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/helper.dylib"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "arc-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "arc-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/arc",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/helper.dylib"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "arc-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/arc",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/helper.dylib"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "prepared-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/prepared"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "prepared-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/prepared",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/helper.dylib"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "prepared-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/prepared",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/helper.dylib"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "runs": [
+    {
+      "mode": "tracing",
+      "gc_stress": false,
+      "prepared_environment": null,
+      "binary_sha256": "7908622876bc455a5cacab08272db8e28e72bcbad87b05571edc0530fbeefea5",
+      "manifest_sha256": "e2bf4418b844563cbae85f697b19efb42e9adf40df73636a88f1a5456845a230",
+      "stdout": "sync callback owner delivery and cancellation validated\n"
+    },
+    {
+      "mode": "tracing",
+      "gc_stress": true,
+      "prepared_environment": null,
+      "binary_sha256": "7908622876bc455a5cacab08272db8e28e72bcbad87b05571edc0530fbeefea5",
+      "manifest_sha256": "e2bf4418b844563cbae85f697b19efb42e9adf40df73636a88f1a5456845a230",
+      "stdout": "sync callback owner delivery and cancellation validated\n"
+    },
+    {
+      "mode": "arc",
+      "gc_stress": false,
+      "prepared_environment": null,
+      "binary_sha256": "d612982b6718dc9df986a0dea09e4089db72aed92b8c9845853d2c3b166fd6f0",
+      "manifest_sha256": "539e35571894af593eeaae36c3e180042aa1a7123c35e89dea53016d0ad68d95",
+      "stdout": "sync callback owner delivery and cancellation validated\n"
+    },
+    {
+      "mode": "arc",
+      "gc_stress": true,
+      "prepared_environment": null,
+      "binary_sha256": "d612982b6718dc9df986a0dea09e4089db72aed92b8c9845853d2c3b166fd6f0",
+      "manifest_sha256": "539e35571894af593eeaae36c3e180042aa1a7123c35e89dea53016d0ad68d95",
+      "stdout": "sync callback owner delivery and cancellation validated\n"
+    },
+    {
+      "mode": "prepared",
+      "gc_stress": false,
+      "prepared_environment": "1",
+      "binary_sha256": "3f4b827c164b22116c9cf350ef018a4840ca1c3a952ac05aff44d56e81870df7",
+      "manifest_sha256": "f626a819d22b90a2f1af980248d86ff69548232d4d0d516e46cf0a1eb8256526",
+      "stdout": "sync callback owner delivery and cancellation validated\n"
+    },
+    {
+      "mode": "prepared",
+      "gc_stress": true,
+      "prepared_environment": "1",
+      "binary_sha256": "3f4b827c164b22116c9cf350ef018a4840ca1c3a952ac05aff44d56e81870df7",
+      "manifest_sha256": "f626a819d22b90a2f1af980248d86ff69548232d4d0d516e46cf0a1eb8256526",
+      "stdout": "sync callback owner delivery and cancellation validated\n"
+    }
+  ],
+  "realtime_certified": false,
+  "nested_event_turns_supported": false,
+  "inputs_stable": true,
+  "helper_sha256": "7673f2c832081982cc114a3f96aaa0dd35a6163c2913f8e084e732407ee3356b"
+}

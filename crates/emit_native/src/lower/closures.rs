@@ -405,6 +405,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.ctx.arc_memory && b.func.return_ty == Type::Ref {
             b.dart_ref_returns.insert(symbol.clone());
         }
+        b.record_local_inline_policy(ast, fid);
         self.absorb(b);
 
         // --- entrada uniforme ----------------------------------------------
@@ -544,10 +545,35 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         })
     }
 
+    /// Applies metadata on a local declaration to its body, preserving separately
+    /// declared nested functions and the generated uniform entry.
+    pub fn record_local_inline_policy(&mut self, ast: &ast::Ast, fid: FunctionId) {
+        let metadata = ast.local_metadata.iter().find_map(|(stmt, metadata)|
+            matches!(ast.stmts[stmt.0 as usize].kind, ast::StmtKind::Function(id) if id == fid)
+                .then_some(metadata));
+        let Some(metadata) = metadata else { return };
+        let has = |name| metadata.iter().any(|an|
+            crate::source::pragma_with_string(self.ctx.interner, ast, an, name));
+        let policy = if has("vm:never-inline") { Some(crate::hir::InlinePolicy::Never) }
+            else if has("vm:prefer-inline") { Some(crate::hir::InlinePolicy::Prefer) }
+            else { None };
+        if let Some(policy) = policy {
+            self.inline_policies.insert(self.func.symbol.clone(), policy);
+            let prefix = format!("{}$async$q", self.func.symbol);
+            for f in &self.extra_functions {
+                if f.symbol.strip_prefix(&prefix)
+                    .is_some_and(|suffix| suffix.len() == 8 && suffix.bytes().all(|b| b.is_ascii_hexdigit())) {
+                    self.inline_policies.insert(f.symbol.clone(), policy);
+                }
+            }
+        }
+    }
+
     /// Hands to the module (through the `extra_functions` of this function) a function
     /// built separately, with its diagnostics.
     pub fn absorb(&mut self, mut b: FnBuilder<'a, 'c>) {
         b.close_stack_trace();
+        self.inline_policies.extend(b.inline_policies);
         self.errors.extend(b.errors);
         self.extra_globals.extend(b.extra_globals);
         self.dart_scalar_parameters.extend(b.dart_scalar_parameters);

@@ -397,24 +397,94 @@ pub extern "C" fn dartforge_native_StringBase_joinReplaceAllResult(base: i64, pa
 
 // ─── The `StringBuffer` accumulator (`_AcumuladorDeTexto`, cid 15) ──────────
 //
-// A one-word `RAW`+`ATTACHMENT` block: the pointer of a `Box<Vec<u16>>` with the
-// written units, which the collector releases (`release_accumulator`) when the
-// block dies (§2.8). Only `StringBuffer` sees it
-// (`native_sdk/core/string_buffer_patch.dart`).
+// A one-word RAW+ATTACHMENT block owns adaptive native storage. Latin-1
+// writes stay one byte per UTF-16 unit; the first wider unit promotes once.
+// The collector releases the attachment when its accumulator header dies.
 
-/// Releases the `Vec<u16>` of a dead accumulator (called by the collector).
-///
-/// # Safety
-/// `p` came from `Box::into_raw` of a `Box<Vec<u16>>` in
-/// [`dartforge_native_DartForge_sb_new`] and is released only once.
-unsafe fn release_accumulator(p: *mut u8) {
-    // SAFETY: contract above.
-    drop(unsafe { Box::from_raw(p.cast::<Vec<u16>>()) });
+/// Native storage preserving exact UTF-16 units, including lone surrogates.
+enum TextAccumulator {
+    OneByte(Vec<u8>),
+    TwoByte(Vec<u16>),
 }
 
-/// A new accumulator with the units `units` (the empty `StringBuffer`, or the
-/// copy of an accumulator that arrives in a message from another isolate, §2.12).
+impl TextAccumulator {
+    fn from_units(units: Vec<u16>) -> Self {
+        if units.iter().all(|&unit| unit <= 255) {
+            Self::OneByte(units.into_iter().map(|unit| unit as u8).collect())
+        } else {
+            Self::TwoByte(units)
+        }
+    }
+
+    fn text(&self) -> crate::text::TextRef<'_> {
+        match self {
+            Self::OneByte(bytes) => crate::text::TextRef::OneByte(bytes),
+            Self::TwoByte(units) => crate::text::TextRef::TwoByte(units),
+        }
+    }
+
+    fn accounted_bytes(&self) -> usize {
+        std::mem::size_of::<Self>() + match self {
+            Self::OneByte(bytes) => bytes.capacity(),
+            Self::TwoByte(units) => 2 * units.capacity(),
+        }
+    }
+
+    fn append(&mut self, text: crate::text::TextRef<'_>) {
+        if let Self::OneByte(bytes) = self {
+            match text {
+                crate::text::TextRef::OneByte(source) => {
+                    bytes.extend_from_slice(source);
+                    return;
+                }
+                crate::text::TextRef::TwoByte(source) if text.fits_in_one_byte() => {
+                    bytes.extend(source.iter().map(|&unit| unit as u8));
+                    return;
+                }
+                crate::text::TextRef::TwoByte(source) => {
+                    let mut units = Vec::with_capacity(bytes.capacity().max(bytes.len() + source.len()));
+                    units.extend(bytes.iter().map(|&byte| u16::from(byte)));
+                    units.extend_from_slice(source);
+                    *self = Self::TwoByte(units);
+                    return;
+                }
+            }
+        }
+        if let Self::TwoByte(units) = self {
+            match text {
+                crate::text::TextRef::OneByte(bytes) => units.extend(bytes.iter().map(|&byte| u16::from(byte))),
+                crate::text::TextRef::TwoByte(source) => units.extend_from_slice(source),
+            }
+        }
+    }
+
+    fn append_point(&mut self, code: u32) {
+        match self {
+            Self::OneByte(bytes) if code <= 255 => bytes.push(code as u8),
+            Self::TwoByte(units) => crate::text::push_point(units, code),
+            Self::OneByte(bytes) => {
+                let extra = usize::from(code > 0xffff) + 1;
+                let mut units = Vec::with_capacity(bytes.capacity().max(bytes.len() + extra));
+                units.extend(bytes.iter().map(|&byte| u16::from(byte)));
+                crate::text::push_point(&mut units, code);
+                *self = Self::TwoByte(units);
+            }
+        }
+    }
+}
+
+/// Releases native accumulator storage when its managed header dies.
+///
+/// # Safety
+/// `p` is a Box<TextAccumulator> created by new_accumulator_with, released once.
+unsafe fn release_accumulator(p: *mut u8) {
+    // SAFETY: contract above.
+    drop(unsafe { Box::from_raw(p.cast::<TextAccumulator>()) });
+}
+
+/// Empty storage or a copy received from another isolate.
 fn new_accumulator_with(units: Vec<u16>) -> i64 {
+    let storage = TextAccumulator::from_units(units);
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let h = heap.allocate(
@@ -422,38 +492,37 @@ fn new_accumulator_with(units: Vec<u16>) -> i64 {
             1,
             crate::layout::flags::RAW | crate::layout::flags::ATTACHMENT,
         );
-        let bytes = std::mem::size_of::<Vec<u16>>() + 2 * units.capacity();
-        let p = Box::into_raw(Box::new(units)).cast::<u8>();
-        // SAFETY: `release_accumulator` is the only release of `p`.
+        let bytes = storage.accounted_bytes();
+        let p = Box::into_raw(Box::new(storage)).cast::<u8>();
+        // SAFETY: release_accumulator is the only release of p; attach never collects.
         unsafe { heap.attach(h, release_accumulator, p, bytes) };
         h
     })
 }
 
-/// The `Vec<u16>` of accumulator `h`.
+/// Native storage of a live accumulator; only its owner isolate may mutate it.
 ///
 /// # Panics
-/// If `h` is not an accumulator (compiler bug).
-fn accumulator_vec(heap: &Heap, h: i64) -> *mut Vec<u16> {
+/// If h is not an accumulator (compiler bug).
+fn accumulator_storage(heap: &Heap, h: i64) -> *mut TextAccumulator {
     assert!(
         crate::layout::is_object(h) && heap.class(h) == crate::layout::cid::STRING_ACCUMULATOR,
         "compiler bug: StringBuffer accumulator expected\nhandle {h}"
     );
-    heap.attachment(h).cast::<Vec<u16>>()
+    heap.attachment(h).cast::<TextAccumulator>()
 }
 
-/// Appends the units of `t` (which does not come from a block that may die here)
-/// to the accumulator `accumulator`.
-fn append_to_accumulator(accumulator: i64, t: crate::text::TextRef<'_>) {
+/// Appends a borrowed native text view without a managed allocation or collection.
+fn append_to_accumulator(accumulator: i64, text: crate::text::TextRef<'_>) {
     HEAP.with(|heap| {
-        let heap = heap.borrow();
-        let v = accumulator_vec(&heap, accumulator);
-        // SAFETY: the attachment's `Vec` lives outside the heap; nothing else borrows it.
-        let v = unsafe { &mut *v };
-        match t {
-            crate::text::TextRef::OneByte(b) => v.extend(b.iter().map(|&x| u16::from(x))),
-            crate::text::TextRef::TwoByte(u) => v.extend_from_slice(u),
-        }
+        let mut heap = heap.borrow_mut();
+        // SAFETY: this owner's native attachment has no other mutable borrow;
+        // growing it does not move the independent source text view.
+        let storage = unsafe { &mut *accumulator_storage(&heap, accumulator) };
+        let before = storage.accounted_bytes();
+        storage.append(text);
+        let after = storage.accounted_bytes();
+        if before != after { heap.adjust_attachment(accumulator, after); }
     });
 }
 
@@ -480,19 +549,19 @@ pub extern "C" fn dartforge_native_DartForge_sb_write_if_string(accumulator: i64
         return -1;
     }
     HEAP.with(|heap| {
-        let heap = heap.borrow();
-        // The units read directly from the string's block (alive: it is the
-        // argument); the accumulator lives outside the heap, so growing does not
-        // move them.
-        let Some(t) = heap.text(obj) else { return -1 };
-        let v = accumulator_vec(&heap, accumulator);
-        // SAFETY: the attachment's `Vec` lives outside the heap; nothing else borrows it.
-        let v = unsafe { &mut *v };
-        match t {
-            crate::text::TextRef::OneByte(b) => v.extend(b.iter().map(|&x| u16::from(x))),
-            crate::text::TextRef::TwoByte(u) => v.extend_from_slice(u),
-        }
-        t.len() as i64
+        let mut heap = heap.borrow_mut();
+        let pointer = accumulator_storage(&heap, accumulator);
+        let (length, before, after) = {
+            let Some(text) = heap.text(obj) else { return -1 };
+            // SAFETY: the source is an independent managed string; native Vec
+            // growth never moves it or collects. Its borrow ends before accounting.
+            let storage = unsafe { &mut *pointer };
+            let before = storage.accounted_bytes();
+            storage.append(text);
+            (text.len() as i64, before, storage.accounted_bytes())
+        };
+        if before != after { heap.adjust_attachment(accumulator, after); }
+        length
     })
 }
 
@@ -502,10 +571,13 @@ pub extern "C" fn dartforge_native_DartForge_sb_write_if_string(accumulator: i64
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_sb_write_char_code(accumulator: i64, code: i64) {
     HEAP.with(|heap| {
-        let heap = heap.borrow();
-        // SAFETY: the attachment's `Vec` lives outside the heap; nothing else borrows it.
-        let v = unsafe { &mut *accumulator_vec(&heap, accumulator) };
-        crate::text::push_point(v, code as u32);
+        let mut heap = heap.borrow_mut();
+        // SAFETY: native attachment mutation belongs to this owner and never collects.
+        let storage = unsafe { &mut *accumulator_storage(&heap, accumulator) };
+        let before = storage.accounted_bytes();
+        storage.append_point(code as u32);
+        let after = storage.accounted_bytes();
+        if before != after { heap.adjust_attachment(accumulator, after); }
     });
 }
 
@@ -515,12 +587,12 @@ pub extern "C" fn dartforge_native_DartForge_sb_write_char_code(accumulator: i64
 pub extern "C" fn dartforge_native_DartForge_sb_to_string(accumulator: i64) -> i64 {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let v = accumulator_vec(&heap, accumulator);
+        let v = accumulator_storage(&heap, accumulator);
         // SAFETY: the `Vec` lives outside the heap and is only released by the
         // accumulator's death, and the accumulator is rooted by the caller during
         // the allocation.
-        let u: &[u16] = unsafe { &*v };
-        heap.allocate_string(crate::text::TextRef::TwoByte(u))
+        let text = unsafe { (&*v).text() };
+        heap.allocate_string(text)
     })
 }
 
@@ -607,4 +679,149 @@ pub extern "C" fn dartforge_string_hash(s: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_string_equals(a: i64, b: i64) -> i8 {
     HEAP.with(|heap| i8::from(heap.borrow().strings_equal(a, b)))
+}
+
+
+#[cfg(test)]
+mod adaptive_accumulator_tests {
+    use super::*;
+
+    #[test]
+    fn latin1_storage_promotes_once_and_preserves_utf16_code_units() {
+        let mut storage = TextAccumulator::from_units(Vec::new());
+        storage.append(crate::text::TextRef::OneByte(b"json"));
+        storage.append(crate::text::TextRef::TwoByte(&[0, 0x80, 0xff]));
+        assert!(matches!(storage, TextAccumulator::OneByte(_)));
+        assert_eq!(storage.text().units().collect::<Vec<_>>(), [106, 115, 111, 110, 0, 128, 255]);
+        storage.append_point(0x100);
+        assert!(matches!(storage, TextAccumulator::TwoByte(_)));
+        storage.append_point(0xd800);
+        storage.append_point(0x1f600);
+        storage.append_point(0xdc00);
+        storage.append_point(0xff);
+        assert!(matches!(storage, TextAccumulator::TwoByte(_)));
+        assert_eq!(storage.text().units().collect::<Vec<_>>(),
+            [106, 115, 111, 110, 0, 128, 255, 0x100, 0xd800, 0xd83d, 0xde00, 0xdc00, 255]);
+        let reconstructed = TextAccumulator::from_units(vec![0xff, 0, 0x80]);
+        assert!(matches!(reconstructed, TextAccumulator::OneByte(_)));
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn native_growth_and_promotion_update_capacity_accounting_without_collection() {
+        std::thread::spawn(|| {
+            HEAP.with(|heap| *heap.borrow_mut() = Heap::new(false));
+            let accumulator = dartforge_native_DartForge_sb_new();
+            let initial = HEAP.with(|heap| heap.borrow().stats().estimated_bytes);
+            let initial_capacity = HEAP.with(|heap| unsafe {
+                (&*accumulator_storage(&heap.borrow(), accumulator)).accounted_bytes()
+            });
+            let before_collections = HEAP.with(|heap| heap.borrow().stats().collections);
+            append_to_accumulator(accumulator, crate::text::TextRef::OneByte(&[b'a'; 1024]));
+            let one_bytes = HEAP.with(|heap| unsafe {
+                (&*accumulator_storage(&heap.borrow(), accumulator)).accounted_bytes()
+            });
+            assert_eq!(HEAP.with(|heap| heap.borrow().stats().estimated_bytes), initial + one_bytes - initial_capacity);
+            let before_append = HEAP.with(|heap| heap.borrow().stats().estimated_bytes);
+            dartforge_native_DartForge_sb_write_char_code(accumulator, 0x100);
+            let two_bytes = HEAP.with(|heap| unsafe {
+                (&*accumulator_storage(&heap.borrow(), accumulator)).accounted_bytes()
+            });
+            assert_eq!(HEAP.with(|heap| heap.borrow().stats().estimated_bytes), before_append + two_bytes - one_bytes);
+            assert!(two_bytes > one_bytes);
+            assert_eq!(HEAP.with(|heap| heap.borrow().stats().collections), before_collections);
+            // No managed reference protects this header: collection must release
+            // the complete attachment, including capacities added after creation.
+            HEAP.with(|heap| {
+                let mut heap = heap.borrow_mut();
+                heap.collect();
+                assert_eq!(heap.stats().estimated_bytes, 0);
+            });
+        }).join().unwrap();
+    }
+
+    #[test]
+    fn rooted_stress_snapshots_are_independent_of_further_writes_and_clear() {
+        std::thread::spawn(|| {
+            HEAP.with(|heap| *heap.borrow_mut() = Heap::new(true));
+            let frame = HEAP.with(|heap| heap.borrow_mut().push_frame_with_slots(3));
+            let accumulator = dartforge_native_DartForge_sb_new();
+            HEAP.with(|heap| heap.borrow_mut().set_root(frame, 0, accumulator));
+            let text = HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::text::TextRef::OneByte(b"ascii")));
+            HEAP.with(|heap| heap.borrow_mut().set_root(frame, 2, text));
+            assert_eq!(dartforge_native_DartForge_sb_write_if_string(accumulator, text), 5);
+            let snapshot = dartforge_native_DartForge_sb_to_string(accumulator);
+            HEAP.with(|heap| heap.borrow_mut().set_root(frame, 1, snapshot));
+            dartforge_native_DartForge_sb_write_char_code(accumulator, 0xd800);
+            dartforge_native_DartForge_sb_write_char_code(accumulator, 0x1f600);
+            assert_eq!(with_string(snapshot, |text| text.units().collect::<Vec<_>>()), [97, 115, 99, 105, 105]);
+            assert_eq!(HEAP.with(|heap| accumulator_units(&heap.borrow(), accumulator)), [97, 115, 99, 105, 105, 0xd800, 0xd83d, 0xde00]);
+            // clear() swaps in a fresh accumulator; the previous snapshot stays rooted.
+            let empty = dartforge_native_DartForge_sb_new();
+            HEAP.with(|heap| heap.borrow_mut().set_root(frame, 0, empty));
+            HEAP.with(|heap| heap.borrow_mut().collect());
+            assert_eq!(with_string(snapshot, |text| text.units().collect::<Vec<_>>()), [97, 115, 99, 105, 105]);
+            assert_eq!(dartforge_native_DartForge_sb_write_if_string(empty, 1), -1);
+            HEAP.with(|heap| {
+                let mut heap = heap.borrow_mut();
+                heap.pop_frame(frame);
+                heap.collect();
+                assert_eq!(heap.stats().estimated_bytes, 0);
+            });
+        }).join().unwrap();
+    }
+
+    #[test]
+    fn capacity_growth_exhausts_deferral_without_collecting_borrowed_inputs() {
+        std::thread::spawn(|| {
+            HEAP.with(|heap| *heap.borrow_mut() = Heap::new(false));
+            let frame = HEAP.with(|heap| heap.borrow_mut().push_frame_with_slots(2));
+            let accumulator = dartforge_native_DartForge_sb_new();
+            HEAP.with(|heap| heap.borrow_mut().set_root(frame, 0, accumulator));
+            let source = HEAP.with(|heap| heap.borrow_mut().allocate_string(
+                crate::text::TextRef::OneByte(&[b'x'; 1024])));
+            HEAP.with(|heap| heap.borrow_mut().set_root(frame, 1, source));
+            let before = HEAP.with(|heap| {
+                let mut heap = heap.borrow_mut();
+                assert_eq!(heap.gc_policy_defer(std::time::Duration::from_secs(10), 64), 1);
+                heap.stats().collections
+            });
+            // The only growth here is the native attachment. This exceeds the
+            // allowance but must not collect its borrowed managed string/header.
+            assert_eq!(dartforge_native_DartForge_sb_write_if_string(accumulator, source), 1024);
+            HEAP.with(|heap| {
+                let mut heap = heap.borrow_mut();
+                assert_eq!(heap.stats().collections, before);
+                assert_eq!(heap.gc_policy_defer(std::time::Duration::from_secs(10), 64), 0);
+                assert_eq!(accumulator_units(&heap, accumulator), vec![u16::from(b'x'); 1024]);
+                assert_eq!(heap.text(source).unwrap().len(), 1024);
+                // A normal managed allocation is the next safe collection point.
+                heap.allocate_object(333, 1);
+                assert_eq!(heap.stats().collections, before + 1);
+                assert_eq!(accumulator_units(&heap, accumulator), vec![u16::from(b'x'); 1024]);
+                assert_eq!(heap.text(source).unwrap().len(), 1024);
+                assert_eq!(heap.gc_policy_defer(std::time::Duration::from_secs(10), 64), 1);
+                heap.gc_policy_cancel();
+                heap.pop_frame(frame);
+                heap.collect();
+                assert_eq!(heap.stats().estimated_bytes, 0);
+            });
+        }).join().unwrap();
+    }
+
+    #[test]
+    fn isolate_copy_preserves_units_and_has_independent_native_storage() {
+        std::thread::spawn(|| {
+            HEAP.with(|heap| *heap.borrow_mut() = Heap::new(false));
+            let source = new_accumulator_with(vec![0xff, 0xd800, 0xdc00, 0x100]);
+            let portable = HEAP.with(|heap| accumulator_units(&heap.borrow(), source));
+            let copy = allocate_attachment(&GNode::Accumulator(portable.clone())).unwrap();
+            dartforge_native_DartForge_sb_write_char_code(source, 65);
+            dartforge_native_DartForge_sb_write_char_code(copy, 66);
+            assert_eq!(HEAP.with(|heap| accumulator_units(&heap.borrow(), source)), [255, 0xd800, 0xdc00, 256, 65]);
+            assert_eq!(HEAP.with(|heap| accumulator_units(&heap.borrow(), copy)), [255, 0xd800, 0xdc00, 256, 66]);
+            assert_eq!(portable, [255, 0xd800, 0xdc00, 256]);
+            HEAP.with(|heap| heap.borrow_mut().collect());
+        }).join().unwrap();
+    }
 }

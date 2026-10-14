@@ -75,6 +75,7 @@ pub fn compile_and_link(
     output: &Path,
     options: &NativeDriverOptions,
 ) -> Result<LinkTimes, String> {
+    crate::linker_windows::Subsystem::from_environment()?;
     let runtime = RuntimeCache::get_or_compile()?;
     // A program with the source SDK (P5c): the entry calls the registration of the
     // SDK libraries, which live in the cached objects.
@@ -530,7 +531,7 @@ fn link_on_windows(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage,
         &lw::lld_link(clang),
         sysroot,
         &lw::Linkage {
-            product: lw::Product::Executable,
+            product: lw::Product::Executable { subsystem: lw::Subsystem::from_environment()? },
             entries,
             lto: production && !NO_LTO_AT_LINK.get(),
             cpu: cpu.map(crate::generator::Cpu::name),

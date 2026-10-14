@@ -302,6 +302,306 @@ impl ParsedModule {
         }
     }
 
+    // Dart closure bodies are exported and rewritten to stable entries. If
+    // noncanonical IR stores an internal code handle instead, no stable cell
+    // protects it. Keep that generation rather than assuming it is reclaimable.
+    fn escaping_internal_code_handle(&self) -> bool {
+        use llvm_sys::core::*;
+        unsafe {
+            for function in self
+                .definitions()
+                .into_iter()
+                .filter(|f| self.local_function(*f))
+            {
+                let mut pointer_values = vec![function];
+                let mut pointer_visited = std::collections::HashSet::new();
+                while let Some(pointer) = pointer_values.pop() {
+                    if !pointer_visited.insert(pointer as usize) {
+                        continue;
+                    }
+                    let mut usage = LLVMGetFirstUse(pointer);
+                    while !usage.is_null() {
+                        let user = LLVMGetUser(usage);
+                        if !LLVMIsAGlobalAlias(user).is_null() {
+                            return true;
+                        }
+                        let opcode = if !LLVMIsAConstantExpr(user).is_null() {
+                            Some(LLVMGetConstOpcode(user))
+                        } else if !LLVMIsAInstruction(user).is_null() {
+                            Some(LLVMGetInstructionOpcode(user))
+                        } else {
+                            None
+                        };
+                        if opcode == Some(llvm_sys::LLVMOpcode::LLVMBitCast) {
+                            pointer_values.push(user);
+                        }
+                        if opcode == Some(llvm_sys::LLVMOpcode::LLVMPtrToInt) {
+                            let mut pending = vec![user];
+                            let mut visited = std::collections::HashSet::new();
+                            while let Some(value) = pending.pop() {
+                                if !visited.insert(value as usize) {
+                                    continue;
+                                }
+                                let mut next_use = LLVMGetFirstUse(value);
+                                while !next_use.is_null() {
+                                    let next = LLVMGetUser(next_use);
+                                    if !LLVMIsACallInst(next).is_null()
+                                        && LLVMGetCalledValue(next) == value
+                                        && !(0..LLVMGetNumArgOperands(next))
+                                            .any(|i| LLVMGetArgOperand(next, i) == value)
+                                    {
+                                        // Immediate invocation does not publish the address.
+                                    } else {
+                                        let opcode = if !LLVMIsAConstantExpr(next).is_null() {
+                                            Some(LLVMGetConstOpcode(next))
+                                        } else if !LLVMIsAInstruction(next).is_null() {
+                                            Some(LLVMGetInstructionOpcode(next))
+                                        } else {
+                                            None
+                                        };
+                                        if matches!(
+                                            opcode,
+                                            Some(
+                                                llvm_sys::LLVMOpcode::LLVMSelect
+                                                    | llvm_sys::LLVMOpcode::LLVMPHI
+                                                    | llvm_sys::LLVMOpcode::LLVMIntToPtr
+                                                    | llvm_sys::LLVMOpcode::LLVMBitCast
+                                                    | llvm_sys::LLVMOpcode::LLVMPtrToInt
+                                            )
+                                        ) {
+                                            pending.push(next);
+                                        } else {
+                                            return true;
+                                        }
+                                    }
+                                    next_use = LLVMGetNextUse(next_use);
+                                }
+                            }
+                        }
+                        usage = LLVMGetNextUse(usage);
+                    }
+                }
+            }
+            false
+        }
+    }
+
+    // Instrument only direct canonical registrations. Address-taken uses and
+    // global constructors retain the existing process-resident fallback.
+    pub(crate) fn callback_registration_plan(
+        &self,
+        owner_protocol: bool,
+    ) -> CallbackRegistrationPlan {
+        use llvm_sys::core::*;
+        unsafe {
+            if self.escaping_internal_code_handle() {
+                return CallbackRegistrationPlan {
+                    conservative: true,
+                    slot: None,
+                };
+            }
+            // Exception ports are process-global raw code pointers. Their ABI
+            // has no owner retirement protocol, so retain their complete owner.
+            let ports = LLVMGetNamedFunction(self.module, c"dartforge_register_ports".as_ptr());
+            if !ports.is_null() && !LLVMGetFirstUse(ports).is_null() {
+                return CallbackRegistrationPlan {
+                    conservative: true,
+                    slot: None,
+                };
+            }
+            let isolate_registration =
+                LLVMGetNamedFunction(self.module, c"dartforge_register_isolates".as_ptr());
+            if !isolate_registration.is_null() && !LLVMGetFirstUse(isolate_registration).is_null() {
+                if LLVMIsDeclaration(isolate_registration) == 0
+                    || type_text(LLVMGlobalGetValueType(isolate_registration)) != "void (ptr, ptr)"
+                    || LLVMGetFunctionCallConv(isolate_registration) != 0
+                {
+                    return CallbackRegistrationPlan {
+                        conservative: true,
+                        slot: None,
+                    };
+                }
+                let mut usage = LLVMGetFirstUse(isolate_registration);
+                while !usage.is_null() {
+                    let call = LLVMGetUser(usage);
+                    // The runtime stores None for a literal-null capability,
+                    // and spawn copies one validated pair into IsolateRequest.
+                    // Non-null/unknown capabilities still publish callable code.
+                    if LLVMIsACallInst(call).is_null()
+                        || LLVMGetCalledValue(call) != isolate_registration
+                        || LLVMGetNumArgOperands(call) != 2
+                        || LLVMGetInstructionCallConv(call) != 0
+                        || LLVMIsNull(LLVMGetArgOperand(call, 1)) == 0
+                        || (0..2).any(|i| LLVMGetArgOperand(call, i) == isolate_registration)
+                    {
+                        return CallbackRegistrationPlan {
+                            conservative: true,
+                            slot: None,
+                        };
+                    }
+                    usage = LLVMGetNextUse(usage);
+                }
+            }
+            let existing_owned = LLVMGetNamedFunction(
+                self.module,
+                c"dartforge_ffi_register_callback_owned".as_ptr(),
+            );
+            if !existing_owned.is_null() && !LLVMGetFirstUse(existing_owned).is_null() {
+                return CallbackRegistrationPlan {
+                    conservative: true,
+                    slot: None,
+                };
+            }
+            let registration =
+                LLVMGetNamedFunction(self.module, c"dartforge_ffi_register_callback".as_ptr());
+            if registration.is_null() || LLVMGetFirstUse(registration).is_null() {
+                return CallbackRegistrationPlan::default();
+            }
+            if !owner_protocol
+                || LLVMIsDeclaration(registration) == 0
+                || LLVMGetFunctionCallConv(registration) != 0
+                || type_text(LLVMGlobalGetValueType(registration)) != "void (ptr, i64, ptr)"
+            {
+                return CallbackRegistrationPlan {
+                    conservative: true,
+                    slot: None,
+                };
+            }
+            let existing_owned = LLVMGetNamedFunction(
+                self.module,
+                c"dartforge_ffi_register_callback_owned".as_ptr(),
+            );
+            if !existing_owned.is_null()
+                && (LLVMIsDeclaration(existing_owned) == 0
+                    || type_text(LLVMGlobalGetValueType(existing_owned))
+                        != "i8 (ptr, i64, ptr, i64)")
+            {
+                return CallbackRegistrationPlan {
+                    conservative: true,
+                    slot: None,
+                };
+            }
+            let constructors = LLVMGetNamedGlobal(self.module, c"llvm.global_ctors".as_ptr());
+            if !constructors.is_null() && LLVMIsDeclaration(constructors) == 0 {
+                return CallbackRegistrationPlan {
+                    conservative: true,
+                    slot: None,
+                };
+            }
+            let mut usage = LLVMGetFirstUse(registration);
+            while !usage.is_null() {
+                let user = LLVMGetUser(usage);
+                if LLVMIsACallInst(user).is_null()
+                    || LLVMGetCalledValue(user) != registration
+                    || LLVMGetNumArgOperands(user) != 3
+                    || LLVMGetInstructionCallConv(user) != 0
+                    || (0..3).any(|i| LLVMGetArgOperand(user, i) == registration)
+                {
+                    return CallbackRegistrationPlan {
+                        conservative: true,
+                        slot: None,
+                    };
+                }
+                usage = LLVMGetNextUse(usage);
+            }
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            let nonce = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let slot_name = format!(
+                "df.jit.callback.owner.{}.{}.{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos(),
+                nonce
+            );
+            let slot_c = CString::new(slot_name.as_str()).unwrap();
+            let i64_type = LLVMInt64TypeInContext(self.context);
+            let slot = LLVMAddGlobal(self.module, i64_type, slot_c.as_ptr());
+            let slot_name = value_name(slot);
+            LLVMSetInitializer(slot, LLVMConstInt(i64_type, 0, 0));
+            // Keep this name unchanged by versioning and exclude it from Dart
+            // static resets. Each loaded object gets a fresh runtime owner ID.
+            LLVMSetLinkage(slot, llvm_sys::LLVMLinkage::LLVMExternalLinkage);
+            let wrapper_name = format!("df.jit.callback.register.{nonce}");
+            LLVMSetValueName2(
+                registration,
+                wrapper_name.as_ptr().cast(),
+                wrapper_name.len(),
+            );
+            LLVMSetLinkage(registration, llvm_sys::LLVMLinkage::LLVMInternalLinkage);
+            let mut arguments = [
+                LLVMPointerTypeInContext(self.context, 0),
+                i64_type,
+                LLVMPointerTypeInContext(self.context, 0),
+                i64_type,
+            ];
+            let owned_type = LLVMFunctionType(
+                LLVMInt8TypeInContext(self.context),
+                arguments.as_mut_ptr(),
+                4,
+                0,
+            );
+            let mut owned = LLVMGetNamedFunction(
+                self.module,
+                c"dartforge_ffi_register_callback_owned".as_ptr(),
+            );
+            if owned.is_null() {
+                owned = LLVMAddFunction(
+                    self.module,
+                    c"dartforge_ffi_register_callback_owned".as_ptr(),
+                    owned_type,
+                );
+            }
+            let block =
+                LLVMAppendBasicBlockInContext(self.context, registration, c"entry".as_ptr());
+            let builder = LLVMCreateBuilderInContext(self.context);
+            LLVMPositionBuilderAtEnd(builder, block);
+            let owner = LLVMBuildLoad2(builder, i64_type, slot, c"owner".as_ptr());
+            let mut values = [
+                LLVMGetParam(registration, 0),
+                LLVMGetParam(registration, 1),
+                LLVMGetParam(registration, 2),
+                owner,
+            ];
+            let accepted = LLVMBuildCall2(
+                builder,
+                owned_type,
+                owned,
+                values.as_mut_ptr(),
+                4,
+                c"accepted".as_ptr(),
+            );
+            let check = LLVMBuildICmp(
+                builder,
+                llvm_sys::LLVMIntPredicate::LLVMIntNE,
+                accepted,
+                LLVMConstInt(LLVMInt8TypeInContext(self.context), 0, 0),
+                c"valid".as_ptr(),
+            );
+            let done = LLVMAppendBasicBlockInContext(self.context, registration, c"done".as_ptr());
+            let failed =
+                LLVMAppendBasicBlockInContext(self.context, registration, c"failed".as_ptr());
+            LLVMBuildCondBr(builder, check, done, failed);
+            LLVMPositionBuilderAtEnd(builder, done);
+            LLVMBuildRetVoid(builder);
+            LLVMPositionBuilderAtEnd(builder, failed);
+            let trap_type =
+                LLVMFunctionType(LLVMVoidTypeInContext(self.context), ptr::null_mut(), 0, 0);
+            let mut trap = LLVMGetNamedFunction(self.module, c"llvm.trap".as_ptr());
+            if trap.is_null() {
+                trap = LLVMAddFunction(self.module, c"llvm.trap".as_ptr(), trap_type);
+            }
+            LLVMBuildCall2(builder, trap_type, trap, ptr::null_mut(), 0, c"".as_ptr());
+            LLVMBuildUnreachable(builder);
+            LLVMDisposeBuilder(builder);
+            CallbackRegistrationPlan {
+                conservative: false,
+                slot: Some(slot_name),
+            }
+        }
+    }
+
     /// Signatures of the functions **exported** by the module, in IR order.
     ///
     /// External declarations are left out: they are what the module consumes (the
@@ -761,8 +1061,54 @@ unsafe fn param_types(kind: LLVMTypeRef) -> Vec<LLVMTypeRef> {
 /// free. This is why [`crate::JitSession::remove_module`] requires
 /// `&mut self` — running the generated code takes `&self` and the two cannot
 /// coexist.
+pub(crate) const CALLBACK_OWNER_APIS: [&str; 6] = [
+    "dartforge_ffi_callback_owner_new",
+    "dartforge_ffi_callback_owner_published",
+    "dartforge_ffi_register_callback_owned",
+    "dartforge_ffi_callback_owner_prepare_retire",
+    "dartforge_ffi_callback_owner_cancel_retire",
+    "dartforge_ffi_callback_owner_finish_retire",
+];
+
+#[derive(Clone, Default)]
+pub(crate) struct CallbackRegistrationPlan {
+    pub(crate) conservative: bool,
+    pub(crate) slot: Option<String>,
+}
+
+// Function pointers resolve through this session's symbol mapping, including
+// its runtime DLL. Owner IDs never refer to Rust or JIT-owned memory.
+struct CallbackOwner {
+    id: i64,
+    published: unsafe extern "C" fn(i64) -> u8,
+    prepare: unsafe extern "C" fn(i64) -> u8,
+    cancel: unsafe extern "C" fn(i64) -> u8,
+    finish: unsafe extern "C" fn(i64) -> u8,
+    finished: std::cell::Cell<bool>,
+}
+
+impl CallbackOwner {
+    fn published(&self) -> bool {
+        !self.finished.get() && unsafe { (self.published)(self.id) != 0 }
+    }
+    fn prepare(&self) -> bool {
+        self.finished.get() || unsafe { (self.prepare)(self.id) != 0 }
+    }
+    fn finish(&self) -> bool {
+        if self.finished.get() {
+            return true;
+        }
+        let success = unsafe { (self.finish)(self.id) != 0 };
+        if success {
+            self.finished.set(true);
+        }
+        success
+    }
+}
+
 pub(crate) struct ResourceTracker {
     handle: LLVMOrcResourceTrackerRef,
+    callback_owner: std::cell::RefCell<Option<std::rc::Rc<CallbackOwner>>>,
 }
 impl ResourceTracker {
     /// Unloads the resources of the module associated with this tracker.
@@ -770,11 +1116,33 @@ impl ResourceTracker {
     /// # Errors
     /// Propagates LLVM's failure if dematerialization cannot be completed.
     pub(crate) fn remove(&self) -> Result<(), String> {
-        // SAFETY: `handle` is a live tracker of this session; `Remove` is idempotent
-        // from LLVM's point of view and returns the error instead of aborting.
+        let owner = self.callback_owner.borrow();
+        if let Some(owner) = owner.as_ref()
+            && !owner.prepare()
+        {
+            return Err(
+                "native callback code was published; its generation must remain resident".into(),
+            );
+        }
         match take_error(unsafe { LLVMOrcResourceTrackerRemove(self.handle) }) {
-            Some(message) => Err(message),
-            None => Ok(()),
+            Some(message) => {
+                if let Some(owner) = owner.as_ref()
+                    && unsafe { (owner.cancel)(owner.id) } == 0
+                {
+                    return Err(format!(
+                        "{message}; callback owner retirement could not be cancelled"
+                    ));
+                }
+                Err(message)
+            }
+            None => {
+                if let Some(owner) = owner.as_ref()
+                    && !owner.finish()
+                {
+                    return Err("callback owner metadata retirement failed".into());
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -862,6 +1230,8 @@ pub(crate) struct Lljit {
     layer: *mut LayerContext,
     maps: bool,
     trace: bool,
+    keep_resident: bool,
+    callback_owners: Vec<std::rc::Rc<CallbackOwner>>,
 }
 
 impl Lljit {
@@ -878,6 +1248,87 @@ impl Lljit {
     /// # Errors
     /// Fails when the native target is not available or building the
     /// `LLJIT` returns an error, always with the original LLVM message attached.
+    pub(crate) fn retains_callback_code(&self) -> bool {
+        self.keep_resident || self.callback_owners.iter().any(|owner| owner.published())
+    }
+
+    // Seal every unpublished owner before freeing either code or stable-entry
+    // cells. A concurrent trampoline installation either publishes first and
+    // prevents sealing, or sees the sealed owner and cannot use its address.
+    pub(crate) fn seal_callback_owners_for_drop(&mut self) -> bool {
+        let mut retain = self.keep_resident;
+        for owner in &self.callback_owners {
+            if !owner.prepare() {
+                retain = true;
+            }
+        }
+        if retain {
+            self.keep_resident = true;
+            // The complete session remains mapped. Restore metadata for future
+            // callbacks without replacing any generation's adapter address.
+            for owner in &self.callback_owners {
+                if !owner.finished.get() {
+                    unsafe {
+                        (owner.cancel)(owner.id);
+                    }
+                }
+            }
+        }
+        retain
+    }
+
+    pub(crate) fn supports_callback_owners(&self) -> bool {
+        CALLBACK_OWNER_APIS
+            .iter()
+            .all(|name| self.lookup(name).is_ok())
+    }
+
+    pub(crate) fn initialize_callback_owner(
+        &mut self,
+        tracker: &ResourceTracker,
+        plan: &CallbackRegistrationPlan,
+    ) -> Result<(), String> {
+        if plan.conservative {
+            self.keep_resident = true;
+        }
+        let Some(slot) = plan.slot.as_ref() else {
+            return Ok(());
+        };
+        unsafe {
+            let new: unsafe extern "C" fn() -> i64 =
+                std::mem::transmute(self.lookup("dartforge_ffi_callback_owner_new")? as usize);
+            let published = std::mem::transmute::<usize, unsafe extern "C" fn(i64) -> u8>(
+                self.lookup("dartforge_ffi_callback_owner_published")? as usize,
+            );
+            let prepare = std::mem::transmute::<usize, unsafe extern "C" fn(i64) -> u8>(
+                self.lookup("dartforge_ffi_callback_owner_prepare_retire")? as usize,
+            );
+            let cancel = std::mem::transmute::<usize, unsafe extern "C" fn(i64) -> u8>(
+                self.lookup("dartforge_ffi_callback_owner_cancel_retire")? as usize,
+            );
+            let finish = std::mem::transmute::<usize, unsafe extern "C" fn(i64) -> u8>(
+                self.lookup("dartforge_ffi_callback_owner_finish_retire")? as usize,
+            );
+            let address = self.lookup(slot)?;
+            let id = new();
+            if id <= 0 {
+                return Err("could not allocate a native callback code owner".into());
+            }
+            let owner = std::rc::Rc::new(CallbackOwner {
+                id,
+                published,
+                prepare,
+                cancel,
+                finish,
+                finished: std::cell::Cell::new(false),
+            });
+            (address as *mut i64).write(id);
+            *tracker.callback_owner.borrow_mut() = Some(owner.clone());
+            self.callback_owners.push(owner);
+        }
+        Ok(())
+    }
+
     pub(crate) fn new() -> Result<Self, String> {
         let machine = target_machine()?;
         let maps = roots_by_maps();
@@ -934,7 +1385,7 @@ impl Lljit {
         // SAFETY: `handle` was just created successfully; the main dylib
         // belongs to the `LLJIT` and is valid while this structure lives.
         let main = unsafe { LLVMOrcLLJITGetMainJITDylib(handle) };
-        Ok(Self { handle, main, layer, maps, trace })
+        Ok(Self { handle, main, layer, maps, trace, keep_resident: false, callback_owners: Vec::new() })
     }
 
     /// With map-based roots: the objects' maps go to this process's
@@ -1115,7 +1566,7 @@ impl Lljit {
         // SAFETY: `self.main` belongs to this live `LLJIT`; the returned tracker
         // comes already retained and is freed by `ResourceTracker::drop`.
         let handle = unsafe { LLVMOrcJITDylibCreateResourceTracker(self.main) };
-        ResourceTracker { handle }
+        ResourceTracker { handle, callback_owner: std::cell::RefCell::new(None) }
     }
 
     /// Hands the module to the `LLJIT` under the given tracker.
@@ -1286,10 +1737,20 @@ impl Lljit {
 impl Drop for Lljit {
     /// Ends the LLVM session, unloading all still resident code.
     fn drop(&mut self) {
+        if self.seal_callback_owners_for_drop() {
+            // Native trampolines and closed tombstones outlive JitSession.
+            // Keep both LLVM's owner and its layer/registry context resident.
+            return;
+        }
         // SAFETY: all trackers of this session were already freed, because
         // `crate::JitSession` declares the module vector before this field and
         // fields are dropped in declaration order.
         let _ = take_error(unsafe { LLVMOrcDisposeLLJIT(self.handle) });
+        for owner in &self.callback_owners {
+            // Code is gone, and the sealed rows were inaccessible throughout
+            // disposal. Remove only this generation's metadata afterwards.
+            let _ = owner.finish();
+        }
         // The objects (and their maps) went away with the `LLJIT`; the layer's
         // context goes afterwards.
         if !self.layer.is_null() {
@@ -1869,6 +2330,7 @@ impl ParsedModule {
                 let next = llvm_sys::core::LLVMGetNextGlobal(global);
                 if LLVMIsDeclaration(global) == 0 && llvm_sys::core::LLVMIsGlobalConstant(global) == 0 {
                     let name = value_name(global);
+                    if name.starts_with("df.jit.callback.owner.") { global = next; continue; }
                     let init = llvm_sys::core::LLVMGetInitializer(global);
                     if init.is_null() || llvm_sys::core::LLVMIsNull(init) == 0 {
                         return Err(format!(
@@ -1973,6 +2435,7 @@ pub(crate) struct ObjectParts {
     pub(crate) layouts: Vec<(i64, i64)>,
     pub(crate) globals: Vec<MutableGlobal>,
     pub(crate) target: (String, String),
+    pub(crate) callback_registration: CallbackRegistrationPlan,
 }
 
 /// Compiles textual IR into a COFF object with the JIT target machine, without a session.
@@ -1987,6 +2450,7 @@ pub(crate) struct ObjectParts {
 /// a code generator failure.
 pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String> {
     let parsed = parse_module(name, ir)?;
+    let callback_registration = parsed.callback_registration_plan(true);
     let globals = parsed.prepare_mutable_globals()?;
     let declarations = parsed.declarations();
     let signatures = parsed.signatures();
@@ -2035,7 +2499,7 @@ pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String
         result
     }?;
     let target = parsed.target();
-    Ok(ObjectParts { object, declarations, signatures, layouts, globals, target })
+    Ok(ObjectParts { object, declarations, signatures, layouts, globals, target, callback_registration })
 }
 
 
@@ -2623,5 +3087,116 @@ mod tests {
         assert!(is_known_external("llvm.memcpy.p0.p0.i64"));
         assert!(!is_known_external("sqlite3_open"));
         assert!(!is_known_external("dartforge_entry"));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod callback_lifetime_tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    #[test]
+    #[ignore = "requires LLVM, Clang and the source-built Dart SDK"]
+    fn closed_native_callable_survives_reload_and_session_drop() {
+        run_callback_lifetime(false);
+    }
+
+    #[test]
+    #[ignore = "requires LLVM, Clang and the source-built Dart SDK"]
+    fn captured_closure_survives_replacement_before_callback_publication() {
+        run_callback_lifetime(true);
+    }
+
+    fn run_callback_lifetime(deferred: bool) {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(move || {
+            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+            let directory = std::env::temp_dir().join(format!("dartforge-jit-callback-lifetime-{}-{stamp}", std::process::id()));
+            std::fs::create_dir(&directory).unwrap();
+            let c = directory.join("driver.c");
+            let driver = directory.join(if cfg!(target_os = "macos") { "driver.dylib" } else { "driver.so" });
+            std::fs::write(&c, "#include <stdint.h>\nstatic int32_t (*saved)(int32_t);\nvoid store(int32_t (*callback)(int32_t)) { saved = callback; }\nint32_t invoke(int32_t value) { return saved(value); }\n").unwrap();
+            let clang = std::env::var_os("DARTFORGE_CLANG").unwrap_or_else(|| "clang".into());
+            let status = Command::new(clang).args(["-shared", "-fPIC"]).arg(&c).arg("-o").arg(&driver).status().unwrap();
+            assert!(status.success(), "native callback driver did not compile");
+            let source = directory.join("main.dart");
+            let code = format!(r#"
+import 'dart:ffi';
+typedef Callback = Int32 Function(Int32);
+int handler(int value) => value + 7;
+void main() {{
+  final library = DynamicLibrary.open(r'{}');
+  final store = library.lookupFunction<Void Function(Pointer<NativeFunction<Callback>>), void Function(Pointer<NativeFunction<Callback>>) >('store');
+  final invoke = library.lookupFunction<Int32 Function(Int32), int Function(int)>('invoke');
+  final callback = NativeCallable<Callback>.isolateLocal(handler, exceptionalReturn: -99);
+  store(callback.nativeFunction);
+  if (invoke(3) != 10) throw StateError('live callback result');
+  callback.close();
+}}
+"#, driver.display());
+            let code = if deferred {
+                code.replace("int handler(int value) => value + 7;", "int Function(int)? saved;")
+                    .replace("void main() {", "void main() {\n  if (saved == null) { final delta = 7; saved = (int value) => value + delta; return; }")
+                    .replace(".isolateLocal(handler,", ".isolateLocal(saved!,")
+                    .replace("!= 10", "!= 14")
+            } else { code };
+            std::fs::write(&source, &code).unwrap();
+            let sdk = std::env::var_os("DARTFORGE_TEST_SDK_LIB").map(PathBuf::from).expect("DARTFORGE_TEST_SDK_LIB");
+            let options = dartforge_emit_native::CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                sdk: Some(&sdk), packages: None, timings: false, optimize: false,
+                language_version: None, experiments: Vec::new(), debug: false,
+                generator: None, cpu: None,
+            };
+            let original = dartforge_emit_native::emit_reloadable_ir(&source, &options, None).unwrap();
+            let sdk_dll = dartforge_emit_native::sdk_module::source_sdk_dll().unwrap();
+            let mut session = crate::JitSession::new_for_ir_with(&original.text, Some(&sdk_dll)).unwrap();
+            session.add_reloadable_module("callback", &original.text).unwrap();
+            assert_eq!(session.run_reloadable_main().unwrap().exit_code, 0);
+            let mut second_session = None;
+            if deferred {
+                let replacement = code.replace("value + delta", "value + delta + 4");
+                std::fs::write(&source, replacement).unwrap();
+                let next = dartforge_emit_native::emit_reloadable_ir(&source, &options, Some(&original.text)).unwrap();
+                // Change every implementation fingerprint without modifying
+                // the source-generated instructions. This actually retires the
+                // original closure body rather than delta-keeping it alive.
+                let complete = next.text.lines().map(|line| if line.starts_with("define ") {
+                    format!("{line}\n; captured closure full replacement")
+                } else { line.to_owned() }).collect::<Vec<_>>().join("\n");
+                session.hot_reload("callback", &complete).unwrap();
+                assert_eq!(session.retained_generations(), 1);
+                // B's startup registers the same native signature after A's
+                // reload publication. A still owns the captured managed closure.
+                let mut other = crate::JitSession::new_for_ir_with(&next.text, Some(&sdk_dll)).unwrap();
+                other.add_ir_module("adapter-owner", &next.text).unwrap();
+                assert_eq!(other.run_main().unwrap().exit_code, 0);
+                assert!(!other.lljit.retains_callback_code(), "metadata alone is reclaimable");
+                second_session = Some(other);
+                assert_eq!(session.run_reloadable_main().unwrap().exit_code, 0);
+                assert!(session.lljit.retains_callback_code(), "closure-producing session is leased");
+                assert!(second_session.as_ref().unwrap().lljit.retains_callback_code(), "same-signature adapter session is leased");
+            }
+            // The real trampoline loads its permanent context into the nest
+            // register. Host calls use the C driver's ordinary, checked ABI.
+            let handle = load_library(&driver);
+            assert!(!handle.is_null());
+            let address = address_in_library(handle, c"invoke");
+            assert!(!address.is_null());
+            // SAFETY: driver.c defines this exact Int32 -> Int32 C function;
+            // load_library retains its library until process exit.
+            let invoke: unsafe extern "C" fn(i32) -> i32 = unsafe { std::mem::transmute(address) };
+            assert_eq!(unsafe { invoke(3) }, -99);
+            drop(second_session);
+            assert_eq!(unsafe { invoke(3) }, -99, "other session's adapter survives drop");
+            std::fs::write(&source, code.replace("value + 7", "value + 11")).unwrap();
+            let updated = dartforge_emit_native::emit_reloadable_ir(&source, &options, Some(&original.text)).unwrap();
+            session.hot_reload("callback", &updated.text).unwrap();
+            assert!(session.retained_generations() >= 2, "published callback protects all code dependencies");
+            assert_eq!(unsafe { invoke(3) }, -99);
+            drop(session);
+            assert_eq!(unsafe { invoke(3) }, -99, "closed callback adapter or its owner was unloaded");
+            std::fs::remove_dir_all(directory).unwrap();
+        }).unwrap().join().unwrap();
     }
 }

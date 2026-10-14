@@ -1,0 +1,42 @@
+{
+  "compiler_sha256": "e5321a1ee3c91552a782fae5f40ec49868d654dff7472204102213d74ff14550",
+  "cases": {
+    "limitless_ui": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/limitless_ui.js",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json"
+      ],
+      "exit_code": 0,
+      "source_sha256": "308471ba62a75f589dc8b070fcdef04ac7a5b123175ff5bbc0e0a8ef4cb3b280",
+      "config_sha256": "9395450bc1340ec9640b9716221293ebdd249dc9e75fc3af59fad19c7ada69b2",
+      "artifact_sha256": "7f6f7d96b61a930ecb4e89d2ed4a003bd106b631bba9f048318972d040349b79",
+      "bytes": 3534371,
+      "gzip9_bytes": 1019345
+    },
+    "new_sali": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/new_sali/new_sali_frontend/web/main.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/new_sali.js",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/new_sali.package_config.json"
+      ],
+      "exit_code": 0,
+      "source_sha256": "ced7b68b37b2ddc0f6acc2e24a69de2527ea98dc5b1b7420754ed862f92e2f78",
+      "config_sha256": "33e7aad90e8013b888ce210202759bcd86e4377532d3dc70713c68d507206144",
+      "artifact_sha256": "fea12a08cdd389dbaeecf8e3ba6fe62428b28a0f5c64ecfc0da346bb91ec7e03",
+      "bytes": 7614633,
+      "gzip9_bytes": 2073338
+    }
+  },
+  "compiler_stable": true
+}

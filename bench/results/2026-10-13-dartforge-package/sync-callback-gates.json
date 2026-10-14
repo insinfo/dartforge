@@ -1,0 +1,22 @@
+{
+  "cli_sha256": "9eb0fdb83416b7c8718c612275cf58c3b7c849f810561f3f8b4a7292bfe0ba4c",
+  "runtime_lib_include_ignored": 261,
+  "runtime_integration": 24,
+  "emitter_lib_include_ignored": 548,
+  "source_sha256": {
+    "crates/runtime/src/ffi_callbacks.rs": "54712166dcbc7948ca964f2af246c722f2201afb1b3ab7c414de86f686800d8b",
+    "crates/runtime/effects.tsv": "9a7157af762d92a67b5adb05a9285ca7546816a84962ad0f675c6f128536c540",
+    "crates/runtime/ownership.tsv": "64c3d12327514cae73fd132f6e274a52c3db1a60b0b0d5db005049e116cda60d",
+    "crates/emit_native/src/lower/sync_native_callable.rs": "6c86ee86fff276e9224ff6d92b3913e94438a8192ddf3a1fe8e8c299cf4e860b",
+    "crates/emit_native/src/lower/ffi.rs": "61639b0c92a0ac9a38095d66210e82b1f60ea15d311bf0f49101799eef2a0639",
+    "crates/emit_native/src/llvm/mod.rs": "9eadb3b859d805ff1260c4f0c4e5b2c1bca9a3a57b7fc7f072f8fd1e772d450d",
+    "crates/emit_native/src/llvm/externs.rs": "badf76d8f253e75cfa4e72410e98d8dc8e9072c23d748f3e552906cd16e98eee",
+    "native_sdk/ffi/ffi_patch.dart": "e2a9059bbc1b4a13829ca46e05a763469731c6e2d11c60124b3152854b5c0068",
+    "packages/dartforge/lib/src/sync_native_callable.dart": "e405213f5bbddf2b661e99d19a039e6e4150f76ddd9da372452fbfb884b9f613"
+  },
+  "native_cases": 12,
+  "realtime_certified": false,
+  "nested_event_turns_supported": false,
+  "workspace_approval": false,
+  "documentation_work": false
+}

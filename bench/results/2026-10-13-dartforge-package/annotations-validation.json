@@ -1,0 +1,60 @@
+{
+  "cli_sha256": "8b3160e3a43146fb5952090c904e7c0ee6b44ae8a01c3397fc9216a42664c744",
+  "source_sha256": "708303fd05fcb0ffa7b02578cf03bfaaa6d091ffa629bb6d33b11ac7e0450c3a",
+  "sdk": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\"",
+  "flags": [
+    "--optimize",
+    "--exceptions=tables",
+    "--roots=shadow",
+    "--stack-trace=none"
+  ],
+  "environment": {
+    "DARTFORGE_EFFECTS": "check",
+    "DARTFORGE_ARC_CHECK": "1"
+  },
+  "reference_stdout": "annotation portability and schema validated\n",
+  "native": [
+    {
+      "mode": "tracing",
+      "stress": false,
+      "exit": 0,
+      "matches_vm": true,
+      "stderr_empty": true
+    },
+    {
+      "mode": "tracing",
+      "stress": true,
+      "exit": 0,
+      "matches_vm": true,
+      "stderr_empty": true
+    },
+    {
+      "mode": "arc",
+      "stress": false,
+      "exit": 0,
+      "matches_vm": true,
+      "stderr_empty": true
+    },
+    {
+      "mode": "arc",
+      "stress": true,
+      "exit": 0,
+      "matches_vm": true,
+      "stderr_empty": true
+    },
+    {
+      "mode": "prepared",
+      "stress": false,
+      "exit": 0,
+      "matches_vm": true,
+      "stderr_empty": true
+    },
+    {
+      "mode": "prepared",
+      "stress": true,
+      "exit": 0,
+      "matches_vm": true,
+      "stderr_empty": true
+    }
+  ]
+}

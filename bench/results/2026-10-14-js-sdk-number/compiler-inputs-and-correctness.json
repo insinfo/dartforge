@@ -1,0 +1,172 @@
+{
+  "compiler_sha256": "e5321a1ee3c91552a782fae5f40ec49868d654dff7472204102213d74ff14550",
+  "sources": {
+    "objects": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/objects_in_collections.dart",
+      "sha256": "85174e310ad0b75ea9e004cf8700b1c878d6a6d6c1eddab9c76a41daff64d313"
+    },
+    "json": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+      "sha256": "9781ba5b478ef20313fe280ed5fb0b18824e55a50501d507b2d22fe8ea307c38"
+    },
+    "numbers": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/native_number_ranges.dart",
+      "sha256": "ef477abde531984c09c5e331a284288cda92fc33072d8b00065fa4a7ca54189e"
+    }
+  },
+  "cases": {
+    "objects.enabled": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/objects_in_collections.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/objects.enabled.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_NUMBER_MODULO": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "f6cc8e5ed6c24fab079148269159400e7da295dbb726c842eb658748ad4c1d86"
+    },
+    "objects.disabled": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/objects_in_collections.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/objects.disabled.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_NUMBER_MODULO": "0"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "b029b98ea98e30a3443e31d496745ffa49f6ddaeaf6caca1ffc50088e4830d59"
+    },
+    "objects.raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/objects_in_collections.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/objects.raw.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_NUMBER_MODULO": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "ebccb1408f4054f1def147bdf4dc1b6ef7bacd718f4137a717b6e285f728c005"
+    },
+    "json.enabled": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/json.enabled.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_NUMBER_MODULO": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "02afea0310a2803b88bbcd851d95bdc879c4c957f5a05ccdf8a042ccbc722a74"
+    },
+    "json.disabled": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/json.disabled.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_NUMBER_MODULO": "0"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "913132e2c29c86870b4626e1e0511dbca8a6a1b66803a5905830ede7bc2dd8a3"
+    },
+    "json.raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/json.raw.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_NUMBER_MODULO": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "b83ba05c0ee55b65362d41813f664b0788e912da87c9b11bf8c1a3d70e272aa0"
+    },
+    "numbers.enabled": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/native_number_ranges.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/numbers.enabled.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_NUMBER_MODULO": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "2cc752743760510d69b5cb0288907ae601c26e58fca675b61aae1a1c35cabf6b",
+      "exit_code": 0,
+      "stdout": "-zero:3.000=zero:true:false:true:false:-1\n-zero:-3.000=zero:false:true:false:true:1\n-zero:zero=nan:false:false:true:true:-1\n-zero:-zero=nan:false:false:true:true:0\n-zero:infinity=zero:true:false:true:false:-1\n-zero:-infinity=zero:false:true:false:true:1\n-zero:nan=nan:false:false:false:false:-1\nzero:3.000=zero:true:false:true:false:-1\nzero:-3.000=zero:false:true:false:true:1\nzero:zero=nan:false:false:true:true:0\nzero:-zero=nan:false:false:true:true:1\nzero:infinity=zero:true:false:true:false:-1\nzero:-infinity=zero:false:true:false:true:1\nzero:nan=nan:false:false:false:false:-1\n1.000:3.000=1.000:true:false:true:false:-1\n1.000:-3.000=1.000:false:true:false:true:1\n1.000:zero=nan:false:true:false:true:1\n1.000:-zero=nan:false:true:false:true:1\n1.000:infinity=1.000:true:false:true:false:-1\n1.000:-infinity=1.000:false:true:false:true:1\n1.000:nan=nan:false:false:false:false:-1\n-1.000:3.000=2.000:true:false:true:false:-1\n-1.000:-3.000=2.000:false:true:false:true:1\n-1.000:zero=nan:true:false:true:false:-1\n-1.000:-zero=nan:true:false:true:false:-1\n-1.000:infinity=infinity:true:false:true:false:-1\n-1.000:-infinity=infinity:false:true:false:true:1\n-1.000:nan=nan:false:false:false:false:-1\n7.250:3.000=1.250:false:true:false:true:1\n7.250:-3.000=1.250:false:true:false:true:1\n7.250:zero=nan:false:true:false:true:1\n7.250:-zero=nan:false:true:false:true:1\n7.250:infinity=7.250:true:false:true:false:-1\n7.250:-infinity=7.250:false:true:false:true:1\n7.250:nan=nan:false:false:false:false:-1\n-7.250:3.000=1.750:true:false:true:false:-1\n-7.250:-3.000=1.750:true:false:true:false:-1\n-7.250:zero=nan:true:false:true:false:-1\n-7.250:-zero=nan:true:false:true:false:-1\n-7.250:infinity=infinity:true:false:true:false:-1\n-7.250:-infinity=infinity:false:true:false:true:1\n-7.250:nan=nan:false:false:false:false:-1\nnan:3.000=nan:false:false:false:false:1\nnan:-3.000=nan:false:false:false:false:1\nnan:zero=nan:false:false:false:false:1\nnan:-zero=nan:false:false:false:false:1\nnan:infinity=nan:false:false:false:false:1\nnan:-infinity=nan:false:false:false:false:1\nnan:nan=nan:false:false:false:false:0\ninfinity:3.000=nan:false:true:false:true:1\ninfinity:-3.000=nan:false:true:false:true:1\ninfinity:zero=nan:false:true:false:true:1\ninfinity:-zero=nan:false:true:false:true:1\ninfinity:infinity=nan:false:false:true:true:0\ninfinity:-infinity=nan:false:true:false:true:1\ninfinity:nan=nan:false:false:false:false:-1\n-infinity:3.000=nan:true:false:true:false:-1\n-infinity:-3.000=nan:true:false:true:false:-1\n-infinity:zero=nan:true:false:true:false:-1\n-infinity:-zero=nan:true:false:true:false:-1\n-infinity:infinity=nan:true:false:true:false:-1\n-infinity:-infinity=nan:false:false:true:true:0\n-infinity:nan=nan:false:false:false:false:-1\n9007199254740992.000:3.000=2.000:false:true:false:true:1\n9007199254740992.000:-3.000=2.000:false:true:false:true:1\n9007199254740992.000:zero=nan:false:true:false:true:1\n9007199254740992.000:-zero=nan:false:true:false:true:1\n9007199254740992.000:infinity=9007199254740992.000:true:false:true:false:-1\n9007199254740992.000:-infinity=9007199254740992.000:false:true:false:true:1\n9007199254740992.000:nan=nan:false:false:false:false:-1\nint=-100:2:2\nint=-1:2:2\nint=0:0:0\nint=1:1:1\nint=100:1:1\nint=4503599627370495:0:0\nordered=1.750:[left, right]\ncustom=true:false:42:[lt, gt, mod]\nbad=true\nbad=true\nbad=true\n",
+      "stderr": ""
+    },
+    "numbers.disabled": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/native_number_ranges.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/numbers.disabled.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_NUMBER_MODULO": "0"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "079124e8e27098d749ae6fdc3886837cffff03456d95362109d68f543da8be6b",
+      "exit_code": 0,
+      "stdout": "-zero:3.000=zero:true:false:true:false:-1\n-zero:-3.000=zero:false:true:false:true:1\n-zero:zero=nan:false:false:true:true:-1\n-zero:-zero=nan:false:false:true:true:0\n-zero:infinity=zero:true:false:true:false:-1\n-zero:-infinity=zero:false:true:false:true:1\n-zero:nan=nan:false:false:false:false:-1\nzero:3.000=zero:true:false:true:false:-1\nzero:-3.000=zero:false:true:false:true:1\nzero:zero=nan:false:false:true:true:0\nzero:-zero=nan:false:false:true:true:1\nzero:infinity=zero:true:false:true:false:-1\nzero:-infinity=zero:false:true:false:true:1\nzero:nan=nan:false:false:false:false:-1\n1.000:3.000=1.000:true:false:true:false:-1\n1.000:-3.000=1.000:false:true:false:true:1\n1.000:zero=nan:false:true:false:true:1\n1.000:-zero=nan:false:true:false:true:1\n1.000:infinity=1.000:true:false:true:false:-1\n1.000:-infinity=1.000:false:true:false:true:1\n1.000:nan=nan:false:false:false:false:-1\n-1.000:3.000=2.000:true:false:true:false:-1\n-1.000:-3.000=2.000:false:true:false:true:1\n-1.000:zero=nan:true:false:true:false:-1\n-1.000:-zero=nan:true:false:true:false:-1\n-1.000:infinity=infinity:true:false:true:false:-1\n-1.000:-infinity=infinity:false:true:false:true:1\n-1.000:nan=nan:false:false:false:false:-1\n7.250:3.000=1.250:false:true:false:true:1\n7.250:-3.000=1.250:false:true:false:true:1\n7.250:zero=nan:false:true:false:true:1\n7.250:-zero=nan:false:true:false:true:1\n7.250:infinity=7.250:true:false:true:false:-1\n7.250:-infinity=7.250:false:true:false:true:1\n7.250:nan=nan:false:false:false:false:-1\n-7.250:3.000=1.750:true:false:true:false:-1\n-7.250:-3.000=1.750:true:false:true:false:-1\n-7.250:zero=nan:true:false:true:false:-1\n-7.250:-zero=nan:true:false:true:false:-1\n-7.250:infinity=infinity:true:false:true:false:-1\n-7.250:-infinity=infinity:false:true:false:true:1\n-7.250:nan=nan:false:false:false:false:-1\nnan:3.000=nan:false:false:false:false:1\nnan:-3.000=nan:false:false:false:false:1\nnan:zero=nan:false:false:false:false:1\nnan:-zero=nan:false:false:false:false:1\nnan:infinity=nan:false:false:false:false:1\nnan:-infinity=nan:false:false:false:false:1\nnan:nan=nan:false:false:false:false:0\ninfinity:3.000=nan:false:true:false:true:1\ninfinity:-3.000=nan:false:true:false:true:1\ninfinity:zero=nan:false:true:false:true:1\ninfinity:-zero=nan:false:true:false:true:1\ninfinity:infinity=nan:false:false:true:true:0\ninfinity:-infinity=nan:false:true:false:true:1\ninfinity:nan=nan:false:false:false:false:-1\n-infinity:3.000=nan:true:false:true:false:-1\n-infinity:-3.000=nan:true:false:true:false:-1\n-infinity:zero=nan:true:false:true:false:-1\n-infinity:-zero=nan:true:false:true:false:-1\n-infinity:infinity=nan:true:false:true:false:-1\n-infinity:-infinity=nan:false:false:true:true:0\n-infinity:nan=nan:false:false:false:false:-1\n9007199254740992.000:3.000=2.000:false:true:false:true:1\n9007199254740992.000:-3.000=2.000:false:true:false:true:1\n9007199254740992.000:zero=nan:false:true:false:true:1\n9007199254740992.000:-zero=nan:false:true:false:true:1\n9007199254740992.000:infinity=9007199254740992.000:true:false:true:false:-1\n9007199254740992.000:-infinity=9007199254740992.000:false:true:false:true:1\n9007199254740992.000:nan=nan:false:false:false:false:-1\nint=-100:2:2\nint=-1:2:2\nint=0:0:0\nint=1:1:1\nint=100:1:1\nint=4503599627370495:0:0\nordered=1.750:[left, right]\ncustom=true:false:42:[lt, gt, mod]\nbad=true\nbad=true\nbad=true\n",
+      "stderr": ""
+    },
+    "numbers.raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/native_number_ranges.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/numbers.raw.js"
+      ],
+      "environment": {
+        "DARTFORGE_JSPROD_NUMBER_MODULO": "1"
+      },
+      "compile_exit": 0,
+      "artifact_sha256": "d84978b71cc3e286e87bd8c6e56a1c45be1effd19fd44d08b49fcaaa7db5f0c4",
+      "exit_code": 0,
+      "stdout": "-zero:3.000=zero:true:false:true:false:-1\n-zero:-3.000=zero:false:true:false:true:1\n-zero:zero=nan:false:false:true:true:-1\n-zero:-zero=nan:false:false:true:true:0\n-zero:infinity=zero:true:false:true:false:-1\n-zero:-infinity=zero:false:true:false:true:1\n-zero:nan=nan:false:false:false:false:-1\nzero:3.000=zero:true:false:true:false:-1\nzero:-3.000=zero:false:true:false:true:1\nzero:zero=nan:false:false:true:true:0\nzero:-zero=nan:false:false:true:true:1\nzero:infinity=zero:true:false:true:false:-1\nzero:-infinity=zero:false:true:false:true:1\nzero:nan=nan:false:false:false:false:-1\n1.000:3.000=1.000:true:false:true:false:-1\n1.000:-3.000=1.000:false:true:false:true:1\n1.000:zero=nan:false:true:false:true:1\n1.000:-zero=nan:false:true:false:true:1\n1.000:infinity=1.000:true:false:true:false:-1\n1.000:-infinity=1.000:false:true:false:true:1\n1.000:nan=nan:false:false:false:false:-1\n-1.000:3.000=2.000:true:false:true:false:-1\n-1.000:-3.000=2.000:false:true:false:true:1\n-1.000:zero=nan:true:false:true:false:-1\n-1.000:-zero=nan:true:false:true:false:-1\n-1.000:infinity=infinity:true:false:true:false:-1\n-1.000:-infinity=infinity:false:true:false:true:1\n-1.000:nan=nan:false:false:false:false:-1\n7.250:3.000=1.250:false:true:false:true:1\n7.250:-3.000=1.250:false:true:false:true:1\n7.250:zero=nan:false:true:false:true:1\n7.250:-zero=nan:false:true:false:true:1\n7.250:infinity=7.250:true:false:true:false:-1\n7.250:-infinity=7.250:false:true:false:true:1\n7.250:nan=nan:false:false:false:false:-1\n-7.250:3.000=1.750:true:false:true:false:-1\n-7.250:-3.000=1.750:true:false:true:false:-1\n-7.250:zero=nan:true:false:true:false:-1\n-7.250:-zero=nan:true:false:true:false:-1\n-7.250:infinity=infinity:true:false:true:false:-1\n-7.250:-infinity=infinity:false:true:false:true:1\n-7.250:nan=nan:false:false:false:false:-1\nnan:3.000=nan:false:false:false:false:1\nnan:-3.000=nan:false:false:false:false:1\nnan:zero=nan:false:false:false:false:1\nnan:-zero=nan:false:false:false:false:1\nnan:infinity=nan:false:false:false:false:1\nnan:-infinity=nan:false:false:false:false:1\nnan:nan=nan:false:false:false:false:0\ninfinity:3.000=nan:false:true:false:true:1\ninfinity:-3.000=nan:false:true:false:true:1\ninfinity:zero=nan:false:true:false:true:1\ninfinity:-zero=nan:false:true:false:true:1\ninfinity:infinity=nan:false:false:true:true:0\ninfinity:-infinity=nan:false:true:false:true:1\ninfinity:nan=nan:false:false:false:false:-1\n-infinity:3.000=nan:true:false:true:false:-1\n-infinity:-3.000=nan:true:false:true:false:-1\n-infinity:zero=nan:true:false:true:false:-1\n-infinity:-zero=nan:true:false:true:false:-1\n-infinity:infinity=nan:true:false:true:false:-1\n-infinity:-infinity=nan:false:false:true:true:0\n-infinity:nan=nan:false:false:false:false:-1\n9007199254740992.000:3.000=2.000:false:true:false:true:1\n9007199254740992.000:-3.000=2.000:false:true:false:true:1\n9007199254740992.000:zero=nan:false:true:false:true:1\n9007199254740992.000:-zero=nan:false:true:false:true:1\n9007199254740992.000:infinity=9007199254740992.000:true:false:true:false:-1\n9007199254740992.000:-infinity=9007199254740992.000:false:true:false:true:1\n9007199254740992.000:nan=nan:false:false:false:false:-1\nint=-100:2:2\nint=-1:2:2\nint=0:0:0\nint=1:1:1\nint=100:1:1\nint=4503599627370495:0:0\nordered=1.750:[left, right]\ncustom=true:false:42:[lt, gt, mod]\nbad=true\nbad=true\nbad=true\n",
+      "stderr": ""
+    }
+  },
+  "vm": {
+    "stdout": "-zero:3.000=zero:true:false:true:false:-1\n-zero:-3.000=zero:false:true:false:true:1\n-zero:zero=nan:false:false:true:true:-1\n-zero:-zero=nan:false:false:true:true:0\n-zero:infinity=zero:true:false:true:false:-1\n-zero:-infinity=zero:false:true:false:true:1\n-zero:nan=nan:false:false:false:false:-1\nzero:3.000=zero:true:false:true:false:-1\nzero:-3.000=zero:false:true:false:true:1\nzero:zero=nan:false:false:true:true:0\nzero:-zero=nan:false:false:true:true:1\nzero:infinity=zero:true:false:true:false:-1\nzero:-infinity=zero:false:true:false:true:1\nzero:nan=nan:false:false:false:false:-1\n1.000:3.000=1.000:true:false:true:false:-1\n1.000:-3.000=1.000:false:true:false:true:1\n1.000:zero=nan:false:true:false:true:1\n1.000:-zero=nan:false:true:false:true:1\n1.000:infinity=1.000:true:false:true:false:-1\n1.000:-infinity=1.000:false:true:false:true:1\n1.000:nan=nan:false:false:false:false:-1\n-1.000:3.000=2.000:true:false:true:false:-1\n-1.000:-3.000=2.000:false:true:false:true:1\n-1.000:zero=nan:true:false:true:false:-1\n-1.000:-zero=nan:true:false:true:false:-1\n-1.000:infinity=infinity:true:false:true:false:-1\n-1.000:-infinity=infinity:false:true:false:true:1\n-1.000:nan=nan:false:false:false:false:-1\n7.250:3.000=1.250:false:true:false:true:1\n7.250:-3.000=1.250:false:true:false:true:1\n7.250:zero=nan:false:true:false:true:1\n7.250:-zero=nan:false:true:false:true:1\n7.250:infinity=7.250:true:false:true:false:-1\n7.250:-infinity=7.250:false:true:false:true:1\n7.250:nan=nan:false:false:false:false:-1\n-7.250:3.000=1.750:true:false:true:false:-1\n-7.250:-3.000=1.750:true:false:true:false:-1\n-7.250:zero=nan:true:false:true:false:-1\n-7.250:-zero=nan:true:false:true:false:-1\n-7.250:infinity=infinity:true:false:true:false:-1\n-7.250:-infinity=infinity:false:true:false:true:1\n-7.250:nan=nan:false:false:false:false:-1\nnan:3.000=nan:false:false:false:false:1\nnan:-3.000=nan:false:false:false:false:1\nnan:zero=nan:false:false:false:false:1\nnan:-zero=nan:false:false:false:false:1\nnan:infinity=nan:false:false:false:false:1\nnan:-infinity=nan:false:false:false:false:1\nnan:nan=nan:false:false:false:false:0\ninfinity:3.000=nan:false:true:false:true:1\ninfinity:-3.000=nan:false:true:false:true:1\ninfinity:zero=nan:false:true:false:true:1\ninfinity:-zero=nan:false:true:false:true:1\ninfinity:infinity=nan:false:false:true:true:0\ninfinity:-infinity=nan:false:true:false:true:1\ninfinity:nan=nan:false:false:false:false:-1\n-infinity:3.000=nan:true:false:true:false:-1\n-infinity:-3.000=nan:true:false:true:false:-1\n-infinity:zero=nan:true:false:true:false:-1\n-infinity:-zero=nan:true:false:true:false:-1\n-infinity:infinity=nan:true:false:true:false:-1\n-infinity:-infinity=nan:false:false:true:true:0\n-infinity:nan=nan:false:false:false:false:-1\n9007199254740992.000:3.000=2.000:false:true:false:true:1\n9007199254740992.000:-3.000=2.000:false:true:false:true:1\n9007199254740992.000:zero=nan:false:true:false:true:1\n9007199254740992.000:-zero=nan:false:true:false:true:1\n9007199254740992.000:infinity=9007199254740992.000:true:false:true:false:-1\n9007199254740992.000:-infinity=9007199254740992.000:false:true:false:true:1\n9007199254740992.000:nan=nan:false:false:false:false:-1\nint=-100:2:2\nint=-1:2:2\nint=0:0:0\nint=1:1:1\nint=100:1:1\nint=4503599627370495:0:0\nordered=1.750:[left, right]\ncustom=true:false:42:[lt, gt, mod]\nbad=true\nbad=true\nbad=true\n",
+    "stderr": "",
+    "exit_code": 0
+  },
+  "inputs_stable": true
+}

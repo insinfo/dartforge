@@ -1021,6 +1021,13 @@ pub enum DartEntryVector {
     Descriptor,
 }
 
+/// Source-level inlining request. A preference remains subject to safety and budgets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InlinePolicy {
+    Prefer,
+    Never,
+}
+
 /// Complete HIR module representing a compilable Dart program.
 #[derive(Debug, Default, Clone)]
 pub struct Module {
@@ -1048,6 +1055,9 @@ pub struct Module {
     /// `dart:ffi`: the structs and unions of the program (`lower/ffi.rs`).
     pub ffi_composites: Vec<FfiComposite>,
     pub functions: Vec<Function>,
+    /// Declaration pragmas by body symbol. Generated closures and ABI adapters
+    /// keep their own policy; an async declaration also labels its state machine.
+    pub inline_policies: std::collections::HashMap<String, InlinePolicy>,
     /// Scalar parameters declared in the source, by symbol/SSA ID.
     /// The lowering records only unboxed int/double/bool. Hidden/native i64
     /// parameters are not classified by width. These facts
@@ -1108,6 +1118,15 @@ pub struct Module {
     pub classes: Vec<ClassDef>,
     pub selectors: Vec<SelectorDef>,
     pub subtyping_edges: Vec<(u32, u32)>,
+    /// Nominal classes whose complete runtime parent edges were emitted from
+    /// resolved declarations. Generated runtime identities remain unknown.
+    pub pruning_class_ids: std::collections::HashSet<u32>,
+    /// Shared nominal CID aliases are open, even when one declaration has a
+    /// complete ancestry. Their union is not a unique receiver identity.
+    pub pruning_ambiguous_class_ids: std::collections::HashSet<u32>,
+    /// SDK instance bodies: exact formal `this` SSA parameter and its nominal
+    /// runtime class. Captured receivers and synthetic adapters are not inferred.
+    pub pruning_this_receivers: std::collections::HashMap<String, (ValueId, u32)>,
     pub entry_symbol: Option<String>,
     /// How many parameters `main` declares: with one, it receives the command
     /// line arguments (`List<String>`); the second (`message`, from

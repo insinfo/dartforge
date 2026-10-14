@@ -1,0 +1,46 @@
+{
+  "scope": "Targeted emitter and package checks; not full workspace approval",
+  "gates": {
+    "emitter-library-llvm22": {
+      "log_sha256": "f08f3bce43e40b34808ebe8dc190306d2749544815f5f96864bbbae866a4e246",
+      "archive": "resources-emitter-library-llvm22.log.gz",
+      "passed": 518
+    },
+    "emitter-docs": {
+      "log_sha256": "d4f7d3b390a4ebf8faea0faddf0135df4bea04a060b0fc127327158ceb6c2f8e",
+      "archive": "resources-emitter-docs.log.gz",
+      "passed": 118
+    },
+    "noescape-hir": {
+      "log_sha256": "c2c6d6172ac1305a63d89714c08d672c75462842ee9c09b037c633509801ecbe",
+      "archive": "resources-noescape-hir.log.gz",
+      "passed": 16
+    },
+    "package-analysis": {
+      "log_sha256": "4989ea59c157a4f0d04059c497d6b43332c631b52bc6a2f984a539016b31fa94",
+      "archive": "resources-package-analysis.log.gz",
+      "passed": null
+    },
+    "rustdoc": {
+      "log_sha256": "60f2aafa7d5d78779be95547560c96e151b79e43c6cd80922a5b5d8534fe876d",
+      "archive": "resources-rustdoc.log.gz",
+      "passed": null
+    },
+    "emitter-missing-linkers": {
+      "log_sha256": "59d3c6bccd67c6d3e3be4c855123d0d983f5aa91df1f995c8e8f8c348b7572d3",
+      "archive": "resources-emitter-missing-linkers.log.gz",
+      "passed": 0,
+      "accepted": false
+    }
+  },
+  "checker_source_sha256": {
+    "crates/emit_native/src/contracts/no_escape.rs": "7b5f85687de9ba87aa2ad075e1f6cdd4dd14088418be2fcf4a767c9b123ee586",
+    "crates/emit_native/src/contracts/no_escape/tests.rs": "16394401ea18b325ad31ea23ae806bd436a645d4c43053daa534f88d76ae0c0d"
+  },
+  "native_package_ledgers": [
+    "resources-and-mapping-validation.json",
+    "mapped-memory-os-errors-validation.json",
+    "mapped-memory-owner-validation.json"
+  ],
+  "remaining_certificate": "NoEscape HIR evidence requires ABI/SSA/native scalar/emitted helper/cleanup audits"
+}

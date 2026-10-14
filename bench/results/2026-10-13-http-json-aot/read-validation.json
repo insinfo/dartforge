@@ -1,0 +1,232 @@
+{
+  "date": "2026-10-13",
+  "platform": "macOS arm64",
+  "base_commit": "2f68f91037bbd47eac498b05eed1e672bfe7f736",
+  "change": "Socket_Read reads into a Dart Uint8List; full reads omit the temporary payload Vec and copy; short reads return an exactly sized copied result.",
+  "flags": [
+    "--optimize",
+    "--exceptions=tables",
+    "DARTFORGE_KEEP_SYMBOLS=1 (performance binaries)"
+  ],
+  "runtime_tests": {
+    "passed": 345,
+    "unit": 236,
+    "integration": 24,
+    "doctests": 85
+  },
+  "aot_probes": [
+    {
+      "source": "04_soquetes_http.dart",
+      "memory": "tracing",
+      "prepared": false,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "04_soquetes_http.dart",
+      "memory": "tracing",
+      "prepared": false,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "04_soquetes_http.dart",
+      "memory": "arc",
+      "prepared": false,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "04_soquetes_http.dart",
+      "memory": "arc",
+      "prepared": false,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "04_soquetes_http.dart",
+      "memory": "arc",
+      "prepared": true,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "04_soquetes_http.dart",
+      "memory": "arc",
+      "prepared": true,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "139_socket_read_buffers.dart",
+      "memory": "tracing",
+      "prepared": false,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "139_socket_read_buffers.dart",
+      "memory": "tracing",
+      "prepared": false,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "139_socket_read_buffers.dart",
+      "memory": "arc",
+      "prepared": false,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "139_socket_read_buffers.dart",
+      "memory": "arc",
+      "prepared": false,
+      "stress": true,
+      "matches_dart": true
+    },
+    {
+      "source": "139_socket_read_buffers.dart",
+      "memory": "arc",
+      "prepared": true,
+      "stress": false,
+      "matches_dart": true
+    },
+    {
+      "source": "139_socket_read_buffers.dart",
+      "memory": "arc",
+      "prepared": true,
+      "stress": true,
+      "matches_dart": true
+    }
+  ],
+  "scheduled_gc": [
+    {
+      "executable": "139_socket_read_buffers-tracing-False",
+      "schedule": "42,3",
+      "matches_dart": true
+    },
+    {
+      "executable": "139_socket_read_buffers-arc-True",
+      "schedule": "42,3",
+      "matches_dart": true
+    },
+    {
+      "executable": "139_socket_read_buffers-arc-False",
+      "schedule": "42,3",
+      "matches_dart": true
+    }
+  ],
+  "utf8_protocol": {
+    "dart_aot": "110 exact responses passed",
+    "dartforge_aot_gc_stress": "110 exact responses passed",
+    "encoder": "JsonUtf8Encoder created once; not const"
+  },
+  "cpu_results": {
+    "read-get-pairs.json": [
+      {
+        "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-before",
+        "route": "/",
+        "median_cpu_ms_per_1000_requests": 35.0,
+        "minimum": 34.2,
+        "maximum": 35.2
+      },
+      {
+        "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-before",
+        "route": "/json",
+        "median_cpu_ms_per_1000_requests": 37.199999999999996,
+        "minimum": 36.8,
+        "maximum": 37.8
+      },
+      {
+        "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-after",
+        "route": "/",
+        "median_cpu_ms_per_1000_requests": 34.4,
+        "minimum": 34.2,
+        "maximum": 35.0
+      },
+      {
+        "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-after",
+        "route": "/json",
+        "median_cpu_ms_per_1000_requests": 37.199999999999996,
+        "minimum": 36.99999999999999,
+        "maximum": 37.6
+      }
+    ],
+    "read-upload-pairs.json": [
+      {
+        "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-before",
+        "route": "/",
+        "median_cpu_ms_per_1000_requests": 54.499999999999986,
+        "minimum": 53.999999999999986,
+        "maximum": 54.999999999999986
+      },
+      {
+        "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-before",
+        "route": "/json",
+        "median_cpu_ms_per_1000_requests": 59.0,
+        "minimum": 58.5,
+        "maximum": 59.5
+      },
+      {
+        "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-after",
+        "route": "/",
+        "median_cpu_ms_per_1000_requests": 52.0,
+        "minimum": 51.5,
+        "maximum": 53.0
+      },
+      {
+        "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-after",
+        "route": "/json",
+        "median_cpu_ms_per_1000_requests": 57.0,
+        "minimum": 57.0,
+        "maximum": 57.5
+      }
+    ],
+    "utf8-pairs.json": [
+      {
+        "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-after",
+        "route": "/json",
+        "median_cpu_ms_per_1000_requests": 38.0,
+        "minimum": 37.6,
+        "maximum": 38.2
+      },
+      {
+        "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-bytes-valid",
+        "route": "/json",
+        "median_cpu_ms_per_1000_requests": 36.0,
+        "minimum": 36.0,
+        "maximum": 36.2
+      }
+    ]
+  },
+  "sample": "target/http-json-evidence/read/before.sample.txt.gz; most samples inside Socket_Read were at read syscall",
+  "retained_binaries": {
+    "server-before": "a412feda1ba1fd303d5d0112cac4841df61898333e1938ad7653c389949b3e3c",
+    "server-after": "585542d34c8dd2d07718840ef5c6aa9388fdbdec2c2178b17a6d55e585c933c1",
+    "server-bytes-valid": "be7a5c06a4175c346aa1566ae753130549e9d11f2a4f14979ff2a688322150ec",
+    "server-bytes-dart": "fb352ad15c0da3f9882f6cb5a4c306a52ff049a4a02f5f64151812a399797be5"
+  },
+  "source_hashes": {
+    "crates/runtime/src/io_sockets.rs": "262b774fe2dbf16cb9db556cc6736a0a0d739db2b7295bc7f1d08845cfffdd70",
+    "bench/comparison/server.dart": "0a06602ecd672e8dbe896488ac3524a88a0050e5c1c9ec134818ba7bb3bcdf7c",
+    "bench/comparison/server_utf8.dart": "ef6c3c5aab0b66dad432d027077ffe6ea3159c1c426100aeb68e32e97ef27896",
+    "scripts/measure-http-pairs.py": "596adbe93ab93baa2da08ba2823de6b3fbb1f8b44e59aa6a7904f796f6bbb503"
+  },
+  "discarded_runs": {
+    "pairs-upload.json": "request body variable was overwritten with response bytes",
+    "utf8.json": "body overwrite and invalid const encoder source",
+    "utf8-separate.json": "body overwrite and invalid const encoder source",
+    "utf8-corrected.json": "invalid const encoder source"
+  },
+  "harness_body_control": "Three consecutive calls preserved None for GET and the exact 65536-byte payload for POST.",
+  "compiler_follow_up": "compile-native accepted const JsonUtf8Encoder() although Dart 3.6.2 rejects the non-const constructor. Final example and measurements use a valid reused encoder.",
+  "limits": [
+    "Single local Python client and one keep-alive connection",
+    "CPU counter resolution 0.01 seconds",
+    "Wall throughput is client-limited, not maximum server capacity",
+    "Uploads drain arbitrary bytes and do not JSON-decode the input",
+    "macOS only; no SQLite workload or Windows/Linux execution"
+  ],
+  "temporary_storage": "SSD; task directory removed after saving retained evidence"
+}

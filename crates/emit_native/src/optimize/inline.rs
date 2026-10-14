@@ -32,8 +32,19 @@ fn size(f: &Function) -> usize {
 }
 
 /// Can the function be copied in place of the call?
+#[cfg(test)]
 pub fn copyable(f: &Function) -> bool {
-    size(f) <= BODY_LIMIT
+    copyable_with_policy(f, None)
+}
+
+/// Applies declaration requests without bypassing recursion or structural checks.
+pub fn copyable_with_policy(f: &Function, policy: Option<InlinePolicy>) -> bool {
+    let limit = match policy {
+        Some(InlinePolicy::Never) => return false,
+        Some(InlinePolicy::Prefer) => BODY_LIMIT * 4,
+        None => BODY_LIMIT,
+    };
+    size(f) <= limit
         && f.blocks.first().is_some_and(|b| b.id.0 == 0)
         && f.blocks.iter().all(|b| {
             !matches!(b.terminator, Terminator::Throw(_))
@@ -269,4 +280,39 @@ fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Fun
     func.blocks.insert(pos + n, cont);
     let r = result.unwrap_or_else(|| default_constant(ty));
     replace(func, &|v| (v == call).then(|| r.clone()));
+}
+
+#[cfg(test)]
+mod policy_tests {
+    use super::*;
+
+    fn candidate(size: usize) -> Function {
+        Function {
+            symbol: "candidate".into(), name: "candidate".into(), debug_info: None,
+            params: vec![], return_ty: Type::I64,
+            blocks: vec![BasicBlock { id: BlockId(0),
+                instructions: (0..size).map(|i| (ValueId(i as u32),
+                    Instruction::Const(Constant::Int(i as i64)), Type::I64)).collect(),
+                terminator: Terminator::Return(Some(Operand::Constant(Constant::Int(7)))) }],
+        }
+    }
+
+    #[test]
+    fn inline_policy_keeps_safety_and_bounded_preferences() {
+        let small = candidate(1);
+        assert!(copyable(&small));
+        assert!(!copyable_with_policy(&small, Some(InlinePolicy::Never)));
+        let larger = candidate(BODY_LIMIT + 1);
+        assert!(!copyable(&larger));
+        assert!(copyable_with_policy(&larger, Some(InlinePolicy::Prefer)));
+        assert!(!copyable_with_policy(&candidate(BODY_LIMIT * 4), Some(InlinePolicy::Prefer)));
+        let mut recursive = small;
+        recursive.blocks[0].instructions.push((ValueId(2), Instruction::CallStatic {
+            symbol: recursive.symbol.clone(), args: vec![], ret_ty: Type::I64,
+        }, Type::I64));
+        assert!(!copyable_with_policy(&recursive, Some(InlinePolicy::Prefer)));
+        recursive.blocks[0].instructions.pop();
+        recursive.blocks[0].instructions.push((ValueId(2), Instruction::Alloca(Type::I64), Type::Ptr));
+        assert!(!copyable_with_policy(&recursive, Some(InlinePolicy::Prefer)));
+    }
 }

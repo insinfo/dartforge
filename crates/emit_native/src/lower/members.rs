@@ -1513,38 +1513,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(cid) = f.class else {
             return self.unsupported("constructor without a class", span);
         };
-        // The environment `const` factories are resolved by the CFE at
-        // compile time. The native CLI does not accept `-D` yet, so no
-        // key was defined and the `defaultValue` specified by the SDK holds.
-        // We never call the VM's native for these factories.
-        if f.const_ && f.external {
-            let name_str = self.ctx.symbol_name(f.name);
-            let class_ref = if Some(cid) == self.ctx.core.bool_class {
-                Some("bool")
-            } else if Some(cid) == self.ctx.core.int_class {
-                Some("int")
-            } else if Some(cid) == self.ctx.core.string_class {
-                Some("String")
-            } else {
-                None
+        // Environment factories are evaluated by the native compiler, while
+        // their argument expressions retain normal evaluation order outside const.
+        if let Some((kind, has)) = self.environment_factory(ctor_fid) {
+            if self.in_const_context && args.iter().find(|a| a.name.is_none())
+                .is_some_and(|a| self.environment_key(self.unit_id, a.value, 0).is_none()) {
+                return self.unsupported("constant compilation environment name", span);
+            }
+            let value = args.iter().find(|a| a.name.is_none())
+                .and_then(|a| self.environment_value(self.unit_id, a.value, kind, has));
+            let evaluated = self.evaluate_args(ast, args);
+            if let Some(value) = value {
+                let ty = match value { Constant::Bool(_) => Type::I1, _ => Type::Ref };
+                return self.emit(Instruction::Const(value), ty);
+            }
+            if has { return self.emit(Instruction::Const(Constant::Bool(false)), Type::I1); }
+            if let Some(default) = evaluated.iter().find(|(name, _)| name.is_some_and(|name| self.ctx.symbol_name(name) == "defaultValue")) {
+                return default.1.clone();
+            }
+            return match kind {
+                "bool" => self.emit(Instruction::Const(Constant::Bool(false)), Type::I1),
+                "int" => self.emit(Instruction::Const(Constant::Int(0)), Type::I64),
+                _ => self.emit(Instruction::Const(Constant::String(String::new())), Type::Ref),
             };
-            if class_ref == Some("bool") && name_str == "hasEnvironment" {
-                return self.emit(Instruction::Const(Constant::Bool(false)), Type::I1);
-            }
-            if name_str == "fromEnvironment" {
-                if let Some(class_ref) = class_ref {
-                    if let Some(val_ref) = args.iter().find(|a| {
-                        a.name.as_ref().is_some_and(|n| self.ctx.symbol_name(n.sym) == "defaultValue")
-                    }) {
-                        return self.lower_in_const_context(ast, val_ref.value);
-                    }
-                    return match class_ref {
-                        "bool" => self.emit(Instruction::Const(Constant::Bool(false)), Type::I1),
-                        "int" => self.emit(Instruction::Const(Constant::Int(0)), Type::I64),
-                        _ => self.emit(Instruction::Const(Constant::String(String::new())), Type::Ref),
-                    };
-                }
-            }
         }
         // RTI: the static type of the creation (`C<T…>`), stored by the caller.
         let ty = self.creation_type.take();

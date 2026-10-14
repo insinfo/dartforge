@@ -1,0 +1,3432 @@
+{
+  "node": "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+  "node_version": "v24.21.0",
+  "sdk": "3.6.2",
+  "warmup": "Discard first Dart kernel round (four or six per source); median remaining rounds, then median three fresh processes; alternate compiler-profile order",
+  "labels": {
+    "forge_checked": "production defaults, checks retained",
+    "dart2js_O2": "official -O2, minify+lax type strings+omit late names",
+    "forge_omit_checks": "production --omit-checks",
+    "dart2js_O4": "official -O4, additionally trust primitives; policies differ"
+  },
+  "artifact_sha256": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/json.forge_checked.js": "e155db678411fa8608f5179bdc8bd88816048282eae46e199cee9c72a553d00f",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/json.dart2js_O2.js": "60e22bbc0f77afd95798aef86edc037d0c7476c8176dec63e4e70635de75c26c",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/json.forge_omit_checks.js": "72786385d312cb18ad84b2647b63679d3112c30f9265817d3b62348f2a54678a",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/json.dart2js_O4.js": "5090a9b635f58fca1c3a4d1c032fd0f23737201a361200010707d622c8f5b58f",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/calls.forge_checked.js": "d4e11ee1729a5264d87eacbf627604d072eb8c6db73cc05fe518a4643799dcd4",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/calls.dart2js_O2.js": "595cd87f7f32f71cce1c6dc70b7de8dc2ab7163c5551704b9fe1ebaf22876970",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/calls.forge_omit_checks.js": "66c24fe1efba976bc583cd0612fd2ce73a93b87da93a97cdde4a19e6cb9a4482",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/calls.dart2js_O4.js": "f50d00e2db4d6c3a2d575d4f08e737eabca60c22331c0bc81b1b640249b053d3",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/typed_data.forge_checked.js": "193cc03c7c59811e8c899b0aa864c839a6b9224682974dc30dc167cfc2a9c6a4",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/typed_data.dart2js_O2.js": "efb071d85287bc1debfbb3fdcd04c7f19cfe637f89a4ca9911a4e284cffcfc89",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/typed_data.forge_omit_checks.js": "c288dcf5be842f403a1d6de64beda028899e287b5db0edf2151696f410b88d8f",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/typed_data.dart2js_O4.js": "d1bcee88ff57818d97ff067a8aaf68bdc3479e08805c78abb316d39e7a048add",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/objects_in_collections.forge_checked.js": "b029b98ea98e30a3443e31d496745ffa49f6ddaeaf6caca1ffc50088e4830d59",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/objects_in_collections.dart2js_O2.js": "5e0c8749243814bb44575f03aca2541fef94b5196e343fae124673bc25f07e9f",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/objects_in_collections.forge_omit_checks.js": "9dd817d06fe909dede0e654d6327663e4b4691f8bf9e60a973f6ba02a8c85f2d",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/objects_in_collections.dart2js_O4.js": "6b2e3313c6e9581c2298dcfb5b62fd5d4beecaf2566ed5a1d5070d68b4e7c4c6"
+  },
+  "runs": [
+    {
+      "case": "json",
+      "profile": "forge_checked",
+      "repetition": 0,
+      "exit_code": 0,
+      "wall_seconds": 2.557505,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 16000 14000 14000 14000 14000 14000 us | 1024686864\nencode_small: 29000 29000 28000 28000 28000 29000 us | 552014064\ndecode_medium: 18000 19000 18000 19000 19000 18000 us | 649351068\nencode_medium: 41000 43000 42000 41000 41000 41000 us | 195067402\ndecode_large: 39000 38000 39000 39000 us | 298278621\nencode_large: 125000 126000 112000 106000 us | 689020713\nindented: 43000 40000 40000 60000 39000 39000 us | 188745904\nutf8_bytes: 96000 89000 88000 87000 89000 91000 us | 434926252\nreviver: 17000 14000 15000 14000 15000 14000 us | 373962124\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "decode_small",
+          "rounds_us": [
+            16000,
+            14000,
+            14000,
+            14000,
+            14000,
+            14000
+          ],
+          "warmed_median_us": 14000,
+          "result": "1024686864"
+        },
+        {
+          "name": "encode_small",
+          "rounds_us": [
+            29000,
+            29000,
+            28000,
+            28000,
+            28000,
+            29000
+          ],
+          "warmed_median_us": 28000,
+          "result": "552014064"
+        },
+        {
+          "name": "decode_medium",
+          "rounds_us": [
+            18000,
+            19000,
+            18000,
+            19000,
+            19000,
+            18000
+          ],
+          "warmed_median_us": 19000,
+          "result": "649351068"
+        },
+        {
+          "name": "encode_medium",
+          "rounds_us": [
+            41000,
+            43000,
+            42000,
+            41000,
+            41000,
+            41000
+          ],
+          "warmed_median_us": 41000,
+          "result": "195067402"
+        },
+        {
+          "name": "decode_large",
+          "rounds_us": [
+            39000,
+            38000,
+            39000,
+            39000
+          ],
+          "warmed_median_us": 39000,
+          "result": "298278621"
+        },
+        {
+          "name": "encode_large",
+          "rounds_us": [
+            125000,
+            126000,
+            112000,
+            106000
+          ],
+          "warmed_median_us": 112000,
+          "result": "689020713"
+        },
+        {
+          "name": "indented",
+          "rounds_us": [
+            43000,
+            40000,
+            40000,
+            60000,
+            39000,
+            39000
+          ],
+          "warmed_median_us": 40000,
+          "result": "188745904"
+        },
+        {
+          "name": "utf8_bytes",
+          "rounds_us": [
+            96000,
+            89000,
+            88000,
+            87000,
+            89000,
+            91000
+          ],
+          "warmed_median_us": 89000,
+          "result": "434926252"
+        },
+        {
+          "name": "reviver",
+          "rounds_us": [
+            17000,
+            14000,
+            15000,
+            14000,
+            15000,
+            14000
+          ],
+          "warmed_median_us": 14000,
+          "result": "373962124"
+        }
+      ]
+    },
+    {
+      "case": "json",
+      "profile": "dart2js_O2",
+      "repetition": 0,
+      "exit_code": 0,
+      "wall_seconds": 1.6210394579999998,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 11000 11000 9000 12000 10000 10000 us | 1024686864\nencode_small: 16000 16000 15000 17000 15000 16000 us | 552014064\ndecode_medium: 13000 14000 14000 13000 13000 14000 us | 649351068\nencode_medium: 26000 26000 25000 26000 25000 26000 us | 195067402\ndecode_large: 34000 31000 31000 34000 us | 298278621\nencode_large: 91000 86000 84000 81000 us | 689020713\nindented: 29000 28000 28000 28000 28000 28000 us | 188745904\nutf8_bytes: 28000 25000 25000 25000 25000 24000 us | 434926252\nreviver: 12000 10000 10000 10000 10000 10000 us | 373962124\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "decode_small",
+          "rounds_us": [
+            11000,
+            11000,
+            9000,
+            12000,
+            10000,
+            10000
+          ],
+          "warmed_median_us": 10000,
+          "result": "1024686864"
+        },
+        {
+          "name": "encode_small",
+          "rounds_us": [
+            16000,
+            16000,
+            15000,
+            17000,
+            15000,
+            16000
+          ],
+          "warmed_median_us": 16000,
+          "result": "552014064"
+        },
+        {
+          "name": "decode_medium",
+          "rounds_us": [
+            13000,
+            14000,
+            14000,
+            13000,
+            13000,
+            14000
+          ],
+          "warmed_median_us": 14000,
+          "result": "649351068"
+        },
+        {
+          "name": "encode_medium",
+          "rounds_us": [
+            26000,
+            26000,
+            25000,
+            26000,
+            25000,
+            26000
+          ],
+          "warmed_median_us": 26000,
+          "result": "195067402"
+        },
+        {
+          "name": "decode_large",
+          "rounds_us": [
+            34000,
+            31000,
+            31000,
+            34000
+          ],
+          "warmed_median_us": 31000,
+          "result": "298278621"
+        },
+        {
+          "name": "encode_large",
+          "rounds_us": [
+            91000,
+            86000,
+            84000,
+            81000
+          ],
+          "warmed_median_us": 84000,
+          "result": "689020713"
+        },
+        {
+          "name": "indented",
+          "rounds_us": [
+            29000,
+            28000,
+            28000,
+            28000,
+            28000,
+            28000
+          ],
+          "warmed_median_us": 28000,
+          "result": "188745904"
+        },
+        {
+          "name": "utf8_bytes",
+          "rounds_us": [
+            28000,
+            25000,
+            25000,
+            25000,
+            25000,
+            24000
+          ],
+          "warmed_median_us": 25000,
+          "result": "434926252"
+        },
+        {
+          "name": "reviver",
+          "rounds_us": [
+            12000,
+            10000,
+            10000,
+            10000,
+            10000,
+            10000
+          ],
+          "warmed_median_us": 10000,
+          "result": "373962124"
+        }
+      ]
+    },
+    {
+      "case": "json",
+      "profile": "forge_omit_checks",
+      "repetition": 0,
+      "exit_code": 0,
+      "wall_seconds": 2.301068375,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 15000 14000 13000 14000 13000 14000 us | 1024686864\nencode_small: 25000 24000 23000 24000 24000 23000 us | 552014064\ndecode_medium: 18000 18000 17000 18000 17000 18000 us | 649351068\nencode_medium: 35000 36000 36000 36000 36000 34000 us | 195067402\ndecode_large: 36000 38000 37000 37000 us | 298278621\nencode_large: 105000 128000 101000 95000 us | 689020713\nindented: 37000 34000 35000 34000 34000 35000 us | 188745904\nutf8_bytes: 91000 82000 80000 82000 83000 84000 us | 434926252\nreviver: 16000 13000 14000 14000 14000 13000 us | 373962124\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "decode_small",
+          "rounds_us": [
+            15000,
+            14000,
+            13000,
+            14000,
+            13000,
+            14000
+          ],
+          "warmed_median_us": 14000,
+          "result": "1024686864"
+        },
+        {
+          "name": "encode_small",
+          "rounds_us": [
+            25000,
+            24000,
+            23000,
+            24000,
+            24000,
+            23000
+          ],
+          "warmed_median_us": 24000,
+          "result": "552014064"
+        },
+        {
+          "name": "decode_medium",
+          "rounds_us": [
+            18000,
+            18000,
+            17000,
+            18000,
+            17000,
+            18000
+          ],
+          "warmed_median_us": 18000,
+          "result": "649351068"
+        },
+        {
+          "name": "encode_medium",
+          "rounds_us": [
+            35000,
+            36000,
+            36000,
+            36000,
+            36000,
+            34000
+          ],
+          "warmed_median_us": 36000,
+          "result": "195067402"
+        },
+        {
+          "name": "decode_large",
+          "rounds_us": [
+            36000,
+            38000,
+            37000,
+            37000
+          ],
+          "warmed_median_us": 37000,
+          "result": "298278621"
+        },
+        {
+          "name": "encode_large",
+          "rounds_us": [
+            105000,
+            128000,
+            101000,
+            95000
+          ],
+          "warmed_median_us": 101000,
+          "result": "689020713"
+        },
+        {
+          "name": "indented",
+          "rounds_us": [
+            37000,
+            34000,
+            35000,
+            34000,
+            34000,
+            35000
+          ],
+          "warmed_median_us": 34000,
+          "result": "188745904"
+        },
+        {
+          "name": "utf8_bytes",
+          "rounds_us": [
+            91000,
+            82000,
+            80000,
+            82000,
+            83000,
+            84000
+          ],
+          "warmed_median_us": 82000,
+          "result": "434926252"
+        },
+        {
+          "name": "reviver",
+          "rounds_us": [
+            16000,
+            13000,
+            14000,
+            14000,
+            14000,
+            13000
+          ],
+          "warmed_median_us": 14000,
+          "result": "373962124"
+        }
+      ]
+    },
+    {
+      "case": "json",
+      "profile": "dart2js_O4",
+      "repetition": 0,
+      "exit_code": 0,
+      "wall_seconds": 1.474718708000001,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 32000 10000 9000 10000 9000 10000 us | 1024686864\nencode_small: 15000 14000 15000 14000 14000 14000 us | 552014064\ndecode_medium: 13000 12000 13000 13000 13000 13000 us | 649351068\nencode_medium: 23000 24000 23000 23000 24000 23000 us | 195067402\ndecode_large: 34000 34000 29000 30000 us | 298278621\nencode_large: 78000 76000 74000 74000 us | 689020713\nindented: 28000 27000 26000 26000 28000 27000 us | 188745904\nutf8_bytes: 24000 22000 20000 22000 20000 22000 us | 434926252\nreviver: 10000 9000 10000 9000 9000 9000 us | 373962124\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "decode_small",
+          "rounds_us": [
+            32000,
+            10000,
+            9000,
+            10000,
+            9000,
+            10000
+          ],
+          "warmed_median_us": 10000,
+          "result": "1024686864"
+        },
+        {
+          "name": "encode_small",
+          "rounds_us": [
+            15000,
+            14000,
+            15000,
+            14000,
+            14000,
+            14000
+          ],
+          "warmed_median_us": 14000,
+          "result": "552014064"
+        },
+        {
+          "name": "decode_medium",
+          "rounds_us": [
+            13000,
+            12000,
+            13000,
+            13000,
+            13000,
+            13000
+          ],
+          "warmed_median_us": 13000,
+          "result": "649351068"
+        },
+        {
+          "name": "encode_medium",
+          "rounds_us": [
+            23000,
+            24000,
+            23000,
+            23000,
+            24000,
+            23000
+          ],
+          "warmed_median_us": 23000,
+          "result": "195067402"
+        },
+        {
+          "name": "decode_large",
+          "rounds_us": [
+            34000,
+            34000,
+            29000,
+            30000
+          ],
+          "warmed_median_us": 30000,
+          "result": "298278621"
+        },
+        {
+          "name": "encode_large",
+          "rounds_us": [
+            78000,
+            76000,
+            74000,
+            74000
+          ],
+          "warmed_median_us": 74000,
+          "result": "689020713"
+        },
+        {
+          "name": "indented",
+          "rounds_us": [
+            28000,
+            27000,
+            26000,
+            26000,
+            28000,
+            27000
+          ],
+          "warmed_median_us": 27000,
+          "result": "188745904"
+        },
+        {
+          "name": "utf8_bytes",
+          "rounds_us": [
+            24000,
+            22000,
+            20000,
+            22000,
+            20000,
+            22000
+          ],
+          "warmed_median_us": 22000,
+          "result": "434926252"
+        },
+        {
+          "name": "reviver",
+          "rounds_us": [
+            10000,
+            9000,
+            10000,
+            9000,
+            9000,
+            9000
+          ],
+          "warmed_median_us": 9000,
+          "result": "373962124"
+        }
+      ]
+    },
+    {
+      "case": "calls",
+      "profile": "forge_checked",
+      "repetition": 0,
+      "exit_code": 0,
+      "wall_seconds": 0.13774058299999936,
+      "stdout": "shapes: 5000 2000 3000 2000 2000 2000 us | 9242078840.029448\nclosures: 11000 10000 11000 11000 10000 11000 us | 722784\nfib: 5000 6000 5000 5000 5000 6000 us | 832040\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "shapes",
+          "rounds_us": [
+            5000,
+            2000,
+            3000,
+            2000,
+            2000,
+            2000
+          ],
+          "warmed_median_us": 2000,
+          "result": "9242078840.029448"
+        },
+        {
+          "name": "closures",
+          "rounds_us": [
+            11000,
+            10000,
+            11000,
+            11000,
+            10000,
+            11000
+          ],
+          "warmed_median_us": 11000,
+          "result": "722784"
+        },
+        {
+          "name": "fib",
+          "rounds_us": [
+            5000,
+            6000,
+            5000,
+            5000,
+            5000,
+            6000
+          ],
+          "warmed_median_us": 5000,
+          "result": "832040"
+        }
+      ]
+    },
+    {
+      "case": "calls",
+      "profile": "dart2js_O2",
+      "repetition": 0,
+      "exit_code": 0,
+      "wall_seconds": 0.15707345799999928,
+      "stdout": "shapes: 6000 5000 4000 11000 10000 2000 us | 9242078840.029448\nclosures: 10000 10000 11000 10000 10000 10000 us | 722784\nfib: 6000 5000 6000 5000 5000 5000 us | 832040\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "shapes",
+          "rounds_us": [
+            6000,
+            5000,
+            4000,
+            11000,
+            10000,
+            2000
+          ],
+          "warmed_median_us": 5000,
+          "result": "9242078840.029448"
+        },
+        {
+          "name": "closures",
+          "rounds_us": [
+            10000,
+            10000,
+            11000,
+            10000,
+            10000,
+            10000
+          ],
+          "warmed_median_us": 10000,
+          "result": "722784"
+        },
+        {
+          "name": "fib",
+          "rounds_us": [
+            6000,
+            5000,
+            6000,
+            5000,
+            5000,
+            5000
+          ],
+          "warmed_median_us": 5000,
+          "result": "832040"
+        }
+      ]
+    },
+    {
+      "case": "calls",
+      "profile": "forge_omit_checks",
+      "repetition": 0,
+      "exit_code": 0,
+      "wall_seconds": 0.14001912500000024,
+      "stdout": "shapes: 6000 2000 3000 2000 3000 2000 us | 9242078840.029448\nclosures: 11000 11000 10000 11000 10000 11000 us | 722784\nfib: 5000 6000 5000 5000 5000 5000 us | 832040\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "shapes",
+          "rounds_us": [
+            6000,
+            2000,
+            3000,
+            2000,
+            3000,
+            2000
+          ],
+          "warmed_median_us": 2000,
+          "result": "9242078840.029448"
+        },
+        {
+          "name": "closures",
+          "rounds_us": [
+            11000,
+            11000,
+            10000,
+            11000,
+            10000,
+            11000
+          ],
+          "warmed_median_us": 11000,
+          "result": "722784"
+        },
+        {
+          "name": "fib",
+          "rounds_us": [
+            5000,
+            6000,
+            5000,
+            5000,
+            5000,
+            5000
+          ],
+          "warmed_median_us": 5000,
+          "result": "832040"
+        }
+      ]
+    },
+    {
+      "case": "calls",
+      "profile": "dart2js_O4",
+      "repetition": 0,
+      "exit_code": 0,
+      "wall_seconds": 0.1155244169999996,
+      "stdout": "shapes: 5000 4000 4000 10000 11000 1000 us | 9242078840.029448\nclosures: 5000 5000 4000 5000 5000 4000 us | 722784\nfib: 5000 5000 4000 5000 5000 4000 us | 832040\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "shapes",
+          "rounds_us": [
+            5000,
+            4000,
+            4000,
+            10000,
+            11000,
+            1000
+          ],
+          "warmed_median_us": 4000,
+          "result": "9242078840.029448"
+        },
+        {
+          "name": "closures",
+          "rounds_us": [
+            5000,
+            5000,
+            4000,
+            5000,
+            5000,
+            4000
+          ],
+          "warmed_median_us": 5000,
+          "result": "722784"
+        },
+        {
+          "name": "fib",
+          "rounds_us": [
+            5000,
+            5000,
+            4000,
+            5000,
+            5000,
+            4000
+          ],
+          "warmed_median_us": 5000,
+          "result": "832040"
+        }
+      ]
+    },
+    {
+      "case": "typed_data",
+      "profile": "forge_checked",
+      "repetition": 0,
+      "exit_code": 0,
+      "wall_seconds": 0.700686417,
+      "stdout": "product_f64: 15000 13000 12000 13000 13000 13000 us | 749982499.8499922\nfnv_bytes: 99000 98000 100000 95000 98000 98000 us | 1540479600\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "product_f64",
+          "rounds_us": [
+            15000,
+            13000,
+            12000,
+            13000,
+            13000,
+            13000
+          ],
+          "warmed_median_us": 13000,
+          "result": "749982499.8499922"
+        },
+        {
+          "name": "fnv_bytes",
+          "rounds_us": [
+            99000,
+            98000,
+            100000,
+            95000,
+            98000,
+            98000
+          ],
+          "warmed_median_us": 98000,
+          "result": "1540479600"
+        }
+      ]
+    },
+    {
+      "case": "typed_data",
+      "profile": "dart2js_O2",
+      "repetition": 0,
+      "exit_code": 0,
+      "wall_seconds": 0.3469564579999993,
+      "stdout": "product_f64: 5000 3000 3000 3000 3000 3000 us | 749982499.8499922\nfnv_bytes: 50000 49000 50000 49000 49000 49000 us | 1540479600\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "product_f64",
+          "rounds_us": [
+            5000,
+            3000,
+            3000,
+            3000,
+            3000,
+            3000
+          ],
+          "warmed_median_us": 3000,
+          "result": "749982499.8499922"
+        },
+        {
+          "name": "fnv_bytes",
+          "rounds_us": [
+            50000,
+            49000,
+            50000,
+            49000,
+            49000,
+            49000
+          ],
+          "warmed_median_us": 49000,
+          "result": "1540479600"
+        }
+      ]
+    },
+    {
+      "case": "typed_data",
+      "profile": "forge_omit_checks",
+      "repetition": 0,
+      "exit_code": 0,
+      "wall_seconds": 0.7346295000000005,
+      "stdout": "product_f64: 15000 13000 12000 13000 13000 42000 us | 749982499.8499922\nfnv_bytes: 96000 100000 103000 99000 101000 94000 us | 1540479600\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "product_f64",
+          "rounds_us": [
+            15000,
+            13000,
+            12000,
+            13000,
+            13000,
+            42000
+          ],
+          "warmed_median_us": 13000,
+          "result": "749982499.8499922"
+        },
+        {
+          "name": "fnv_bytes",
+          "rounds_us": [
+            96000,
+            100000,
+            103000,
+            99000,
+            101000,
+            94000
+          ],
+          "warmed_median_us": 100000,
+          "result": "1540479600"
+        }
+      ]
+    },
+    {
+      "case": "typed_data",
+      "profile": "dart2js_O4",
+      "repetition": 0,
+      "exit_code": 0,
+      "wall_seconds": 0.3448493750000008,
+      "stdout": "product_f64: 5000 3000 3000 3000 3000 4000 us | 749982499.8499922\nfnv_bytes: 50000 49000 50000 49000 49000 49000 us | 1540479600\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "product_f64",
+          "rounds_us": [
+            5000,
+            3000,
+            3000,
+            3000,
+            3000,
+            4000
+          ],
+          "warmed_median_us": 3000,
+          "result": "749982499.8499922"
+        },
+        {
+          "name": "fnv_bytes",
+          "rounds_us": [
+            50000,
+            49000,
+            50000,
+            49000,
+            49000,
+            49000
+          ],
+          "warmed_median_us": 49000,
+          "result": "1540479600"
+        }
+      ]
+    },
+    {
+      "case": "objects_in_collections",
+      "profile": "forge_checked",
+      "repetition": 0,
+      "exit_code": 0,
+      "wall_seconds": 0.9576412919999999,
+      "stdout": "object_list: 31000 29000 20000 24000 26000 22000 us | 129592732.5\nobject_sort: 97000 93000 91000 85000 86000 90000 us | 100028\nmap_int_object: 20000 19000 19000 20000 19000 19000 us | 19999900000\nmap_str_object: 19000 22000 17000 20000 18000 20000 us | 1199980\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "object_list",
+          "rounds_us": [
+            31000,
+            29000,
+            20000,
+            24000,
+            26000,
+            22000
+          ],
+          "warmed_median_us": 24000,
+          "result": "129592732.5"
+        },
+        {
+          "name": "object_sort",
+          "rounds_us": [
+            97000,
+            93000,
+            91000,
+            85000,
+            86000,
+            90000
+          ],
+          "warmed_median_us": 90000,
+          "result": "100028"
+        },
+        {
+          "name": "map_int_object",
+          "rounds_us": [
+            20000,
+            19000,
+            19000,
+            20000,
+            19000,
+            19000
+          ],
+          "warmed_median_us": 19000,
+          "result": "19999900000"
+        },
+        {
+          "name": "map_str_object",
+          "rounds_us": [
+            19000,
+            22000,
+            17000,
+            20000,
+            18000,
+            20000
+          ],
+          "warmed_median_us": 20000,
+          "result": "1199980"
+        }
+      ]
+    },
+    {
+      "case": "objects_in_collections",
+      "profile": "dart2js_O2",
+      "repetition": 0,
+      "exit_code": 0,
+      "wall_seconds": 0.3723882080000003,
+      "stdout": "object_list: 14000 9000 4000 4000 9000 3000 us | 129592732.5\nobject_sort: 34000 33000 31000 30000 31000 37000 us | 100028\nmap_int_object: 10000 9000 13000 9000 14000 9000 us | 19999900000\nmap_str_object: 11000 6000 5000 8000 5000 6000 us | 1199980\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "object_list",
+          "rounds_us": [
+            14000,
+            9000,
+            4000,
+            4000,
+            9000,
+            3000
+          ],
+          "warmed_median_us": 4000,
+          "result": "129592732.5"
+        },
+        {
+          "name": "object_sort",
+          "rounds_us": [
+            34000,
+            33000,
+            31000,
+            30000,
+            31000,
+            37000
+          ],
+          "warmed_median_us": 31000,
+          "result": "100028"
+        },
+        {
+          "name": "map_int_object",
+          "rounds_us": [
+            10000,
+            9000,
+            13000,
+            9000,
+            14000,
+            9000
+          ],
+          "warmed_median_us": 9000,
+          "result": "19999900000"
+        },
+        {
+          "name": "map_str_object",
+          "rounds_us": [
+            11000,
+            6000,
+            5000,
+            8000,
+            5000,
+            6000
+          ],
+          "warmed_median_us": 6000,
+          "result": "1199980"
+        }
+      ]
+    },
+    {
+      "case": "objects_in_collections",
+      "profile": "forge_omit_checks",
+      "repetition": 0,
+      "exit_code": 0,
+      "wall_seconds": 0.5610332500000013,
+      "stdout": "object_list: 26000 24000 17000 21000 21000 17000 us | 129592732.5\nobject_sort: 43000 41000 36000 33000 32000 36000 us | 100028\nmap_int_object: 16000 15000 14000 16000 14000 14000 us | 19999900000\nmap_str_object: 19000 12000 16000 13000 14000 20000 us | 1199980\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "object_list",
+          "rounds_us": [
+            26000,
+            24000,
+            17000,
+            21000,
+            21000,
+            17000
+          ],
+          "warmed_median_us": 21000,
+          "result": "129592732.5"
+        },
+        {
+          "name": "object_sort",
+          "rounds_us": [
+            43000,
+            41000,
+            36000,
+            33000,
+            32000,
+            36000
+          ],
+          "warmed_median_us": 36000,
+          "result": "100028"
+        },
+        {
+          "name": "map_int_object",
+          "rounds_us": [
+            16000,
+            15000,
+            14000,
+            16000,
+            14000,
+            14000
+          ],
+          "warmed_median_us": 14000,
+          "result": "19999900000"
+        },
+        {
+          "name": "map_str_object",
+          "rounds_us": [
+            19000,
+            12000,
+            16000,
+            13000,
+            14000,
+            20000
+          ],
+          "warmed_median_us": 14000,
+          "result": "1199980"
+        }
+      ]
+    },
+    {
+      "case": "objects_in_collections",
+      "profile": "dart2js_O4",
+      "repetition": 0,
+      "exit_code": 0,
+      "wall_seconds": 0.2430325419999999,
+      "stdout": "object_list: 12000 4000 5000 5000 8000 3000 us | 129592732.5\nobject_sort: 17000 26000 16000 15000 14000 15000 us | 100028\nmap_int_object: 7000 5000 9000 3000 7000 3000 us | 19999900000\nmap_str_object: 12000 3000 12000 3000 3000 3000 us | 1199980\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "object_list",
+          "rounds_us": [
+            12000,
+            4000,
+            5000,
+            5000,
+            8000,
+            3000
+          ],
+          "warmed_median_us": 5000,
+          "result": "129592732.5"
+        },
+        {
+          "name": "object_sort",
+          "rounds_us": [
+            17000,
+            26000,
+            16000,
+            15000,
+            14000,
+            15000
+          ],
+          "warmed_median_us": 15000,
+          "result": "100028"
+        },
+        {
+          "name": "map_int_object",
+          "rounds_us": [
+            7000,
+            5000,
+            9000,
+            3000,
+            7000,
+            3000
+          ],
+          "warmed_median_us": 5000,
+          "result": "19999900000"
+        },
+        {
+          "name": "map_str_object",
+          "rounds_us": [
+            12000,
+            3000,
+            12000,
+            3000,
+            3000,
+            3000
+          ],
+          "warmed_median_us": 3000,
+          "result": "1199980"
+        }
+      ]
+    },
+    {
+      "case": "json",
+      "profile": "dart2js_O4",
+      "repetition": 1,
+      "exit_code": 0,
+      "wall_seconds": 1.4648847090000015,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 33000 9000 9000 10000 9000 9000 us | 1024686864\nencode_small: 14000 14000 15000 14000 14000 14000 us | 552014064\ndecode_medium: 13000 13000 13000 13000 12000 13000 us | 649351068\nencode_medium: 24000 23000 24000 26000 25000 25000 us | 195067402\ndecode_large: 29000 32000 29000 29000 us | 298278621\nencode_large: 74000 73000 72000 71000 us | 689020713\nindented: 28000 27000 26000 26000 27000 28000 us | 188745904\nutf8_bytes: 24000 24000 21000 21000 21000 22000 us | 434926252\nreviver: 10000 10000 9000 9000 9000 9000 us | 373962124\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "decode_small",
+          "rounds_us": [
+            33000,
+            9000,
+            9000,
+            10000,
+            9000,
+            9000
+          ],
+          "warmed_median_us": 9000,
+          "result": "1024686864"
+        },
+        {
+          "name": "encode_small",
+          "rounds_us": [
+            14000,
+            14000,
+            15000,
+            14000,
+            14000,
+            14000
+          ],
+          "warmed_median_us": 14000,
+          "result": "552014064"
+        },
+        {
+          "name": "decode_medium",
+          "rounds_us": [
+            13000,
+            13000,
+            13000,
+            13000,
+            12000,
+            13000
+          ],
+          "warmed_median_us": 13000,
+          "result": "649351068"
+        },
+        {
+          "name": "encode_medium",
+          "rounds_us": [
+            24000,
+            23000,
+            24000,
+            26000,
+            25000,
+            25000
+          ],
+          "warmed_median_us": 25000,
+          "result": "195067402"
+        },
+        {
+          "name": "decode_large",
+          "rounds_us": [
+            29000,
+            32000,
+            29000,
+            29000
+          ],
+          "warmed_median_us": 29000,
+          "result": "298278621"
+        },
+        {
+          "name": "encode_large",
+          "rounds_us": [
+            74000,
+            73000,
+            72000,
+            71000
+          ],
+          "warmed_median_us": 72000,
+          "result": "689020713"
+        },
+        {
+          "name": "indented",
+          "rounds_us": [
+            28000,
+            27000,
+            26000,
+            26000,
+            27000,
+            28000
+          ],
+          "warmed_median_us": 27000,
+          "result": "188745904"
+        },
+        {
+          "name": "utf8_bytes",
+          "rounds_us": [
+            24000,
+            24000,
+            21000,
+            21000,
+            21000,
+            22000
+          ],
+          "warmed_median_us": 21000,
+          "result": "434926252"
+        },
+        {
+          "name": "reviver",
+          "rounds_us": [
+            10000,
+            10000,
+            9000,
+            9000,
+            9000,
+            9000
+          ],
+          "warmed_median_us": 9000,
+          "result": "373962124"
+        }
+      ]
+    },
+    {
+      "case": "json",
+      "profile": "forge_omit_checks",
+      "repetition": 1,
+      "exit_code": 0,
+      "wall_seconds": 2.2847585840000004,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 15000 14000 13000 14000 14000 13000 us | 1024686864\nencode_small: 25000 24000 23000 24000 23000 24000 us | 552014064\ndecode_medium: 17000 18000 17000 18000 17000 18000 us | 649351068\nencode_medium: 35000 35000 35000 35000 35000 34000 us | 195067402\ndecode_large: 36000 36000 37000 37000 us | 298278621\nencode_large: 101000 98000 115000 101000 us | 689020713\nindented: 37000 35000 34000 34000 35000 34000 us | 188745904\nutf8_bytes: 90000 84000 84000 84000 84000 82000 us | 434926252\nreviver: 16000 13000 14000 13000 14000 13000 us | 373962124\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "decode_small",
+          "rounds_us": [
+            15000,
+            14000,
+            13000,
+            14000,
+            14000,
+            13000
+          ],
+          "warmed_median_us": 14000,
+          "result": "1024686864"
+        },
+        {
+          "name": "encode_small",
+          "rounds_us": [
+            25000,
+            24000,
+            23000,
+            24000,
+            23000,
+            24000
+          ],
+          "warmed_median_us": 24000,
+          "result": "552014064"
+        },
+        {
+          "name": "decode_medium",
+          "rounds_us": [
+            17000,
+            18000,
+            17000,
+            18000,
+            17000,
+            18000
+          ],
+          "warmed_median_us": 18000,
+          "result": "649351068"
+        },
+        {
+          "name": "encode_medium",
+          "rounds_us": [
+            35000,
+            35000,
+            35000,
+            35000,
+            35000,
+            34000
+          ],
+          "warmed_median_us": 35000,
+          "result": "195067402"
+        },
+        {
+          "name": "decode_large",
+          "rounds_us": [
+            36000,
+            36000,
+            37000,
+            37000
+          ],
+          "warmed_median_us": 37000,
+          "result": "298278621"
+        },
+        {
+          "name": "encode_large",
+          "rounds_us": [
+            101000,
+            98000,
+            115000,
+            101000
+          ],
+          "warmed_median_us": 101000,
+          "result": "689020713"
+        },
+        {
+          "name": "indented",
+          "rounds_us": [
+            37000,
+            35000,
+            34000,
+            34000,
+            35000,
+            34000
+          ],
+          "warmed_median_us": 34000,
+          "result": "188745904"
+        },
+        {
+          "name": "utf8_bytes",
+          "rounds_us": [
+            90000,
+            84000,
+            84000,
+            84000,
+            84000,
+            82000
+          ],
+          "warmed_median_us": 84000,
+          "result": "434926252"
+        },
+        {
+          "name": "reviver",
+          "rounds_us": [
+            16000,
+            13000,
+            14000,
+            13000,
+            14000,
+            13000
+          ],
+          "warmed_median_us": 13000,
+          "result": "373962124"
+        }
+      ]
+    },
+    {
+      "case": "json",
+      "profile": "dart2js_O2",
+      "repetition": 1,
+      "exit_code": 0,
+      "wall_seconds": 1.6282118330000017,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 10000 11000 10000 12000 10000 10000 us | 1024686864\nencode_small: 26000 16000 16000 16000 16000 16000 us | 552014064\ndecode_medium: 14000 13000 14000 14000 14000 13000 us | 649351068\nencode_medium: 25000 26000 26000 25000 26000 26000 us | 195067402\ndecode_large: 36000 31000 31000 34000 us | 298278621\nencode_large: 90000 86000 84000 82000 us | 689020713\nindented: 29000 29000 27000 29000 29000 27000 us | 188745904\nutf8_bytes: 28000 25000 25000 24000 25000 25000 us | 434926252\nreviver: 12000 9000 10000 10000 10000 10000 us | 373962124\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "decode_small",
+          "rounds_us": [
+            10000,
+            11000,
+            10000,
+            12000,
+            10000,
+            10000
+          ],
+          "warmed_median_us": 10000,
+          "result": "1024686864"
+        },
+        {
+          "name": "encode_small",
+          "rounds_us": [
+            26000,
+            16000,
+            16000,
+            16000,
+            16000,
+            16000
+          ],
+          "warmed_median_us": 16000,
+          "result": "552014064"
+        },
+        {
+          "name": "decode_medium",
+          "rounds_us": [
+            14000,
+            13000,
+            14000,
+            14000,
+            14000,
+            13000
+          ],
+          "warmed_median_us": 14000,
+          "result": "649351068"
+        },
+        {
+          "name": "encode_medium",
+          "rounds_us": [
+            25000,
+            26000,
+            26000,
+            25000,
+            26000,
+            26000
+          ],
+          "warmed_median_us": 26000,
+          "result": "195067402"
+        },
+        {
+          "name": "decode_large",
+          "rounds_us": [
+            36000,
+            31000,
+            31000,
+            34000
+          ],
+          "warmed_median_us": 31000,
+          "result": "298278621"
+        },
+        {
+          "name": "encode_large",
+          "rounds_us": [
+            90000,
+            86000,
+            84000,
+            82000
+          ],
+          "warmed_median_us": 84000,
+          "result": "689020713"
+        },
+        {
+          "name": "indented",
+          "rounds_us": [
+            29000,
+            29000,
+            27000,
+            29000,
+            29000,
+            27000
+          ],
+          "warmed_median_us": 29000,
+          "result": "188745904"
+        },
+        {
+          "name": "utf8_bytes",
+          "rounds_us": [
+            28000,
+            25000,
+            25000,
+            24000,
+            25000,
+            25000
+          ],
+          "warmed_median_us": 25000,
+          "result": "434926252"
+        },
+        {
+          "name": "reviver",
+          "rounds_us": [
+            12000,
+            9000,
+            10000,
+            10000,
+            10000,
+            10000
+          ],
+          "warmed_median_us": 10000,
+          "result": "373962124"
+        }
+      ]
+    },
+    {
+      "case": "json",
+      "profile": "forge_checked",
+      "repetition": 1,
+      "exit_code": 0,
+      "wall_seconds": 2.5298982500000022,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 16000 15000 14000 14000 14000 15000 us | 1024686864\nencode_small: 30000 30000 29000 29000 29000 29000 us | 552014064\ndecode_medium: 19000 18000 19000 18000 19000 18000 us | 649351068\nencode_medium: 42000 43000 41000 42000 42000 42000 us | 195067402\ndecode_large: 37000 38000 39000 38000 us | 298278621\nencode_large: 129000 123000 111000 106000 us | 689020713\nindented: 42000 40000 40000 39000 40000 40000 us | 188745904\nutf8_bytes: 96000 91000 90000 90000 91000 90000 us | 434926252\nreviver: 17000 14000 14000 14000 14000 14000 us | 373962124\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "decode_small",
+          "rounds_us": [
+            16000,
+            15000,
+            14000,
+            14000,
+            14000,
+            15000
+          ],
+          "warmed_median_us": 14000,
+          "result": "1024686864"
+        },
+        {
+          "name": "encode_small",
+          "rounds_us": [
+            30000,
+            30000,
+            29000,
+            29000,
+            29000,
+            29000
+          ],
+          "warmed_median_us": 29000,
+          "result": "552014064"
+        },
+        {
+          "name": "decode_medium",
+          "rounds_us": [
+            19000,
+            18000,
+            19000,
+            18000,
+            19000,
+            18000
+          ],
+          "warmed_median_us": 18000,
+          "result": "649351068"
+        },
+        {
+          "name": "encode_medium",
+          "rounds_us": [
+            42000,
+            43000,
+            41000,
+            42000,
+            42000,
+            42000
+          ],
+          "warmed_median_us": 42000,
+          "result": "195067402"
+        },
+        {
+          "name": "decode_large",
+          "rounds_us": [
+            37000,
+            38000,
+            39000,
+            38000
+          ],
+          "warmed_median_us": 38000,
+          "result": "298278621"
+        },
+        {
+          "name": "encode_large",
+          "rounds_us": [
+            129000,
+            123000,
+            111000,
+            106000
+          ],
+          "warmed_median_us": 111000,
+          "result": "689020713"
+        },
+        {
+          "name": "indented",
+          "rounds_us": [
+            42000,
+            40000,
+            40000,
+            39000,
+            40000,
+            40000
+          ],
+          "warmed_median_us": 40000,
+          "result": "188745904"
+        },
+        {
+          "name": "utf8_bytes",
+          "rounds_us": [
+            96000,
+            91000,
+            90000,
+            90000,
+            91000,
+            90000
+          ],
+          "warmed_median_us": 90000,
+          "result": "434926252"
+        },
+        {
+          "name": "reviver",
+          "rounds_us": [
+            17000,
+            14000,
+            14000,
+            14000,
+            14000,
+            14000
+          ],
+          "warmed_median_us": 14000,
+          "result": "373962124"
+        }
+      ]
+    },
+    {
+      "case": "calls",
+      "profile": "dart2js_O4",
+      "repetition": 1,
+      "exit_code": 0,
+      "wall_seconds": 0.11707883400000085,
+      "stdout": "shapes: 5000 4000 4000 10000 11000 1000 us | 9242078840.029448\nclosures: 5000 5000 4000 5000 5000 4000 us | 722784\nfib: 5000 5000 4000 5000 4000 5000 us | 832040\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "shapes",
+          "rounds_us": [
+            5000,
+            4000,
+            4000,
+            10000,
+            11000,
+            1000
+          ],
+          "warmed_median_us": 4000,
+          "result": "9242078840.029448"
+        },
+        {
+          "name": "closures",
+          "rounds_us": [
+            5000,
+            5000,
+            4000,
+            5000,
+            5000,
+            4000
+          ],
+          "warmed_median_us": 5000,
+          "result": "722784"
+        },
+        {
+          "name": "fib",
+          "rounds_us": [
+            5000,
+            5000,
+            4000,
+            5000,
+            4000,
+            5000
+          ],
+          "warmed_median_us": 5000,
+          "result": "832040"
+        }
+      ]
+    },
+    {
+      "case": "calls",
+      "profile": "forge_omit_checks",
+      "repetition": 1,
+      "exit_code": 0,
+      "wall_seconds": 0.13883962499999924,
+      "stdout": "shapes: 6000 2000 2000 3000 2000 2000 us | 9242078840.029448\nclosures: 11000 11000 11000 10000 11000 11000 us | 722784\nfib: 5000 5000 5000 5000 6000 5000 us | 832040\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "shapes",
+          "rounds_us": [
+            6000,
+            2000,
+            2000,
+            3000,
+            2000,
+            2000
+          ],
+          "warmed_median_us": 2000,
+          "result": "9242078840.029448"
+        },
+        {
+          "name": "closures",
+          "rounds_us": [
+            11000,
+            11000,
+            11000,
+            10000,
+            11000,
+            11000
+          ],
+          "warmed_median_us": 11000,
+          "result": "722784"
+        },
+        {
+          "name": "fib",
+          "rounds_us": [
+            5000,
+            5000,
+            5000,
+            5000,
+            6000,
+            5000
+          ],
+          "warmed_median_us": 5000,
+          "result": "832040"
+        }
+      ]
+    },
+    {
+      "case": "calls",
+      "profile": "dart2js_O2",
+      "repetition": 1,
+      "exit_code": 0,
+      "wall_seconds": 0.1560667500000008,
+      "stdout": "shapes: 5000 4000 4000 10000 11000 2000 us | 9242078840.029448\nclosures: 10000 11000 10000 10000 11000 10000 us | 722784\nfib: 5000 6000 5000 5000 6000 5000 us | 832040\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "shapes",
+          "rounds_us": [
+            5000,
+            4000,
+            4000,
+            10000,
+            11000,
+            2000
+          ],
+          "warmed_median_us": 4000,
+          "result": "9242078840.029448"
+        },
+        {
+          "name": "closures",
+          "rounds_us": [
+            10000,
+            11000,
+            10000,
+            10000,
+            11000,
+            10000
+          ],
+          "warmed_median_us": 10000,
+          "result": "722784"
+        },
+        {
+          "name": "fib",
+          "rounds_us": [
+            5000,
+            6000,
+            5000,
+            5000,
+            6000,
+            5000
+          ],
+          "warmed_median_us": 5000,
+          "result": "832040"
+        }
+      ]
+    },
+    {
+      "case": "calls",
+      "profile": "forge_checked",
+      "repetition": 1,
+      "exit_code": 0,
+      "wall_seconds": 0.13919387500000013,
+      "stdout": "shapes: 5000 3000 2000 3000 2000 2000 us | 9242078840.029448\nclosures: 11000 11000 11000 10000 11000 11000 us | 722784\nfib: 5000 4000 5000 5000 5000 5000 us | 832040\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "shapes",
+          "rounds_us": [
+            5000,
+            3000,
+            2000,
+            3000,
+            2000,
+            2000
+          ],
+          "warmed_median_us": 2000,
+          "result": "9242078840.029448"
+        },
+        {
+          "name": "closures",
+          "rounds_us": [
+            11000,
+            11000,
+            11000,
+            10000,
+            11000,
+            11000
+          ],
+          "warmed_median_us": 11000,
+          "result": "722784"
+        },
+        {
+          "name": "fib",
+          "rounds_us": [
+            5000,
+            4000,
+            5000,
+            5000,
+            5000,
+            5000
+          ],
+          "warmed_median_us": 5000,
+          "result": "832040"
+        }
+      ]
+    },
+    {
+      "case": "typed_data",
+      "profile": "dart2js_O4",
+      "repetition": 1,
+      "exit_code": 0,
+      "wall_seconds": 0.3441032919999998,
+      "stdout": "product_f64: 5000 3000 3000 3000 4000 3000 us | 749982499.8499922\nfnv_bytes: 50000 49000 49000 49000 49000 50000 us | 1540479600\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "product_f64",
+          "rounds_us": [
+            5000,
+            3000,
+            3000,
+            3000,
+            4000,
+            3000
+          ],
+          "warmed_median_us": 3000,
+          "result": "749982499.8499922"
+        },
+        {
+          "name": "fnv_bytes",
+          "rounds_us": [
+            50000,
+            49000,
+            49000,
+            49000,
+            49000,
+            50000
+          ],
+          "warmed_median_us": 49000,
+          "result": "1540479600"
+        }
+      ]
+    },
+    {
+      "case": "typed_data",
+      "profile": "forge_omit_checks",
+      "repetition": 1,
+      "exit_code": 0,
+      "wall_seconds": 0.7030862500000019,
+      "stdout": "product_f64: 15000 12000 13000 12000 13000 12000 us | 749982499.8499922\nfnv_bytes: 100000 102000 94000 97000 97000 102000 us | 1540479600\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "product_f64",
+          "rounds_us": [
+            15000,
+            12000,
+            13000,
+            12000,
+            13000,
+            12000
+          ],
+          "warmed_median_us": 12000,
+          "result": "749982499.8499922"
+        },
+        {
+          "name": "fnv_bytes",
+          "rounds_us": [
+            100000,
+            102000,
+            94000,
+            97000,
+            97000,
+            102000
+          ],
+          "warmed_median_us": 97000,
+          "result": "1540479600"
+        }
+      ]
+    },
+    {
+      "case": "typed_data",
+      "profile": "dart2js_O2",
+      "repetition": 1,
+      "exit_code": 0,
+      "wall_seconds": 0.34604008299999833,
+      "stdout": "product_f64: 5000 3000 3000 3000 3000 4000 us | 749982499.8499922\nfnv_bytes: 51000 49000 49000 49000 49000 49000 us | 1540479600\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "product_f64",
+          "rounds_us": [
+            5000,
+            3000,
+            3000,
+            3000,
+            3000,
+            4000
+          ],
+          "warmed_median_us": 3000,
+          "result": "749982499.8499922"
+        },
+        {
+          "name": "fnv_bytes",
+          "rounds_us": [
+            51000,
+            49000,
+            49000,
+            49000,
+            49000,
+            49000
+          ],
+          "warmed_median_us": 49000,
+          "result": "1540479600"
+        }
+      ]
+    },
+    {
+      "case": "typed_data",
+      "profile": "forge_checked",
+      "repetition": 1,
+      "exit_code": 0,
+      "wall_seconds": 0.7038066249999986,
+      "stdout": "product_f64: 15000 12000 13000 13000 12000 13000 us | 749982499.8499922\nfnv_bytes: 98000 102000 95000 101000 95000 101000 us | 1540479600\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "product_f64",
+          "rounds_us": [
+            15000,
+            12000,
+            13000,
+            13000,
+            12000,
+            13000
+          ],
+          "warmed_median_us": 13000,
+          "result": "749982499.8499922"
+        },
+        {
+          "name": "fnv_bytes",
+          "rounds_us": [
+            98000,
+            102000,
+            95000,
+            101000,
+            95000,
+            101000
+          ],
+          "warmed_median_us": 101000,
+          "result": "1540479600"
+        }
+      ]
+    },
+    {
+      "case": "objects_in_collections",
+      "profile": "dart2js_O4",
+      "repetition": 1,
+      "exit_code": 0,
+      "wall_seconds": 0.2270295830000002,
+      "stdout": "object_list: 12000 8000 3000 3000 8000 3000 us | 129592732.5\nobject_sort: 16000 17000 15000 15000 15000 21000 us | 100028\nmap_int_object: 5000 3000 8000 4000 9000 3000 us | 19999900000\nmap_str_object: 9000 3000 3000 4000 6000 3000 us | 1199980\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "object_list",
+          "rounds_us": [
+            12000,
+            8000,
+            3000,
+            3000,
+            8000,
+            3000
+          ],
+          "warmed_median_us": 3000,
+          "result": "129592732.5"
+        },
+        {
+          "name": "object_sort",
+          "rounds_us": [
+            16000,
+            17000,
+            15000,
+            15000,
+            15000,
+            21000
+          ],
+          "warmed_median_us": 15000,
+          "result": "100028"
+        },
+        {
+          "name": "map_int_object",
+          "rounds_us": [
+            5000,
+            3000,
+            8000,
+            4000,
+            9000,
+            3000
+          ],
+          "warmed_median_us": 4000,
+          "result": "19999900000"
+        },
+        {
+          "name": "map_str_object",
+          "rounds_us": [
+            9000,
+            3000,
+            3000,
+            4000,
+            6000,
+            3000
+          ],
+          "warmed_median_us": 3000,
+          "result": "1199980"
+        }
+      ]
+    },
+    {
+      "case": "objects_in_collections",
+      "profile": "forge_omit_checks",
+      "repetition": 1,
+      "exit_code": 0,
+      "wall_seconds": 0.5500117089999996,
+      "stdout": "object_list: 25000 23000 15000 18000 22000 16000 us | 129592732.5\nobject_sort: 44000 41000 36000 33000 32000 36000 us | 100028\nmap_int_object: 15000 15000 14000 16000 14000 14000 us | 19999900000\nmap_str_object: 18000 13000 15000 12000 11000 21000 us | 1199980\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "object_list",
+          "rounds_us": [
+            25000,
+            23000,
+            15000,
+            18000,
+            22000,
+            16000
+          ],
+          "warmed_median_us": 18000,
+          "result": "129592732.5"
+        },
+        {
+          "name": "object_sort",
+          "rounds_us": [
+            44000,
+            41000,
+            36000,
+            33000,
+            32000,
+            36000
+          ],
+          "warmed_median_us": 36000,
+          "result": "100028"
+        },
+        {
+          "name": "map_int_object",
+          "rounds_us": [
+            15000,
+            15000,
+            14000,
+            16000,
+            14000,
+            14000
+          ],
+          "warmed_median_us": 14000,
+          "result": "19999900000"
+        },
+        {
+          "name": "map_str_object",
+          "rounds_us": [
+            18000,
+            13000,
+            15000,
+            12000,
+            11000,
+            21000
+          ],
+          "warmed_median_us": 13000,
+          "result": "1199980"
+        }
+      ]
+    },
+    {
+      "case": "objects_in_collections",
+      "profile": "dart2js_O2",
+      "repetition": 1,
+      "exit_code": 0,
+      "wall_seconds": 0.3869615840000016,
+      "stdout": "object_list: 14000 4000 5000 6000 8000 4000 us | 129592732.5\nobject_sort: 33000 37000 30000 31000 30000 31000 us | 100028\nmap_int_object: 12000 11000 15000 19000 8000 14000 us | 19999900000\nmap_str_object: 7000 5000 9000 5000 5000 13000 us | 1199980\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "object_list",
+          "rounds_us": [
+            14000,
+            4000,
+            5000,
+            6000,
+            8000,
+            4000
+          ],
+          "warmed_median_us": 5000,
+          "result": "129592732.5"
+        },
+        {
+          "name": "object_sort",
+          "rounds_us": [
+            33000,
+            37000,
+            30000,
+            31000,
+            30000,
+            31000
+          ],
+          "warmed_median_us": 31000,
+          "result": "100028"
+        },
+        {
+          "name": "map_int_object",
+          "rounds_us": [
+            12000,
+            11000,
+            15000,
+            19000,
+            8000,
+            14000
+          ],
+          "warmed_median_us": 14000,
+          "result": "19999900000"
+        },
+        {
+          "name": "map_str_object",
+          "rounds_us": [
+            7000,
+            5000,
+            9000,
+            5000,
+            5000,
+            13000
+          ],
+          "warmed_median_us": 5000,
+          "result": "1199980"
+        }
+      ]
+    },
+    {
+      "case": "objects_in_collections",
+      "profile": "forge_checked",
+      "repetition": 1,
+      "exit_code": 0,
+      "wall_seconds": 0.9574965420000012,
+      "stdout": "object_list: 33000 30000 22000 25000 27000 23000 us | 129592732.5\nobject_sort: 95000 91000 88000 84000 84000 87000 us | 100028\nmap_int_object: 20000 19000 18000 21000 19000 18000 us | 19999900000\nmap_str_object: 21000 23000 18000 21000 18000 21000 us | 1199980\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "object_list",
+          "rounds_us": [
+            33000,
+            30000,
+            22000,
+            25000,
+            27000,
+            23000
+          ],
+          "warmed_median_us": 25000,
+          "result": "129592732.5"
+        },
+        {
+          "name": "object_sort",
+          "rounds_us": [
+            95000,
+            91000,
+            88000,
+            84000,
+            84000,
+            87000
+          ],
+          "warmed_median_us": 87000,
+          "result": "100028"
+        },
+        {
+          "name": "map_int_object",
+          "rounds_us": [
+            20000,
+            19000,
+            18000,
+            21000,
+            19000,
+            18000
+          ],
+          "warmed_median_us": 19000,
+          "result": "19999900000"
+        },
+        {
+          "name": "map_str_object",
+          "rounds_us": [
+            21000,
+            23000,
+            18000,
+            21000,
+            18000,
+            21000
+          ],
+          "warmed_median_us": 21000,
+          "result": "1199980"
+        }
+      ]
+    },
+    {
+      "case": "json",
+      "profile": "forge_checked",
+      "repetition": 2,
+      "exit_code": 0,
+      "wall_seconds": 2.5261542080000012,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 15000 14000 14000 14000 14000 14000 us | 1024686864\nencode_small: 31000 29000 29000 29000 29000 29000 us | 552014064\ndecode_medium: 19000 18000 19000 19000 18000 18000 us | 649351068\nencode_medium: 43000 43000 42000 42000 42000 42000 us | 195067402\ndecode_large: 37000 38000 39000 38000 us | 298278621\nencode_large: 132000 121000 110000 109000 us | 689020713\nindented: 42000 40000 39000 39000 40000 39000 us | 188745904\nutf8_bytes: 96000 90000 90000 91000 92000 89000 us | 434926252\nreviver: 16000 14000 14000 15000 14000 14000 us | 373962124\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "decode_small",
+          "rounds_us": [
+            15000,
+            14000,
+            14000,
+            14000,
+            14000,
+            14000
+          ],
+          "warmed_median_us": 14000,
+          "result": "1024686864"
+        },
+        {
+          "name": "encode_small",
+          "rounds_us": [
+            31000,
+            29000,
+            29000,
+            29000,
+            29000,
+            29000
+          ],
+          "warmed_median_us": 29000,
+          "result": "552014064"
+        },
+        {
+          "name": "decode_medium",
+          "rounds_us": [
+            19000,
+            18000,
+            19000,
+            19000,
+            18000,
+            18000
+          ],
+          "warmed_median_us": 18000,
+          "result": "649351068"
+        },
+        {
+          "name": "encode_medium",
+          "rounds_us": [
+            43000,
+            43000,
+            42000,
+            42000,
+            42000,
+            42000
+          ],
+          "warmed_median_us": 42000,
+          "result": "195067402"
+        },
+        {
+          "name": "decode_large",
+          "rounds_us": [
+            37000,
+            38000,
+            39000,
+            38000
+          ],
+          "warmed_median_us": 38000,
+          "result": "298278621"
+        },
+        {
+          "name": "encode_large",
+          "rounds_us": [
+            132000,
+            121000,
+            110000,
+            109000
+          ],
+          "warmed_median_us": 110000,
+          "result": "689020713"
+        },
+        {
+          "name": "indented",
+          "rounds_us": [
+            42000,
+            40000,
+            39000,
+            39000,
+            40000,
+            39000
+          ],
+          "warmed_median_us": 39000,
+          "result": "188745904"
+        },
+        {
+          "name": "utf8_bytes",
+          "rounds_us": [
+            96000,
+            90000,
+            90000,
+            91000,
+            92000,
+            89000
+          ],
+          "warmed_median_us": 90000,
+          "result": "434926252"
+        },
+        {
+          "name": "reviver",
+          "rounds_us": [
+            16000,
+            14000,
+            14000,
+            15000,
+            14000,
+            14000
+          ],
+          "warmed_median_us": 14000,
+          "result": "373962124"
+        }
+      ]
+    },
+    {
+      "case": "json",
+      "profile": "dart2js_O2",
+      "repetition": 2,
+      "exit_code": 0,
+      "wall_seconds": 1.6198117920000001,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 11000 11000 10000 11000 10000 10000 us | 1024686864\nencode_small: 16000 16000 16000 16000 16000 16000 us | 552014064\ndecode_medium: 14000 13000 14000 13000 14000 14000 us | 649351068\nencode_medium: 25000 26000 26000 26000 25000 26000 us | 195067402\ndecode_large: 35000 31000 31000 33000 us | 298278621\nencode_large: 90000 86000 85000 82000 us | 689020713\nindented: 30000 29000 27000 29000 28000 28000 us | 188745904\nutf8_bytes: 29000 25000 25000 24000 25000 24000 us | 434926252\nreviver: 12000 10000 10000 10000 10000 9000 us | 373962124\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "decode_small",
+          "rounds_us": [
+            11000,
+            11000,
+            10000,
+            11000,
+            10000,
+            10000
+          ],
+          "warmed_median_us": 10000,
+          "result": "1024686864"
+        },
+        {
+          "name": "encode_small",
+          "rounds_us": [
+            16000,
+            16000,
+            16000,
+            16000,
+            16000,
+            16000
+          ],
+          "warmed_median_us": 16000,
+          "result": "552014064"
+        },
+        {
+          "name": "decode_medium",
+          "rounds_us": [
+            14000,
+            13000,
+            14000,
+            13000,
+            14000,
+            14000
+          ],
+          "warmed_median_us": 14000,
+          "result": "649351068"
+        },
+        {
+          "name": "encode_medium",
+          "rounds_us": [
+            25000,
+            26000,
+            26000,
+            26000,
+            25000,
+            26000
+          ],
+          "warmed_median_us": 26000,
+          "result": "195067402"
+        },
+        {
+          "name": "decode_large",
+          "rounds_us": [
+            35000,
+            31000,
+            31000,
+            33000
+          ],
+          "warmed_median_us": 31000,
+          "result": "298278621"
+        },
+        {
+          "name": "encode_large",
+          "rounds_us": [
+            90000,
+            86000,
+            85000,
+            82000
+          ],
+          "warmed_median_us": 85000,
+          "result": "689020713"
+        },
+        {
+          "name": "indented",
+          "rounds_us": [
+            30000,
+            29000,
+            27000,
+            29000,
+            28000,
+            28000
+          ],
+          "warmed_median_us": 28000,
+          "result": "188745904"
+        },
+        {
+          "name": "utf8_bytes",
+          "rounds_us": [
+            29000,
+            25000,
+            25000,
+            24000,
+            25000,
+            24000
+          ],
+          "warmed_median_us": 25000,
+          "result": "434926252"
+        },
+        {
+          "name": "reviver",
+          "rounds_us": [
+            12000,
+            10000,
+            10000,
+            10000,
+            10000,
+            9000
+          ],
+          "warmed_median_us": 10000,
+          "result": "373962124"
+        }
+      ]
+    },
+    {
+      "case": "json",
+      "profile": "forge_omit_checks",
+      "repetition": 2,
+      "exit_code": 0,
+      "wall_seconds": 2.3609229580000033,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 16000 13000 14000 14000 14000 13000 us | 1024686864\nencode_small: 25000 24000 23000 24000 24000 24000 us | 552014064\ndecode_medium: 18000 18000 18000 18000 18000 18000 us | 649351068\nencode_medium: 36000 35000 35000 36000 35000 35000 us | 195067402\ndecode_large: 37000 38000 37000 39000 us | 298278621\nencode_large: 114000 112000 100000 95000 us | 689020713\nindented: 38000 35000 34000 35000 35000 34000 us | 188745904\nutf8_bytes: 92000 85000 86000 86000 86000 87000 us | 434926252\nreviver: 16000 14000 14000 14000 13000 14000 us | 373962124\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "decode_small",
+          "rounds_us": [
+            16000,
+            13000,
+            14000,
+            14000,
+            14000,
+            13000
+          ],
+          "warmed_median_us": 14000,
+          "result": "1024686864"
+        },
+        {
+          "name": "encode_small",
+          "rounds_us": [
+            25000,
+            24000,
+            23000,
+            24000,
+            24000,
+            24000
+          ],
+          "warmed_median_us": 24000,
+          "result": "552014064"
+        },
+        {
+          "name": "decode_medium",
+          "rounds_us": [
+            18000,
+            18000,
+            18000,
+            18000,
+            18000,
+            18000
+          ],
+          "warmed_median_us": 18000,
+          "result": "649351068"
+        },
+        {
+          "name": "encode_medium",
+          "rounds_us": [
+            36000,
+            35000,
+            35000,
+            36000,
+            35000,
+            35000
+          ],
+          "warmed_median_us": 35000,
+          "result": "195067402"
+        },
+        {
+          "name": "decode_large",
+          "rounds_us": [
+            37000,
+            38000,
+            37000,
+            39000
+          ],
+          "warmed_median_us": 38000,
+          "result": "298278621"
+        },
+        {
+          "name": "encode_large",
+          "rounds_us": [
+            114000,
+            112000,
+            100000,
+            95000
+          ],
+          "warmed_median_us": 100000,
+          "result": "689020713"
+        },
+        {
+          "name": "indented",
+          "rounds_us": [
+            38000,
+            35000,
+            34000,
+            35000,
+            35000,
+            34000
+          ],
+          "warmed_median_us": 35000,
+          "result": "188745904"
+        },
+        {
+          "name": "utf8_bytes",
+          "rounds_us": [
+            92000,
+            85000,
+            86000,
+            86000,
+            86000,
+            87000
+          ],
+          "warmed_median_us": 86000,
+          "result": "434926252"
+        },
+        {
+          "name": "reviver",
+          "rounds_us": [
+            16000,
+            14000,
+            14000,
+            14000,
+            13000,
+            14000
+          ],
+          "warmed_median_us": 14000,
+          "result": "373962124"
+        }
+      ]
+    },
+    {
+      "case": "json",
+      "profile": "dart2js_O4",
+      "repetition": 2,
+      "exit_code": 0,
+      "wall_seconds": 1.4863342499999987,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 33000 9000 10000 9000 9000 9000 us | 1024686864\nencode_small: 15000 14000 14000 15000 14000 15000 us | 552014064\ndecode_medium: 13000 12000 13000 13000 13000 13000 us | 649351068\nencode_medium: 24000 23000 24000 23000 24000 24000 us | 195067402\ndecode_large: 34000 35000 30000 32000 us | 298278621\nencode_large: 79000 78000 75000 74000 us | 689020713\nindented: 28000 27000 27000 27000 27000 27000 us | 188745904\nutf8_bytes: 24000 22000 21000 21000 21000 21000 us | 434926252\nreviver: 11000 9000 9000 9000 10000 9000 us | 373962124\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "decode_small",
+          "rounds_us": [
+            33000,
+            9000,
+            10000,
+            9000,
+            9000,
+            9000
+          ],
+          "warmed_median_us": 9000,
+          "result": "1024686864"
+        },
+        {
+          "name": "encode_small",
+          "rounds_us": [
+            15000,
+            14000,
+            14000,
+            15000,
+            14000,
+            15000
+          ],
+          "warmed_median_us": 14000,
+          "result": "552014064"
+        },
+        {
+          "name": "decode_medium",
+          "rounds_us": [
+            13000,
+            12000,
+            13000,
+            13000,
+            13000,
+            13000
+          ],
+          "warmed_median_us": 13000,
+          "result": "649351068"
+        },
+        {
+          "name": "encode_medium",
+          "rounds_us": [
+            24000,
+            23000,
+            24000,
+            23000,
+            24000,
+            24000
+          ],
+          "warmed_median_us": 24000,
+          "result": "195067402"
+        },
+        {
+          "name": "decode_large",
+          "rounds_us": [
+            34000,
+            35000,
+            30000,
+            32000
+          ],
+          "warmed_median_us": 32000,
+          "result": "298278621"
+        },
+        {
+          "name": "encode_large",
+          "rounds_us": [
+            79000,
+            78000,
+            75000,
+            74000
+          ],
+          "warmed_median_us": 75000,
+          "result": "689020713"
+        },
+        {
+          "name": "indented",
+          "rounds_us": [
+            28000,
+            27000,
+            27000,
+            27000,
+            27000,
+            27000
+          ],
+          "warmed_median_us": 27000,
+          "result": "188745904"
+        },
+        {
+          "name": "utf8_bytes",
+          "rounds_us": [
+            24000,
+            22000,
+            21000,
+            21000,
+            21000,
+            21000
+          ],
+          "warmed_median_us": 21000,
+          "result": "434926252"
+        },
+        {
+          "name": "reviver",
+          "rounds_us": [
+            11000,
+            9000,
+            9000,
+            9000,
+            10000,
+            9000
+          ],
+          "warmed_median_us": 9000,
+          "result": "373962124"
+        }
+      ]
+    },
+    {
+      "case": "calls",
+      "profile": "forge_checked",
+      "repetition": 2,
+      "exit_code": 0,
+      "wall_seconds": 0.13917800000000113,
+      "stdout": "shapes: 5000 2000 2000 3000 2000 2000 us | 9242078840.029448\nclosures: 11000 11000 11000 10000 11000 10000 us | 722784\nfib: 5000 5000 5000 6000 5000 5000 us | 832040\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "shapes",
+          "rounds_us": [
+            5000,
+            2000,
+            2000,
+            3000,
+            2000,
+            2000
+          ],
+          "warmed_median_us": 2000,
+          "result": "9242078840.029448"
+        },
+        {
+          "name": "closures",
+          "rounds_us": [
+            11000,
+            11000,
+            11000,
+            10000,
+            11000,
+            10000
+          ],
+          "warmed_median_us": 11000,
+          "result": "722784"
+        },
+        {
+          "name": "fib",
+          "rounds_us": [
+            5000,
+            5000,
+            5000,
+            6000,
+            5000,
+            5000
+          ],
+          "warmed_median_us": 5000,
+          "result": "832040"
+        }
+      ]
+    },
+    {
+      "case": "calls",
+      "profile": "dart2js_O2",
+      "repetition": 2,
+      "exit_code": 0,
+      "wall_seconds": 0.15121083300000038,
+      "stdout": "shapes: 5000 4000 4000 10000 11000 2000 us | 9242078840.029448\nclosures: 10000 10000 11000 10000 10000 11000 us | 722784\nfib: 4000 5000 4000 5000 4000 5000 us | 832040\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "shapes",
+          "rounds_us": [
+            5000,
+            4000,
+            4000,
+            10000,
+            11000,
+            2000
+          ],
+          "warmed_median_us": 4000,
+          "result": "9242078840.029448"
+        },
+        {
+          "name": "closures",
+          "rounds_us": [
+            10000,
+            10000,
+            11000,
+            10000,
+            10000,
+            11000
+          ],
+          "warmed_median_us": 10000,
+          "result": "722784"
+        },
+        {
+          "name": "fib",
+          "rounds_us": [
+            4000,
+            5000,
+            4000,
+            5000,
+            4000,
+            5000
+          ],
+          "warmed_median_us": 5000,
+          "result": "832040"
+        }
+      ]
+    },
+    {
+      "case": "calls",
+      "profile": "forge_omit_checks",
+      "repetition": 2,
+      "exit_code": 0,
+      "wall_seconds": 0.13982512500000155,
+      "stdout": "shapes: 6000 2000 2000 3000 2000 3000 us | 9242078840.029448\nclosures: 11000 10000 11000 11000 10000 11000 us | 722784\nfib: 5000 5000 5000 5000 6000 5000 us | 832040\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "shapes",
+          "rounds_us": [
+            6000,
+            2000,
+            2000,
+            3000,
+            2000,
+            3000
+          ],
+          "warmed_median_us": 2000,
+          "result": "9242078840.029448"
+        },
+        {
+          "name": "closures",
+          "rounds_us": [
+            11000,
+            10000,
+            11000,
+            11000,
+            10000,
+            11000
+          ],
+          "warmed_median_us": 11000,
+          "result": "722784"
+        },
+        {
+          "name": "fib",
+          "rounds_us": [
+            5000,
+            5000,
+            5000,
+            5000,
+            6000,
+            5000
+          ],
+          "warmed_median_us": 5000,
+          "result": "832040"
+        }
+      ]
+    },
+    {
+      "case": "calls",
+      "profile": "dart2js_O4",
+      "repetition": 2,
+      "exit_code": 0,
+      "wall_seconds": 0.1304702500000019,
+      "stdout": "shapes: 9000 7000 6000 11000 10000 2000 us | 9242078840.029448\nclosures: 5000 5000 4000 5000 5000 4000 us | 722784\nfib: 6000 5000 5000 5000 6000 5000 us | 832040\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "shapes",
+          "rounds_us": [
+            9000,
+            7000,
+            6000,
+            11000,
+            10000,
+            2000
+          ],
+          "warmed_median_us": 7000,
+          "result": "9242078840.029448"
+        },
+        {
+          "name": "closures",
+          "rounds_us": [
+            5000,
+            5000,
+            4000,
+            5000,
+            5000,
+            4000
+          ],
+          "warmed_median_us": 5000,
+          "result": "722784"
+        },
+        {
+          "name": "fib",
+          "rounds_us": [
+            6000,
+            5000,
+            5000,
+            5000,
+            6000,
+            5000
+          ],
+          "warmed_median_us": 5000,
+          "result": "832040"
+        }
+      ]
+    },
+    {
+      "case": "typed_data",
+      "profile": "forge_checked",
+      "repetition": 2,
+      "exit_code": 0,
+      "wall_seconds": 0.710900125000002,
+      "stdout": "product_f64: 15000 13000 13000 13000 13000 13000 us | 749982499.8499922\nfnv_bytes: 102000 101000 101000 96000 96000 102000 us | 1540479600\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "product_f64",
+          "rounds_us": [
+            15000,
+            13000,
+            13000,
+            13000,
+            13000,
+            13000
+          ],
+          "warmed_median_us": 13000,
+          "result": "749982499.8499922"
+        },
+        {
+          "name": "fnv_bytes",
+          "rounds_us": [
+            102000,
+            101000,
+            101000,
+            96000,
+            96000,
+            102000
+          ],
+          "warmed_median_us": 101000,
+          "result": "1540479600"
+        }
+      ]
+    },
+    {
+      "case": "typed_data",
+      "profile": "dart2js_O2",
+      "repetition": 2,
+      "exit_code": 0,
+      "wall_seconds": 0.3455149169999956,
+      "stdout": "product_f64: 5000 3000 3000 4000 3000 3000 us | 749982499.8499922\nfnv_bytes: 50000 49000 49000 50000 49000 49000 us | 1540479600\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "product_f64",
+          "rounds_us": [
+            5000,
+            3000,
+            3000,
+            4000,
+            3000,
+            3000
+          ],
+          "warmed_median_us": 3000,
+          "result": "749982499.8499922"
+        },
+        {
+          "name": "fnv_bytes",
+          "rounds_us": [
+            50000,
+            49000,
+            49000,
+            50000,
+            49000,
+            49000
+          ],
+          "warmed_median_us": 49000,
+          "result": "1540479600"
+        }
+      ]
+    },
+    {
+      "case": "typed_data",
+      "profile": "forge_omit_checks",
+      "repetition": 2,
+      "exit_code": 0,
+      "wall_seconds": 0.7132730840000008,
+      "stdout": "product_f64: 15000 13000 13000 12000 13000 13000 us | 749982499.8499922\nfnv_bytes: 101000 101000 102000 100000 95000 102000 us | 1540479600\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "product_f64",
+          "rounds_us": [
+            15000,
+            13000,
+            13000,
+            12000,
+            13000,
+            13000
+          ],
+          "warmed_median_us": 13000,
+          "result": "749982499.8499922"
+        },
+        {
+          "name": "fnv_bytes",
+          "rounds_us": [
+            101000,
+            101000,
+            102000,
+            100000,
+            95000,
+            102000
+          ],
+          "warmed_median_us": 101000,
+          "result": "1540479600"
+        }
+      ]
+    },
+    {
+      "case": "typed_data",
+      "profile": "dart2js_O4",
+      "repetition": 2,
+      "exit_code": 0,
+      "wall_seconds": 0.34526120900000024,
+      "stdout": "product_f64: 4000 4000 3000 3000 3000 4000 us | 749982499.8499922\nfnv_bytes: 51000 49000 49000 49000 49000 49000 us | 1540479600\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "product_f64",
+          "rounds_us": [
+            4000,
+            4000,
+            3000,
+            3000,
+            3000,
+            4000
+          ],
+          "warmed_median_us": 3000,
+          "result": "749982499.8499922"
+        },
+        {
+          "name": "fnv_bytes",
+          "rounds_us": [
+            51000,
+            49000,
+            49000,
+            49000,
+            49000,
+            49000
+          ],
+          "warmed_median_us": 49000,
+          "result": "1540479600"
+        }
+      ]
+    },
+    {
+      "case": "objects_in_collections",
+      "profile": "forge_checked",
+      "repetition": 2,
+      "exit_code": 0,
+      "wall_seconds": 0.9386278750000017,
+      "stdout": "object_list: 31000 29000 20000 25000 25000 21000 us | 129592732.5\nobject_sort: 94000 90000 87000 82000 83000 86000 us | 100028\nmap_int_object: 20000 19000 19000 20000 18000 18000 us | 19999900000\nmap_str_object: 23000 17000 21000 17000 18000 26000 us | 1199980\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "object_list",
+          "rounds_us": [
+            31000,
+            29000,
+            20000,
+            25000,
+            25000,
+            21000
+          ],
+          "warmed_median_us": 25000,
+          "result": "129592732.5"
+        },
+        {
+          "name": "object_sort",
+          "rounds_us": [
+            94000,
+            90000,
+            87000,
+            82000,
+            83000,
+            86000
+          ],
+          "warmed_median_us": 86000,
+          "result": "100028"
+        },
+        {
+          "name": "map_int_object",
+          "rounds_us": [
+            20000,
+            19000,
+            19000,
+            20000,
+            18000,
+            18000
+          ],
+          "warmed_median_us": 19000,
+          "result": "19999900000"
+        },
+        {
+          "name": "map_str_object",
+          "rounds_us": [
+            23000,
+            17000,
+            21000,
+            17000,
+            18000,
+            26000
+          ],
+          "warmed_median_us": 18000,
+          "result": "1199980"
+        }
+      ]
+    },
+    {
+      "case": "objects_in_collections",
+      "profile": "dart2js_O2",
+      "repetition": 2,
+      "exit_code": 0,
+      "wall_seconds": 0.37095616599999914,
+      "stdout": "object_list: 14000 9000 4000 4000 8000 4000 us | 129592732.5\nobject_sort: 32000 33000 31000 31000 31000 35000 us | 100028\nmap_int_object: 10000 9000 13000 9000 14000 9000 us | 19999900000\nmap_str_object: 11000 5000 5000 8000 5000 6000 us | 1199980\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "object_list",
+          "rounds_us": [
+            14000,
+            9000,
+            4000,
+            4000,
+            8000,
+            4000
+          ],
+          "warmed_median_us": 4000,
+          "result": "129592732.5"
+        },
+        {
+          "name": "object_sort",
+          "rounds_us": [
+            32000,
+            33000,
+            31000,
+            31000,
+            31000,
+            35000
+          ],
+          "warmed_median_us": 31000,
+          "result": "100028"
+        },
+        {
+          "name": "map_int_object",
+          "rounds_us": [
+            10000,
+            9000,
+            13000,
+            9000,
+            14000,
+            9000
+          ],
+          "warmed_median_us": 9000,
+          "result": "19999900000"
+        },
+        {
+          "name": "map_str_object",
+          "rounds_us": [
+            11000,
+            5000,
+            5000,
+            8000,
+            5000,
+            6000
+          ],
+          "warmed_median_us": 5000,
+          "result": "1199980"
+        }
+      ]
+    },
+    {
+      "case": "objects_in_collections",
+      "profile": "forge_omit_checks",
+      "repetition": 2,
+      "exit_code": 0,
+      "wall_seconds": 0.5407760419999974,
+      "stdout": "object_list: 26000 23000 16000 20000 21000 16000 us | 129592732.5\nobject_sort: 41000 40000 37000 32000 32000 35000 us | 100028\nmap_int_object: 15000 14000 13000 17000 14000 14000 us | 19999900000\nmap_str_object: 17000 12000 15000 12000 11000 18000 us | 1199980\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "object_list",
+          "rounds_us": [
+            26000,
+            23000,
+            16000,
+            20000,
+            21000,
+            16000
+          ],
+          "warmed_median_us": 20000,
+          "result": "129592732.5"
+        },
+        {
+          "name": "object_sort",
+          "rounds_us": [
+            41000,
+            40000,
+            37000,
+            32000,
+            32000,
+            35000
+          ],
+          "warmed_median_us": 35000,
+          "result": "100028"
+        },
+        {
+          "name": "map_int_object",
+          "rounds_us": [
+            15000,
+            14000,
+            13000,
+            17000,
+            14000,
+            14000
+          ],
+          "warmed_median_us": 14000,
+          "result": "19999900000"
+        },
+        {
+          "name": "map_str_object",
+          "rounds_us": [
+            17000,
+            12000,
+            15000,
+            12000,
+            11000,
+            18000
+          ],
+          "warmed_median_us": 12000,
+          "result": "1199980"
+        }
+      ]
+    },
+    {
+      "case": "objects_in_collections",
+      "profile": "dart2js_O4",
+      "repetition": 2,
+      "exit_code": 0,
+      "wall_seconds": 0.24004012500000016,
+      "stdout": "object_list: 13000 3000 6000 5000 7000 3000 us | 129592732.5\nobject_sort: 17000 22000 15000 14000 15000 15000 us | 100028\nmap_int_object: 7000 5000 9000 3000 7000 4000 us | 19999900000\nmap_str_object: 12000 3000 11000 4000 3000 3000 us | 1199980\n",
+      "stderr": "",
+      "kernels": [
+        {
+          "name": "object_list",
+          "rounds_us": [
+            13000,
+            3000,
+            6000,
+            5000,
+            7000,
+            3000
+          ],
+          "warmed_median_us": 5000,
+          "result": "129592732.5"
+        },
+        {
+          "name": "object_sort",
+          "rounds_us": [
+            17000,
+            22000,
+            15000,
+            14000,
+            15000,
+            15000
+          ],
+          "warmed_median_us": 15000,
+          "result": "100028"
+        },
+        {
+          "name": "map_int_object",
+          "rounds_us": [
+            7000,
+            5000,
+            9000,
+            3000,
+            7000,
+            4000
+          ],
+          "warmed_median_us": 5000,
+          "result": "19999900000"
+        },
+        {
+          "name": "map_str_object",
+          "rounds_us": [
+            12000,
+            3000,
+            11000,
+            4000,
+            3000,
+            3000
+          ],
+          "warmed_median_us": 3000,
+          "result": "1199980"
+        }
+      ]
+    }
+  ],
+  "inputs_stable": true,
+  "kernel_summary": {
+    "json/decode_small": {
+      "forge_checked": 14000,
+      "dart2js_O2": 10000,
+      "forge_omit_checks": 14000,
+      "dart2js_O4": 9000
+    },
+    "json/encode_small": {
+      "forge_checked": 29000,
+      "dart2js_O2": 16000,
+      "forge_omit_checks": 24000,
+      "dart2js_O4": 14000
+    },
+    "json/decode_medium": {
+      "forge_checked": 18000,
+      "dart2js_O2": 14000,
+      "forge_omit_checks": 18000,
+      "dart2js_O4": 13000
+    },
+    "json/encode_medium": {
+      "forge_checked": 42000,
+      "dart2js_O2": 26000,
+      "forge_omit_checks": 35000,
+      "dart2js_O4": 24000
+    },
+    "json/decode_large": {
+      "forge_checked": 38000,
+      "dart2js_O2": 31000,
+      "forge_omit_checks": 37000,
+      "dart2js_O4": 30000
+    },
+    "json/encode_large": {
+      "forge_checked": 111000,
+      "dart2js_O2": 84000,
+      "forge_omit_checks": 101000,
+      "dart2js_O4": 74000
+    },
+    "json/indented": {
+      "forge_checked": 40000,
+      "dart2js_O2": 28000,
+      "forge_omit_checks": 34000,
+      "dart2js_O4": 27000
+    },
+    "json/utf8_bytes": {
+      "forge_checked": 90000,
+      "dart2js_O2": 25000,
+      "forge_omit_checks": 84000,
+      "dart2js_O4": 21000
+    },
+    "json/reviver": {
+      "forge_checked": 14000,
+      "dart2js_O2": 10000,
+      "forge_omit_checks": 14000,
+      "dart2js_O4": 9000
+    },
+    "calls/shapes": {
+      "forge_checked": 2000,
+      "dart2js_O2": 4000,
+      "forge_omit_checks": 2000,
+      "dart2js_O4": 4000
+    },
+    "calls/closures": {
+      "forge_checked": 11000,
+      "dart2js_O2": 10000,
+      "forge_omit_checks": 11000,
+      "dart2js_O4": 5000
+    },
+    "calls/fib": {
+      "forge_checked": 5000,
+      "dart2js_O2": 5000,
+      "forge_omit_checks": 5000,
+      "dart2js_O4": 5000
+    },
+    "typed_data/product_f64": {
+      "forge_checked": 13000,
+      "dart2js_O2": 3000,
+      "forge_omit_checks": 13000,
+      "dart2js_O4": 3000
+    },
+    "typed_data/fnv_bytes": {
+      "forge_checked": 101000,
+      "dart2js_O2": 49000,
+      "forge_omit_checks": 100000,
+      "dart2js_O4": 49000
+    },
+    "objects_in_collections/object_list": {
+      "forge_checked": 25000,
+      "dart2js_O2": 4000,
+      "forge_omit_checks": 20000,
+      "dart2js_O4": 5000
+    },
+    "objects_in_collections/object_sort": {
+      "forge_checked": 87000,
+      "dart2js_O2": 31000,
+      "forge_omit_checks": 36000,
+      "dart2js_O4": 15000
+    },
+    "objects_in_collections/map_int_object": {
+      "forge_checked": 19000,
+      "dart2js_O2": 9000,
+      "forge_omit_checks": 14000,
+      "dart2js_O4": 5000
+    },
+    "objects_in_collections/map_str_object": {
+      "forge_checked": 20000,
+      "dart2js_O2": 5000,
+      "forge_omit_checks": 13000,
+      "dart2js_O4": 3000
+    }
+  },
+  "timer_limitation": "Dart JS Stopwatch uses millisecond resolution here (reported as microseconds); tiny 2\u20135 ms kernels have limited precision"
+}

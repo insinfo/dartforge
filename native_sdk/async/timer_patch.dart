@@ -60,7 +60,7 @@ final class _Timer implements Timer {
   @pragma("vm:entry-point", "call")
   void _fire() {
     if (_id == 0) return;
-    _tick++;
+    _tick = _periodic ? _currentTick(_id) : _tick + 1;
     if (!_periodic) _id = 0;
     _callback(this);
   }
@@ -72,6 +72,11 @@ final class _Timer implements Timer {
   @pragma("vm:external-name", "DartForge_Timer_new")
   external static int _create(
       int milliseconds, void Function() fire, bool periodic);
+
+  /// Periods elapsed at the current firing, including the ones skipped while
+  /// blocked. The runtime adjusts this before invoking `_fire`.
+  @pragma("vm:external-name", "DartForge_Timer_tick")
+  external static int _currentTick(int id);
 
   /// Removes the timer from the timer heap (the root is released).
   @pragma("vm:external-name", "DartForge_Timer_cancel")

@@ -1,0 +1,190 @@
+{
+  "compiler_sha256": "722eb3d536bef4f07c8785283062cb6443345132651483499eb19f8e715e7ceb",
+  "sources": {
+    "packages/dartforge/test/runtime_policy_probe.dart": "ecedcfdf24f9a4c9888156588b81879e9b65642cbd0b3a5a73c02f3b153f61df",
+    "scripts/verify-runtime-policy.py": "0903f058a944d379043c384c4f9297016c930eac7e1b7c72adaf15dfc383f70c",
+    "packages/dartforge/lib/src/gc_policy.dart": "2e32771bbfa7e2786188e308602dfc2b89671c9844585505e855ee86c4bf7108",
+    "packages/dartforge/lib/src/runtime_state.dart": "3a6688aa154618dfa917c8a93bbe7644b9231c61f0ed382a8cd3b5e2b131892f",
+    "packages/dartforge/lib/src/native_pump.dart": "a8cb87c9b91e9051fd75b6fae4d0139346d25117100c9b10fae443c4854a0213"
+  },
+  "runs": [
+    {
+      "mode": "tracing",
+      "stress": false,
+      "prepared_environment": null,
+      "binary_sha256": "642c5b0209dc18b3b8aedaaa5428e20383573c69194c123fdc0205e00cde52a9",
+      "manifest_sha256": "c0ca19ea448cfbdf1847d9791fd15e5978daae6c4c1f2dbf45b591abbb48f651"
+    },
+    {
+      "mode": "tracing",
+      "stress": true,
+      "prepared_environment": null,
+      "binary_sha256": "642c5b0209dc18b3b8aedaaa5428e20383573c69194c123fdc0205e00cde52a9",
+      "manifest_sha256": "c0ca19ea448cfbdf1847d9791fd15e5978daae6c4c1f2dbf45b591abbb48f651"
+    },
+    {
+      "mode": "arc",
+      "stress": false,
+      "prepared_environment": null,
+      "binary_sha256": "8680c02e0149bf1d3489e6cb5fea181f3cd22d88439312b7fc28dceb8b1f4ce4",
+      "manifest_sha256": "575b944174981fba15dbb249865d45765b43a5609f0612fdc0192b3c56729585"
+    },
+    {
+      "mode": "arc",
+      "stress": true,
+      "prepared_environment": null,
+      "binary_sha256": "8680c02e0149bf1d3489e6cb5fea181f3cd22d88439312b7fc28dceb8b1f4ce4",
+      "manifest_sha256": "575b944174981fba15dbb249865d45765b43a5609f0612fdc0192b3c56729585"
+    },
+    {
+      "mode": "prepared",
+      "stress": false,
+      "prepared_environment": "1",
+      "binary_sha256": "a32a74c4214597d4089334066101590480472f85926a327b53d75984b48372dc",
+      "manifest_sha256": "b8a01dcd760eb872ca80d9e5097b48f9987a05ac247001dc66caabcf1498fb97"
+    },
+    {
+      "mode": "prepared",
+      "stress": true,
+      "prepared_environment": "1",
+      "binary_sha256": "a32a74c4214597d4089334066101590480472f85926a327b53d75984b48372dc",
+      "manifest_sha256": "b8a01dcd760eb872ca80d9e5097b48f9987a05ac247001dc66caabcf1498fb97"
+    }
+  ],
+  "commands": [
+    {
+      "label": "vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/runtime_policy_probe.dart"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "official-build",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "exe",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/runtime_policy_probe.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/runtime-policy-bounded-tlab/official"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "official",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/runtime-policy-bounded-tlab/official"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "tracing-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/runtime_policy_probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/runtime-policy-bounded-tlab/tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "tracing-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/runtime-policy-bounded-tlab/tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "tracing-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/runtime-policy-bounded-tlab/tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "arc-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/runtime_policy_probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/runtime-policy-bounded-tlab/arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "arc-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/runtime-policy-bounded-tlab/arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "arc-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/runtime-policy-bounded-tlab/arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "prepared-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/runtime_policy_probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/runtime-policy-bounded-tlab/prepared"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "prepared-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/runtime-policy-bounded-tlab/prepared"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "prepared-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/runtime-policy-bounded-tlab/prepared"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "performance_measurement": false,
+  "inputs_stable": true
+}

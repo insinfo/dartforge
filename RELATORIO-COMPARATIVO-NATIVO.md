@@ -303,3 +303,115 @@ TinyGo.
 - [scriptc](https://github.com/gching/scriptc): experimental, da Vercel Labs (o nome às vezes aparece como "Script C").
 - [Vercel scriptc (RuntimeWire)](https://runtimewire.com/article/vercel-scriptc-typescript-native-compiler-no-javascript-engine)
 - [I tried to compile TypeScript into a native binary with scriptc (DEV)](https://dev.to/remojansen/i-tried-to-compile-typescript-into-a-native-binary-with-scriptc-5d07)
+
+## 8. Continuação da implementação — 2026-10-13
+
+Os resultados das tabelas acima permanecem históricos. A continuação
+HTTP/JSON está em `RELATORIO-HTTP-JSON-AOT.md`: correção do unwind de JSON no
+macOS arm64 com tabelas, remoção de buffers/cópias intermediários no Socket,
+encoder UTF-8 reutilizado e medições com uma conexão local. Os ganhos dessa
+carga não substituem o comparativo com 32 conexões nem podem ser somados.
+
+A base do dart_ui também avançou com três subagentes: detecção AOT
+`dartforge.compiler=true`, pragmas `vm:prefer-inline`/`vm:never-inline` e
+`--subsystem=gui` durante a ligação Windows, com CRT GUI. São mudanças
+implementadas e verificadas; ganho de CPU/tamanho por inline ainda não foi
+medido. Validação integrada: 487 testes do emissor, três de CLI, ligação
+cruzada PE GUI/console e 30 execuções AOT em tracing/ARC/ARC preparado,
+com/sem GC stress, idênticas ao Dart para as sondas de correção.
+
+A composição de pixels e a transferência de frames do dart_ui rodaram; esta
+última confirmou visibilidade em 200 rodadas. O probe portátil de callback
+mostrou zero ticks dentro da chamada nativa e diferença no catch-up após o
+retorno (34 no DartForge, quatro na VM), a investigar. Não há medida nova de
+rasterização, capacidade máxima HTTP, p95/p99 ou uso de múltiplos isolados.
+Prioridades de alocação/mapas/JSON da seção 6 continuam abertas; a próxima
+etapa de UI é wake+CFRunLoop, com AppKit e reentrância tratados separadamente.
+Ver `RELATORIO-DARTFORGE-PARA-DART-UI.md` §9 e evidências em
+`bench/results/2026-10-13-dart-ui-phase1/validation.json`.
+
+## 9. Kernels reais e contratos de temporização — 2026-10-13
+
+A prioridade de compatibilidade agora tem duas sondas que importam os kernels
+atuais do dart_ui. Conversão de vídeo e rasterização de strips produziram
+9.067/33.201 bytes iguais na VM, no AOT oficial e em 12 execuções nativas
+(tracing/ARC/ARC preparado, normal/GC stress). O runner reproduzível é
+`scripts/verify-dart-ui.py`; a saída padrão verifica correção. Benchmark de
+strips é separado, inclui consumo de todos os registros/alphas e teve apenas
+smoke funcional. Não há novos tempos para substituir as tabelas históricas.
+
+Também corrigida a entrega em rajada dos timers após bloqueio: períodos
+atrasados são pulados antes do callback e contados em `Timer.tick`, segundo
+o SDK 3.6.2. As regressões `142`/`143` passaram em 12 execuções AOT com os
+mesmos dois oráculos. O probe real passou de 34 para quatro callbacks após
+o `qsort` nesta rodada; dentro da chamada, continuaram zero. Gates das partes
+alteradas: 494 testes do emissor e 349 do runtime, incluindo ignorados,
+sem falhas. Ver `RELATORIO-DARTFORGE-PARA-DART-UI.md` §10 e
+`bench/results/2026-10-13-dart-ui-corpus/validation.json`.
+
+## 10. Consolidação do pacote e corpus FFI — 2026-10-13
+
+SIMD foi movido sem alteração para `packages/dartforge`; o pacote anterior
+foi removido por solicitação do proprietário. O probe de overflow, shifts,
+comparações e máscaras manteve 812 bytes idênticos à VM/AOT oficial, normal
+e GC stress no nativo, e operações `<4 x i32>` no IR. Não foi repetida a
+medição histórica de blend: preservação de resultado/IR não mede ganho.
+
+O corpus real do dart_ui agora inclui FFI, além de vídeo e strips:
+18 execuções nativas nos seis modos, idênticas às duas referências.
+As anotações const passaram nos seis modos, inclusive ARC preparado após
+explicitar o ownership escalar de `Timer.tick`. A bomba CFRunLoop/fila
+principal passou em 12 execuções de wake e ciclo de vida. Não há medida
+comparativa de CPU ociosa, latência AppKit ou entrada de áudio certificada.
+
+Gates das partes alteradas: 496 testes do emissor e 353 do runtime passaram,
+incluindo ignorados por padrão. `cargo fmt --check` continua sem aprovação
+global. Evidências, hashes e flags em
+`bench/results/2026-10-13-dartforge-package/`; detalhes da entrega em
+`RELATORIO-DARTFORGE-PARA-DART-UI.md` §11 e `ESTADO.md`.
+
+## 11. Progresso AppKit e política de contratos — 2026-10-13
+
+O dispatcher nativo permite chamar o backend AppKit entre turnos Dart.
+Seis execuções tracing/ARC/ARC preparado, normal/stress, confirmaram
+NSApplication/delegate, evento sintético, timer/mensagem, falha de lançamento
+com cleanup e encerramento. Não houve janela/rendering nem medição de frames.
+
+A0 reconhece metadata, mas não prova propriedades: verify recusa obrigações
+pendentes e ignore registra ausência de certificação. Relatórios têm origem/
+hashes/política/artefato, com nomes distintos inclusive para arquivos que
+diferem apenas por extensão. Mudanças de metadata/política entram no cache
+sem vincular a emissão ao diretório físico do checkout.
+
+Os novos testes não substituem benchmarks HTTP/JSON/vídeo nem certificam
+entrada de áudio. Detalhes e limites em `ESTADO.md` e relatório dart_ui §12;
+dados em `bench/results/2026-10-13-dartforge-package/`.
+
+## 12. Recursos portáveis e memória mapeada — 2026-10-13
+
+Bibliotecas por candidatos, liberação síncrona/aguardada e mapeamento de
+arquivos passaram em 18 execuções nativas iguais à VM/AOT oficial no macOS.
+O runner registra fontes, artefatos, modos e estabilidade de entradas em
+`resources-and-mapping-validation.json`; a análise do pacote passou.
+`MappedBytes` confere lifetime por acesso; o empréstimo de Uint8List externa
+sem cópia depende de contrato síncrono sem escape. Windows/Linux aguardam
+execução própria. Esses testes não medem alocações, throughput ou latência
+de HTTP/JSON e não substituem a comparação pareada já documentada.
+
+## 13. Predicados nullable e ciclo de vida FFI — 2026-10-13
+
+O otimizador normaliza somente literais exatos de null/boolean em comparações
+com representações Ref/I1 conhecidas. Propagação de null e identidades booleanas
+eliminam dispatch morto em dois predicados reais com parâmetro nullable,
+preservando os produtores com efeito dos operandos eager. Seis execuções
+nativas tracing/ARC/preparado, normal/stress, produziram os mesmos 87 bytes
+que VM/AOT oficial; três IRs mantêm comparação real do parâmetro com null e
+nenhum dispatch de igualdade nesses predicados. Isso é evidência funcional
+e estrutural, **não ganho medido de HTTP/JSON ou redução geral de alocações**.
+
+P5 define chamadas após close em código AOT residente com tombstones nativos;
+o custo é memória de contexto/trampolim conservada até o fim do processo.
+O recorte não habilita callback local vivo em thread estrangeira, realtime
+ou unloading JIT. Checkers SSA internos também não certificam NoEscape AOT.
+Ver `ESTADO.md` e os registros de validação do pacote; medições pareadas de
+throughput/alocações permanecem necessárias antes de atribuir ganho ao servidor.

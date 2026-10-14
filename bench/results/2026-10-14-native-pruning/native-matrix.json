@@ -1,0 +1,530 @@
+{
+  "schema": 1,
+  "compiler_sha256": "1d05a3139addfab53feef981a387f8a2ccd0b51966287c4af8caf44d244a4c91",
+  "sources": {
+    "crates/emit_native/tests/fixtures/receiver_cones/closure_nsm.dart": "3a50173d9ec614d41cbe7acfe9491b636d5af5a9aec8e07cbb4b63a7f5fa709a",
+    "crates/emit_native/tests/fixtures/receiver_cones/dynamic_length.dart": "509622013ab9707e36a40e771242cd30e329ca2370ca6e192746afccb9aba5cb",
+    "crates/emit_native/tests/fixtures/receiver_cones/sdk_iterator.dart": "060411c0c2feac7d8141e60cdd9641e689379eb6801258a942b65bb87be55fef",
+    "crates/emit_native/tests/fixtures/receiver_cones/sdk_overrides.dart": "c68de482a143be2568299f305ace18f72351726e47b7eb3886ab081f978bb320",
+    "crates/emit_native/tests/fixtures/receiver_cones/unary_tearoff.dart": "2256d7e3f5d634fb9940c273492e4b396965df0b799bb7a92afb9edb52e9ce2f",
+    "crates/emit_native/tests/fixtures/receiver_cones/unrelated_length.dart": "cccd71686db3cea9fba079a629814dcfdf2653dad6b7e2883b4fb4a5f58582c5"
+  },
+  "runs": [
+    {
+      "label": "closure_nsm-vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/closure_nsm.dart"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "875a988114c37ec5de231b2cebbaf37b6cd49193555c652ca5ae16d587b7e6a1"
+    },
+    {
+      "label": "closure_nsm-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/closure_nsm.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/closure_nsm"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "closure_nsm-native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/closure_nsm"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "875a988114c37ec5de231b2cebbaf37b6cd49193555c652ca5ae16d587b7e6a1"
+    },
+    {
+      "label": "closure_nsm-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/closure_nsm"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "875a988114c37ec5de231b2cebbaf37b6cd49193555c652ca5ae16d587b7e6a1"
+    },
+    {
+      "label": "closure_nsm-ir",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/closure_nsm.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=tracing",
+        "--emit-ir",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/closure_nsm.ll"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "dynamic_length-vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/dynamic_length.dart"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "b23c7b7b5945db916c2c81ccbd2ee7e6bb2ef58061999f327d351618cfc9e192"
+    },
+    {
+      "label": "dynamic_length-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/dynamic_length.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/dynamic_length"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "dynamic_length-native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/dynamic_length"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "b23c7b7b5945db916c2c81ccbd2ee7e6bb2ef58061999f327d351618cfc9e192"
+    },
+    {
+      "label": "dynamic_length-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/dynamic_length"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "b23c7b7b5945db916c2c81ccbd2ee7e6bb2ef58061999f327d351618cfc9e192"
+    },
+    {
+      "label": "dynamic_length-cold-vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/dynamic_length.dart",
+        "cold"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "c878bd638cb3afc8dfd7b16786e47d298a2aced87a88eb10a2ce83418ed8f7bb"
+    },
+    {
+      "label": "dynamic_length-cold-native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/dynamic_length",
+        "cold"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "c878bd638cb3afc8dfd7b16786e47d298a2aced87a88eb10a2ce83418ed8f7bb"
+    },
+    {
+      "label": "dynamic_length-cold-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/dynamic_length",
+        "cold"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "c878bd638cb3afc8dfd7b16786e47d298a2aced87a88eb10a2ce83418ed8f7bb"
+    },
+    {
+      "label": "dynamic_length-ir",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/dynamic_length.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=tracing",
+        "--emit-ir",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/dynamic_length.ll"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "sdk_iterator-vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/sdk_iterator.dart"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "0eae05c68ec8ddeb60603f9593cc26f1675c4910ab257da5a9b391dbbfcee718"
+    },
+    {
+      "label": "sdk_iterator-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/sdk_iterator.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/sdk_iterator"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "sdk_iterator-native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/sdk_iterator"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "0eae05c68ec8ddeb60603f9593cc26f1675c4910ab257da5a9b391dbbfcee718"
+    },
+    {
+      "label": "sdk_iterator-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/sdk_iterator"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "0eae05c68ec8ddeb60603f9593cc26f1675c4910ab257da5a9b391dbbfcee718"
+    },
+    {
+      "label": "sdk_iterator-ir",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/sdk_iterator.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=tracing",
+        "--emit-ir",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/sdk_iterator.ll"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "sdk_overrides-vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/sdk_overrides.dart"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "a167fc0c5febba146f684981ce04638cf8293f094d15265fd5e6fa2833d58745"
+    },
+    {
+      "label": "sdk_overrides-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/sdk_overrides.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/sdk_overrides"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "sdk_overrides-native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/sdk_overrides"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "a167fc0c5febba146f684981ce04638cf8293f094d15265fd5e6fa2833d58745"
+    },
+    {
+      "label": "sdk_overrides-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/sdk_overrides"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "a167fc0c5febba146f684981ce04638cf8293f094d15265fd5e6fa2833d58745"
+    },
+    {
+      "label": "sdk_overrides-ir",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/sdk_overrides.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=tracing",
+        "--emit-ir",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/sdk_overrides.ll"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "unary_tearoff-vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/unary_tearoff.dart"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "c0b2e0544c5f7b649dc0e87066648e103726490d6b9d4db120d9bab8065f1563"
+    },
+    {
+      "label": "unary_tearoff-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/unary_tearoff.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/unary_tearoff"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "unary_tearoff-native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/unary_tearoff"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "c0b2e0544c5f7b649dc0e87066648e103726490d6b9d4db120d9bab8065f1563"
+    },
+    {
+      "label": "unary_tearoff-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/unary_tearoff"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "c0b2e0544c5f7b649dc0e87066648e103726490d6b9d4db120d9bab8065f1563"
+    },
+    {
+      "label": "unary_tearoff-dynamic-vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/unary_tearoff.dart",
+        "dynamic"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "6d1e2bd8ebe649377b324ee666bb69e4940eac05e1ceef1f1d5758cf094a2470"
+    },
+    {
+      "label": "unary_tearoff-dynamic-native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/unary_tearoff",
+        "dynamic"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "6d1e2bd8ebe649377b324ee666bb69e4940eac05e1ceef1f1d5758cf094a2470"
+    },
+    {
+      "label": "unary_tearoff-dynamic-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/unary_tearoff",
+        "dynamic"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "6d1e2bd8ebe649377b324ee666bb69e4940eac05e1ceef1f1d5758cf094a2470"
+    },
+    {
+      "label": "unary_tearoff-ir",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/unary_tearoff.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=tracing",
+        "--emit-ir",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/unary_tearoff.ll"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "unrelated_length-vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/unrelated_length.dart"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "b23c7b7b5945db916c2c81ccbd2ee7e6bb2ef58061999f327d351618cfc9e192"
+    },
+    {
+      "label": "unrelated_length-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/unrelated_length.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/unrelated_length"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "unrelated_length-native",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/unrelated_length"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "b23c7b7b5945db916c2c81ccbd2ee7e6bb2ef58061999f327d351618cfc9e192"
+    },
+    {
+      "label": "unrelated_length-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/unrelated_length"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "b23c7b7b5945db916c2c81ccbd2ee7e6bb2ef58061999f327d351618cfc9e192"
+    },
+    {
+      "label": "unrelated_length-ir",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/receiver_cones/unrelated_length.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=tracing",
+        "--emit-ir",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/receiver-cone-validation-exact-pairs/unrelated_length.ll"
+      ],
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "ir_observations": {
+    "closure_nsm": {
+      "cold_marker_present": false,
+      "ir_bytes": 169092,
+      "binary_sha256": "97e92725ef10b43d084dd6d727f0eca11390ed0cf4d93f845a0b4caa6cc5e9fe"
+    },
+    "dynamic_length": {
+      "cold_marker_present": true,
+      "ir_bytes": 145111,
+      "binary_sha256": "ce7c5c195e6a869d94508528bb7c554a230e303482943afa623d3ac1c30bcfc4"
+    },
+    "sdk_iterator": {
+      "cold_marker_present": false,
+      "ir_bytes": 139940,
+      "binary_sha256": "fae42eefd3d2d633f09f46f1d45f3c4aa69a4dcf68cf02378b04efbebcfdac29"
+    },
+    "sdk_overrides": {
+      "cold_marker_present": false,
+      "ir_bytes": 175304,
+      "binary_sha256": "1477c357c5b548cb2ef32cc3bd51b227e8b59812cb603dcd2a242638b32ba4a5"
+    },
+    "unary_tearoff": {
+      "cold_marker_present": false,
+      "ir_bytes": 157842,
+      "binary_sha256": "17e468b3db4f0927e8862b0845ff6c9044a8695f05d4952407a5889399c85157"
+    },
+    "unrelated_length": {
+      "cold_marker_present": true,
+      "ir_bytes": 136544,
+      "binary_sha256": "7bf1900ea6c7427b5fe6ef253213acc25e33457d0eb59bab163414a683e51953"
+    }
+  },
+  "performance_measurement": false,
+  "effectiveness_failures": [
+    "Unrelated Cold.length body remains reachable"
+  ],
+  "scope": "Exact SDK formal-this receiver facts; unknown receivers remain conservative.",
+  "inputs_stable": true,
+  "correctness_passed": true,
+  "effectiveness_passed": false
+}

@@ -1,0 +1,416 @@
+{
+  "schema": 1,
+  "compiler_sha256": "c2b500cb02a4d2d3727a28c118b6c76aed6298d7af67efbc3c6c618a69b89cee",
+  "production_sources": {
+    "crates/runtime/src/natives_strings.rs": "a550ae2ee7628a4fb04817372dc727a3905fa2b950904692be3ce05dea3a944f",
+    "crates/runtime/src/ports.rs": "28911799b7e043502e7945ae2056bb4d74856e6de1dde8fe245246e4b3afbdf8"
+  },
+  "semantic_matrix": {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/string_buffer.dart",
+    "source_sha256": "bd80cba83bca45bcd6116f81de36ebfd417b15a1f92d07a2d5668d828742aa27",
+    "runner_sha256": "48bb2ca8c6c8b2d865630f10cb07eb83dc6a50ff9be37cee8ad68dd60a08f6f5",
+    "sdk_lib": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+    "compiler_sha256": "c2b500cb02a4d2d3727a28c118b6c76aed6298d7af67efbc3c6c618a69b89cee",
+    "clang": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22",
+    "input_hashes": {
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/string_buffer.dart": "bd80cba83bca45bcd6116f81de36ebfd417b15a1f92d07a2d5668d828742aa27",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/verify-string-buffer.py": "48bb2ca8c6c8b2d865630f10cb07eb83dc6a50ff9be37cee8ad68dd60a08f6f5",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge": "c2b500cb02a4d2d3727a28c118b6c76aed6298d7af67efbc3c6c618a69b89cee",
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22": "9a690e9e11d4774d63e95ed2ab90abd82889f949b0bb9db8208f7e18f278ea50"
+    },
+    "commands": [
+      {
+        "label": "sdk-version",
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "--version"
+        ],
+        "exit_code": 0,
+        "environment": {
+          "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation",
+          "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22",
+          "DARTFORGE_EFFECTS": "check",
+          "DARTFORGE_ARC_CHECK": "1"
+        }
+      },
+      {
+        "label": "vm",
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/string_buffer.dart"
+        ],
+        "exit_code": 0,
+        "environment": {
+          "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation",
+          "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22",
+          "DARTFORGE_EFFECTS": "check",
+          "DARTFORGE_ARC_CHECK": "1"
+        }
+      },
+      {
+        "label": "official-build",
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "exe",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/string_buffer.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/official"
+        ],
+        "exit_code": 0,
+        "environment": {
+          "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation",
+          "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22",
+          "DARTFORGE_EFFECTS": "check",
+          "DARTFORGE_ARC_CHECK": "1"
+        }
+      },
+      {
+        "label": "official",
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/official"
+        ],
+        "exit_code": 0,
+        "environment": {
+          "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation",
+          "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22",
+          "DARTFORGE_EFFECTS": "check",
+          "DARTFORGE_ARC_CHECK": "1"
+        }
+      },
+      {
+        "label": "tracing-build",
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "compile-native",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/string_buffer.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "--optimize",
+          "--exceptions=tables",
+          "--roots=shadow",
+          "--stack-trace=none",
+          "--dartforge-contracts=verify",
+          "--memory=tracing",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.tracing"
+        ],
+        "exit_code": 0,
+        "environment": {
+          "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation",
+          "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22",
+          "DARTFORGE_EFFECTS": "check",
+          "DARTFORGE_ARC_CHECK": "1"
+        }
+      },
+      {
+        "label": "tracing-normal",
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.tracing"
+        ],
+        "exit_code": 0,
+        "environment": {
+          "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation",
+          "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22",
+          "DARTFORGE_EFFECTS": "check",
+          "DARTFORGE_ARC_CHECK": "1"
+        }
+      },
+      {
+        "label": "tracing-stress",
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.tracing"
+        ],
+        "exit_code": 0,
+        "environment": {
+          "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation",
+          "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22",
+          "DARTFORGE_EFFECTS": "check",
+          "DARTFORGE_ARC_CHECK": "1",
+          "DARTFORGE_GC_STRESS": "1"
+        }
+      },
+      {
+        "label": "arc-build",
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "compile-native",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/string_buffer.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "--optimize",
+          "--exceptions=tables",
+          "--roots=shadow",
+          "--stack-trace=none",
+          "--dartforge-contracts=verify",
+          "--memory=arc",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.arc"
+        ],
+        "exit_code": 0,
+        "environment": {
+          "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation",
+          "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22",
+          "DARTFORGE_EFFECTS": "check",
+          "DARTFORGE_ARC_CHECK": "1"
+        }
+      },
+      {
+        "label": "arc-normal",
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.arc"
+        ],
+        "exit_code": 0,
+        "environment": {
+          "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation",
+          "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22",
+          "DARTFORGE_EFFECTS": "check",
+          "DARTFORGE_ARC_CHECK": "1"
+        }
+      },
+      {
+        "label": "arc-stress",
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.arc"
+        ],
+        "exit_code": 0,
+        "environment": {
+          "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation",
+          "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22",
+          "DARTFORGE_EFFECTS": "check",
+          "DARTFORGE_ARC_CHECK": "1",
+          "DARTFORGE_GC_STRESS": "1"
+        }
+      },
+      {
+        "label": "prepared-build",
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "compile-native",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/string_buffer.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "--optimize",
+          "--exceptions=tables",
+          "--roots=shadow",
+          "--stack-trace=none",
+          "--dartforge-contracts=verify",
+          "--memory=arc",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.prepared"
+        ],
+        "exit_code": 0,
+        "environment": {
+          "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation",
+          "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22",
+          "DARTFORGE_EFFECTS": "check",
+          "DARTFORGE_ARC_CHECK": "1",
+          "DARTFORGE_ARC_PREPARED": "1"
+        }
+      },
+      {
+        "label": "prepared-normal",
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.prepared"
+        ],
+        "exit_code": 0,
+        "environment": {
+          "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation",
+          "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22",
+          "DARTFORGE_EFFECTS": "check",
+          "DARTFORGE_ARC_CHECK": "1",
+          "DARTFORGE_ARC_PREPARED": "1"
+        }
+      },
+      {
+        "label": "prepared-stress",
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.prepared"
+        ],
+        "exit_code": 0,
+        "environment": {
+          "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation",
+          "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang-22",
+          "DARTFORGE_EFFECTS": "check",
+          "DARTFORGE_ARC_CHECK": "1",
+          "DARTFORGE_ARC_PREPARED": "1",
+          "DARTFORGE_GC_STRESS": "1"
+        }
+      }
+    ],
+    "builds": [
+      {
+        "mode": "tracing",
+        "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.tracing",
+        "binary_sha256": "20ebded6e45c460d859b33c3d41d2daadf24290906fbc8a010adcad07964d9c0",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.tracing.contracts.json",
+        "manifest_sha256": "3d93586a1fe4a73f3a50546e5da1ae6551b7549203cd527269b55625c29a46c2",
+        "artifact_identity": {
+          "blake3": "80c542f417eaf8fe9bfb0f7dab41d6e14cc2d6b3a008b15e30e977148790bf5a",
+          "cpu": "None",
+          "debug": false,
+          "ir_blake3": "51081b443c6d6c09fbd364ba836c8c37f38aababd4933b2bc7320bc31350405f",
+          "optimized": true,
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.tracing"
+        },
+        "certified": false,
+        "requests": []
+      },
+      {
+        "mode": "arc",
+        "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.arc",
+        "binary_sha256": "b6d317fa368c55d5ab9c9ee57de7d7731ad53c4e39ac90951208d65311b36093",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.arc.contracts.json",
+        "manifest_sha256": "c27b687646d3242a8189661c829ecb625baee9605ff5e40a59d5c11f967d9741",
+        "artifact_identity": {
+          "blake3": "0a7837bf05ac7050759a61406e4e48e7985ccb193f791e6150d5cc9addb801ca",
+          "cpu": "None",
+          "debug": false,
+          "ir_blake3": "7511fd896fa685f1efe75889c12229fbfd833c6dd3e8b5a0a4df2dcb784e0138",
+          "optimized": true,
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.arc"
+        },
+        "certified": false,
+        "requests": []
+      },
+      {
+        "mode": "prepared",
+        "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.prepared",
+        "binary_sha256": "df3ceb058c6c210f5ce6de4baacec7efbbcb5da1cff971753cae961506a6f151",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.prepared.contracts.json",
+        "manifest_sha256": "dcfdb60d9c3abf9c1224cf0ec49aff396b1a0f3ed84f9cfe360efc77330be7fd",
+        "artifact_identity": {
+          "blake3": "f8a2ad7b31f42e997718672d515deeebe4d5329fc658738ec8d59f12d6df6b81",
+          "cpu": "None",
+          "debug": false,
+          "ir_blake3": "2b615fb2743d8ff14555a5c94e5772dba56dac4c161a034095771cc07576064c",
+          "optimized": true,
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-buffer-scalar-validation/string-buffer.prepared"
+        },
+        "certified": false,
+        "requests": []
+      }
+    ],
+    "runs": [
+      {
+        "label": "vm",
+        "exit_code": 0,
+        "stdout_bytes": 1012,
+        "stdout_sha256": "459957fa6f6f5d03b32556d545fbbca2fb731c931920486869486c6c8065c330",
+        "stderr_bytes": 0,
+        "matches_reviewed_oracle": true
+      },
+      {
+        "label": "official",
+        "exit_code": 0,
+        "stdout_bytes": 1012,
+        "stdout_sha256": "459957fa6f6f5d03b32556d545fbbca2fb731c931920486869486c6c8065c330",
+        "stderr_bytes": 0,
+        "matches_reviewed_oracle": true,
+        "binary_sha256": "c52264213ae7458d2b8bcbab36db94a66afd019e02f4eb81a775d8d0b22f2535"
+      },
+      {
+        "label": "tracing-normal",
+        "exit_code": 0,
+        "stdout_bytes": 1012,
+        "stdout_sha256": "459957fa6f6f5d03b32556d545fbbca2fb731c931920486869486c6c8065c330",
+        "stderr_bytes": 0,
+        "matches_reviewed_oracle": true,
+        "mode": "tracing",
+        "gc_stress": false,
+        "binary_sha256": "20ebded6e45c460d859b33c3d41d2daadf24290906fbc8a010adcad07964d9c0",
+        "manifest_sha256": "3d93586a1fe4a73f3a50546e5da1ae6551b7549203cd527269b55625c29a46c2"
+      },
+      {
+        "label": "tracing-stress",
+        "exit_code": 0,
+        "stdout_bytes": 1012,
+        "stdout_sha256": "459957fa6f6f5d03b32556d545fbbca2fb731c931920486869486c6c8065c330",
+        "stderr_bytes": 0,
+        "matches_reviewed_oracle": true,
+        "mode": "tracing",
+        "gc_stress": true,
+        "binary_sha256": "20ebded6e45c460d859b33c3d41d2daadf24290906fbc8a010adcad07964d9c0",
+        "manifest_sha256": "3d93586a1fe4a73f3a50546e5da1ae6551b7549203cd527269b55625c29a46c2"
+      },
+      {
+        "label": "arc-normal",
+        "exit_code": 0,
+        "stdout_bytes": 1012,
+        "stdout_sha256": "459957fa6f6f5d03b32556d545fbbca2fb731c931920486869486c6c8065c330",
+        "stderr_bytes": 0,
+        "matches_reviewed_oracle": true,
+        "mode": "arc",
+        "gc_stress": false,
+        "binary_sha256": "b6d317fa368c55d5ab9c9ee57de7d7731ad53c4e39ac90951208d65311b36093",
+        "manifest_sha256": "c27b687646d3242a8189661c829ecb625baee9605ff5e40a59d5c11f967d9741"
+      },
+      {
+        "label": "arc-stress",
+        "exit_code": 0,
+        "stdout_bytes": 1012,
+        "stdout_sha256": "459957fa6f6f5d03b32556d545fbbca2fb731c931920486869486c6c8065c330",
+        "stderr_bytes": 0,
+        "matches_reviewed_oracle": true,
+        "mode": "arc",
+        "gc_stress": true,
+        "binary_sha256": "b6d317fa368c55d5ab9c9ee57de7d7731ad53c4e39ac90951208d65311b36093",
+        "manifest_sha256": "c27b687646d3242a8189661c829ecb625baee9605ff5e40a59d5c11f967d9741"
+      },
+      {
+        "label": "prepared-normal",
+        "exit_code": 0,
+        "stdout_bytes": 1012,
+        "stdout_sha256": "459957fa6f6f5d03b32556d545fbbca2fb731c931920486869486c6c8065c330",
+        "stderr_bytes": 0,
+        "matches_reviewed_oracle": true,
+        "mode": "prepared",
+        "gc_stress": false,
+        "binary_sha256": "df3ceb058c6c210f5ce6de4baacec7efbbcb5da1cff971753cae961506a6f151",
+        "manifest_sha256": "dcfdb60d9c3abf9c1224cf0ec49aff396b1a0f3ed84f9cfe360efc77330be7fd"
+      },
+      {
+        "label": "prepared-stress",
+        "exit_code": 0,
+        "stdout_bytes": 1012,
+        "stdout_sha256": "459957fa6f6f5d03b32556d545fbbca2fb731c931920486869486c6c8065c330",
+        "stderr_bytes": 0,
+        "matches_reviewed_oracle": true,
+        "mode": "prepared",
+        "gc_stress": true,
+        "binary_sha256": "df3ceb058c6c210f5ce6de4baacec7efbbcb5da1cff971753cae961506a6f151",
+        "manifest_sha256": "dcfdb60d9c3abf9c1224cf0ec49aff396b1a0f3ed84f9cfe360efc77330be7fd"
+      }
+    ],
+    "expected_stdout_sha256": "459957fa6f6f5d03b32556d545fbbca2fb731c931920486869486c6c8065c330",
+    "expected_stdout_bytes": 1012,
+    "oracle_only": false,
+    "inputs_stable_through_run": true,
+    "complete": true,
+    "performance_measurement": false,
+    "limits": [
+      "The fixture checks exact UTF-16 units including lone surrogates, immutable snapshots, conversion effects/errors, JSON and isolate copies.",
+      "Successful behavior is not a NoEscape, ARC ownership or complete backend-effect certificate.",
+      "Manifest identity is checked against its binary path; independent SHA256 binds artifacts. Compiler BLAKE3 is recorded without independent recomputation."
+    ],
+    "sdk_version": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\""
+  },
+  "runtime_test_counts": [
+    284,
+    4,
+    2,
+    2,
+    6,
+    4,
+    6
+  ],
+  "runtime_measurement_tests_skipped": 3,
+  "performance_status": "First adaptive version improved ASCII/Latin1 StringBuffer but regressed JSON and mixed UTF-16; scalar fastpath measurement pending. No HTTP gain established.",
+  "first_paired_ledger": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/json-encode-after-adaptive/ledger.json",
+  "limits": [
+    "Semantic tests do not certify realtime, ARC proofs or all Dart programs.",
+    "Native capacity growth accounting is now included; performance comparison combines accounting and storage changes."
+  ]
+}

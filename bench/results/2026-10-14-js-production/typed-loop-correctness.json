@@ -1,0 +1,79 @@
+{
+  "source_sha256": "0686a332d232fdef7958b88c9124e04fa7ad148c63bef34eacbad1a424791897",
+  "compiler_sha256": "7a1180bfc03d879746fa7b3e4f14fb5b40ebcac49cfc0d00b317a9581bc388eb",
+  "cases": {
+    "officialO2": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "js",
+        "-O2",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_loop_ranges.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-loop/officialO2-current.js"
+      ],
+      "compile_exit": 0,
+      "artifact_sha256": "e6506df3566ea893f4ec131a7427ebeb3f300517ed4675d5e21448d0c6d07f03",
+      "exit_code": 0,
+      "stdout": "equal=32.000\nalias=14.000\nlonger=32.000\nshort=14.000:range=2\nempty=-zero\nzero=-zero\nnan=nan\ninfinity=infinity\nprecision=0.500\nprecisionBits=3fe0000000000000\nreadonly=32.000\nview=28.000\noffset=5.000:range=3\nreceiver=10.000\nindex=4.000\ncallback=11.000:callbacks=3\ngeneric=5.000:lengthReads=3\nnullable=6.000\nlate=11.000\nshadow=24.000\nbytes=510:readonly=510:empty=0\n",
+      "stderr": "",
+      "exact_vm": true
+    },
+    "forge_checked": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_loop_ranges.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-loop/forge_checked-current.js"
+      ],
+      "compile_exit": 0,
+      "artifact_sha256": "a23ccb432cc5ca8b0a90d9bff3e97c8196afc7638fb939cfef60701c270b4900",
+      "exit_code": 0,
+      "stdout": "equal=32.000\nalias=14.000\nlonger=32.000\nshort=14.000:range=2\nempty=-zero\nzero=-zero\nnan=nan\ninfinity=infinity\nprecision=0.500\nprecisionBits=3fe0000000000000\nreadonly=32.000\nview=28.000\noffset=5.000:range=3\nreceiver=10.000\nindex=4.000\ncallback=11.000:callbacks=3\ngeneric=5.000:lengthReads=3\nnullable=6.000\nlate=11.000\nshadow=24.000\nbytes=510:readonly=510:empty=0\n",
+      "stderr": "",
+      "exact_vm": true
+    },
+    "forge_omit": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_loop_ranges.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--omit-checks",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-loop/forge_omit-current.js"
+      ],
+      "compile_exit": 0,
+      "artifact_sha256": "829ba5068bf0ada5e3b02de66f2aa6500bd3f83c59731a30b3f5049b2ee0c549",
+      "exit_code": 0,
+      "stdout": "equal=32.000\nalias=14.000\nlonger=32.000\nshort=14.000:range=2\nempty=-zero\nzero=-zero\nnan=nan\ninfinity=infinity\nprecision=0.500\nprecisionBits=3fe0000000000000\nreadonly=32.000\nview=28.000\noffset=5.000:range=3\nreceiver=10.000\nindex=4.000\ncallback=11.000:callbacks=3\ngeneric=5.000:lengthReads=3\nnullable=6.000\nlate=11.000\nshadow=24.000\nbytes=510:readonly=510:empty=0\n",
+      "stderr": "",
+      "exact_vm": true
+    },
+    "forge_raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_loop_ranges.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-loop/forge_raw-current.js"
+      ],
+      "compile_exit": 0,
+      "artifact_sha256": "a2bfecbcdc06be34faa16705b9b790a3eda93dda23e1998c66d3db2e6fc91292",
+      "exit_code": 0,
+      "stdout": "equal=32.000\nalias=14.000\nlonger=32.000\nshort=14.000:range=2\nempty=-zero\nzero=-zero\nnan=nan\ninfinity=infinity\nprecision=0.500\nprecisionBits=3fe0000000000000\nreadonly=32.000\nview=28.000\noffset=5.000:range=3\nreceiver=10.000\nindex=4.000\ncallback=11.000:callbacks=3\ngeneric=5.000:lengthReads=3\nnullable=6.000\nlate=11.000\nshadow=24.000\nbytes=510:readonly=510:empty=0\n",
+      "stderr": "",
+      "exact_vm": true
+    }
+  },
+  "vm": {
+    "exit_code": 0,
+    "stdout": "equal=32.000\nalias=14.000\nlonger=32.000\nshort=14.000:range=2\nempty=-zero\nzero=-zero\nnan=nan\ninfinity=infinity\nprecision=0.500\nprecisionBits=3fe0000000000000\nreadonly=32.000\nview=28.000\noffset=5.000:range=3\nreceiver=10.000\nindex=4.000\ncallback=11.000:callbacks=3\ngeneric=5.000:lengthReads=3\nnullable=6.000\nlate=11.000\nshadow=24.000\nbytes=510:readonly=510:empty=0\n",
+    "stderr": ""
+  },
+  "inputs_stable": true
+}

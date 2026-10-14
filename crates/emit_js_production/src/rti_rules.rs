@@ -445,10 +445,7 @@ pub fn batch_program_resources(js: &str, program_start: usize) -> String {
         flat.push(class.to_string());
         flat.push(if items.len() == 1 { items[0].to_string() } else { format!("[{}]", items.join(", ")) });
     }
-    let call = format!(
-        "((a) => {{ for (let i = 0; i < a.length; i += 2) dart.addRtiResources(a[i], typeof a[i + 1] == \"string\" ? [a[i + 1]] : a[i + 1]); }})([{}]);\n",
-        flat.join(", ")
-    );
+    let call = resource_batch_call(&flat, std::env::var("DARTFORGE_JSPROD_RESOURCE_IDS").as_deref() != Ok("0"));
     let last = found.len() - 1;
     let mut out = String::with_capacity(js.len());
     let mut pos = 0;
@@ -463,9 +460,107 @@ pub fn batch_program_resources(js: &str, program_start: usize) -> String {
     out
 }
 
+// Transport only: reconstruct the exact canonical recipe string before the
+// runtime sees it. No class, rule, ordering or runtime check is removed.
+fn resource_batch_call(flat: &[String], compact: bool) -> String {
+    let ordinary = format!(
+        "((a) => {{ for (let i = 0; i < a.length; i += 2) dart.addRtiResources(a[i], typeof a[i + 1] == \"string\" ? [a[i + 1]] : a[i + 1]); }})([{}]);\n",
+        flat.join(", ")
+    );
+    if !compact {
+        return ordinary;
+    }
+    let mut encoded = flat.to_vec();
+    let mut previous = None;
+    for index in (1..flat.len()).step_by(2) {
+        let Some(number) = resource_id_number(&flat[index]) else { continue };
+        let token = if previous.is_some_and(|p| p + 1 == number) { "0".to_string() } else { (number + 1).to_string() };
+        if token.len() < flat[index].len() {
+            encoded[index] = token;
+            previous = Some(number);
+        }
+    }
+    let alphabet = std::str::from_utf8(dartforge_emit_js::ID_NEXT).expect("ASCII recipe alphabet");
+    let candidate = format!(
+        "((a) => {{ let p = -1; const c = \"{alphabet}\"; for (let i = 0; i < a.length; i += 2) {{ let r = a[i + 1]; if (typeof r == \"number\") {{ let n = r == 0 ? p + 1 : r - 1; p = n; r = \"|\" + c[n % 54]; for (n = (n / 54) | 0; n > 0; n = (n / 64) | 0) r += c[(--n) % 64]; }} dart.addRtiResources(a[i], typeof r == \"string\" ? [r] : r); }} }})([{}]);\n",
+        encoded.join(", ")
+    );
+    // Leave small batches alone; the decoder and a gzip dictionary can cost
+    // more than the removed literals. Real application sizes are measured.
+    if candidate.len().saturating_add(512) < ordinary.len() { candidate } else { ordinary }
+}
+
+fn resource_id_number(literal: &str) -> Option<usize> {
+    let id = literal.strip_prefix("\"|")?.strip_suffix('"')?;
+    // Bound arithmetic even for arbitrary input. Five characters cover over
+    // 900 million ids and keep the JS decoder's bitwise quotients in range.
+    if id.is_empty() || id.len() > 5 {
+        return None;
+    }
+    dartforge_emit_js::id_number(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn recipe_id(mut number: usize) -> String {
+        let mut id = String::new();
+        id.push(dartforge_emit_js::ID_FIRST[number % 54] as char);
+        number /= 54;
+        while number > 0 {
+            number -= 1;
+            id.push(dartforge_emit_js::ID_NEXT[number % 64] as char);
+            number /= 64;
+        }
+        id
+    }
+
+    #[test]
+    fn resource_transport_accepts_only_bounded_canonical_singletons() {
+        for n in 0..(54 + 54 * 64) {
+            assert_eq!(resource_id_number(&format!("\"|{}\"", recipe_id(n))), Some(n));
+        }
+        for n in [54 * 65, 54 * 65 + 1, 1_000_000, 919_151_669] {
+            assert_eq!(resource_id_number(&format!("\"|{}\"", recipe_id(n))), Some(n));
+        }
+        for invalid in ["\"|\"", "\"|0\"", "\"|é\"", "\"|a\\n\"", "\"|aaaaaa\"", "[\"|a\"]", "\"named.Type\""] {
+            assert_eq!(resource_id_number(invalid), None, "{invalid}");
+        }
+        let small = vec!["L$a.C".to_string(), "\"|aaaaa\"".to_string()];
+        assert_eq!(resource_batch_call(&small, true), resource_batch_call(&small, false));
+    }
+
+    #[test]
+    #[ignore = "requires Node"]
+    fn resource_transport_preserves_class_identity_strings_and_call_order_in_node() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let mut flat = Vec::new();
+        let mut add = |literal: String| {
+            flat.push(format!("classes[{}]", flat.len() / 2));
+            flat.push(literal);
+        };
+        // Exhaust both short-id alphabets, consecutive and gapped sequences,
+        // then repeat backwards to exercise explicit ordinals and resets.
+        for n in 0..(54 + 54 * 64) { add(format!("\"|{}\"", recipe_id(n))); }
+        for n in (0..300).rev() { add(format!("\"|{}\"", recipe_id(n * 17))); }
+        for n in [1_000_000, 919_151_669] { add(format!("\"|{}\"", recipe_id(n))); }
+        for literal in ["\"ordinary.Type\"", "[\"|a\", \"|b\"]", "\"|é\"", "\"|aaaaaa\"", "\"|0\""] { add(literal.to_string()); }
+        let ordinary = resource_batch_call(&flat, false);
+        let compact = resource_batch_call(&flat, true);
+        assert!(compact.len() + 512 < ordinary.len());
+        assert!(compact.contains("let p = -1"));
+        let source = format!(
+            "const classes=Array.from({{length:{}}},(_,i)=>({{i}})); let calls=[]; const dart={{addRtiResources(c,r){{if(c!==classes[c.i])throw Error('identity');calls.push([c.i,r]);}}}}; {ordinary} const expected=JSON.stringify(calls); calls=[]; {compact} if(JSON.stringify(calls)!==expected)throw Error('resource transport mismatch'); console.log('resources-exact');",
+            flat.len() / 2
+        );
+        let mut child = Command::new("node").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("Node");
+        child.stdin.take().unwrap().write_all(source.as_bytes()).unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(output.stdout, b"resources-exact\n");
+    }
 
     #[test]
     fn program_resources_batch_into_the_last_statement() {

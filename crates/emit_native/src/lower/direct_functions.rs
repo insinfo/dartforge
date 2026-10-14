@@ -264,6 +264,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 b.dart_ref_returns.insert(b.func.symbol.clone());
             }
         }
+        b.record_local_inline_policy(ast, fid);
         self.absorb(b);
     }
 

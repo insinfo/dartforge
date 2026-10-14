@@ -75,6 +75,7 @@ pub struct FnBuilder<'a, 'c> {
     pub active_catch_stack: Vec<(Operand, u8)>,
     pub terminated_blocks: std::collections::HashSet<BlockId>,
     pub extra_functions: Vec<Function>,
+    pub inline_policies: std::collections::HashMap<String, crate::hir::InlinePolicy>,
     pub labeled_break_targets: HashMap<SymbolId, BlockId>,
     pub labeled_continue_targets: HashMap<SymbolId, BlockId>,
     pub pending_labels: Vec<SymbolId>,
@@ -342,6 +343,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             active_catch_stack: Vec::new(),
             terminated_blocks: std::collections::HashSet::new(),
             extra_functions: Vec::new(),
+            inline_policies: std::collections::HashMap::new(),
             labeled_break_targets: HashMap::new(),
             labeled_continue_targets: HashMap::new(),
             pending_labels: Vec::new(),
@@ -544,6 +546,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Delivers the function (and the local functions) to the module, with the diagnostics.
     pub fn finish(mut self, module: &mut Module) {
         self.close_stack_trace();
+        if let (Some(class), Some(Operand::Val(value))) = (self.enclosing_class, &self.this_param)
+            && self.ctx.program.library(self.ctx.program.class(class).library).is_sdk
+            && self.func.params.iter().any(|(id, _, ty)| id == value && *ty == Type::Ref)
+            && let Some(cid) = self.ctx.class_id_of(class)
+        {
+            module.pruning_this_receivers.insert(self.func.symbol.clone(), (*value, cid));
+        }
         // P6: the diagnostic of a source function only holds if pruning
         // keeps it (`source::prune`).
         let lib = self.ctx.program.unit(self.unit_id).library;
@@ -563,6 +572,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         module.arc_rti_caches.extend(self.arc_rti_caches);
         module.arc_shared_functions.extend(self.arc_shared_functions);
         module.arc_direct_local_functions.extend(self.arc_direct_local_functions);
+        module.inline_policies.extend(self.inline_policies);
         module.functions.push(self.func);
         module.functions.extend(self.extra_functions);
     }

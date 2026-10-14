@@ -142,7 +142,7 @@ fn persistent_session_measurement() {
     let emitted = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let options = dartforge_emit_native::CompileOptions { sdk: None, packages: None, timings: false, optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+            let options = dartforge_emit_native::CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify, sdk: None, packages: None, timings: false, optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
             // With the source SDK (the emitter's only mode since the unified
             // space): the program imports the runtime and the SDK from the shared
             // library, which the session loads (`JitSession::new_for_ir_with`).

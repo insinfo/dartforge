@@ -1,0 +1,260 @@
+{
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "limitations": [
+    "Local Python client limits wall throughput",
+    "One keep-alive connection",
+    "macOS CPU counter resolution is 0.01 seconds"
+  ],
+  "results": [
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.75,
+      "elapsed_seconds": 3.887141917,
+      "cpu_ms_per_1000_requests": 35.0,
+      "client_limited_requests_per_second": 12862.921155857557,
+      "rss_kib": 14880,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-before",
+      "route": "/",
+      "round": 1
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.8599999999999999,
+      "elapsed_seconds": 4.172069,
+      "cpu_ms_per_1000_requests": 37.199999999999996,
+      "client_limited_requests_per_second": 11984.46142669261,
+      "rss_kib": 14864,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-before",
+      "route": "/json",
+      "round": 1
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.71,
+      "elapsed_seconds": 3.887086,
+      "cpu_ms_per_1000_requests": 34.2,
+      "client_limited_requests_per_second": 12863.106193174013,
+      "rss_kib": 14448,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-after",
+      "route": "/",
+      "round": 1
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.8499999999999999,
+      "elapsed_seconds": 4.150235,
+      "cpu_ms_per_1000_requests": 36.99999999999999,
+      "client_limited_requests_per_second": 12047.510562654885,
+      "rss_kib": 14848,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-after",
+      "route": "/json",
+      "round": 1
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.72,
+      "elapsed_seconds": 3.8784797920000003,
+      "cpu_ms_per_1000_requests": 34.4,
+      "client_limited_requests_per_second": 12891.648965951348,
+      "rss_kib": 14432,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-after",
+      "route": "/",
+      "round": 2
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.8499999999999999,
+      "elapsed_seconds": 4.1426345,
+      "cpu_ms_per_1000_requests": 36.99999999999999,
+      "client_limited_requests_per_second": 12069.614154953812,
+      "rss_kib": 14800,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-after",
+      "route": "/json",
+      "round": 2
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.72,
+      "elapsed_seconds": 3.8809336670000008,
+      "cpu_ms_per_1000_requests": 34.4,
+      "client_limited_requests_per_second": 12883.497707048027,
+      "rss_kib": 14464,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-before",
+      "route": "/",
+      "round": 2
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.8399999999999999,
+      "elapsed_seconds": 4.1709722089999985,
+      "cpu_ms_per_1000_requests": 36.8,
+      "client_limited_requests_per_second": 11987.612838107983,
+      "rss_kib": 14896,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-before",
+      "route": "/json",
+      "round": 2
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.71,
+      "elapsed_seconds": 3.8706792919999984,
+      "cpu_ms_per_1000_requests": 34.2,
+      "client_limited_requests_per_second": 12917.629239741214,
+      "rss_kib": 14496,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-before",
+      "route": "/",
+      "round": 3
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.8499999999999999,
+      "elapsed_seconds": 4.185682499999999,
+      "cpu_ms_per_1000_requests": 36.99999999999999,
+      "client_limited_requests_per_second": 11945.483203754708,
+      "rss_kib": 14880,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-before",
+      "route": "/json",
+      "round": 3
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.72,
+      "elapsed_seconds": 3.8800999170000026,
+      "cpu_ms_per_1000_requests": 34.4,
+      "client_limited_requests_per_second": 12886.266093543994,
+      "rss_kib": 14464,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-after",
+      "route": "/",
+      "round": 3
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.8699999999999999,
+      "elapsed_seconds": 4.205129083000003,
+      "cpu_ms_per_1000_requests": 37.4,
+      "client_limited_requests_per_second": 11890.241420206117,
+      "rss_kib": 14976,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-after",
+      "route": "/json",
+      "round": 3
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.72,
+      "elapsed_seconds": 3.8709199579999947,
+      "cpu_ms_per_1000_requests": 34.4,
+      "client_limited_requests_per_second": 12916.826114336325,
+      "rss_kib": 14464,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-after",
+      "route": "/",
+      "round": 4
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.88,
+      "elapsed_seconds": 4.221431082999999,
+      "cpu_ms_per_1000_requests": 37.6,
+      "client_limited_requests_per_second": 11844.324594413854,
+      "rss_kib": 14976,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-after",
+      "route": "/json",
+      "round": 4
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.76,
+      "elapsed_seconds": 3.914908666999999,
+      "cpu_ms_per_1000_requests": 35.2,
+      "client_limited_requests_per_second": 12771.6900323795,
+      "rss_kib": 14608,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-before",
+      "route": "/",
+      "round": 4
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.89,
+      "elapsed_seconds": 4.229791375000005,
+      "cpu_ms_per_1000_requests": 37.8,
+      "client_limited_requests_per_second": 11820.913980657011,
+      "rss_kib": 14976,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-before",
+      "route": "/json",
+      "round": 4
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.75,
+      "elapsed_seconds": 3.8935574580000036,
+      "cpu_ms_per_1000_requests": 35.0,
+      "client_limited_requests_per_second": 12841.72650316644,
+      "rss_kib": 14544,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-before",
+      "route": "/",
+      "round": 5
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.88,
+      "elapsed_seconds": 4.196802625000004,
+      "cpu_ms_per_1000_requests": 37.6,
+      "client_limited_requests_per_second": 11913.831663694205,
+      "rss_kib": 14864,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-before",
+      "route": "/json",
+      "round": 5
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.75,
+      "elapsed_seconds": 3.886579209000004,
+      "cpu_ms_per_1000_requests": 35.0,
+      "client_limited_requests_per_second": 12864.783479574247,
+      "rss_kib": 14480,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-after",
+      "route": "/",
+      "round": 5
+    },
+    {
+      "requests": 50000,
+      "cpu_seconds": 1.8599999999999999,
+      "elapsed_seconds": 4.189541708999997,
+      "cpu_ms_per_1000_requests": 37.199999999999996,
+      "client_limited_requests_per_second": 11934.479585819548,
+      "rss_kib": 15168,
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-after",
+      "route": "/json",
+      "round": 5
+    }
+  ],
+  "medians": [
+    {
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-before",
+      "route": "/",
+      "median_cpu_ms_per_1000_requests": 35.0,
+      "minimum": 34.2,
+      "maximum": 35.2
+    },
+    {
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-before",
+      "route": "/json",
+      "median_cpu_ms_per_1000_requests": 37.199999999999996,
+      "minimum": 36.8,
+      "maximum": 37.8
+    },
+    {
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-after",
+      "route": "/",
+      "median_cpu_ms_per_1000_requests": 34.4,
+      "minimum": 34.2,
+      "maximum": 35.0
+    },
+    {
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-http-read/server-after",
+      "route": "/json",
+      "median_cpu_ms_per_1000_requests": 37.199999999999996,
+      "minimum": 36.99999999999999,
+      "maximum": 37.6
+    }
+  ]
+}

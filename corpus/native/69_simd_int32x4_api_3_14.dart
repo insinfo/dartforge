@@ -1,10 +1,7 @@
-// A API de `Int32x4` do Dart 3.14 (docs/SIMD-NATIVO.md §6) pela extensão
-// marcada de `packages/dartforge_simd/lib/int32x4_3_14.dart` (copiada abaixo,
-// igual): na VM 3.6.2 roda o Dart dos membros; no nativo, cada chamada é uma
-// instrução `<4 x i32>`. Cobre os extremos (−2^31, 2^31−1), a volta no
-// estouro, `s & 31` nos deslocamentos (inclusive negativos e ≥ 32), as
-// máscaras das comparações com sinal, `anyTrue`/`allTrue`, e os caminhos
-// em caixa (local capturado, parâmetro, `dynamic` não se aplica a extensão).
+// Dart 3.14 Int32x4 API from the marked package:dartforge extension, copied
+// here to keep this corpus fixture independent of package resolution. Public
+// package exports are validated by packages/dartforge/test/simd_probe.dart.
+// Covers lane limits, overflow, masked shifts, comparison masks and boxed paths.
 import 'dart:typed_data';
 
 String i4(Int32x4 v) => '[${v.x}, ${v.y}, ${v.z}, ${v.w}]';

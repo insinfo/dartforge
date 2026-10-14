@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "status": "codec_and_native_interface_alias_fixes_and_bounded_typed_read_loop_versioning_implemented_and_verified",
+  "sdk": "Dart 3.6.2",
+  "node": "v24.21.0",
+  "policy": {
+    "forge_checked": "Default runtime checks retained; no claim of equivalent whole-program optimization to dart2js.",
+    "dart2js_O2": "Optimized production/minified with default implicit checks; runtime type string and late-name policy differs.",
+    "dart2js_O4": "Trust primitives and omit implicit checks; unequal policy, explicitly separate.",
+    "forge_omit": "Forge omit-checks profile; not asserted equivalent to O4."
+  },
+  "limitations": [
+    "Node kernels are not browser application runtime benchmarks.",
+    "Stopwatch millisecond resolution limits short kernels; three alternating fresh processes, first in-process round discarded.",
+    "Prototype loops were edited in emitted JS, not emitted by compiler; no shipped optimization or general semantic guarantee inferred.",
+    "Actual web sources use frozen source/generated-file snapshots and normalized copied package configurations; no original project edits.",
+    "Compiler hashes in individual ledgers identify measured historical binaries, not the current source tree."
+  ],
+  "sources_at_archive": {
+    "crates/emit_js_production/src/rti_rules.rs": "90c5aeb528f723fc3099013a395ac1820af6cdff621c99179c0ad89ed56d4934",
+    "crates/emit_js/src/module.rs": "21f9b6fb9d62208deb12174b5cc4469cd2bae61ff1f1625ec9e76dd5a2645aa2",
+    "crates/emit_js/tests/programs/typed_native_length.dart": "722c6c656964e4ca3a4a2c10b7ad8cba3013f28f633db94f727c05739c784450",
+    "crates/emit_js_production/tests/typed_native_length.rs": "c6900f58a14a365906dd1038f7fe6bee599fbdb89db716550474f00b31439b0f",
+    "crates/emit_js/tests/programs/typed_loop_ranges.dart": "9bd33310dc613baa154c1f07cd9d9fb5e3a091e68bc911f48fb1fa608c543697"
+  },
+  "ledgers": {
+    "node-baseline.json": "dd7bc5d681a41f1879925c4ca942e9d00f0b0d5c6321cfce6322a6ad3fbae78c",
+    "web-baseline-sizes.json": "6dca7bdf9e54095eff9e11e9d97d4876622d6123071c60baf1e143cba324377a",
+    "codec-sizes.json": "1ebf8e7d4e0b1f768b29e08e23e2306f5710aacc9f3ea944fb8121608ceb1584",
+    "codec-ablation.json": "7e657eafa8a1bd27376b6a96a7c7a4490e0095485a03bf6793efbb9ce0f505fe",
+    "readonly-generic-correctness.json": "cce667fdad5f0e37d442535205e30443dd249fc674790f2e14efa94eba35ecda",
+    "whole-loop-prototype.json": "256d971719157726496217f5ea6e277ae74a0a011aab3ce7872ff7389f7e7c2b",
+    "final-sizes.json": "2feda2b0d41f1ce043799cad0c6094a8389a00054a2842310c86031da39f5f4b",
+    "typed-loop-correctness.json": "edbe15d31e03906a617ee7b4e136afa20591cfd0509fde605d3ead573670423d",
+    "typed-loop-compiler-performance.json": "1aac19e421044449555f5c6e50760a7681777ec51c0c62a716a3777753a0c527",
+    "final-browser-smoke.json": "1f047329567185e6a53fcdd28e834568d3c62db118e6ef4d1839e59220022a2d",
+    "final-js-tests.log": "a6ca48259dcf45a844330d6d3d0ffdc2e5f0cac8c0f4efd7d71076ab36f54d2a",
+    "final-object-shadow-test.log": "c29857b88c0f93eead5ebd5facac831bc85dfc0317f2af9973d87d1a9d53c1f4"
+  },
+  "tests": {
+    "current_js_lib_and_typed_native_length": "PASS: 1 emitter lib + 67 production lib + 1 Node/VM differential integration",
+    "clippy": "Blocked before JS crates by existing frontend lints; not passed"
+  },
+  "prototype_guard_semantics": "fixed-f64:true\nfixed-u8:true\nwrong-brand:false\ndata-view:false\nresizable-f64:false\nshared-f64:false\ngrowable-shared-u8:false\nsubclass:false\nown-length:false\n",
+  "final_compiler_sha256": "7a1180bfc03d879746fa7b3e4f14fb5b40ebcac49cfc0d00b317a9581bc388eb",
+  "final_sources": {
+    "crates/emit_js/src/typed_loops.rs": "525dd2a70d6e2883f99dd854e43f7835d9085cc464153e52bf0939944a2ebb30",
+    "crates/emit_js/src/body.rs": "6ef559e717d8f0d760f6880971e32b43e55fd2cdf363693c4e25817b3cd0b862",
+    "crates/emit_js/src/expr.rs": "2dd9aec8c57fcf295539a458ea3ef6dc92e2b96eb656a21a12a690d38003d4fd",
+    "crates/emit_js/src/lib.rs": "17e04c58de9ec933cf120c74b63de10480f485927879631a58c6ac381738a1c4",
+    "crates/emit_js/src/module.rs": "21f9b6fb9d62208deb12174b5cc4469cd2bae61ff1f1625ec9e76dd5a2645aa2",
+    "crates/emit_js_production/src/rti_rules.rs": "90c5aeb528f723fc3099013a395ac1820af6cdff621c99179c0ad89ed56d4934",
+    "crates/emit_js/tests/programs/typed_loop_ranges.dart": "0686a332d232fdef7958b88c9124e04fa7ad148c63bef34eacbad1a424791897",
+    "crates/emit_js_production/tests/typed_loop_ranges.rs": "2ae4b2c7ec08cdd567dc64102dc6c97e1a3ba9d42d079cd7cc49045624db33db"
+  },
+  "final_gates": {
+    "js_libraries": "1 emitter +67 production library tests passed",
+    "integration": "readonly/generic raw+min; typed-loop raw+min passed; final nullable/local Object shadow fixture also passed",
+    "release_differential": "VM equals official O2 and Forge checked/omit/unminified on final typed-loop fixture",
+    "production_timing": "Same compiler enabled/disabled, three alternating fresh Node processes, checksums equal across both and O2, hashes stable",
+    "browser": "Final actual Limitless gallery mounts overview, two mounted roots, no uncaught diagnostics; no all-components or browser timing claim"
+  },
+  "loop_ablation_environment": "DARTFORGE_JSPROD_TYPED_LOOPS=0",
+  "loop_limits": [
+    "Only canonical zero-based i++ read loops on Float64List/Uint8List local identifiers with numeric local assignments.",
+    "No array/index/receiver mutation, offset indexes, callbacks/closures, body control flow, lazy/late numeric accesses, custom/dynamic/nullable receiver paths.",
+    "Exact native typed-array prototype, no own length/buffer overrides, fixed non-shared backing, all secondary lengths cover primary, index bound at most 2^32.",
+    "Original checked loop remains fallback; readonly typed-list wrappers use it.",
+    "Integer benchmark results are compared across JS profiles; no claim that beyond-53-bit Dart integer arithmetic equals the VM."
+  ],
+  "loop_timing_summary_us": {
+    "disabled": {
+      "product_f64": 13000,
+      "fnv_bytes": 97000
+    },
+    "enabled": {
+      "product_f64": 3000,
+      "fnv_bytes": 49000
+    },
+    "officialO2": {
+      "product_f64": 3000,
+      "fnv_bytes": 49000
+    }
+  },
+  "later_increment": "../2026-10-14-js-sdk-number/index.json"
+}

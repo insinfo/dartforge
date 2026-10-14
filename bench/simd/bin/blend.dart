@@ -5,13 +5,13 @@
 // * SIMD with the Dart 3.6 API: `Int32x4` does not multiply, so the lanes go
 //   to `Float32x4` and back (the path the rasterizer uses today);
 // * SIMD with Dart 3.14's `Int32x4` API (`*` and `>>`), through the
-//   `dartforge_simd` package (plain Dart on the 3.6.2 VM; `<4 x i32>` in DartForge).
+//   `dartforge` package (plain Dart on the 3.6.2 VM; `<4 x i32>` in DartForge).
 //
 // Prints the best time per call (µs) of each form over several rounds and the
 // checksum of each output (equal to each other and across compilers).
 import 'dart:typed_data';
 
-import 'package:dartforge_simd/int32x4_3_14.dart';
+import 'package:dartforge/simd.dart';
 
 const channels = 1 << 16;
 const callsPerRound = 400;

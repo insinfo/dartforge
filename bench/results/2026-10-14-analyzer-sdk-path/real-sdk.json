@@ -1,0 +1,20 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/debug/dartforge",
+    "analyze",
+    "--format=json",
+    "--sdk-path",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/analyzer-sdk-path-real/main.dart"
+  ],
+  "cli_sha256": "c5e4874095d5dd03d5b2afd3bd1a7172693d22960ea2b8b8961d9fc4debbbcc3",
+  "sdk_root": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk",
+  "poisoned_discovery_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/analyzer-sdk-path-real/missing-sdk",
+  "exit": 0,
+  "stdout": "{\"version\":1,\"diagnostics\":[]}\n",
+  "stderr": "",
+  "official_exit": 0,
+  "official_stdout": "{\"version\":1,\"diagnostics\":[]}\n",
+  "official_stderr": "",
+  "exact_stdout": true
+}

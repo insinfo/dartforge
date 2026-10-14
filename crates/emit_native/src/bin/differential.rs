@@ -57,7 +57,7 @@ fn main() {
         let comp_res = std::thread::Builder::new()
             .stack_size(1 << 30)
             .spawn(move || {
-                let options = dartforge_emit_native::CompileOptions {
+                let options = dartforge_emit_native::CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
                     sdk: None,
                     packages: None,
                     timings: false,

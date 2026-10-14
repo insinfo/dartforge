@@ -118,6 +118,10 @@ pub struct FnEmitter<'m, 'a> {
     /// Emitting an argument of `JS()` in SDK mode (`crate::own_sdk`): a type
     /// literal comes out as a raw rti and a static *tear-off* without `dart.fn`.
     pub in_foreign_js: bool,
+    /// Proven raw selectors only inside the guarded branch of a typed read loop.
+    pub(crate) typed_loop_raw: HashMap<ExprId, Ty>,
+    /// Certified SDK modulo-result comparison; no class-wide numeric assumptions.
+    pub(crate) sdk_number_comparison: Option<ExprId>,
 }
 
 impl<'m, 'a> FnEmitter<'m, 'a> {
@@ -190,6 +194,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             speculating: 0,
             shared_params: HashMap::new(),
             in_foreign_js: false,
+            typed_loop_raw: HashMap::new(),
+            sdk_number_comparison: None,
         }
     }
 
@@ -1335,16 +1341,32 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     }
                     None => String::new(),
                 };
+                let plan = self.typed_read_loop(init, *condition, updates, *body);
+                let upd: Vec<String> = updates.iter().map(|u| self.emit_discarded(*u).code).collect();
+                let versioned = plan.is_some();
+                if let Some(plan) = plan {
+                    self.w.open(&format!("if ({}) {{", plan.guard));
+                    let saved = std::mem::replace(&mut self.typed_loop_raw, plan.raw);
+                    let cond_js = self.emit_cond(condition.unwrap()).0;
+                    self.w.open(&format!("for ({init_js}; {cond_js}; {}) {{", upd.join(", ")));
+                    self.push_scope();
+                    self.emit_stmt(*body);
+                    self.pop_scope();
+                    self.w.close("}");
+                    self.typed_loop_raw = saved;
+                    self.w.close("}");
+                    self.w.open("else {");
+                }
                 let cond_js = match condition {
                     Some(c) => self.emit_cond(*c).0,
                     None => String::new(),
                 };
-                let upd: Vec<String> = updates.iter().map(|u| self.emit_discarded(*u).code).collect();
                 self.w.open(&format!("for ({init_js}; {cond_js}; {}) {{", upd.join(", ")));
                 self.push_scope();
                 self.emit_stmt(*body);
                 self.pop_scope();
                 self.w.close("}");
+                if versioned { self.w.close("}"); }
                 self.pop_scope();
             }
             StmtKind::ForIn { await_, target, iterable, body } => {

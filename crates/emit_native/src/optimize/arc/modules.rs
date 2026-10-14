@@ -231,6 +231,9 @@ pub fn prepare_arc_dart_modules(
             }
             let mut f = original.clone();
             f.symbol = private.clone();
+            if let Some(policy) = m.inline_policies.get(symbol) {
+                set.inline_policies.insert(private.clone(), *policy);
+            }
             remap_area(&mut f, &area)?;
             let mut plan = p[symbol].clone();
             if set.table_exceptions {

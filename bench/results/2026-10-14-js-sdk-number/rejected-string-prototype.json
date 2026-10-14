@@ -1,0 +1,459 @@
+{
+  "artifacts": {
+    "baseline": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/final/json.forge_checked_minified.js",
+      "sha256": "913132e2c29c86870b4626e1e0511dbca8a6a1b66803a5905830ede7bc2dd8a3"
+    },
+    "prototype": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/json-string-loop-prototype.js",
+      "sha256": "6ee95a702e16c706acf4b012446e7c36fc7a3b754c3d17e4373ef63bbec3913d"
+    },
+    "officialO2": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/json.dart2js_O2.js",
+      "sha256": "60e22bbc0f77afd95798aef86edc037d0c7476c8176dec63e4e70635de75c26c"
+    }
+  },
+  "runs": [
+    {
+      "profile": "baseline",
+      "repetition": 0,
+      "exit_code": 0,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 15000 14000 14000 14000 15000 14000 us | 1024686864\nencode_small: 29000 28000 26000 28000 26000 27000 us | 552014064\ndecode_medium: 19000 18000 18000 18000 19000 18000 us | 649351068\nencode_medium: 39000 39000 39000 40000 39000 40000 us | 195067402\ndecode_large: 37000 38000 38000 39000 us | 298278621\nencode_large: 128000 118000 104000 101000 us | 689020713\nindented: 40000 39000 37000 37000 37000 37000 us | 188745904\nutf8_bytes: 94000 89000 88000 89000 87000 86000 us | 434926252\nreviver: 16000 14000 14000 14000 14000 14000 us | 373962124\n",
+      "stderr": "",
+      "medians": {
+        "decode_small": {
+          "us": 14000,
+          "result": "1024686864"
+        },
+        "encode_small": {
+          "us": 27000,
+          "result": "552014064"
+        },
+        "decode_medium": {
+          "us": 18000,
+          "result": "649351068"
+        },
+        "encode_medium": {
+          "us": 39000,
+          "result": "195067402"
+        },
+        "decode_large": {
+          "us": 38000,
+          "result": "298278621"
+        },
+        "encode_large": {
+          "us": 104000,
+          "result": "689020713"
+        },
+        "indented": {
+          "us": 37000,
+          "result": "188745904"
+        },
+        "utf8_bytes": {
+          "us": 88000,
+          "result": "434926252"
+        },
+        "reviver": {
+          "us": 14000,
+          "result": "373962124"
+        }
+      }
+    },
+    {
+      "profile": "prototype",
+      "repetition": 0,
+      "exit_code": 0,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 23000 15000 13000 14000 14000 13000 us | 1024686864\nencode_small: 29000 29000 29000 29000 28000 29000 us | 552014064\ndecode_medium: 18000 17000 18000 18000 18000 18000 us | 649351068\nencode_medium: 41000 42000 41000 41000 42000 42000 us | 195067402\ndecode_large: 39000 41000 59000 37000 us | 298278621\nencode_large: 125000 122000 113000 107000 us | 689020713\nindented: 43000 39000 39000 39000 38000 38000 us | 188745904\nutf8_bytes: 94000 88000 273000 92000 93000 94000 us | 434926252\nreviver: 16000 14000 14000 15000 15000 14000 us | 373962124\n",
+      "stderr": "",
+      "medians": {
+        "decode_small": {
+          "us": 14000,
+          "result": "1024686864"
+        },
+        "encode_small": {
+          "us": 29000,
+          "result": "552014064"
+        },
+        "decode_medium": {
+          "us": 18000,
+          "result": "649351068"
+        },
+        "encode_medium": {
+          "us": 42000,
+          "result": "195067402"
+        },
+        "decode_large": {
+          "us": 41000,
+          "result": "298278621"
+        },
+        "encode_large": {
+          "us": 113000,
+          "result": "689020713"
+        },
+        "indented": {
+          "us": 39000,
+          "result": "188745904"
+        },
+        "utf8_bytes": {
+          "us": 93000,
+          "result": "434926252"
+        },
+        "reviver": {
+          "us": 14000,
+          "result": "373962124"
+        }
+      }
+    },
+    {
+      "profile": "officialO2",
+      "repetition": 0,
+      "exit_code": 0,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 10000 11000 10000 12000 11000 10000 us | 1024686864\nencode_small: 16000 16000 16000 15000 15000 16000 us | 552014064\ndecode_medium: 14000 14000 14000 13000 13000 14000 us | 649351068\nencode_medium: 25000 25000 25000 25000 25000 25000 us | 195067402\ndecode_large: 36000 30000 32000 33000 us | 298278621\nencode_large: 89000 85000 84000 82000 us | 689020713\nindented: 29000 29000 27000 28000 28000 28000 us | 188745904\nutf8_bytes: 28000 24000 25000 25000 25000 24000 us | 434926252\nreviver: 13000 10000 10000 9000 10000 10000 us | 373962124\n",
+      "stderr": "",
+      "medians": {
+        "decode_small": {
+          "us": 11000,
+          "result": "1024686864"
+        },
+        "encode_small": {
+          "us": 16000,
+          "result": "552014064"
+        },
+        "decode_medium": {
+          "us": 14000,
+          "result": "649351068"
+        },
+        "encode_medium": {
+          "us": 25000,
+          "result": "195067402"
+        },
+        "decode_large": {
+          "us": 32000,
+          "result": "298278621"
+        },
+        "encode_large": {
+          "us": 84000,
+          "result": "689020713"
+        },
+        "indented": {
+          "us": 28000,
+          "result": "188745904"
+        },
+        "utf8_bytes": {
+          "us": 25000,
+          "result": "434926252"
+        },
+        "reviver": {
+          "us": 10000,
+          "result": "373962124"
+        }
+      }
+    },
+    {
+      "profile": "officialO2",
+      "repetition": 1,
+      "exit_code": 0,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 10000 11000 10000 11000 10000 10000 us | 1024686864\nencode_small: 16000 16000 15000 16000 15000 16000 us | 552014064\ndecode_medium: 13000 14000 13000 13000 14000 13000 us | 649351068\nencode_medium: 25000 25000 25000 25000 25000 25000 us | 195067402\ndecode_large: 35000 31000 30000 36000 us | 298278621\nencode_large: 89000 84000 82000 81000 us | 689020713\nindented: 29000 28000 27000 28000 28000 28000 us | 188745904\nutf8_bytes: 29000 25000 24000 25000 24000 25000 us | 434926252\nreviver: 11000 10000 9000 10000 10000 10000 us | 373962124\n",
+      "stderr": "",
+      "medians": {
+        "decode_small": {
+          "us": 10000,
+          "result": "1024686864"
+        },
+        "encode_small": {
+          "us": 16000,
+          "result": "552014064"
+        },
+        "decode_medium": {
+          "us": 13000,
+          "result": "649351068"
+        },
+        "encode_medium": {
+          "us": 25000,
+          "result": "195067402"
+        },
+        "decode_large": {
+          "us": 31000,
+          "result": "298278621"
+        },
+        "encode_large": {
+          "us": 82000,
+          "result": "689020713"
+        },
+        "indented": {
+          "us": 28000,
+          "result": "188745904"
+        },
+        "utf8_bytes": {
+          "us": 25000,
+          "result": "434926252"
+        },
+        "reviver": {
+          "us": 10000,
+          "result": "373962124"
+        }
+      }
+    },
+    {
+      "profile": "prototype",
+      "repetition": 1,
+      "exit_code": 0,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 16000 13000 14000 14000 13000 14000 us | 1024686864\nencode_small: 29000 27000 28000 27000 27000 27000 us | 552014064\ndecode_medium: 18000 18000 18000 18000 19000 18000 us | 649351068\nencode_medium: 40000 40000 40000 39000 39000 40000 us | 195067402\ndecode_large: 37000 38000 37000 38000 us | 298278621\nencode_large: 126000 122000 116000 117000 us | 689020713\nindented: 41000 38000 38000 38000 40000 38000 us | 188745904\nutf8_bytes: 92000 88000 89000 89000 88000 86000 us | 434926252\nreviver: 17000 13000 13000 14000 14000 13000 us | 373962124\n",
+      "stderr": "",
+      "medians": {
+        "decode_small": {
+          "us": 14000,
+          "result": "1024686864"
+        },
+        "encode_small": {
+          "us": 27000,
+          "result": "552014064"
+        },
+        "decode_medium": {
+          "us": 18000,
+          "result": "649351068"
+        },
+        "encode_medium": {
+          "us": 40000,
+          "result": "195067402"
+        },
+        "decode_large": {
+          "us": 38000,
+          "result": "298278621"
+        },
+        "encode_large": {
+          "us": 117000,
+          "result": "689020713"
+        },
+        "indented": {
+          "us": 38000,
+          "result": "188745904"
+        },
+        "utf8_bytes": {
+          "us": 88000,
+          "result": "434926252"
+        },
+        "reviver": {
+          "us": 13000,
+          "result": "373962124"
+        }
+      }
+    },
+    {
+      "profile": "baseline",
+      "repetition": 1,
+      "exit_code": 0,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 15000 14000 14000 14000 14000 13000 us | 1024686864\nencode_small: 30000 28000 28000 29000 27000 29000 us | 552014064\ndecode_medium: 18000 18000 18000 18000 18000 17000 us | 649351068\nencode_medium: 41000 41000 42000 41000 41000 40000 us | 195067402\ndecode_large: 36000 36000 37000 37000 us | 298278621\nencode_large: 129000 116000 106000 102000 us | 689020713\nindented: 41000 38000 38000 39000 38000 38000 us | 188745904\nutf8_bytes: 99000 93000 93000 94000 94000 91000 us | 434926252\nreviver: 16000 13000 14000 14000 13000 14000 us | 373962124\n",
+      "stderr": "",
+      "medians": {
+        "decode_small": {
+          "us": 14000,
+          "result": "1024686864"
+        },
+        "encode_small": {
+          "us": 28000,
+          "result": "552014064"
+        },
+        "decode_medium": {
+          "us": 18000,
+          "result": "649351068"
+        },
+        "encode_medium": {
+          "us": 41000,
+          "result": "195067402"
+        },
+        "decode_large": {
+          "us": 37000,
+          "result": "298278621"
+        },
+        "encode_large": {
+          "us": 106000,
+          "result": "689020713"
+        },
+        "indented": {
+          "us": 38000,
+          "result": "188745904"
+        },
+        "utf8_bytes": {
+          "us": 93000,
+          "result": "434926252"
+        },
+        "reviver": {
+          "us": 14000,
+          "result": "373962124"
+        }
+      }
+    },
+    {
+      "profile": "baseline",
+      "repetition": 2,
+      "exit_code": 0,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 15000 14000 14000 15000 13000 14000 us | 1024686864\nencode_small: 29000 28000 27000 28000 28000 27000 us | 552014064\ndecode_medium: 18000 19000 17000 19000 18000 18000 us | 649351068\nencode_medium: 42000 41000 41000 42000 41000 41000 us | 195067402\ndecode_large: 36000 38000 39000 38000 us | 298278621\nencode_large: 130000 119000 108000 104000 us | 689020713\nindented: 42000 38000 39000 39000 39000 38000 us | 188745904\nutf8_bytes: 96000 89000 89000 89000 90000 88000 us | 434926252\nreviver: 16000 14000 14000 14000 14000 15000 us | 373962124\n",
+      "stderr": "",
+      "medians": {
+        "decode_small": {
+          "us": 14000,
+          "result": "1024686864"
+        },
+        "encode_small": {
+          "us": 28000,
+          "result": "552014064"
+        },
+        "decode_medium": {
+          "us": 18000,
+          "result": "649351068"
+        },
+        "encode_medium": {
+          "us": 41000,
+          "result": "195067402"
+        },
+        "decode_large": {
+          "us": 38000,
+          "result": "298278621"
+        },
+        "encode_large": {
+          "us": 108000,
+          "result": "689020713"
+        },
+        "indented": {
+          "us": 39000,
+          "result": "188745904"
+        },
+        "utf8_bytes": {
+          "us": 89000,
+          "result": "434926252"
+        },
+        "reviver": {
+          "us": 14000,
+          "result": "373962124"
+        }
+      }
+    },
+    {
+      "profile": "prototype",
+      "repetition": 2,
+      "exit_code": 0,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 16000 14000 14000 14000 14000 14000 us | 1024686864\nencode_small: 28000 28000 27000 28000 27000 28000 us | 552014064\ndecode_medium: 18000 18000 18000 18000 18000 18000 us | 649351068\nencode_medium: 40000 41000 40000 39000 41000 42000 us | 195067402\ndecode_large: 37000 38000 38000 38000 us | 298278621\nencode_large: 127000 117000 105000 102000 us | 689020713\nindented: 41000 39000 38000 38000 39000 37000 us | 188745904\nutf8_bytes: 94000 89000 88000 87000 104000 89000 us | 434926252\nreviver: 16000 15000 14000 14000 14000 14000 us | 373962124\n",
+      "stderr": "",
+      "medians": {
+        "decode_small": {
+          "us": 14000,
+          "result": "1024686864"
+        },
+        "encode_small": {
+          "us": 28000,
+          "result": "552014064"
+        },
+        "decode_medium": {
+          "us": 18000,
+          "result": "649351068"
+        },
+        "encode_medium": {
+          "us": 41000,
+          "result": "195067402"
+        },
+        "decode_large": {
+          "us": 38000,
+          "result": "298278621"
+        },
+        "encode_large": {
+          "us": 105000,
+          "result": "689020713"
+        },
+        "indented": {
+          "us": 38000,
+          "result": "188745904"
+        },
+        "utf8_bytes": {
+          "us": 89000,
+          "result": "434926252"
+        },
+        "reviver": {
+          "us": 14000,
+          "result": "373962124"
+        }
+      }
+    },
+    {
+      "profile": "officialO2",
+      "repetition": 2,
+      "exit_code": 0,
+      "stdout": "small: 1092 units, sum 746275689, round trip true\nmedium: 101271 units, sum 1067493192, round trip true\nlarge: 6056131 units, sum 293944293, round trip true\nindented: 177073 units, sum 508738372, round trip true\nbytes: 101277, true\ndecoded: 298278621\ndecode_small: 10000 11000 10000 26000 10000 10000 us | 1024686864\nencode_small: 16000 15000 16000 16000 16000 15000 us | 552014064\ndecode_medium: 13000 14000 14000 13000 13000 14000 us | 649351068\nencode_medium: 26000 25000 25000 26000 25000 37000 us | 195067402\ndecode_large: 35000 31000 31000 33000 us | 298278621\nencode_large: 91000 85000 83000 81000 us | 689020713\nindented: 29000 28000 27000 29000 29000 28000 us | 188745904\nutf8_bytes: 28000 25000 25000 24000 25000 24000 us | 434926252\nreviver: 12000 10000 10000 9000 10000 10000 us | 373962124\n",
+      "stderr": "",
+      "medians": {
+        "decode_small": {
+          "us": 10000,
+          "result": "1024686864"
+        },
+        "encode_small": {
+          "us": 16000,
+          "result": "552014064"
+        },
+        "decode_medium": {
+          "us": 14000,
+          "result": "649351068"
+        },
+        "encode_medium": {
+          "us": 25000,
+          "result": "195067402"
+        },
+        "decode_large": {
+          "us": 31000,
+          "result": "298278621"
+        },
+        "encode_large": {
+          "us": 83000,
+          "result": "689020713"
+        },
+        "indented": {
+          "us": 28000,
+          "result": "188745904"
+        },
+        "utf8_bytes": {
+          "us": 25000,
+          "result": "434926252"
+        },
+        "reviver": {
+          "us": 10000,
+          "result": "373962124"
+        }
+      }
+    }
+  ],
+  "summary": {
+    "baseline": {
+      "decode_small": 14000,
+      "encode_small": 28000,
+      "decode_medium": 18000,
+      "encode_medium": 41000,
+      "decode_large": 38000,
+      "encode_large": 106000,
+      "indented": 38000,
+      "utf8_bytes": 89000,
+      "reviver": 14000
+    },
+    "prototype": {
+      "decode_small": 14000,
+      "encode_small": 28000,
+      "decode_medium": 18000,
+      "encode_medium": 41000,
+      "decode_large": 38000,
+      "encode_large": 113000,
+      "indented": 38000,
+      "utf8_bytes": 89000,
+      "reviver": 14000
+    },
+    "officialO2": {
+      "decode_small": 10000,
+      "encode_small": 16000,
+      "decode_medium": 14000,
+      "encode_medium": 25000,
+      "decode_large": 31000,
+      "encode_large": 83000,
+      "indented": 28000,
+      "utf8_bytes": 25000,
+      "reviver": 10000
+    }
+  },
+  "inputs_stable": true
+}

@@ -543,7 +543,7 @@ pub fn dartforge_native(env: &Environment, program: &Program, dir: &Path) -> Out
     let compiled = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let options = dartforge_emit_native::CompileOptions {
+            let options = dartforge_emit_native::CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
                 sdk: None,
                 packages: None,
                 timings: false,
@@ -608,7 +608,7 @@ fn emit_program_ir(program: &Program, jit: bool) -> Result<String, String> {
     std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let options = dartforge_emit_native::CompileOptions {
+            let options = dartforge_emit_native::CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
                 sdk: None,
                 packages: None,
                 timings: false,

@@ -2225,6 +2225,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// the `?.` guards, the type, and the accumulated guards.
     pub fn emit_selector(&mut self, e: ExprId, expected: Option<&Ty>) -> (Js, Ty, Vec<Guard>) {
         let expr = self.expr(e);
+        if let Some(ty) = self.typed_loop_raw.get(&e).cloned() {
+            match &expr.kind {
+                ExprKind::Property { target, .. } => {
+                    let (recv, _) = self.emit_expr(*target, None);
+                    return (Js::prim(format!("{}.length", recv.code)), ty, vec![]);
+                }
+                ExprKind::Index { target, index, .. } => {
+                    let (recv, _) = self.emit_expr(*target, None);
+                    let (idx, _) = self.emit_expr(*index, None);
+                    return (Js::prim(format!("{}[{}]", recv.code, idx.code)), ty, vec![]);
+                }
+                _ => unreachable!("typed loop proof contains only selectors"),
+            }
+        }
         match &expr.kind {
             ExprKind::Property { target, name, null_aware } => {
                 let n = self.name(name.sym).to_string();
@@ -2691,6 +2705,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// ([`Self::access_member`]).
     pub fn emit_binop_values(&mut self, op: BinaryOp, l: Js, lt: &Ty, r: Js, rt: &Ty, node: Option<ExprId>) -> (Js, Ty) {
         let ctx = self.ctx;
+        if node.is_some() && node == self.sdk_number_comparison && op == BinaryOp::Gt && !self.is_closure_body {
+            // JS remainder can produce BigInt under foreign borrowing. Preserve
+            // its original symbol dispatch, including errors and custom behavior.
+            let access = self.member_access(lt, ">", false);
+            return (Js::new(format!("typeof {} === 'number' ? {} > {} : {}{}({})", l.code, l.at(P_REL), r.at(P_REL + 1), l.at(P_PRIMARY), access, r.code), P_COND), ctx.t_bool());
+        }
         let num_l = ctx.is_num_like_nullable(lt);
         let num_r = ctx.is_num_like_nullable(rt) || matches!(rt, Ty::Dynamic);
         if num_l && (num_r || ctx.is_num_like_nullable(rt)) && !matches!(op, BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull) {

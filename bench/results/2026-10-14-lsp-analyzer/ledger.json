@@ -1,0 +1,1016 @@
+{
+  "schema": 1,
+  "sdk_lib": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+  "lsp": {
+    "passed": true,
+    "capabilities": {
+      "callHierarchyProvider": true,
+      "codeActionProvider": true,
+      "codeLensProvider": {
+        "resolveProvider": false
+      },
+      "colorProvider": {},
+      "completionProvider": {
+        "resolveProvider": true,
+        "triggerCharacters": [
+          "."
+        ]
+      },
+      "definitionProvider": true,
+      "documentFormattingProvider": true,
+      "documentHighlightProvider": true,
+      "documentLinkProvider": {
+        "resolveProvider": false
+      },
+      "documentOnTypeFormattingProvider": {
+        "firstTriggerCharacter": "}",
+        "moreTriggerCharacter": [
+          ";"
+        ]
+      },
+      "documentRangeFormattingProvider": true,
+      "documentSymbolProvider": true,
+      "executeCommandProvider": {
+        "commands": [
+          "dart.edit.sortMembers",
+          "dart.edit.organizeImports",
+          "dart.edit.fixAll",
+          "dart.edit.fixAllInWorkspace.preview",
+          "dart.edit.fixAllInWorkspace",
+          "dart.edit.sendWorkspaceEdit",
+          "refactor.perform",
+          "refactor.validate",
+          "dart.logAction",
+          "dart.refactor.convert_all_formal_parameters_to_named",
+          "dart.refactor.convert_selected_formal_parameters_to_named",
+          "dart.refactor.move_selected_formal_parameters_left",
+          "dart.refactor.move_top_level_to_file"
+        ],
+        "workDoneProgress": true
+      },
+      "foldingRangeProvider": true,
+      "hoverProvider": true,
+      "implementationProvider": true,
+      "inlayHintProvider": {
+        "resolveProvider": false
+      },
+      "positionEncoding": "utf-16",
+      "referencesProvider": true,
+      "renameProvider": {
+        "prepareProvider": true
+      },
+      "selectionRangeProvider": true,
+      "semanticTokensProvider": {
+        "full": true,
+        "legend": {
+          "tokenModifiers": [
+            "documentation",
+            "constructor",
+            "declaration",
+            "importPrefix",
+            "instance",
+            "static",
+            "escape",
+            "annotation",
+            "control",
+            "label",
+            "interpolation",
+            "void",
+            "wildcard"
+          ],
+          "tokenTypes": [
+            "annotation",
+            "keyword",
+            "class",
+            "comment",
+            "method",
+            "variable",
+            "parameter",
+            "enum",
+            "enumMember",
+            "type",
+            "source",
+            "property",
+            "namespace",
+            "boolean",
+            "number",
+            "string",
+            "function",
+            "typeParameter"
+          ]
+        },
+        "range": true
+      },
+      "signatureHelpProvider": {
+        "retriggerCharacters": [
+          ","
+        ],
+        "triggerCharacters": [
+          "("
+        ]
+      },
+      "textDocumentSync": 2,
+      "typeDefinitionProvider": true,
+      "typeHierarchyProvider": true,
+      "workspace": {
+        "fileOperations": {
+          "willRename": {
+            "filters": [
+              {
+                "pattern": {
+                  "glob": "**/*.dart",
+                  "matches": "file"
+                },
+                "scheme": "file"
+              },
+              {
+                "pattern": {
+                  "glob": "**/",
+                  "matches": "folder"
+                },
+                "scheme": "file"
+              }
+            ]
+          }
+        },
+        "workspaceFolders": {
+          "changeNotifications": true,
+          "supported": true
+        }
+      },
+      "workspaceSymbolProvider": true
+    },
+    "definition": {
+      "range": {
+        "end": {
+          "character": 12,
+          "line": 0
+        },
+        "start": {
+          "character": 7,
+          "line": 0
+        }
+      },
+      "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/helper.dart"
+    },
+    "rename": {
+      "changes": {
+        "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/helper.dart": [
+          {
+            "newText": "welcome",
+            "range": {
+              "end": {
+                "character": 12,
+                "line": 0
+              },
+              "start": {
+                "character": 7,
+                "line": 0
+              }
+            }
+          }
+        ],
+        "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/main.dart": [
+          {
+            "newText": "welcome",
+            "range": {
+              "end": {
+                "character": 21,
+                "line": 2
+              },
+              "start": {
+                "character": 16,
+                "line": 2
+              }
+            }
+          }
+        ]
+      }
+    },
+    "typed_diagnostics": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/publishDiagnostics",
+      "params": {
+        "diagnostics": [
+          {
+            "code": "non_bool_condition",
+            "message": "Conditions must have a static type of 'bool'.\nTry changing the condition.",
+            "range": {
+              "end": {
+                "character": 19,
+                "line": 0
+              },
+              "start": {
+                "character": 18,
+                "line": 0
+              }
+            },
+            "severity": 1,
+            "source": "dartforge"
+          }
+        ],
+        "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/main.dart",
+        "version": 3
+      }
+    },
+    "syntax_diagnostics": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/publishDiagnostics",
+      "params": {
+        "diagnostics": [
+          {
+            "code": "missing_identifier",
+            "message": "Expected an identifier.",
+            "range": {
+              "end": {
+                "character": 29,
+                "line": 0
+              },
+              "start": {
+                "character": 28,
+                "line": 0
+              }
+            },
+            "severity": 1,
+            "source": "dartforge"
+          },
+          {
+            "code": "unused_local_variable",
+            "message": "The value of the local variable 'value' isn't used.\nTry removing the variable or using it.",
+            "range": {
+              "end": {
+                "character": 25,
+                "line": 0
+              },
+              "start": {
+                "character": 20,
+                "line": 0
+              }
+            },
+            "severity": 2,
+            "source": "dartforge"
+          }
+        ],
+        "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/main.dart",
+        "version": 5
+      }
+    },
+    "sdk_definition": {
+      "range": {
+        "end": {
+          "character": 27,
+          "line": 107
+        },
+        "start": {
+          "character": 21,
+          "line": 107
+        }
+      },
+      "uri": "file:///Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib/core/string.dart"
+    },
+    "sdk_completion_labels": [
+      "codeUnitAt(\u2026)",
+      "compareTo(\u2026)",
+      "endsWith(\u2026)",
+      "startsWith(\u2026)",
+      "indexOf(\u2026)",
+      "lastIndexOf(\u2026)",
+      "substring(\u2026)",
+      "trim()",
+      "trimLeft()",
+      "trimRight()",
+      "padLeft(\u2026)",
+      "padRight(\u2026)",
+      "contains(\u2026)",
+      "replaceFirst(\u2026)",
+      "replaceFirstMapped(\u2026)",
+      "replaceAll(\u2026)",
+      "replaceAllMapped(\u2026)",
+      "replaceRange(\u2026)",
+      "split(\u2026)",
+      "splitMapJoin(\u2026)",
+      "toLowerCase()",
+      "toUpperCase()",
+      "length",
+      "hashCode",
+      "isEmpty",
+      "isNotEmpty",
+      "codeUnits",
+      "runes",
+      "toString()",
+      "noSuchMethod(\u2026)",
+      "runtimeType",
+      "allMatches(\u2026)",
+      "matchAsPrefix(\u2026)"
+    ],
+    "completion_labels": [
+      "greet(\u2026)",
+      "Invocation.genericMethod(\u2026)",
+      "Invocation.getter(\u2026)",
+      "Iterable.generate(\u2026)",
+      "List.generate(\u2026)"
+    ]
+  },
+  "analyzer": [
+    {
+      "case": "valid_sdk",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/valid_sdk.dart",
+      "source_sha256": "7f5681b2c6cc88853c1b11b98dea1fc8b1e9a1b37e118257aa1d41b7548047e9",
+      "exit_codes": {
+        "official": 0,
+        "dartforge": 0
+      },
+      "exact_match": true,
+      "official": [],
+      "dartforge": [],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "non_bool",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/non_bool.dart",
+      "source_sha256": "bffcffdd87e321a21e63ca34fa0f0e8ed4eb01b1fe443f04500e5f784d20c98c",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 3
+      },
+      "exact_match": true,
+      "official": [
+        {
+          "code": "non_bool_condition",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/non_bool.dart",
+            "range": {
+              "start": {
+                "offset": 18,
+                "line": 1,
+                "column": 19
+              },
+              "end": {
+                "offset": 19,
+                "line": 1,
+                "column": 20
+              }
+            }
+          },
+          "problemMessage": "Conditions must have a static type of 'bool'.",
+          "correctionMessage": "Try changing the condition.",
+          "documentation": "https://dart.dev/diagnostics/non_bool_condition"
+        }
+      ],
+      "dartforge": [
+        {
+          "code": "non_bool_condition",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/non_bool.dart",
+            "range": {
+              "start": {
+                "offset": 18,
+                "line": 1,
+                "column": 19
+              },
+              "end": {
+                "offset": 19,
+                "line": 1,
+                "column": 20
+              }
+            }
+          },
+          "problemMessage": "Conditions must have a static type of 'bool'.",
+          "correctionMessage": "Try changing the condition.",
+          "documentation": "https://dart.dev/diagnostics/non_bool_condition"
+        }
+      ],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "undefined",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/undefined.dart",
+      "source_sha256": "479a8d9ee433300c0821dda18f6971bb14b473d179c5896d7a4e47740ef93e16",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 3
+      },
+      "exact_match": true,
+      "official": [
+        {
+          "code": "undefined_identifier",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/undefined.dart",
+            "range": {
+              "start": {
+                "offset": 20,
+                "line": 1,
+                "column": 21
+              },
+              "end": {
+                "offset": 27,
+                "line": 1,
+                "column": 28
+              }
+            }
+          },
+          "problemMessage": "Undefined name 'missing'.",
+          "correctionMessage": "Try correcting the name to one that is defined, or defining the name.",
+          "documentation": "https://dart.dev/diagnostics/undefined_identifier"
+        }
+      ],
+      "dartforge": [
+        {
+          "code": "undefined_identifier",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/undefined.dart",
+            "range": {
+              "start": {
+                "offset": 20,
+                "line": 1,
+                "column": 21
+              },
+              "end": {
+                "offset": 27,
+                "line": 1,
+                "column": 28
+              }
+            }
+          },
+          "problemMessage": "Undefined name 'missing'.",
+          "correctionMessage": "Try correcting the name to one that is defined, or defining the name.",
+          "documentation": "https://dart.dev/diagnostics/undefined_identifier"
+        }
+      ],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "assignment",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/assignment.dart",
+      "source_sha256": "3986fe84afb4004b2064c6777f25a87defc8817987291713a8d6e2ea7c1e9e75",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 0
+      },
+      "exact_match": false,
+      "official": [
+        {
+          "code": "invalid_assignment",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/assignment.dart",
+            "range": {
+              "start": {
+                "offset": 26,
+                "line": 1,
+                "column": 27
+              },
+              "end": {
+                "offset": 33,
+                "line": 1,
+                "column": 34
+              }
+            }
+          },
+          "problemMessage": "A value of type 'String' can't be assigned to a variable of type 'int'.",
+          "correctionMessage": "Try changing the type of the variable, or casting the right-hand type to 'int'.",
+          "documentation": "https://dart.dev/diagnostics/invalid_assignment"
+        }
+      ],
+      "dartforge": [],
+      "missing": [
+        {
+          "code": "invalid_assignment",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/assignment.dart",
+            "range": {
+              "start": {
+                "offset": 26,
+                "line": 1,
+                "column": 27
+              },
+              "end": {
+                "offset": 33,
+                "line": 1,
+                "column": 34
+              }
+            }
+          },
+          "problemMessage": "A value of type 'String' can't be assigned to a variable of type 'int'.",
+          "correctionMessage": "Try changing the type of the variable, or casting the right-hand type to 'int'.",
+          "documentation": "https://dart.dev/diagnostics/invalid_assignment"
+        }
+      ],
+      "additional": [],
+      "unfiltered": {
+        "exit_code": 3,
+        "exact_match": true,
+        "report": {
+          "version": 1,
+          "diagnostics": [
+            {
+              "code": "invalid_assignment",
+              "severity": "ERROR",
+              "type": "COMPILE_TIME_ERROR",
+              "location": {
+                "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/assignment.dart",
+                "range": {
+                  "start": {
+                    "offset": 26,
+                    "line": 1,
+                    "column": 27
+                  },
+                  "end": {
+                    "offset": 33,
+                    "line": 1,
+                    "column": 34
+                  }
+                }
+              },
+              "problemMessage": "A value of type 'String' can't be assigned to a variable of type 'int'.",
+              "correctionMessage": "Try changing the type of the variable, or casting the right-hand type to 'int'.",
+              "documentation": "https://dart.dev/diagnostics/invalid_assignment"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "case": "syntax",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/syntax.dart",
+      "source_sha256": "14343ac77fd0fdec4943eaef819b5e4f08cc9fa717e2eed9401c036c18099d78",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 3
+      },
+      "exact_match": true,
+      "official": [
+        {
+          "code": "missing_identifier",
+          "severity": "ERROR",
+          "type": "SYNTACTIC_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/syntax.dart",
+            "range": {
+              "start": {
+                "offset": 28,
+                "line": 1,
+                "column": 29
+              },
+              "end": {
+                "offset": 29,
+                "line": 1,
+                "column": 30
+              }
+            }
+          },
+          "problemMessage": "Expected an identifier."
+        }
+      ],
+      "dartforge": [
+        {
+          "code": "missing_identifier",
+          "severity": "ERROR",
+          "type": "SYNTACTIC_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/syntax.dart",
+            "range": {
+              "start": {
+                "offset": 28,
+                "line": 1,
+                "column": 29
+              },
+              "end": {
+                "offset": 29,
+                "line": 1,
+                "column": 30
+              }
+            }
+          },
+          "problemMessage": "Expected an identifier."
+        }
+      ],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "nullable_receiver",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/nullable_receiver.dart",
+      "source_sha256": "7e5063cd724bd71a9825d4706b64fe13fd60f23b8f044387b425eed8476fb852",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 3
+      },
+      "exact_match": true,
+      "official": [
+        {
+          "code": "unchecked_use_of_nullable_value",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/nullable_receiver.dart",
+            "range": {
+              "start": {
+                "offset": 36,
+                "line": 1,
+                "column": 37
+              },
+              "end": {
+                "offset": 42,
+                "line": 1,
+                "column": 43
+              }
+            }
+          },
+          "problemMessage": "The property 'length' can't be unconditionally accessed because the receiver can be 'null'.",
+          "correctionMessage": "Try making the access conditional (using '?.') or adding a null check to the target ('!').",
+          "documentation": "https://dart.dev/diagnostics/unchecked_use_of_nullable_value"
+        }
+      ],
+      "dartforge": [
+        {
+          "code": "unchecked_use_of_nullable_value",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/nullable_receiver.dart",
+            "range": {
+              "start": {
+                "offset": 36,
+                "line": 1,
+                "column": 37
+              },
+              "end": {
+                "offset": 42,
+                "line": 1,
+                "column": 43
+              }
+            }
+          },
+          "problemMessage": "The property 'length' can't be unconditionally accessed because the receiver can be 'null'.",
+          "correctionMessage": "Try making the access conditional (using '?.') or adding a null check to the target ('!').",
+          "documentation": "https://dart.dev/diagnostics/unchecked_use_of_nullable_value"
+        }
+      ],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "argument_type",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/argument_type.dart",
+      "source_sha256": "35d0f10972851c35be14a63cc57fe8e0d5c3a5aec94bf50162a130e8ca3cfcc2",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 3
+      },
+      "exact_match": true,
+      "official": [
+        {
+          "code": "argument_type_not_assignable",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/argument_type.dart",
+            "range": {
+              "start": {
+                "offset": 37,
+                "line": 2,
+                "column": 17
+              },
+              "end": {
+                "offset": 44,
+                "line": 2,
+                "column": 24
+              }
+            }
+          },
+          "problemMessage": "The argument type 'String' can't be assigned to the parameter type 'int'. ",
+          "documentation": "https://dart.dev/diagnostics/argument_type_not_assignable"
+        }
+      ],
+      "dartforge": [
+        {
+          "code": "argument_type_not_assignable",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/argument_type.dart",
+            "range": {
+              "start": {
+                "offset": 37,
+                "line": 2,
+                "column": 17
+              },
+              "end": {
+                "offset": 44,
+                "line": 2,
+                "column": 24
+              }
+            }
+          },
+          "problemMessage": "The argument type 'String' can't be assigned to the parameter type 'int'. ",
+          "documentation": "https://dart.dev/diagnostics/argument_type_not_assignable"
+        }
+      ],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "return_type",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/return_type.dart",
+      "source_sha256": "87e951f3748d25e43d23623131853422b592fbc44668ff0f0befc017e8d6ca6b",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 3
+      },
+      "exact_match": true,
+      "official": [
+        {
+          "code": "return_of_invalid_type",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/return_type.dart",
+            "range": {
+              "start": {
+                "offset": 11,
+                "line": 1,
+                "column": 12
+              },
+              "end": {
+                "offset": 18,
+                "line": 1,
+                "column": 19
+              }
+            }
+          },
+          "problemMessage": "A value of type 'String' can't be returned from the function 'f' because it has a return type of 'int'.",
+          "documentation": "https://dart.dev/diagnostics/return_of_invalid_type"
+        }
+      ],
+      "dartforge": [
+        {
+          "code": "return_of_invalid_type",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/return_type.dart",
+            "range": {
+              "start": {
+                "offset": 11,
+                "line": 1,
+                "column": 12
+              },
+              "end": {
+                "offset": 18,
+                "line": 1,
+                "column": 19
+              }
+            }
+          },
+          "problemMessage": "A value of type 'String' can't be returned from the function 'f' because it has a return type of 'int'.",
+          "documentation": "https://dart.dev/diagnostics/return_of_invalid_type"
+        }
+      ],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "required_argument",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/required_argument.dart",
+      "source_sha256": "ada8ff8c895a6b3a1eacbf14e0ac65a5cbc86edad3e3ad62edb03d4798528313",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 3
+      },
+      "exact_match": true,
+      "official": [
+        {
+          "code": "missing_required_argument",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/required_argument.dart",
+            "range": {
+              "start": {
+                "offset": 46,
+                "line": 2,
+                "column": 15
+              },
+              "end": {
+                "offset": 47,
+                "line": 2,
+                "column": 16
+              }
+            }
+          },
+          "problemMessage": "The named parameter 'value' is required, but there's no corresponding argument.",
+          "correctionMessage": "Try adding the required argument.",
+          "documentation": "https://dart.dev/diagnostics/missing_required_argument"
+        }
+      ],
+      "dartforge": [
+        {
+          "code": "missing_required_argument",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/required_argument.dart",
+            "range": {
+              "start": {
+                "offset": 46,
+                "line": 2,
+                "column": 15
+              },
+              "end": {
+                "offset": 47,
+                "line": 2,
+                "column": 16
+              }
+            }
+          },
+          "problemMessage": "The named parameter 'value' is required, but there's no corresponding argument.",
+          "correctionMessage": "Try adding the required argument.",
+          "documentation": "https://dart.dev/diagnostics/missing_required_argument"
+        }
+      ],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "invalid_override",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/invalid_override.dart",
+      "source_sha256": "086ffc6092ccf49e7d2d15ff67d82b6842457a8cda5bc25180a507f88ceeac6a",
+      "exit_codes": {
+        "official": 3,
+        "dartforge": 3
+      },
+      "exact_match": true,
+      "official": [
+        {
+          "code": "invalid_override",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/invalid_override.dart",
+            "range": {
+              "start": {
+                "offset": 53,
+                "line": 2,
+                "column": 28
+              },
+              "end": {
+                "offset": 54,
+                "line": 2,
+                "column": 29
+              }
+            }
+          },
+          "problemMessage": "'B.f' ('String Function()') isn't a valid override of 'A.f' ('int Function()').",
+          "contextMessages": [
+            {
+              "location": {
+                "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/invalid_override.dart",
+                "range": {
+                  "start": {
+                    "offset": 14,
+                    "line": 1,
+                    "column": 15
+                  },
+                  "end": {
+                    "offset": 15,
+                    "line": 1,
+                    "column": 16
+                  }
+                }
+              },
+              "message": "The member being overridden."
+            }
+          ],
+          "documentation": "https://dart.dev/diagnostics/invalid_override"
+        }
+      ],
+      "dartforge": [
+        {
+          "code": "invalid_override",
+          "severity": "ERROR",
+          "type": "COMPILE_TIME_ERROR",
+          "location": {
+            "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/invalid_override.dart",
+            "range": {
+              "start": {
+                "offset": 53,
+                "line": 2,
+                "column": 28
+              },
+              "end": {
+                "offset": 54,
+                "line": 2,
+                "column": 29
+              }
+            }
+          },
+          "problemMessage": "'B.f' ('String Function()') isn't a valid override of 'A.f' ('int Function()').",
+          "contextMessages": [
+            {
+              "location": {
+                "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/invalid_override.dart",
+                "range": {
+                  "start": {
+                    "offset": 14,
+                    "line": 1,
+                    "column": 15
+                  },
+                  "end": {
+                    "offset": 15,
+                    "line": 1,
+                    "column": 16
+                  }
+                }
+              },
+              "message": "The member being overridden."
+            }
+          ],
+          "documentation": "https://dart.dev/diagnostics/invalid_override"
+        }
+      ],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "valid_records_patterns",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-analyzer-audit-isolated-20261013/project/lib/valid_records_patterns.dart",
+      "source_sha256": "cf8a56d4d3f48c4876495e351caa13e3065394de167cade645490b720b87c5f9",
+      "exit_codes": {
+        "official": 0,
+        "dartforge": 0
+      },
+      "exact_match": true,
+      "official": [],
+      "dartforge": [],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "file_explorer",
+      "path": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+      "source_sha256": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+      "exit_codes": {
+        "official": 0,
+        "dartforge": 0
+      },
+      "exact_match": true,
+      "official": [],
+      "dartforge": [],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "explorer_model",
+      "path": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/lib/src/engine/explorer_model.dart",
+      "source_sha256": "a6c3af7d6b5f35ab4789d153fadd96f991924941af83d5ef860abcc89ddb7a8e",
+      "exit_codes": {
+        "official": 0,
+        "dartforge": 0
+      },
+      "exact_match": true,
+      "official": [],
+      "dartforge": [],
+      "missing": [],
+      "additional": []
+    },
+    {
+      "case": "framework_application",
+      "path": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/lib/src/app/application.dart",
+      "source_sha256": "a42b6a5d61a620378c2f3ac7d56eb07a7039276c0b3f46163260b088510aefb4",
+      "exit_codes": {
+        "official": 0,
+        "dartforge": 0
+      },
+      "exact_match": true,
+      "official": [],
+      "dartforge": [],
+      "missing": [],
+      "additional": []
+    }
+  ],
+  "production_ready_claim": false,
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/verify-lsp-analyzer.py": "aeda730926b2daae9d2dcad243e15fd71e8ab667987b66908655fab3d9456187",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge": "a4ef0cf37d2d86379bb5c433e28b38cf39891a25a8eea12f4f6d124591b4a833",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/debug/dartforge-lsp": "b4130aee820310bf877e71e281242b28a0055532443c4c27716faa1e26f8b541"
+  },
+  "inputs_stable": true,
+  "audit_completed": true,
+  "analyzer_exact_match_count": 13
+}

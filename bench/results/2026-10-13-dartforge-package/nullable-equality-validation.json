@@ -1,0 +1,408 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+  "compiler_sha256": "6f963ffc2c2075e3b1080d729361f220dd1fbe758eb6de1da6cf8769436b8194",
+  "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/nullable_equality.dart",
+  "source_sha256": "2645162d771972f3664f59dd7e20df5fb17606c1d7ce6b89d59ed26c27d127fe",
+  "runner_sha256": "a07fbcb68a13e4eceb2a9b1c0e94b2638691d92caa1766fef11cecf763d5d92b",
+  "sdk_lib": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+  "expected_trace": "true false false true equality=0\ntrue false eager=2\nfalse false false false equality=0\n",
+  "commands": [
+    {
+      "label": "sdk-version",
+      "command": [
+        "dart",
+        "--version"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "vm",
+      "command": [
+        "dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/nullable_equality.dart"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "official-build",
+      "command": [
+        "dart",
+        "compile",
+        "exe",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/nullable_equality.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/official"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "official",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/official"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "tracing-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/nullable_equality.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "tracing-ir",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/nullable_equality.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=tracing",
+        "--emit-ir",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.tracing.ll"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "tracing-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "tracing-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.tracing"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "arc-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/nullable_equality.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "arc-ir",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/nullable_equality.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=arc",
+        "--emit-ir",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.arc.ll"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "arc-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "arc-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.arc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "prepared-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/nullable_equality.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.prepared"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "prepared-ir",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/nullable_equality.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=arc",
+        "--emit-ir",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.prepared.ll"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "prepared-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.prepared"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "prepared-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.prepared"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "builds": [
+    {
+      "mode": "tracing",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.tracing",
+      "binary_sha256": "f4049b6abb1bf3018ceba96518994b0ad8c9762ecbc37bd95abc4f8f4437fdae",
+      "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.tracing.contracts.json",
+      "manifest_sha256": "b9677001163a159ebd12b6de892117b6b1a765c4b403d30348761325ab946608",
+      "artifact_identity": {
+        "blake3": "1418a6278e6df2ae841c9ae99181468bb2645fb14a056ce33a401bf679de07ca",
+        "cpu": "None",
+        "debug": false,
+        "ir_blake3": "c53910005dc08c90ac9da1f065e2f73cc45e03ec05f1de0c0d2ba9cbb7a4b7c3",
+        "optimized": true,
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.tracing"
+      }
+    },
+    {
+      "mode": "arc",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.arc",
+      "binary_sha256": "3457fe51dee49c9d6fd633e2bb3b4bc8776e524a953db50bac7b18951a04e193",
+      "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.arc.contracts.json",
+      "manifest_sha256": "ea059a65d3f05701c9a8092018b0d59ac4607e3e90c3adaae0c48af93d1cf9de",
+      "artifact_identity": {
+        "blake3": "5971d8dc30d6e38f37d328d2d4d08a2f171816c0855d7e6bcb4cfca683b9a6b2",
+        "cpu": "None",
+        "debug": false,
+        "ir_blake3": "cc82d706787e1dd317f67b3f02c65e8b5b88cecba55d7afb1f8a6755224caed0",
+        "optimized": true,
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.arc"
+      }
+    },
+    {
+      "mode": "prepared",
+      "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.prepared",
+      "binary_sha256": "881bca7078c160027a242a0126fc3efc9a93a664ef5499f82f006c6086127938",
+      "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.prepared.contracts.json",
+      "manifest_sha256": "a8ce6b42b4f51013c5a30c7761f33f639122238097db4f0fbdde065c9af45904",
+      "artifact_identity": {
+        "blake3": "15f20bcbbf5ac615e015d0e44652fd534545b9713f9062b6cdab14b7a7edb670",
+        "cpu": "None",
+        "debug": false,
+        "ir_blake3": "bfd7f6995a87b98de16567b95a7444660639c0f7c3c429e5312069dbbc4c4d8a",
+        "optimized": true,
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.prepared"
+      }
+    }
+  ],
+  "runs": [
+    {
+      "label": "vm",
+      "exit_code": 0,
+      "stdout_bytes": 87,
+      "stdout_sha256": "736bb712e66965b919b222feddff7186accafecc5518651b3844df9ea7c16257",
+      "stderr_bytes": 0,
+      "matches_explicit_expected_trace": true
+    },
+    {
+      "label": "official",
+      "exit_code": 0,
+      "stdout_bytes": 87,
+      "stdout_sha256": "736bb712e66965b919b222feddff7186accafecc5518651b3844df9ea7c16257",
+      "stderr_bytes": 0,
+      "matches_explicit_expected_trace": true
+    },
+    {
+      "label": "tracing-normal",
+      "exit_code": 0,
+      "stdout_bytes": 87,
+      "stdout_sha256": "736bb712e66965b919b222feddff7186accafecc5518651b3844df9ea7c16257",
+      "stderr_bytes": 0,
+      "matches_explicit_expected_trace": true,
+      "mode": "tracing",
+      "gc_stress": false,
+      "binary_sha256": "f4049b6abb1bf3018ceba96518994b0ad8c9762ecbc37bd95abc4f8f4437fdae",
+      "manifest_sha256": "b9677001163a159ebd12b6de892117b6b1a765c4b403d30348761325ab946608"
+    },
+    {
+      "label": "tracing-stress",
+      "exit_code": 0,
+      "stdout_bytes": 87,
+      "stdout_sha256": "736bb712e66965b919b222feddff7186accafecc5518651b3844df9ea7c16257",
+      "stderr_bytes": 0,
+      "matches_explicit_expected_trace": true,
+      "mode": "tracing",
+      "gc_stress": true,
+      "binary_sha256": "f4049b6abb1bf3018ceba96518994b0ad8c9762ecbc37bd95abc4f8f4437fdae",
+      "manifest_sha256": "b9677001163a159ebd12b6de892117b6b1a765c4b403d30348761325ab946608"
+    },
+    {
+      "label": "arc-normal",
+      "exit_code": 0,
+      "stdout_bytes": 87,
+      "stdout_sha256": "736bb712e66965b919b222feddff7186accafecc5518651b3844df9ea7c16257",
+      "stderr_bytes": 0,
+      "matches_explicit_expected_trace": true,
+      "mode": "arc",
+      "gc_stress": false,
+      "binary_sha256": "3457fe51dee49c9d6fd633e2bb3b4bc8776e524a953db50bac7b18951a04e193",
+      "manifest_sha256": "ea059a65d3f05701c9a8092018b0d59ac4607e3e90c3adaae0c48af93d1cf9de"
+    },
+    {
+      "label": "arc-stress",
+      "exit_code": 0,
+      "stdout_bytes": 87,
+      "stdout_sha256": "736bb712e66965b919b222feddff7186accafecc5518651b3844df9ea7c16257",
+      "stderr_bytes": 0,
+      "matches_explicit_expected_trace": true,
+      "mode": "arc",
+      "gc_stress": true,
+      "binary_sha256": "3457fe51dee49c9d6fd633e2bb3b4bc8776e524a953db50bac7b18951a04e193",
+      "manifest_sha256": "ea059a65d3f05701c9a8092018b0d59ac4607e3e90c3adaae0c48af93d1cf9de"
+    },
+    {
+      "label": "prepared-normal",
+      "exit_code": 0,
+      "stdout_bytes": 87,
+      "stdout_sha256": "736bb712e66965b919b222feddff7186accafecc5518651b3844df9ea7c16257",
+      "stderr_bytes": 0,
+      "matches_explicit_expected_trace": true,
+      "mode": "prepared",
+      "gc_stress": false,
+      "binary_sha256": "881bca7078c160027a242a0126fc3efc9a93a664ef5499f82f006c6086127938",
+      "manifest_sha256": "a8ce6b42b4f51013c5a30c7761f33f639122238097db4f0fbdde065c9af45904"
+    },
+    {
+      "label": "prepared-stress",
+      "exit_code": 0,
+      "stdout_bytes": 87,
+      "stdout_sha256": "736bb712e66965b919b222feddff7186accafecc5518651b3844df9ea7c16257",
+      "stderr_bytes": 0,
+      "matches_explicit_expected_trace": true,
+      "mode": "prepared",
+      "gc_stress": true,
+      "binary_sha256": "881bca7078c160027a242a0126fc3efc9a93a664ef5499f82f006c6086127938",
+      "manifest_sha256": "a8ce6b42b4f51013c5a30c7761f33f639122238097db4f0fbdde065c9af45904"
+    }
+  ],
+  "ir": [
+    {
+      "mode": "tracing",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.tracing.ll",
+      "sha256": "1966a494683c5a8a5a3c6ada7e6e7ad4c68660a2fdc2fe4ac399d5b08c7a7760",
+      "predicates": [
+        {
+          "symbol": "df.nullable_equality$2edart..missing",
+          "body_sha256": "810cc7469b1140df57ba45446940db759766dea26129d740b28fbee3c51d8d66",
+          "parameter_null_comparison_present": true,
+          "equality_dispatch_absent": true
+        },
+        {
+          "symbol": "df.nullable_equality$2edart..present",
+          "body_sha256": "278b08a1d70823baff46c574ce04b1d58730ce7512a72e229957b00d606d37f4",
+          "parameter_null_comparison_present": true,
+          "equality_dispatch_absent": true
+        }
+      ]
+    },
+    {
+      "mode": "arc",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.arc.ll",
+      "sha256": "c9f9b3ffb31338708db3a49e36abb6c51cefdae1c519b9bbe30ed67ff7777214",
+      "predicates": [
+        {
+          "symbol": "df.nullable_equality$2edart..missing",
+          "body_sha256": "810cc7469b1140df57ba45446940db759766dea26129d740b28fbee3c51d8d66",
+          "parameter_null_comparison_present": true,
+          "equality_dispatch_absent": true
+        },
+        {
+          "symbol": "df.nullable_equality$2edart..present",
+          "body_sha256": "278b08a1d70823baff46c574ce04b1d58730ce7512a72e229957b00d606d37f4",
+          "parameter_null_comparison_present": true,
+          "equality_dispatch_absent": true
+        }
+      ]
+    },
+    {
+      "mode": "prepared",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/nullable-equality-final/nullable.prepared.ll",
+      "sha256": "81dbd0903d595e51cd77ed665d7c4f9910a93d7de49dd357b63b51333ec27177",
+      "predicates": [
+        {
+          "symbol": "df.nullable_equality$2edart..missing",
+          "body_sha256": "810cc7469b1140df57ba45446940db759766dea26129d740b28fbee3c51d8d66",
+          "parameter_null_comparison_present": true,
+          "equality_dispatch_absent": true
+        },
+        {
+          "symbol": "df.nullable_equality$2edart..present",
+          "body_sha256": "278b08a1d70823baff46c574ce04b1d58730ce7512a72e229957b00d606d37f4",
+          "parameter_null_comparison_present": true,
+          "equality_dispatch_absent": true
+        }
+      ]
+    }
+  ],
+  "inputs_stable_through_run": true,
+  "performance_measurement": false,
+  "limits": [
+    "IR checks cover the named predicate definitions before Clang/LTO, not every emitted helper or a NoEscape certificate.",
+    "Manifest paths and independent SHA256 bind binaries; compiler-provided BLAKE3 is recorded without independent recomputation."
+  ],
+  "sdk_version": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\""
+}

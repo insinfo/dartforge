@@ -5,6 +5,7 @@ pub mod erasure;
 pub mod cache;
 pub mod object_cache;
 pub mod context;
+pub mod contracts;
 pub mod driver;
 pub mod source;
 mod finalizables;
@@ -38,6 +39,8 @@ use std::time::{Duration, Instant};
 
 /// Native compilation options.
 pub struct CompileOptions<'a> {
+    /// Explicit verification policy, independent of ambient environment state.
+    pub contracts: contracts::ContractMode,
     pub sdk: Option<&'a Path>,
     pub packages: Option<&'a Path>,
     pub timings: bool,
@@ -81,6 +84,8 @@ pub struct EmissionTimes {
 /// The LLVM IR of a program, ready for Clang.
 #[derive(Debug, Clone)]
 pub struct EmittedIr {
+    /// Contract provenance for this exact emission; never an implicit proof.
+    pub contracts: contracts::ContractReport,
     pub text: String,
     pub times: EmissionTimes,
     /// Bytes of `text` that are function bodies of the SDK (`dart:`); see
@@ -354,8 +359,15 @@ fn emit_ir_internal(
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
     let (mut outline, outline_diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-    let (bodies, body_diags) =
-        dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+    // Local declaration bindings are also needed by constant evaluation (a
+    // later const initializer may refer to an earlier local constant).
+    let user_libraries: Vec<_> = program.libraries.iter().enumerate()
+        .filter(|(_, lib)| !lib.is_sdk)
+        .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32))
+        .collect();
+    let (bodies, body_diags) = dartforge_types::infer_library_bodies_with_locals(
+        &program, &interner, &mut table, &core, &mut outline, &user_libraries,
+    );
     // Language errors of the 3.7–3.13 features (docs/VERSOES-LINGUAGEM.md §3) and
     // reads of a local that is not definitely assigned abort
     // (`codes::is_compile_error`); the rest of `types` is a warning and does not appear here.
@@ -370,6 +382,29 @@ fn emit_ir_internal(
         }
         return Err(msg);
     }
+
+    // Constant legality is independent of reachability and lowering support:
+    // canonicalizing a non-const constructor would otherwise silently accept
+    // invalid Dart. Use the same verifier as the analyzer, with SDK bodies
+    // opaque but their public constructor declarations available.
+    let inferred = user_libraries.iter().copied().collect();
+    let constant_diags = dartforge_types::const_eval::verify(
+        &program, &interner, &mut table, &core, &outline, &bodies, &inferred, &user_libraries,
+    );
+    let mut constant_errors = constant_diags.iter()
+        .filter(|(_, d)| d.severity == dartforge_diagnostics::Severity::Error);
+    if let Some((unit, first)) = constant_errors.next() {
+        let mut message = format!("error: {}: {first}", program.unit_path(*unit));
+        for (unit, diagnostic) in constant_errors {
+            message.push_str(&format!("\nerror: {}: {diagnostic}", program.unit_path(*unit)));
+        }
+        return Err(message);
+    }
+
+    let normalized_annotations = dartforge_types::optimization_annotations::normalize(
+        &program, &interner, &mut table, &core, &outline, &bodies, &inferred, &user_libraries,
+    );
+    let contract_report = contracts::inspect(&normalized_annotations, &program, options.contracts)?;
 
     let te = erasure::compute(&program, &outline, &mut table);
     let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
@@ -557,7 +592,8 @@ fn emit_ir_internal(
 
     let sdk_byte_count = sdk_bytes(&llvm_ir, &program);
     Ok(EmittedIr {
-        text: llvm_ir,
+        text: format!("; DartForge contract provenance {}\n{llvm_ir}", contract_report.cache_tag()),
+        contracts: contract_report,
         times: EmissionTimes {
             frontend: front_duration,
             world: world_duration,
@@ -626,6 +662,24 @@ pub fn compile_with(
 
     let linkage = driver::compile_and_link(&ir.text, exit, &driver_opts)?;
 
+    // A successful build records explicit ignore mode and package dependencies;
+    // this report never certifies a request merely because code was emitted.
+    let report_path = contracts::manifest_path(exit);
+    let mut manifest = ir.contracts.json().clone();
+    let image = std::fs::read(exit)
+        .map_err(|e| format!("could not bind contract provenance to {}: {e}", exit.display()))?;
+    manifest["artifact"] = serde_json::json!({
+        "path": exit.display().to_string(),
+        "blake3": blake3::hash(&image).to_hex().to_string(),
+        "ir_blake3": blake3::hash(ir.text.as_bytes()).to_hex().to_string(),
+        "optimized": options.optimize, "debug": options.debug,
+        "cpu": format!("{:?}", options.cpu),
+    });
+    let report = serde_json::to_vec_pretty(&manifest)
+        .map_err(|e| format!("could not serialize contract provenance: {e}"))?;
+    std::fs::write(&report_path, report)
+        .map_err(|e| format!("could not write contract provenance {}: {e}", report_path.display()))?;
+
     let total_duration = t_total.elapsed();
     let peak_memory = dartforge_instrument::peak_bytes();
 
@@ -664,8 +718,116 @@ mod tests {
     use super::*;
 
     fn emit(entry: &Path) -> EmittedIr {
-        let options = CompileOptions { sdk: Some(sdk_tests()), packages: None, timings: false, optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+        let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(sdk_tests()), packages: None, timings: false, optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
         emit_ir(entry, &options).expect("emitir IR")
+    }
+
+    #[test]
+    fn native_compilation_environment_uses_reserved_definition_and_defaults() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let entry = dir.path().join("main.dart");
+            std::fs::write(dir.path().join("keys.dart"), "const compilerKey = 'dartforge.' + 'compiler';\n").unwrap();
+            std::fs::write(&entry, r#"
+import 'keys.dart' as keys;
+const native = bool.fromEnvironment(keys.compilerKey, defaultValue: false);
+const available = bool.hasEnvironment(keys.compilerKey);
+const missing = bool.hasEnvironment('undefined.key');
+const absent = bool.fromEnvironment('undefined.key', defaultValue: true);
+const number = int.fromEnvironment(keys.compilerKey, defaultValue: 7);
+void main() {
+  const localKey = 'dartforge.compiler';
+  const local = bool.fromEnvironment(localKey);
+  const choice = true;
+  print(const bool.fromEnvironment(choice ? 'dartforge.compiler' : 'missing'));
+  print(const bool.fromEnvironment('dartforge.${'compiler'}'));
+  print(const bool.fromEnvironment(bool.hasEnvironment('dartforge.compiler') ? 'dartforge.compiler' : 'missing'));
+  print(native); print(available); print(missing); print(absent); print(number);
+  print(const bool.fromEnvironment('dartforge.compiler'));
+  print(const String.fromEnvironment('dartforge.compiler', defaultValue: 'fallback'));
+  print(identical(const [local], const [true]));
+  print(identical(const [native], const [true]));
+  print(identical(const [number], const [7]));
+}
+"#).unwrap();
+            let ir = emit(&entry).text;
+            assert!(!ir.contains("Bool_fromEnvironment"));
+            assert!(!ir.contains("Bool_hasEnvironment"));
+            assert!(!ir.contains("String_fromEnvironment"));
+            assert!(!ir.contains("Integer_fromEnvironment"));
+            assert!(ir.contains("true"));
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn native_compilation_environment_rejects_unknown_const_names_in_nested_queries() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let entry = dir.path().join("main.dart");
+            let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(sdk_tests()), packages: None, timings: false,
+                optimize: true, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+            for value in [
+                "const bool.fromEnvironment(1 == 1 ? 'dartforge.compiler' : 'missing')",
+                "bool.fromEnvironment(1 == 1 ? 'dartforge.compiler' : 'missing')",
+                "bool.fromEnvironment(bool.hasEnvironment(1 == 1 ? 'dartforge.compiler' : 'missing') ? 'dartforge.compiler' : 'missing')",
+            ] {
+                std::fs::write(&entry, format!("void main() {{ const result = {value}; print(result); }}\n")).unwrap();
+                let error = emit_ir(&entry, &options).err().expect("unsupported const name must reject IR emission");
+                assert!(error.contains("constant compilation environment name"), "{value}: {error}");
+            }
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn constant_validation_rejects_non_const_constructors_before_reachability() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let entry = dir.path().join("main.dart");
+            let prefix = "class C { C(); C.named(); factory C.make() => C(); }\n";
+            let cases = [
+                "void main() { print(const C()); }",
+                "void main() { print(const C.named()); }",
+                "void main() { print(const C.make()); }",
+                "void main() { const value = C(); print(value); }",
+                "void main() { print(const [C()]); }",
+                "void main() { const value = (C(), 1); print(value); }",
+                "typedef Alias = C; void main() { print(const Alias()); }",
+                "void unused() { print(const C()); } void main() {}",
+            ];
+            for body in cases {
+                std::fs::write(&entry, format!("{prefix}{body}\n")).unwrap();
+                let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(sdk_tests()), packages: None, timings: false,
+                    optimize: true, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+                let error = emit_ir(&entry, &options).err().expect("invalid constant must reject IR emission");
+                assert!(error.contains("const") || error.contains("constant"), "{body}: {error}");
+            }
+            std::fs::write(&entry,
+                "import 'dart:convert'; void main() { print(const JsonUtf8Encoder()); }\n").unwrap();
+            let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(sdk_tests()), packages: None, timings: false,
+                optimize: true, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+            let error = emit_ir(&entry, &options).err().expect("SDK non-const constructor must reject IR emission");
+            assert!(error.contains("isn't a const constructor"), "{error}");
+            std::fs::write(dir.path().join("dependency.dart"), "class Token { Token(); Token.named(); }\n").unwrap();
+            for body in ["print(const dep.Token());", "const value = dep.Token.named(); print(value);"] {
+                std::fs::write(&entry, format!("import 'dependency.dart' as dep; void main() {{ {body} }}\n")).unwrap();
+                assert!(emit_ir(&entry, &options).is_err(), "imported constructor: {body}");
+            }
+            std::fs::write(&entry,
+                "class Base { Base(); } mixin M {} class Alias = Base with M; void main() { print(const Alias()); }\n").unwrap();
+            assert!(emit_ir(&entry, &options).is_err(), "forwarded non-const constructor");
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn constant_validation_preserves_local_bindings_and_sdk_public_const_factories() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let entry = dir.path().join("main.dart");
+            std::fs::write(&entry, "class C { final int n; const C(this.n); }\n\
+                void main() { const n = 4; const first = C(n); const values = [first, C(n)]; \
+                const flag = bool.fromEnvironment('flag'); print(values.length); print(flag); }\n").unwrap();
+            assert!(emit(&entry).text.contains("@dart_main"));
+        }).unwrap().join().unwrap();
     }
 
     #[test]
@@ -727,7 +889,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let entry = dir.path().join("main.dart");
         std::fs::write(&entry, "void main() {\n  int? k = 1;\n  var a = {?k: 1};\n  var b = {?k: 2};\n  print(a.length + b.length);\n}\n").unwrap();
-        let options = CompileOptions { sdk: Some(sdk_tests()), packages: None, timings: false, optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+        let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(sdk_tests()), packages: None, timings: false, optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
         let error = std::thread::Builder::new()
             .stack_size(64 << 20)
             .spawn(move || emit_ir(&entry, &options).map(|ir| ir.text))
@@ -844,5 +1006,127 @@ mod tests {
                      not supported by the native backend: call `sort` (a.dart:3:4)";
         assert_eq!(error_constructs(text), ["member `hash`", "call `sort`"]);
         assert!(error_constructs("error loading the program: x").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod inline_pragma_tests {
+    use super::*;
+
+    #[test]
+    fn source_inline_requests_reach_native_bodies_and_async_state_machines() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let entry = dir.path().join("inline.dart");
+            std::fs::write(&entry, r#"
+@pragma('vm:prefer-inline') int preferred(int x) => x + 1;
+@pragma('vm:prefer-inline') @pragma('vm:never-inline') int forbidden(int x) => x + 2;
+class C {
+  @pragma('vm:never-inline') C();
+  @pragma('vm:prefer-inline') int method(int x) => x + 3;
+  @pragma('vm:never-inline') int get value => 4;
+}
+@pragma('vm:never-inline') Future<int> asyncValue() async { await null; return 5; }
+Future<void> main() async {
+  @pragma('vm:never-inline') int localDirect(int x) => x + 6;
+  final captured = 7;
+  @pragma('vm:never-inline') int localClosure(int x) => captured + x;
+  @pragma('vm:never-inline') Future<int> localAsync() async { await null; return 8; }
+  final escaped = localClosure;
+  print(localDirect(1)); print(escaped(1)); print(await localAsync());
+  final c = C();
+  print(preferred(1)); print(forbidden(1)); print(c.method(1)); print(c.value);
+  print(await asyncValue());
+}
+"#).unwrap();
+            for optimize in [false, true] {
+                let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(sdk_tests()), packages: None, timings: false,
+                    optimize, language_version: None, experiments: Vec::new(), debug: false,
+                    generator: None, cpu: None };
+                let ir = emit_ir(&entry, &options).unwrap().text;
+                let headers: Vec<_> = ir.lines().filter(|l| l.starts_with("define ")).collect();
+                let check = |symbol: &str, attribute: &str| {
+                    let header = headers.iter().find(|l| l.contains(&format!("@{symbol}("))).unwrap();
+                    assert!(header.contains(attribute), "{header}");
+                };
+                check("df.inline$2edart..forbidden", " noinline");
+                assert!(ir.contains("call i64 @df.inline$2edart..forbidden("), "never-inline must retain the call boundary");
+                check("df.inline$2edart.C.new", " noinline");
+                check("df.inline$2edart.C.value", " noinline");
+                check("df.inline$2edart..asyncValue", " noinline");
+                let body = headers.iter().find(|l| l.contains("@df.inline$2edart..asyncValue$async$q") && !l.contains("$ent(")).unwrap();
+                assert!(body.contains(" noinline"), "{body}");
+                for local in ["$localDirect", "$localClosure", "$localAsync"] {
+                    let body = headers.iter().find(|l| l.contains(local) && !l.contains("$ent(") && !l.contains("$async$q")).unwrap();
+                    assert!(body.contains(" noinline"), "{body}");
+                }
+                if !optimize {
+                    check("df.inline$2edart..preferred", " inlinehint");
+                    check("df.inline$2edart.C.method", " inlinehint");
+                }
+            }
+        }).unwrap().join().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod native_pump_contract_tests {
+    use super::*;
+
+    #[test]
+    fn dispatcher_bridge_requires_the_exact_callback_and_contract_version() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let package = dir.path().join("pkg/lib/src");
+            std::fs::create_dir_all(&package).unwrap();
+            let config = dir.path().join("packages.json");
+            std::fs::write(&config, r#"{"configVersion":2,"packages":[{"name":"dartforge","rootUri":"pkg/","packageUri":"lib/","languageVersion":"3.6"}]}"#).unwrap();
+            let entry = dir.path().join("main.dart");
+            std::fs::write(&entry, "import 'package:dartforge/src/native_pump.dart'; void main() { print(run()); }").unwrap();
+            let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify,
+                sdk: Some(sdk_tests()), packages: Some(&config), timings: false, optimize: false,
+                language_version: None, experiments: vec![], debug: false, generator: None, cpu: None };
+            for (version, ty, argument) in [
+                ("v1", "void Function(int)", "(int value) {}"),
+                ("v1", "void Function()?", "null"),
+                ("v1", "Function", "() {}"),
+                ("v2", "void Function()", "() {}"),
+            ] {
+                std::fs::write(package.join("native_pump.dart"), format!(
+                    "@pragma('dartforge:native-pump-{version}') int _setNativeEventDispatcherV1({ty} callback) => 7; int run() => _setNativeEventDispatcherV1({argument});"
+                )).unwrap();
+                let ir = emit_ir(&entry, &options).unwrap().text;
+                assert!(!ir.contains("call i64 @dartforge_native_DartForge_native_pump_set_dispatcher("), "{version}, {ty}");
+            }
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn versioned_package_body_is_native_but_arbitrary_pragmas_are_not() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let package = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/dartforge").canonicalize().unwrap();
+            let config = dir.path().join("packages.json");
+            let root = format!("file://{}/", package.display());
+            std::fs::write(&config, format!(r#"{{"configVersion":2,"packages":[{{"name":"dartforge","rootUri":"{root}","packageUri":"lib/","languageVersion":"3.6"}}]}}"#)).unwrap();
+            let entry = dir.path().join("main.dart");
+            let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(sdk_tests()), packages: Some(&config), timings: false,
+                optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+            // Test the defining library without requiring unrelated optional
+            // package dependencies in this standalone package configuration.
+            std::fs::write(&entry, "import 'package:dartforge/src/native_pump.dart'; void dispatch() {} void main() { print(EventLoop.supportsNativePump); EventLoop.enableNativePump(); print(EventLoop.supportsNativeEventDispatcher); EventLoop.setNativeEventDispatcher(dispatch); EventLoop.clearNativeEventDispatcher(); EventLoop.disableNativePump(); }\n").unwrap();
+            let ir = emit_ir(&entry, &options).unwrap().text;
+            for name in ["supported", "enable", "disable"] {
+                let abi = if name == "supported" { "i8" } else { "i64" };
+                assert!(ir.contains(&format!("call {abi} @dartforge_native_DartForge_native_pump_{name}(")), "{name}");
+            }
+            for (name, abi) in [("dispatcher_supported", "i8"), ("set_dispatcher", "i64"), ("clear_dispatcher", "i64")] {
+                assert!(ir.contains(&format!("call {abi} @dartforge_native_DartForge_native_pump_{name}(")), "{name}");
+            }
+            assert!(ir.contains("call void @dartforge_event_loop"));
+            std::fs::write(&entry, "@pragma('dartforge:native-pump-v1') bool _supportsNativePumpV1() => true; void main() { print(_supportsNativePumpV1()); }\n").unwrap();
+            let ir = emit_ir(&entry, &options).unwrap().text;
+            assert!(!ir.contains("call i8 @dartforge_native_DartForge_native_pump_supported("));
+        }).unwrap().join().unwrap();
     }
 }

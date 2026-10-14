@@ -1,0 +1,73 @@
+{
+  "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-size-audit/file_explorer-final-check-none",
+  "binary_sha256": "915f676a9c236ca21fd3f54755ed2e2d75709ca9ed5ac9a60e45ca4f1694e17a",
+  "binary_bytes": 28808112,
+  "cwd": "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+  "args": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+    "--lang=en"
+  ],
+  "actions": [
+    {
+      "action": "capture",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"capture\", \"window_id\": 1132, \"host_pid\": 83658, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-size-audit/final-ui-validation\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": ""
+    },
+    {
+      "action": "navigate",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"navigate\", \"window_id\": 1132, \"host_pid\": 83658, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-size-audit/final-ui-validation\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": ""
+    },
+    {
+      "action": "back-button",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"back-button\", \"window_id\": 1132, \"host_pid\": 83658, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-size-audit/final-ui-validation\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": ""
+    },
+    {
+      "action": "close-button",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"close-button\", \"window_id\": 1132, \"host_pid\": 83658, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-size-audit/final-ui-validation\", \"application_alive\": true}\n",
+      "stderr": ""
+    }
+  ],
+  "visual_review_completed": true,
+  "performance_claim": false,
+  "pid": 83656,
+  "exit_code": 0,
+  "stdout_bytes": 0,
+  "stderr_bytes": 0,
+  "binary_unchanged": true,
+  "screenshots": {
+    "navigate.png": "1d77ebc097986a8e66993a2bc9068a60a27fd12b8102691aced0f42dddf19484",
+    "capture.png": "00c203f00cdc9fd717abf684e4cbc14607ed7ebd988341342b6bfa9cb439b852",
+    "back-button.png": "349c87f4e0f8a061e5b6aa14b7f7916ad5577aba5daf913b2b20a36dd22bbd2d"
+  },
+  "observations": {
+    "capture": "Root folder and text file;2 items",
+    "navigate": "Child folder with child-content.txt;1 item",
+    "back-button": "Root folder restored;2 items"
+  },
+  "compiler_sha256": "1d05a3139addfab53feef981a387f8a2ccd0b51966287c4af8caf44d244a4c91",
+  "flags": [
+    "--optimize",
+    "--exceptions=check",
+    "--roots=shadow",
+    "--stack-trace=none",
+    "--memory=tracing"
+  ],
+  "source_and_host_hashes": {
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/pubspec.yaml": "ef44dea286ac9831533d6a5d623505c2d1d3f96131104805d3e36b12ae80311e",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/lib/src/app/application.dart": "a42b6a5d61a620378c2f3ac7d56eb07a7039276c0b3f46163260b088510aefb4",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/lib/src/backends/macos/native/build/dart_ui_macos_host": "7c2b067f83976e93a4c4a8b5dbb1fc7ee218fd7c4b3ed9775a719272e722bd4f"
+  },
+  "custom_dartforge_api_required": false,
+  "limits": [
+    "Basic real-window navigation and native close; other application features not covered.",
+    "Uses existing ordinary Dart macOS native-host backend.",
+    "No runtime throughput, startup or memory-performance claim."
+  ]
+}

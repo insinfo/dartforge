@@ -1,0 +1,264 @@
+{
+  "artifacts": {
+    "baseline": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/final/objects_in_collections.forge_checked_minified.js",
+      "sha256": "b029b98ea98e30a3443e31d496745ffa49f6ddaeaf6caca1ffc50088e4830d59"
+    },
+    "prototype": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/objects-sdk-number-prototype.js",
+      "sha256": "6d6de0ae677148c3fb38d2845b2c2b8a67636569e498839cc1ae8c25ecd3633c"
+    },
+    "officialO2": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/final/objects_in_collections.dart2js_O2.js",
+      "sha256": "5e0c8749243814bb44575f03aca2541fef94b5196e343fae124673bc25f07e9f"
+    }
+  },
+  "runs": [
+    {
+      "profile": "baseline",
+      "repetition": 0,
+      "exit_code": 0,
+      "stdout": "object_list: 33000 29000 21000 25000 22000 26000 us | 129592732.5\nobject_sort: 95000 93000 89000 84000 95000 89000 us | 100028\nmap_int_object: 20000 19000 19000 21000 19000 18000 us | 19999900000\nmap_str_object: 25000 19000 22000 18000 18000 25000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 25000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 89000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 19000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 19000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "prototype",
+      "repetition": 0,
+      "exit_code": 0,
+      "stdout": "object_list: 27000 23000 15000 20000 22000 17000 us | 129592732.5\nobject_sort: 94000 90000 88000 86000 86000 90000 us | 100028\nmap_int_object: 19000 17000 18000 19000 17000 17000 us | 19999900000\nmap_str_object: 17000 20000 15000 18000 15000 18000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 20000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 88000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 17000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 18000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "officialO2",
+      "repetition": 0,
+      "exit_code": 0,
+      "stdout": "object_list: 15000 4000 6000 6000 9000 4000 us | 129592732.5\nobject_sort: 33000 38000 34000 32000 31000 32000 us | 100028\nmap_int_object: 13000 11000 16000 17000 9000 14000 us | 19999900000\nmap_str_object: 7000 6000 8000 6000 5000 13000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 6000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 32000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 14000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 6000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "officialO2",
+      "repetition": 1,
+      "exit_code": 0,
+      "stdout": "object_list: 14000 4000 7000 6000 8000 4000 us | 129592732.5\nobject_sort: 33000 37000 31000 30000 31000 30000 us | 100028\nmap_int_object: 13000 11000 14000 17000 9000 14000 us | 19999900000\nmap_str_object: 7000 6000 8000 5000 6000 12000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 6000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 31000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 14000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 6000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "prototype",
+      "repetition": 1,
+      "exit_code": 0,
+      "stdout": "object_list: 27000 24000 15000 20000 22000 17000 us | 129592732.5\nobject_sort: 98000 95000 92000 88000 88000 92000 us | 100028\nmap_int_object: 20000 17000 17000 19000 18000 18000 us | 19999900000\nmap_str_object: 18000 20000 15000 18000 15000 18000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 20000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 92000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 18000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 18000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "baseline",
+      "repetition": 1,
+      "exit_code": 0,
+      "stdout": "object_list: 32000 30000 20000 23000 26000 21000 us | 129592732.5\nobject_sort: 100000 109000 99000 91000 88000 96000 us | 100028\nmap_int_object: 21000 20000 20000 21000 19000 18000 us | 19999900000\nmap_str_object: 20000 22000 18000 20000 18000 20000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 23000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 96000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 20000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 20000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "baseline",
+      "repetition": 2,
+      "exit_code": 0,
+      "stdout": "object_list: 33000 29000 20000 26000 27000 22000 us | 129592732.5\nobject_sort: 99000 94000 90000 85000 85000 88000 us | 100028\nmap_int_object: 20000 19000 18000 21000 18000 19000 us | 19999900000\nmap_str_object: 25000 19000 22000 18000 18000 23000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 26000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 88000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 19000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 19000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "prototype",
+      "repetition": 2,
+      "exit_code": 0,
+      "stdout": "object_list: 28000 25000 16000 20000 22000 17000 us | 129592732.5\nobject_sort: 94000 92000 89000 85000 86000 88000 us | 100028\nmap_int_object: 20000 17000 17000 19000 18000 18000 us | 19999900000\nmap_str_object: 17000 19000 15000 18000 15000 18000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 20000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 88000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 18000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 18000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "officialO2",
+      "repetition": 2,
+      "exit_code": 0,
+      "stdout": "object_list: 14000 9000 4000 5000 9000 4000 us | 129592732.5\nobject_sort: 32000 33000 31000 31000 30000 37000 us | 100028\nmap_int_object: 10000 9000 14000 9000 15000 8000 us | 19999900000\nmap_str_object: 12000 5000 6000 8000 5000 6000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 5000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 31000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 9000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 6000,
+          "result": "1199980"
+        }
+      }
+    }
+  ],
+  "summary": {
+    "baseline": {
+      "object_list": 25000,
+      "object_sort": 89000,
+      "map_int_object": 19000,
+      "map_str_object": 19000
+    },
+    "prototype": {
+      "object_list": 20000,
+      "object_sort": 88000,
+      "map_int_object": 18000,
+      "map_str_object": 18000
+    },
+    "officialO2": {
+      "object_list": 6000,
+      "object_sort": 31000,
+      "map_int_object": 14000,
+      "map_str_object": 6000
+    }
+  },
+  "inputs_stable": true
+}

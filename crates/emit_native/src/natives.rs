@@ -203,6 +203,7 @@ pub const NATIVES: &[NativeEntry] = &[
     runtime("DartForge_List_fill"),
     runtime("DartForge_Timer_cancel"),
     runtime("DartForge_Timer_new"),
+    runtime("DartForge_Timer_tick"),
     runtime("DartForge_capability_new"),
     runtime("DartForge_class_not_sendable"),
     runtime("DartForge_class_transferable"),
@@ -213,6 +214,9 @@ pub const NATIVES: &[NativeEntry] = &[
     runtime("DartForge_ffi_callback_delete"),
     runtime("DartForge_ffi_callback_keep"),
     runtime("DartForge_ffi_callback_new"),
+    runtime("DartForge_ffi_callback_sync_claim"),
+    runtime("DartForge_ffi_callback_sync_complete"),
+    runtime("DartForge_ffi_callback_sync_new"),
     runtime("DartForge_ffi_compound_of_type"),
     runtime("DartForge_ffi_copy"),
     runtime("DartForge_ffi_function"),
@@ -256,6 +260,12 @@ pub const NATIVES: &[NativeEntry] = &[
     runtime("DartForge_json_truncate"),
     runtime("DartForge_mirrors_name"),
     runtime("DartForge_mirrors_uri"),
+    runtime("DartForge_native_pump_clear_dispatcher"),
+    runtime("DartForge_native_pump_disable"),
+    runtime("DartForge_native_pump_dispatcher_supported"),
+    runtime("DartForge_native_pump_enable"),
+    runtime("DartForge_native_pump_set_dispatcher"),
+    runtime("DartForge_native_pump_supported"),
     runtime("DartForge_package_config"),
     runtime("DartForge_port_close"),
     runtime("DartForge_port_current"),
@@ -959,7 +969,7 @@ mod inventory {
     }
 
     /// Every source native (with the overlay) has an entry, and every entry
-    /// is still a source native.
+    /// is still a source native or a versioned package runtime contract.
     #[test]
     fn every_source_native_has_entry() {
         crate::sdk_tests();
@@ -986,7 +996,19 @@ mod inventory {
         let names: std::collections::BTreeSet<&str> = externals.iter().filter_map(|e| e.native.as_deref()).collect();
         let without_entry: Vec<&&str> = names.iter().filter(|n| native(n).is_none()).collect();
         assert!(without_entry.is_empty(), "source natives without an entry in NATIVES: {without_entry:?}");
-        let leftover: Vec<&str> = NATIVES.iter().map(|n| n.name).filter(|n| !names.contains(n)).collect();
+        // These portable package bodies are replaced only after declaration
+        // identity and contract version are checked by the lowering pass.
+        // native_pump_contract_tests checks the actual package declarations.
+        let package_contracts = [
+            "DartForge_native_pump_clear_dispatcher",
+            "DartForge_native_pump_disable",
+            "DartForge_native_pump_dispatcher_supported",
+            "DartForge_native_pump_enable",
+            "DartForge_native_pump_set_dispatcher",
+            "DartForge_native_pump_supported",
+        ];
+        let leftover: Vec<&str> = NATIVES.iter().map(|n| n.name)
+            .filter(|n| !names.contains(n) && !package_contracts.contains(n)).collect();
         assert!(leftover.is_empty(), "NATIVES entries that are no longer source natives: {leftover:?}");
         // An unpatched `external` without a native nor `vm:recognized` has no
         // implementation anywhere — not even in the VM.

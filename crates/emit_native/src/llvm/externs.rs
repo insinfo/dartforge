@@ -830,6 +830,34 @@ pub const EXTERNS: &[Extern] = &[
         effects: CONSERVATIVE,
     },
     Extern {
+        decl: "declare i64 @dartforge_native_DartForge_Timer_tick(i64)",
+        effects: CONSERVATIVE,
+    },
+    Extern {
+        decl: "declare i8 @dartforge_native_DartForge_native_pump_supported()",
+        effects: CONSERVATIVE,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_native_DartForge_native_pump_enable()",
+        effects: CONSERVATIVE,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_native_DartForge_native_pump_disable()",
+        effects: CONSERVATIVE,
+    },
+    Extern {
+        decl: "declare i8 @dartforge_native_DartForge_native_pump_dispatcher_supported()",
+        effects: CONSERVATIVE,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_native_DartForge_native_pump_set_dispatcher(i64)",
+        effects: CONSERVATIVE,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_native_DartForge_native_pump_clear_dispatcher()",
+        effects: CONSERVATIVE,
+    },
+    Extern {
         decl: "declare i64 @dartforge_native_Error_throwWithStackTrace(i64, i64)",
         effects: CONSERVATIVE,
     },
@@ -916,12 +944,26 @@ pub const EXTERNS: &[Extern] = &[
         effects: CONSERVATIVE,
     },
     Extern {
+        decl: "declare i64 @dartforge_ffi_callback_late_return(ptr) nounwind",
+        effects: Effects { allocates: false, throws: false, calls_dart: false },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_ffi_callback_late_calls() nounwind",
+        effects: Effects { allocates: false, throws: false, calls_dart: false },
+    },
+    Extern {
         decl: "declare i8 @dartforge_ffi_callback_exit(ptr, ptr)",
         effects: CONSERVATIVE,
     },
     Extern {
         decl: "declare void @dartforge_ffi_callback_post(ptr, ptr, i64)",
         effects: CONSERVATIVE,
+    },
+    Extern {
+        decl: "declare i64 @dartforge_ffi_callback_sync(ptr, ptr, i64)",
+        // Waits for the owner; this foreign thread never enters Dart or the
+        // managed heap. Effects describe execution on the calling thread.
+        effects: Effects { allocates: false, throws: false, calls_dart: false },
     },
     Extern {
         decl: "declare i64 @dartforge_ffi_callback_closure(i64)",
@@ -1178,6 +1220,36 @@ mod tests {
                 e.name()
             );
             assert!(!e.effects.calls_dart || t.calls_dart, "{}: runs Dart in the declaration and not in the table", e.name());
+        }
+    }
+
+    #[test]
+    fn timer_tick_and_native_pump_have_scalar_ownership_contracts() {
+        use crate::hir::{Instruction, Type};
+        use crate::optimize::arc::{contract, runtime_call_contract, Ownership};
+        use dartforge_runtime::ownership::{ParamMode, ResultMode};
+
+        for (name, result, ty) in [
+            ("dartforge_native_DartForge_Timer_tick", ResultMode::ScalarI64, Type::I64),
+            ("dartforge_native_DartForge_native_pump_supported", ResultMode::ScalarI8, Type::I8),
+            ("dartforge_native_DartForge_native_pump_enable", ResultMode::ScalarI64, Type::I64),
+            ("dartforge_native_DartForge_native_pump_disable", ResultMode::ScalarI64, Type::I64),
+        ] {
+            let c = contract(name).unwrap();
+            assert_eq!(c.result, result);
+            let timer = name.ends_with("Timer_tick");
+            assert_eq!(c.parameters, if timer { &[ParamMode::Scalar][..] } else { &[][..] });
+            assert!(!c.persistent_retention && !c.calls_dart);
+            assert!(c.invalidates_borrows && c.may_fail);
+            let args = if timer {
+                vec![(crate::hir::Operand::Constant(crate::hir::Constant::Int(42)), Type::I64)]
+            } else { vec![] };
+            let call = Instruction::CallRuntime { name: name.into(), args: args.clone(), ret_ty: ty };
+            assert_eq!(runtime_call_contract(&call).unwrap().result, Ownership::Trivial);
+            let incorrect = Instruction::CallRuntime { name: name.into(), args, ret_ty: Type::Ref };
+            assert!(runtime_call_contract(&incorrect).is_err());
+            let declaration = EXTERNS.iter().find(|e| e.name() == name).unwrap();
+            assert_eq!(declaration.effects, CONSERVATIVE);
         }
     }
 

@@ -18,8 +18,10 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
+pub(crate) mod receiver_provenance;
+
 /// First line of a summary; the number changes with the format.
-const HEADER: &str = "dartforge-poda\t2";
+const HEADER: &str = "dartforge-poda\t4";
 
 /// Selectors that live in every live class, without a call in the IR (§3.6):
 /// `c:call` the runtime looks up by text (`dartforge_closure_entry`, the
@@ -261,6 +263,19 @@ pub struct Summary {
     /// function, or the constant of the text in the IR): where the native signatures
     /// that the program may ask of the runtime come from (§3.14).
     pub recipes: Vec<(u32, String)>,
+    /// Calls on a declared SDK `this`: (calling definition, selector, receiver cone).
+    /// Every other call remains in `Definition::calls` and is unrestricted.
+    pub receiver_calls: Vec<(u32, i64, i64)>,
+    /// Allocation-proved physical identities (caller, selector, one possible CID).
+    /// Multiple entries for one call denote a union, never a subtype cone.
+    pub exact_receiver_calls: Vec<(u32, i64, i64)>,
+    /// Nominal identities with complete emitted parent edges. Other identities
+    /// cannot be excluded from a receiver cone.
+    pub nominal_classes: Vec<i64>,
+    /// CID aliases without a unique nominal declaration remain open.
+    pub ambiguous_classes: Vec<i64>,
+    /// Runtime subtype edges, including interfaces and mixins.
+    pub parent_edges: Vec<(i64, i64)>,
     index: HashMap<String, u32>,
 }
 
@@ -307,6 +322,21 @@ impl Summary {
         }
         for (node, t) in &self.recipes {
             writeln!(s, "R\t{node}\t{t}").unwrap();
+        }
+        for (node, selector, cone) in &self.receiver_calls {
+            writeln!(s, "C\t{node}\t{selector}\t{cone}").unwrap();
+        }
+        for (node, selector, cid) in &self.exact_receiver_calls {
+            writeln!(s, "E\t{node}\t{selector}\t{cid}").unwrap();
+        }
+        for cid in &self.nominal_classes {
+            writeln!(s, "K\t{cid}").unwrap();
+        }
+        for cid in &self.ambiguous_classes {
+            writeln!(s, "A\t{cid}").unwrap();
+        }
+        for (child, parent) in &self.parent_edges {
+            writeln!(s, "P\t{child}\t{parent}").unwrap();
         }
         s
     }
@@ -366,6 +396,25 @@ impl Summary {
                     let node = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
                     r.recipes.push((node, c.next().unwrap_or_default().to_string()));
                 }
+                Some("C") => {
+                    let node = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let selector = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let cone = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    r.receiver_calls.push((node, selector, cone));
+                }
+                Some("E") => {
+                    let node = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let selector = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let cid = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    r.exact_receiver_calls.push((node, selector, cid));
+                }
+                Some("K") => r.nominal_classes.push(c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?),
+                Some("A") => r.ambiguous_classes.push(c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?),
+                Some("P") => {
+                    let child = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let parent = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    r.parent_edges.push((child, parent));
+                }
                 _ if l.is_empty() => {}
                 _ => return Err(bad(l)),
             }
@@ -374,8 +423,15 @@ impl Summary {
         let outside = r.definitions.iter().any(|d| d.name >= n || d.refs.iter().any(|&x| x >= n))
             || r.tables.iter().any(|t| t.node >= n || t.pairs.iter().any(|&(_, f)| f >= n))
             || r.externals.iter().any(|&e| e >= n);
+        let outside = outside || r.receiver_calls.iter().chain(&r.exact_receiver_calls).any(|&(node, _, _)| node >= n);
         if outside {
             return Err("pruning summary with an index outside the names table".to_string());
+        }
+        if r.nominal_classes.iter().chain(&r.ambiguous_classes).any(|&cid| u32::try_from(cid).is_err())
+            || r.parent_edges.iter().any(|&(child, parent)| u32::try_from(child).is_err() || u32::try_from(parent).is_err())
+            || r.receiver_calls.iter().chain(&r.exact_receiver_calls).any(|&(_, _, cone)| u32::try_from(cone).is_err())
+        {
+            return Err("pruning summary with an invalid nominal class identity".to_string());
         }
         Ok(r)
     }
@@ -399,7 +455,24 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
     let mut seln_strings: HashMap<&str, String> = HashMap::new();
     let mut descriptors: HashMap<&str, (i64, &str)> = HashMap::new();
     let mut recipes: Vec<(&str, String)> = Vec::new();
+    let mut nominal_classes = Vec::new();
+    let mut ambiguous_classes = Vec::new();
+    let mut parent_edges = Vec::new();
     for l in ir.lines() {
+        if let Some(cid) = l.strip_prefix("; df.cone-class ").and_then(|v| v.parse::<u32>().ok()).map(i64::from) {
+            nominal_classes.push(cid);
+        }
+        if let Some(cid) = l.strip_prefix("; df.cone-ambiguous ").and_then(|v| v.parse::<u32>().ok()).map(i64::from) {
+            ambiguous_classes.push(cid);
+        }
+        if let Some(edge) = l.strip_prefix("; df.cone-parent ") {
+            let mut values = edge.split_whitespace();
+            if let (Some(child), Some(parent), None) = (values.next(), values.next(), values.next())
+                && let (Ok(child), Ok(parent)) = (child.parse::<u32>(), parent.parse::<u32>())
+            {
+                parent_edges.push((i64::from(child), i64::from(parent)));
+            }
+        }
         if let Some((n, true)) = define_name(l) {
             locals.insert(n);
         } else if let Some((n, local, rest)) = global_name(l) {
@@ -425,13 +498,36 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
         }
     }
     let mut r = Summary::new(module);
+    nominal_classes.sort_unstable();
+    nominal_classes.dedup();
+    parent_edges.sort_unstable();
+    parent_edges.dedup();
+    r.nominal_classes = nominal_classes;
+    ambiguous_classes.sort_unstable();
+    ambiguous_classes.dedup();
+    r.ambiguous_classes = ambiguous_classes;
+    r.parent_edges = parent_edges;
     let key = |n: &str| if locals.contains(n) { format!("{module}#{n}") } else { n.to_string() };
     let mut seen_selectors: HashSet<i64> = HashSet::new();
     // Step 2: the definitions.
     let mut current: Option<Definition> = None;
+    let mut receiver_cone: Option<i64> = None;
+    let mut receiver_exact: Option<Vec<i64>> = None;
     for l in ir.lines() {
         if let Some(d) = current.as_mut() {
+            if let Some(cone) = l.trim().strip_prefix("; df.selector-cone ") {
+                receiver_cone = cone.parse::<u32>().ok().map(i64::from);
+                receiver_exact = None;
+                continue;
+            }
+            if let Some(classes) = l.trim().strip_prefix("; df.selector-exact ") {
+                receiver_exact = classes.split(',').map(|cid| cid.parse::<u32>().ok().map(i64::from)).collect();
+                receiver_cone = None;
+                continue;
+            }
             if l == "}" {
+                receiver_cone = None;
+                receiver_exact = None;
                 r.definitions.push(current.take().expect("current definition"));
                 continue;
             }
@@ -442,8 +538,16 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
             } else {
                 None
             };
+            let cone = receiver_cone.take();
+            let exact = receiver_exact.take();
             if let Some((h, seln)) = call {
-                d.calls.push(h);
+                if let Some(classes) = &exact {
+                    r.exact_receiver_calls.extend(classes.iter().map(|&cid| (d.name, h, cid)));
+                } else if let Some(cone) = cone {
+                    r.receiver_calls.push((d.name, h, cone));
+                } else {
+                    d.calls.push(h);
+                }
                 if let Some(t) = seln_strings.get(seln) {
                     if seen_selectors.insert(h) {
                         r.selectors.push((h, t.clone()));
@@ -451,7 +555,13 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
                     // The fallback of the typed selector (`dartforge_selector`).
                     if let Some(without_t) = t.strip_prefix('t') {
                         let h2 = selector_hash(without_t);
-                        d.calls.push(h2);
+                        if let Some(classes) = &exact {
+                            r.exact_receiver_calls.extend(classes.iter().map(|&cid| (d.name, h2, cid)));
+                        } else if let Some(cone) = cone {
+                            r.receiver_calls.push((d.name, h2, cone));
+                        } else {
+                            d.calls.push(h2);
+                        }
                         if seen_selectors.insert(h2) {
                             r.selectors.push((h2, without_t.to_string()));
                         }
@@ -692,6 +802,9 @@ pub struct Reach {
     /// The called selectors and the first live function that called each one
     /// (`None` for the roots).
     pub callees: HashMap<i64, Option<u32>>,
+    /// The accepted caller for each live table/selector pair. A scoped call
+    /// cannot explain retention of a class outside its receiver cone.
+    pub pair_callers: HashMap<(u32, i64), Option<u32>>,
     /// Some function of [`CALL_BY_NAME`] stayed live.
     pub all_pairs: bool,
     pub strings: HashMap<i64, String>,
@@ -705,6 +818,12 @@ impl Reach {
     pub fn live_pair(&self, h: i64) -> bool {
         self.all_pairs || self.callees.contains_key(&h)
     }
+
+    /// Whether a live table actually accepts this selector's receiver.
+    /// A selector called for another nominal class does not keep this pair.
+    pub fn live_table_pair(&self, table: u32, selector: i64) -> bool {
+        self.pair_callers.contains_key(&(table, selector))
+    }
 }
 
 /// The nodes, the edges and the tables of all the summaries, with the names
@@ -714,6 +833,11 @@ struct Graph {
     index: HashMap<String, u32>,
     refs: Vec<Vec<u32>>,
     calls: Vec<Vec<i64>>,
+    receiver_calls: Vec<Vec<(i64, i64)>>,
+    exact_receiver_calls: Vec<Vec<(i64, i64)>>,
+    nominal_classes: HashSet<i64>,
+    ambiguous_classes: HashSet<i64>,
+    parent_edges: HashMap<i64, Vec<i64>>,
     /// Table node → (cid, pairs).
     tables: HashMap<u32, (i64, Vec<(i64, u32)>)>,
     strings: HashMap<i64, String>,
@@ -731,6 +855,8 @@ impl Graph {
         self.index.insert(name.to_string(), i);
         self.refs.push(Vec::new());
         self.calls.push(Vec::new());
+        self.receiver_calls.push(Vec::new());
+        self.exact_receiver_calls.push(Vec::new());
         i
     }
 
@@ -740,6 +866,11 @@ impl Graph {
             index: HashMap::new(),
             refs: Vec::new(),
             calls: Vec::new(),
+            receiver_calls: Vec::new(),
+            exact_receiver_calls: Vec::new(),
+            nominal_classes: HashSet::new(),
+            ambiguous_classes: HashSet::new(),
+            parent_edges: HashMap::new(),
             tables: HashMap::new(),
             strings: HashMap::new(),
             defined: HashSet::new(),
@@ -751,6 +882,17 @@ impl Graph {
                 g.defined.insert(n as u32);
                 g.refs[n].extend(d.refs.iter().map(|&x| map[x as usize]));
                 g.calls[n].extend_from_slice(&d.calls);
+            }
+            g.nominal_classes.extend(r.nominal_classes.iter().copied());
+            g.ambiguous_classes.extend(r.ambiguous_classes.iter().copied());
+            for &(child, parent) in &r.parent_edges {
+                g.parent_edges.entry(child).or_default().push(parent);
+            }
+            for &(node, selector, cone) in &r.receiver_calls {
+                g.receiver_calls[map[node as usize] as usize].push((selector, cone));
+            }
+            for &(node, selector, cid) in &r.exact_receiver_calls {
+                g.exact_receiver_calls[map[node as usize] as usize].push((selector, cid));
             }
             for t in &r.tables {
                 let pairs = t.pairs.iter().map(|&(h, f)| (h, map[f as usize])).collect();
@@ -772,6 +914,29 @@ impl Graph {
         name == "main" || name.starts_with("dartforge_") || name.starts_with("llvm.")
     }
 
+    /// Missing ancestry is an open world: it cannot exclude a runtime identity.
+    fn receiver_matches(&self, cid: i64, cone: i64) -> bool {
+        let mut pending = vec![cid];
+        let mut visited = HashSet::new();
+        let mut incomplete = false;
+        while let Some(class) = pending.pop() {
+            if class == cone {
+                return true;
+            }
+            if !visited.insert(class) {
+                continue;
+            }
+            if !self.nominal_classes.contains(&class) || self.ambiguous_classes.contains(&class) {
+                incomplete = true;
+                continue;
+            }
+            if let Some(parents) = self.parent_edges.get(&class) {
+                pending.extend(parents.iter().copied());
+            }
+        }
+        incomplete
+    }
+
     /// The fixpoint (§3.5). `prune = false`: every pair of a live table lives.
     fn reachability(self, prune: bool) -> Reach {
         let mut causes: HashMap<u32, Cause> = HashMap::new();
@@ -779,13 +944,27 @@ impl Graph {
         let mut pending_set: HashMap<i64, Vec<(u32, u32)>> = HashMap::new();
         let mut queue: Vec<(u32, Cause)> = Vec::new();
         let mut all = !prune;
+        let mut all_caller = None;
+        let mut unrestricted = HashSet::new();
+        let mut unrestricted_callers = HashMap::new();
+        let mut cones: HashMap<i64, HashSet<i64>> = HashMap::new();
+        let mut cone_callers = HashMap::new();
+        let mut exact_classes: HashMap<i64, HashSet<i64>> = HashMap::new();
+        let mut exact_callers = HashMap::new();
+        let mut pair_callers = HashMap::new();
+        let mut receiver_cache = HashMap::new();
+        let mut matches = |cid, cone| *receiver_cache.entry((cid, cone))
+            .or_insert_with(|| self.receiver_matches(cid, cone));
         for (i, n) in self.names.iter().enumerate() {
             if Self::root(n) && self.defined.contains(&(i as u32)) {
                 queue.push((i as u32, Cause::Root));
             }
         }
         for s in ROOT_SELECTORS {
-            callees.insert(selector_hash(s), None);
+            let hash = selector_hash(s);
+            callees.insert(hash, None);
+            unrestricted.insert(hash);
+            unrestricted_callers.insert(hash, None);
         }
         let by_name: HashSet<u32> = CALL_BY_NAME.iter().filter_map(|n| self.index.get(*n).copied()).collect();
         while let Some((node, cause)) = queue.pop() {
@@ -795,21 +974,75 @@ impl Graph {
             causes.insert(node, cause);
             if by_name.contains(&node) && !all {
                 all = true;
+                all_caller = Some(node);
                 for (h, v) in pending_set.drain() {
-                    queue.extend(v.into_iter().map(|(t, f)| (f, Cause::Table(t, h))));
+                    for (t, f) in v {
+                        pair_callers.entry((t, h)).or_insert(all_caller);
+                        queue.push((f, Cause::Table(t, h)));
+                    }
                 }
             }
             for &h in &self.calls[node as usize] {
-                if let std::collections::hash_map::Entry::Vacant(e) = callees.entry(h) {
-                    e.insert(Some(node));
+                callees.entry(h).or_insert(Some(node));
+                if unrestricted.insert(h) {
+                    unrestricted_callers.insert(h, Some(node));
                     if let Some(v) = pending_set.remove(&h) {
-                        queue.extend(v.into_iter().map(|(t, f)| (f, Cause::Table(t, h))));
+                        for (t, f) in v {
+                            pair_callers.entry((t, h)).or_insert(Some(node));
+                            queue.push((f, Cause::Table(t, h)));
+                        }
                     }
+                }
+            }
+            for &(hash, cone) in &self.receiver_calls[node as usize] {
+                callees.entry(hash).or_insert(Some(node));
+                cone_callers.entry((hash, cone)).or_insert(node);
+                if cones.entry(hash).or_default().insert(cone)
+                    && let Some(waiting) = pending_set.get_mut(&hash)
+                {
+                    waiting.retain(|&(table, function)| {
+                        let cid = self.tables[&table].0;
+                        if matches(cid, cone) {
+                            pair_callers.entry((table, hash)).or_insert(Some(node));
+                            queue.push((function, Cause::Table(table, hash)));
+                            false
+                        } else {
+                            true
+                        }
+                    });
+                }
+            }
+            for &(hash, cid) in &self.exact_receiver_calls[node as usize] {
+                callees.entry(hash).or_insert(Some(node));
+                exact_callers.entry((hash, cid)).or_insert(node);
+                if exact_classes.entry(hash).or_default().insert(cid)
+                    && let Some(waiting) = pending_set.get_mut(&hash)
+                {
+                    waiting.retain(|&(table, function)| {
+                        if self.tables[&table].0 == cid {
+                            pair_callers.entry((table, hash)).or_insert(Some(node));
+                            queue.push((function, Cause::Table(table, hash)));
+                            false
+                        } else { true }
+                    });
                 }
             }
             if let Some((_, pairs)) = self.tables.get(&node) {
                 for &(h, f) in pairs {
-                    if all || callees.contains_key(&h) {
+                    let caller = if all {
+                        Some(all_caller)
+                    } else if unrestricted.contains(&h) {
+                        Some(unrestricted_callers[&h])
+                    } else {
+                        let nominal = cones.get(&h).and_then(|values| values.iter()
+                            .filter(|&&cone| matches(self.tables[&node].0, cone))
+                            .map(|&cone| cone_callers[&(h, cone)]).min());
+                        let exact = exact_classes.get(&h).filter(|classes| classes.contains(&self.tables[&node].0))
+                            .map(|_| exact_callers[&(h, self.tables[&node].0)]);
+                        nominal.into_iter().chain(exact).min().map(Some)
+                    };
+                    if let Some(caller) = caller {
+                        pair_callers.entry((node, h)).or_insert(caller);
                         queue.push((f, Cause::Table(node, h)));
                     } else {
                         pending_set.entry(h).or_default().push((node, f));
@@ -818,7 +1051,7 @@ impl Graph {
             }
             queue.extend(self.refs[node as usize].iter().map(|&r| (r, Cause::Ref(node))));
         }
-        Reach { names: self.names, causes, callees, all_pairs: all, strings: self.strings }
+        Reach { names: self.names, causes, callees, pair_callers, all_pairs: all, strings: self.strings }
     }
 }
 
@@ -875,7 +1108,9 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
             return Vec::new();
         }
         st.live_tables += 1;
-        let v: Vec<(i64, String)> = pairs.iter().filter(|(h, _)| reachability.live_pair(*h)).cloned().collect();
+        let table = node.expect("live table has a graph identity");
+        let v: Vec<(i64, String)> = pairs.iter()
+            .filter(|(h, _)| reachability.live_table_pair(table, *h)).cloned().collect();
         st.live_pairs += v.len();
         v
     };
@@ -983,7 +1218,7 @@ pub fn report(reachability: &Reach) -> String {
             Cause::Root => format!("{}\troot\t-\t-\t-", name(node)),
             Cause::Ref(p) => format!("{}\tref\t{}\t-\t-", name(node), name(*p)),
             Cause::Table(t, h) => {
-                let who = reachability.callees.get(h).copied().flatten().map_or("root", name);
+                let who = reachability.pair_callers.get(&(*t, *h)).copied().flatten().map_or("root", name);
                 format!("{}\ttable\t{}\t{}\t{}", name(node), name(*t), text(*h), who)
             }
         })
@@ -1070,18 +1305,38 @@ pub fn hir_summary(m: &crate::hir::Module) -> Summary {
 /// for the keys of `live_ffis` (`None`: all of them, §3.14).
 fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>) -> Summary {
     use crate::hir::{Constant, Instruction, Operand};
+    let provenance = if receiver_provenance::enabled() { receiver_provenance::analyze(&[m]) } else { receiver_provenance::Provenance::default() };
     let mut r = Summary::new("programa");
+    r.nominal_classes = m.pruning_class_ids.iter().map(|&cid| i64::from(cid)).collect();
+    r.nominal_classes.sort_unstable();
+    r.ambiguous_classes = m.pruning_ambiguous_class_ids.iter().map(|&cid| i64::from(cid)).collect();
+    r.ambiguous_classes.sort_unstable();
+    r.parent_edges = m.subtyping_edges.iter().map(|&(child, parent)| (i64::from(child), i64::from(parent))).collect();
+    r.parent_edges.sort_unstable();
+    r.parent_edges.dedup();
     let mut seen_selectors: HashSet<i64> = HashSet::new();
-    let mut selector = |r: &mut Summary, d: &mut Definition, text: &str| {
+    let mut selector = |r: &mut Summary, d: &mut Definition, text: &str, cone: Option<i64>, exact: Option<&receiver_provenance::Classes>| {
         let h = selector_hash(text);
-        d.calls.push(h);
+        if let Some(classes) = exact {
+            r.exact_receiver_calls.extend(classes.iter().map(|&cid| (d.name, h, i64::from(cid))));
+        } else if let Some(cone) = cone {
+            r.receiver_calls.push((d.name, h, cone));
+        } else {
+            d.calls.push(h);
+        }
         if seen_selectors.insert(h) {
             r.selectors.push((h, text.to_string()));
         }
         // The fallback of the typed selector (`dartforge_selector`), as in the IR.
         if let Some(without_t) = text.strip_prefix('t') {
             let h2 = selector_hash(without_t);
-            d.calls.push(h2);
+            if let Some(classes) = exact {
+                r.exact_receiver_calls.extend(classes.iter().map(|&cid| (d.name, h2, i64::from(cid))));
+            } else if let Some(cone) = cone {
+                r.receiver_calls.push((d.name, h2, cone));
+            } else {
+                d.calls.push(h2);
+            }
             if seen_selectors.insert(h2) {
                 r.selectors.push((h2, without_t.to_string()));
             }
@@ -1116,8 +1371,13 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
                             names.push(t);
                         }
                     }
-                    Instruction::CallSelector { selector: s, .. } | Instruction::CallSelectorForward { selector: s, .. } => {
-                        selector(&mut r, &mut d, s);
+                    Instruction::CallSelector { selector: s, recv, .. } | Instruction::CallSelectorForward { selector: s, recv, .. } => {
+                        let cone = m.pruning_this_receivers.get(&f.symbol)
+                            .filter(|(parameter, _)| f.params.iter().any(|(id, _, ty)| id == parameter && *ty == crate::hir::Type::Ref))
+                            .filter(|(parameter, _)| recv == &Operand::Val(*parameter))
+                            .map(|(_, cid)| i64::from(*cid));
+                        let exact = if let Operand::Val(value) = recv { provenance.values_for(f).and_then(|values| values.get(value)) } else { None };
+                        selector(&mut r, &mut d, s, cone, exact);
                     }
                     Instruction::FunctionTable(v) => names.extend(v.iter().map(String::as_str)),
                     _ => {}
@@ -1253,9 +1513,11 @@ pub fn prune_hir(m: &mut crate::hir::Module, sdk: &[&Summary]) -> HirPruning {
     m.arc_shared_functions.retain(|sym_name| !removed_set.contains(sym_name));
     // The table pair whose selector nobody calls goes away, and so does that of the function that left
     // (the entry of a live pair is always reached).
-    for (_, _, pairs) in &mut m.method_tables {
+    for (_, table, pairs) in &mut m.method_tables {
         e.pairs += pairs.len();
-        pairs.retain(|(s, f)| reachability.live_pair(selector_hash(s)) && !removed_set.contains(f));
+        let node = index.get(format!("{table}$d").as_str()).copied();
+        pairs.retain(|(s, f)| node.is_none_or(|n| reachability.live_table_pair(n, selector_hash(s)))
+            && !removed_set.contains(f));
         e.live_pairs += pairs.len();
     }
     e
@@ -1585,5 +1847,227 @@ mod ffi_tests {
         assert_eq!(r.names[r.recipes[1].0 as usize], "m#.str.2");
         let again = Summary::from_string(&r.to_text()).unwrap();
         assert_eq!(again.recipes, r.recipes);
+    }
+}
+
+#[cfg(test)]
+mod receiver_cone_tests {
+    use super::*;
+
+    #[test]
+    fn assembled_table_does_not_reference_an_excluded_adapter() {
+        let hash = selector_hash("c:unary-");
+        let mut sdk = Summary::new("sdk");
+        let caller = sdk.id("sdk.unaryCaller");
+        sdk.definitions.push(Definition { name: caller, ..Default::default() });
+        sdk.receiver_calls.push((caller, hash, 10));
+        sdk.nominal_classes = vec![0, 10];
+        sdk.parent_edges.push((10, 0));
+        let table = table_line("@df.mt.Unrelated$d = private unnamed_addr constant ",
+            20, &[(hash, "@Unrelated.unary$c".into())]);
+        let ir = format!("; df.cone-class 0\n; df.cone-class 20\n; df.cone-parent 20 0\n\
+            {table}\
+            define ptr @df.mt.Unrelated() {{\n ret ptr @df.mt.Unrelated$d\n}}\n\
+            define i64 @Unrelated.unary$c(i64 %this, ptr %args, ptr %desc) {{\n ret i64 %this\n}}\n\
+            define i32 @main() {{\n %t = call ptr @df.mt.Unrelated()\n\
+              call void @sdk.unaryCaller()\n ret i32 0\n}}\n");
+        let assembled = assemble(&ir, &[&sdk], true).unwrap();
+        assert!(!assembled.ir.contains("define i64 @Unrelated.unary$c"));
+        assert!(!assembled.ir.contains("ptr @Unrelated.unary$c"),
+            "A selector called for another class cannot resurrect a pruned table entry");
+        assert!(assembled.ir.contains("{ i64 20, i64 0 }"));
+
+        // An ordinary unknown receiver must retain the body and table entry.
+        sdk.definitions[0].calls.push(hash);
+        let dynamic = assemble(&ir, &[&sdk], true).unwrap();
+        assert!(dynamic.ir.contains("define i64 @Unrelated.unary$c"));
+        assert!(dynamic.ir.contains("ptr @Unrelated.unary$c"));
+    }
+
+    fn fixture(cone: i64) -> Summary {
+        let mut summary = Summary::new("receiver-cones");
+        let main = summary.id("main");
+        let selector = selector_hash("g:length");
+        let mut refs = Vec::new();
+        for cid in [10, 11, 12, 13, 20, 777] {
+            let node = summary.id(&format!("table.{cid}"));
+            let function = summary.id(&format!("length.{cid}"));
+            summary.tables.push(SummarizedTable { node, cid, pairs: vec![(selector, function)] });
+            summary.definitions.push(Definition { name: function, ..Default::default() });
+            refs.push(node);
+        }
+        summary.definitions.push(Definition { name: main, refs, calls: Vec::new() });
+        summary.receiver_calls.push((main, selector, cone));
+        summary.nominal_classes = vec![0, 10, 11, 12, 13, 20, 30];
+        // 12 uses a mixin; 13 implements the receiver interface. Both must stay.
+        summary.parent_edges = vec![(10, 0), (11, 10), (12, 10), (12, 30), (13, 10), (20, 0), (30, 0)];
+        summary
+    }
+
+    fn reached(result: &Reach, name: &str) -> bool {
+        result.names.iter().position(|n| n == name).is_some_and(|i| result.live(i as u32))
+    }
+
+    #[test]
+    fn unrelated_nominal_receiver_is_removed_but_subclasses_and_interfaces_stay() {
+        let summary = fixture(10);
+        let result = reach(&[&summary], true);
+        for cid in [10, 11, 12, 13, 777] {
+            assert!(reached(&result, &format!("length.{cid}")), "missing {cid}");
+        }
+        assert!(!reached(&result, "length.20"));
+        // A mixin's own `this` also accepts its application class.
+        let summary = fixture(30);
+        let result = reach(&[&summary], true);
+        assert!(reached(&result, "length.12"));
+        assert!(!reached(&result, "length.20"));
+    }
+
+    #[test]
+    fn exact_classes_do_not_expand_to_subclasses_or_unknown_identities() {
+        let mut summary = fixture(10);
+        let (caller, selector, _) = summary.receiver_calls.pop().unwrap();
+        summary.exact_receiver_calls = vec![(caller, selector, 10), (caller, selector, 11)];
+        assert_eq!(Summary::from_string(&summary.to_text()).unwrap(), summary);
+        let result = reach(&[&summary], true);
+        assert!(reached(&result, "length.10"));
+        assert!(reached(&result, "length.11"));
+        for cid in [12, 13, 20, 777] { assert!(!reached(&result, &format!("length.{cid}"))); }
+        // Unknown calls still dominate precise facts and preserve every table.
+        summary.definitions.iter_mut().find(|d| d.name == caller).unwrap().calls.push(selector);
+        let result = reach(&[&summary], true);
+        for cid in [10, 11, 12, 13, 20, 777] { assert!(reached(&result, &format!("length.{cid}"))); }
+        for entry in ["E\t999999\t1\t10\n", "E\t0\t1\t-1\n", "E\t0\t1\t4294967296\n"] {
+            assert!(Summary::from_string(&format!("{}{entry}", summary.to_text())).is_err());
+        }
+    }
+
+    #[test]
+    fn actual_hir_and_llvm_use_the_same_allocation_receiver_classes() {
+        use crate::hir::*;
+        let function = Function { symbol: "main".into(), name: "main".into(), params: vec![], return_ty: Type::Ref,
+            blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+                (ValueId(0), Instruction::AllocList { elements: vec![] }, Type::Ref),
+                (ValueId(1), Instruction::CallSelector { selector: "g:length".into(), recv: Operand::Val(ValueId(0)), args: vec![], names: vec![], tuple_types: Operand::Constant(Constant::Int(0)) }, Type::Ref),
+            ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }], debug_info: None };
+        let module = Module { functions: vec![function], ..Module::default() };
+        let hir = hir_summary(&module);
+        let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
+        assert!(ir.contains("; df.selector-exact 10"));
+        let llvm = summarize(&ir, "programa", &[]);
+        let triples = |summary: &Summary| summary.exact_receiver_calls.iter().map(|&(node, selector, cid)| (summary.names[node as usize].clone(), selector, cid)).collect::<Vec<_>>();
+        assert_eq!(triples(&hir), triples(&llvm));
+        assert_eq!(triples(&hir), vec![("main".into(), selector_hash("g:length"), 10)]);
+    }
+
+    #[test]
+    fn malformed_or_detached_exact_ir_annotations_remain_unrestricted() {
+        let selector = selector_hash("g:length");
+        for annotation in ["; df.selector-exact invalid", "; df.selector-exact 10\n  %other = add i64 1, 2"] {
+            let ir = format!("define i64 @main() {{\n  {annotation}\n  %f = call ptr @df.selector(ptr %cache, i64 %this, i64 {selector}, ptr @df.seln.0, i64 8)\n  ret i64 0\n}}\n");
+            let summary = summarize(&ir, "sdk", &[]);
+            assert!(summary.exact_receiver_calls.is_empty());
+            assert!(summary.definitions[0].calls.contains(&selector));
+        }
+    }
+
+    #[test]
+    fn unknown_receiver_call_overrides_restricted_calls_without_order_dependence() {
+        let mut summary = fixture(10);
+        let later = summary.id("unknown-caller");
+        summary.definitions.push(Definition { name: later, refs: Vec::new(), calls: vec![selector_hash("g:length")] });
+        summary.definitions.iter_mut().find(|d| summary.names[d.name as usize] == "main").unwrap().refs.push(later);
+        for reverse in [false, true] {
+            if reverse { summary.definitions.reverse(); }
+            let result = reach(&[&summary], true);
+            assert!(reached(&result, "length.20"));
+            let evidence = report(&result);
+            assert!(evidence.lines().find(|line| line.starts_with("length.20\t"))
+                .unwrap().ends_with("\tunknown-caller"));
+        }
+    }
+
+    #[test]
+    fn incomplete_ancestry_and_legacy_summaries_are_conservative() {
+        let mut summary = fixture(10);
+        summary.parent_edges.push((20, 888));
+        assert!(reached(&reach(&[&summary], true), "length.20"));
+        summary.parent_edges.retain(|&(child, _)| child != 20);
+        summary.parent_edges.push((20, 0));
+        summary.ambiguous_classes.push(0);
+        assert!(reached(&reach(&[&summary], true), "length.20"));
+        summary.nominal_classes.clear();
+        assert!(reached(&reach(&[&summary], true), "length.20"));
+    }
+
+    #[test]
+    fn receiver_metadata_round_trips_and_rejects_invalid_definition_indices() {
+        let summary = fixture(10);
+        assert_eq!(Summary::from_string(&summary.to_text()).unwrap(), summary);
+        let invalid = format!("{}C\t999999\t1\t10\n", summary.to_text());
+        assert!(Summary::from_string(&invalid).is_err());
+    }
+
+    #[test]
+    fn ir_comment_scopes_only_the_immediately_following_dispatch() {
+        let ir = "; df.cone-class 10\n; df.cone-parent 10 0\n\
+                  define i64 @main(i64 %this) {\n\
+                    ; df.selector-cone 10\n\
+                    %f = call ptr @df.selector(ptr %cache, i64 %this, i64 HASH, ptr @df.seln.0, i64 8)\n\
+                    ; df.selector-cone 20\n\
+                    %unrelated = add i64 1, 2\n\
+                    %g = call ptr @df.selector(ptr %cache, i64 %other, i64 HASH, ptr @df.seln.0, i64 8)\n\
+                    ret i64 0\n}\n\
+                  @df.seln.0 = private unnamed_addr constant [8 x i8] c\"g:length\"\n"
+            .replace("HASH", &selector_hash("g:length").to_string());
+        let summary = summarize(&ir, "sdk", &[]);
+        assert_eq!(summary.receiver_calls.len(), 1);
+        assert_eq!(summary.receiver_calls[0].2, 10);
+        assert!(summary.definitions[0].calls.contains(&selector_hash("g:length")));
+        assert_eq!(summary.nominal_classes, vec![10]);
+        assert_eq!(summary.parent_edges, vec![(10, 0)]);
+    }
+
+    #[test]
+    fn actual_sdk_getter_adapter_keeps_its_formal_receiver_cone() {
+        // Check the actual SDK summary, including both uniform getter adapters.
+        // Whole programs have other unknown g:length sites, so exclusion here
+        // concerns this proven call only, not every call in the SDK graph.
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let sdk = crate::sdk_module::compiled_sdk_in_profile(crate::sdk_tests(),
+                &crate::driver::NativeDriverOptions::default().clang,
+                crate::sdk_module::SdkProfile::Production).unwrap();
+            let summaries = read_summaries(&sdk.summaries).unwrap();
+            let core = summaries.iter().find(|s| s.module == "dart:core").unwrap();
+            let hash = selector_hash("g:length");
+            let mut expected_cone = None;
+            for suffix in ["", "$g", "$c"] {
+                let symbol = format!("df.dart$3acore.StringBuffer.isEmpty{suffix}");
+                let node = core.names.iter().position(|name| name == &symbol).unwrap() as u32;
+                let definition = core.definitions.iter().find(|d| d.name == node).unwrap();
+                assert!(!definition.calls.contains(&hash), "unrestricted getter: {symbol}");
+                let call = core.receiver_calls.iter().find(|&&(n, h, _)| n == node && h == hash)
+                    .expect("SDK getter must preserve its actual formal receiver");
+                if let Some(cone) = expected_cone { assert_eq!(call.2, cone); }
+                expected_cone = Some(call.2);
+                assert!(core.nominal_classes.contains(&call.2));
+
+                // Project the real call into an otherwise controlled graph:
+                // its class/subclasses stay, an unrelated closed class does not,
+                // and an unknown runtime identity remains conservative.
+                let mut controlled = fixture(call.2);
+                for cid in &mut controlled.nominal_classes { if *cid == 10 { *cid = call.2; } }
+                for (child, parent) in &mut controlled.parent_edges {
+                    if *child == 10 { *child = call.2; }
+                    if *parent == 10 { *parent = call.2; }
+                }
+                controlled.tables.iter_mut().find(|t| t.cid == 10).unwrap().cid = call.2;
+                let result = reach(&[&controlled], true);
+                assert!(reached(&result, "length.10"));
+                assert!(reached(&result, "length.11"));
+                assert!(reached(&result, "length.777"));
+                assert!(!reached(&result, "length.20"));
+            }
+        }).unwrap().join().unwrap();
     }
 }

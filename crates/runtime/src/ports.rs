@@ -175,18 +175,17 @@ thread_local! {
     static LAST_REJECTION: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
-/// The units of the text accumulator `h` (`_AcumuladorDeTexto`): the attachment at
-/// `b+16` is a `Box<Vec<u16>>` (docs/NATIVO-ESPACO-UNIFICADO.md §2.5).
+/// Copies exact UTF-16 units from adaptive native accumulator storage.
 fn accumulator_units(heap: &Heap, h: i64) -> Vec<u16> {
-    let p = heap.attachment(h) as *const Vec<u16>;
+    let p = heap.attachment(h) as *const TextAccumulator;
     if p.is_null() {
         return Vec::new();
     }
-    // SAFETY: the attachment of a live `_AcumuladorDeTexto` is its `Vec<u16>`,
-    // freed only when the block dies; the heap borrow keeps it.
+    // SAFETY: the live accumulator owns TextAccumulator storage; no mutation
+    // or collection occurs while this heap borrow copies its units.
     #[allow(unsafe_code)]
     unsafe {
-        (*p).clone()
+        (*p).text().units().collect()
     }
 }
 
@@ -1039,6 +1038,8 @@ pub struct IsolateQueue {
     sig_num: std::sync::Condvar,
     /// The timed wait on macOS (see [`Waker`]).
     waker: Waker,
+    /// Synchronized installation: senders borrow under this lock; only the owner clones.
+    native_pump: NativePumpSlot<NativePump>,
     /// The address of the interrupt request of the isolate's thread
     /// (`Context::interrupt`), or 0 after it ended. A control message
     /// sets it: the generated code reads it at the safepoint of each loop
@@ -1054,6 +1055,7 @@ impl IsolateQueue {
     fn notify(&self) {
         self.sig_num.notify_one();
         self.waker.wake();
+        self.native_pump.notify(|pump| pump.notify());
     }
 }
 
@@ -1202,6 +1204,7 @@ thread_local! {
             messages: std::sync::Mutex::new(Queues::default()),
             sig_num: std::sync::Condvar::new(),
             waker: Waker::new(),
+            native_pump: NativePumpSlot::new(),
             interrupt: std::sync::Mutex::new(target),
         });
         let guard = InterruptGuard(queue.clone());
@@ -1388,6 +1391,7 @@ fn register_live_isolate() {
 /// This isolate ended: it leaves the registry, and its pending requests are
 /// answered with `0` (under the same latch: no request arrives afterwards).
 fn remove_live_isolate() {
+    QUEUE.with(|q| native_pump_detach(q));
     if !LIVE_REGISTERED.with(|r| r.replace(false)) {
         return;
     }
@@ -1535,7 +1539,7 @@ pub fn adjust_callbacks_keeping_alive(delta: i64) {
 
 /// Whether the isolate has an open port (or local callback) that keeps it alive.
 fn has_live_port() -> bool {
-    CALLBACKS_KEEPING_ALIVE.with(|c| c.get() > 0) || OPEN_PORTS.with(|p| p.borrow().values().any(|&v| v))
+    native_pump_current().is_some() || CALLBACKS_KEEPING_ALIVE.with(|c| c.get() > 0) || OPEN_PORTS.with(|p| p.borrow().values().any(|&v| v))
 }
 
 /// The arrival of the oldest message in the queue, if any.
@@ -1551,6 +1555,16 @@ fn wait_message(deadline: Option<std::time::Instant>, control_only: bool) -> boo
         loop {
             if !m.control.is_empty() || !m.safepoints.is_empty() || (!control_only && !m.normal.is_empty()) {
                 return true;
+            }
+            if !control_only {
+                let pump = f.native_pump.owner_clone();
+                if let Some(pump) = pump {
+                    drop(m);
+                    pump.run(deadline, false);
+                    // Native callbacks may change timers or keepalive without
+                    // posting a message. Recompute everything in the outer loop.
+                    return false;
+                }
             }
             match deadline {
                 None => m = f.sig_num.wait(m).unwrap_or_else(|e| e.into_inner()),

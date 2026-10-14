@@ -1,0 +1,15 @@
+{
+  "scope": "Explicit analyzer SDK selection, not diagnostic publication promotion",
+  "compiler_sha256": "c5e4874095d5dd03d5b2afd3bd1a7172693d22960ea2b8b8961d9fc4debbbcc3",
+  "source_sha256": {
+    "crates/cli/src/analyze.rs": "1d816b2b37ce5c1ce8a50e46b8ba6ff6adc1625929c2d6624eb082c9a30cec06",
+    "crates/cli/tests/analyze_sdk_path.rs": "c614e4235e56422c5c707906d6de22b5c7dbf5271cfddecd0611fdd52edc0743",
+    "scripts/verify-lsp-analyzer.py": "e524a47724f1f01667a230897c0ee2a4fe5368fd418e76478e9b6dd0a4ab3a3f"
+  },
+  "explicit_sdk_tests_passed": 2,
+  "before_explicit_sdk_ignored": true,
+  "invalid_assignment_default_publication_fixed": false,
+  "analyzer_exact_matches": 13,
+  "analyzer_cases": 14,
+  "lsp_rerun": false
+}

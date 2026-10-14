@@ -763,6 +763,7 @@ pub(crate) fn function_text(ctx: &Ctx, m: &ModState, fid: FunctionElementId, hea
         extra_prologue.push_str(&crate::own_sdk::covariance_checks(&e, ps));
         extra_prologue.push_str(&crate::own_sdk::null_checks(&e, ps));
     }
+    e.sdk_number_comparison = crate::own_sdk::modulo_number_comparison(&mut e, fid);
     e.emit_body(&af.body);
     let body = finish_body(&mut e);
     let head = match head_name {
@@ -1610,6 +1611,70 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         }
     }
 
+    // A generic mixin can supply a plain member without implementing the
+    // native interface itself. Its concrete application must also expose the
+    // symbol used by that interface, overriding any inherited older alias.
+    // Keep fields out: a plain instance field has no prototype descriptor.
+    let mut inherited_native_aliases = HashSet::new();
+    let mut inherited_native_method_signatures = HashSet::new();
+    if !native_class && !is_mixin && !class.modifiers.abstract_ && !ctx.mixins_of(c).is_empty() {
+        let mut names: Vec<_> = natives.iter().collect();
+        names.sort();
+        for name in names {
+            for setter in [false, true] {
+                if ctx.declared_member(c, name, setter).is_some() {
+                    continue;
+                }
+                // Runtime mixin applications overwrite the superclass and
+                // earlier mixins. Interface/BFS lookup is not that order.
+                let member = ctx.mixins_of(c).into_iter().rev().find_map(|mixin| {
+                    let kind = ctx.declared_member(mixin, name, setter)?;
+                    let applied = ctx.as_super(&ctx.this_ty(c), mixin)?;
+                    let subst = ctx.class_params[mixin.0 as usize].iter().enumerate().map(|(i, p)| {
+                        (p.id, applied.args().get(i).cloned().unwrap_or(Ty::Dynamic))
+                    }).collect();
+                    Some(crate::ctx::Member { class: mixin, kind, subst })
+                });
+                let Some(member) = member else { continue };
+                if ctx.is_ext_member(&ctx.this_ty(member.class), name, setter) {
+                    continue;
+                }
+                let (fid, accessor) = match member.kind {
+                    crate::ctx::MemberKind::Method(fid) => (fid, false),
+                    crate::ctx::MemberKind::Getter(fid) | crate::ctx::MemberKind::Setter(fid) => (fid, true),
+                    crate::ctx::MemberKind::Field(_) => continue,
+                };
+                if ctx.program.function(fid).abstract_ || ctx.fn_state(fid) == crate::filter::State::Dead {
+                    continue;
+                }
+                inherited_native_aliases.insert(name.clone());
+                let ty = ctx.member_ty(&member);
+                if accessor {
+                    ext_accessors.push(name.clone());
+                    if setter {
+                        setter_sigs.push((name.clone(), ty));
+                    } else {
+                        getter_sigs.push((name.clone(), ty));
+                    }
+                } else {
+                    let jsname = js_member_name(name);
+                    ext_methods.push(jsname.clone());
+                    inherited_native_method_signatures.insert(jsname.clone());
+                    method_sigs.push((jsname.clone(), ty));
+                    let data = &ctx.outline.functions[fid.0 as usize];
+                    if !data.type_params.is_empty() {
+                        let defaults = data.type_params.iter().map(|p| {
+                            let tp = ctx.ty_param_of(*p);
+                            let bound = tp.bound.subst(&member.subst);
+                            if bound.mentions_params() { Ty::Dynamic } else { bound }
+                        }).collect();
+                        generic_methods.push((jsname, defaults));
+                    }
+                }
+            }
+        }
+    }
+
     // Class declaration.
     ext_methods.sort();
     ext_methods.dedup();
@@ -1818,16 +1883,19 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     };
     let duplicate = ctx.sdk.is_some() && !native_class && ctx.libs[class.library.0 as usize].is_sdk;
     let with_dartx = |items: &mut Vec<String>, n: &str, value: &str| {
-        if duplicate && natives.contains(n) {
+        if (duplicate || (ctx.sdk.is_some() && inherited_native_aliases.contains(n))) && natives.contains(n) {
             items.push(format!("{}: {value}", crate::own_sdk::native_key(m, n)));
         }
     };
     // Production profile: only the entries that dynamic dispatch and the
     // *tear-off* read (`Liveness::signature`); without a filter, all of them.
-    method_sigs.retain(|(n, _)| ctx.signature_live(n));
-    generic_methods.retain(|(n, _)| ctx.signature_live(n));
-    getter_sigs.retain(|(n, _)| ctx.signature_live(n));
-    setter_sigs.retain(|(n, _)| ctx.signature_live(n));
+    // Newly bridged native-interface aliases require their actual substituted
+    // signature: retaining only an older superclass signature loses generic
+    // function information during dynamic calls of the bound method.
+    method_sigs.retain(|(n, _)| ctx.signature_live(n) || inherited_native_method_signatures.contains(n));
+    generic_methods.retain(|(n, _)| ctx.signature_live(n) || inherited_native_method_signatures.contains(n));
+    getter_sigs.retain(|(n, _)| ctx.signature_live(n) || inherited_native_aliases.contains(n));
+    setter_sigs.retain(|(n, _)| ctx.signature_live(n) || inherited_native_aliases.contains(n));
     let fields_sig: Vec<&FieldInfo> = fields.iter().filter(|f| ctx.signature_live(&f.name)).collect();
     // Production profile: a signature that does not depend on the instance's
     // type arguments is the rti itself, not a `_ti => rti` function

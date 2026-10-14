@@ -77,6 +77,10 @@ pub struct UnitBodyTypes {
     /// [`crate::BodyInferrer::record_locals`] is on (the LSP, for renaming
     /// and finding references); the compiler does not pay for it.
     pub local_declarations: std::collections::HashMap<ast::ExprId, usize>,
+    /// Local binding of metadata, by annotation start offset. Recorded during
+    /// lexical inference when local declaration recording is enabled; constant
+    /// evaluation must not fall back to a shadowed library declaration.
+    pub metadata_local_declarations: std::collections::HashMap<usize, usize>,
     /// Expressions whose type is the analyzer's recovery type (`InvalidType`, a
     /// read that does not resolve): in `static_types` they are `dynamic`, which
     /// is how `InvalidType` behaves; the mark only matters for display.
@@ -170,6 +174,7 @@ impl UnitBodyTypes {
             lazy: (num_exprs > 0).then_some((num_exprs as u32, fallback_type)),
             local_types: std::collections::HashMap::new(),
             local_declarations: std::collections::HashMap::new(),
+            metadata_local_declarations: std::collections::HashMap::new(),
             with_function_type: std::collections::HashSet::new(),
             annotation_types: std::collections::HashMap::new(),
             pattern_declarations: std::collections::HashMap::new(),

@@ -1,0 +1,79 @@
+{
+  "scope": "Actual ordinary file_explorer on macOS arm64; basic navigation/rendering/close, not all application features or universal Dart compatibility",
+  "compiler_sha256": "5b01cd54263146314000ffaa26265713c4a5b8cad4c575960531519a2767c437",
+  "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer/file_explorer",
+  "binary_sha256": "30b53db49d893a96781ccb3687bcf46b529d4d92059db503d60ac76c0e8b690b",
+  "sources": {
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/pubspec.yaml": "ef44dea286ac9831533d6a5d623505c2d1d3f96131104805d3e36b12ae80311e",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/lib/src/app/application.dart": "a42b6a5d61a620378c2f3ac7d56eb07a7039276c0b3f46163260b088510aefb4",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/src/lower/calls.rs": "bcf90b41c6d4ec0c90352aae77c3185b14dabb3c3597c4c5f25924d314e97d1c",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/src/partition.rs": "a3746d15f88ed8509eb214e139e011795f49b693c0545d31741216f8d59c0bb6"
+  },
+  "entrypoint_and_pubspec_unchanged": true,
+  "required_dartforge_package": false,
+  "working_directory": "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+  "native_exit_code": 0,
+  "close_method": "Native red close; parent session81870 terminal0",
+  "stdout_bytes": 0,
+  "stderr_bytes": 0,
+  "sequence": {
+    "application_pid": 61904,
+    "foreground_verified_before_first_capture": true,
+    "actions": [
+      {
+        "action": "capture",
+        "start_epoch": 1791941660.391455,
+        "end_epoch": 1791941661.6742568,
+        "exit_code": 0,
+        "stdout": "{\"action\": \"capture\", \"window_id\": 983, \"host_pid\": 61916, \"output\": \"target/file-explorer/ui-final\", \"application_alive\": true}\n",
+        "stderr": ""
+      },
+      {
+        "action": "navigate",
+        "start_epoch": 1791941661.674651,
+        "end_epoch": 1791941665.7138271,
+        "exit_code": 0,
+        "stdout": "{\"action\": \"navigate\", \"window_id\": 983, \"host_pid\": 61916, \"output\": \"target/file-explorer/ui-final\", \"application_alive\": true}\n",
+        "stderr": ""
+      },
+      {
+        "action": "back-button",
+        "start_epoch": 1791941665.7141619,
+        "end_epoch": 1791941667.440983,
+        "exit_code": 0,
+        "stdout": "{\"action\": \"back-button\", \"window_id\": 983, \"host_pid\": 61916, \"output\": \"target/file-explorer/ui-final\", \"application_alive\": true}\n",
+        "stderr": ""
+      },
+      {
+        "action": "close-button",
+        "start_epoch": 1791941667.4413319,
+        "end_epoch": 1791941668.0427258,
+        "exit_code": 0,
+        "stdout": "{\"action\": \"close-button\", \"window_id\": 983, \"host_pid\": 61916, \"output\": \"target/file-explorer/ui-final\", \"application_alive\": false}\n",
+        "stderr": ""
+      }
+    ]
+  },
+  "visual_observations": {
+    "capture": "Root folder and file, 2 items",
+    "navigate": "Child folder and child-content.txt, 1 item without extra input",
+    "back-button": "Root folder and file restored, 2 items"
+  },
+  "screenshots": {
+    "capture.png": "344610d8b0a0a9adbda7570956cbca263b8a173b59632fc53e5354f6b2cf2684",
+    "navigate.png": "6a03d25e301ad1bef812922608d0e94acda03a88d4e0aebf38fc2966e868b4ca",
+    "back-button.png": "349c87f4e0f8a061e5b6aa14b7f7916ad5577aba5daf913b2b20a36dd22bbd2d"
+  },
+  "checks": {
+    "emitter_library_tests": 554,
+    "framework_application_tests": 200,
+    "pending_present_matrix": "VM, official AOT, DartForge AOT normal and GC stress; identical stdout, empty stderr"
+  },
+  "correctness_fix": "Pending builds queued during asynchronous presentation request a subsequent frame after presentation",
+  "limits": [
+    "Basic file listing/navigation and native close tested; other explorer actions not exercised",
+    "Uses the existing ordinary macOS native host and framework assets from the framework working directory",
+    "No performance guarantee or ARC/realtime certification"
+  ]
+}

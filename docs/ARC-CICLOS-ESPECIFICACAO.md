@@ -2750,8 +2750,9 @@ interpretação especial deve ser implementada no DartForge. Instalar o pacote
 sozinho não modifica a VM Dart, o compilador Flutter nem o gerenciamento de
 memória deles. [Referência oficial de metadata](https://dart.dev/language/metadata).
 
-Nome de trabalho: **`dartforge_annotations`**, proposto, sem pressupor que
-esteja disponível ou publicado. O pacote contém declarações de metadata,
+As anotações integram o pacote único **`dartforge`**, presente neste
+repositório em `packages/dartforge`, ainda sem publicação presumida no pub.dev.
+O pacote contém declarações de metadata,
 documentação e exemplos; não contém um coletor, não carrega DLL e não executa
 código na entrada de cada função anotada. Se as constantes forem usadas como
 valores normais pelo programa, seguem a semântica normal de constantes Dart.
@@ -2774,8 +2775,11 @@ Regras de compatibilidade:
 
 ### 35.2 API pública inicial
 
-Definições propostas, em `lib/dartforge_annotations.dart`; classes são metadata
-constante, sem lógica de runtime:
+Definições de metadata em `packages/dartforge/lib/src/annotations.dart`,
+exportadas pelas APIs públicas `package:dartforge/dartforge.dart` e
+`package:dartforge/annotations.dart`, com a mesma identidade. As classes são
+constantes, sem lógica de runtime; a verificação descrita abaixo continua
+condicionada ao suporte do compilador:
 
 ```dart
 final class PreferRegion {
@@ -2812,7 +2816,11 @@ subclasses, campos sintéticos, mutações futuras e escape; `final` não é pro
 
 Usar `@Target` de `package:meta/meta_meta.dart` para feedback de alvo quando
 houver uma versão compatível com o SDK mínimo; o DartForge valida alvos
-independentemente desse aviso. Não inventar sintaxe de anotação diretamente
+independentemente desse aviso quando esse verificador estiver implementado.
+A versão disponível de `meta` não tem alvo de variável local: `PreferAcyclic`
+permanece sem `@Target` para não avisar incorretamente sobre esse uso válido.
+`@Target` também não verifica sincronismo, presença de corpo ou efeitos.
+Não inventar sintaxe de anotação diretamente
 num `for`, bloco arbitrário ou expressão `new`. Se necessário, extrair uma
 função auxiliar Dart comum e anotá-la.
 
@@ -2847,9 +2855,11 @@ Corpo FFI externo não recebe noescape verificado apenas por estar anotado.
 
 Reconhecer metadata pelo elemento resolvido e biblioteca definidora canônica,
 obtidos da resolução de pacotes/imports. A identidade v1 é a declaração
-correspondente em `package:dartforge_annotations/dartforge_annotations.dart`
-com esquema compatível; não comparar só o lexema `Realtime` nem texto da
-declaração `library`. Prefixos, reexports e alias de constante devem resolver
+correspondente em `package:dartforge/src/annotations.dart`, exportada pela
+API pública `package:dartforge/dartforge.dart`, com esquema compatível. O
+compilador resolve a biblioteca que realmente declara o elemento, não a grafia
+do import público; não comparar só o lexema `Realtime` nem texto da declaração
+`library`. Prefixos, reexports e alias de constante devem resolver
 ao mesmo elemento/valor. Uma classe homônima de outro pacote é metadata comum.
 Binding ambíguo não pode ser reconhecido como contrato: preservar o diagnóstico
 de resolução. Em alias `const`, conferir identidade/tipo do valor avaliado,
@@ -2862,14 +2872,14 @@ podem ser usados em desenvolvimento, mas invalidam o cache conforme seu
 conteúdo. Nenhuma origem — mesmo o pacote oficial — torna uma afirmação uma
 prova de efeitos do corpo. Não consultar a rede durante análise da anotação.
 
-Nova opção proposta: `--contratos-dartforge verificar|ignorar`, padrão
-`verificar` para contratos conhecidos encontrados no programa. Preferências
+Opção `--dartforge-contracts=verify|ignore`, padrão
+`verify` para contratos conhecidos encontrados no programa. Preferências
 apenas alimentam planejamento/relatório; seus fracassos não viram erros.
-No modo `ignorar`, registrar explicitamente no manifesto que os contratos não
+No modo `ignore`, registrar explicitamente no manifesto que os contratos não
 foram certificados, sem usá-los como fatos. Esse modo não produz certificado
 Realtime e não serve como artefato de aprovação do pipeline de áudio.
 Modo de verificação e versão do perfil também entram nas chaves de cache e no
-manifesto; um artefato de modo `ignorar` não fornece provas para `verificar`.
+manifesto; um artefato de modo `ignore` não fornece provas para `verify`.
 
 Uma versão de esquema não suportada no pacote designado é diagnosticada no
 modo de verificação; não tratá-la silenciosamente como contrato satisfeito.
@@ -2878,6 +2888,30 @@ todas as suas entradas realmente estiverem inalcançáveis. Override sem
 anotação não pode enfraquecer um contrato que o compilador utiliza na chamada.
 
 ### 35.5 Integração com a seleção de memória
+
+**Estado da implementação em 2026-10-13:** A0 resolve metadata por elemento/
+valor constante, valida esquema/alvos e separa preferências de obrigações.
+O emissor/CLI usa `verify` por padrão e recusa NoEscape/Realtime sem prova;
+os checkers completos dessas propriedades ainda não foram implementados. `ignore`
+registra pedidos e diagnósticos de metadata sem criar fatos/certificados;
+erros de resolução/constantes Dart permanecem erros. Preferências são
+reconhecidas e relatadas como `not_applied`. Manifestos com origem, hashes,
+modo e identidade do artefato mantêm `certified: false`; isso não implementa
+seleção de memória, verificação transitiva pós-lowering ou entrada DSP preparada.
+
+Existe uma análise interna condicional de não publicação sobre HIR fechado
+(`contracts/no_escape.rs`), sem ligação à descarga dos contratos. Ela admite
+um recorte de SSA puro, igualdade de referências e chamadas estáticas com
+corpos transitivamente conferidos; recursão, exceções, chamadas opacas,
+leituras de heap/globais e memória local sem witnesses continuam não provadas.
+Tipos escalares isolados não bastam para excluir handles nativos: bitcasts
+podem reconstruir uma referência carregada com representação incorreta.
+O checker HIR v2 agora exige validação tipada CFG/SSA em cada corpo admitido,
+incluindo dominância, definição/uso e multiplicidade/tipos das arestas Phi.
+Resultados mantêm obrigações explícitas de mapeamento formal→ABI,
+proveniência escalar, helpers/cleanup emitidos e revalidação após transformação.
+Não são certificados AOT, não autorizam
+reduzir RC/GC e não mudam a recusa atual de NoEscape/Realtime.
 
 Preferências fornecem prioridade de análise, pedidos de especialização e
 objetivos de custo. Elas podem justificar gastar mais budget num sítio,
@@ -2899,16 +2933,17 @@ antes de publicar a geração.
 
 ### 35.6 Estrutura do pacote e preparação para pub.dev
 
-Estrutura proposta **a criar em uma etapa própria**:
+Estrutura do pacote único, com preparação de publicação ainda pendente:
 
 ```text
-packages/dartforge_annotations/
+packages/dartforge/
   pubspec.yaml
   README.md
-  CHANGELOG.md
-  LICENSE
-  lib/dartforge_annotations.dart
-  example/
+  lib/dartforge.dart
+  lib/src/annotations.dart
+  lib/annotations.dart
+  lib/simd.dart
+  lib/src/native_pump.dart
   test/
 ```
 
@@ -2926,7 +2961,8 @@ instala runtime de áudio. O suporte correspondente precisa existir no compilado
 Antes de publicação, executar análise, testes e `dart pub publish --dry-run`,
 conferindo os arquivos/metadata do pacote. Publicação efetiva é uma entrega
 separada, depois de verificar nome, versão e titularidade; esta especificação
-não afirma que um pacote foi criado ou enviado ao pub.dev. O fluxo de preparação
+não afirma que o pacote local tenha sido enviado ao pub.dev. As declarações de
+metadata existem, mas não certificam os contratos do compilador descritos aqui. O fluxo de preparação
 e publicação consta da [documentação oficial do pub](https://dart.dev/tools/pub/publishing).
 
 ## 36. Contrato de execução para áudio e outros caminhos de baixa latência
@@ -2990,7 +3026,7 @@ já certifica este programa:
 
 ```dart
 import 'dart:typed_data';
-import 'package:dartforge_annotations/dartforge_annotations.dart';
+import 'package:dartforge/dartforge.dart';
 
 final class BlocoDeGanho {
   // Construir e preparar antes de iniciar o fluxo de áudio.

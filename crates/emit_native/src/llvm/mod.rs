@@ -92,6 +92,11 @@ pub struct LlvmEmitter<'a> {
     /// opened: the name of the slot of a cache is `(function, position)`, stable
     /// across generations of a reload (J04).
     current_function: String,
+    /// Lowered SDK `this`, revalidated against the current formal parameters.
+    current_receiver_cone: Option<(ValueId, u32)>,
+    /// Allocation facts retain witnesses to the exact immutable HIR bodies.
+    receiver_provenance: Option<crate::pruning::receiver_provenance::Provenance<'a>>,
+    current_exact_receivers: std::collections::HashMap<ValueId, crate::pruning::receiver_provenance::Classes>,
     cache_in_function: usize,
     /// The index of each slot name of the layout of the live generation (reload).
     slot_index: std::collections::HashMap<i64, usize>,
@@ -246,6 +251,12 @@ pub struct LlvmEmitter<'a> {
 }
 
 impl<'a> LlvmEmitter<'a> {
+    /// Supplies a jointly audited SDK snapshot. Its Function borrows prevent
+    /// changing a callee after its return fact was used to prove a receiver.
+    pub(crate) fn with_receiver_provenance(mut self, proof: crate::pruning::receiver_provenance::Provenance<'a>) -> Self {
+        self.receiver_provenance = Some(proof);
+        self
+    }
     pub fn new(module: &'a Module) -> Self {
         Self {
             module,
@@ -270,6 +281,9 @@ impl<'a> LlvmEmitter<'a> {
             argument_names: std::collections::BTreeSet::new(),
             selector_caches: 0,
             current_function: String::new(),
+            current_receiver_cone: None,
+            receiver_provenance: None,
+            current_exact_receivers: std::collections::HashMap::new(),
             cache_in_function: 0,
             slot_index: std::collections::HashMap::new(),
             selector_names: Vec::new(),
@@ -489,6 +503,11 @@ impl<'a> LlvmEmitter<'a> {
     /// A module with diagnostics or incoherent exceptional metadata.
     /// Resume still requires Itanium without statepoints; Windows needs funclets.
     pub fn emit_all(mut self) -> String {
+        if self.receiver_provenance.is_none() {
+            self.receiver_provenance = Some(if crate::pruning::receiver_provenance::enabled() {
+                crate::pruning::receiver_provenance::analyze(&[self.module])
+            } else { crate::pruning::receiver_provenance::Provenance::default() });
+        }
         assert!(self.module.errors.is_empty(), "emit_all with diagnostics: {:?}", self.module.errors);
         assert!(!cfg!(windows) || !self.module.tables.iter().any(|t|
             t.exits.values().any(|s| *s == ExceptionExit::Resume)),
@@ -654,6 +673,22 @@ impl<'a> LlvmEmitter<'a> {
         }
         // The ids of the program classes, for the next generation of a
         // JIT reload (J03, `context::ir_ids`).
+        let mut nominal_classes: Vec<_> = self.module.pruning_class_ids.iter().copied().collect();
+        nominal_classes.sort_unstable();
+        for cid in nominal_classes {
+            writeln!(self.out, "; df.cone-class {cid}").unwrap();
+        }
+        let mut ambiguous_classes: Vec<_> = self.module.pruning_ambiguous_class_ids.iter().copied().collect();
+        ambiguous_classes.sort_unstable();
+        for cid in ambiguous_classes {
+            writeln!(self.out, "; df.cone-ambiguous {cid}").unwrap();
+        }
+        let mut parent_edges = self.module.subtyping_edges.clone();
+        parent_edges.sort_unstable();
+        parent_edges.dedup();
+        for (child, parent) in parent_edges {
+            writeln!(self.out, "; df.cone-parent {child} {parent}").unwrap();
+        }
         for (id, lib, class) in &self.module.program_ids {
             writeln!(self.out, "; df.class {id} {} {}", crate::context::escape_str(lib), crate::context::escape_str(class)).unwrap();
         }
@@ -805,6 +840,10 @@ impl<'a> LlvmEmitter<'a> {
 
     fn emit_function(&mut self, func: &Function) {
         self.current_function.clone_from(&func.symbol);
+        self.current_exact_receivers = self.receiver_provenance.as_ref()
+            .and_then(|proof| proof.values_for(func)).cloned().unwrap_or_default();
+        self.current_receiver_cone = self.module.pruning_this_receivers.get(&func.symbol)
+            .copied().filter(|(id, _)| func.params.iter().any(|(parameter, _, ty)| parameter == id && *ty == Type::Ref));
         self.cache_in_function = 0;
         self.frame_allocas = Self::escaping_ref_allocas(func);
         self.prepare_types_and_phis(func);
@@ -838,7 +877,13 @@ impl<'a> LlvmEmitter<'a> {
         let mut written_position: Option<(u32, u32)> = None;
         // The position of an instruction copied by inlining (only the stack trace).
         let mut written_embedded: Option<(u32, u32, u32)> = None;
-        let attributes = if self.optimize_size { " optsize" } else { "" };
+        let inline_attribute = match self.module.inline_policies.get(&func.symbol) {
+            Some(InlinePolicy::Never) => " noinline",
+            // Debug/stack-trace policies retain precedence over a preference.
+            Some(InlinePolicy::Prefer) if func.debug_info.is_none() && !self.module.dwarf => " inlinehint",
+            _ => "",
+        };
+        let attributes = format!("{}{}", if self.optimize_size { " optsize" } else { "" }, inline_attribute);
         // The `this` of a method is always an object of the space (never null or a
         // `Smi`: the class has the read field); without an outside body, the address
         // of its fields is `this − 2 + 16`.
@@ -3199,6 +3244,22 @@ impl<'a> LlvmEmitter<'a> {
     /// the arguments into the message; otherwise it converts them to the
     /// Dart representation, calls the HIR body and converts the return — or
     /// returns the exceptional return, if the closure threw.
+    /// Converts runtime scalar result bits to the exact native callback ABI.
+    /// Float results use widened Double bits, matching the callback runtime.
+    fn emit_callback_bits_return(&mut self, native: CType, llvm_return: &str, bits: &str, prefix: &str) {
+        let conversion = match native {
+            CType::I64 | CType::U64 => format!("add i64 {bits}, 0"),
+            CType::F64 => format!("bitcast i64 {bits} to double"),
+            CType::F32 => {
+                writeln!(self.out, "  %{prefix}_double = bitcast i64 {bits} to double").unwrap();
+                format!("fptrunc double %{prefix}_double to float")
+            }
+            CType::Ptr | CType::Handle => format!("inttoptr i64 {bits} to ptr"),
+            narrow => format!("trunc i64 {bits} to {}", narrow.llvm()),
+        };
+        writeln!(self.out, "  %{prefix}_value = {conversion}\n  ret {llvm_return} %{prefix}_value").unwrap();
+    }
+
     fn emit_callbacks_ffi(&mut self) {
         use c_abi::{ArgPassing, RetPassing};
         if self.module.ffi_callbacks.is_empty() {
@@ -3266,7 +3327,24 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(self.out, "define internal {ret_ext}{r} @df.ffi.cbentry.{i}({}){personality} {{", decls.join(", "))
                 .unwrap();
             let n = cb.params.len().max(1);
-            writeln!(self.out, "entrada:\n  %saida = alloca i64\n  %buf = alloca [{n} x i64]").unwrap();
+            // A retired callback is a permanent tombstone. Do not touch Dart
+            // TLS, roots or native argument memory on the closed path.
+            writeln!(self.out, "entrada:\n  %modo = call i64 @dartforge_ffi_callback_enter(ptr %ctx)\n  %is_closed_callback = icmp eq i64 %modo, 2\n  br i1 %is_closed_callback, label %closed_callback, label %active_callback\nclosed_callback:").unwrap();
+            match (&cb.ret, &ret) {
+                (NativeType::Prim(CType::Void), _) => writeln!(self.out, "  ret void").unwrap(),
+                (_, Some((RetPassing::Sret { .. }, layout))) => {
+                    writeln!(self.out, "  call void @llvm.memset.p0.i64(ptr %sret, i8 0, i64 {}, i1 false)\n  ret void", layout.size).unwrap();
+                }
+                (_, Some((RetPassing::Direct(_), _))) => {
+                    writeln!(self.out, "  ret {r} zeroinitializer").unwrap();
+                }
+                (NativeType::Prim(native), _) => {
+                    writeln!(self.out, "  %late_bits = call i64 @dartforge_ffi_callback_late_return(ptr %ctx)").unwrap();
+                    self.emit_callback_bits_return(*native, r, "%late_bits", "late");
+                }
+                _ => unreachable!("compound callback return without ABI passing"),
+            }
+            writeln!(self.out, "active_callback:\n  %saida = alloca i64\n  %buf = alloca [{n} x i64]").unwrap();
             if let Some((_, l)) = &ret {
                 writeln!(self.out, "  %rt = alloca [{} x i8], align 16", l.size.div_ceil(16) * 16).unwrap();
             }
@@ -3285,7 +3363,6 @@ impl<'a> LlvmEmitter<'a> {
                     None => writeln!(self.out, "  %end{j} = ptrtoint ptr %a{j} to i64").unwrap(),
                 }
             }
-            writeln!(self.out, "  %modo = call i64 @dartforge_ffi_callback_enter(ptr %ctx)").unwrap();
             writeln!(self.out, "  %e_ouvinte = icmp ne i64 %modo, 0\n  br i1 %e_ouvinte, label %ouvinte, label %local").unwrap();
             // Listener: the bits of each argument in the message (of a
             // compound, the address: the runtime copies the bytes).
@@ -3308,7 +3385,23 @@ impl<'a> LlvmEmitter<'a> {
                 };
                 writeln!(self.out, "  %o{j} = {bits}\n  %g{j} = getelementptr [{n} x i64], ptr %buf, i64 0, i64 {j}\n  store i64 %o{j}, ptr %g{j}").unwrap();
             }
-            writeln!(self.out, "  call void @dartforge_ffi_callback_post(ptr %ctx, ptr %buf, i64 {})", cb.params.len()).unwrap();
+            // A foreign synchronous call shares only the raw C argument packing
+            // with listeners. Runtime delivery executes Dart on the owner;
+            // this thread never acquires Dart TLS, roots or exception state.
+            writeln!(self.out, "  %is_sync_callback = icmp eq i64 %modo, 3\n  br i1 %is_sync_callback, label %foreign_sync, label %listener_post\nforeign_sync:\n  %sync_bits = call i64 @dartforge_ffi_callback_sync(ptr %ctx, ptr %buf, i64 {})", cb.params.len()).unwrap();
+            match (&cb.ret, &ret) {
+                (NativeType::Prim(CType::Void), _) => writeln!(self.out, "  ret void").unwrap(),
+                (NativeType::Prim(native), _) => self.emit_callback_bits_return(*native, r, "%sync_bits", "sync"),
+                // Runtime creation rejects aggregate returns for synchronous
+                // callbacks. These defensive paths cannot execute for a valid
+                // registration; local/listener aggregate ABIs remain intact.
+                (_, Some((RetPassing::Sret { .. }, layout))) => {
+                    writeln!(self.out, "  call void @llvm.memset.p0.i64(ptr %sret, i8 0, i64 {}, i1 false)\n  ret void", layout.size).unwrap();
+                }
+                (_, Some((RetPassing::Direct(_), _))) => writeln!(self.out, "  ret {r} zeroinitializer").unwrap(),
+                _ => unreachable!("compound callback return without ABI passing"),
+            }
+            writeln!(self.out, "listener_post:\n  call void @dartforge_ffi_callback_post(ptr %ctx, ptr %buf, i64 {})", cb.params.len()).unwrap();
             match &cb.ret {
                 NativeType::Prim(CType::Void) => writeln!(self.out, "  ret void").unwrap(),
                 NativeType::Prim(CType::Ptr | CType::Handle) => writeln!(self.out, "  ret ptr null").unwrap(),

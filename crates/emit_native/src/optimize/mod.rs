@@ -25,6 +25,7 @@ mod direct_locals;
 mod mem2reg;
 pub(crate) mod operands;
 mod simplify;
+mod representation_constants;
 mod tables;
 
 #[cfg(test)]
@@ -65,7 +66,14 @@ fn clear(func: &mut Function, do_not_throw: &std::collections::HashSet<String>) 
         }
     }
     simplify::dead_checks(func, do_not_throw);
-    simplify::fold_constants(func);
+    loop {
+        representation_constants::propagate_literals(func);
+        representation_constants::normalize(func);
+        simplify::fold_constants(func);
+        if !representation_constants::fold_booleans(func) {
+            break;
+        }
+    }
     simplify::remove_unreachable(func);
     simplify::join_blocks(func);
     simplify::remove_dead(func);
@@ -163,7 +171,7 @@ pub fn optimize(module: &mut Module) {
             // J05: a function compiled with debug information is not
             // inlined — the copied body would lose its position, and a breakpoint
             // in it would never stop.
-            .filter(|f| f.debug_info.is_none() && inline::copyable(f))
+            .filter(|f| f.debug_info.is_none() && inline::copyable_with_policy(f, module.inline_policies.get(&f.symbol).copied()))
             .map(|f| (f.symbol.clone(), (f.clone(), !do_not_throw.contains(&f.symbol))))
             .collect();
         let origins = &module.arc_sites;

@@ -58,7 +58,7 @@ fn emit_generation(
             // The project's build engine, if it uses builders (DF-BUILD-009):
             // each generation of the program redoes the generation of the sources.
             crate::engine::with_generator(&input, packages.as_deref(), |generator| {
-                let options = dartforge_emit_native::CompileOptions {
+                let options = dartforge_emit_native::CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
                     sdk: sdk.as_deref(),
                     packages: packages.as_deref(),
                     timings: false,

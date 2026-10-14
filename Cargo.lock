@@ -422,6 +422,7 @@ dependencies = [
  "dartforge-runtime",
  "dartforge-types",
  "dartforge-world",
+ "serde_json",
  "tempfile",
 ]
 

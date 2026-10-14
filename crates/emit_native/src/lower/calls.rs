@@ -141,13 +141,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         && self.ctx.program.functions[f.0 as usize].variable.is_none() =>
                 {
                     let fid = f.0 as usize;
-                    let evaluated = self.evaluate_args(ast, &arguments.args);
                     if self.ctx.program.functions[fid].kind
                         == dartforge_elements::model::FunctionKind::Getter
                     {
                         let v = self.call_direct(fid, None, Vec::new());
+                        let evaluated = self.evaluate_args(ast, &arguments.args);
                         return self.call_function_value(v, &evaluated);
                     }
+                    let evaluated = self.evaluate_args(ast, &arguments.args);
                     let args = self.match_args(fid, &evaluated);
                     self.arm_tuple(fid, expr_id, arguments);
                     return self.call_direct(fid, None, args);
@@ -371,6 +372,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let f = *self.ctx.program.classes[c.0 as usize].static_members.get(&method_name.sym)?;
                     Some(Resolved::Member { class: c, member: MemberRef::Function(f), via_super: false })
                 });
+                if let Some(Resolved::Member { member, .. }) = &resolved_target {
+                    let value_member = match *member {
+                        MemberRef::Variable(v) => {
+                            super::is_global(self.ctx, v)
+                                && self.ctx.compiled_library(
+                                    self.ctx.program.variables[v.0 as usize].library,
+                                )
+                        }
+                        MemberRef::Function(f) => {
+                            let function = &self.ctx.program.functions[f.0 as usize];
+                            crate::lower::user_function(self.ctx, f.0 as usize)
+                                && (function
+                                    .variable
+                                    .is_some_and(|v| super::is_global(self.ctx, v))
+                                    || function.static_
+                                        && function.kind
+                                            == dartforge_elements::model::FunctionKind::Getter)
+                        }
+                    };
+                    if value_member {
+                        // Capture the field/getter value before evaluating any
+                        // argument, which may replace it or invoke another getter.
+                        let callee = self.read_implicit_member(*member, expr.span);
+                        let evaluated = self.evaluate_args(ast, &arguments.args);
+                        return self.call_function_value(callee, &evaluated);
+                    }
+                }
                 if let Some(Resolved::Member {
                     member: MemberRef::Function(f),
                     ..
@@ -665,5 +693,46 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let lib = self.ctx.program.unit(self.unit_id).library;
         let b = self.ctx.program.lookup_prefixed(lib, p.sym, name)?;
         b.getter.or(b.setter)
+    }
+}
+
+#[cfg(test)]
+mod static_function_value_tests {
+    use crate::hir::Instruction;
+
+    #[test]
+    fn static_fields_getters_and_generic_named_calls_lower_in_evaluation_order() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let directory = tempfile::tempdir().unwrap();
+            let entry = directory.path().join("main.dart");
+            std::fs::write(&entry, include_str!("../../../../corpus/native/144_static_function_values.dart")).unwrap();
+            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
+            let mut interner = dartforge_intern::Interner::new();
+            let program = dartforge_elements::load::load(&entry, &sdk, None, &mut interner).unwrap();
+            let mut table = dartforge_types::TypeTable::new();
+            let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
+            let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+            let libraries: Vec<_> = program.libraries.iter().enumerate().filter(|(_, l)| !l.is_sdk).map(|(i, _)| dartforge_elements::model::LibraryId(i as u32)).collect();
+            let (bodies, diagnostics) = dartforge_types::infer_library_bodies_with_locals(&program, &interner, &mut table, &core, &mut outline, &libraries);
+            assert!(!diagnostics.iter().any(|d| d.severity == dartforge_diagnostics::Severity::Error), "{diagnostics:?}");
+            let library = program.functions.iter().find(|f| interner.resolve(f.name) == "main").unwrap().library;
+            let context = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies).with_source_sdk().only_the_library(library);
+            let module = crate::lower::lower_program(&context);
+            assert!(module.errors.is_empty(), "{:?}", module.errors);
+            let main = module.functions.iter().find(|f| f.name == "main").unwrap();
+            let instructions: Vec<_> = main.blocks.iter().flat_map(|b| &b.instructions).collect();
+            let positions: Vec<_> = instructions.iter().enumerate().filter_map(|(i, (_, instruction, _))| match instruction {
+                Instruction::CallStatic { symbol, .. } if symbol.ends_with("..argument") => Some(i),
+                _ => None,
+            }).collect();
+            assert_eq!(positions.len(), 3, "{main:?}");
+            let accessor = module.functions.iter().find(|f| f.symbol.ends_with("ErrorWidget.builder")).unwrap();
+            assert!(accessor.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)| matches!(i, Instruction::LoadGlobal { symbol, .. } if symbol.ends_with("ErrorWidget.builder"))));
+            assert!(instructions[..positions[0]].iter().any(|(_, i, _)| matches!(i, Instruction::CallStatic { symbol, args, .. } if symbol == &accessor.symbol && args.is_empty())), "field must be captured before argument changes it: {main:?}");
+            for (name, end) in [("getter", positions[1]), ("top", positions[2])] {
+                let getter = module.functions.iter().find(|f| f.name == name).unwrap();
+                assert!(instructions[..end].iter().any(|(_, i, _)| matches!(i, Instruction::CallStatic { symbol, args, .. } if symbol == &getter.symbol && args.is_empty())), "getter {name} must run before argument effects: {main:?}");
+            }
+        }).unwrap().join().unwrap();
     }
 }

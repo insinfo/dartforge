@@ -24,21 +24,26 @@
 //   isolate calls the closure in the event loop.
 // * The closure of a local callback is a collector root (a root global of the
 //   isolate's heap, through the context's address) until `close()`. Closing from
-//   inside the callback itself is allowed: the context is only released when the
-//   last call in progress leaves.
+//   inside the callback itself is allowed. Published contexts and trampolines
+//   remain stable until process exit; closing releases the Dart closure root,
+//   while late calls use only the retained native tombstone.
 
 /// Modes of a callback (the `mode` of `DartForge_ffi_callback_new`).
 const MODE_PERSISTENT: i64 = 0;
 const MODE_LOCAL: i64 = 1;
 const MODE_LISTENER: i64 = 2;
+const MODE_SYNC: i64 = 3;
 
 /// The state of a callback; its address is the trampoline's `nest` value.
 pub struct CallbackContext {
     mode: i64,
     /// The owning isolate (queue id).
     isolate: u64,
+    owner_thread: std::thread::ThreadId,
+    sync_timeout: std::time::Duration,
+    compound_sizes: Vec<usize>,
     /// The closure (local and persistent modes), a root of the owner's heap.
-    closure: i64,
+    closure: std::sync::atomic::AtomicI64,
     /// The port of the `NativeCallable.listener`.
     port: i64,
     /// The native signature (RTI), for the arguments' `Pointer<X>`s.
@@ -48,21 +53,39 @@ pub struct CallbackContext {
     /// The exceptional return value, in the bits of the return's C type.
     exceptional: i64,
     /// Calls in progress (the closure may close the callback from inside).
-    active_list: u32,
-    closed_flag: bool,
+    active_list: std::sync::atomic::AtomicU32,
+    closed_flag: std::sync::atomic::AtomicBool,
+    late_calls: std::sync::atomic::AtomicU64,
     /// The C function pointer (the trampoline).
     trampoline: usize,
 }
 
-/// Signature key → the callback's C entry.
-fn callback_entries() -> &'static std::sync::RwLock<crate::hash::HashMap<String, usize>> {
-    static T: std::sync::OnceLock<std::sync::RwLock<crate::hash::HashMap<String, usize>>> = std::sync::OnceLock::new();
-    T.get_or_init(Default::default)
+/// Process-wide diagnostic count of retired callback invocations/dropped posts.
+static LATE_CALLBACK_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn record_late_callback(c: &CallbackContext) {
+    c.late_calls
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let _ = LATE_CALLBACK_CALLS.fetch_update(
+        std::sync::atomic::Ordering::Relaxed,
+        std::sync::atomic::Ordering::Relaxed,
+        |count| Some(count.saturating_add(1)),
+    );
+}
+
+/// Returns the process-wide count of late callback invocations.
+/// The diagnostic counter saturates at i64::MAX and does not access Dart.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_ffi_callback_late_calls() -> i64 {
+    LATE_CALLBACK_CALLS
+        .load(std::sync::atomic::Ordering::Relaxed)
+        .min(i64::MAX as u64) as i64
 }
 
 /// Function pointer → context, of the live callbacks.
 fn live_callbacks() -> &'static std::sync::Mutex<crate::hash::HashMap<usize, usize>> {
-    static T: std::sync::OnceLock<std::sync::Mutex<crate::hash::HashMap<usize, usize>>> = std::sync::OnceLock::new();
+    static T: std::sync::OnceLock<std::sync::Mutex<crate::hash::HashMap<usize, usize>>> =
+        std::sync::OnceLock::new();
     T.get_or_init(Default::default)
 }
 
@@ -70,11 +93,13 @@ fn live_callbacks() -> &'static std::sync::Mutex<crate::hash::HashMap<usize, usi
 /// Listeners only post messages and do not enter Dart on this thread.
 fn callback_requires_isolate_thread(address: usize) -> bool {
     let live_set = live_callbacks().lock().unwrap_or_else(|e| e.into_inner());
-    let Some(&ctx) = live_set.get(&address) else { return false };
-    // SAFETY: the registry keeps the context alive; close needs this mutex to
-    // remove it before freeing. The mode is immutable after installation.
+    let Some(&ctx) = live_set.get(&address) else {
+        return false;
+    };
+    // SAFETY: published contexts are retained for the process lifetime, and mode
+    // is immutable. The registry includes only callbacks that are still live.
     let mode = unsafe { (*(ctx as *const CallbackContext)).mode };
-    matches!(mode, MODE_PERSISTENT | MODE_LOCAL)
+    matches!(mode, MODE_PERSISTENT | MODE_LOCAL | MODE_SYNC)
 }
 
 thread_local! {
@@ -91,11 +116,15 @@ pub unsafe extern "C" fn dartforge_ffi_register_callback(key: *const u8, n: i64,
     // SAFETY: guaranteed by the caller (a module constant).
     let b = unsafe { std::slice::from_raw_parts(key, n as usize) };
     let key = String::from_utf8_lossy(b).into_owned();
-    callback_entries().write().unwrap_or_else(|e| e.into_inner()).insert(key, input);
+    callback_entries()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .register(key, input, 0);
 }
 
 /// The executable memory of the trampolines: regions mapped once and never
-/// returned, divided into slices of [`SLICE_SIZE`] bytes with a free list.
+/// returned, divided into slices of [`SLICE_SIZE`] bytes. Published slots are
+/// never recycled: native callers may retain their addresses indefinitely.
 mod executable_memory {
     /// The largest LLVM trampoline fits (x86-64: 23 bytes; AArch64: 32).
     pub const SLICE_SIZE: usize = 64;
@@ -135,8 +164,21 @@ mod executable_memory {
         #[cfg(not(target_os = "macos"))]
         const MAP_JIT: i32 = 0;
         // SAFETY: a new anonymous mapping, without a file.
-        let p = unsafe { mmap(std::ptr::null_mut(), REGION_SIZE, PROT_RWX, MAP_PRIVATE | MAP_ANON | MAP_JIT, -1, 0) };
-        if p.is_null() || p as isize == -1 { None } else { Some(p as usize) }
+        let p = unsafe {
+            mmap(
+                std::ptr::null_mut(),
+                REGION_SIZE,
+                PROT_RWX,
+                MAP_PRIVATE | MAP_ANON | MAP_JIT,
+                -1,
+                0,
+            )
+        };
+        if p.is_null() || p as isize == -1 {
+            None
+        } else {
+            Some(p as usize)
+        }
     }
 
     #[cfg(windows)]
@@ -144,21 +186,33 @@ mod executable_memory {
         const MEM_COMMIT_RESERVE: u32 = 0x1000 | 0x2000;
         const PAGE_EXECUTE_READWRITE: u32 = 0x40;
         // SAFETY: reserves and commits new pages.
-        let p = unsafe { VirtualAlloc(std::ptr::null_mut(), REGION_SIZE, MEM_COMMIT_RESERVE, PAGE_EXECUTE_READWRITE) };
+        let p = unsafe {
+            VirtualAlloc(
+                std::ptr::null_mut(),
+                REGION_SIZE,
+                MEM_COMMIT_RESERVE,
+                PAGE_EXECUTE_READWRITE,
+            )
+        };
         if p.is_null() { None } else { Some(p as usize) }
+    }
+
+    // Only slots whose address was never returned or stored may be recycled.
+    pub(super) fn release_unpublished(memory: usize) {
+        FREE_SLOTS.lock().unwrap_or_else(|e| e.into_inner()).push(memory);
     }
 
     pub fn allocate() -> Option<usize> {
         let mut free_list = FREE_SLOTS.lock().unwrap_or_else(|e| e.into_inner());
         if free_list.is_empty() {
             let base = map_pages()?;
-            free_list.extend((0..REGION_SIZE / SLICE_SIZE).rev().map(|i| base + i * SLICE_SIZE));
+            free_list.extend(
+                (0..REGION_SIZE / SLICE_SIZE)
+                    .rev()
+                    .map(|i| base + i * SLICE_SIZE),
+            );
         }
         free_list.pop()
-    }
-
-    pub fn free(p: usize) {
-        FREE_SLOTS.lock().unwrap_or_else(|e| e.into_inner()).push(p);
     }
 
     /// Writes at `p` the trampoline that loads `ctx` into the `nest` register and
@@ -292,7 +346,9 @@ fn exceptional_bits(v: i64, l: char) -> Result<i64, String> {
         let integer = h.int_of(v);
         match (l, h.double_of(v), h.bool_of(v)) {
             ('f' | 'd', Some(d), _) => Ok(d.to_bits() as i64),
-            ('f' | 'd', None, _) => integer.map(|i| (i as f64).to_bits() as i64).ok_or_else(|| "exceptionalReturn must be a double".to_string()),
+            ('f' | 'd', None, _) => integer
+                .map(|i| (i as f64).to_bits() as i64)
+                .ok_or_else(|| "exceptionalReturn must be a double".to_string()),
             ('b', _, Some(b)) => Ok(i64::from(b)),
             _ => integer.ok_or_else(|| "exceptionalReturn must be an int".to_string()),
         }
@@ -307,19 +363,28 @@ fn closure_code(clo: i64) -> i64 {
 
 /// Creates the trampoline of `ctx` and registers it.
 fn install_callback(ctx: Box<CallbackContext>) -> Result<usize, String> {
-    let rec = callback_entries().read().unwrap_or_else(|e| e.into_inner()).get(&ctx.key).copied();
-    let Some(input) = rec else {
-        let text = RTI.with(|u| u.borrow().text(ctx.fn_signature));
-        return Err(format!("the native signature `{text}` was not compiled into this program (it must be written as a constant type argument)"));
-    };
     let Some(memory) = executable_memory::allocate() else {
         return Err("could not allocate executable memory for a native callback".to_string());
+    };
+    // The owner lease is acquired only after executable allocation succeeds.
+    // Retirement and selection share a lock; after this point the chosen code
+    // is permanently resident even if the callback is immediately closed.
+    let input = callback_entries().lock().unwrap_or_else(|e| e.into_inner()).publish(&ctx.key);
+    let Some(input) = input else {
+        executable_memory::release_unpublished(memory);
+        let text = RTI.with(|u| u.borrow().text(ctx.fn_signature));
+        return Err(format!(
+            "the native signature `{text}` was not compiled into this program (it must be written as a constant type argument)"
+        ));
     };
     let ctx = Box::into_raw(ctx);
     let f = executable_memory::write_trampoline(memory, input, ctx as usize);
     // SAFETY: the context has just been created and only this thread knows it.
     unsafe { (*ctx).trampoline = memory };
-    live_callbacks().lock().unwrap_or_else(|e| e.into_inner()).insert(f, ctx as usize);
+    live_callbacks()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(f, ctx as usize);
     Ok(f)
 }
 
@@ -327,7 +392,69 @@ fn install_callback(ctx: Box<CallbackContext>) -> Result<usize, String> {
 /// C function pointer of a new callback (`port` is the listener's, or the site of a
 /// `fromFunction`).
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_native_DartForge_ffi_callback_new(fn_signature: i64, function: i64, exceptional: i64, mode: i64, port: i64) -> i64 {
+pub extern "C" fn dartforge_native_DartForge_ffi_callback_new(
+    fn_signature: i64,
+    function: i64,
+    exceptional: i64,
+    mode: i64,
+    port: i64,
+) -> i64 {
+    create_callback(
+        fn_signature,
+        function,
+        exceptional,
+        mode,
+        port,
+        std::time::Duration::ZERO,
+    )
+}
+
+/// Creates a synchronous callback with a finite pre-claim queue timeout.
+/// Handle parameters/returns and compound returns are unsupported.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_native_DartForge_ffi_callback_sync_new(
+    fn_signature: i64,
+    function: i64,
+    exceptional: i64,
+    port: i64,
+    timeout_micros: i64,
+) -> i64 {
+    if timeout_micros <= 0 || port <= 0 {
+        throw_argument_error(
+            "Synchronous callback requires a positive queue timeout and owner port",
+        );
+        return 0;
+    }
+    let timeout = std::time::Duration::from_micros(timeout_micros as u64);
+    if std::time::Instant::now().checked_add(timeout).is_none() {
+        throw_argument_error("Synchronous callback queue timeout exceeds the native clock range");
+        return 0;
+    }
+    create_callback(
+        fn_signature,
+        function,
+        exceptional,
+        MODE_SYNC,
+        port,
+        timeout,
+    )
+}
+
+fn create_callback(
+    fn_signature: i64,
+    function: i64,
+    exceptional: i64,
+    mode: i64,
+    port: i64,
+    sync_timeout: std::time::Duration,
+) -> i64 {
+    if !matches!(
+        mode,
+        MODE_PERSISTENT | MODE_LOCAL | MODE_LISTENER | MODE_SYNC
+    ) {
+        throw_argument_error("Invalid native callback mode");
+        return 0;
+    }
     let Some(ns) = object_type_type(fn_signature) else {
         throw_argument_error("native callback: signature type argument expected");
         return 0;
@@ -348,11 +475,41 @@ pub extern "C" fn dartforge_native_DartForge_ffi_callback_new(fn_signature: i64,
         throw_argument_error("NativeCallable.listener callbacks cannot take a Handle");
         return 0;
     }
+    if mode == MODE_SYNC {
+        if port <= 0 || sync_timeout.is_zero() {
+            throw_argument_error(
+                "Synchronous callback requires an owner port and positive queue timeout",
+            );
+            return 0;
+        }
+        if ret == KeyPart::Letter('H') || params.contains(&KeyPart::Letter('H')) {
+            throw_unsupported("Synchronous callbacks cannot take or return Handle values");
+            return 0;
+        }
+        if matches!(ret, KeyPart::Compound(_)) {
+            throw_unsupported("Synchronous callbacks cannot return structs or unions");
+            return 0;
+        }
+    }
+    // Native threads cannot consult the owning isolate's RTI or heap.
+    let compound_sizes = params
+        .iter()
+        .map(|part| match part {
+            KeyPart::Compound(rti) => compound_from_rti(*rti).map(|layout| layout.size as usize),
+            _ => Some(0),
+        })
+        .collect::<Option<Vec<_>>>();
+    let Some(compound_sizes) = compound_sizes else {
+        throw_unsupported("Native callback compound argument has no known layout");
+        return 0;
+    };
     let exceptional = match ret {
         // A returned struct: no exceptional return (the VM rejects it); with an
         // exception, the struct comes back zeroed.
         KeyPart::Compound(_) if exceptional != 0 => {
-            throw_argument_error("exceptionalReturn must not be given for a struct or union return");
+            throw_argument_error(
+                "exceptionalReturn must not be given for a struct or union return",
+            );
             return 0;
         }
         KeyPart::Compound(_) => 0,
@@ -365,7 +522,8 @@ pub extern "C" fn dartforge_native_DartForge_ffi_callback_new(fn_signature: i64,
         },
     };
     // `fromFunction`: `port` is the call site (one trampoline per site).
-    let persistent = (mode == MODE_PERSISTENT).then(|| (key.clone(), port, closure_code(function), exceptional));
+    let persistent =
+        (mode == MODE_PERSISTENT).then(|| (key.clone(), port, closure_code(function), exceptional));
     if let Some(k) = &persistent
         && let Some(f) = PERSISTENT.with(|p| p.borrow().get(k).copied())
     {
@@ -374,13 +532,25 @@ pub extern "C" fn dartforge_native_DartForge_ffi_callback_new(fn_signature: i64,
     let ctx = Box::new(CallbackContext {
         mode,
         isolate: isolate_id(),
-        closure: if mode == MODE_LISTENER { 0 } else { function },
-        port: if mode == MODE_LISTENER { port } else { 0 },
+        owner_thread: std::thread::current().id(),
+        sync_timeout,
+        compound_sizes,
+        closure: std::sync::atomic::AtomicI64::new(if mode == MODE_LISTENER {
+            0
+        } else {
+            function
+        }),
+        port: if matches!(mode, MODE_LISTENER | MODE_SYNC) {
+            port
+        } else {
+            0
+        },
         fn_signature: ns,
         key,
         exceptional,
-        active_list: 0,
-        closed_flag: false,
+        active_list: std::sync::atomic::AtomicU32::new(0),
+        closed_flag: std::sync::atomic::AtomicBool::new(false),
+        late_calls: std::sync::atomic::AtomicU64::new(0),
         trampoline: 0,
     });
     let root = &*ctx as *const CallbackContext as i64;
@@ -401,30 +571,75 @@ pub extern "C" fn dartforge_native_DartForge_ffi_callback_new(fn_signature: i64,
     }
 }
 
-/// Releases the context and the trampoline (with no call in progress).
-fn release_callback(ctx: *mut CallbackContext) {
-    // SAFETY: the context left the registry; nobody else reaches it.
-    let ctx = unsafe { Box::from_raw(ctx) };
-    executable_memory::free(ctx.trampoline);
+/// Retires a published callback without invalidating its native address.
+/// Must run on the owning isolate, after removal from the live registry.
+fn retire_callback(ctx: *const CallbackContext) {
+    // SAFETY: published contexts are never freed; only the owner touches its heap.
+    let c = unsafe { &*ctx };
+    c.closed_flag
+        .store(true, std::sync::atomic::Ordering::Release);
+    cancel_sync_requests(ctx as usize, false);
+    c.closure.store(0, std::sync::atomic::Ordering::Release);
+    HEAP.with(|h| h.borrow_mut().release_global_root(ctx as i64));
+}
+
+/// Retires every callback before the owning isolate's heap is destroyed.
+/// Native pointers remain callable, including persistent `fromFunction` entries.
+pub(crate) fn retire_isolate_callbacks() {
+    let mine = isolate_id();
+    let contexts = {
+        let mut live = live_callbacks().lock().unwrap_or_else(|e| e.into_inner());
+        let mut contexts = Vec::new();
+        live.retain(|_, ctx| {
+            // SAFETY: published contexts are retained; isolate is immutable.
+            let belongs = unsafe { (*(*ctx as *const CallbackContext)).isolate == mine };
+            if belongs {
+                // Publish retirement before removing thread-affinity metadata.
+                unsafe {
+                    (*(*ctx as *const CallbackContext))
+                        .closed_flag
+                        .store(true, std::sync::atomic::Ordering::Release)
+                };
+                contexts.push(*ctx);
+            }
+            !belongs
+        });
+        contexts
+    };
+    for ctx in contexts {
+        retire_callback(ctx as *const CallbackContext);
+        cancel_sync_requests(ctx, true);
+    }
+    // Explicit shutdown normally precedes TLS destruction. A repeated cleanup
+    // must not fail merely because the cache has already been destroyed.
+    let _ = PERSISTENT.try_with(|p| p.borrow_mut().clear());
 }
 
 /// `DartForge_ffi_callback_delete(address)`: the `close()` of a `NativeCallable`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_ffi_callback_delete(address: i64) {
-    let Some(ctx) = live_callbacks().lock().unwrap_or_else(|e| e.into_inner()).remove(&(address as usize)) else {
-        return;
+    let mine = std::thread::current().id();
+    let ctx = {
+        let mut live = live_callbacks().lock().unwrap_or_else(|e| e.into_inner());
+        let Some(&ctx) = live.get(&(address as usize)) else {
+            return;
+        };
+        // SAFETY: published contexts are retained; isolate is immutable.
+        if unsafe { (*(ctx as *const CallbackContext)).owner_thread } != mine {
+            eprintln!("Cannot close native callback outside its owning isolate.");
+            std::process::abort();
+        }
+        // Finalizer classification must never observe an unregistered LIVE
+        // synchronous callback. Publish its tombstone while holding the registry.
+        unsafe {
+            (*(ctx as *const CallbackContext))
+                .closed_flag
+                .store(true, std::sync::atomic::Ordering::Release)
+        };
+        live.remove(&(address as usize));
+        ctx
     };
-    let ctx = ctx as *mut CallbackContext;
-    HEAP.with(|h| h.borrow_mut().release_global_root(ctx as i64));
-    // SAFETY: the context belongs to this isolate (`close()` runs on it).
-    let in_use_flag = unsafe {
-        (*ctx).closed_flag = true;
-        (*ctx).closure = 0;
-        (*ctx).active_list > 0
-    };
-    if !in_use_flag {
-        release_callback(ctx);
-    }
+    retire_callback(ctx as *const CallbackContext);
 }
 
 /// `DartForge_ffi_callback_keep(delta)`: the counter of local `NativeCallable`s
@@ -434,24 +649,45 @@ pub extern "C" fn dartforge_native_DartForge_ffi_callback_keep(delta: i64) {
     adjust_callbacks_keeping_alive(delta);
 }
 
-/// The C entry started: 0 = call the closure here; 1 = post to the listener. A
-/// local callback called outside the owning isolate's thread is fatal.
+/// The C entry started: 0 = call locally; 1 = post listener; 2 = late call.
+/// A LIVE local callback outside the owning isolate is still fatal. A closed
+/// callback does not enter an isolate, touch a Dart heap or inspect exceptions.
 ///
 /// # Safety
-/// `ctx` is the trampoline's context (alive while the callback is not closed).
+/// `ctx` is a published callback context, retained for the process lifetime.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_ffi_callback_enter(ctx: *mut CallbackContext) -> i64 {
-    // SAFETY: guaranteed by the caller.
-    let c = unsafe { &mut *ctx };
+    // SAFETY: guaranteed by the caller; shared references avoid foreign-thread
+    // aliasing during close. Mutable state is atomic, metadata is immutable.
+    let c = unsafe { &*ctx };
+    if c.closed_flag.load(std::sync::atomic::Ordering::Acquire) {
+        record_late_callback(c);
+        return 2;
+    }
     if c.mode == MODE_LISTENER {
         return 1;
     }
-    if c.closed_flag || isolate_id() != c.isolate {
+    if std::thread::current().id() != c.owner_thread {
+        if c.mode == MODE_SYNC {
+            return 3;
+        }
         eprintln!("Cannot invoke native callback outside an isolate.");
         std::process::abort();
     }
-    c.active_list += 1;
+    c.active_list
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     0
+}
+
+/// Returns the retained exceptional C bits of a late invocation.
+/// No Dart heap, pending exception or owner-thread access is needed.
+///
+/// # Safety
+/// As [`dartforge_ffi_callback_enter`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_ffi_callback_late_return(ctx: *const i64) -> i64 {
+    // SAFETY: exceptional is immutable and the context is retained.
+    unsafe { (*(ctx.cast::<CallbackContext>())).exceptional }
 }
 
 /// The callback's closure (the entry calls through it).
@@ -461,7 +697,11 @@ pub unsafe extern "C" fn dartforge_ffi_callback_enter(ctx: *mut CallbackContext)
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_ffi_callback_closure(ctx: i64) -> i64 {
     // SAFETY: guaranteed by the caller.
-    unsafe { (*(ctx as *const CallbackContext)).closure }
+    unsafe {
+        (*(ctx as *const CallbackContext))
+            .closure
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
 }
 
 /// The Dart `Pointer<X>` of argument `i` (address `address`).
@@ -509,32 +749,381 @@ pub unsafe extern "C" fn dartforge_arc_ffi_callback_closure_owned_v1(ctx: i64) -
 /// Missing helper, an incompatible Owned registration or an unclosed reentrant
 /// scope; aborts at the C boundary.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_arc_ffi_callback_pointer_owned_v1(ctx: i64, i: i64, address: i64) -> i64 {
+pub unsafe extern "C" fn dartforge_arc_ffi_callback_pointer_owned_v1(
+    ctx: i64,
+    i: i64,
+    address: i64,
+) -> i64 {
     // SAFETY: the contract above.
     owner_in_native_scope(|| unsafe { dartforge_ffi_callback_pointer(ctx, i, address) })
 }
 
 /// The C entry finished the call: returns 1 (and the exceptional return in `out`)
-/// if the closure threw — the exception is discarded, as in the VM. Releases the
-/// context if it was closed during the call.
+/// if the closure threw — the exception is discarded, as in the VM. A callback
+/// closed during the call remains a native tombstone after this frame leaves.
 ///
 /// # Safety
 /// As [`dartforge_ffi_callback_enter`]; `out` is writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_ffi_callback_exit(ctx: *mut CallbackContext, out: *mut i64) -> u8 {
+pub unsafe extern "C" fn dartforge_ffi_callback_exit(
+    ctx: *mut CallbackContext,
+    out: *mut i64,
+) -> u8 {
     // SAFETY: guaranteed by the caller.
-    let c = unsafe { &mut *ctx };
-    c.active_list -= 1;
+    let c = unsafe { &*ctx };
+    let active = c
+        .active_list
+        .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    assert!(active > 0, "Callback exit without an active local entry");
     let threw = dartforge_exception_pending() != 0;
     if threw {
         dartforge_exception_clear();
         // SAFETY: guaranteed by the caller.
         unsafe { *out = c.exceptional };
     }
-    if c.closed_flag && c.active_list == 0 {
-        release_callback(ctx);
-    }
     u8::from(threw)
+}
+
+/// Native request state: deadlines only cancel unclaimed work.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SyncRequestState {
+    Pending,
+    Running,
+    Completed(i64),
+    Cancelled,
+}
+
+struct SyncCallbackRequest {
+    context: usize,
+    owner_thread: std::thread::ThreadId,
+    deadline: std::time::Instant,
+    exceptional: i64,
+    state: std::sync::Mutex<SyncRequestState>,
+    ready: std::sync::Condvar,
+}
+
+fn sync_requests()
+-> &'static std::sync::Mutex<crate::hash::HashMap<i64, std::sync::Arc<SyncCallbackRequest>>> {
+    static REQUESTS: std::sync::OnceLock<
+        std::sync::Mutex<crate::hash::HashMap<i64, std::sync::Arc<SyncCallbackRequest>>>,
+    > = std::sync::OnceLock::new();
+    REQUESTS.get_or_init(Default::default)
+}
+
+fn sync_request(id: i64) -> Option<std::sync::Arc<SyncCallbackRequest>> {
+    sync_requests()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&id)
+        .cloned()
+}
+
+fn sync_wait_edges()
+-> &'static std::sync::Mutex<crate::hash::HashMap<std::thread::ThreadId, std::thread::ThreadId>> {
+    static EDGES: std::sync::OnceLock<
+        std::sync::Mutex<crate::hash::HashMap<std::thread::ThreadId, std::thread::ThreadId>>,
+    > = std::sync::OnceLock::new();
+    EDGES.get_or_init(Default::default)
+}
+
+fn wait_edge_would_cycle(
+    edges: &crate::hash::HashMap<std::thread::ThreadId, std::thread::ThreadId>,
+    caller: std::thread::ThreadId,
+    owner: std::thread::ThreadId,
+) -> bool {
+    if caller == owner || edges.contains_key(&caller) {
+        return true;
+    }
+    let mut current = owner;
+    for _ in 0..=edges.len() {
+        if current == caller {
+            return true;
+        }
+        let Some(&next) = edges.get(&current) else {
+            return false;
+        };
+        current = next;
+    }
+    true
+}
+
+struct SyncWaitEdge(std::thread::ThreadId);
+impl SyncWaitEdge {
+    fn register(owner: std::thread::ThreadId) -> Option<Self> {
+        let caller = std::thread::current().id();
+        let mut edges = sync_wait_edges().lock().unwrap_or_else(|e| e.into_inner());
+        if wait_edge_would_cycle(&edges, caller, owner) {
+            return None;
+        }
+        edges.insert(caller, owner);
+        Some(Self(caller))
+    }
+}
+impl Drop for SyncWaitEdge {
+    fn drop(&mut self) {
+        sync_wait_edges()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.0);
+    }
+}
+
+fn cancel_sync_requests(context: usize, owner_stopped: bool) {
+    let mut requests = sync_requests().lock().unwrap_or_else(|e| e.into_inner());
+    requests.retain(|_, request| {
+        if request.context != context {
+            return true;
+        }
+        let mut state = request.state.lock().unwrap_or_else(|e| e.into_inner());
+        if matches!(*state, SyncRequestState::Pending)
+            || (owner_stopped && matches!(*state, SyncRequestState::Running))
+        {
+            *state = SyncRequestState::Cancelled;
+            request.ready.notify_all();
+            return false;
+        }
+        true
+    });
+}
+
+fn wait_sync_request(request: &SyncCallbackRequest) -> i64 {
+    let mut state = request.state.lock().unwrap_or_else(|e| e.into_inner());
+    loop {
+        match *state {
+            SyncRequestState::Completed(bits) => return bits,
+            SyncRequestState::Cancelled => return request.exceptional,
+            SyncRequestState::Running => {
+                // Claimed handlers may borrow caller-owned native buffers. A
+                // deadline must not return those buffers while Dart still runs.
+                state = request.ready.wait(state).unwrap_or_else(|e| e.into_inner());
+            }
+            SyncRequestState::Pending => {
+                let now = std::time::Instant::now();
+                if now >= request.deadline {
+                    *state = SyncRequestState::Cancelled;
+                    request.ready.notify_all();
+                    return request.exceptional;
+                }
+                let remaining = request.deadline.saturating_duration_since(now);
+                (state, _) = request
+                    .ready
+                    .wait_timeout(state, remaining)
+                    .unwrap_or_else(|e| e.into_inner());
+            }
+        }
+    }
+}
+
+/// Copies native argument words using metadata computed on the owner thread.
+/// # Safety
+/// Compound words point to readable arguments of the precomputed byte size.
+unsafe fn callback_portable_arguments(c: &CallbackContext, bits: &[i64]) -> Vec<Portable> {
+    let (_, params) = key_parts(&c.key);
+    bits.iter()
+        .zip(params)
+        .enumerate()
+        .map(|(i, (bits, part))| match part {
+            KeyPart::Letter('f' | 'd') => Portable::Double(f64::from_bits(*bits as u64)),
+            KeyPart::Letter('b') => Portable::Bool(*bits != 0),
+            KeyPart::Compound(_) => {
+                let size = c.compound_sizes[i];
+                let bytes = if size == 0 {
+                    Vec::new()
+                } else {
+                    // SAFETY: the generated entry owns these bytes throughout the call.
+                    unsafe { std::slice::from_raw_parts(*bits as usize as *const u8, size) }
+                        .to_vec()
+                };
+                Portable::Bytes(bytes)
+            }
+            KeyPart::Letter(_) => Portable::Int(*bits),
+        })
+        .collect()
+}
+
+/// Delivers a foreign-thread synchronous request without touching Dart TLS.
+/// Returns C bits; pre-claim timeout/close/cycle rejection uses exceptional bits.
+/// # Safety
+/// `ctx` is a retained MODE_SYNC context; args has n native signature words,
+/// including readable compound arguments. Caller buffers remain valid until return.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_ffi_callback_sync(
+    ctx: *const i64,
+    args: *const i64,
+    n: i64,
+) -> i64 {
+    // SAFETY: the generated entry provides a retained native context.
+    let c = unsafe { &*ctx.cast::<CallbackContext>() };
+    if c.closed_flag.load(std::sync::atomic::Ordering::Acquire) {
+        record_late_callback(c);
+        return c.exceptional;
+    }
+    let (_, params) = key_parts(&c.key);
+    if c.mode != MODE_SYNC || n < 0 || n as usize != params.len() || (n > 0 && args.is_null()) {
+        return c.exceptional;
+    }
+    let Some(_edge) = SyncWaitEdge::register(c.owner_thread) else {
+        return c.exceptional;
+    };
+    let Some(deadline) = std::time::Instant::now().checked_add(c.sync_timeout) else {
+        return c.exceptional;
+    };
+    static NEXT_ID: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
+    let Ok(id) = NEXT_ID.fetch_update(
+        std::sync::atomic::Ordering::Relaxed,
+        std::sync::atomic::Ordering::Relaxed,
+        |id| id.checked_add(1),
+    ) else {
+        return c.exceptional;
+    };
+    let request = std::sync::Arc::new(SyncCallbackRequest {
+        context: ctx as usize,
+        owner_thread: c.owner_thread,
+        deadline,
+        exceptional: c.exceptional,
+        state: std::sync::Mutex::new(SyncRequestState::Pending),
+        ready: std::sync::Condvar::new(),
+    });
+    {
+        let mut requests = sync_requests().lock().unwrap_or_else(|e| e.into_inner());
+        // Admission and retirement share this mutex: close cannot miss a request
+        // admitted before its closed flag, and no request is admitted afterwards.
+        if c.closed_flag.load(std::sync::atomic::Ordering::Acquire) {
+            return c.exceptional;
+        }
+        requests.insert(id, request.clone());
+    }
+    let bits = if n == 0 {
+        &[]
+    } else {
+        // SAFETY: the generated entry supplies n readable words.
+        unsafe { std::slice::from_raw_parts(args, n as usize) }
+    };
+    let mut items = vec![Portable::Int(ctx as i64), Portable::Int(id)];
+    // SAFETY: the native entry and foreign caller retain compound buffers.
+    items.extend(unsafe { callback_portable_arguments(c, bits) });
+    // No request/table/heap lock is held across posting or waiting.
+    post(c.port, Portable::List(items).to_graph());
+    let result = wait_sync_request(&request);
+    sync_requests()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&id);
+    result
+}
+
+fn request_from_message(message: i64) -> Option<(i64, std::sync::Arc<SyncCallbackRequest>)> {
+    let (context, id) = HEAP.with(|h| {
+        let h = h.borrow();
+        if !h.is_list(message) || h.list_len(message) < 2 {
+            return None;
+        }
+        let number = |index| match h.list_get(message, index) {
+            crate::heap::Value::Int(value) => Some(value),
+            crate::heap::Value::Ref(value) => h.int_of(value),
+            _ => None,
+        };
+        Some((number(0)?, number(1)?))
+    })?;
+    let request = sync_request(id)?;
+    if request.context != context as usize || request.owner_thread != std::thread::current().id() {
+        return None;
+    }
+    Some((id, request))
+}
+
+fn claim_sync_request(request: &SyncCallbackRequest, now: std::time::Instant) -> bool {
+    let mut state = request.state.lock().unwrap_or_else(|e| e.into_inner());
+    if !matches!(*state, SyncRequestState::Pending) {
+        return false;
+    }
+    // SAFETY: requests only carry retained callback contexts.
+    let closed = unsafe {
+        (*(request.context as *const CallbackContext))
+            .closed_flag
+            .load(std::sync::atomic::Ordering::Acquire)
+    };
+    if closed || now >= request.deadline {
+        *state = SyncRequestState::Cancelled;
+        request.ready.notify_all();
+        return false;
+    }
+    *state = SyncRequestState::Running;
+    true
+}
+
+/// Claims a queued request on its owner before allocating/boxing Dart arguments.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_native_DartForge_ffi_callback_sync_claim(message: i64) -> u8 {
+    let Some((id, request)) = request_from_message(message) else {
+        return 0;
+    };
+    let claimed = claim_sync_request(&request, std::time::Instant::now());
+    let cancelled = matches!(
+        *request.state.lock().unwrap_or_else(|e| e.into_inner()),
+        SyncRequestState::Cancelled
+    );
+    if !claimed && cancelled {
+        sync_requests()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id);
+    }
+    u8::from(claimed)
+}
+
+fn sync_result_bits(c: &CallbackContext, result: i64) -> Option<i64> {
+    let (ret, _) = key_parts(&c.key);
+    let KeyPart::Letter(ret) = ret else {
+        return None;
+    };
+    match ret {
+        'v' => Some(0),
+        'p' => address_of(result),
+        'b' => HEAP.with(|h| h.borrow().bool_of(result)).map(i64::from),
+        'f' | 'd' => HEAP
+            .with(|h| h.borrow().double_of(result))
+            .map(|value| value.to_bits() as i64),
+        'H' => None,
+        _ => HEAP.with(|h| h.borrow().int_of(result)),
+    }
+}
+
+fn complete_sync_request(request: &SyncCallbackRequest, bits: i64) {
+    let mut state = request.state.lock().unwrap_or_else(|e| e.into_inner());
+    if matches!(*state, SyncRequestState::Running) {
+        *state = SyncRequestState::Completed(bits);
+        request.ready.notify_all();
+    }
+}
+
+/// Completes one claimed request even if its callback closed inside the handler.
+/// Invalid scalar results and caught callback failures use exceptional C bits.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_native_DartForge_ffi_callback_sync_complete(
+    message: i64,
+    result: i64,
+    failed: u8,
+) {
+    let Some((id, request)) = request_from_message(message) else {
+        return;
+    };
+    // SAFETY: requests carry retained contexts and this is the owner's thread.
+    let c = unsafe { &*(request.context as *const CallbackContext) };
+    let pending = dartforge_exception_pending() != 0;
+    let bits = if failed != 0 || pending {
+        c.exceptional
+    } else {
+        sync_result_bits(c, result).unwrap_or(c.exceptional)
+    };
+    if pending {
+        dartforge_exception_clear();
+    }
+    complete_sync_request(&request, bits);
+    sync_requests()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&id);
 }
 
 /// The C entry of a `listener`: the `n` arguments (bits of each C type) become the
@@ -543,28 +1132,28 @@ pub unsafe extern "C" fn dartforge_ffi_callback_exit(ctx: *mut CallbackContext, 
 /// # Safety
 /// As [`dartforge_ffi_callback_enter`]; `args` has `n` values.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_ffi_callback_post(ctx: *const CallbackContext, args: *const i64, n: i64) {
+pub unsafe extern "C" fn dartforge_ffi_callback_post(
+    ctx: *const CallbackContext,
+    args: *const i64,
+    n: i64,
+) {
     // SAFETY: guaranteed by the caller.
     let c = unsafe { &*ctx };
-    // SAFETY: likewise.
-    let bits = unsafe { std::slice::from_raw_parts(args, n.max(0) as usize) };
-    let mut items = Vec::with_capacity(bits.len() + 1);
-    items.push(Portable::Int(ctx as i64));
-    let (_, params) = key_parts(&c.key);
-    for (b, p) in bits.iter().zip(params) {
-        items.push(match p {
-            KeyPart::Letter('f' | 'd') => Portable::Double(f64::from_bits(*b as u64)),
-            KeyPart::Letter('b') => Portable::Bool(*b != 0),
-            // A struct: the bytes (the address is only valid during the call).
-            KeyPart::Compound(rti) => {
-                let n = compound_from_rti(rti).map_or(0, |c| c.size as usize);
-                // SAFETY: the C entry passes the address of the argument's `n`
-                // bytes, alive during the call.
-                Portable::Bytes(unsafe { std::slice::from_raw_parts(*b as usize as *const u8, n) }.to_vec())
-            }
-            KeyPart::Letter(_) => Portable::Int(*b),
-        });
+    if c.closed_flag.load(std::sync::atomic::Ordering::Acquire) {
+        // Close may win between listener enter and post. The retained metadata
+        // remains valid; discard before decoding native argument addresses.
+        record_late_callback(c);
+        return;
     }
+    // SAFETY: the entry supplies exactly the signature's argument words.
+    let bits = if n <= 0 {
+        &[]
+    } else {
+        unsafe { std::slice::from_raw_parts(args, n as usize) }
+    };
+    let mut items = vec![Portable::Int(ctx as i64)];
+    // SAFETY: compound addresses remain valid throughout this C invocation.
+    items.extend(unsafe { callback_portable_arguments(c, bits) });
     post(c.port, Portable::List(items).to_graph());
 }
 
@@ -578,18 +1167,45 @@ pub extern "C" fn dartforge_native_DartForge_ffi_callback_args(message: i64) -> 
         if !h.is_list(message) {
             return Vec::new();
         }
-        (0..h.list_len(message)).map(|i| h.list_get(message, i)).collect()
+        (0..h.list_len(message))
+            .map(|i| h.list_get(message, i))
+            .collect()
     });
     let integer = |v: &crate::heap::Value| argument_int(*v).unwrap_or(0);
-    let Some(ctx) = items.first().map(integer) else { return message };
-    let alive = live_callbacks().lock().unwrap_or_else(|e| e.into_inner()).values().any(|&c| c as i64 == ctx);
-    if !alive {
+    let Some(ctx) = items.first().map(integer) else {
+        return message;
+    };
+    let sync_request = items
+        .get(1)
+        .and_then(|value| argument_int(*value))
+        .and_then(|id| sync_request(id));
+    let claimed_sync = sync_request.as_ref().is_some_and(|request| {
+        request.context == ctx as usize
+            && request.owner_thread == std::thread::current().id()
+            && matches!(
+                *request.state.lock().unwrap_or_else(|e| e.into_inner()),
+                SyncRequestState::Running
+            )
+    });
+    let alive = live_callbacks()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .values()
+        .any(|&c| c as i64 == ctx);
+    if !alive && !claimed_sync {
         return dart_fixed_list(&[]);
     }
-    // SAFETY: the context is registered (alive).
-    let (key, ns) = unsafe {
+    // SAFETY: the live registry or claimed request proves this retained context.
+    let (key, ns, skip) = unsafe {
         let c = &*(ctx as *const CallbackContext);
-        (c.key.clone(), c.fn_signature)
+        if c.mode == MODE_SYNC && !claimed_sync {
+            return dart_fixed_list(&[]);
+        }
+        (
+            c.key.clone(),
+            c.fn_signature,
+            if c.mode == MODE_SYNC { 2 } else { 1 },
+        )
     };
     let types: Vec<i64> = RTI.with(|u| match u.borrow().ty(ns) {
         Type::Function { pos, .. } => pos.to_vec(),
@@ -597,17 +1213,19 @@ pub extern "C" fn dartforge_native_DartForge_ffi_callback_args(message: i64) -> 
     });
     // Each argument becomes a `Ref` rooted in the frame (an integer's box, the
     // `Pointer`, the copied struct), and the list is built at the end.
-    let n = items.len().saturating_sub(1);
+    let n = items.len().saturating_sub(skip);
     let frame = HEAP.with(|h| h.borrow_mut().push_frame_with_slots(n.max(1)));
     let (_, params) = key_parts(&key);
     let mut out = Vec::with_capacity(n);
-    for (i, (v, p)) in items.iter().skip(1).zip(params).enumerate() {
+    for (i, (v, p)) in items.iter().skip(skip).zip(params).enumerate() {
         let x = match p {
             KeyPart::Letter('p') => new_pointer(integer(v), types.get(i).copied()),
             // The struct's bytes become a struct over Dart memory.
             KeyPart::Compound(rti) => {
                 let bytes = match v {
-                    crate::heap::Value::Ref(r) => HEAP.with(|h| h.borrow().typed_bytes(*r).map(<[u8]>::to_vec)).unwrap_or_default(),
+                    crate::heap::Value::Ref(r) => HEAP
+                        .with(|h| h.borrow().typed_bytes(*r).map(<[u8]>::to_vec))
+                        .unwrap_or_default(),
                     _ => Vec::new(),
                 };
                 dartforge_ffi_compound_copy(rti, bytes.as_ptr() as i64)
@@ -640,9 +1258,20 @@ mod tests_owned_callback {
     fn callback_closure_gains_an_owner_and_releases_on_release() {
         let closure = dartforge_arc_object_owned_v1(123, 1);
         let ctx = Box::new(CallbackContext {
-            mode: MODE_LOCAL, isolate: 0, closure, port: 0, fn_signature: 0,
-            key: String::new(), exceptional: 0, active_list: 0,
-            closed_flag: false, trampoline: 0,
+            mode: MODE_LOCAL,
+            isolate: 0,
+            owner_thread: std::thread::current().id(),
+            sync_timeout: std::time::Duration::from_secs(1),
+            compound_sizes: Vec::new(),
+            closure: std::sync::atomic::AtomicI64::new(closure),
+            port: 0,
+            fn_signature: 0,
+            key: String::new(),
+            exceptional: 0,
+            active_list: std::sync::atomic::AtomicU32::new(0),
+            closed_flag: std::sync::atomic::AtomicBool::new(false),
+            late_calls: std::sync::atomic::AtomicU64::new(0),
+            trampoline: 0,
         });
         let address = (&*ctx as *const CallbackContext) as i64;
         // SAFETY: the context above lives until the end of the test.
@@ -666,9 +1295,20 @@ mod finalizer_callback_tests {
     fn finalizer_rejects_sync_trampolines_before_creating_attachment() {
         for mode in [MODE_PERSISTENT, MODE_LOCAL, MODE_LISTENER] {
             let ctx = Box::new(CallbackContext {
-                mode, isolate: 0, closure: 0, port: 0, fn_signature: 0,
-                key: String::new(), exceptional: 0, active_list: 0,
-                closed_flag: false, trampoline: 0,
+                mode,
+                isolate: 0,
+                owner_thread: std::thread::current().id(),
+                sync_timeout: std::time::Duration::from_secs(1),
+                compound_sizes: Vec::new(),
+                closure: std::sync::atomic::AtomicI64::new(0),
+                port: 0,
+                fn_signature: 0,
+                key: String::new(),
+                exceptional: 0,
+                active_list: std::sync::atomic::AtomicU32::new(0),
+                closed_flag: std::sync::atomic::AtomicBool::new(false),
+                late_calls: std::sync::atomic::AtomicU64::new(0),
+                trampoline: 0,
             });
             // An exclusive identity for this test registration; it is never called.
             let address = (&*ctx as *const CallbackContext) as usize;
@@ -685,5 +1325,371 @@ mod finalizer_callback_tests {
             live_callbacks().lock().unwrap().remove(&address);
             assert!(!callback_requires_isolate_thread(address));
         }
+    }
+}
+
+#[cfg(test)]
+mod late_callback_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
+
+    fn context(mode: i64, closure: i64, exceptional: i64) -> &'static CallbackContext {
+        let ctx = Box::leak(Box::new(CallbackContext {
+            mode,
+            isolate: isolate_id(),
+            owner_thread: std::thread::current().id(),
+            sync_timeout: std::time::Duration::from_secs(1),
+            compound_sizes: Vec::new(),
+            closure: AtomicI64::new(closure),
+            port: 0,
+            fn_signature: 0,
+            key: "v_".to_string(),
+            exceptional,
+            active_list: AtomicU32::new(0),
+            closed_flag: AtomicBool::new(false),
+            late_calls: AtomicU64::new(0),
+            trampoline: 0,
+        }));
+        let address = ctx as *const CallbackContext as usize;
+        live_callbacks().lock().unwrap().insert(address, address);
+        if closure != 0 {
+            HEAP.with(|h| h.borrow_mut().set_global_root(address as i64, closure));
+        }
+        ctx
+    }
+
+    #[test]
+    fn closed_local_returns_retained_bits_on_foreign_threads() {
+        let exceptional = (-17.25f64).to_bits() as i64;
+        let ctx = context(MODE_LOCAL, 0, exceptional);
+        let address = ctx as *const CallbackContext as usize;
+        dartforge_native_DartForge_ffi_callback_delete(address as i64);
+        dartforge_native_DartForge_ffi_callback_delete(address as i64);
+        std::thread::spawn(move || {
+            for _ in 0..1000 {
+                // SAFETY: the published context remains a stable tombstone.
+                unsafe {
+                    assert_eq!(
+                        dartforge_ffi_callback_enter(address as *mut CallbackContext),
+                        2
+                    );
+                    assert_eq!(
+                        dartforge_ffi_callback_late_return(address as *const i64),
+                        exceptional
+                    );
+                }
+            }
+        })
+        .join()
+        .unwrap();
+        assert_eq!(ctx.late_calls.load(Ordering::Relaxed), 1000);
+        assert_eq!(ctx.active_list.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn close_inside_active_callback_releases_root_without_freeing_context() {
+        let child = dartforge_arc_object_owned_v1(177, 0);
+        let environment = dartforge_arc_object_owned_v1(i64::from(crate::layout::cid::CONTEXT), 1);
+        dartforge_arc_write_field_ref_v1(environment, 0, child);
+        let closure = dartforge_arc_closure_owned_v1(0, environment, 0, 0);
+        dartforge_arc_release(child);
+        dartforge_arc_release(environment);
+        let ctx = context(MODE_LOCAL, closure, 91);
+        let address = ctx as *const CallbackContext as usize;
+        // The generated Dart call frame owns its closure while the callback runs.
+        let owner = unsafe { dartforge_arc_ffi_callback_closure_owned_v1(address as i64) };
+        dartforge_arc_release(closure);
+        // SAFETY: the context is published on this owning isolate.
+        assert_eq!(
+            unsafe { dartforge_ffi_callback_enter(address as *mut CallbackContext) },
+            0
+        );
+        dartforge_native_DartForge_ffi_callback_delete(address as i64);
+        assert!(ctx.closed_flag.load(Ordering::Acquire));
+        assert_eq!(ctx.closure.load(Ordering::Acquire), 0);
+        dartforge_arc_collect();
+        assert_eq!(dartforge_arc_observe_heap_v1(closure), 3);
+        let mut out = 0;
+        // SAFETY: the active frame is still valid despite retirement.
+        assert_eq!(
+            unsafe { dartforge_ffi_callback_exit(address as *mut CallbackContext, &mut out) },
+            0
+        );
+        dartforge_arc_release(owner);
+        dartforge_arc_collect();
+        assert_eq!(dartforge_arc_observe_heap_v1(closure), 0);
+        assert_eq!(dartforge_arc_observe_heap_v1(environment), 0);
+        assert_eq!(dartforge_arc_observe_heap_v1(child), 0);
+        assert_eq!(ctx.active_list.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            unsafe { dartforge_ffi_callback_enter(address as *mut CallbackContext) },
+            2
+        );
+    }
+
+    #[test]
+    fn listener_close_between_enter_and_post_drops_without_decoding_arguments() {
+        let ctx = context(MODE_LISTENER, 0, 0);
+        let address = ctx as *const CallbackContext as usize;
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let worker_barrier = barrier.clone();
+        let worker = std::thread::spawn(move || {
+            // SAFETY: a published listener can be entered from any thread.
+            assert_eq!(
+                unsafe { dartforge_ffi_callback_enter(address as *mut CallbackContext) },
+                1
+            );
+            worker_barrier.wait();
+            worker_barrier.wait();
+            // Deliberately invalid args would fault if a retired post decoded them.
+            // SAFETY: closed posts return before inspecting args.
+            unsafe {
+                dartforge_ffi_callback_post(
+                    address as *const CallbackContext,
+                    std::ptr::null(),
+                    100,
+                )
+            };
+        });
+        barrier.wait();
+        dartforge_native_DartForge_ffi_callback_delete(address as i64);
+        barrier.wait();
+        worker.join().unwrap();
+        assert_eq!(ctx.late_calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn isolate_retirement_tombstones_persistent_callbacks_and_releases_roots() {
+        let closure = dartforge_arc_object_owned_v1(178, 1);
+        let ctx = context(MODE_PERSISTENT, closure, 33);
+        let address = ctx as *const CallbackContext as usize;
+        PERSISTENT.with(|p| p.borrow_mut().insert(("v_".into(), 1, 2, 33), address));
+        dartforge_arc_release(closure);
+        retire_isolate_callbacks();
+        dartforge_arc_collect();
+        assert_eq!(dartforge_arc_observe_heap_v1(closure), 0);
+        assert!(PERSISTENT.with(|p| p.borrow().is_empty()));
+        assert!(!live_callbacks().lock().unwrap().contains_key(&address));
+        assert_eq!(
+            unsafe { dartforge_ffi_callback_enter(address as *mut CallbackContext) },
+            2
+        );
+        assert_eq!(
+            unsafe {
+                dartforge_ffi_callback_late_return((ctx as *const CallbackContext).cast::<i64>())
+            },
+            33
+        );
+    }
+}
+
+#[cfg(test)]
+mod sync_callback_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
+    use std::sync::{Arc, Condvar, Mutex};
+    use std::time::{Duration, Instant};
+
+    fn context(key: &str, sizes: Vec<usize>) -> &'static CallbackContext {
+        Box::leak(Box::new(CallbackContext {
+            mode: MODE_SYNC,
+            isolate: isolate_id(),
+            owner_thread: std::thread::current().id(),
+            sync_timeout: Duration::from_secs(1),
+            compound_sizes: sizes,
+            closure: AtomicI64::new(0),
+            port: 0,
+            fn_signature: 0,
+            key: key.into(),
+            exceptional: 77,
+            active_list: AtomicU32::new(0),
+            closed_flag: AtomicBool::new(false),
+            late_calls: AtomicU64::new(0),
+            trampoline: 0,
+        }))
+    }
+
+    fn request(c: &'static CallbackContext, deadline: Instant) -> Arc<SyncCallbackRequest> {
+        Arc::new(SyncCallbackRequest {
+            context: c as *const CallbackContext as usize,
+            owner_thread: c.owner_thread,
+            deadline,
+            exceptional: c.exceptional,
+            state: Mutex::new(SyncRequestState::Pending),
+            ready: Condvar::new(),
+        })
+    }
+
+    #[test]
+    fn owner_native_identity_enters_directly_foreign_identity_marshals_without_heap() {
+        let c = context("i_", vec![]);
+        let address = c as *const CallbackContext as usize;
+        assert_eq!(
+            unsafe { dartforge_ffi_callback_enter(address as *mut CallbackContext) },
+            0
+        );
+        let mut out = 0;
+        assert_eq!(
+            unsafe { dartforge_ffi_callback_exit(address as *mut CallbackContext, &mut out) },
+            0
+        );
+        std::thread::spawn(move || {
+            HEAP.with(|h| {
+                let _heap_borrow = h.borrow_mut();
+                RTI.with(|r| {
+                    let _rti_borrow = r.borrow_mut();
+                    assert_eq!(
+                        unsafe { dartforge_ffi_callback_enter(address as *mut CallbackContext) },
+                        3
+                    );
+                });
+            });
+        })
+        .join()
+        .unwrap();
+        assert_eq!(c.active_list.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn foreign_compound_encoding_uses_owner_metadata_not_foreign_rti_or_heap() {
+        let c = context("i_S900001.", vec![8]);
+        let address = c as *const CallbackContext as usize;
+        std::thread::spawn(move || {
+            let data = [0x04030201u32, 0x08070605u32];
+            HEAP.with(|h| {
+                let _heap_borrow = h.borrow_mut();
+                RTI.with(|r| {
+                    let _rti_borrow = r.borrow_mut();
+                    let c = unsafe { &*(address as *const CallbackContext) };
+                    let arguments =
+                        unsafe { callback_portable_arguments(c, &[data.as_ptr() as i64]) };
+                    let Portable::Bytes(bytes) = &arguments[0] else {
+                        panic!("compound bytes expected")
+                    };
+                    assert_eq!(bytes, &[1, 2, 3, 4, 5, 6, 7, 8]);
+                });
+            });
+        })
+        .join()
+        .unwrap();
+    }
+
+    #[test]
+    fn logical_deadline_cancels_only_pending_and_prevents_late_claim() {
+        let c = context("i_", vec![]);
+        let deadline = Instant::now();
+        let expired = request(c, deadline);
+        assert!(!claim_sync_request(&expired, deadline));
+        assert_eq!(wait_sync_request(&expired), 77);
+        assert_eq!(*expired.state.lock().unwrap(), SyncRequestState::Cancelled);
+        assert!(!claim_sync_request(
+            &expired,
+            deadline - Duration::from_secs(1)
+        ));
+        complete_sync_request(&expired, 88);
+        assert_eq!(wait_sync_request(&expired), 77);
+        let pending = request(c, deadline - Duration::from_secs(1));
+        assert_eq!(wait_sync_request(&pending), 77);
+        assert!(!claim_sync_request(&pending, deadline));
+    }
+
+    #[test]
+    fn claimed_work_survives_close_and_expired_deadline_until_completion() {
+        let c = context("i_", vec![]);
+        let deadline = Instant::now();
+        let running = request(c, deadline);
+        assert!(claim_sync_request(
+            &running,
+            deadline - Duration::from_secs(1)
+        ));
+        // Install a unique registry identity solely for this test.
+        let id = -(c as *const CallbackContext as i64);
+        sync_requests().lock().unwrap().insert(id, running.clone());
+        c.closed_flag.store(true, Ordering::Release);
+        cancel_sync_requests(c as *const CallbackContext as usize, false);
+        assert_eq!(*running.state.lock().unwrap(), SyncRequestState::Running);
+        assert!(sync_request(id).is_some());
+        complete_sync_request(&running, 88);
+        assert_eq!(wait_sync_request(&running), 88);
+        sync_requests().lock().unwrap().remove(&id);
+    }
+
+    #[test]
+    fn close_cancels_pending_and_owner_shutdown_also_cancels_running() {
+        let c = context("i_", vec![]);
+        let id = -(c as *const CallbackContext as i64);
+        let pending = request(c, Instant::now() + Duration::from_secs(10));
+        sync_requests().lock().unwrap().insert(id, pending.clone());
+        cancel_sync_requests(c as *const CallbackContext as usize, false);
+        assert_eq!(wait_sync_request(&pending), 77);
+        assert!(sync_request(id).is_none());
+        let running = request(c, Instant::now() + Duration::from_secs(10));
+        assert!(claim_sync_request(&running, Instant::now()));
+        sync_requests().lock().unwrap().insert(id, running.clone());
+        cancel_sync_requests(c as *const CallbackContext as usize, true);
+        assert_eq!(wait_sync_request(&running), 77);
+        assert!(sync_request(id).is_none());
+    }
+
+    #[test]
+    fn completion_wakes_foreign_waiter_and_only_first_result_wins() {
+        let c = context("i_", vec![]);
+        let running = request(c, Instant::now());
+        assert!(claim_sync_request(
+            &running,
+            running.deadline - Duration::from_secs(1)
+        ));
+        let other = running.clone();
+        let worker = std::thread::spawn(move || wait_sync_request(&other));
+        complete_sync_request(&running, 123);
+        complete_sync_request(&running, 456);
+        assert_eq!(worker.join().unwrap(), 123);
+    }
+
+    #[test]
+    fn protocol_wait_edges_reject_cycles_and_drop_cleans_registration() {
+        let a = std::thread::current().id();
+        let b = std::thread::spawn(|| std::thread::current().id())
+            .join()
+            .unwrap();
+        let c = std::thread::spawn(|| std::thread::current().id())
+            .join()
+            .unwrap();
+        let mut edges = crate::hash::HashMap::default();
+        edges.insert(a, b);
+        edges.insert(b, c);
+        assert!(wait_edge_would_cycle(&edges, c, a));
+        assert!(wait_edge_would_cycle(&edges, a, c));
+        assert!(!wait_edge_would_cycle(
+            &edges,
+            c,
+            std::thread::spawn(|| std::thread::current().id())
+                .join()
+                .unwrap()
+        ));
+        {
+            let _edge = SyncWaitEdge::register(b).unwrap();
+            assert!(SyncWaitEdge::register(c).is_none());
+        }
+        assert!(!sync_wait_edges().lock().unwrap().contains_key(&a));
+    }
+
+    #[test]
+    fn scalar_reply_conversions_require_actual_types_and_preserve_float_bits() {
+        let double = context("d_", vec![]);
+        let value = dartforge_arc_box_double_owned_v1(-17.25);
+        assert_eq!(
+            sync_result_bits(double, value),
+            Some((-17.25f64).to_bits() as i64)
+        );
+        let integer = context("i_", vec![]);
+        assert_eq!(sync_result_bits(integer, value), None);
+        assert_eq!(sync_result_bits(integer, 0), None);
+        let object = dartforge_arc_object_owned_v1(199, 0);
+        assert_eq!(sync_result_bits(integer, object), None);
+        let boolean = context("b_", vec![]);
+        assert_eq!(sync_result_bits(boolean, object), None);
+        dartforge_arc_release(value);
+        dartforge_arc_release(object);
     }
 }

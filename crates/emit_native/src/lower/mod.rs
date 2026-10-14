@@ -14,6 +14,10 @@ pub mod closures;
 pub mod statements;
 pub mod primitive_const;
 pub mod constants;
+mod environment;
+mod native_pump;
+mod sync_native_callable;
+mod runtime_policy;
 pub mod dispatch;
 pub mod typed_entry;
 pub mod enums;
@@ -303,6 +307,15 @@ pub fn sdk_arc_layouts(ctx: &Context) -> std::collections::HashMap<u32, Vec<Type
 
 // Shared with the audit of the layout facts, without lowering bodies.
 fn register_program_classes(ctx: &Context, module: &mut Module) {
+    // Zero is the terminal universal parent used by the subtype registration
+    // below, not an allocated nominal CID (fixed CIDs start at one). Missing
+    // real parents remain open; this synthetic root adds no unknown ancestry.
+    module.pruning_class_ids.insert(0);
+    let mut counts = std::collections::HashMap::new();
+    for cid in ctx.class_ids.iter().flatten() {
+        *counts.entry(*cid).or_insert(0usize) += 1;
+    }
+    module.pruning_ambiguous_class_ids.extend(counts.into_iter().filter_map(|(cid, count)| (count > 1).then_some(cid)));
     for (c_idx, class) in ctx.program.classes.iter().enumerate() {
         // Registers the classes of the libraries emitted in this module. The declared
         // layout of the SDK does not certify the physical shape used by the runtime.
@@ -327,6 +340,11 @@ fn register_program_classes(ctx: &Context, module: &mut Module) {
         });
 
         // Registers subtyping edges
+        if class.supertype_class.iter().chain(class.mixin_classes.iter())
+            .chain(class.interface_classes.iter()).all(|&parent| ctx.class_id_of(parent).is_some())
+        {
+            module.pruning_class_ids.insert(class_id);
+        }
         module.subtyping_edges.push((class_id, 0)); // Every nominal type inherits from Object
         if let Some(sup) = class.supertype_class.and_then(|s| ctx.class_id_of(s)) {
             module.subtyping_edges.push((class_id, sup));
@@ -488,6 +506,10 @@ fn with_source_body<'c>(ctx: &'c Context) -> &'c std::collections::HashSet<Strin
 /// them changes the ARC convention of the function silently — the Ref return without
 /// `dart_ref_returns` was no longer Owned.
 pub(crate) fn join_arc_facts(dest: &mut Module, origin: &mut Module) {
+    dest.pruning_this_receivers.extend(std::mem::take(&mut origin.pruning_this_receivers));
+    dest.pruning_class_ids.extend(std::mem::take(&mut origin.pruning_class_ids));
+    dest.pruning_ambiguous_class_ids.extend(std::mem::take(&mut origin.pruning_ambiguous_class_ids));
+    dest.inline_policies.extend(std::mem::take(&mut origin.inline_policies));
     dest.dart_scalar_parameters.extend(std::mem::take(&mut origin.dart_scalar_parameters));
     dest.dart_rti_parameters.extend(std::mem::take(&mut origin.dart_rti_parameters));
     dest.dart_vector_parameters.extend(std::mem::take(&mut origin.dart_vector_parameters));
@@ -505,6 +527,22 @@ pub fn lower_function(ctx: &Context, module: &mut Module, f_idx: usize) {
     let start = module.functions.len();
     let symbol = symbol_of(ctx, f_idx);
     lower_one_function(ctx, module, f_idx);
+    // The patch supplies the body, while the public SDK declaration can supply
+    // the request. A prohibition wins if both declarations carry a request.
+    let public = ctx.program.public(dartforge_elements::model::FunctionElementId(f_idx as u32)).0 as usize;
+    let has = |name| [f_idx, public].into_iter().any(|f|
+        crate::source::has_pragma(ctx.program, ctx.interner, f, name));
+    let policy = if has("vm:never-inline") { Some(crate::hir::InlinePolicy::Never) }
+        else if has("vm:prefer-inline") { Some(crate::hir::InlinePolicy::Prefer) }
+        else { None };
+    if let Some(policy) = policy {
+        for f in &module.functions[start..] {
+            if f.symbol == symbol || f.symbol.strip_prefix(&format!("{symbol}$async$q"))
+                .is_some_and(|suffix| suffix.len() == 8 && suffix.bytes().all(|b| b.is_ascii_hexdigit())) {
+                module.inline_policies.insert(f.symbol.clone(), policy);
+            }
+        }
+    }
     crate::optimize::arc::analysis::origins::register(module, start, ctx.arc_memory);
     // The convention belongs to the Dart body identified by the front end, not to the
     // width of returns of thunks/FFI or of extra functions created in the body.
@@ -581,6 +619,16 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                 };
 
                 let mut builder = fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), ret_ty);
+                // Only this versioned package declaration has a native body;
+                // other libraries and unrecognized versions retain their Dart fallback.
+                if ast_func.type_params.is_empty()
+                    && (builder.lower_native_pump_contract(f_idx)
+                        || builder.lower_sync_callback_support(f_idx)
+                        || builder.lower_runtime_policy(f_idx))
+                {
+                    builder.finish(module);
+                    return;
+                }
                 // The symbolic stack trace (§13.14): the token of the function, the hidden
                 // supports of `async_patch` and `_FutureListener.handleValue`,
                 // whose listener starts the chain of awaiters.

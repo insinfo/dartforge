@@ -1,0 +1,32 @@
+{
+  "cli_sha256": "8b3160e3a43146fb5952090c904e7c0ee6b44ae8a01c3397fc9216a42664c744",
+  "branch": "main",
+  "performance_measurement": false,
+  "gates": {
+    "emit_native": {
+      "passed": 496,
+      "failed": 0,
+      "ignored": 0
+    },
+    "runtime": {
+      "unit": 244,
+      "integration": 24,
+      "doctests": 85,
+      "failed": 0,
+      "ignored": 0
+    },
+    "dart_analyze": "No issues found",
+    "invalid_annotation_targets_diagnosed": 3,
+    "cargo_fmt_check": "failed; see local archived log; no global gate approval"
+  },
+  "artifacts": [
+    "pump-validation.json",
+    "corpus-validation.json",
+    "simd-validation.json",
+    "annotations-validation.json"
+  ],
+  "logs_directory": "target/dart-ui-evidence/package-integration/logs",
+  "legacy_simd_package_removed": true,
+  "annotation_contract_certification": false,
+  "prepared_foreign_thread_audio_entry": false
+}

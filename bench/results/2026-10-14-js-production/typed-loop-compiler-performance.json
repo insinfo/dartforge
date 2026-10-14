@@ -1,0 +1,224 @@
+{
+  "artifacts": {
+    "disabled": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-loop/typed_data.disabled.js",
+      "sha256": "193cc03c7c59811e8c899b0aa864c839a6b9224682974dc30dc167cfc2a9c6a4"
+    },
+    "enabled": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-loop/typed_data.enabled.js",
+      "sha256": "2c5db894c1b4f0534634bc695411143e2f251eb63df56e9356950e0a9a2b9b73"
+    },
+    "officialO2": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/typed_data.dart2js_O2.js",
+      "sha256": "efb071d85287bc1debfbb3fdcd04c7f19cfe637f89a4ca9911a4e284cffcfc89"
+    }
+  },
+  "runs": [
+    {
+      "profile": "disabled",
+      "repetition": 0,
+      "exit_code": 0,
+      "stdout": "product_f64: 14000 12000 13000 13000 13000 13000 us | 749982499.8499922\nfnv_bytes: 101000 140000 118000 101000 96000 100000 us | 1540479600\n",
+      "stderr": "",
+      "medians": {
+        "product_f64": {
+          "us": 13000,
+          "result": "749982499.8499922"
+        },
+        "fnv_bytes": {
+          "us": 101000,
+          "result": "1540479600"
+        }
+      }
+    },
+    {
+      "profile": "enabled",
+      "repetition": 0,
+      "exit_code": 0,
+      "stdout": "product_f64: 6000 3000 3000 4000 3000 3000 us | 749982499.8499922\nfnv_bytes: 52000 49000 48000 49000 49000 50000 us | 1540479600\n",
+      "stderr": "",
+      "medians": {
+        "product_f64": {
+          "us": 3000,
+          "result": "749982499.8499922"
+        },
+        "fnv_bytes": {
+          "us": 49000,
+          "result": "1540479600"
+        }
+      }
+    },
+    {
+      "profile": "officialO2",
+      "repetition": 0,
+      "exit_code": 0,
+      "stdout": "product_f64: 4000 3000 3000 4000 3000 3000 us | 749982499.8499922\nfnv_bytes: 50000 49000 49000 49000 49000 50000 us | 1540479600\n",
+      "stderr": "",
+      "medians": {
+        "product_f64": {
+          "us": 3000,
+          "result": "749982499.8499922"
+        },
+        "fnv_bytes": {
+          "us": 49000,
+          "result": "1540479600"
+        }
+      }
+    },
+    {
+      "profile": "officialO2",
+      "repetition": 1,
+      "exit_code": 0,
+      "stdout": "product_f64: 5000 3000 3000 3000 3000 3000 us | 749982499.8499922\nfnv_bytes: 50000 50000 49000 49000 50000 49000 us | 1540479600\n",
+      "stderr": "",
+      "medians": {
+        "product_f64": {
+          "us": 3000,
+          "result": "749982499.8499922"
+        },
+        "fnv_bytes": {
+          "us": 49000,
+          "result": "1540479600"
+        }
+      }
+    },
+    {
+      "profile": "enabled",
+      "repetition": 1,
+      "exit_code": 0,
+      "stdout": "product_f64: 6000 3000 3000 3000 4000 3000 us | 749982499.8499922\nfnv_bytes: 51000 49000 49000 49000 49000 48000 us | 1540479600\n",
+      "stderr": "",
+      "medians": {
+        "product_f64": {
+          "us": 3000,
+          "result": "749982499.8499922"
+        },
+        "fnv_bytes": {
+          "us": 49000,
+          "result": "1540479600"
+        }
+      }
+    },
+    {
+      "profile": "disabled",
+      "repetition": 1,
+      "exit_code": 0,
+      "stdout": "product_f64: 18000 17000 15000 16000 16000 15000 us | 749982499.8499922\nfnv_bytes: 99000 96000 96000 94000 98000 99000 us | 1540479600\n",
+      "stderr": "",
+      "medians": {
+        "product_f64": {
+          "us": 16000,
+          "result": "749982499.8499922"
+        },
+        "fnv_bytes": {
+          "us": 96000,
+          "result": "1540479600"
+        }
+      }
+    },
+    {
+      "profile": "disabled",
+      "repetition": 2,
+      "exit_code": 0,
+      "stdout": "product_f64: 15000 13000 13000 13000 13000 13000 us | 749982499.8499922\nfnv_bytes: 102000 97000 97000 96000 97000 98000 us | 1540479600\n",
+      "stderr": "",
+      "medians": {
+        "product_f64": {
+          "us": 13000,
+          "result": "749982499.8499922"
+        },
+        "fnv_bytes": {
+          "us": 97000,
+          "result": "1540479600"
+        }
+      }
+    },
+    {
+      "profile": "enabled",
+      "repetition": 2,
+      "exit_code": 0,
+      "stdout": "product_f64: 6000 3000 3000 4000 3000 3000 us | 749982499.8499922\nfnv_bytes: 52000 49000 49000 48000 49000 49000 us | 1540479600\n",
+      "stderr": "",
+      "medians": {
+        "product_f64": {
+          "us": 3000,
+          "result": "749982499.8499922"
+        },
+        "fnv_bytes": {
+          "us": 49000,
+          "result": "1540479600"
+        }
+      }
+    },
+    {
+      "profile": "officialO2",
+      "repetition": 2,
+      "exit_code": 0,
+      "stdout": "product_f64: 4000 3000 4000 3000 3000 3000 us | 749982499.8499922\nfnv_bytes: 50000 49000 50000 51000 50000 50000 us | 1540479600\n",
+      "stderr": "",
+      "medians": {
+        "product_f64": {
+          "us": 3000,
+          "result": "749982499.8499922"
+        },
+        "fnv_bytes": {
+          "us": 50000,
+          "result": "1540479600"
+        }
+      }
+    }
+  ],
+  "compiler_inputs": {
+    "source_sha256": "8d182ae8eccd5b554c3db6c9997c3e2d0a01b1c5273012dec7129fd949b20973",
+    "compiler_sha256": "7a1180bfc03d879746fa7b3e4f14fb5b40ebcac49cfc0d00b317a9581bc388eb",
+    "cases": {
+      "enabled": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/typed_data.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-loop/typed_data.enabled.js"
+        ],
+        "environment": {
+          "DARTFORGE_JSPROD_TYPED_LOOPS": "1"
+        },
+        "compile_exit": 0,
+        "artifact_sha256": "2c5db894c1b4f0534634bc695411143e2f251eb63df56e9356950e0a9a2b9b73"
+      },
+      "disabled": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/typed_data.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-loop/typed_data.disabled.js"
+        ],
+        "environment": {
+          "DARTFORGE_JSPROD_TYPED_LOOPS": "0"
+        },
+        "compile_exit": 0,
+        "artifact_sha256": "193cc03c7c59811e8c899b0aa864c839a6b9224682974dc30dc167cfc2a9c6a4"
+      }
+    },
+    "inputs_stable": true
+  },
+  "node_version": "v24.21.0",
+  "summary": {
+    "disabled": {
+      "product_f64": 13000,
+      "fnv_bytes": 97000
+    },
+    "enabled": {
+      "product_f64": 3000,
+      "fnv_bytes": 49000
+    },
+    "officialO2": {
+      "product_f64": 3000,
+      "fnv_bytes": 49000
+    }
+  },
+  "inputs_stable": true
+}

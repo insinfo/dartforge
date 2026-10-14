@@ -83,6 +83,22 @@ pub(crate) fn set_memory_policy(value: &str) -> Result<(), String> {
 }
 
 #[cfg(feature = "native")]
+/// Select the PE subsystem before compilation starts; the CLI default ignores
+/// an inherited linker policy, just like the memory policy.
+#[allow(unsafe_code)]
+fn set_subsystem(value: &str) -> Result<(), String> {
+    use dartforge_emit_native::linker_windows::Subsystem;
+    let subsystem = Subsystem::from_name(value)?;
+    if subsystem == Subsystem::Gui && !cfg!(windows) {
+        return Err("--subsystem=gui is only supported on Windows".into());
+    }
+    // SAFETY: options are parsed on the main thread before the compilation thread
+    // is created, and no other CLI thread reads the environment yet.
+    unsafe { std::env::set_var("DARTFORGE_SUBSYSTEM", value) };
+    Ok(())
+}
+
+#[cfg(feature = "native")]
 /// `--roots shadow|maps`: where the collector's roots live in the generated
 /// code (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8). Like
 /// [`set_exception_model`]: the emitter reads `DARTFORGE_ROOTS`.
@@ -133,7 +149,8 @@ fn set_stack_trace(value: &str) -> Result<(), String> {
 pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
     // The CLI option selects ARC; an inherited environment does not change the default.
     set_memory_policy("tracing")?;
-    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--debug] [--timings] [--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native] [--exceptions check|tables] [--memory tracing|arc] [--stack-trace symbolic|none] [--sdk <lib>] [--packages <package_config.json>]";
+    set_subsystem("console")?;
+    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--debug] [--timings] [--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native] [--exceptions check|tables] [--memory tracing|arc] [--subsystem console|gui] [--dartforge-contracts verify|ignore] [--stack-trace symbolic|none] [--sdk <lib>] [--packages <package_config.json>]";
     if args.len() < 3 {
         return Err(usage.into());
     }
@@ -145,6 +162,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
     let mut cpu: Option<dartforge_emit_native::generator::Cpu> = None;
+    let mut contracts = dartforge_emit_native::contracts::ContractMode::Verify;
     let mut flags = args[3..].iter();
     while let Some(flag) = flags.next() {
         match flag.to_str() {
@@ -165,6 +183,20 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
             }
             Some(option) if option.starts_with("--memory=") => {
                 set_memory_policy(&option["--memory=".len()..])?;
+            }
+            Some("--dartforge-contracts") => {
+                let value = flags.next().and_then(|v| v.to_str()).ok_or("--dartforge-contracts requires verify or ignore")?;
+                contracts = dartforge_emit_native::contracts::ContractMode::from_name(value)?;
+            }
+            Some(option) if option.starts_with("--dartforge-contracts=") => {
+                contracts = dartforge_emit_native::contracts::ContractMode::from_name(&option["--dartforge-contracts=".len()..])?;
+            }
+            Some("--subsystem") => {
+                let value = flags.next().and_then(|v| v.to_str()).ok_or("--subsystem requires console or gui")?;
+                set_subsystem(value)?;
+            }
+            Some(option) if option.starts_with("--subsystem=") => {
+                set_subsystem(&option["--subsystem=".len()..])?;
             }
             Some("--roots") => {
                 let value = flags.next().and_then(|v| v.to_str()).ok_or("--roots requires shadow or maps")?;
@@ -209,7 +241,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
         .spawn(move || {
             // The project's build engine, if it uses builders (DF-BUILD-009).
             crate::engine::with_generator(&input, packages.as_deref(), |generator| {
-                let options = dartforge_emit_native::CompileOptions {
+                let options = dartforge_emit_native::CompileOptions { contracts,
                     sdk: sdk.as_deref(),
                     packages: packages.as_deref(),
                     timings,
@@ -232,8 +264,9 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
 #[cfg(feature = "native")]
 pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
     set_memory_policy("tracing")?;
+    set_subsystem("console")?;
     use dartforge_elements::sdk::LanguageOptions;
-    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--debug] [--cpu <cpu>] [--exceptions check|tables] [--memory tracing|arc] [--stack-trace symbolic|none] [--language-version x.y] [--enable-experiment=a,b]
+    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--debug] [--cpu <cpu>] [--exceptions check|tables] [--memory tracing|arc] [--subsystem console|gui] [--dartforge-contracts verify|ignore] [--stack-trace symbolic|none] [--language-version x.y] [--enable-experiment=a,b]
        dartforge compile-native <input.dart> --emit-ir -o <output.ll> [--digest] [...]
        dartforge compile-native <input.dart> --digest [...]
   --debug  line tables for the native debugger (gdb, lldb, Visual Studio)
@@ -247,6 +280,9 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
   --stack-trace   the StackTrace: none (the default: today's fixed text) or symbolic (the
              Dart frames in the VM's format, `#0      f (url:line:column)`, through
              the address table the executable carries; §13.14)
+  --dartforge-contracts verify (default) or ignore: known requests require proof; ignore produces no certificate
+  --subsystem console (default) or gui: Windows PE subsystem, set by the linker
+             (gui starts without allocating a console; Windows only)
   --emit-ir  writes the LLVM IR to -o, without Clang or linking
   --digest   prints `<32-digit hash>  <bytes>` of the LLVM IR (the same digest
              as `dartforge-differential determinism --native`), without Clang";
@@ -255,6 +291,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
     let mut cpu: Option<dartforge_emit_native::generator::Cpu> = None;
+    let mut contracts = dartforge_emit_native::contracts::ContractMode::Verify;
     let mut timings = false;
     let mut optimize = false;
     let mut debug = false;
@@ -283,6 +320,20 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
             }
             Some(option) if option.starts_with("--memory=") => {
                 set_memory_policy(&option["--memory=".len()..])?;
+            }
+            Some("--dartforge-contracts") => {
+                let value = it.next().and_then(|v| v.to_str()).ok_or("--dartforge-contracts requires verify or ignore")?;
+                contracts = dartforge_emit_native::contracts::ContractMode::from_name(value)?;
+            }
+            Some(option) if option.starts_with("--dartforge-contracts=") => {
+                contracts = dartforge_emit_native::contracts::ContractMode::from_name(&option["--dartforge-contracts=".len()..])?;
+            }
+            Some("--subsystem") => {
+                let value = it.next().and_then(|v| v.to_str()).ok_or("--subsystem requires console or gui")?;
+                set_subsystem(value)?;
+            }
+            Some(option) if option.starts_with("--subsystem=") => {
+                set_subsystem(&option["--subsystem=".len()..])?;
             }
             Some("--roots") => {
                 let value = it.next().and_then(|v| v.to_str()).ok_or("--roots requires shadow or maps")?;
@@ -324,7 +375,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
         if emit_ir && out.is_none() {
             return Err(usage.into());
         }
-        return emit_native_ir(input, out.filter(|_| emit_ir), sdk, packages, timings, digest, language, debug, optimize);
+        return emit_native_ir(input, out.filter(|_| emit_ir), sdk, packages, timings, digest, language, debug, optimize, contracts);
     }
     let Some(out) = out else {
         return Err(usage.into());
@@ -337,7 +388,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
         .stack_size(1 << 30)
         .spawn(move || {
             crate::engine::with_generator(&i2, p2.as_deref(), |generator| {
-                let options = dartforge_emit_native::CompileOptions {
+                let options = dartforge_emit_native::CompileOptions { contracts,
                     sdk: s2.as_deref(),
                     packages: p2.as_deref(),
                     timings,
@@ -374,11 +425,12 @@ fn emit_native_ir(
     // The production IR (`--optimize`): static literals, the large program
     // with fields and per-call helpers. Link-time pruning comes later.
     optimize: bool,
+    contracts: dartforge_emit_native::contracts::ContractMode,
 ) -> Outcome {
     let ir = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let options = dartforge_emit_native::CompileOptions {
+            let options = dartforge_emit_native::CompileOptions { contracts,
                 sdk: sdk.as_deref(),
                 packages: packages.as_deref(),
                 timings,
@@ -400,6 +452,14 @@ fn emit_native_ir(
     }
     if let Some(out) = out {
         fs::write(&out, &ir.text).map_err(|e| format!("failed to write {}: {e}", out.display()))?;
+        let mut report = ir.contracts.json().clone();
+        report["artifact"] = serde_json::json!({
+            "kind": "llvm_ir", "path": out.display().to_string(),
+            "ir_digest": dartforge_emit_native::summary::IrSummary::of(&ir.text).hex(),
+        });
+        let manifest = dartforge_emit_native::contracts::manifest_path(&out);
+        fs::write(&manifest, serde_json::to_vec_pretty(&report)?)
+            .map_err(|e| format!("failed to write {}: {e}", manifest.display()))?;
     }
     if digest {
         let r = dartforge_emit_native::summary::IrSummary::of(&ir.text);

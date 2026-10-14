@@ -1215,11 +1215,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 l
             }
-            ExprKind::InstanceCreation { arguments, constructor, ty, .. } => {
+            ExprKind::InstanceCreation { keyword, arguments, constructor, ty, .. } => {
                 match self.ctx.get_resolved(self.unit_id, expr_id).cloned() {
                     Some(Resolved::Constructor(fid)) => {
                         self.creation_type = self.ctx.get_type_raw(self.unit_id, expr_id);
-                        self.instantiate(ast, fid, &arguments.args, expr.span)
+                        let saved = self.in_const_context;
+                        if *keyword == Some(ast::CreationKeyword::Const) && self.environment_factory(fid).is_some() {
+                            self.in_const_context = true;
+                        }
+                        let value = self.instantiate(ast, fid, &arguments.args, expr.span);
+                        self.in_const_context = saved;
+                        value
                     }
                     // `new A<T>(…)` of a named mixin application
                     // (`class A = B with M;`, the `_SyncStreamController` of

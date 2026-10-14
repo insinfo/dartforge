@@ -4,6 +4,180 @@ use super::LlvmEmitter;
 use crate::hir::*;
 
 #[test]
+fn closed_callback_returns_before_dart_or_argument_materialization() {
+    for native in [CType::Void, CType::I8, CType::U8, CType::I16, CType::U16,
+        CType::I32, CType::U32, CType::I64, CType::U64, CType::F32, CType::F64,
+        CType::Bool, CType::Ptr, CType::Handle] {
+        let mut module = Module::new();
+        module.sdk_mode = true;
+        module.ffi_callbacks.push(FfiCallback {
+            key: "test_p".into(), body: "df.callback_test".into(),
+            ret: NativeType::Prim(native), params: vec![NativeType::Prim(CType::Ptr)],
+        });
+        let ir = LlvmEmitter::new(&module).emit_all();
+        let body = ir.split("@df.ffi.cbentry.0(").nth(1).unwrap();
+        let closed = body.split("active_callback:").next().unwrap();
+        assert!(closed.contains("icmp eq i64 %modo, 2"));
+        assert!(closed.contains("closed_callback:\n"));
+        assert!(!closed.contains("alloca"));
+        assert!(!closed.contains("@df.callback_test"));
+        assert!(!closed.contains("@dartforge_context"));
+        assert!(!closed.contains("%a0 to i64"));
+        if native == CType::Void {
+            assert!(closed.contains("ret void"));
+        } else {
+            assert!(closed.contains("@dartforge_ffi_callback_late_return(ptr %ctx)"));
+            assert!(closed.contains("%late_value"));
+        }
+    }
+}
+
+#[test]
+fn foreign_sync_callback_uses_raw_bits_without_foreign_dart_state() {
+    for tables in [false, true] {
+        for native in [
+            CType::Void,
+            CType::I8,
+            CType::U8,
+            CType::I16,
+            CType::U16,
+            CType::I32,
+            CType::U32,
+            CType::I64,
+            CType::U64,
+            CType::F32,
+            CType::F64,
+            CType::Bool,
+            CType::Ptr,
+        ] {
+            let mut module = Module::new();
+            module.sdk_mode = true;
+            module.table_exceptions = tables;
+            module.ffi_callbacks.push(FfiCallback {
+                key: "sync_test".into(),
+                body: "df.callback_test".into(),
+                ret: NativeType::Prim(native),
+                params: vec![
+                    NativeType::Prim(CType::I8),
+                    NativeType::Prim(CType::U16),
+                    NativeType::Prim(CType::F32),
+                    NativeType::Prim(CType::F64),
+                    NativeType::Prim(CType::Ptr),
+                    NativeType::Prim(CType::Bool),
+                ],
+            });
+            let ir = LlvmEmitter::new(&module).emit_all();
+            let body = ir.split("@df.ffi.cbentry.0(").nth(1).unwrap();
+            let packed = body
+                .split("ouvinte:\n")
+                .nth(1)
+                .unwrap()
+                .split("foreign_sync:\n")
+                .next()
+                .unwrap();
+            assert!(packed.contains("sext i8 %a0 to i64"));
+            assert!(packed.contains("zext i16 %a1 to i64"));
+            assert!(packed.contains("fpext float %a2 to double"));
+            assert!(packed.contains("bitcast double %of2 to i64"));
+            assert!(packed.contains("bitcast double %a3 to i64"));
+            assert!(packed.contains("ptrtoint ptr %a4 to i64"));
+            assert!(packed.contains("zext i1 %a5 to i64"));
+            assert!(packed.contains("icmp eq i64 %modo, 3"));
+            let foreign = body
+                .split("foreign_sync:\n")
+                .nth(1)
+                .unwrap()
+                .split("listener_post:\n")
+                .next()
+                .unwrap();
+            assert!(foreign.contains("@dartforge_ffi_callback_sync(ptr %ctx, ptr %buf, i64 6)"));
+            for forbidden in [
+                "@df.callback_test",
+                "@dartforge_context",
+                "@dartforge_ffi_callback_exit",
+                "@dartforge_ffi_callback_post",
+                "landingpad",
+                "invoke ",
+                "@dartforge_ffi_handle_object",
+            ] {
+                assert!(!foreign.contains(forbidden), "{native:?}: {foreign}");
+            }
+            match native {
+                CType::Void => assert!(foreign.contains("ret void")),
+                CType::F32 => {
+                    assert!(foreign.contains("bitcast i64 %sync_bits to double"));
+                    assert!(foreign.contains("fptrunc double %sync_double to float"));
+                }
+                CType::F64 => assert!(foreign.contains("bitcast i64 %sync_bits to double")),
+                CType::Ptr => assert!(foreign.contains("inttoptr i64 %sync_bits to ptr")),
+                CType::I64 | CType::U64 => assert!(foreign.contains("add i64 %sync_bits, 0")),
+                _ => {
+                    assert!(foreign.contains(&format!("trunc i64 %sync_bits to {}", native.llvm())))
+                }
+            }
+            let listener = body
+                .split("listener_post:\n")
+                .nth(1)
+                .unwrap()
+                .split("local:\n")
+                .next()
+                .unwrap();
+            assert!(listener.contains("@dartforge_ffi_callback_post(ptr %ctx, ptr %buf, i64 6)"));
+            let local = body.split("local:\n").nth(1).unwrap();
+            assert!(local.contains("@df.callback_test"));
+        }
+    }
+}
+
+#[test]
+fn foreign_sync_compound_arguments_share_listener_copy_addresses() {
+    let layout = LayoutC {
+        size: 16,
+        alignment: 8,
+        leaves: vec![(0, CType::F64), (8, CType::F64)],
+    };
+    let mut module = Module::new();
+    module.sdk_mode = true;
+    module.ffi_callbacks.push(FfiCallback {
+        key: "sync_compound".into(),
+        body: "df.callback_test".into(),
+        ret: NativeType::Prim(CType::I32),
+        params: vec![NativeType::Composite(layout)],
+    });
+    let ir = LlvmEmitter::new(&module).emit_all();
+    let body = ir.split("@df.ffi.cbentry.0(").nth(1).unwrap();
+    assert!(body.contains("%end0 = ptrtoint ptr "));
+    assert!(body.contains("%o0 = add i64 %end0, 0"));
+    assert!(body.contains("@dartforge_ffi_callback_sync(ptr %ctx, ptr %buf, i64 1)"));
+    assert!(body.contains("@dartforge_ffi_callback_post(ptr %ctx, ptr %buf, i64 1)"));
+}
+
+#[test]
+fn closed_compound_callback_zeroes_direct_and_sret_abi_results() {
+    for size in [8, 24] {
+        let layout = LayoutC { size, alignment: 8,
+            leaves: (0..size / 8).map(|i| (i * 8, CType::I64)).collect() };
+        let mut module = Module::new();
+        module.sdk_mode = true;
+        module.ffi_callbacks.push(FfiCallback {
+            key: "test_compound".into(), body: "df.callback_test".into(),
+            ret: NativeType::Composite(layout), params: vec![],
+        });
+        let ir = LlvmEmitter::new(&module).emit_all();
+        let body = ir.split("@df.ffi.cbentry.0(").nth(1).unwrap();
+        let closed = body.split("active_callback:").next().unwrap();
+        if closed.contains("sret(") {
+            assert!(closed.contains(&format!("@llvm.memset.p0.i64(ptr %sret, i8 0, i64 {size}, i1 false)")));
+            assert!(closed.contains("ret void"));
+        } else {
+            assert!(closed.contains("zeroinitializer"));
+        }
+        assert!(!closed.contains("@dartforge_ffi_callback_exit"));
+        assert!(!closed.contains("@df.callback_test"));
+    }
+}
+
+#[test]
 fn owned_factory_preserves_method_table_registration() {
     for owned in [false, true] {
         let name = if owned { "dartforge_arc_object_owned_v1" } else { "dartforge_object_new" };
@@ -949,5 +1123,25 @@ fn foreign_cleanup_closes_local_frames_in_lifo() {
     {
         let complete = format!("declare i64 @dartforge_arc_frame_open_v1(i64) nounwind\ndeclare void @dartforge_arc_frame_close_v1(i64) nounwind\n{ir}");
         check_cleanup_objects(&complete);
+    }
+}
+
+#[test]
+fn declaration_inline_policies_emit_preferences_and_prohibitions() {
+    for dwarf in [false, true] {
+        let mut m = Module::new();
+        m.dwarf = dwarf;
+        for (name, policy) in [("preferred", InlinePolicy::Prefer), ("forbidden", InlinePolicy::Never)] {
+            m.inline_policies.insert(name.into(), policy);
+            m.functions.push(function(name, vec![], Type::I64, vec![BasicBlock {
+                id: BlockId(0), instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Constant(Constant::Int(1)))),
+            }]));
+        }
+        let ir = LlvmEmitter::new(&m).with_optimize_size(true).emit_all();
+        let header = |name: &str| ir.lines().find(|l| l.starts_with("define ") && l.contains(&format!("@{name}("))).unwrap().to_owned();
+        assert!(header("forbidden").contains(" optsize noinline"));
+        assert_eq!(header("preferred").contains(" inlinehint"), !dwarf);
+        assert!(!header("preferred").contains("alwaysinline"));
     }
 }

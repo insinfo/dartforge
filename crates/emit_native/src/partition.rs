@@ -42,7 +42,10 @@ pub const DEFAULT_TARGET: usize = 16 << 20;
 /// The threshold and the target, adjustable (`DARTFORGE_PART_MB`, in MiB; `0` turns
 /// splitting off).
 pub fn limits() -> Option<(usize, usize)> {
-    match std::env::var("DARTFORGE_PART_MB").ok().and_then(|v| v.trim().parse::<usize>().ok()) {
+    match std::env::var("DARTFORGE_PART_MB")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+    {
         Some(0) => None,
         Some(mb) => Some((2 * (mb << 20), mb << 20)),
         None => Some((DEFAULT_THRESHOLD, DEFAULT_TARGET)),
@@ -97,6 +100,30 @@ fn name_in(s: &str) -> &str {
     name_and_width(s).0
 }
 
+/// Locate a function identifier before its parameter list. Parentheses and
+/// `@` bytes inside a quoted identifier are part of the name, not delimiters.
+fn function_identifier(line: &str) -> Option<(usize, usize)> {
+    let mut position = 0;
+    let bytes = line.as_bytes();
+    while position < bytes.len() {
+        match bytes[position] {
+            b'"' => {
+                let width = name_and_width(&line[position..]).1;
+                if width == 0 {
+                    return None;
+                }
+                position += width;
+            }
+            b'@' => {
+                let width = name_and_width(&line[position + 1..]).1;
+                return (width != 0).then_some((position, width));
+            }
+            _ => position += 1,
+        }
+    }
+    None
+}
+
 /// All the `@name` references of a text.
 fn references<'a>(text: &'a str, exit: &mut Vec<&'a str>) {
     let b = text.as_bytes();
@@ -122,7 +149,9 @@ fn first_line(t: &str) -> &str {
 /// `$x`/`$"x"` → `x`.
 fn comdat_name(s: &str) -> &str {
     let s = s.strip_prefix('$').unwrap_or(s);
-    s.strip_prefix('"').and_then(|r| r.strip_suffix('"')).unwrap_or(s)
+    s.strip_prefix('"')
+        .and_then(|r| r.strip_suffix('"'))
+        .unwrap_or(s)
 }
 
 /// The comdat of a `define`/global: an explicit `comdat($x)`, or just `comdat`
@@ -135,7 +164,11 @@ fn line_comdat<'a>(line: &'a str, name: &'a str) -> Option<&'a str> {
     }
     let i = line.find(" comdat")?;
     let after = &line[i + " comdat".len()..];
-    after.chars().next().is_none_or(|c| c == ',' || c.is_whitespace()).then_some(name)
+    after
+        .chars()
+        .next()
+        .is_none_or(|c| c == ',' || c.is_whitespace())
+        .then_some(name)
 }
 
 fn read(ir: &str) -> Module<'_> {
@@ -166,27 +199,46 @@ fn read(ir: &str) -> Module<'_> {
                     break;
                 }
             }
-            let hdr = &line[..line.find('(').unwrap_or(line.len())];
-            let name = hdr.rfind('@').map_or("", |a| name_in(&hdr[a + 1..]));
-            let local = hdr.contains(" internal ") || hdr.contains(" private ");
+            let (at, _) = function_identifier(line).unwrap_or((0, 0));
+            let name = name_in(&line[at + 1..]);
+            let local = line[..at]
+                .split_whitespace()
+                .any(|word| word == "internal" || word == "private");
             let comdat = line_comdat(line, name);
             m.index.insert(name, m.items.len());
-            m.items.push(Item { name, ty: ItemKind::Function, text: &ir[pos..end], local, mutable: false, comdat });
+            m.items.push(Item {
+                name,
+                ty: ItemKind::Function,
+                text: &ir[pos..end],
+                local,
+                mutable: false,
+                comdat,
+            });
             pos = end;
             continue;
         }
         if let Some(r) = line.strip_prefix('@') {
             let (name, width) = name_and_width(r);
             let after = &r[width..];
-            let after = after.trim_start().strip_prefix('=').unwrap_or(after).trim_start();
+            let after = after
+                .trim_start()
+                .strip_prefix('=')
+                .unwrap_or(after)
+                .trim_start();
             let local = after.starts_with("private ") || after.starts_with("internal ");
             let mutable = local && global_head(after).0 == "global";
             let comdat = line_comdat(line, name);
             m.index.insert(name, m.items.len());
-            m.items.push(Item { name, ty: ItemKind::Global, text: line, local, mutable, comdat });
+            m.items.push(Item {
+                name,
+                ty: ItemKind::Global,
+                text: line,
+                local,
+                mutable,
+                comdat,
+            });
         } else if line.starts_with("declare ") {
-            let hdr = &line[..line.find('(').unwrap_or(line.len())];
-            let name = hdr.rfind('@').map_or("", |a| name_in(&hdr[a + 1..]));
+            let name = function_identifier(line).map_or("", |(at, _)| name_in(&line[at + 1..]));
             m.declarations.push((name, line));
         } else if line.starts_with('$') {
             let n = line.split(' ').next().unwrap_or("");
@@ -238,29 +290,54 @@ fn type_at_start(s: &str) -> &str {
 fn declaration(item: &Item) -> String {
     match item.ty {
         ItemKind::Global => {
-            let r = &item.text[1 + name_and_width(&item.text[1..]).1..];
+            let width = name_and_width(&item.text[1..]).1;
+            let identifier = &item.text[..1 + width];
+            let r = &item.text[1 + width..];
             let r = r.trim_start().trim_start_matches('=').trim_start();
+            // This already is a declaration. Preserve visibility, TLS models,
+            // address spaces and exact escaped spelling (Mach-O's \01 prefix).
+            if r.starts_with("external ") || r.starts_with("extern_weak ") {
+                return item.text.to_string();
+            }
             let (word, after) = global_head(r);
             let ty = type_at_start(after);
             // The thread-local variable (`@df.ctx.tls`, `sdk_module::with_context_in_tls`)
             // stays thread-local in the declaration.
-            let tls = if r[..r.len() - after.len()].split_whitespace().any(|w| w == "thread_local") { "thread_local " } else { "" };
-            format!("@{} = external {tls}{word} {ty}\n", item.name)
+            let tls = if r[..r.len() - after.len()]
+                .split_whitespace()
+                .any(|w| w == "thread_local")
+            {
+                "thread_local "
+            } else {
+                ""
+            };
+            format!("{identifier} = external {tls}{word} {ty}\n")
         }
         ItemKind::Function => {
             let line = item.text.lines().next().unwrap_or("");
-            let a = line.find('@').unwrap_or(0);
+            let (a, width) = function_identifier(line).unwrap_or((0, 0));
+            let identifier = &line[a..a + 1 + width];
             let before = &line["define ".len()..a];
             let ret: Vec<&str> = before
                 .split_whitespace()
                 .filter(|w| {
                     !matches!(
                         *w,
-                        "private" | "internal" | "linkonce_odr" | "weak_odr" | "external" | "hidden" | "dso_local" | "dllexport" | "fastcc" | "ccc"
+                        "private"
+                            | "internal"
+                            | "linkonce_odr"
+                            | "weak_odr"
+                            | "external"
+                            | "hidden"
+                            | "dso_local"
+                            | "dllexport"
+                            | "fastcc"
+                            | "ccc"
                     )
                 })
                 .collect();
-            let opens = a + line[a..].find('(').unwrap_or(0);
+            let after_identifier = a + 1 + width;
+            let opens = after_identifier + line[after_identifier..].find('(').unwrap_or(0);
             // The parameters, with commas only at the top level.
             let mut prof = 0i32;
             let mut closes = opens;
@@ -304,7 +381,11 @@ fn declaration(item: &Item) -> String {
                 };
                 types.push(without_name.to_string());
             }
-            format!("declare {} @{}({})\n", ret.join(" "), item.name, types.join(", "))
+            format!(
+                "declare {} {identifier}({})\n",
+                ret.join(" "),
+                types.join(", ")
+            )
         }
     }
 }
@@ -408,7 +489,11 @@ impl<'a> Plan<'a> {
             }
             if it.mutable {
                 // `@df.area_id = internal global …` → external linkage.
-                text.push_str(&it.text.replacen(" = internal ", " = ", 1).replacen(" = private ", " = ", 1));
+                text.push_str(&it.text.replacen(" = internal ", " = ", 1).replacen(
+                    " = private ",
+                    " = ",
+                    1,
+                ));
             } else if !it.local && first_line(it.text).contains(" linkonce_odr ") {
                 // `linkonce_odr` → `weak_odr`: the definition has to stay in the
                 // object of its part. With ThinLTO (production) a
@@ -438,10 +523,13 @@ pub fn make_plan(ir: &str, target: usize) -> Plan<'_> {
             continue;
         }
         let g = group(it.name);
-        by_group.entry(g).or_insert_with(|| {
-            group_order.push(g);
-            Vec::new()
-        }).push(i);
+        by_group
+            .entry(g)
+            .or_insert_with(|| {
+                group_order.push(g);
+                Vec::new()
+            })
+            .push(i);
     }
     let mut parts: Vec<Vec<usize>> = vec![Vec::new()];
     let mut size = 0usize;
@@ -463,7 +551,12 @@ pub fn make_plan(ir: &str, target: usize) -> Plan<'_> {
         }
     }
     let declared_set: HashMap<&str, &str> = m.declarations.iter().copied().collect();
-    Plan { m, parts, declared_set, target }
+    Plan {
+        m,
+        parts,
+        declared_set,
+        target,
+    }
 }
 
 /// Splits the module into parts of ~`target` bytes (all at once; the tests).
@@ -513,13 +606,27 @@ b0:\n\
         assert!(pa.contains("define internal i64 @df.help"));
         assert!(pa.contains("@.str.0 = private"));
         assert!(pa.contains("declare i64 @df.b.k(ptr)"));
-        assert!(pa.contains("@df.area_id = external global i64") || pa.contains("@df.area_id = global i64 0"));
-        let pb = p.iter().find(|t| t.contains("define weak_odr i64 @df.b.k")).unwrap();
+        assert!(
+            pa.contains("@df.area_id = external global i64")
+                || pa.contains("@df.area_id = global i64 0")
+        );
+        let pb = p
+            .iter()
+            .find(|t| t.contains("define weak_odr i64 @df.b.k"))
+            .unwrap();
         assert!(pb.contains("$\"df.b.k\" = comdat any"));
         assert!(pb.contains("declare i64 @dartforge_x(i64)"));
-        assert!(pb.contains("@df.a.g = external global { i64, [2 x ptr] }"), "{pb}");
+        assert!(
+            pb.contains("@df.a.g = external global { i64, [2 x ptr] }"),
+            "{pb}"
+        );
         // The mutable state: defined once, with external linkage.
-        assert_eq!(p.iter().filter(|t| t.contains("@df.area_id = global i64 0")).count(), 1);
+        assert_eq!(
+            p.iter()
+                .filter(|t| t.contains("@df.area_id = global i64 0"))
+                .count(),
+            1
+        );
         assert!(p[0].contains("; df.class"));
     }
 
@@ -530,14 +637,20 @@ b0:\n\
     fn thread_local_variable_stays_thread_local() {
         let m = read("@df.ctx.tls.program = internal thread_local global ptr null, align 8\n");
         assert!(m.items[0].mutable);
-        assert_eq!(declaration(&m.items[0]), "@df.ctx.tls.program = external thread_local global ptr\n");
+        assert_eq!(
+            declaration(&m.items[0]),
+            "@df.ctx.tls.program = external thread_local global ptr\n"
+        );
     }
 
     #[test]
     fn declares_function_with_composite_parameters() {
         let m = read(MOD);
         let i = m.index["df.a.f"];
-        assert_eq!(declaration(&m.items[i]), "declare i64 @df.a.f(i64, { i64, i64 })\n");
+        assert_eq!(
+            declaration(&m.items[i]),
+            "declare i64 @df.a.f(i64, { i64, i64 })\n"
+        );
     }
 
     #[test]
@@ -551,9 +664,102 @@ b0:
 }
 ";
         let p = split(m, 40);
-        let def = p.iter().find(|t| t.contains("@df.img.a = weak_odr")).unwrap();
+        let def = p
+            .iter()
+            .find(|t| t.contains("@df.img.a = weak_odr"))
+            .unwrap();
         assert!(def.contains("$df.img.a = comdat any"), "{def}");
         let uses = p.iter().find(|t| t.contains("define i64 @df.x.f")).unwrap();
-        assert!(uses.contains("@df.img.a = external constant i64") || uses.contains("@df.img.a = weak_odr"), "{uses}");
+        assert!(
+            uses.contains("@df.img.a = external constant i64")
+                || uses.contains("@df.img.a = weak_odr"),
+            "{uses}"
+        );
+    }
+    #[test]
+    fn macho_external_section_identifiers_keep_exact_escapes_and_visibility() {
+        let ir = r#"@"\01section$start$__DATA$__dfpcl" = external hidden global i8
+@"\01section$end$__DATA$__dfpcl" = external hidden global i8
+define ptr @reader() {
+  ret ptr @"\01section$start$__DATA$__dfpcl"
+}
+"#;
+        let parts = split(ir, 1);
+        let reader = parts
+            .iter()
+            .find(|part| part.contains("define ptr @reader"))
+            .unwrap();
+        assert!(
+            reader.contains(r#"@"\01section$start$__DATA$__dfpcl" = external hidden global i8"#),
+            "{reader}"
+        );
+        assert!(!reader.contains(r#"@\01section"#), "{reader}");
+        let module = read(ir);
+        assert_eq!(declaration(&module.items[0]), module.items[0].text);
+    }
+
+    #[test]
+    fn quoted_definition_names_survive_cross_part_declarations() {
+        let ir = r#"@"state \22quoted\5C" = internal thread_local global i64 0
+define i64 @"function(@ odd \22name\5C"(i64 %value) {
+  %state = load i64, ptr @"state \22quoted\5C"
+  ret i64 %value
+}
+define i64 @caller() {
+  %state = load i64, ptr @"state \22quoted\5C"
+  %value = call i64 @"function(@ odd \22name\5C"(i64 42)
+  ret i64 %value
+}
+"#;
+        let parts = split(ir, 1);
+        let caller = parts
+            .iter()
+            .find(|part| part.contains("define i64 @caller"))
+            .unwrap();
+        assert!(
+            caller.contains(r#"declare i64 @"function(@ odd \22name\5C"(i64)"#),
+            "{caller}"
+        );
+        assert!(
+            caller.contains(r#"@"state \22quoted\5C" = external thread_local global i64"#),
+            "{caller}"
+        );
+        assert_eq!(parts.iter().filter(|part| part.contains(r#"@"state \22quoted\5C" = thread_local global i64 0"#)).count(), 1);
+    }
+    #[test]
+    fn clang_accepts_every_split_part_with_quoted_macho_and_function_identifiers() {
+        let ir = r#"@"\01section$start$__DATA$__dfpcl" = external hidden global i8
+@"quoted\22name\5C" = global i64 1
+define ptr @"pointer(@ function"() {
+  ret ptr @"\01section$start$__DATA$__dfpcl"
+}
+define i64 @caller() {
+  %value = load i64, ptr @"quoted\22name\5C"
+  %pointer = call ptr @"pointer(@ function"()
+  ret i64 %value
+}
+"#;
+        let directory = tempfile::tempdir().unwrap();
+        let clang = crate::driver::NativeDriverOptions::default().clang;
+        let parts = split(ir, 1);
+        assert!(parts.len() > 1);
+        for (index, part) in parts.iter().enumerate() {
+            let input = directory.path().join(format!("part{index}.ll"));
+            let output = directory.path().join(format!("part{index}.bc"));
+            std::fs::write(&input, part).unwrap();
+            let result = std::process::Command::new(&clang)
+                .args(["-x", "ir", "-c", "-emit-llvm"])
+                .arg(&input)
+                .arg("-o")
+                .arg(&output)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "part {index}: {}\n{part}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            assert!(output.is_file());
+        }
     }
 }

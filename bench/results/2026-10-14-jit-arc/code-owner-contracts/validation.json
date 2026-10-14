@@ -1,0 +1,30 @@
+{
+  "scope": "Seven ownership contracts/lifetime tests and five metadata publication/retirement tests. JIT execution/reclamation not certified by this gate.",
+  "runs": [
+    {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/debug/deps/ownership-342a9bfb0f51f008",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "executable_sha256": "491e0d151d4d75cce98f85b11958df5aa71fb1bb5b3ee9005fb6a443747a6689"
+    },
+    {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/debug/deps/dartforge_runtime-439dcf0178efcb43",
+        "callback_code_owner_tests",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "executable_sha256": "a7b4f4e1cc897482c2078f2452470188a07a13ddcf25dc6c7ba72aaf5604ea5b"
+    }
+  ],
+  "source_sha256": {
+    "crates/runtime/build.rs": "0722d9b352f9036551cf67ce1e7db26a0328cb855e5816829f1398f457cc5dc1",
+    "crates/runtime/effects.tsv": "792db58de036dc7060cbc5071435c585e1a7a1e9781f654774a5a64dd7859f71",
+    "crates/runtime/ownership.tsv": "51b7d3d1c899b605e53f241d0529e6930a4f6f3a9362c2093f9aac0a7e9a32ef",
+    "crates/runtime/tests/ownership.rs": "0a1d84f94eb372832647961e2b29b0b85df6e3813b2db7b866c9accdcf41be2a",
+    "crates/runtime/src/ffi_callback_code_owners.rs": "eb0c8e916a3031a1716ddb5f72dc4b1af97ddea7f28e304ee384cf7da89cfc42",
+    "crates/runtime/src/ffi_callbacks.rs": "1dc8fce2978d9a7555033fc8427026bd45de24073e7a0f239b532a26af2d6d37"
+  }
+}

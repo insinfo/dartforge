@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "status": "implemented_certified_SDK_modulo_positive_result_fastpath_only",
+  "compiler_sha256": "e5321a1ee3c91552a782fae5f40ec49868d654dff7472204102213d74ff14550",
+  "source_hashes": {
+    "crates/emit_js/src/body.rs": "dd23ddb7052e59d5e22976f592a5a0f681f87d7e02c1a04fd370e6718e86c568",
+    "crates/emit_js/src/module.rs": "04de66fd6656ce07c3763ab363a33e4ef5bfeb8a4411a1fd7b09f36912f4c5f1",
+    "crates/emit_js/src/expr.rs": "88f3c94932af6274b61862e971612c7ff52b3ebb82833a6227db9129e7b8eb71",
+    "crates/emit_js/src/own_sdk.rs": "bd895aa6746e31660c77960d1eade90b0bc87eb22a08cdd65bef380124ca148d",
+    "crates/emit_js/tests/programs/native_number_ranges.dart": "ef477abde531984c09c5e331a284288cda92fc33072d8b00065fa4a7ca54189e",
+    "crates/emit_js_production/tests/native_number_ranges.rs": "21fd6a90b81084805f3a973e4e4c7e5d3e9662d35caa7211e0a22a1c4324f625"
+  },
+  "sdk": "Dart 3.6.2",
+  "node": "v24.21.0",
+  "optimization": {
+    "scope": "Canonical SDK dart:_interceptors JSNumber.% with Number peer/final identity and exact complete method AST plus comparator body certification.",
+    "changed": "Only result > 0: primitive Number takes direct comparison; other values retain original symbol dispatch.",
+    "unchanged": "Divisor < 0 adaptation, null check, JS remainder, zero normalization, Euclidean correction, operand ordering and generic/core-num classifications.",
+    "ablation": "DARTFORGE_JSPROD_NUMBER_MODULO=0",
+    "fail_closed": "Unexpected SDK method/comparator shape, peer/identity/signature or null-check metadata keeps the original emitted implementation.",
+    "foreign_fallback": "Actual borrowed native BigInt helper retains TypeError; custom divisor valueOf and operator< ordering remains unchanged."
+  },
+  "summary_us": {
+    "disabled": {
+      "object_list": 24000,
+      "object_sort": 87000,
+      "map_int_object": 18000,
+      "map_str_object": 18000
+    },
+    "enabled": {
+      "object_list": 22000,
+      "object_sort": 82000,
+      "map_int_object": 17000,
+      "map_str_object": 17000
+    },
+    "officialO2": {
+      "object_list": 5000,
+      "object_sort": 31000,
+      "map_int_object": 9000,
+      "map_str_object": 5000
+    }
+  },
+  "measured_gain_percent": {
+    "object_list": 8.33,
+    "object_sort": 5.75,
+    "map_int_object": 5.56,
+    "map_str_object": 5.56
+  },
+  "tests": {
+    "gate": "1 emitter library +67 production library +4 raw/min Node/VM differential tests passed.",
+    "actual_codegen": "Integration asserts exactly one certified helper fast path and divisor symbol dispatch remains.",
+    "SDK_body_mutation": "Disposable SSD overlay changes positive return; certification disables fast path and modified implementation actually executes.",
+    "numeric_cases": "NaN, +/-zero, infinities, double divisor zero, +/-divisors, large IEEE double values, JS-portable large ints, operand events and user JSNumber class.",
+    "final_on_off_raw": "All native-number traces equal VM in enabled/disabled/raw current compiler artifacts.",
+    "browser": "Actual frozen Limitless overview mounted2 with diagnostics=[]; caught Quill and probe exceptions separately retained, not all features tested."
+  },
+  "policy": {
+    "forge": "Default runtime checks; no omitted-checks performance baseline.",
+    "dart2js_O2": "Checked optimized production; no assertion of identical type-string/error policies.",
+    "bad_arguments": {
+      "VM_and_Forge_checked": "Caught TypeError for dynamic receiver with null/custom/string divisor.",
+      "dart2js_O2": "Caught a different exception class for these invalid arguments (bad=false in TypeError classifier); valid numeric/user-operator rows match VM.",
+      "valid_rows_match": true
+    },
+    "integer_limits": "Benchmark checksums agree across JS profiles; beyond-53-bit integer arithmetic is not claimed equal to VM."
+  },
+  "limits": [
+    "Three alternating fresh processes/profile; first in-process kernel round discarded.",
+    "Stopwatch uses millisecond resolution; 1ms map changes are small and should not establish broad parity.",
+    "Object-list measured improvement is 24ms to22ms (8.3%); unguarded prototype25ms to20ms is historical, not shipped result.",
+    "No JSON runtime gain measured for the final helper; String loop prototype had no gain and was rejected.",
+    "No class-wide primitive classification, no sort replacement, no String-loop production optimization.",
+    "Native/Dart/JIT benchmarks are separate from these Node results."
+  ],
+  "ledgers": {
+    "diagnostic-samples.json": "9bebc2af8448fd70b91b2edd8e746f659f13ddfc9133428ef9d043447ff0c450",
+    "rejected-string-prototype.json": "1319802be240960ebbab3afca6f9ac5b80a3591f7d0cb0f06d43ae88f31ff017",
+    "modulo-prototype.json": "7c76fd59c3652373fecc0d99a932d021ae4989326fc560399d860fc4b505f57f",
+    "compiler-inputs-and-correctness.json": "0222abdb9819138cee501fb5f3342e7aed9065801b18c0f9aa70e72aceaeb1ff",
+    "compiler-performance.json": "ed492f20685d32e7d8b763a829cecfae11e8b5b06d22e82c7a73fb3bad240302",
+    "web-sizes.json": "5a46a7a86a44a722fe96f007db1dd839b81681f5cb11cbd7333d493af7059c2c",
+    "browser-smoke.json": "107ae8ad321ff3a84fe352967d14480ed37bbfd9048ddf3a2c84f61334763245",
+    "js-test-gate.log": "d5e6985420240212d90da53ed0aa2170275554bb3e508b9f3198147f1641568a",
+    "number-baseline-correctness.json": "bb929f6212313bbcad0093e51133b2e68c6f046b74b5ed78e773a4850e9bd3d6",
+    "string-baseline-correctness.json": "27e5526ba3d289bf540d55b6c3c35e0223c0b43d35c907009e7923b01ec580c1"
+  },
+  "inputs_stable": true
+}

@@ -114,6 +114,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 };
                 Some(Primitive::Int(r))
             }
+            ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => {
+                let Resolved::Constructor(fid) = self.ctx.get_resolved(unit, e)? else { return None; };
+                let (kind, has) = self.environment_factory(*fid)?;
+                let key = arguments.args.iter().find(|a| a.name.is_none())?.value;
+                self.environment_key(unit, key, 0)?;
+                match self.environment_value(unit, key, kind, has) {
+                    Some(Constant::Bool(value)) => Some(Primitive::Bool(value)),
+                    _ => {
+                        if let Some(default) = arguments.args.iter().find(|a| a.name.is_some_and(|n| self.ctx.symbol_name(n.sym) == "defaultValue")) {
+                            self.evaluate_primitive(unit, default.value, prof + 1)
+                        } else {
+                            match kind { "bool" => Some(Primitive::Bool(false)), "int" => Some(Primitive::Int(0)), _ => None }
+                        }
+                    }
+                }
+            }
             ExprKind::Identifier(_) | ExprKind::Property { .. } => {
                 let target = match self.ctx.get_resolved(unit, e)? {
                     Resolved::Element(Element::Variable(v)) => *v,

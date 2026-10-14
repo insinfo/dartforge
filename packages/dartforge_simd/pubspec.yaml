@@ -1,9 +1,0 @@
-name: dartforge_simd
-description: >-
-  Dart 3.14's Int32x4 API (masked comparisons, andNot, shifts, abs, min/max,
-  anyTrue/allTrue and the * under review) as an extension for the 3.6.2 SDK;
-  DartForge's native backend compiles it to vector instructions.
-publish_to: none
-
-environment:
-  sdk: ^3.6.0

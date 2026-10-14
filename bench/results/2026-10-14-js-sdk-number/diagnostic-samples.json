@@ -1,0 +1,200 @@
+{
+  "purpose": "diagnostic CPU samples only; not a paired performance result",
+  "node": "v24.21.0",
+  "profiles": {
+    "objects": {
+      "artifact_sha256": "b029b98ea98e30a3443e31d496745ffa49f6ddaeaf6caca1ffc50088e4830d59",
+      "profile_sha256": "6f5ad83bc40bed8a47cf4e21f9d45abc82bfe5199cd45a570c4d9f8436c42d00",
+      "sample_count": 1347,
+      "self_samples_top": [
+        {
+          "function": "Ie",
+          "line": 4,
+          "column": 8662,
+          "samples": 631
+        },
+        {
+          "function": "f",
+          "line": 7,
+          "column": 2545,
+          "samples": 123
+        },
+        {
+          "function": "s",
+          "line": 10,
+          "column": 11988,
+          "samples": 81
+        },
+        {
+          "function": "L",
+          "line": 10,
+          "column": 2135,
+          "samples": 51
+        },
+        {
+          "function": "t",
+          "line": 7,
+          "column": 4161,
+          "samples": 50
+        },
+        {
+          "function": "_set",
+          "line": 4,
+          "column": 12525,
+          "samples": 48
+        },
+        {
+          "function": "(garbage collector)",
+          "line": -1,
+          "column": -1,
+          "samples": 44
+        },
+        {
+          "function": "G.Xe",
+          "line": 1,
+          "column": 14478,
+          "samples": 42
+        },
+        {
+          "function": "k",
+          "line": 4,
+          "column": 8452,
+          "samples": 34
+        },
+        {
+          "function": "l",
+          "line": 10,
+          "column": 12296,
+          "samples": 34
+        },
+        {
+          "function": "u",
+          "line": 10,
+          "column": 12496,
+          "samples": 25
+        },
+        {
+          "function": "o",
+          "line": 10,
+          "column": 12123,
+          "samples": 24
+        },
+        {
+          "function": "j",
+          "line": 10,
+          "column": 2236,
+          "samples": 19
+        },
+        {
+          "function": "H",
+          "line": 1,
+          "column": 12511,
+          "samples": 16
+        },
+        {
+          "function": "(program)",
+          "line": -1,
+          "column": -1,
+          "samples": 15
+        }
+      ]
+    },
+    "json": {
+      "artifact_sha256": "913132e2c29c86870b4626e1e0511dbca8a6a1b66803a5905830ede7bc2dd8a3",
+      "profile_sha256": "1e928b6ec72c72d8d0ddb1a6fb3078e670a790d7855d3ba41e0ede89b6e864d8",
+      "sample_count": 2093,
+      "self_samples_top": [
+        {
+          "function": "fe",
+          "line": 20,
+          "column": 6249,
+          "samples": 203
+        },
+        {
+          "function": "(garbage collector)",
+          "line": -1,
+          "column": -1,
+          "samples": 171
+        },
+        {
+          "function": "Gr",
+          "line": 3,
+          "column": 1827,
+          "samples": 145
+        },
+        {
+          "function": "st",
+          "line": 11,
+          "column": 30230,
+          "samples": 120
+        },
+        {
+          "function": "h",
+          "line": 23,
+          "column": 25927,
+          "samples": 98
+        },
+        {
+          "function": "Ee",
+          "line": 23,
+          "column": 7328,
+          "samples": 97
+        },
+        {
+          "function": "w",
+          "line": 17,
+          "column": 1901,
+          "samples": 95
+        },
+        {
+          "function": "en",
+          "line": 11,
+          "column": 31245,
+          "samples": 83
+        },
+        {
+          "function": "t",
+          "line": 20,
+          "column": 4883,
+          "samples": 69
+        },
+        {
+          "function": "toString",
+          "line": 11,
+          "column": 4912,
+          "samples": 64
+        },
+        {
+          "function": "pe",
+          "line": 11,
+          "column": 2108,
+          "samples": 61
+        },
+        {
+          "function": "nn",
+          "line": 11,
+          "column": 31692,
+          "samples": 55
+        },
+        {
+          "function": "J",
+          "line": 11,
+          "column": 31074,
+          "samples": 51
+        },
+        {
+          "function": "ee",
+          "line": 20,
+          "column": 3434,
+          "samples": 47
+        },
+        {
+          "function": "_set",
+          "line": 23,
+          "column": 2467,
+          "samples": 42
+        }
+      ]
+    }
+  }
+}

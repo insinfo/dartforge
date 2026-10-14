@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "paired_ledger": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/json-encode-after-scalar/ledger.json",
+  "inputs_stable": true,
+  "pairs": 3,
+  "summary": [
+    {
+      "scenario": "ascii",
+      "kernel": "json",
+      "before_us_per_op": 57.86102125693161,
+      "after_us_per_op": 58.812147556390975,
+      "elapsed_change_percent": 1.6438118076691044
+    },
+    {
+      "scenario": "ascii",
+      "kernel": "string_buffer",
+      "before_us_per_op": 1.94564,
+      "after_us_per_op": 1.28288,
+      "elapsed_change_percent": -34.06385559507411
+    },
+    {
+      "scenario": "latin1",
+      "kernel": "json",
+      "before_us_per_op": 57.71863468634686,
+      "after_us_per_op": 58.09282063197026,
+      "elapsed_change_percent": 0.6482931338497533
+    },
+    {
+      "scenario": "latin1",
+      "kernel": "string_buffer",
+      "before_us_per_op": 1.91652,
+      "after_us_per_op": 1.29541,
+      "elapsed_change_percent": -32.408219063719656
+    },
+    {
+      "scenario": "mixed_utf16",
+      "kernel": "json",
+      "before_us_per_op": 57.10161952554745,
+      "after_us_per_op": 59.578690476190474,
+      "elapsed_change_percent": 4.338004720750122
+    },
+    {
+      "scenario": "mixed_utf16",
+      "kernel": "string_buffer",
+      "before_us_per_op": 1.1776,
+      "after_us_per_op": 1.27579,
+      "elapsed_change_percent": 8.338145380434781
+    }
+  ],
+  "limitations": [
+    "Isolated JSON/StringBuffer kernels, not an HTTP workload.",
+    "Fresh processes reuse their input graph within each kernel.",
+    "Short samples do not establish production throughput."
+  ],
+  "http_gain_established": false
+}

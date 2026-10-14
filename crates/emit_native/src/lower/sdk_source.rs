@@ -1366,6 +1366,10 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
         b.in_adapter = true;
         b.guaranteed_arity = typed;
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
+        // All member adapters receive the same nominal instance as the source
+        // body. Preserve that origin when a getter is inlined into its adapter.
+        b.this_param = Some(recv.clone());
+        b.enclosing_class = f.class;
         let args = Operand::Val(b.add_param_vector(DartEntryVector::Arguments));
         let desc = Operand::Val(b.add_param_vector(DartEntryVector::Descriptor));
         b.declare_arc_uniform_return();
@@ -1401,9 +1405,7 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
                 // receive a Smi as a String handle via `dynamic`): the
                 // class covariant ones and those of a nominal type, with the message
                 // " of 'name'" — before converting each one to the representation.
-                b.this_param = Some(recv.clone());
                 b.finalizable_this = ctx.classify_this(fid);
-                b.enclosing_class = f.class;
                 b.check_entry_arguments_with(fid, &vals, typed);
                 let reprs: Vec<Type> = ctx.outline.functions[fid].parameters.iter().map(|p| b.repr(p.ty)).collect();
                 let vals: Vec<Operand> = vals.into_iter().zip(reprs).map(|(v, r)| b.coerce(v, r)).collect();
@@ -1972,6 +1974,9 @@ pub fn lower_pruned_global(
     let getter = super::global_symbol(ctx, vid);
     let mut b = FnBuilder::new(ctx, unit, getter.clone(), name_str.clone(), repr);
     b.pruned_body();
+    // The existing throw-only stub keeps the declared Dart getter ABI. Ref
+    // means the managed Dart value, not a native handle stored inside it.
+    register_rejection_facts(ctx, module, &b.func);
     b.finish(module);
     let mut s = FnBuilder::new(ctx, unit, format!("{getter}$set"), name_str, Type::Void);
     let v = s.add_param("v".to_string(), repr);
@@ -2489,6 +2494,88 @@ mod arc_tests {
     use super::*;
     use dartforge_intern::Interner;
     use dartforge_types::table::{CoreTypes, TypeTable};
+
+    #[test]
+    fn unreachable_and_literal_returns_keep_strict_dart_ownership_conventions() {
+        use crate::optimize::arc::{produce_and_verify_dart_tokens, ScopePlan, TokenPlan, TokenReturn};
+        for (return_type, expected) in [(Type::Ref, TokenReturn::Owned),
+            (Type::I64, TokenReturn::Trivial), (Type::Void, TokenReturn::Trivial)]
+        {
+            for unreachable in [false, true] {
+                let value = match return_type {
+                    Type::Ref => Some(Operand::Constant(Constant::Null)),
+                    Type::I64 => Some(Operand::Constant(Constant::Int(7))),
+                    _ => None,
+                };
+                let function = Function { symbol: "getter".into(), name: "getter".into(),
+                    debug_info: None, params: vec![], return_ty: return_type,
+                    blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
+                        terminator: if unreachable { Terminator::Unreachable } else { Terminator::Return(value) } }] };
+                for convention in [TokenReturn::Owned, TokenReturn::Trivial, TokenReturn::Borrowed] {
+                    let mut classes = std::collections::HashMap::new();
+                    let mut plan = TokenPlan { ret: convention, ..Default::default() };
+                    let before = plan.clone();
+                    let result = produce_and_verify_dart_tokens(&function, &mut classes, &mut plan,
+                        &FunctionTables::default(), &ScopePlan::default());
+                    if convention == expected {
+                        result.unwrap();
+                    } else {
+                        assert!(result.unwrap_err().contains("Dart convention"));
+                        assert_eq!(plan, before, "An invalid ABI cannot publish metadata");
+                        assert!(classes.is_empty());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_static_getters_preserve_managed_and_scalar_return_abis() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/arc_global_getters.dart");
+            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
+            let mut interner = Interner::new();
+            let (program, diagnostics) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+            let mut table = TypeTable::new();
+            let core = CoreTypes::init(&mut table, &program, &interner);
+            let (mut outline, diagnostics) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+            let (bodies, body_diagnostics) = dartforge_types::infer_program_bodies(
+                &program, &interner, &mut table, &core, &mut outline);
+            for diagnostic in diagnostics.iter().chain(&body_diagnostics) {
+                assert!(!dartforge_types::codes::is_compile_error(&diagnostic.message), "{diagnostic:?}");
+            }
+            let erasure = crate::erasure::compute(&program, &outline, &mut table);
+            let mut context = Context::new(&program, &interner, &table, &core, &outline, &bodies).with_source_sdk();
+            context.te = erasure;
+            context.world = crate::native_world::compute(&program, &interner, &table, &outline, &bodies);
+            for arc in [false, true] {
+                context.arc_memory = arc;
+                let module = crate::lower::lower_program(&context);
+                assert!(module.errors.is_empty(), "{:?}", module.errors);
+                for (name, expected_type, pruned) in [
+                    ("unusedLibrary", Type::Ref, true), ("unusedObject", Type::Ref, true),
+                    ("unusedScalar", Type::I64, true), ("liveLibrary", Type::Ref, false),
+                    ("liveObject", Type::Ref, false),
+                ] {
+                    let variable = program.variables.iter().position(|v| interner.resolve(v.name) == name).unwrap();
+                    let variable = VariableId(variable as u32);
+                    assert_eq!(context.pruned_global(variable), pruned, "{name}");
+                    let symbol = super::super::global_symbol(&context, variable);
+                    let getter = module.functions.iter().find(|f| f.symbol == symbol).unwrap();
+                    assert_eq!(getter.return_ty, expected_type, "{name}");
+                    assert_eq!(module.dart_ref_returns.contains(&symbol), arc && expected_type == Type::Ref,
+                        "Dart getter must declare its own nominal return ABI: {name}");
+                    if pruned {
+                        assert!(!getter.blocks.iter().flat_map(|b| &b.instructions).any(|(_, instruction, _)|
+                            matches!(instruction, Instruction::CallRuntime { name, .. } if name.starts_with("dartforge_native_Ffi_dl_"))),
+                            "The rejection stub must not retain or execute an OS handle factory");
+                    }
+                }
+            }
+        }).unwrap().join().unwrap();
+    }
 
     #[test]
     fn separately_lowered_function_keeps_arc_facts() {

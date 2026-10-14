@@ -275,6 +275,7 @@ pub const SYSTEM_LIBRARIES: &[SystemLibrary] = &[
             "_pthread_key_create",
             "_pthread_mutex_destroy",
             "_pthread_mutex_init",
+            "_pthread_main_np",
             "_pthread_mutex_lock",
             "_pthread_mutex_trylock",
             "_pthread_mutex_unlock",
@@ -455,6 +456,13 @@ pub const SYSTEM_LIBRARIES: &[SystemLibrary] = &[
             "_CFRetain",
             "_CFRunLoopAddTimer",
             "_CFRunLoopGetCurrent",
+            "_CFRunLoopGetMain",
+            "_CFRunLoopAddSource",
+            "_CFRunLoopRemoveSource",
+            "_CFRunLoopRunInMode",
+            "_CFRunLoopSourceCreate",
+            "_CFRunLoopSourceInvalidate",
+            "_CFRunLoopSourceSignal",
             "_CFRunLoopRun",
             "_CFRunLoopStop",
             "_CFRunLoopTimerCreate",
@@ -870,6 +878,7 @@ impl SysrootMacos {
 }
 
 /// What gets linked.
+#[derive(Clone, Copy)]
 pub enum Product<'a> {
     /// An executable.
     Executable,
@@ -911,9 +920,24 @@ pub fn ld64_lld(clang: &Path) -> PathBuf {
 /// # Errors
 ///
 /// `ld64.lld` did not run or rejected the link (the message carries what it
-/// said).
+/// said), or retaining/relinking the native LTO objects failed.
 pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), String> {
     let arch = Arch::host();
+    // LLD 22's Mach-O LTO path can lose an FDE association and emit a zero
+    // unwind encoding for a live SDK function (JsonCodec.decode reproduces it).
+    // Re-reading the generated native objects preserves that association. Keep
+    // the optimized machine code, but perform the final link without bitcode.
+    // The guard removes the retained objects on both success and failure.
+    let retained = if l.lto && arch == Arch::Arm64
+        && (crate::target::table_exceptions()? || crate::target::roots_by_maps()?)
+    {
+        let parent = l.exit.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+        Some(tempfile::Builder::new().prefix(".df-lto-unwind-").tempdir_in(parent)
+            .map_err(|e| format!("failed to create LTO unwind staging directory: {e}"))?)
+    } else {
+        None
+    };
+    let initial_output = retained.as_ref().map(|d| d.path().join("initial"));
     let minimum =
         std::env::var("MACOSX_DEPLOYMENT_TARGET").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| arch.minimum().to_string());
     let sdk_version = if sysroot.version.is_empty() { minimum.clone() } else { sysroot.version.clone() };
@@ -935,7 +959,10 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
             cmd.arg(format!("@{}", file.display()));
         }
     }
-    cmd.arg("-o").arg(l.exit);
+    cmd.arg("-o").arg(initial_output.as_deref().unwrap_or(l.exit));
+    if let Some(d) = &retained {
+        cmd.arg("-object_path_lto").arg(d.path());
+    }
     if l.executable_rpath {
         cmd.args(["-rpath", "@executable_path"]);
     }
@@ -1025,7 +1052,50 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
         let lines: Vec<&str> = errors.into_iter().chain(warnings.into_iter().take(n_warnings)).collect();
         return Err(format!("ld64.lld failed to link ({}):\n{}", exit.status, lines.join("\n")));
     }
+    if let Some(d) = &retained {
+        let mut objects: Vec<PathBuf> = std::fs::read_dir(d.path())
+            .map_err(|e| format!("failed to read retained LTO objects: {e}"))?
+            .map(|e| e.map(|e| e.path()))
+            .collect::<Result<_, _>>()
+            .map_err(|e| format!("failed to read retained LTO object: {e}"))?;
+        objects.retain(|p| p.extension().is_some_and(|e| e == "o"));
+        objects.sort_by_key(|p| {
+            let name = p.file_name().unwrap().to_string_lossy();
+            (name.split('.').next().and_then(|n| n.parse::<usize>().ok()).unwrap_or(usize::MAX), name.into_owned())
+        });
+        if objects.is_empty() {
+            return Err("ld64.lld did not retain native LTO objects for unwind-safe linking".into());
+        }
+        let mut entries = Vec::new();
+        let mut replaced = false;
+        for p in &l.entries {
+            if is_bitcode(p) {
+                if !replaced {
+                    entries.extend(objects.iter().cloned());
+                    replaced = true;
+                }
+            } else {
+                entries.push(p.clone());
+            }
+        }
+        if !replaced {
+            return Err("LTO unwind-safe linking requires standalone bitcode inputs".into());
+        }
+        return link(ld, sysroot, &Linkage {
+            product: l.product, entries, executable_rpath: l.executable_rpath,
+            lto: false, cpu: l.cpu, prune: l.prune, keep_debug_info: l.keep_debug_info, exit: l.exit,
+        });
+    }
     Ok(())
+}
+
+/// LLVM bitcode, either the raw stream or the Mach-O wrapper. Flags and
+/// native archives stay in the final link; the first link already checked them.
+fn is_bitcode(path: &Path) -> bool {
+    use std::io::Read;
+    let mut magic = [0; 4];
+    std::fs::File::open(path).and_then(|mut f| f.read_exact(&mut magic)).is_ok()
+        && (magic == *b"BC\xc0\xde" || magic == [0xde, 0xc0, 0x17, 0x0b])
 }
 
 #[cfg(test)]

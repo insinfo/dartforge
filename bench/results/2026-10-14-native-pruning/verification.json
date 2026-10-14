@@ -1,0 +1,104 @@
+{
+  "schema": 1,
+  "compiler_sha256": "1d05a3139addfab53feef981a387f8a2ccd0b51966287c4af8caf44d244a4c91",
+  "production_source_sha256": {
+    "crates/emit_native/src/hir.rs": "812e1918d5b4ecff6cbefee6499d89908cb1594456908fc9cbc50a0a1b0b212d",
+    "crates/emit_native/src/lower/fn_builder.rs": "4fa90784340ec6329a0476734ed26888e637bb2c6e378f101d1f490728bd24af",
+    "crates/emit_native/src/lower/mod.rs": "3e3e91f684cd20182d6ca73e09ab3a22702901b208151e3d39258ab5313a7d11",
+    "crates/emit_native/src/lower/sdk_source.rs": "31b32ca3da0d8a1b17a117f745a4adb74c3de81317d1f920847404d0fbef18aa",
+    "crates/emit_native/src/llvm/mod.rs": "9ca7219b3b1f86d00f8ea0657b16040637f33247bb08de7ce9547628d370d7e8",
+    "crates/emit_native/src/llvm/selectors.rs": "ab13f426b723303a3e5f679d08c9bb390fef1e5e31d0f7d3934044c75ff4cc81",
+    "crates/emit_native/src/pruning.rs": "65ead10f656f3f5408c5564a40c39226a11938fe0f2cd8e6e70c9454dbebdb74"
+  },
+  "fixture_and_runner_sha256": {
+    "scripts/verify-receiver-cone-pruning.py": "8d48f706630588312d56d7896e543e982437fc658f008faa0e780308da42322d",
+    "crates/emit_native/tests/fixtures/receiver_cones/closure_nsm.dart": "3a50173d9ec614d41cbe7acfe9491b636d5af5a9aec8e07cbb4b63a7f5fa709a",
+    "crates/emit_native/tests/fixtures/receiver_cones/dynamic_length.dart": "509622013ab9707e36a40e771242cd30e329ca2370ca6e192746afccb9aba5cb",
+    "crates/emit_native/tests/fixtures/receiver_cones/sdk_iterator.dart": "060411c0c2feac7d8141e60cdd9641e689379eb6801258a942b65bb87be55fef",
+    "crates/emit_native/tests/fixtures/receiver_cones/sdk_overrides.dart": "c68de482a143be2568299f305ace18f72351726e47b7eb3886ab081f978bb320",
+    "crates/emit_native/tests/fixtures/receiver_cones/unary_tearoff.dart": "2256d7e3f5d634fb9940c273492e4b396965df0b799bb7a92afb9edb52e9ce2f",
+    "crates/emit_native/tests/fixtures/receiver_cones/unrelated_length.dart": "cccd71686db3cea9fba079a629814dcfdf2653dad6b7e2883b4fb4a5f58582c5"
+  },
+  "sdk": {
+    "version": "3.6.2",
+    "library": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "dart_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa"
+  },
+  "llvm": "22.1.8 macOS ARM64",
+  "verification": {
+    "focused": {
+      "passed": 22,
+      "failed": 0,
+      "terminal_exit": 0,
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--lib",
+        "-j2",
+        "pruning::",
+        "--",
+        "--test-threads=2"
+      ]
+    },
+    "full_library": {
+      "passed": 561,
+      "failed": 0,
+      "ignored": 0,
+      "terminal_exit": 0,
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--lib",
+        "-j2",
+        "--",
+        "--include-ignored",
+        "--test-threads=2"
+      ],
+      "doctests_run": false
+    },
+    "before_fix_regression": {
+      "passed": 0,
+      "failed": 1,
+      "terminal_exit": 101,
+      "reason": "Assembly retained a class table pointer while removing its excluded adapter definition."
+    },
+    "fixtures_analyze": {
+      "terminal_exit": 0,
+      "issues": 0
+    },
+    "final_native_matrix": {
+      "commands_passed": 36,
+      "commands_failed": 0,
+      "fixtures": 6,
+      "native_memory": "tracing",
+      "gc_stress_checked": true,
+      "compatibility_passed": true,
+      "effectiveness_passed": false,
+      "runner_terminal_exit": 1,
+      "inputs_stable": true
+    }
+  },
+  "change": "Preserve exact SDK formal-this receiver provenance, including getter adapters; use accepted table/selector reachability consistently during HIR pruning and final table assembly. Unknown receiver cones remain conservative. Class-specific diagnostics name an accepted retaining caller.",
+  "known_limitations": [
+    "Whole-program Cold.length exclusion remains unachieved because other reachable SDK calls have unknown receivers; the durable runner intentionally exits 1 for this effectiveness assertion.",
+    "No executable-size or throughput gain is certified by these correctness tests.",
+    "This matrix covers tracing native execution and GC stress; it does not certify prepared ARC or JIT lifecycle readiness.",
+    "The historical actual File Explorer compile failure is preserved; parent owns final rebuilt application compile/UI validation."
+  ],
+  "performance_measurement": false,
+  "evidence_sha256": {
+    "native-matrix.log": "6fdca81e1fd5174506c4124b900ff6625de0a8820de6c150f1bf3d85aa94c877",
+    "table-consistency-before.log": "56b29c2b4316de693de14ee7dab76ea58e0fb3a85c0a64454bb3a1b1d0d2684c",
+    "focused-pruning.log": "f8e506f82da3d1dd6fe5f47e81ed601551aaa8b57fff44c4245dbf7a49c3b25e",
+    "emitter-full.log": "a9211580caee10bd3f8c15b48d4df5910e674f3531ed9834f73931097d0f9f27",
+    "fixtures-analyze.log": "8171a3249d9ff6d2aec6ea35bc00da156d75d9830b2041c26726a0a6e5210afd",
+    "explorer-compile-before.log": "bf0fcfb96ba8721fea115d479557043011ad007f42e3738d6c151c4a25bae5b1",
+    "native-matrix.json": "ab5a9e7dd302d56f3ce1d9fd459328d3fc36acc9298f5aacff448a394db0bc02"
+  }
+}

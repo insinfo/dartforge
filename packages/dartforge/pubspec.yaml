@@ -1,0 +1,8 @@
+name: dartforge
+version: 0.1.0
+description: Optional DartForge metadata, SIMD extensions and native capabilities with portable fallbacks.
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  meta: ^1.15.0

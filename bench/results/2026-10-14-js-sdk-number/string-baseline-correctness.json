@@ -1,0 +1,79 @@
+{
+  "source_sha256": "ab239e293417862c63f40649629674f0a6770b2fa659c236270e2ac41111a398",
+  "compiler_sha256": "7a1180bfc03d879746fa7b3e4f14fb5b40ebcac49cfc0d00b317a9581bc388eb",
+  "cases": {
+    "officialO2": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "js",
+        "-O2",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/string_loop_ranges.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/string-baseline/officialO2-current.js"
+      ],
+      "compile_exit": 0,
+      "artifact_sha256": "5d2cbdb98c1fea5b2286b63d2eddbb805b1007558eff5eaea529d315d76ecc10",
+      "exit_code": 0,
+      "stdout": "units=0:0:0\nunits=361:361:296:range=5\nunits=510:510:510:range=4\nunits=223925:223925:168568:range=5\nunits=46237:46237:46004:range=3\nmutation=340:340:196:195\n65;control:1;55357;56832;\n{\"a\":\"\ud800\udc00\\udc00\",\"b\":[\"\ud800\udc00\\udc00\",\"\\u0000\\n\\\"\\\\\u00e9\ud83d\ude00\"]}\n{\n  \"a\": \"\ud800\udc00\\udc00\",\n  \"b\": [\n    \"\ud800\udc00\\udc00\",\n    \"\\u0000\\n\\\"\\\\\u00e9\ud83d\ude00\"\n  ]\n}\ntrue\nevents=[toJson, toJson, toJson]\n",
+      "stderr": "",
+      "exact_vm": true
+    },
+    "forge_checked": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/string_loop_ranges.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/string-baseline/forge_checked-current.js"
+      ],
+      "compile_exit": 0,
+      "artifact_sha256": "e78d4c0cec1a399612bf80bea1eddc17c23be6d028fed52a50d8725c73f1cd35",
+      "exit_code": 0,
+      "stdout": "units=0:0:0\nunits=361:361:296:range=5\nunits=510:510:510:range=4\nunits=223925:223925:168568:range=5\nunits=46237:46237:46004:range=3\nmutation=340:340:196:195\n65;control:1;55357;56832;\n{\"a\":\"\ud800\udc00\\udc00\",\"b\":[\"\ud800\udc00\\udc00\",\"\\u0000\\n\\\"\\\\\u00e9\ud83d\ude00\"]}\n{\n  \"a\": \"\ud800\udc00\\udc00\",\n  \"b\": [\n    \"\ud800\udc00\\udc00\",\n    \"\\u0000\\n\\\"\\\\\u00e9\ud83d\ude00\"\n  ]\n}\ntrue\nevents=[toJson, toJson, toJson]\n",
+      "stderr": "",
+      "exact_vm": true
+    },
+    "forge_omit": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/string_loop_ranges.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--omit-checks",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/string-baseline/forge_omit-current.js"
+      ],
+      "compile_exit": 0,
+      "artifact_sha256": "1cf1dd8b708fade7caf7d6e9f27778b73a8176ea10b814acc17f24e9df6f8c08",
+      "exit_code": 0,
+      "stdout": "units=0:0:0\nunits=361:361:296:range=5\nunits=510:510:510:range=4\nunits=223925:223925:168568:range=5\nunits=46237:46237:46004:range=3\nmutation=340:340:196:195\n65;control:1;55357;56832;\n{\"a\":\"\ud800\udc00\\udc00\",\"b\":[\"\ud800\udc00\\udc00\",\"\\u0000\\n\\\"\\\\\u00e9\ud83d\ude00\"]}\n{\n  \"a\": \"\ud800\udc00\\udc00\",\n  \"b\": [\n    \"\ud800\udc00\\udc00\",\n    \"\\u0000\\n\\\"\\\\\u00e9\ud83d\ude00\"\n  ]\n}\ntrue\nevents=[toJson, toJson, toJson]\n",
+      "stderr": "",
+      "exact_vm": true
+    },
+    "forge_raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/string_loop_ranges.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/string-baseline/forge_raw-current.js"
+      ],
+      "compile_exit": 0,
+      "artifact_sha256": "3b64db56f0fb3792a45333c8b3867195f1bfef5cce3c1d881a8f10450f9d9a5e",
+      "exit_code": 0,
+      "stdout": "units=0:0:0\nunits=361:361:296:range=5\nunits=510:510:510:range=4\nunits=223925:223925:168568:range=5\nunits=46237:46237:46004:range=3\nmutation=340:340:196:195\n65;control:1;55357;56832;\n{\"a\":\"\ud800\udc00\\udc00\",\"b\":[\"\ud800\udc00\\udc00\",\"\\u0000\\n\\\"\\\\\u00e9\ud83d\ude00\"]}\n{\n  \"a\": \"\ud800\udc00\\udc00\",\n  \"b\": [\n    \"\ud800\udc00\\udc00\",\n    \"\\u0000\\n\\\"\\\\\u00e9\ud83d\ude00\"\n  ]\n}\ntrue\nevents=[toJson, toJson, toJson]\n",
+      "stderr": "",
+      "exact_vm": true
+    }
+  },
+  "vm": {
+    "exit_code": 0,
+    "stdout": "units=0:0:0\nunits=361:361:296:range=5\nunits=510:510:510:range=4\nunits=223925:223925:168568:range=5\nunits=46237:46237:46004:range=3\nmutation=340:340:196:195\n65;control:1;55357;56832;\n{\"a\":\"\ud800\udc00\\udc00\",\"b\":[\"\ud800\udc00\\udc00\",\"\\u0000\\n\\\"\\\\\u00e9\ud83d\ude00\"]}\n{\n  \"a\": \"\ud800\udc00\\udc00\",\n  \"b\": [\n    \"\ud800\udc00\\udc00\",\n    \"\\u0000\\n\\\"\\\\\u00e9\ud83d\ude00\"\n  ]\n}\ntrue\nevents=[toJson, toJson, toJson]\n",
+    "stderr": ""
+  },
+  "inputs_stable": true
+}

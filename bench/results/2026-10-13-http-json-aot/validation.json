@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-13",
+  "platform": "macOS arm64",
+  "base_commit": "2f68f91037bbd47eac498b05eed1e672bfe7f736",
+  "challenge_revision": "026bdb68d94d0d932bb5981321ad82c70618d752",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "dart": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\"",
+  "change": "Socket_WriteList borrows Dart typed bytes during write_at instead of copying the full list into a temporary Vec. Windows retains the owned overlapped copy.",
+  "runtime_tests": {
+    "passed": 344,
+    "unit": 235,
+    "integration": 24,
+    "doctests": 85
+  },
+  "socket_probe": {
+    "modes": [
+      "tracing",
+      "arc"
+    ],
+    "gc_stress": [
+      false,
+      true
+    ],
+    "effects_check": true,
+    "matches_dart": true
+  },
+  "http_smoke": {
+    "json_responses": 1000,
+    "keep_alive": true,
+    "text_and_shutdown": true,
+    "exceptions": "tables",
+    "passed": true
+  },
+  "json_probe": {
+    "check": {
+      "normal": "matches Dart",
+      "stress": "matches Dart"
+    },
+    "tables": {
+      "normal": "SIGABRT: _Unwind_RaiseException returned 5",
+      "stress": "same failure",
+      "previous_compiler": "same failure in target/final/release/dartforge"
+    }
+  },
+  "checks": {
+    "fmt": "existing formatting failures outside this change",
+    "workspace_clippy": "9 existing frontend diagnostics",
+    "runtime_clippy": "7 existing diagnostics outside io_sockets.rs",
+    "workspace_doc": "completed with existing warnings",
+    "workspace_tests": "JIT link failure: Apple LLVM 21 cannot read LLVM 22 bitcode",
+    "diff_check": "passed"
+  },
+  "performance": {
+    "throughput_gain": null,
+    "measured_claim": "Removes one temporary Rust Vec allocation and the full-buffer copy on each nonempty Socket_WriteList call. No before/after throughput measured."
+  },
+  "limits": [
+    "Windows and Linux not executed",
+    "Full SQLite challenge not executed",
+    "Smoke load ran on the same Mac"
+  ],
+  "toolchains": "/Volumes/ssd_dock/tools",
+  "temporary_directory": "target/tmp-http-json (removed after validation)",
+  "logs": "target/http-json-evidence/*.log.gz (local, ignored)"
+}

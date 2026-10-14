@@ -571,6 +571,31 @@ define i32 @mainCRTStartup() {
 }
 "#;
 
+/// The GUI startup uses the same generated main and cleanup, with UCRT
+/// configured as a GUI application before any initializer runs.
+const CRT_GUI_EXE_IR: &str = r#"
+declare void @df_crt_init()
+declare i32 @main()
+declare dllimport void @_set_app_type(i32)
+declare dllimport void @exit(i32) noreturn
+declare dllimport i32 @_crt_atexit(ptr)
+
+; C `atexit` in the executable: ucrtbase's global table, which `exit`
+; walks.
+define i32 @atexit(ptr %f) {
+  %r = call i32 @_crt_atexit(ptr %f)
+  ret i32 %r
+}
+
+define i32 @mainCRTStartup() {
+  call void @_set_app_type(i32 2)
+  call void @df_crt_init()
+  %r = call i32 @main()
+  call void @exit(i32 %r)
+  unreachable
+}
+"#;
+
 /// The entry of the DLL (that of the source SDK): on load, the cookie and the
 /// initializers; on process exit (or unload), its `atexit`s.
 pub const CRT_DLL_IR: &str = r#"
@@ -610,7 +635,7 @@ fim:
 
 /// The modules of the minimal CRT: (object file, IR without the header).
 const CRT_MODULES: &[(&str, &str)] =
-    &[("dfcrt_comum.obj", CRT_COMMON_IR), ("dfcrt_exe.obj", CRT_EXE_IR), ("dfcrt_dll.obj", CRT_DLL_IR)];
+    &[("dfcrt_comum.obj", CRT_COMMON_IR), ("dfcrt_exe.obj", CRT_EXE_IR), ("dfcrt_gui.obj", CRT_GUI_EXE_IR), ("dfcrt_dll.obj", CRT_DLL_IR)];
 
 /// The complete IR (with the target header) of a module of the minimal CRT.
 pub fn crt_ir(body: &str) -> String {
@@ -785,6 +810,7 @@ impl SysrootWindows {
         S.get_or_init(|| {
             if let Some(dir) = dartforge_elements::distribution::in_lib(&format!("sysroot/{TRIPLE}"))
                 && dir.join("dfcrt_comum.obj").is_file()
+                && dir.join("dfcrt_gui.obj").is_file()
             {
                 return Ok(SysrootWindows { dir });
             }
@@ -821,10 +847,65 @@ impl SysrootWindows {
     }
 }
 
+/// The Windows executable subsystem, selected before linking.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Subsystem {
+    /// Attach to, or create, a console (the default).
+    #[default]
+    Console,
+    /// Start without allocating a console window.
+    Gui,
+}
+
+impl Subsystem {
+    /// Parse the English CLI names.
+    ///
+    /// ```
+    /// use dartforge_emit_native::linker_windows::Subsystem;
+    /// assert_eq!(Subsystem::from_name("gui")?, Subsystem::Gui);
+    /// # Ok::<(), String>(())
+    /// ```
+    ///
+    /// # Errors
+    /// The name is neither `console` nor `gui`.
+    pub fn from_name(name: &str) -> Result<Self, String> {
+        match name {
+            "console" => Ok(Self::Console),
+            "gui" => Ok(Self::Gui),
+            _ => Err(format!("--subsystem={name}: the subsystems are `console` and `gui`")),
+        }
+    }
+
+    /// Read the process-wide linker policy used by the native CLI.
+    ///
+    /// ```
+    /// use dartforge_emit_native::linker_windows::Subsystem;
+    /// let _policy = Subsystem::from_environment();
+    /// ```
+    ///
+    /// # Errors
+    /// The environment value is invalid, or GUI is requested on a non-Windows host.
+    pub fn from_environment() -> Result<Self, String> {
+        let value = std::env::var("DARTFORGE_SUBSYSTEM").unwrap_or_else(|_| "console".into());
+        let subsystem = Self::from_name(&value)?;
+        if subsystem == Self::Gui && crate::target::target_os() != crate::target::Os::Windows {
+            return Err("--subsystem=gui is only supported on Windows".into());
+        }
+        Ok(subsystem)
+    }
+
+    fn linker_argument(self) -> &'static str {
+        match self {
+            Self::Console => "/subsystem:console",
+            Self::Gui => "/subsystem:windows",
+        }
+    }
+}
+
 /// What gets linked.
 pub enum Product<'a> {
-    /// A console executable.
-    Executable,
+    /// An executable with an explicitly selected Windows subsystem.
+    Executable { subsystem: Subsystem },
     /// A DLL with the exports of the given `.def`; the import library
     /// comes out next to it (`<output>.lib`).
     Dll { def: &'a Path },
@@ -862,7 +943,7 @@ pub fn arguments(sysroot: &SysrootWindows, l: &Linkage<'_>) -> Vec<std::ffi::OsS
     // Nothing from the environment (`LIB`, the detected Visual Studio) nor from the
     // `/DEFAULTLIB` directives of the objects (`msvcrt.lib`, `oldnames.lib`, the Rust ones):
     // everything that goes in is on the command line.
-    for s in ["/nologo", "/lldignoreenv", "/nodefaultlib", "/machine:x64", "/subsystem:console", "/include:_tls_used"] {
+    for s in ["/nologo", "/lldignoreenv", "/nodefaultlib", "/machine:x64", "/include:_tls_used"] {
         a.push(s.into());
     }
     // A top-level function tear-off is compared by address (`left == right`,
@@ -875,12 +956,20 @@ pub fn arguments(sysroot: &SysrootWindows, l: &Linkage<'_>) -> Vec<std::ffi::OsS
     a.push(if l.prune { "/opt:safeicf" } else { "/opt:noicf" }.into());
     let common_crt = sysroot.dir.join("dfcrt_comum.obj");
     match &l.product {
-        Product::Executable => {
+        Product::Executable { subsystem } => {
+            a.push(subsystem.linker_argument().into());
+            // The minimal CRT initializes TLS and calls generated main(). The explicit
+            // entry also serves GUI executables; no WinMain wrapper is needed.
             a.push("/entry:mainCRTStartup".into());
             a.push(common_crt.into_os_string());
-            a.push(sysroot.dir.join("dfcrt_exe.obj").into_os_string());
+            let crt = match subsystem {
+                Subsystem::Console => "dfcrt_exe.obj",
+                Subsystem::Gui => "dfcrt_gui.obj",
+            };
+            a.push(sysroot.dir.join(crt).into_os_string());
         }
         Product::Dll { def } => {
+            a.push("/subsystem:console".into());
             a.push("/dll".into());
             a.push("/entry:_DllMainCRTStartup".into());
             let mut d = std::ffi::OsString::from("/def:");
@@ -988,6 +1077,36 @@ mod tests {
             assert_eq!(&lib[d..d + 8], b"abc.dll/");
             assert_eq!(&lib[d + 60..d + 64], &[0, 0, 0xFF, 0xFF]);
         }
+    }
+
+    #[test]
+    fn executable_subsystem_keeps_the_crt_entry_and_dll_policy() {
+        let sysroot = SysrootWindows::from_dir(PathBuf::from("sysroot"));
+        for subsystem in [Subsystem::Console, Subsystem::Gui] {
+            let linkage = Linkage {
+                product: Product::Executable { subsystem },
+                entries: vec![], lto: false, cpu: None, prune: false,
+                debug_info: false, exit: Path::new("app.exe"),
+            };
+            let args = arguments(&sysroot, &linkage);
+            assert_eq!(args.iter().filter(|a| a.to_string_lossy().starts_with("/subsystem:")).count(), 1);
+            assert!(args.contains(&subsystem.linker_argument().into()));
+            assert!(args.contains(&"/entry:mainCRTStartup".into()));
+            let crt = if subsystem == Subsystem::Gui { "dfcrt_gui.obj" } else { "dfcrt_exe.obj" };
+            assert!(args.contains(&Path::new("sysroot").join(crt).into_os_string()));
+            assert!(!args.contains(&"/dll".into()));
+        }
+        assert_eq!(CRT_GUI_EXE_IR, CRT_EXE_IR.replace("@_set_app_type(i32 1)", "@_set_app_type(i32 2)"));
+        assert_eq!(Subsystem::default(), Subsystem::Console);
+        assert!(Subsystem::from_name("windows").is_err());
+        assert_eq!(Subsystem::from_name("gui").unwrap(), Subsystem::Gui);
+        let args = arguments(&sysroot, &Linkage {
+            product: Product::Dll { def: Path::new("app.def") },
+            entries: vec![], lto: false, cpu: None, prune: false,
+            debug_info: false, exit: Path::new("app.dll"),
+        });
+        assert!(args.contains(&"/subsystem:console".into()));
+        assert!(args.contains(&"/entry:_DllMainCRTStartup".into()));
     }
 
     #[test]
@@ -1116,11 +1235,27 @@ int main(void) {
             link(
                 &lld_link(&clang),
                 &sysroot,
-                &Linkage { product: Product::Executable, entries, lto: false, cpu: None, prune: true, debug_info: true, exit },
+                &Linkage { product: Product::Executable { subsystem: Subsystem::Console }, entries, lto: false, cpu: None, prune: true, debug_info: true, exit },
             )
             .unwrap();
         };
-        link_exe(vec![p], &exe);
+        link_exe(vec![p.clone()], &exe);
+        let gui = d.join("p-gui.exe");
+        link(&lld_link(&clang), &sysroot, &Linkage {
+            product: Product::Executable { subsystem: Subsystem::Gui },
+            entries: vec![p], lto: false, cpu: None, prune: true,
+            debug_info: true, exit: &gui,
+        }).unwrap();
+        // Verify the linked headers before any optional Windows/Wine execution.
+        // PE32 and PE32+ place Subsystem at the same optional-header offset.
+        for (file, expected) in [(&exe, 3u16), (&gui, 2u16)] {
+            let bytes = std::fs::read(file).unwrap();
+            let pe = u32::from_le_bytes(bytes[0x3c..0x40].try_into().unwrap()) as usize;
+            assert_eq!(&bytes[pe..pe + 4], b"PE\0\0");
+            let optional = pe + 24;
+            assert_eq!(u16::from_le_bytes(bytes[optional + 68..optional + 70].try_into().unwrap()), expected);
+            assert_ne!(u32::from_le_bytes(bytes[optional + 16..optional + 20].try_into().unwrap()), 0);
+        }
         let dll_obj = compile(
             "b",
             r#"
@@ -1158,6 +1293,7 @@ int df_value(void) { static int registrado; if (!registrado) { registrado = 1; a
             (String::from_utf8_lossy(&s.stdout).replace('\r', ""), s.status.code())
         };
         assert_eq!(run(&exe), ("ok\nfim\n".to_string(), Some(3)));
+        assert_eq!(run(&gui), ("ok\nfim\n".to_string(), Some(3)));
         assert_eq!(run(&exe_dll), ("dll ok\ndll fim\n".to_string(), Some(0)));
     }
 }

@@ -28,10 +28,14 @@
 //! default — the shared one when the installation offers it, otherwise static.
 use std::path::{Path, PathBuf};
 
+#[path = "build_support/zstd.rs"]
+mod zstd;
+
 /// Emits the link directives and the script's rerun dependencies.
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
     println!("cargo::rerun-if-env-changed=DARTFORGE_LLVM_DIR");
+    println!("cargo::rerun-if-env-changed=DARTFORGE_LLVM_ZSTD_LIBRARY");
     println!("cargo::rerun-if-env-changed=LLVM_SYS_221_PREFIX");
 
     let prefix = prefix();
@@ -143,14 +147,21 @@ fn link_static(prefix: &Path) -> Result<(), String> {
             println!("cargo::rustc-link-lib=static={name}");
         }
     }
-    // The system libraries the package declares apply to the whole LLVM; only
-    // those the components above use come in, and the ones missing on this
-    // machine do not break linking:
-    // * `xml2` only serves `LLVMWindowsManifest`, which is not in the list;
-    // * `zstd` comes as an absolute path of the `.a` on the machine that packaged
-    //   it; the file is used if it exists here, otherwise compression is left out
-    //   (the JIT does not read compressed sections).
+    // Static LLVMCompression requires zstd even if this application's inputs
+    // contain no compressed sections. An SSD-local library override avoids
+    // installing a dependency at the packaging machine's absolute path.
     for lib in llvm_config(prefix, &["--link-static", "--system-libs"])?.split_whitespace() {
+        let library_name = lib.strip_prefix("-l").unwrap_or_else(|| {
+            Path::new(lib).file_stem().and_then(|name| name.to_str()).unwrap_or_default().trim_start_matches("lib")
+        });
+        if library_name == "zstd"
+            && let Some(path) = std::env::var_os("DARTFORGE_LLVM_ZSTD_LIBRARY")
+        {
+            for directive in zstd::override_directives(&PathBuf::from(path))? {
+                println!("{directive}");
+            }
+            continue;
+        }
         if let Some(name) = lib.strip_prefix("-l") {
             if name == "xml2" && !libs.contains("WindowsManifest") {
                 continue;
@@ -169,6 +180,8 @@ fn link_static(prefix: &Path) -> Result<(), String> {
                 println!("cargo::rustc-link-lib=static={name}");
             } else if let Some(directive) = shared_system_library(name) {
                 println!("{directive}");
+            } else if name == "zstd" {
+                return Err(format!("required LLVM system library {lib} is missing; set DARTFORGE_LLVM_ZSTD_LIBRARY to an existing libzstd.a, libzstd.dylib or libzstd.so"));
             } else {
                 println!("cargo::warning=system library {lib} missing; install its development package");
             }

@@ -1,0 +1,59 @@
+{
+  "scope": "Targeted crates and package; not a full workspace approval",
+  "compiler_sha256": "ab3c245e7128765041316d41ffaa6f36227762c518dd55ca6c7fb160526fa781",
+  "gates": {
+    "emitter-library": {
+      "passed": 502,
+      "source_log": "target/tmp-native-pump/dispatcher-contracts-final-gates.log",
+      "archive": "emitter-library-final.log.gz",
+      "log_sha256": "30542396b5037e1219b852e3c183fbcc86f89d12ef0db636fec212820b1edadd"
+    },
+    "emitter-integration": {
+      "passed": 24,
+      "source_log": "target/tmp-native-pump/full-emitter-sdk-final.log",
+      "archive": "emitter-integration-final.log.gz",
+      "log_sha256": "f63046ebb3b7ce238c91c2e7e49b231b683cc4d2606b3ce66beb5470aec3c959"
+    },
+    "emitter-docs": {
+      "passed": 117,
+      "source_log": "target/tmp-native-pump/emitter-doc-final.log",
+      "archive": "emitter-docs-final.log.gz",
+      "log_sha256": "a231035c0a2a2a366704f9bb6a438835ee9a8fe9ddff219d9e7e02f9e4861bb6"
+    },
+    "runtime": {
+      "passed": 358,
+      "source_log": "target/tmp-native-pump/runtime-current-final.log",
+      "archive": "runtime-final.log.gz",
+      "log_sha256": "0c999b55830b6dda648cdf3307ee7b43d7e130a51b2b3020262a54e677da2192"
+    },
+    "types": {
+      "passed": 118,
+      "source_log": "target/tmp-annotation-normalization/full-types.log",
+      "archive": "types-final.log.gz",
+      "log_sha256": "c486ce45dbb46b60857fe8312fcdc069aeec4da933b7ebb4884f2b3ef6ee8eb1"
+    },
+    "cli": {
+      "passed": 5,
+      "source_log": "target/tmp-native-pump/contracts-cli-tests-final.log",
+      "archive": "cli-final.log.gz",
+      "log_sha256": "3e21b0bb206776af1e6832ef6e3043b642b1a583c045b9f5e4c60cca62dd507c"
+    },
+    "package-analysis": {
+      "passed": null,
+      "source_log": "target/tmp-native-pump/package-current-analyze.log",
+      "archive": "package-analysis-final.log.gz",
+      "log_sha256": "4989ea59c157a4f0d04059c497d6b43332c631b52bc6a2f984a539016b31fa94"
+    },
+    "diff-check": {
+      "passed": null,
+      "source_log": "target/tmp-native-pump/final-diff-check.log",
+      "archive": "diff-check-final.log.gz",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "remaining_workspace_gates": [
+    "fmt",
+    "Clippy",
+    "JIT"
+  ]
+}

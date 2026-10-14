@@ -1,0 +1,78 @@
+{
+  "cli_sha256": "6f963ffc2c2075e3b1080d729361f220dd1fbe758eb6de1da6cf8769436b8194",
+  "counts": {
+    "runtime_lib": 253,
+    "runtime_integration": 24,
+    "runtime_docs": 85,
+    "emitter_lib_include_ignored": 544,
+    "emitter_docs": 119
+  },
+  "source_sha256": {
+    "crates/runtime/src/core.rs": "7c6ee3170fc204c13ebb7c231759315d6d90dad64a2c153991666fd0c12df899",
+    "crates/runtime/src/isolates.rs": "715054bb34bd9908c7a839bd5863a96ad5237c1999190d2bf4f5fd26e71609ae",
+    "crates/runtime/src/ffi_callbacks.rs": "f393b465452b7e7b57c99f1d9b5f15a29f2549e7660d9939d172217d41a24631",
+    "crates/runtime/effects.tsv": "2b11f720bc60a49aa8b60db5a56bb47b5496199304bc1edeb5d36dd648245ba9",
+    "crates/runtime/ownership.tsv": "3743b22cf2a4a59ab20cc39371e1ef8573eb7748ab86af1ad414bf67aa6ea4a2",
+    "crates/emit_native/src/contracts/no_escape.rs": "f9e265a849812f68dccaace1d6bbc53a59a2d49b979608f106bcaf2a319c97bd",
+    "crates/emit_native/src/contracts/ssa.rs": "9db726d99c8411d81b83145e3425e30af54f53c3ea56c1110df3f127e0faf7ff",
+    "crates/emit_native/src/contracts/ssa/tests.rs": "e891ce503dbd8ac50a565724dbfd3f054dbb2564baed2d8711c5108aca64c29e",
+    "crates/emit_native/src/optimize/representation_constants.rs": "b802042fbc4601e989777297bf477bfdf0669729e754934ea817337607ac4f93",
+    "crates/emit_native/src/optimize/mod.rs": "3d33a4d8672af0d0ee6caf1239112c8eaa5c0585baf50716c265a8f0ea0d01d9",
+    "crates/emit_native/src/llvm/mod.rs": "b9df771cd7fa417bb3d9ca0ec73b8586da65aae55479d4c3b1db82ac3e92fc0c",
+    "crates/emit_native/src/llvm/externs.rs": "53dd15dec706f30a2f494566be8f9f5c7ab771b1dfbf8d61a973e08fc71b73a2",
+    "crates/emit_native/src/llvm/tests.rs": "2b0b7f0b114ada77c5438c7a8484ff69e05653d88b70a1bfa3c5c15fff4ddba8"
+  },
+  "logs": {
+    "runtime": {
+      "log": "p5-runtime-final.log.gz",
+      "uncompressed_sha256": "72ef363c8f195e0c699f24a4addfa1e50533038a2315fdc2c532e48979e9674f",
+      "archive_sha256": "d8831846ce2c21e0e4f4de2deec8dcf338f498be4f8b25b3bb9719dd8d3d92d5",
+      "test_result_lines": [
+        "test result: ok. 253 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+        "test result: ok. 85 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s"
+      ]
+    },
+    "emitter": {
+      "log": "p5-ssa-emitter-final.log.gz",
+      "uncompressed_sha256": "72f86e79ef5288889682cd4e77994dd47c2f89b228c292425bc8b6563755784b",
+      "archive_sha256": "f5f010b6490e75abd8e6bc2fb007282b85412a6a74bcf202629662757296cdd2",
+      "test_result_lines": [
+        "test result: ok. 544 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 89.69s"
+      ]
+    },
+    "emitter_docs": {
+      "log": "p5-ssa-doc-final.log.gz",
+      "uncompressed_sha256": "29c79e0371b563d0d286c60d09050deedf1ecca951415dcb4b1a864a6a211546",
+      "archive_sha256": "4b9d4c2b1b8fe8c9149b812afe13ac956ba9271ab2cc2d22c0d0feb88554da69",
+      "test_result_lines": [
+        "test result: ok. 118 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s"
+      ]
+    },
+    "new_rust_format": {
+      "log": "p5-ssa-format.log.gz",
+      "uncompressed_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+      "test_result_lines": []
+    },
+    "diff_check": {
+      "log": "p5-diff-check.log.gz",
+      "uncompressed_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+      "test_result_lines": []
+    }
+  },
+  "sdk": "3.6.2",
+  "llvm": "22.1.8",
+  "workspace_approval": false,
+  "noescape_aot_certified": false,
+  "realtime_certified": false,
+  "jit_late_callback_reload_certified": false,
+  "existing_warning": "unused_mut in llvm/roots.rs"
+}

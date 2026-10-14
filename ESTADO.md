@@ -1,5 +1,494 @@
 # Estado do DartForge — 2026-10-13
 
+## Continuação: callbacks fechados, SSA e janela AppKit (2026-10-13)
+
+P5 implementado para **código AOT residente no processo**: fechar o
+NativeCallable publica um tombstone antes de soltar o root da closure.
+Trampolim e contexto nativo publicados nunca são reutilizados; chamadas tardias
+retornam exceptionalReturn escalar, descartam void/listener ou zeram retorno
+composto, antes de decodificar argumentos ou entrar no isolado. Frame já ativo
+protege sua captura até retornar. Teardown do worker aposenta callbacks antes
+de notificar onExit; no principal, após finalizers e formatação da exceção.
+
+**18 casos nativos passaram**, em tracing/ARC/ARC preparado, normal e GC stress:
+retorno inteiro de thread estrangeira, tipos escalares, fechamento na própria
+chamada, 256 endereços distintos, callback do worker após onExit e chamada C de
+atexit. Erro toString ainda chama callback vivo (15); após finalização, atexit
+recebe exceptionalReturn (69), com saídas 0/255 conferidas. Builds usam símbolos
+removidos por padrão. Outras **seis execuções nativas passaram** para structs
+de 8 bytes (direto) e 24 bytes (retorno indireto), zerados após close.
+VM/AOT oficial executam somente a alternativa segura que não chama após close.
+Registros: `late-callback-validation.json` e
+`late-composite-callback-validation.json` no diretório de evidências do pacote.
+
+**Limites:** a memória nativa desses contextos/slots cresce com a criação de
+callbacks e fica até o fim do processo. Unloading/reload JIT não tem garantia
+de retenção do código de entrada. Callback local **vivo** vindo de outra thread
+continua fatal; P4 e a entrada preparada de áudio continuam pendentes.
+
+NoEscape HIR v2 agora exige validação tipada CFG/SSA em todos os corpos
+admitidos: dominância, ordem de definição/uso, predecessor/arestas Phi, tipos e
+ABI das chamadas estáticas. IR malformado e operações fora do subconjunto são
+recusados. Permanecem quatro obrigações: mapping do parâmetro fonte para ABI,
+proveniência de aliases escalares nativos, helpers/cleanup gerados e nova prova
+após transformações. **Não certifica NoEscape AOT nem remove RC/GC.**
+Normalização de literais null/boolean exatos permite eliminar dispatch morto
+em predicados nullable preparados, preservando os produtores com efeito dos
+operandos booleanos eager. Seis variantes nativas produzem os mesmos
+87 bytes que VM/AOT oficial; os três IRs preservam comparação real do parâmetro
+com null e eliminam dispatch de igualdade nesses dois predicados. Registro
+`nullable-equality-validation.json`. Não é medida de ganho de desempenho.
+O verificador inicial P5 usava ARC_PREPARE, variável ignorada pelo compilador;
+foi corrigido para ARC_PREPARED e os casos foram repetidos. Registros iniciais
+ficam explicitamente superseded, sem comprovar o perfil preparado.
+
+Uma sonda adicional cria, mostra, redimensiona e fecha NSWindow real pelo
+backend embedded do dart_ui, conferindo registry, geração e eventos de resize/
+close, com progresso de timer/mensagem. Seis variantes passaram no registro
+histórico `embedded-window-validation.json` (CLI ab3c245e…); isso amplia a sonda
+anterior sem janela, mas não comprova rendering, teclado/mouse ou menus/modal.
+A sonda NSWindow foi repetida na CLI nova (6f963ffc…): seis variantes
+passaram com trace de 285 bytes e stderr vazio, em
+`embedded-window-current-validation.json`. Registros históricos não foram
+reatribuídos à CLI nova. Gate atual passou: **544 testes de biblioteca do emissor
+(incluindo ignorados), 119 testes dos exemplos da documentação Rust do emissor e 362 do runtime**
+(118 casos positivos e um caso de rejeição esperada; runtime: 253 lib,
+24 integração, 85 docs), com SDK 3.6.2/LLVM 22 explícitos. Rustfmt dos novos
+arquivos SSA/normalização e diff check passaram. Logs/hashes estão em
+`p5-ssa-final-gates.json`; resta o aviso preexistente unused_mut em roots.rs.
+Não é aprovação global do workspace. O objetivo geral P1–P17 permanece
+incompleto.
+
+## Continuação: recursos, bibliotecas e memória mapeada (2026-10-13)
+
+O pacote único exporta `using`, `usingAsync`, `ScopedResource`,
+`ResourceHandle`, `NativeLibrary`, `MappedMemory` e `MappedBytes`.
+`using` usa `try/finally` com corpo síncrono; `usingAsync` aguarda antes da
+liberação. Erro de liberação prevalece sobre erro do corpo, conforme Dart.
+O corpo não pode reter o recurso; não há prova de escape nem semântica ARC.
+`ResourceHandle` tenta liberar uma vez, inclusive quando o callback falha.
+
+P16: `NativeLibrary.openFirst` preserva ordem, caminho escolhido e os erros
+de todas as tentativas quando nenhuma funciona. `hasSymbol`, lookup e acesso
+ao handle emprestado usam o FFI existente. Close é idempotente; consultas
+posteriores são recusadas. Ponteiros/funções já obtidos dependem da biblioteca
+aberta. Não implementa ligação estática automática de `@Native`.
+
+P17: mapeamento compartilhado de arquivo existente, intervalos conferidos,
+offsets alinhados, intervalos vazios, escrita e flush explícito. Implementação
+FFI para macOS/Linux/Windows de 64 bits; **execução validada somente no macOS**.
+`MappedBytes` confere acesso e owner a cada operação, inclusive após close.
+`withBytes` empresta uma Uint8List externa sem cópia; readonly também impede
+escrita pela view do buffer. O empréstimo deve ser síncrono e não escapar;
+close é recusado durante o callback. Views brutas escapadas não são revogáveis.
+É necessário impedir truncamento externo e sincronizar escritores concorrentes.
+Os donos implementam `ScopedResource`; não há finalização automática.
+
+**18 execuções nativas passaram**, iguais à VM/AOT oficial, nos seis modos
+de cada sonda: bibliotecas, escopos e mapeamento. Análise do pacote sem problemas.
+`scripts/verify-package-resources.py` confere referências, artefatos/manifestos
+distintos e estabilidade das fontes. Registro em
+`bench/results/2026-10-13-dartforge-package/resources-and-mapping-validation.json`.
+A primeira rodada foi recusada por alteração de fonte durante os testes;
+a rodada final foi repetida após congelar a correção de captura de erro do SO.
+Depois, seis execuções adicionais de mapeamento conferiram explicitamente
+ENOENT/ERROR_FILE_NOT_FOUND (código 2), iguais à VM/AOT oficial, em
+`mapped-memory-os-errors-validation.json`.
+Outras seis execuções conferiram acesso a partir de isolado estrangeiro:
+transferência recusada ou acesso recusado, preservando o mapping do dono,
+iguais à política verificada na VM/AOT oficial. Registro separado em
+`mapped-memory-owner-validation.json`.
+Não são medidas de desempenho nem validação do Windows/Linux.
+
+Há uma análise interna inicial de não publicação sobre HIR, separada da
+certificação de `NoEscape`. Resultados exigem auditoria de ABI, helpers gerados
+e cleanup; a gate das anotações continua recusando obrigações não provadas.
+Revisão independente identificou reconstrução de handles por leituras
+escalares de campos/globais: esses acessos são recusados sem witness de layout.
+Memória local sem prova de inicialização definida também é recusada: leitura
+escalar não inicializada pode expor bits antigos de referências. **16 testes
+do recorte HIR passaram**, incluindo essas regressões e hashes sem mapas de
+debug não ordenados, preservando bits de NaN. Obrigações de ABI/SSA/helpers
+ficam explícitas nos resultados; não permitem reduzir RC/GC ou certificar AOT.
+O gate ampliado do emissor passou em **518 testes de biblioteca**, incluindo
+os ignorados, com LLVM 22 e SDK 3.6.2 explícitos. A primeira execução escolheu
+o Clang do sistema, sem `ld64.lld`/`lld-link`: suas 15 falhas foram todas de
+lançamento dos linkers, sem falha de asserção de comportamento. A repetição
+com o toolchain correto passou. As pendências gerais do workspace continuam
+registradas nas seções anteriores; este recorte não é aprovação global.
+Também passaram 118 doctests do emissor; a documentação Rust do crate foi
+gerada (resta o aviso `unused_mut` preexistente em `llvm/roots.rs`). Logs e
+hashes do checker estão indexados em `resources-final-gates.json`.
+Afinidade, prova transitiva completa, ponte de áudio e demais P1–P17 seguem
+no escopo da continuação; o objetivo geral permanece incompleto.
+
+## Continuação: dispatcher AppKit e normalização dos contratos (2026-10-13)
+
+Implementado `EventLoop.supportsNativeEventDispatcher`, registro e retirada
+de `void Function()` para trabalho nativo limitado. O callback roda no turno
+externo Dart, após o CFRunLoop retornar, microtasks e controle do isolado;
+nunca por dreno Dart dentro de um frame estrangeiro. Root persistente e frame
+ativo protegem substituição/remoção/desligamento durante o próprio callback.
+Disable/teardown removem o registro; reentrância/modal P3 continua ausente.
+
+No dart_ui, duas alterações na `main`: hook opcional de início no
+`MacosEmbeddedWindowingBackend` (padrão do SDK modificado preservado) e cleanup
+de inicialização parcial; descrição do status ativo aceita um adapter
+compatível. O probe real usa `finishLaunching` e dispatcher de NSEvents,
+sem símbolos `Dart_*` falsos. **Seis variantes nativas passaram**: falha
+injetada preserva erro e limpa delegate/sink; backend novo recebe lançamento,
+entrega evento sintético, avança timer/mensagem e encerra. Não cria janela;
+rendering, input, menus/resize/modal não estão cobertos por essa evidência.
+
+Implementada normalização A0 das quatro anotações: identidade definidora,
+esquema, const aliases globais/estáticos/locais, prefixos/reexports, spans,
+alvos e corpo disponível. Homônimos/shadowing/ambiguidade não ganham autoridade.
+Preferências e obrigações têm tipos distintos, sem gerar fatos de segurança.
+`--dartforge-contracts=verify|ignore` é opção explícita e imutável de AOT/IR.
+Padrão `verify`: pedidos NoEscape/Realtime conhecidos são recusados com posição,
+pois **seus checkers completos de emissão ainda não existem**. Preferências são
+`not_applied`; `ignore` registra pedidos/diagnósticos sem certificá-los.
+Erros de linguagem Dart continuam verificados. Manifesto `.contracts.json`
+acompanha cada artefato com hashes/origem/política e `certified: false`;
+mudanças entram no cache, preservando emissão relocatável. O nome inclui
+o nome completo do artefato para não colidir entre `.arc`/`.tracing`.
+
+**Resposta sobre Isolate.onEvent/handleEvent:** não implementados no DartForge,
+cuja biblioteca/overlay usa SDK 3.6.2. A bomba nativa administra espera e filas;
+não oferece contagem de notificações por evento nem processamento externo de
+um evento. Essas APIs ajudariam P2, mas exigem ownership de agendamento,
+notificação de timers prontos, protocolo de callback fora do isolado e turno
+único; não resolvem automaticamente P3 ou áudio em thread estrangeira.
+Na [patch 3.13.3](https://github.com/dart-lang/sdk/blob/3.13.3/sdk/lib/_internal/vm/lib/isolate_patch.dart#L738)
+lançam UnsupportedError. A superfície experimental foi retirada do main,
+conforme [SDK #64285](https://github.com/dart-lang/sdk/issues/64285).
+`@Since` marca a declaração, não a implementação.
+
+Validação funcional e registros em
+`bench/results/2026-10-13-dartforge-package/`; scripts duráveis do pacote
+verificam política de contratos e `scripts/verify-native-pump.py` verifica
+wake, ciclo de vida, dispatcher e saída de erro. A ponte preparada de áudio,
+checkers NoEscape/Realtime, suporte Windows/Linux e loops modais continuam
+pendentes. Não inferir ganho de desempenho desses testes.
+
+Gates deste recorte: **502 testes de biblioteca do emissor, 24 de integração
+e 117 doctests; 358 do runtime; 118 de tipos; 5 de CLI**. Todos passaram,
+incluindo os ignorados nos escopos executados. Os testes de integração do
+emissor requerem `DARTFORGE_TEST_SDK_LIB` apontando para o SDK 3.6.2; sem essa
+configuração a primeira execução falhou por ausência do SDK, e foi repetida
+com a configuração correta. Análise de `packages/dartforge` sem problemas.
+Não é aprovação do workspace inteiro: pendências gerais de fmt/Clippy/JIT
+registradas abaixo continuam. Registros finais separados preservam os hashes
+históricos: `contracts-final-validation.json`,
+`pump-dispatcher-final-validation.json` e `stress-current-validation.json`.
+O runner `scripts/verify-embedded-integration.py` repetiu os seis modos
+AppKit com o mesmo compilador final; registro separado em
+`embedded-integration-final-validation.json`. `final-gates.json` indexa
+os logs compactados dos gates deste recorte.
+
+## Continuação: pacote único, bomba macOS e entrada de áudio pendente (2026-10-13)
+
+Três subagentes trabalharam na `main`, sem branches, worktrees ou commits.
+`packages/dartforge` reúne SIMD, metadata e capacidades do runtime.
+**`packages/dartforge_simd` foi removido por pedido do proprietário**;
+consumidores locais migraram para `package:dartforge/simd.dart` ou
+`package:dartforge/dartforge.dart`. A implementação SIMD foi movida sem
+alteração; o LLVM continua emitindo operações em `<4 x i32>`.
+
+Disponíveis `@PreferRegion()`, `@PreferAcyclic()`, `@NoEscape()` e `@Realtime()`,
+também por `package:dartforge/annotations.dart`, com esquema 1 e mesma identidade.
+`meta` dá feedback dos alvos expressáveis; não tem alvo de variável local,
+portanto `PreferAcyclic` mantém seus alvos documentados. **São metadata portátil:
+o compilador ainda não aplica essas preferências nem certifica esses contratos.**
+A especificação usa a declaração em `package:dartforge/src/annotations.dart`;
+o modo de verificação continua proposta.
+
+Implementado adaptador macOS opt-in: `EventLoop.supportsNativePump`,
+`enableNativePump()`, `disableNativePump()` e pedido de encerramento por microtask.
+Integra CFRunLoop/fila principal à espera do runtime na thread principal;
+mensagens, timers e microtasks acordam uma fonte persistente. A espera libera
+locks/empréstimos antes de entrar no SO; instalação e notificadores são
+sincronizados, com última liberação pelo dono após o retorno do callback CF.
+Habilitar mantém o processo vivo; operações são idempotentes, com encerramento
+explícito. VM/outros sistemas não oferecem a capacidade. A aplicação continua
+responsável pelos NSEvents; adaptação a `appkitEmbedded`, reentrância P3,
+callback síncrono entre threads P4 e fechamento tardio seguro P5 estão pendentes.
+
+**Áudio:** falta a ponte AOT preparada do §36.4 de
+`docs/ARC-CICLOS-ESPECIFICACAO.md`. Listener entrega eventos assíncronos;
+isolateLocal exige a thread proprietária. Esperar o isolado responder
+introduz bloqueio proibido por `dsp-v1`. Próximo passo: kernel C ABI sobre
+buffers/contexto preparados, verificação transitiva pós-lowering, domínio
+explícito e protocolo de admissão/quiescência/descarte fora do callback.
+`Realtime` não habilita entrada estrangeira nem certifica o wrapper.
+
+Corpus ampliado com `ffi_probe.dart`: alocador/arena reais do dart_ui,
+alinhamento, views/overlap, UTF-8/UTF-16, mutex, structs e callbacks com erro
+e encerramento após entregas. FFI/vídeo/strips deram **18 execuções** nos
+seis modos tracing/ARC/ARC preparado, normal/stress, idênticas à VM/AOT oficial
+(550/9.067/33.201 bytes). A bomba passou em **12 execuções** de fila principal,
+wake de timer/microtask, mensagem de worker, rejeição fora da thread principal
+e desligamento em callback sem timer/port Dart mantendo o processo vivo.
+Metadata teve seis execuções iguais; SIMD preservou resultado e IR vetorial.
+Não são medidas de ganho de desempenho. Vídeo agora tem benchmark separado,
+com conversão e checksum discriminados e destino reutilizado.
+
+O probe de metadata expôs contrato de ownership ausente para `Timer.tick`
+no SDK preparado. Adicionados contratos escalares explícitos para ele e para
+as três entradas da bomba, com efeitos conservadores e regressão que rejeita
+retorno `Ref` incorreto; verificador preservado. Gates finais:
+**496 testes do emissor e 353 do runtime** (244 unitários, 24 integração,
+85 doctests), incluindo ignorados por padrão, passaram. Análise Dart limpa;
+três alvos inválidos receberam diagnóstico. `cargo fmt --check` continua
+falhando em arquivos do workspace; não declarar gates globais aprovados.
+
+Evidências em `bench/results/2026-10-13-dartforge-package/`; logs/binários em
+`target/`, todos no SSD. Pacote local, sem publicação; nenhuma alteração no
+repositório dart_ui nem comandos mobile nesta entrega.
+
+## Continuação: corpus real do dart_ui e timer periódico (2026-10-13)
+
+Incorporadas as correções do proprietário em
+`RELATORIO-DARTFORGE-PARA-DART-UI.md` §§7–8: corpus diferencial primeiro,
+reaproveitamento de `appkitEmbedded`, capacidades específicas e contratos
+explícitos; mobile continua proposta e exige separar host/alvo. A entrega
+anterior foi renumerada para §9, preservando essas seções.
+
+Três subagentes avançaram em frentes independentes. Criados
+`bench/dart_ui/video_probe.dart` e `strip_probe.dart`, importando o código
+atual da `main` do framework, sem vendoring nem mudanças no dart_ui.
+`python3 scripts/verify-dart-ui.py --dart-ui-root <checkout> --output <SSD>`
+compara VM JIT, AOT oficial e tracing/ARC/ARC preparado, normal e GC stress;
+gera package config próprio e registra hashes das fontes, compilador e flags.
+Não executa `pub get` nem modifica a configuração do framework.
+
+**Vídeo:** NV12/I420/YUY2 em seis pares espaço/faixa, strides/offsets,
+matriz com tolerância de um nível, BGRA, opacidade, crop, destino reutilizado
+e RGBA/BGRA empacotados. Saída completa de **9.067 bytes** idêntica.
+**Strips:** 11 cenas com curvas, clipping fracionário, transformação afim,
+sobreposição, winding/holes e geometria maior que o viewport; pixels e todos
+os registros/alphas ativos. Saída de **33.201 bytes** idêntica. Ao todo,
+**12 execuções nativas** iguais às duas referências. O modo separado
+`--benchmark` consome os registros e bytes em checksum; o smoke teve
+382 quads, checksum 948835220 e zero crescimento nos quatro AOTs. Não foi
+uma medição de ganho de desempenho.
+
+Corrigido o catch-up observado no probe `qsort`: o runtime aplica a regra do
+SDK 3.6.2 **antes do callback**, pula períodos somente quando atraso > período,
+e mantém a fase ao reagendar. `Timer.tick` inclui os períodos pulados; período
+zero continua incrementando uma vez por callback. Getter nativo registrado
+no catálogo e na tabela de efeitos, com classificação conservadora.
+As regressões `142_periodic_timer_native_callback.dart` e
+`143_periodic_timer_delayed_callback.dart` conferem bloqueio nativo, callback
+lento, microtasks, cancelamento e período zero, sem igualdade de tempo de
+parede: **12 execuções AOT** iguais à VM e ao AOT oficial nos mesmos seis modos.
+
+O probe portátil real passou novamente: zero ticks dentro do callback por
+~1.500 ms e **quatro após retornar**, contra 34 antes da correção; nessa rodada,
+o comportamento de entrega pós-bloqueio ficou alinhado à referência. Isto
+não implementa progresso dentro de callback nem loops modais/reentrância.
+HTTP também respondeu **1.100 JSONs corretos** (100 + 1.000 de aquecimento)
+com GC stress, como teste funcional, sem usar seu tempo como benchmark.
+
+Gates das partes alteradas, incluindo os testes ignorados por padrão:
+**494 testes do emissor** e **349 do runtime** (240 unitários, 24 integração,
+85 doctests), sem falhas ou ignorados. As limitações gerais de
+fmt/Clippy/JIT do workspace permanecem; não declarar gate global aprovado.
+Dados em `bench/results/2026-10-13-dart-ui-corpus/validation.json`;
+logs/binários locais em `target/dart-ui-evidence/`, no SSD. Temporários
+próprios removidos após arquivar os logs.
+
+Próximo marco conforme a revisão: ampliar recortes FFI/assincronismo e medir
+kernels com cargas controladas; depois adaptar o runtime ao `appkitEmbedded`
+com wake sem perda e ciclo de vida definido. Sem nova API `runOneTurn`,
+callbacks síncronos entre threads ou comandos mobile nesta entrega.
+
+## Continuação com subagentes: base nativa para dart_ui (2026-10-13)
+
+Três subagentes trabalharam em arquivos separados, na `main`, sem branches,
+worktrees ou commits. Implementada a base da fase 1 de
+`RELATORIO-DARTFORGE-PARA-DART-UI.md`:
+
+- **Detecção AOT:** `const bool.fromEnvironment('dartforge.compiler')` é
+  `true`; `String.fromEnvironment` dá `"true"` e `bool.hasEnvironment` dá
+  `true`. A consulta `int` usa o default, pois `"true"` não é inteiro.
+  Constantes locais/importadas e identidade em coleções são preservadas.
+  Não foi adicionada uma opção geral `-D`; nomes const cujo cálculo ainda
+  não suportamos dão diagnóstico, em vez de assumir silenciosamente ausência.
+  O analisador continua mantendo consultas desconhecidas; outros backends
+  não foram validados nesta rodada.
+- **Inline:** `vm:prefer-inline` usa preferência limitada na HIR e
+  `inlinehint` no LLVM; `vm:never-inline` impede cópia HIR e emite `noinline`.
+  Cobre funções, métodos/getters, construtores, funções locais e corpos
+  async; preserva metadata no ARC preparado. Recursão, restrições estruturais
+  e de depuração continuam prevalecendo sobre a preferência.
+- **Windows GUI:** `aot`/`compile-native` aceitam `--subsystem=gui|console`.
+  A ligação escolhe o subsistema PE e o CRT correspondente, com
+  `_set_app_type(2)` para GUI e entrada `mainCRTStartup`. Padrão console;
+  GUI rejeitado em outros hosts. Não há patch do executável após a ligação.
+
+Validação integrada: **487 testes do emissor passaram**, sete ignorados;
+**três testes de CLI passaram**. O teste opcional de ligação cruzada também
+passou: headers PE GUI=2 / console=3 e entradas válidas, além da ligação DLL.
+Sem Windows/Wine nesta máquina, não houve execução Windows. As regressões
+novas `140_compiler_environment.dart` e `141_inline_pragmas.dart`, JSON `138`,
+Socket `139` e a composição de pixels real do dart_ui deram **30 execuções
+AOT iguais ao Dart**, em tracing/ARC/ARC preparado, com e sem GC stress,
+efeitos e RC conferidos. A `140` também passa na VM com a definição explícita
+`-Ddartforge.compiler=true`; sem ela, valida o fallback oficial.
+
+Sondas reais do dart_ui, sem modificar seu repositório: transferência de frames
+compilou/executou os quatro caminhos e confirmou visibilidade em **200 rodadas**;
+o probe portátil de callback `qsort` compilou/executou e reproduziu o bloqueio
+nos dois mundos: **zero ticks durante ~1.505 ms**. Após retornar, o DartForge
+entregou 34 ticks contra quatro da VM; registrar/investigar catch-up do timer
+periódico antes de comparar responsividade. O teste de frames rodou enquanto
+havia builds, portanto os seus tempos não são uma comparação de desempenho.
+
+Evidências em `bench/results/2026-10-13-dart-ui-phase1/validation.json` e logs
+comprimidos em `target/dart-ui-evidence/phase1/`, no SSD. Não há ganho de tempo
+atribuído ao inline nesta entrega. Os números históricos do comparativo não
+foram substituídos por estes testes funcionais. Fmt/Clippy/JIT seguem com as
+limitações gerais já registradas.
+
+**Após o corpus diferencial da revisão §7: P1/P2**, bomba macOS opt-in com fonte persistente de CFRunLoop
+e wake integrado ao `IsolateQueue`, sem perder notificações entre destravar
+e esperar, com bombeamento também entre lotes de trabalho Dart. Tratar pausa,
+encerramento e temporização. Isso ainda não distribui `NSEvent` do AppKit.
+P3 fica separado: `dispatch_next` hoje usa um único `CURRENT`/`MESSAGE_ROOT`;
+é necessário empilhar estado e raízes antes de oferecer um turno reentrante.
+Detecção arbitrária de dependências Future/deadlocks e orçamento capaz de
+interromper callbacks longos continuam propostas, sem implementação.
+
+## Continuação: validação de constantes antes do AOT (2026-10-13)
+
+Corrigida a aceitação de `const JsonUtf8Encoder()` pelo `compile-native`.
+O emissor agora executa o verificador de constantes compartilhado com o
+analisador antes do lowering, em todas as bibliotecas de usuário, inclusive
+código não alcançável. A inferência registra vínculos de declarações locais
+para preservar referências entre constantes. As declarações públicas dos
+construtores do SDK são consultadas sem verificar os corpos internos do SDK.
+
+Validação: **480 testes do emissor passaram**, sete ignorados; os dois testes
+novos também passaram após ampliar os casos para imports, typedefs, records
+e construtores encaminhados por mixin. Dez exemplos inválidos foram rejeitados
+pelo DartForge e pelo Dart oficial sem emitir IR. Os **128 arquivos da raiz de
+`corpus/native/` emitiram IR**; isso não equivale à execução de todo o corpus.
+As sondas `53`, `120` e `131` deram **18 execuções idênticas ao Dart**, em
+tracing, ARC e ARC preparado, com e sem GC stress e efeitos/RC conferidos.
+
+Os servidores original e UTF-8 recompilaram e validaram 110 respostas JSON
+cada, contando o aquecimento. Compilações aquecidas: **0,369 s / 0,448 s**;
+primeiras compilações: 16,689 s / 2,638 s, com cache em estados diferentes.
+Não houve nova medição de desempenho de execução. Evidências em
+`bench/results/2026-10-13-http-json-aot/const-validation.json` e detalhes em
+`RELATORIO-HTTP-JSON-AOT.md` §10. Logs comprimidos no SSD; temporários removidos.
+As pendências gerais de fmt/Clippy/JIT permanecem.
+
+Próximo foco de desempenho: medir alocações temporárias de objetos/mapas no
+encode de JSON e o custo de Stream/Future antes de escolher a próxima mudança.
+
+## Continuação: leitura direta e medições HTTP/JSON (2026-10-13)
+
+`Socket_Read` agora lê no buffer Dart, seguindo o SDK 3.6.2. Leituras completas
+dispensam o buffer Rust de payload e a cópia posterior. Leituras curtas copiam
+para uma lista de tamanho exato, sem prender a capacidade originalmente
+solicitada. O receiver e o buffer parcial ficam enraizados durante alocações.
+Não muda a ABI; as demais rotas de I/O continuam como estavam.
+
+Validação: runtime **345 testes passaram**; TCP/HTTP `04` e a nova regressão
+`139_socket_read_buffers.dart` idênticos ao Dart em tracing, ARC e ARC
+preparado, com e sem GC stress e efeitos/RC conferidos. A `139` também passou
+com coleta agendada (`42,3`) nos três modos. O teste unitário cobre leitura
+completa, curta, vazia, EOF, erro e tamanho físico exato sob GC stress.
+
+Medidas com uma conexão keep-alive e cliente Python local, cinco rodadas
+alternadas (CPU do processo por mil requisições; não capacidade máxima):
+
+| carga | antes | depois | resultado |
+| --- | ---: | ---: | --- |
+| GET texto, 50 mil por rodada | 35,0 ms | 34,4 ms | diferença pequena, faixas sobrepostas |
+| GET JSON pequeno, 50 mil | 37,2 ms | 37,2 ms | sem ganho de CPU demonstrado |
+| POST 64 KiB, resposta texto, 20 mil | 54,5 ms | 52,0 ms | **4,6% menos CPU** |
+| POST 64 KiB, resposta JSON pequena, 20 mil | 59,0 ms | 57,0 ms | **3,4% menos CPU** |
+
+A dica de JSON direto em UTF-8 também foi medida: exemplo separado
+`bench/comparison/server_utf8.dart`, encoder reutilizado, saída byte a byte
+igual. Contra `server.dart`, na mesma versão do runtime: **38,0 → 36,0 ms**
+por mil GETs JSON (**5,3% menos CPU**). O exemplo compila no Dart oficial e
+passou com GC stress no DartForge. Não são percentuais somáveis nem medidas
+do desafio SQLite/Linux. Detalhes e comandos em `RELATORIO-HTTP-JSON-AOT.md` §9.
+
+O medidor novo `scripts/measure-http-pairs.py` teve um erro inicial ao
+reutilizar a resposta como corpo do próximo POST. As rodadas afetadas foram
+descartadas e repetidas após a correção. Também foi corrigida a recomendação
+de `const JsonUtf8Encoder()`: o construtor não é const. O DartForge aceitou
+essa chamada inválida, embora o Dart oficial a rejeite; o diagnóstico no
+`compile-native` foi corrigido na continuação acima. O exemplo válido e as
+medidas finais não dependem dessa sintaxe inválida.
+
+A aceitação do construtor const inválido foi corrigida na continuação acima.
+Objetos/mapas temporários do encode e custo de Stream/Future seguem como foco.
+
+## Continuação: JSON com tabelas em produção no macOS arm64 (2026-10-13)
+
+Corrigido o aborto de `jsonDecode` identificado na rodada HTTP/JSON. No
+Mach-O produzido pela LTO do `ld64.lld` 22.1.8, `JsonCodec.decode` tinha
+encoding zero no unwind e perdia seu FDE; a personalidade não era chamada.
+O mesmo objeto nativo da LTO tinha o FDE e, religado, capturava a exceção.
+O caminho macOS arm64 de LTO com tabelas/mapas agora retém os objetos
+otimizados e faz a ligação final nativa, preservando o unwind. A otimização
+entre módulos continua; o custo é uma ligação adicional. Temporários ao
+lado da saída, removidos em sucesso e falha.
+
+Regressão nova `corpus/native/138_json_error_unwind.dart`: JSON inválido em
+String/UTF-8, encode não suportado, catch/finally e decode válido depois.
+Validação: **478 testes do emissor passaram**; regressão tracing/ARC e sondas
+`101`/`04` idênticas ao Dart em produção/tabelas, com e sem GC stress e efeitos
+conferidos, em duas compilações. Debug passou, recompilação aquecida produziu
+binário idêntico e erro injetado na ligação final não deixou temporários.
+O servidor AOT corrigido respondeu 1.000 JSONs corretos em keep-alive.
+ARC preparado também passou com e sem stress e com RC/efeitos conferidos.
+As recompilações aquecidas das sondas levaram 0,3–0,4 s; ganho de throughput
+ainda não medido. Detalhes em `RELATORIO-HTTP-JSON-AOT.md` §8. Mapas de raízes
+não executados nesta rodada; continuam as pendências gerais de fmt/Clippy/JIT.
+
+## HTTP/JSON AOT e toolchains no SSD (2026-10-13)
+
+A transferência de Dart e Rust para `/Volumes/ssd_dock/tools` foi concluída e
+testada pelo proprietário: Dart executou, Rust compilou e executou, e **6,26 GB**
+saíram do disco interno de 256 GB. `~/tools` aponta para o SSD, preservando
+referências antigas. `tools/env.zsh` define PATH, `CARGO_HOME`, `RUSTUP_HOME` e
+`PUB_CACHE`; carregar esse arquivo explicitamente nos comandos não interativos
+que não herdem as variáveis. Builds/caches ficam em `target/` no SSD e
+temporários desta rodada em `target/tmp-http-json` via `TMPDIR`.
+
+Analisados os quatro textos anexados, a transcrição do vídeo do servidor de
+US$ 12 e as regras do repositório. Resultado em
+`RELATORIO-HTTP-JSON-AOT.md`: priorizar menos cópias e objetos intermediários,
+JSON direto em UTF-8, perfil de criação/iteração de mapas e do SDK HTTP;
+statements preparados, JSON no SQLite e group commit são decisões da aplicação.
+Os 64 mil usuários do vídeo não são req/s nem uma medida do DartForge.
+
+**Implementado:** `Socket_WriteList` toma emprestada a fatia de bytes Dart
+durante o envio, eliminando o `Vec` temporário e a cópia da lista inteira.
+O empréstimo termina antes de construir um erro. Windows mantém a cópia
+necessária à operação overlapped; Unix consome a fatia durante a chamada.
+O teste com sockets reais cobre listas internas/externas, view somente leitura,
+offsets, envios vazios e erro do SO. O ganho estrutural é uma alocação e uma
+cópia Rust a menos por envio; throughput ainda não quantificado.
+
+Validação: runtime **344/344**, sonda TCP/HTTP idêntica à VM em tracing/ARC
+com e sem GC stress e com efeitos conferidos; servidor AOT respondeu 1.000
+JSONs corretos em uma conexão keep-alive. Na primeira rodada, a sonda
+JSON/mapas `101` passava com `check`, mas abortava com `tables`
+(`_Unwind_RaiseException returned 5`), também no compilador anterior; a
+continuação acima corrigiu esse caso. Documentação do workspace gerada com avisos;
+fmt/Clippy estritos têm pendências fora desta alteração e o teste completo
+do workspace foi bloqueado na ligação do JIT (bitcode LLVM 22 com ligador
+Apple/LLVM 21). Evidências e limites no relatório desta rodada.
+
+
 ## Fechamento de 2026-10-13 (macOS arm64)
 
 Dia de migração do código para o inglês e de rodadas paralelas em todas as

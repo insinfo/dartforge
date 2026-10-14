@@ -1,0 +1,706 @@
+{
+  "input_hashes": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_self_close_probe.dart": "765ce75861b3c7e70824afb92a8bbed767004c1783f080db9df16bae4352d3d8",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge": "9eb0fdb83416b7c8718c612275cf58c3b7c849f810561f3f8b4a7292bfe0ba4c",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sync-native-callable-final/helper.dylib": "7673f2c832081982cc114a3f96aaa0dd35a6163c2913f8e084e732407ee3356b"
+  },
+  "sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+  "flags": [
+    "--optimize",
+    "--exceptions=tables",
+    "--roots=shadow",
+    "--stack-trace=none",
+    "--dartforge-contracts=verify"
+  ],
+  "native_keep_symbols": false,
+  "results": [
+    {
+      "mode": "tracing",
+      "stress": false,
+      "exit": 0,
+      "stdout": "sync callback self-close preserves active captures and native storage\n",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_self_close_probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p4-self-close/self-close.tracing"
+      ],
+      "preparation_environment": {},
+      "binary_sha256": "dcb7a4bfdf7fbaa2519cac25dbdd6af1729c7b931212148e1ebbe6e8a872eab8",
+      "manifest_sha256": "57fbaac1c63ac3e59e1b6bc8ba1c69dff986e26d62a321ce0a45520ab59d3f73",
+      "manifest": {
+        "artifact": {
+          "blake3": "1a70781332874d460a10c44b8c3999d4bf96d1e11ef5e48ff432615b16d2e2b8",
+          "cpu": "None",
+          "debug": false,
+          "ir_blake3": "14a6f23f97bc4d5e0528de61482361518bf2670cb0d8e31f8001296acd27c04a",
+          "optimized": true,
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p4-self-close/self-close.tracing"
+        },
+        "certified": false,
+        "diagnostics": [],
+        "manifest_schema": 1,
+        "mode": "verify",
+        "package": {
+          "annotation_schema": 1,
+          "defining_uri": "package:dartforge/src/annotations.dart",
+          "sources": [
+            {
+              "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+              "uri": "package:dartforge/src/annotations.dart"
+            }
+          ]
+        },
+        "requests": [],
+        "sources": [
+          {
+            "blake3": "551c4a42626428fcc11e4e130ff9ff69120d3c08ec484dce82ed2fbc841944cc",
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_self_close_probe.dart"
+          },
+          {
+            "blake3": "4dcc4ee0c4cbc97b13e19d8a22958972029c7a4be97cac0f43ca02f6a037a3b4",
+            "uri": "package:dartforge/dartforge.dart"
+          },
+          {
+            "blake3": "add6af7df0d4d4a2b4cafc14b05a6b26b91b4834663f25cf430b39655faee72e",
+            "uri": "package:dartforge/src/native_pump.dart"
+          },
+          {
+            "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+            "uri": "package:dartforge/src/annotations.dart"
+          },
+          {
+            "blake3": "d6b128e8df6db2e9d2c1a15483d8fea64731c1f8a8c79781ddef31a04e476469",
+            "uri": "package:dartforge/simd.dart"
+          },
+          {
+            "blake3": "0efe15b6ae4e3d5f15f12264a85999a64fd47819b815f3ac0a149d88ffdd7f7c",
+            "uri": "package:dartforge/native_library.dart"
+          },
+          {
+            "blake3": "93c45c1740dad3ded61678bc0ad66a2dab66fca4e2a643f5aded1cdf2c42061a",
+            "uri": "package:dartforge/resources.dart"
+          },
+          {
+            "blake3": "400272401c971fa28339b397f9c2fd741823cd635d0aa192b336d3378c8135e2",
+            "uri": "package:dartforge/memory.dart"
+          },
+          {
+            "blake3": "db18ca8273285822352b9ca6524efb5ad9e093e9e3259bd6a89a03ec61b158a4",
+            "uri": "package:dartforge/callbacks.dart"
+          },
+          {
+            "blake3": "52efabb9cb13073495c1bbab73ca0f43039c0fb49d3f5ef506a5d62bc73532be",
+            "uri": "package:dartforge/src/sync_native_callable.dart"
+          },
+          {
+            "blake3": "367c7352d327b0862baa2e3da60863618d86425e638f24c88751fe37f49b9033",
+            "uri": "package:meta/meta_meta.dart"
+          },
+          {
+            "blake3": "0ae46a957c03d1787c39be78d897c8cd24ad43bb8e2fe075aa76405631ede0b9",
+            "uri": "package:dartforge/src/simd/int32x4_3_14.dart"
+          },
+          {
+            "blake3": "bac9953dc03b3bee16df1cccddfe00dbdb407cac47db53271ea77ef18fc30036",
+            "uri": "package:dartforge/src/native_library.dart"
+          },
+          {
+            "blake3": "f28ce127ee6c3233e23fd8186d39b3fd8e1c5527d4c33a76d59ae5e85559ffb2",
+            "uri": "package:dartforge/src/scoped_resource.dart"
+          },
+          {
+            "blake3": "13c4532118b9b3dc2f4ee33f3f7378ad2dc499bf7c937ee7758038ea14a5e59d",
+            "uri": "package:dartforge/src/mapped_memory.dart"
+          }
+        ],
+        "verification_implemented": false
+      }
+    },
+    {
+      "mode": "tracing",
+      "stress": true,
+      "exit": 0,
+      "stdout": "sync callback self-close preserves active captures and native storage\n",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_self_close_probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p4-self-close/self-close.tracing"
+      ],
+      "preparation_environment": {},
+      "binary_sha256": "dcb7a4bfdf7fbaa2519cac25dbdd6af1729c7b931212148e1ebbe6e8a872eab8",
+      "manifest_sha256": "57fbaac1c63ac3e59e1b6bc8ba1c69dff986e26d62a321ce0a45520ab59d3f73",
+      "manifest": {
+        "artifact": {
+          "blake3": "1a70781332874d460a10c44b8c3999d4bf96d1e11ef5e48ff432615b16d2e2b8",
+          "cpu": "None",
+          "debug": false,
+          "ir_blake3": "14a6f23f97bc4d5e0528de61482361518bf2670cb0d8e31f8001296acd27c04a",
+          "optimized": true,
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p4-self-close/self-close.tracing"
+        },
+        "certified": false,
+        "diagnostics": [],
+        "manifest_schema": 1,
+        "mode": "verify",
+        "package": {
+          "annotation_schema": 1,
+          "defining_uri": "package:dartforge/src/annotations.dart",
+          "sources": [
+            {
+              "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+              "uri": "package:dartforge/src/annotations.dart"
+            }
+          ]
+        },
+        "requests": [],
+        "sources": [
+          {
+            "blake3": "551c4a42626428fcc11e4e130ff9ff69120d3c08ec484dce82ed2fbc841944cc",
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_self_close_probe.dart"
+          },
+          {
+            "blake3": "4dcc4ee0c4cbc97b13e19d8a22958972029c7a4be97cac0f43ca02f6a037a3b4",
+            "uri": "package:dartforge/dartforge.dart"
+          },
+          {
+            "blake3": "add6af7df0d4d4a2b4cafc14b05a6b26b91b4834663f25cf430b39655faee72e",
+            "uri": "package:dartforge/src/native_pump.dart"
+          },
+          {
+            "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+            "uri": "package:dartforge/src/annotations.dart"
+          },
+          {
+            "blake3": "d6b128e8df6db2e9d2c1a15483d8fea64731c1f8a8c79781ddef31a04e476469",
+            "uri": "package:dartforge/simd.dart"
+          },
+          {
+            "blake3": "0efe15b6ae4e3d5f15f12264a85999a64fd47819b815f3ac0a149d88ffdd7f7c",
+            "uri": "package:dartforge/native_library.dart"
+          },
+          {
+            "blake3": "93c45c1740dad3ded61678bc0ad66a2dab66fca4e2a643f5aded1cdf2c42061a",
+            "uri": "package:dartforge/resources.dart"
+          },
+          {
+            "blake3": "400272401c971fa28339b397f9c2fd741823cd635d0aa192b336d3378c8135e2",
+            "uri": "package:dartforge/memory.dart"
+          },
+          {
+            "blake3": "db18ca8273285822352b9ca6524efb5ad9e093e9e3259bd6a89a03ec61b158a4",
+            "uri": "package:dartforge/callbacks.dart"
+          },
+          {
+            "blake3": "52efabb9cb13073495c1bbab73ca0f43039c0fb49d3f5ef506a5d62bc73532be",
+            "uri": "package:dartforge/src/sync_native_callable.dart"
+          },
+          {
+            "blake3": "367c7352d327b0862baa2e3da60863618d86425e638f24c88751fe37f49b9033",
+            "uri": "package:meta/meta_meta.dart"
+          },
+          {
+            "blake3": "0ae46a957c03d1787c39be78d897c8cd24ad43bb8e2fe075aa76405631ede0b9",
+            "uri": "package:dartforge/src/simd/int32x4_3_14.dart"
+          },
+          {
+            "blake3": "bac9953dc03b3bee16df1cccddfe00dbdb407cac47db53271ea77ef18fc30036",
+            "uri": "package:dartforge/src/native_library.dart"
+          },
+          {
+            "blake3": "f28ce127ee6c3233e23fd8186d39b3fd8e1c5527d4c33a76d59ae5e85559ffb2",
+            "uri": "package:dartforge/src/scoped_resource.dart"
+          },
+          {
+            "blake3": "13c4532118b9b3dc2f4ee33f3f7378ad2dc499bf7c937ee7758038ea14a5e59d",
+            "uri": "package:dartforge/src/mapped_memory.dart"
+          }
+        ],
+        "verification_implemented": false
+      }
+    },
+    {
+      "mode": "arc",
+      "stress": false,
+      "exit": 0,
+      "stdout": "sync callback self-close preserves active captures and native storage\n",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_self_close_probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p4-self-close/self-close.arc"
+      ],
+      "preparation_environment": {},
+      "binary_sha256": "457c8e23c186a8037792ffa11c9a3559a3ab4a6ef01d9388edfd30927b8a05c7",
+      "manifest_sha256": "bf9d43500a6f932445eb8c74dab87d38b3c28f6e44c9d7fdb8a3e9ea7de9ee41",
+      "manifest": {
+        "artifact": {
+          "blake3": "6dd01fb74d712e2bad60cb150da907ed6f28d42510945ed229daa28554dd6aad",
+          "cpu": "None",
+          "debug": false,
+          "ir_blake3": "bdd3a7a58a30c12123cc7c10c4e6d19d29587c278cafffba4a77a9baaeb5b66e",
+          "optimized": true,
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p4-self-close/self-close.arc"
+        },
+        "certified": false,
+        "diagnostics": [],
+        "manifest_schema": 1,
+        "mode": "verify",
+        "package": {
+          "annotation_schema": 1,
+          "defining_uri": "package:dartforge/src/annotations.dart",
+          "sources": [
+            {
+              "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+              "uri": "package:dartforge/src/annotations.dart"
+            }
+          ]
+        },
+        "requests": [],
+        "sources": [
+          {
+            "blake3": "551c4a42626428fcc11e4e130ff9ff69120d3c08ec484dce82ed2fbc841944cc",
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_self_close_probe.dart"
+          },
+          {
+            "blake3": "4dcc4ee0c4cbc97b13e19d8a22958972029c7a4be97cac0f43ca02f6a037a3b4",
+            "uri": "package:dartforge/dartforge.dart"
+          },
+          {
+            "blake3": "add6af7df0d4d4a2b4cafc14b05a6b26b91b4834663f25cf430b39655faee72e",
+            "uri": "package:dartforge/src/native_pump.dart"
+          },
+          {
+            "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+            "uri": "package:dartforge/src/annotations.dart"
+          },
+          {
+            "blake3": "d6b128e8df6db2e9d2c1a15483d8fea64731c1f8a8c79781ddef31a04e476469",
+            "uri": "package:dartforge/simd.dart"
+          },
+          {
+            "blake3": "0efe15b6ae4e3d5f15f12264a85999a64fd47819b815f3ac0a149d88ffdd7f7c",
+            "uri": "package:dartforge/native_library.dart"
+          },
+          {
+            "blake3": "93c45c1740dad3ded61678bc0ad66a2dab66fca4e2a643f5aded1cdf2c42061a",
+            "uri": "package:dartforge/resources.dart"
+          },
+          {
+            "blake3": "400272401c971fa28339b397f9c2fd741823cd635d0aa192b336d3378c8135e2",
+            "uri": "package:dartforge/memory.dart"
+          },
+          {
+            "blake3": "db18ca8273285822352b9ca6524efb5ad9e093e9e3259bd6a89a03ec61b158a4",
+            "uri": "package:dartforge/callbacks.dart"
+          },
+          {
+            "blake3": "52efabb9cb13073495c1bbab73ca0f43039c0fb49d3f5ef506a5d62bc73532be",
+            "uri": "package:dartforge/src/sync_native_callable.dart"
+          },
+          {
+            "blake3": "367c7352d327b0862baa2e3da60863618d86425e638f24c88751fe37f49b9033",
+            "uri": "package:meta/meta_meta.dart"
+          },
+          {
+            "blake3": "0ae46a957c03d1787c39be78d897c8cd24ad43bb8e2fe075aa76405631ede0b9",
+            "uri": "package:dartforge/src/simd/int32x4_3_14.dart"
+          },
+          {
+            "blake3": "bac9953dc03b3bee16df1cccddfe00dbdb407cac47db53271ea77ef18fc30036",
+            "uri": "package:dartforge/src/native_library.dart"
+          },
+          {
+            "blake3": "f28ce127ee6c3233e23fd8186d39b3fd8e1c5527d4c33a76d59ae5e85559ffb2",
+            "uri": "package:dartforge/src/scoped_resource.dart"
+          },
+          {
+            "blake3": "13c4532118b9b3dc2f4ee33f3f7378ad2dc499bf7c937ee7758038ea14a5e59d",
+            "uri": "package:dartforge/src/mapped_memory.dart"
+          }
+        ],
+        "verification_implemented": false
+      }
+    },
+    {
+      "mode": "arc",
+      "stress": true,
+      "exit": 0,
+      "stdout": "sync callback self-close preserves active captures and native storage\n",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_self_close_probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p4-self-close/self-close.arc"
+      ],
+      "preparation_environment": {},
+      "binary_sha256": "457c8e23c186a8037792ffa11c9a3559a3ab4a6ef01d9388edfd30927b8a05c7",
+      "manifest_sha256": "bf9d43500a6f932445eb8c74dab87d38b3c28f6e44c9d7fdb8a3e9ea7de9ee41",
+      "manifest": {
+        "artifact": {
+          "blake3": "6dd01fb74d712e2bad60cb150da907ed6f28d42510945ed229daa28554dd6aad",
+          "cpu": "None",
+          "debug": false,
+          "ir_blake3": "bdd3a7a58a30c12123cc7c10c4e6d19d29587c278cafffba4a77a9baaeb5b66e",
+          "optimized": true,
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p4-self-close/self-close.arc"
+        },
+        "certified": false,
+        "diagnostics": [],
+        "manifest_schema": 1,
+        "mode": "verify",
+        "package": {
+          "annotation_schema": 1,
+          "defining_uri": "package:dartforge/src/annotations.dart",
+          "sources": [
+            {
+              "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+              "uri": "package:dartforge/src/annotations.dart"
+            }
+          ]
+        },
+        "requests": [],
+        "sources": [
+          {
+            "blake3": "551c4a42626428fcc11e4e130ff9ff69120d3c08ec484dce82ed2fbc841944cc",
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_self_close_probe.dart"
+          },
+          {
+            "blake3": "4dcc4ee0c4cbc97b13e19d8a22958972029c7a4be97cac0f43ca02f6a037a3b4",
+            "uri": "package:dartforge/dartforge.dart"
+          },
+          {
+            "blake3": "add6af7df0d4d4a2b4cafc14b05a6b26b91b4834663f25cf430b39655faee72e",
+            "uri": "package:dartforge/src/native_pump.dart"
+          },
+          {
+            "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+            "uri": "package:dartforge/src/annotations.dart"
+          },
+          {
+            "blake3": "d6b128e8df6db2e9d2c1a15483d8fea64731c1f8a8c79781ddef31a04e476469",
+            "uri": "package:dartforge/simd.dart"
+          },
+          {
+            "blake3": "0efe15b6ae4e3d5f15f12264a85999a64fd47819b815f3ac0a149d88ffdd7f7c",
+            "uri": "package:dartforge/native_library.dart"
+          },
+          {
+            "blake3": "93c45c1740dad3ded61678bc0ad66a2dab66fca4e2a643f5aded1cdf2c42061a",
+            "uri": "package:dartforge/resources.dart"
+          },
+          {
+            "blake3": "400272401c971fa28339b397f9c2fd741823cd635d0aa192b336d3378c8135e2",
+            "uri": "package:dartforge/memory.dart"
+          },
+          {
+            "blake3": "db18ca8273285822352b9ca6524efb5ad9e093e9e3259bd6a89a03ec61b158a4",
+            "uri": "package:dartforge/callbacks.dart"
+          },
+          {
+            "blake3": "52efabb9cb13073495c1bbab73ca0f43039c0fb49d3f5ef506a5d62bc73532be",
+            "uri": "package:dartforge/src/sync_native_callable.dart"
+          },
+          {
+            "blake3": "367c7352d327b0862baa2e3da60863618d86425e638f24c88751fe37f49b9033",
+            "uri": "package:meta/meta_meta.dart"
+          },
+          {
+            "blake3": "0ae46a957c03d1787c39be78d897c8cd24ad43bb8e2fe075aa76405631ede0b9",
+            "uri": "package:dartforge/src/simd/int32x4_3_14.dart"
+          },
+          {
+            "blake3": "bac9953dc03b3bee16df1cccddfe00dbdb407cac47db53271ea77ef18fc30036",
+            "uri": "package:dartforge/src/native_library.dart"
+          },
+          {
+            "blake3": "f28ce127ee6c3233e23fd8186d39b3fd8e1c5527d4c33a76d59ae5e85559ffb2",
+            "uri": "package:dartforge/src/scoped_resource.dart"
+          },
+          {
+            "blake3": "13c4532118b9b3dc2f4ee33f3f7378ad2dc499bf7c937ee7758038ea14a5e59d",
+            "uri": "package:dartforge/src/mapped_memory.dart"
+          }
+        ],
+        "verification_implemented": false
+      }
+    },
+    {
+      "mode": "prepared",
+      "stress": false,
+      "exit": 0,
+      "stdout": "sync callback self-close preserves active captures and native storage\n",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_self_close_probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p4-self-close/self-close.prepared"
+      ],
+      "preparation_environment": {
+        "DARTFORGE_ARC_PREPARED": "1"
+      },
+      "binary_sha256": "de5c8b39fc858df03aa218a19c60fee9076cd8db9176d906b63613692077b981",
+      "manifest_sha256": "84c0c2508c76d400aa8815aa0d820c30926ffd42615a7b11db08bc4194bcc8a4",
+      "manifest": {
+        "artifact": {
+          "blake3": "21235b6d53d2009e7b4a7fb88f2671b6492c746c104656f385449d759fc22d79",
+          "cpu": "None",
+          "debug": false,
+          "ir_blake3": "81fa1268d47fcd8c50150b51a09dc41e98dbcf07a881a55898d1b7ca70e9922f",
+          "optimized": true,
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p4-self-close/self-close.prepared"
+        },
+        "certified": false,
+        "diagnostics": [],
+        "manifest_schema": 1,
+        "mode": "verify",
+        "package": {
+          "annotation_schema": 1,
+          "defining_uri": "package:dartforge/src/annotations.dart",
+          "sources": [
+            {
+              "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+              "uri": "package:dartforge/src/annotations.dart"
+            }
+          ]
+        },
+        "requests": [],
+        "sources": [
+          {
+            "blake3": "551c4a42626428fcc11e4e130ff9ff69120d3c08ec484dce82ed2fbc841944cc",
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_self_close_probe.dart"
+          },
+          {
+            "blake3": "4dcc4ee0c4cbc97b13e19d8a22958972029c7a4be97cac0f43ca02f6a037a3b4",
+            "uri": "package:dartforge/dartforge.dart"
+          },
+          {
+            "blake3": "add6af7df0d4d4a2b4cafc14b05a6b26b91b4834663f25cf430b39655faee72e",
+            "uri": "package:dartforge/src/native_pump.dart"
+          },
+          {
+            "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+            "uri": "package:dartforge/src/annotations.dart"
+          },
+          {
+            "blake3": "d6b128e8df6db2e9d2c1a15483d8fea64731c1f8a8c79781ddef31a04e476469",
+            "uri": "package:dartforge/simd.dart"
+          },
+          {
+            "blake3": "0efe15b6ae4e3d5f15f12264a85999a64fd47819b815f3ac0a149d88ffdd7f7c",
+            "uri": "package:dartforge/native_library.dart"
+          },
+          {
+            "blake3": "93c45c1740dad3ded61678bc0ad66a2dab66fca4e2a643f5aded1cdf2c42061a",
+            "uri": "package:dartforge/resources.dart"
+          },
+          {
+            "blake3": "400272401c971fa28339b397f9c2fd741823cd635d0aa192b336d3378c8135e2",
+            "uri": "package:dartforge/memory.dart"
+          },
+          {
+            "blake3": "db18ca8273285822352b9ca6524efb5ad9e093e9e3259bd6a89a03ec61b158a4",
+            "uri": "package:dartforge/callbacks.dart"
+          },
+          {
+            "blake3": "52efabb9cb13073495c1bbab73ca0f43039c0fb49d3f5ef506a5d62bc73532be",
+            "uri": "package:dartforge/src/sync_native_callable.dart"
+          },
+          {
+            "blake3": "367c7352d327b0862baa2e3da60863618d86425e638f24c88751fe37f49b9033",
+            "uri": "package:meta/meta_meta.dart"
+          },
+          {
+            "blake3": "0ae46a957c03d1787c39be78d897c8cd24ad43bb8e2fe075aa76405631ede0b9",
+            "uri": "package:dartforge/src/simd/int32x4_3_14.dart"
+          },
+          {
+            "blake3": "bac9953dc03b3bee16df1cccddfe00dbdb407cac47db53271ea77ef18fc30036",
+            "uri": "package:dartforge/src/native_library.dart"
+          },
+          {
+            "blake3": "f28ce127ee6c3233e23fd8186d39b3fd8e1c5527d4c33a76d59ae5e85559ffb2",
+            "uri": "package:dartforge/src/scoped_resource.dart"
+          },
+          {
+            "blake3": "13c4532118b9b3dc2f4ee33f3f7378ad2dc499bf7c937ee7758038ea14a5e59d",
+            "uri": "package:dartforge/src/mapped_memory.dart"
+          }
+        ],
+        "verification_implemented": false
+      }
+    },
+    {
+      "mode": "prepared",
+      "stress": true,
+      "exit": 0,
+      "stdout": "sync callback self-close preserves active captures and native storage\n",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_self_close_probe.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p4-self-close/self-close.prepared"
+      ],
+      "preparation_environment": {
+        "DARTFORGE_ARC_PREPARED": "1"
+      },
+      "binary_sha256": "de5c8b39fc858df03aa218a19c60fee9076cd8db9176d906b63613692077b981",
+      "manifest_sha256": "84c0c2508c76d400aa8815aa0d820c30926ffd42615a7b11db08bc4194bcc8a4",
+      "manifest": {
+        "artifact": {
+          "blake3": "21235b6d53d2009e7b4a7fb88f2671b6492c746c104656f385449d759fc22d79",
+          "cpu": "None",
+          "debug": false,
+          "ir_blake3": "81fa1268d47fcd8c50150b51a09dc41e98dbcf07a881a55898d1b7ca70e9922f",
+          "optimized": true,
+          "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-p4-self-close/self-close.prepared"
+        },
+        "certified": false,
+        "diagnostics": [],
+        "manifest_schema": 1,
+        "mode": "verify",
+        "package": {
+          "annotation_schema": 1,
+          "defining_uri": "package:dartforge/src/annotations.dart",
+          "sources": [
+            {
+              "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+              "uri": "package:dartforge/src/annotations.dart"
+            }
+          ]
+        },
+        "requests": [],
+        "sources": [
+          {
+            "blake3": "551c4a42626428fcc11e4e130ff9ff69120d3c08ec484dce82ed2fbc841944cc",
+            "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/sync_native_callable_self_close_probe.dart"
+          },
+          {
+            "blake3": "4dcc4ee0c4cbc97b13e19d8a22958972029c7a4be97cac0f43ca02f6a037a3b4",
+            "uri": "package:dartforge/dartforge.dart"
+          },
+          {
+            "blake3": "add6af7df0d4d4a2b4cafc14b05a6b26b91b4834663f25cf430b39655faee72e",
+            "uri": "package:dartforge/src/native_pump.dart"
+          },
+          {
+            "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+            "uri": "package:dartforge/src/annotations.dart"
+          },
+          {
+            "blake3": "d6b128e8df6db2e9d2c1a15483d8fea64731c1f8a8c79781ddef31a04e476469",
+            "uri": "package:dartforge/simd.dart"
+          },
+          {
+            "blake3": "0efe15b6ae4e3d5f15f12264a85999a64fd47819b815f3ac0a149d88ffdd7f7c",
+            "uri": "package:dartforge/native_library.dart"
+          },
+          {
+            "blake3": "93c45c1740dad3ded61678bc0ad66a2dab66fca4e2a643f5aded1cdf2c42061a",
+            "uri": "package:dartforge/resources.dart"
+          },
+          {
+            "blake3": "400272401c971fa28339b397f9c2fd741823cd635d0aa192b336d3378c8135e2",
+            "uri": "package:dartforge/memory.dart"
+          },
+          {
+            "blake3": "db18ca8273285822352b9ca6524efb5ad9e093e9e3259bd6a89a03ec61b158a4",
+            "uri": "package:dartforge/callbacks.dart"
+          },
+          {
+            "blake3": "52efabb9cb13073495c1bbab73ca0f43039c0fb49d3f5ef506a5d62bc73532be",
+            "uri": "package:dartforge/src/sync_native_callable.dart"
+          },
+          {
+            "blake3": "367c7352d327b0862baa2e3da60863618d86425e638f24c88751fe37f49b9033",
+            "uri": "package:meta/meta_meta.dart"
+          },
+          {
+            "blake3": "0ae46a957c03d1787c39be78d897c8cd24ad43bb8e2fe075aa76405631ede0b9",
+            "uri": "package:dartforge/src/simd/int32x4_3_14.dart"
+          },
+          {
+            "blake3": "bac9953dc03b3bee16df1cccddfe00dbdb407cac47db53271ea77ef18fc30036",
+            "uri": "package:dartforge/src/native_library.dart"
+          },
+          {
+            "blake3": "f28ce127ee6c3233e23fd8186d39b3fd8e1c5527d4c33a76d59ae5e85559ffb2",
+            "uri": "package:dartforge/src/scoped_resource.dart"
+          },
+          {
+            "blake3": "13c4532118b9b3dc2f4ee33f3f7378ad2dc499bf7c937ee7758038ea14a5e59d",
+            "uri": "package:dartforge/src/mapped_memory.dart"
+          }
+        ],
+        "verification_implemented": false
+      }
+    }
+  ]
+}

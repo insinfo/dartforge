@@ -103,6 +103,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(k) = self.primitive_const_key(vid) {
                     return Some(k);
                 }
+                // String constants also need their scalar identity when a native
+                // environment query is used through an imported alias.
+                if var.const_ && self.ctx.get_type(self.unit_id, e) == Some(self.ctx.core.string) {
+                    if let Some(init) = self.variable_initializer_in(vid) {
+                        let unit = match var.node {
+                            dartforge_elements::model::VariableRef::Field { unit, .. }
+                            | dartforge_elements::model::VariableRef::TopLevel { unit, .. } => Some(unit),
+                            _ => None,
+                        };
+                        if let Some(unit) = unit {
+                            let other = FnBuilder::new(self.ctx, unit, String::new(), String::new(), Type::Ref);
+                            if let Some(key) = other.constant_key(&self.ctx.program.unit(unit).ast, init, true) {
+                                if key.starts_with("s:") { return Some(key); }
+                            }
+                        }
+                    }
+                }
                 let library = self.ctx.library_name(var.library);
                 let owner = if let Some(cid) = var.class {
                     format!(".{}", self.ctx.symbol_name(self.ctx.program.class(cid).name))
@@ -314,6 +331,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// part of the identity of the constant), otherwise the second would be the first,
     /// with the wrong reified type (the `groupingStack` of the analyzer's scanner).
     fn creation_key(&self, ast: &ast::Ast, e: ExprId, fid: usize, arguments: &ast::Arguments) -> Option<String> {
+        if let Some((kind, has)) = self.environment_factory(dartforge_elements::model::FunctionElementId(fid as u32)) {
+            let key = arguments.args.iter().find(|a| a.name.is_none())?.value;
+            self.environment_key(self.unit_id, key, 0)?;
+            return match self.environment_value(self.unit_id, key, kind, has) {
+                Some(Constant::Bool(value)) => Some(format!("b:{value}")),
+                Some(Constant::String(value)) => Some(format!("s:{value:?}")),
+                _ => {
+                    if let Some(default) = arguments.args.iter().find(|a| a.name.is_some_and(|n| self.ctx.symbol_name(n.sym) == "defaultValue")) {
+                        self.constant_key(ast, default.value, true)
+                    } else {
+                        Some(match kind { "bool" => "b:false", "int" => "i:0", _ => "s:\"\"" }.to_string())
+                    }
+                },
+            };
+        }
         if !super::user_function(self.ctx, fid) {
             return None;
         }

@@ -68,6 +68,13 @@ pub extern "C" fn dartforge_init(input: extern "C" fn(), to_string_fn: extern "C
 /// call `exit` here: it is the only stretch of the runtime that both profiles
 /// drive, and it is written only once.
 pub fn finalize_program() -> i32 {
+    // Retire on every return path, after finalizers and exception formatting.
+    // The standalone profile does not run unmark_main_isolate().
+    struct RetireCallbacks;
+    impl Drop for RetireCallbacks {
+        fn drop(&mut self) { retire_isolate_callbacks(); }
+    }
+    let _retire_callbacks = RetireCallbacks;
     // The main isolate has ended: the attached `NativeFinalizer`s run.
     shutdown_isolate_finalizers();
     // `Isolate.exit` on the main isolate: it ended, without an error.

@@ -1,0 +1,29 @@
+{
+  "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-size-audit/file_explorer-post-getter-check-none",
+  "binary_sha256": "30487197e05e8b0ba902094dfcd288c6e41338eab536146f23871d31f1bc57f0",
+  "binary_bytes": 28808128,
+  "cwd": "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+  "args": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+    "--lang=en"
+  ],
+  "actions": [
+    {
+      "action": "capture",
+      "exit_code": 0,
+      "stdout": "{\"action\": \"capture\", \"window_id\": 1191, \"host_pid\": 87741, \"output\": \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-size-audit/post-getter-ui-retry\", \"application_alive\": true}\nPNG_DIMENSIONS=1392x912\n",
+      "stderr": ""
+    },
+    {
+      "action": "navigate",
+      "exit_code": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-size-audit/ui-compat/raise_and_control.py\", line 34, in <module>\n    c.main()\n  File \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer/ordinary_window_control.py\", line 242, in main\n    window = require_same_window(args.pid, window)\n  File \"/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer/ordinary_window_control.py\", line 203, in require_same_window\n    raise RuntimeError(f'Actual host window changed; expected {expected}, found {actual}')\nRuntimeError: Actual host window changed; expected {'kCGWindowName': 'File Explorer', 'kCGWindowLayer': 0, 'kCGWindowMemoryUsage': 2432, 'kCGWindowIsOnscreen': True, 'kCGWindowSharingState': 1, 'kCGWindowOwnerPID': 87741, 'kCGWindowOwnerName': 'dart_ui_macos_host', 'kCGWindowNumber': 1191, 'kCGWindowStoreType': 1, 'kCGWindowBounds': {'X': 320.0, 'Height': 800.0, 'Y': 78.0, 'Width': 1280.0}, 'kCGWindowAlpha': 1.0}, found []\n"
+    }
+  ],
+  "visual_review_completed": false,
+  "performance_claim": false,
+  "pid": 87740,
+  "poll_at_action_failure": null,
+  "exit_after_action_failure": 0
+}

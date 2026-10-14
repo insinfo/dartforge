@@ -1,0 +1,14 @@
+{
+  "cmd": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+    "analyze",
+    "--format=json",
+    "--all",
+    "--sdk-path=/Volumes/ssd_dock/MyRustProjects/dartforge/target/analyzer-sdk-path-before/selected",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/analyzer-sdk-path-before/main.dart"
+  ],
+  "cli_sha256": "fbbdd375c6a6058be2a83d4443619b2a18c95e149ee0840cc44594a303ff4a7f",
+  "exit": 3,
+  "stdout": "{\"version\":1,\"diagnostics\":[{\"code\":\"undefined_getter\",\"severity\":\"ERROR\",\"type\":\"COMPILE_TIME_ERROR\",\"location\":{\"file\":\"/Volumes/ssd_dock/MyRustProjects/dartforge/target/analyzer-sdk-path-before/main.dart\",\"range\":{\"start\":{\"offset\":43,\"line\":1,\"column\":44},\"end\":{\"offset\":57,\"line\":1,\"column\":58}}},\"problemMessage\":\"The getter 'selectedMember' isn't defined for the type 'String'.\",\"correctionMessage\":\"Try importing the library that defines 'selectedMember', correcting the name to the name of an existing getter, or defining a getter or field named 'selectedMember'.\",\"documentation\":\"https://dart.dev/diagnostics/undefined_getter\"}]}\n",
+  "stderr": ""
+}

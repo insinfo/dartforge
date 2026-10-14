@@ -49,8 +49,11 @@ vector registers end to end (no boxing, no allocation, no runtime calls on the h
 - **SIMD, Dart 3.6 API**: `Int32x4` has no multiply in 3.6, so lanes go through `Float32x4`
   and back, the way real rasterizers are written today;
 - **SIMD, Dart 3.14 API**: `Int32x4 * Int32x4` and `>>`, from the 3.14 `dart:typed_data`, provided
-  on the 3.6.2 SDK by [`packages/dartforge_simd`](packages/dartforge_simd) (plain Dart on the VM,
+  on the 3.6.2 SDK by [`packages/dartforge`](packages/dartforge) (plain Dart on the VM,
   a `<4 x i32>` instruction in DartForge).
+
+Import `package:dartforge/simd.dart` or the main
+`package:dartforge/dartforge.dart` entry point.
 
 Microseconds per call (lower is better), best of 7 rounds × 400 calls, minimum over 7 alternated
 runs of each binary on a busy machine (Windows x64, `aot --optimize`). "Before" is DartForge at

@@ -538,6 +538,7 @@ impl JitSession {
         let parsed = ffi::parse_module(name, &generation_ir)
             .map_err(|detail| JitError::new("parse-ir", "invalid IR", detail))?;
         self.check_target(&parsed)?;
+        let callback_registration = parsed.callback_registration_plan(self.lljit.supports_callback_owners());
         let parse_ir = phase.elapsed();
 
         let phase = Instant::now();
@@ -820,6 +821,9 @@ impl JitSession {
         // `plain` is only `Some` on the promotion path: when a reloadable module
         // with this name exists, `plain_module_index` returns `None`.
         if let Some(index) = plain {
+            if self.lljit.retains_callback_code() {
+                return Err(JitError::new("contract", "cannot promote a simple module after publishing native callback code; restart the session", String::new()));
+            }
             // Destructive point, and the only one: the stable names still belong to the
             // simple module, and the trampoline module cannot redefine them.
             // Unloading here is safe — `&mut self` guarantees nothing of the session
@@ -908,6 +912,16 @@ impl JitSession {
                     return Err(self.poison_if(promoted, error));
                 }
             }
+        }
+        // Looking up the owner slot materializes the generation. Its stable
+        // entry symbols must already exist, and no registration executes until
+        // publication initializes the slot below.
+        if let Err(detail) = self.lljit.initialize_callback_owner(&tracker, &callback_registration) {
+            let error = JitError::new("callback-owner", "could not initialize callback ownership", detail);
+            let _ = tracker.remove();
+            let orphans = std::mem::take(&mut slots);
+            self.register_unimplemented(name, orphans, &published, stub_tracker.take());
+            return Err(self.poison_if(promoted, error));
         }
         // The new generation's code is already linked, but the stable entries
         // still call the old one. Preserve only the program's statics;
@@ -1037,7 +1051,7 @@ impl JitSession {
         let reached_fns: HashSet<u32> = module.entries.values().map(|e| e.generation).collect();
         let mut retained_list = Vec::with_capacity(module.generations.len());
         for (g, resource_tracker) in std::mem::take(&mut module.generations) {
-            if g == generation || reached_fns.contains(&g) {
+            if self.lljit.retains_callback_code() || g == generation || reached_fns.contains(&g) {
                 retained_list.push((g, resource_tracker));
             } else if resource_tracker.remove().is_err() {
                 // LLVM did not unload: the generation stays retained, as before.

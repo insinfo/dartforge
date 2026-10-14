@@ -1,0 +1,1042 @@
+{
+  "compiler_sha256": "ab3c245e7128765041316d41ffaa6f36227762c518dd55ca6c7fb160526fa781",
+  "probe_sha256": "708303fd05fcb0ffa7b02578cf03bfaaa6d091ffa629bb6d33b11ac7e0450c3a",
+  "package_sha256": "35143d621d90983b276572361012e82aecf62e052909950954f192250a38f463",
+  "annotation_source_sha256": "769a2a85a5bfe3415652413084f8bb613014fbda392292fa78574fdc54bdf9bf",
+  "package_config_sha256": "47262a4e532ce50705a57198678021dd7e908611d4ab15729d316f1570d7b669",
+  "sdk": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\"",
+  "reference_stdout": "annotation portability and schema validated\n",
+  "commands": [
+    {
+      "label": "annotations-vm",
+      "command": [
+        "dart",
+        "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "run",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "annotations-official-build",
+      "command": [
+        "dart",
+        "compile",
+        "exe",
+        "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations-official"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "annotations-official",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations-official"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "annotations-default-verify",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations-default-rejected"
+      ],
+      "exit": 1
+    },
+    {
+      "label": "tracing-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations.tracing",
+        "--dartforge-contracts=ignore"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "tracing-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations.tracing"
+      ],
+      "exit": 0,
+      "matches_vm": true,
+      "stderr_empty": true
+    },
+    {
+      "label": "tracing-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations.tracing"
+      ],
+      "exit": 0,
+      "matches_vm": true,
+      "stderr_empty": true
+    },
+    {
+      "label": "arc-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations.arc",
+        "--dartforge-contracts=ignore"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "arc-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations.arc"
+      ],
+      "exit": 0,
+      "matches_vm": true,
+      "stderr_empty": true
+    },
+    {
+      "label": "arc-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations.arc"
+      ],
+      "exit": 0,
+      "matches_vm": true,
+      "stderr_empty": true
+    },
+    {
+      "label": "prepared-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations.prepared",
+        "--dartforge-contracts=ignore"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "prepared-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations.prepared"
+      ],
+      "exit": 0,
+      "matches_vm": true,
+      "stderr_empty": true
+    },
+    {
+      "label": "prepared-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations.prepared"
+      ],
+      "exit": 0,
+      "matches_vm": true,
+      "stderr_empty": true
+    },
+    {
+      "label": "annotations-ignore-ir",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations-ignore.ll",
+        "--dartforge-contracts=ignore",
+        "--emit-ir"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "preferences-vm",
+      "command": [
+        "dart",
+        "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "run",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/preferences.dart"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "preferences-default-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/preferences.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/preferences-default"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "preferences-default-run",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/preferences-default"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "preferences-verify-ir",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/preferences.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/preferences-verify.ll",
+        "--dartforge-contracts=verify",
+        "--emit-ir"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "preferences-ignore-ir",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/preferences.dart",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/.dart_tool/package_config.json",
+        "--optimize",
+        "--exceptions",
+        "tables",
+        "--roots",
+        "shadow",
+        "--stack-trace",
+        "none",
+        "--memory",
+        "tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/preferences-ignore.ll",
+        "--dartforge-contracts=ignore",
+        "--emit-ir"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "sdk-version",
+      "command": [
+        "dart",
+        "--version"
+      ],
+      "exit": 0
+    }
+  ],
+  "manifests": {
+    "tracing": {
+      "artifact": {
+        "blake3": "8bc5c4125e2d188498eddf413812c4fe9e93bb4e26700f710d5f28c2e089a663",
+        "cpu": "None",
+        "debug": false,
+        "ir_blake3": "27688cc42a4eb03c8bffffb98144b99816049db075ca1fb9934dbf9d38d2867d",
+        "optimized": true,
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations.tracing"
+      },
+      "certified": false,
+      "diagnostics": [],
+      "manifest_schema": 1,
+      "mode": "ignore",
+      "package": {
+        "annotation_schema": 1,
+        "defining_uri": "package:dartforge/src/annotations.dart",
+        "sources": [
+          {
+            "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+            "uri": "package:dartforge/src/annotations.dart"
+          }
+        ]
+      },
+      "requests": [
+        {
+          "body": "NotApplicable",
+          "certified": false,
+          "kind": "Preference(Acyclic)",
+          "reason": "preference recognized; policy selection is not implemented",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 254,
+            "start": 238
+          },
+          "status": "not_applied",
+          "target": "Class(ClassId(112))"
+        },
+        {
+          "body": "NotApplicable",
+          "certified": false,
+          "kind": "Preference(Acyclic)",
+          "reason": "preference recognized; policy selection is not implemented",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 294,
+            "start": 278
+          },
+          "status": "not_applied",
+          "target": "Constructor(FunctionElementId(1992))"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Preference(Region)",
+          "reason": "preference recognized; policy selection is not implemented",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 359,
+            "start": 348
+          },
+          "status": "not_applied",
+          "target": "Function(FunctionTarget { function: FunctionId(0), element: Some(FunctionElementId(1994)) })"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Obligation(NoEscape)",
+          "reason": "verification explicitly disabled; no safety fact produced",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 383,
+            "start": 372
+          },
+          "status": "ignored",
+          "target": "Parameter { owner: FunctionTarget { function: FunctionId(0), element: Some(FunctionElementId(1994)) }, index: 0 }"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Obligation(Realtime)",
+          "reason": "verification explicitly disabled; no safety fact produced",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 438,
+            "start": 417
+          },
+          "status": "ignored",
+          "target": "Function(FunctionTarget { function: FunctionId(1), element: Some(FunctionElementId(1995)) })"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Preference(Region)",
+          "reason": "preference recognized; policy selection is not implemented",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 551,
+            "start": 526
+          },
+          "status": "not_applied",
+          "target": "Function(FunctionTarget { function: FunctionId(2), element: Some(FunctionElementId(1996)) })"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Obligation(NoEscape)",
+          "reason": "verification explicitly disabled; no safety fact produced",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 580,
+            "start": 566
+          },
+          "status": "ignored",
+          "target": "Parameter { owner: FunctionTarget { function: FunctionId(2), element: Some(FunctionElementId(1996)) }, index: 0 }"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Obligation(Realtime)",
+          "reason": "verification explicitly disabled; no safety fact produced",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 630,
+            "start": 616
+          },
+          "status": "ignored",
+          "target": "Function(FunctionTarget { function: FunctionId(3), element: Some(FunctionElementId(1997)) })"
+        },
+        {
+          "body": "NotApplicable",
+          "certified": false,
+          "kind": "Preference(Acyclic)",
+          "reason": "preference recognized; policy selection is not implemented",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 728,
+            "start": 712
+          },
+          "status": "not_applied",
+          "target": "LocalVariables { statement: StmtId(0), name_offsets: [737] }"
+        }
+      ],
+      "sources": [
+        {
+          "blake3": "fb9e65217a559c2c6cc28bd384231a4e6f8ff274c0b6c4113fe28fef3345cbb4",
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart"
+        },
+        {
+          "blake3": "d14b18e38015089fbd265017723a391745f00ab1d41371b78deb26063bd07e35",
+          "uri": "package:dartforge/dartforge.dart"
+        },
+        {
+          "blake3": "d13ecc3e9d655c8a82e1418175f779877c3a6ea8e7695d36b563c8915d9ca08a",
+          "uri": "package:dartforge/annotations.dart"
+        },
+        {
+          "blake3": "10d4ae43b8cf337ac1f0c2638004a36f38e3e5f2dfba949f776999c1f92d6a72",
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_reexport.dart"
+        },
+        {
+          "blake3": "919c466b6b2c8966d70077eb6237c5e2c9189c55e203932f982c18cadb3f77ab",
+          "uri": "package:dartforge/src/native_pump.dart"
+        },
+        {
+          "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+          "uri": "package:dartforge/src/annotations.dart"
+        },
+        {
+          "blake3": "d6b128e8df6db2e9d2c1a15483d8fea64731c1f8a8c79781ddef31a04e476469",
+          "uri": "package:dartforge/simd.dart"
+        },
+        {
+          "blake3": "367c7352d327b0862baa2e3da60863618d86425e638f24c88751fe37f49b9033",
+          "uri": "package:meta/meta_meta.dart"
+        },
+        {
+          "blake3": "0ae46a957c03d1787c39be78d897c8cd24ad43bb8e2fe075aa76405631ede0b9",
+          "uri": "package:dartforge/src/simd/int32x4_3_14.dart"
+        }
+      ],
+      "verification_implemented": false
+    },
+    "arc": {
+      "artifact": {
+        "blake3": "30510e15daecf715f7a37dde3aea4eade212913a2406c4741012eecb7f496d12",
+        "cpu": "None",
+        "debug": false,
+        "ir_blake3": "338ef40441f815a6b1bd629424a73fa73391953bfc58311e5223e4867494bba3",
+        "optimized": true,
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations.arc"
+      },
+      "certified": false,
+      "diagnostics": [],
+      "manifest_schema": 1,
+      "mode": "ignore",
+      "package": {
+        "annotation_schema": 1,
+        "defining_uri": "package:dartforge/src/annotations.dart",
+        "sources": [
+          {
+            "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+            "uri": "package:dartforge/src/annotations.dart"
+          }
+        ]
+      },
+      "requests": [
+        {
+          "body": "NotApplicable",
+          "certified": false,
+          "kind": "Preference(Acyclic)",
+          "reason": "preference recognized; policy selection is not implemented",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 254,
+            "start": 238
+          },
+          "status": "not_applied",
+          "target": "Class(ClassId(112))"
+        },
+        {
+          "body": "NotApplicable",
+          "certified": false,
+          "kind": "Preference(Acyclic)",
+          "reason": "preference recognized; policy selection is not implemented",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 294,
+            "start": 278
+          },
+          "status": "not_applied",
+          "target": "Constructor(FunctionElementId(1992))"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Preference(Region)",
+          "reason": "preference recognized; policy selection is not implemented",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 359,
+            "start": 348
+          },
+          "status": "not_applied",
+          "target": "Function(FunctionTarget { function: FunctionId(0), element: Some(FunctionElementId(1994)) })"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Obligation(NoEscape)",
+          "reason": "verification explicitly disabled; no safety fact produced",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 383,
+            "start": 372
+          },
+          "status": "ignored",
+          "target": "Parameter { owner: FunctionTarget { function: FunctionId(0), element: Some(FunctionElementId(1994)) }, index: 0 }"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Obligation(Realtime)",
+          "reason": "verification explicitly disabled; no safety fact produced",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 438,
+            "start": 417
+          },
+          "status": "ignored",
+          "target": "Function(FunctionTarget { function: FunctionId(1), element: Some(FunctionElementId(1995)) })"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Preference(Region)",
+          "reason": "preference recognized; policy selection is not implemented",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 551,
+            "start": 526
+          },
+          "status": "not_applied",
+          "target": "Function(FunctionTarget { function: FunctionId(2), element: Some(FunctionElementId(1996)) })"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Obligation(NoEscape)",
+          "reason": "verification explicitly disabled; no safety fact produced",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 580,
+            "start": 566
+          },
+          "status": "ignored",
+          "target": "Parameter { owner: FunctionTarget { function: FunctionId(2), element: Some(FunctionElementId(1996)) }, index: 0 }"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Obligation(Realtime)",
+          "reason": "verification explicitly disabled; no safety fact produced",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 630,
+            "start": 616
+          },
+          "status": "ignored",
+          "target": "Function(FunctionTarget { function: FunctionId(3), element: Some(FunctionElementId(1997)) })"
+        },
+        {
+          "body": "NotApplicable",
+          "certified": false,
+          "kind": "Preference(Acyclic)",
+          "reason": "preference recognized; policy selection is not implemented",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 728,
+            "start": 712
+          },
+          "status": "not_applied",
+          "target": "LocalVariables { statement: StmtId(0), name_offsets: [737] }"
+        }
+      ],
+      "sources": [
+        {
+          "blake3": "fb9e65217a559c2c6cc28bd384231a4e6f8ff274c0b6c4113fe28fef3345cbb4",
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart"
+        },
+        {
+          "blake3": "d14b18e38015089fbd265017723a391745f00ab1d41371b78deb26063bd07e35",
+          "uri": "package:dartforge/dartforge.dart"
+        },
+        {
+          "blake3": "d13ecc3e9d655c8a82e1418175f779877c3a6ea8e7695d36b563c8915d9ca08a",
+          "uri": "package:dartforge/annotations.dart"
+        },
+        {
+          "blake3": "10d4ae43b8cf337ac1f0c2638004a36f38e3e5f2dfba949f776999c1f92d6a72",
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_reexport.dart"
+        },
+        {
+          "blake3": "919c466b6b2c8966d70077eb6237c5e2c9189c55e203932f982c18cadb3f77ab",
+          "uri": "package:dartforge/src/native_pump.dart"
+        },
+        {
+          "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+          "uri": "package:dartforge/src/annotations.dart"
+        },
+        {
+          "blake3": "d6b128e8df6db2e9d2c1a15483d8fea64731c1f8a8c79781ddef31a04e476469",
+          "uri": "package:dartforge/simd.dart"
+        },
+        {
+          "blake3": "367c7352d327b0862baa2e3da60863618d86425e638f24c88751fe37f49b9033",
+          "uri": "package:meta/meta_meta.dart"
+        },
+        {
+          "blake3": "0ae46a957c03d1787c39be78d897c8cd24ad43bb8e2fe075aa76405631ede0b9",
+          "uri": "package:dartforge/src/simd/int32x4_3_14.dart"
+        }
+      ],
+      "verification_implemented": false
+    },
+    "prepared": {
+      "artifact": {
+        "blake3": "ba88b1e7e948b517592357db16967f8fbe78dde244d5a43f67b8a60b07e69183",
+        "cpu": "None",
+        "debug": false,
+        "ir_blake3": "be67291f61d9f4f2971067d6927131ba41de404074cc79141f710d41e304c52d",
+        "optimized": true,
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations.prepared"
+      },
+      "certified": false,
+      "diagnostics": [],
+      "manifest_schema": 1,
+      "mode": "ignore",
+      "package": {
+        "annotation_schema": 1,
+        "defining_uri": "package:dartforge/src/annotations.dart",
+        "sources": [
+          {
+            "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+            "uri": "package:dartforge/src/annotations.dart"
+          }
+        ]
+      },
+      "requests": [
+        {
+          "body": "NotApplicable",
+          "certified": false,
+          "kind": "Preference(Acyclic)",
+          "reason": "preference recognized; policy selection is not implemented",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 254,
+            "start": 238
+          },
+          "status": "not_applied",
+          "target": "Class(ClassId(112))"
+        },
+        {
+          "body": "NotApplicable",
+          "certified": false,
+          "kind": "Preference(Acyclic)",
+          "reason": "preference recognized; policy selection is not implemented",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 294,
+            "start": 278
+          },
+          "status": "not_applied",
+          "target": "Constructor(FunctionElementId(1992))"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Preference(Region)",
+          "reason": "preference recognized; policy selection is not implemented",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 359,
+            "start": 348
+          },
+          "status": "not_applied",
+          "target": "Function(FunctionTarget { function: FunctionId(0), element: Some(FunctionElementId(1994)) })"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Obligation(NoEscape)",
+          "reason": "verification explicitly disabled; no safety fact produced",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 383,
+            "start": 372
+          },
+          "status": "ignored",
+          "target": "Parameter { owner: FunctionTarget { function: FunctionId(0), element: Some(FunctionElementId(1994)) }, index: 0 }"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Obligation(Realtime)",
+          "reason": "verification explicitly disabled; no safety fact produced",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 438,
+            "start": 417
+          },
+          "status": "ignored",
+          "target": "Function(FunctionTarget { function: FunctionId(1), element: Some(FunctionElementId(1995)) })"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Preference(Region)",
+          "reason": "preference recognized; policy selection is not implemented",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 551,
+            "start": 526
+          },
+          "status": "not_applied",
+          "target": "Function(FunctionTarget { function: FunctionId(2), element: Some(FunctionElementId(1996)) })"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Obligation(NoEscape)",
+          "reason": "verification explicitly disabled; no safety fact produced",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 580,
+            "start": 566
+          },
+          "status": "ignored",
+          "target": "Parameter { owner: FunctionTarget { function: FunctionId(2), element: Some(FunctionElementId(1996)) }, index: 0 }"
+        },
+        {
+          "body": "Available",
+          "certified": false,
+          "kind": "Obligation(Realtime)",
+          "reason": "verification explicitly disabled; no safety fact produced",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 630,
+            "start": 616
+          },
+          "status": "ignored",
+          "target": "Function(FunctionTarget { function: FunctionId(3), element: Some(FunctionElementId(1997)) })"
+        },
+        {
+          "body": "NotApplicable",
+          "certified": false,
+          "kind": "Preference(Acyclic)",
+          "reason": "preference recognized; policy selection is not implemented",
+          "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+          "span": {
+            "end": 728,
+            "start": 712
+          },
+          "status": "not_applied",
+          "target": "LocalVariables { statement: StmtId(0), name_offsets: [737] }"
+        }
+      ],
+      "sources": [
+        {
+          "blake3": "fb9e65217a559c2c6cc28bd384231a4e6f8ff274c0b6c4113fe28fef3345cbb4",
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart"
+        },
+        {
+          "blake3": "d14b18e38015089fbd265017723a391745f00ab1d41371b78deb26063bd07e35",
+          "uri": "package:dartforge/dartforge.dart"
+        },
+        {
+          "blake3": "d13ecc3e9d655c8a82e1418175f779877c3a6ea8e7695d36b563c8915d9ca08a",
+          "uri": "package:dartforge/annotations.dart"
+        },
+        {
+          "blake3": "10d4ae43b8cf337ac1f0c2638004a36f38e3e5f2dfba949f776999c1f92d6a72",
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_reexport.dart"
+        },
+        {
+          "blake3": "919c466b6b2c8966d70077eb6237c5e2c9189c55e203932f982c18cadb3f77ab",
+          "uri": "package:dartforge/src/native_pump.dart"
+        },
+        {
+          "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+          "uri": "package:dartforge/src/annotations.dart"
+        },
+        {
+          "blake3": "d6b128e8df6db2e9d2c1a15483d8fea64731c1f8a8c79781ddef31a04e476469",
+          "uri": "package:dartforge/simd.dart"
+        },
+        {
+          "blake3": "367c7352d327b0862baa2e3da60863618d86425e638f24c88751fe37f49b9033",
+          "uri": "package:meta/meta_meta.dart"
+        },
+        {
+          "blake3": "0ae46a957c03d1787c39be78d897c8cd24ad43bb8e2fe075aa76405631ede0b9",
+          "uri": "package:dartforge/src/simd/int32x4_3_14.dart"
+        }
+      ],
+      "verification_implemented": false
+    }
+  },
+  "ir_manifest": {
+    "artifact": {
+      "ir_digest": "2548c33ab8fb5b30328bb14c82e4dcd1",
+      "kind": "llvm_ir",
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations-ignore.ll"
+    },
+    "certified": false,
+    "diagnostics": [],
+    "manifest_schema": 1,
+    "mode": "ignore",
+    "package": {
+      "annotation_schema": 1,
+      "defining_uri": "package:dartforge/src/annotations.dart",
+      "sources": [
+        {
+          "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+          "uri": "package:dartforge/src/annotations.dart"
+        }
+      ]
+    },
+    "requests": [
+      {
+        "body": "NotApplicable",
+        "certified": false,
+        "kind": "Preference(Acyclic)",
+        "reason": "preference recognized; policy selection is not implemented",
+        "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+        "span": {
+          "end": 254,
+          "start": 238
+        },
+        "status": "not_applied",
+        "target": "Class(ClassId(112))"
+      },
+      {
+        "body": "NotApplicable",
+        "certified": false,
+        "kind": "Preference(Acyclic)",
+        "reason": "preference recognized; policy selection is not implemented",
+        "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+        "span": {
+          "end": 294,
+          "start": 278
+        },
+        "status": "not_applied",
+        "target": "Constructor(FunctionElementId(1992))"
+      },
+      {
+        "body": "Available",
+        "certified": false,
+        "kind": "Preference(Region)",
+        "reason": "preference recognized; policy selection is not implemented",
+        "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+        "span": {
+          "end": 359,
+          "start": 348
+        },
+        "status": "not_applied",
+        "target": "Function(FunctionTarget { function: FunctionId(0), element: Some(FunctionElementId(1994)) })"
+      },
+      {
+        "body": "Available",
+        "certified": false,
+        "kind": "Obligation(NoEscape)",
+        "reason": "verification explicitly disabled; no safety fact produced",
+        "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+        "span": {
+          "end": 383,
+          "start": 372
+        },
+        "status": "ignored",
+        "target": "Parameter { owner: FunctionTarget { function: FunctionId(0), element: Some(FunctionElementId(1994)) }, index: 0 }"
+      },
+      {
+        "body": "Available",
+        "certified": false,
+        "kind": "Obligation(Realtime)",
+        "reason": "verification explicitly disabled; no safety fact produced",
+        "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+        "span": {
+          "end": 438,
+          "start": 417
+        },
+        "status": "ignored",
+        "target": "Function(FunctionTarget { function: FunctionId(1), element: Some(FunctionElementId(1995)) })"
+      },
+      {
+        "body": "Available",
+        "certified": false,
+        "kind": "Preference(Region)",
+        "reason": "preference recognized; policy selection is not implemented",
+        "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+        "span": {
+          "end": 551,
+          "start": 526
+        },
+        "status": "not_applied",
+        "target": "Function(FunctionTarget { function: FunctionId(2), element: Some(FunctionElementId(1996)) })"
+      },
+      {
+        "body": "Available",
+        "certified": false,
+        "kind": "Obligation(NoEscape)",
+        "reason": "verification explicitly disabled; no safety fact produced",
+        "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+        "span": {
+          "end": 580,
+          "start": 566
+        },
+        "status": "ignored",
+        "target": "Parameter { owner: FunctionTarget { function: FunctionId(2), element: Some(FunctionElementId(1996)) }, index: 0 }"
+      },
+      {
+        "body": "Available",
+        "certified": false,
+        "kind": "Obligation(Realtime)",
+        "reason": "verification explicitly disabled; no safety fact produced",
+        "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+        "span": {
+          "end": 630,
+          "start": 616
+        },
+        "status": "ignored",
+        "target": "Function(FunctionTarget { function: FunctionId(3), element: Some(FunctionElementId(1997)) })"
+      },
+      {
+        "body": "NotApplicable",
+        "certified": false,
+        "kind": "Preference(Acyclic)",
+        "reason": "preference recognized; policy selection is not implemented",
+        "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart",
+        "span": {
+          "end": 728,
+          "start": 712
+        },
+        "status": "not_applied",
+        "target": "LocalVariables { statement: StmtId(0), name_offsets: [737] }"
+      }
+    ],
+    "sources": [
+      {
+        "blake3": "fb9e65217a559c2c6cc28bd384231a4e6f8ff274c0b6c4113fe28fef3345cbb4",
+        "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_probe.dart"
+      },
+      {
+        "blake3": "d14b18e38015089fbd265017723a391745f00ab1d41371b78deb26063bd07e35",
+        "uri": "package:dartforge/dartforge.dart"
+      },
+      {
+        "blake3": "d13ecc3e9d655c8a82e1418175f779877c3a6ea8e7695d36b563c8915d9ca08a",
+        "uri": "package:dartforge/annotations.dart"
+      },
+      {
+        "blake3": "10d4ae43b8cf337ac1f0c2638004a36f38e3e5f2dfba949f776999c1f92d6a72",
+        "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/packages/dartforge/test/annotations_reexport.dart"
+      },
+      {
+        "blake3": "919c466b6b2c8966d70077eb6237c5e2c9189c55e203932f982c18cadb3f77ab",
+        "uri": "package:dartforge/src/native_pump.dart"
+      },
+      {
+        "blake3": "ff317ec3d73d123db58485b7fcaea55dcca3de0eaae61c1591d1d8c98ea9c4a9",
+        "uri": "package:dartforge/src/annotations.dart"
+      },
+      {
+        "blake3": "d6b128e8df6db2e9d2c1a15483d8fea64731c1f8a8c79781ddef31a04e476469",
+        "uri": "package:dartforge/simd.dart"
+      },
+      {
+        "blake3": "367c7352d327b0862baa2e3da60863618d86425e638f24c88751fe37f49b9033",
+        "uri": "package:meta/meta_meta.dart"
+      },
+      {
+        "blake3": "0ae46a957c03d1787c39be78d897c8cd24ad43bb8e2fe075aa76405631ede0b9",
+        "uri": "package:dartforge/src/simd/int32x4_3_14.dart"
+      }
+    ],
+    "verification_implemented": false
+  },
+  "preference_cache_tags": {
+    "verify": "; DartForge contract provenance d97c930f620c604cd2e5481017cd63d3aa124030fbff4a35282708dbc21d8484",
+    "ignore": "; DartForge contract provenance edeb88f4adf979af6b9758444a369d0a0df29e3e034f0f7e539424ed86c8058d"
+  },
+  "sidecars": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations.tracing.contracts.json",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations.arc.contracts.json",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-contracts-native-final/annotations.prepared.contracts.json"
+  ],
+  "certified": false
+}

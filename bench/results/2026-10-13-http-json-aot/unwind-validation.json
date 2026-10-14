@@ -1,0 +1,181 @@
+{
+  "date": "2026-10-13",
+  "platform": "macOS arm64",
+  "base_commit": "2f68f91037bbd47eac498b05eed1e672bfe7f736",
+  "change": "Retain optimized LTO native objects, then perform the final native link for arm64 Mach-O LTO with table exceptions or stack maps.",
+  "reproduction": {
+    "direct_throw": "caught",
+    "development_json_decode": "caught",
+    "optimized_json_decode_before": "SIGABRT, _Unwind_RaiseException returned 5",
+    "original_optimized_image": "JsonCodec.decode has encoding zero and no corresponding FDE",
+    "native_lto_objects_relinked": "caught"
+  },
+  "regressions": [
+    {
+      "source": "138_json_error_unwind.dart",
+      "memory": "tracing",
+      "build": 1,
+      "stress": false,
+      "matches_dart": true,
+      "compile_seconds": 14.65
+    },
+    {
+      "source": "138_json_error_unwind.dart",
+      "memory": "tracing",
+      "build": 1,
+      "stress": true,
+      "matches_dart": true,
+      "compile_seconds": 14.65
+    },
+    {
+      "source": "138_json_error_unwind.dart",
+      "memory": "tracing",
+      "build": 2,
+      "stress": false,
+      "matches_dart": true,
+      "compile_seconds": 0.315
+    },
+    {
+      "source": "138_json_error_unwind.dart",
+      "memory": "tracing",
+      "build": 2,
+      "stress": true,
+      "matches_dart": true,
+      "compile_seconds": 0.315
+    },
+    {
+      "source": "138_json_error_unwind.dart",
+      "memory": "arc",
+      "build": 1,
+      "stress": false,
+      "matches_dart": true,
+      "compile_seconds": 14.996
+    },
+    {
+      "source": "138_json_error_unwind.dart",
+      "memory": "arc",
+      "build": 1,
+      "stress": true,
+      "matches_dart": true,
+      "compile_seconds": 14.996
+    },
+    {
+      "source": "138_json_error_unwind.dart",
+      "memory": "arc",
+      "build": 2,
+      "stress": false,
+      "matches_dart": true,
+      "compile_seconds": 0.321
+    },
+    {
+      "source": "138_json_error_unwind.dart",
+      "memory": "arc",
+      "build": 2,
+      "stress": true,
+      "matches_dart": true,
+      "compile_seconds": 0.321
+    },
+    {
+      "source": "101_json_pilha_e_mapas.dart",
+      "memory": "tracing",
+      "build": 1,
+      "stress": false,
+      "matches_dart": true,
+      "compile_seconds": 0.433
+    },
+    {
+      "source": "101_json_pilha_e_mapas.dart",
+      "memory": "tracing",
+      "build": 1,
+      "stress": true,
+      "matches_dart": true,
+      "compile_seconds": 0.433
+    },
+    {
+      "source": "101_json_pilha_e_mapas.dart",
+      "memory": "tracing",
+      "build": 2,
+      "stress": false,
+      "matches_dart": true,
+      "compile_seconds": 0.321
+    },
+    {
+      "source": "101_json_pilha_e_mapas.dart",
+      "memory": "tracing",
+      "build": 2,
+      "stress": true,
+      "matches_dart": true,
+      "compile_seconds": 0.321
+    },
+    {
+      "source": "04_soquetes_http.dart",
+      "memory": "tracing",
+      "build": 1,
+      "stress": false,
+      "matches_dart": true,
+      "compile_seconds": 0.415
+    },
+    {
+      "source": "04_soquetes_http.dart",
+      "memory": "tracing",
+      "build": 1,
+      "stress": true,
+      "matches_dart": true,
+      "compile_seconds": 0.415
+    },
+    {
+      "source": "04_soquetes_http.dart",
+      "memory": "tracing",
+      "build": 2,
+      "stress": false,
+      "matches_dart": true,
+      "compile_seconds": 0.398
+    },
+    {
+      "source": "04_soquetes_http.dart",
+      "memory": "tracing",
+      "build": 2,
+      "stress": true,
+      "matches_dart": true,
+      "compile_seconds": 0.398
+    }
+  ],
+  "additional_checks": {
+    "warm_rebuild_identical": true,
+    "debug_matches_dart": true,
+    "second_link_failure_cleanup": true
+  },
+  "prepared_arc": {
+    "normal": "matches Dart",
+    "gc_stress": "matches Dart",
+    "arc_check": true,
+    "effects_check": true
+  },
+  "emitter_tests": {
+    "passed": 478,
+    "failed": 0,
+    "ignored": 7,
+    "command": "cargo test --locked -p dartforge-emit-native --lib -j 2",
+    "configuration": "DARTFORGE_CLANG=/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang"
+  },
+  "http_smoke": {
+    "responses": 1000,
+    "keep_alive": true,
+    "matches_expected_json": true,
+    "shutdown_passed": true
+  },
+  "documentation": "cargo doc --locked -p dartforge-emit-native --no-deps --document-private-items completed; existing unused_mut warning",
+  "diff_check": "passed",
+  "limits": [
+    "Stack maps branch not executed",
+    "macOS x86-64 not executed and workaround disabled there",
+    "Existing workspace fmt/Clippy/JIT limitations recorded in previous validation",
+    "No before/after runtime throughput claim"
+  ],
+  "follow_up": [
+    "Measure HTTP/JSON CPU per request and copies with matching binaries",
+    "Reduce Socket_Read intermediate allocation and copy after profiling"
+  ],
+  "temporary_storage": "SSD; task directory and retained LTO sidecars removed after saving evidence",
+  "local_logs": "target/http-json-evidence/unwind/*.gz (ignored)"
+}

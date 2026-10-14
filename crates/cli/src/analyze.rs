@@ -87,14 +87,16 @@ fn escape_for_machine(s: &str) -> String {
 
 pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
     let usage = "usage: dartforge analyze [--format=default|json|machine] [--fatal-infos] [--[no-]fatal-warnings] \
-                 [--packages=<file>] [--all] [<directory|file>...]";
+                 [--packages=<file>] [--sdk-path=<directory>] [--all] [<directory|file>...]";
     let mut format = Format::Default;
     let mut all = false;
     let mut fatal_infos = false;
     let mut fatal_warnings = true;
     let mut requested_packages: Option<PathBuf> = None;
+    let mut requested_sdk: Option<PathBuf> = None;
     let mut targets: Vec<PathBuf> = Vec::new();
-    for a in args {
+    let mut arguments = args.iter();
+    while let Some(a) = arguments.next() {
         match a.to_str() {
             Some("--format=json") => format = Format::Json,
             Some("--format=default") => format = Format::Default,
@@ -104,10 +106,24 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
             Some("--no-fatal-infos") => fatal_infos = false,
             Some("--fatal-warnings") => fatal_warnings = true,
             Some("--no-fatal-warnings") => fatal_warnings = false,
+            Some("--sdk-path") => {
+                let path = arguments.next().ok_or("--sdk-path requires an SDK directory")?;
+                if path.is_empty() || path.to_string_lossy().starts_with('-') {
+                    return Err("--sdk-path requires an SDK directory".into());
+                }
+                requested_sdk = Some(PathBuf::from(path));
+            }
+            Some(s) if s.starts_with("--sdk-path=") => {
+                let path = &s["--sdk-path=".len()..];
+                if path.is_empty() {
+                    return Err("--sdk-path requires an SDK directory".into());
+                }
+                requested_sdk = Some(PathBuf::from(path));
+            }
             // Accepted and without effect here: the analysis runs in process,
             // with the SDK the engine discovers.
             Some("--memory") => {}
-            Some(s) if s.starts_with("--cache=") || s.starts_with("--sdk-path=") || s.starts_with("--enable-experiment=") => {}
+            Some(s) if s.starts_with("--cache=") || s.starts_with("--enable-experiment=") => {}
             Some(s) if s.starts_with("--packages=") => requested_packages = Some(PathBuf::from(&s["--packages=".len()..])),
             Some(s) if s.starts_with('-') => return Err(usage.into()),
             _ => targets.push(PathBuf::from(a)),
@@ -129,7 +145,16 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
     } else {
         std::env::current_dir()?
     };
-    let engine = dartforge_parity::analysis::Engine::discover()?;
+    let engine = match requested_sdk {
+        Some(path) => {
+            // Accept the SDK root and its lib directory. An explicit path is
+            // authoritative: invalid layouts must not fall back to discovery.
+            let lib = if path.join("libraries.json").is_file() { path.clone() } else { path.join("lib") };
+            dartforge_parity::analysis::Engine::new(&lib)
+                .map_err(|error| format!("--sdk-path {}: {error}", path.display()))?
+        }
+        None => dartforge_parity::analysis::Engine::discover()?,
+    };
     // Deep bodies recurse deeply: own stack, like `compile-js`.
     let mut diags: Vec<DiagJson> = std::thread::Builder::new()
         .stack_size(1 << 30)

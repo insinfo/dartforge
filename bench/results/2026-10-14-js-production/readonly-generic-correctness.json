@@ -1,0 +1,79 @@
+{
+  "source_sha256": "722c6c656964e4ca3a4a2c10b7ad8cba3013f28f633db94f727c05739c784450",
+  "compiler_sha256": "b6723697b951c6ab2ccdd94b7d8ae0bc01caf6ad38856505b3b28814d3290d24",
+  "cases": {
+    "officialO2": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "js",
+        "-O2",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_native_length.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-length/officialO2-current.js"
+      ],
+      "compile_exit": 0,
+      "artifact_sha256": "563208ea5bb22d1636133803c9c846fdb0081c8ffc3f5abb6829da5f02a046fc",
+      "exit_code": 0,
+      "stdout": "length=2,first=-128,last=127\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=255\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=255\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=-32768,last=32767\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=65535\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=-2147483648,last=2147483647\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=4294967295\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=1.5,last=2.5\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=1.5,last=2.5\nrange=-1\nrange=2\nrange=4294967296\nview=3,negativeZero=true,nan=true,infinite=true\nordered=true,events=receiver,index,readOnly=true\nshared=true\nreadOnlyTearoff=true,value=true\nread-only\ntype=true\ntype=true\ntype=true\nlength=1,first=42,last=42\nrange=-1\nrange=1\nrange=4294967296\nfold=43,typed=true\ndynamicFold=43,foldEvents=2\ncustomRead=42\nlength=2,first=1,last=2\nrange=-1\nrange=2\nrange=4294967296\n",
+      "stderr": "",
+      "exact_vm": true
+    },
+    "forge_checked": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_native_length.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-length/forge_checked-current.js"
+      ],
+      "compile_exit": 0,
+      "artifact_sha256": "9a7aa4b8226709965129673772d72f88009341ec3642f72075f60864a503d513",
+      "exit_code": 0,
+      "stdout": "length=2,first=-128,last=127\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=255\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=255\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=-32768,last=32767\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=65535\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=-2147483648,last=2147483647\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=4294967295\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=1.5,last=2.5\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=1.5,last=2.5\nrange=-1\nrange=2\nrange=4294967296\nview=3,negativeZero=true,nan=true,infinite=true\nordered=true,events=receiver,index,readOnly=true\nshared=true\nreadOnlyTearoff=true,value=true\nread-only\ntype=true\ntype=true\ntype=true\nlength=1,first=42,last=42\nrange=-1\nrange=1\nrange=4294967296\nfold=43,typed=true\ndynamicFold=43,foldEvents=2\ncustomRead=42\nlength=2,first=1,last=2\nrange=-1\nrange=2\nrange=4294967296\n",
+      "stderr": "",
+      "exact_vm": true
+    },
+    "forge_omit": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_native_length.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--omit-checks",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-length/forge_omit-current.js"
+      ],
+      "compile_exit": 0,
+      "artifact_sha256": "3b22ad59f39dd32c45f78e1acec588ec17c10bdebc9c994db57c6e24d97115ac",
+      "exit_code": 0,
+      "stdout": "length=2,first=-128,last=127\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=255\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=255\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=-32768,last=32767\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=65535\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=-2147483648,last=2147483647\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=4294967295\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=1.5,last=2.5\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=1.5,last=2.5\nrange=-1\nrange=2\nrange=4294967296\nview=3,negativeZero=true,nan=true,infinite=true\nordered=true,events=receiver,index,readOnly=true\nshared=true\nreadOnlyTearoff=true,value=true\nread-only\ntype=true\ntype=true\ntype=true\nlength=1,first=42,last=42\nrange=-1\nrange=1\nrange=4294967296\nfold=43,typed=true\ndynamicFold=43,foldEvents=2\ncustomRead=42\nlength=2,first=1,last=2\nrange=-1\nrange=2\nrange=4294967296\n",
+      "stderr": "",
+      "exact_vm": true
+    },
+    "forge_raw": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/typed_native_length.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--no-minify",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/typed-length/forge_raw-current.js"
+      ],
+      "compile_exit": 0,
+      "artifact_sha256": "5100cf89e3208c18d2d8171e54a6b27520ba9176617c6c37cb7bf7bb370875f2",
+      "exit_code": 0,
+      "stdout": "length=2,first=-128,last=127\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=255\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=255\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=-32768,last=32767\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=65535\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=-2147483648,last=2147483647\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=4294967295\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=1.5,last=2.5\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=1.5,last=2.5\nrange=-1\nrange=2\nrange=4294967296\nview=3,negativeZero=true,nan=true,infinite=true\nordered=true,events=receiver,index,readOnly=true\nshared=true\nreadOnlyTearoff=true,value=true\nread-only\ntype=true\ntype=true\ntype=true\nlength=1,first=42,last=42\nrange=-1\nrange=1\nrange=4294967296\nfold=43,typed=true\ndynamicFold=43,foldEvents=2\ncustomRead=42\nlength=2,first=1,last=2\nrange=-1\nrange=2\nrange=4294967296\n",
+      "stderr": "",
+      "exact_vm": true
+    }
+  },
+  "vm": {
+    "exit_code": 0,
+    "stdout": "length=2,first=-128,last=127\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=255\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=255\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=-32768,last=32767\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=65535\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=-2147483648,last=2147483647\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=0,last=4294967295\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=1.5,last=2.5\nrange=-1\nrange=2\nrange=4294967296\nlength=2,first=1.5,last=2.5\nrange=-1\nrange=2\nrange=4294967296\nview=3,negativeZero=true,nan=true,infinite=true\nordered=true,events=receiver,index,readOnly=true\nshared=true\nreadOnlyTearoff=true,value=true\nread-only\ntype=true\ntype=true\ntype=true\nlength=1,first=42,last=42\nrange=-1\nrange=1\nrange=4294967296\nfold=43,typed=true\ndynamicFold=43,foldEvents=2\ncustomRead=42\nlength=2,first=1,last=2\nrange=-1\nrange=2\nrange=4294967296\n",
+    "stderr": ""
+  },
+  "inputs_stable": true
+}

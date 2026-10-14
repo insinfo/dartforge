@@ -115,10 +115,16 @@ struct Universe {
     /// literal seen as `_GrowableList<E>` went through `as_supertype`
     /// (and a new `Vec`) on every list created (N17).
     memo_set: Vec<[i64; 3]>,
+    /// Concrete list types derived from immutable constructor tuple ids.
+    /// A bounded memo avoids cloning and hashing their argument vectors on
+    /// each allocation, without retaining any managed object.
+    memo_list_tuple: Vec<[i64; 3]>,
+    memo_list_tuple_enabled: bool,
 }
 
 /// The size of the direct-mapped memos of the [`Universe`] (power of 2).
 const MEMO_N: usize = 1 << 10;
+const LIST_TUPLE_MEMO_N: usize = 64;
 
 /// The slot of a key in the direct-mapped memos.
 fn memo_slot(a: i64, b: i64, c: i64) -> usize {
@@ -310,7 +316,11 @@ const T_NULL: i64 = 3;
 
 impl Universe {
     fn new() -> Self {
-        let mut u = Universe::default();
+        let mut u = Universe {
+            // Runtime-only ablation: both paths produce the same canonical type.
+            memo_list_tuple_enabled: !std::env::var("DARTFORGE_RTI_LIST_TUPLE_CACHE").is_ok_and(|value| value == "0"),
+            ..Universe::default()
+        };
         for t in [Type::Dynamic, Type::Void, Type::Never, Type::Null] {
             u.intern(t);
         }
@@ -324,6 +334,7 @@ impl Universe {
         self.memo_and.clear();
         self.memo_eval.clear();
         self.memo_set.clear();
+        self.memo_list_tuple.clear();
     }
 
     /// `v is t` stored for the value key.
@@ -947,11 +958,25 @@ pub(crate) fn tuple_list_type(tuple: i64, concrete_class: Option<i64>) -> Option
         if class == 0 {
             return None;
         }
+        let slot = memo_slot(tuple, class, 0) & (LIST_TUPLE_MEMO_N - 1);
+        if u.memo_list_tuple_enabled
+            && let Some(&[cached_tuple, cached_class, result]) = u.memo_list_tuple.get(slot)
+            && cached_tuple == tuple && cached_class == class
+        {
+            return Some(result);
+        }
         let args = match u.ty(tuple) {
             Type::Tuple(args) => args.clone(),
             _ => vec![T_DYNAMIC],
         };
-        Some(u.intern(Type::Interface(class, args)))
+        let result = u.intern(Type::Interface(class, args));
+        if u.memo_list_tuple_enabled {
+            if u.memo_list_tuple.is_empty() {
+                u.memo_list_tuple = vec![[0; 3]; LIST_TUPLE_MEMO_N];
+            }
+            u.memo_list_tuple[slot] = [tuple, class, result];
+        }
+        Some(result)
     })
 }
 
@@ -1599,6 +1624,64 @@ fn dartforge_type_error_with_message(message: i64) -> i64 {
         return with_roots(&[message], || g(message));
     }
     allocate_error_with_trace(1011, vec![(message, true)])
+}
+
+#[cfg(test)]
+mod tests_list_tuple_types {
+    use super::*;
+
+    #[test]
+    fn collisions_and_disabled_memo_preserve_concrete_types_and_arguments() {
+        std::thread::spawn(|| {
+            let tuple = RTI.with(|u| u.borrow_mut().intern(Type::Tuple(vec![T_DYNAMIC])));
+            let class = i64::from(crate::layout::cid::LIST);
+            let slot = memo_slot(tuple, class, 0) & (LIST_TUPLE_MEMO_N - 1);
+            let colliding_class = (10_000..20_000)
+                .find(|&other| memo_slot(tuple, other, 0) & (LIST_TUPLE_MEMO_N - 1) == slot)
+                .unwrap();
+            let initial = tuple_list_type(tuple, Some(class)).unwrap();
+            let collision = tuple_list_type(tuple, Some(colliding_class)).unwrap();
+            assert_ne!(initial, collision);
+            assert_eq!(tuple_list_type(tuple, Some(class)), Some(initial));
+            RTI.with(|u| {
+                let mut u = u.borrow_mut();
+                assert_eq!(u.ty(initial), &Type::Interface(class, vec![T_DYNAMIC]));
+                assert_eq!(u.ty(collision), &Type::Interface(colliding_class, vec![T_DYNAMIC]));
+                u.memo_list_tuple_enabled = false;
+            });
+            assert_eq!(tuple_list_type(tuple, Some(class)), Some(initial));
+            assert_eq!(tuple_list_type(tuple, Some(colliding_class)), Some(collision));
+            let void_tuple = RTI.with(|u| u.borrow_mut().intern(Type::Tuple(vec![T_VOID])));
+            let different_argument = tuple_list_type(void_tuple, Some(class)).unwrap();
+            assert_ne!(initial, different_argument);
+            RTI.with(|u| assert_eq!(u.borrow().ty(different_argument), &Type::Interface(class, vec![T_VOID])));
+        }).join().unwrap();
+    }
+
+    #[test]
+    fn canonical_list_metadata_survives_collection_and_rule_refresh() {
+        std::thread::spawn(|| {
+            let class = i64::from(crate::layout::cid::LIST);
+            let expected = tuple_list_type(T_DYNAMIC, Some(class)).unwrap();
+            let list = HEAP.with(|heap| {
+                let mut heap = heap.borrow_mut();
+                let list = heap.new_list(crate::layout::cid::LIST, 2, crate::lists::Element::General);
+                heap.set_global_root(-500_000, list);
+                list
+            });
+            set_list_type(list, expected + 1);
+            HEAP.with(|heap| heap.borrow_mut().collect());
+            RTI.with(|u| u.borrow_mut().forget_memos());
+            assert_eq!(tuple_list_type(T_DYNAMIC, Some(class)), Some(expected));
+            HEAP.with(|heap| {
+                let mut heap = heap.borrow_mut();
+                assert_eq!(heap.metadata(list), expected + 1);
+                assert_eq!(heap.list_len(list), 2);
+                heap.set_global_root(-500_000, 0);
+                heap.collect();
+            });
+        }).join().unwrap();
+    }
 }
 
 #[cfg(test)]

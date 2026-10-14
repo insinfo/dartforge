@@ -1,0 +1,436 @@
+{
+  "artifacts": {
+    "disabled": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/objects.disabled.js",
+      "sha256": "b029b98ea98e30a3443e31d496745ffa49f6ddaeaf6caca1ffc50088e4830d59"
+    },
+    "enabled": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/objects.enabled.js",
+      "sha256": "f6cc8e5ed6c24fab079148269159400e7da295dbb726c842eb658748ad4c1d86"
+    },
+    "officialO2": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/final/objects_in_collections.dart2js_O2.js",
+      "sha256": "5e0c8749243814bb44575f03aca2541fef94b5196e343fae124673bc25f07e9f"
+    }
+  },
+  "runs": [
+    {
+      "profile": "disabled",
+      "repetition": 0,
+      "exit_code": 0,
+      "stdout": "object_list: 32000 28000 19000 24000 26000 20000 us | 129592732.5\nobject_sort: 93000 91000 86000 83000 82000 88000 us | 100028\nmap_int_object: 19000 18000 18000 21000 18000 18000 us | 19999900000\nmap_str_object: 23000 18000 22000 17000 18000 28000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 24000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 86000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 18000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 18000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "enabled",
+      "repetition": 0,
+      "exit_code": 0,
+      "stdout": "object_list: 27000 23000 15000 27000 19000 22000 us | 129592732.5\nobject_sort: 92000 90000 86000 81000 82000 81000 us | 100028\nmap_int_object: 21000 18000 17000 17000 22000 17000 us | 19999900000\nmap_str_object: 18000 21000 16000 19000 16000 18000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 22000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 82000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 17000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 18000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "officialO2",
+      "repetition": 0,
+      "exit_code": 0,
+      "stdout": "object_list: 14000 4000 6000 6000 9000 4000 us | 129592732.5\nobject_sort: 33000 37000 31000 30000 31000 30000 us | 100028\nmap_int_object: 12000 11000 15000 16000 9000 14000 us | 19999900000\nmap_str_object: 7000 5000 9000 5000 5000 12000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 6000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 31000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 14000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 5000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "officialO2",
+      "repetition": 1,
+      "exit_code": 0,
+      "stdout": "object_list: 14000 9000 5000 4000 8000 4000 us | 129592732.5\nobject_sort: 32000 33000 31000 30000 31000 37000 us | 100028\nmap_int_object: 10000 9000 15000 9000 15000 8000 us | 19999900000\nmap_str_object: 11000 5000 5000 5000 8000 5000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 5000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 31000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 9000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 5000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "enabled",
+      "repetition": 1,
+      "exit_code": 0,
+      "stdout": "object_list: 26000 23000 15000 19000 21000 16000 us | 129592732.5\nobject_sort: 91000 90000 86000 82000 83000 87000 us | 100028\nmap_int_object: 19000 17000 17000 19000 17000 17000 us | 19999900000\nmap_str_object: 21000 15000 18000 15000 14000 20000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 19000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 86000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 17000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 15000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "disabled",
+      "repetition": 1,
+      "exit_code": 0,
+      "stdout": "object_list: 32000 28000 20000 24000 24000 22000 us | 129592732.5\nobject_sort: 95000 94000 92000 89000 86000 91000 us | 100028\nmap_int_object: 21000 19000 21000 21000 18000 19000 us | 19999900000\nmap_str_object: 20000 23000 18000 21000 17000 21000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 24000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 91000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 19000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 21000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "disabled",
+      "repetition": 2,
+      "exit_code": 0,
+      "stdout": "object_list: 32000 29000 21000 24000 27000 21000 us | 129592732.5\nobject_sort: 96000 92000 90000 84000 83000 87000 us | 100028\nmap_int_object: 19000 18000 18000 20000 18000 18000 us | 19999900000\nmap_str_object: 24000 17000 22000 17000 18000 29000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 24000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 87000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 18000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 18000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "enabled",
+      "repetition": 2,
+      "exit_code": 0,
+      "stdout": "object_list: 27000 23000 15000 24000 18000 22000 us | 129592732.5\nobject_sort: 93000 88000 84000 82000 81000 81000 us | 100028\nmap_int_object: 20000 18000 16000 17000 21000 17000 us | 19999900000\nmap_str_object: 17000 18000 15000 18000 14000 17000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 22000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 82000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 17000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 17000,
+          "result": "1199980"
+        }
+      }
+    },
+    {
+      "profile": "officialO2",
+      "repetition": 2,
+      "exit_code": 0,
+      "stdout": "object_list: 14000 10000 4000 4000 9000 3000 us | 129592732.5\nobject_sort: 33000 33000 31000 30000 31000 37000 us | 100028\nmap_int_object: 10000 9000 14000 9000 16000 8000 us | 19999900000\nmap_str_object: 11000 5000 5000 5000 8000 5000 us | 1199980\n",
+      "stderr": "",
+      "medians": {
+        "object_list": {
+          "us": 4000,
+          "result": "129592732.5"
+        },
+        "object_sort": {
+          "us": 31000,
+          "result": "100028"
+        },
+        "map_int_object": {
+          "us": 9000,
+          "result": "19999900000"
+        },
+        "map_str_object": {
+          "us": 5000,
+          "result": "1199980"
+        }
+      }
+    }
+  ],
+  "compiler_inputs": {
+    "compiler_sha256": "e5321a1ee3c91552a782fae5f40ec49868d654dff7472204102213d74ff14550",
+    "sources": {
+      "objects": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/objects_in_collections.dart",
+        "sha256": "85174e310ad0b75ea9e004cf8700b1c878d6a6d6c1eddab9c76a41daff64d313"
+      },
+      "json": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+        "sha256": "9781ba5b478ef20313fe280ed5fb0b18824e55a50501d507b2d22fe8ea307c38"
+      },
+      "numbers": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/native_number_ranges.dart",
+        "sha256": "ef477abde531984c09c5e331a284288cda92fc33072d8b00065fa4a7ca54189e"
+      }
+    },
+    "cases": {
+      "objects.enabled": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/objects_in_collections.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/objects.enabled.js"
+        ],
+        "environment": {
+          "DARTFORGE_JSPROD_NUMBER_MODULO": "1"
+        },
+        "compile_exit": 0,
+        "artifact_sha256": "f6cc8e5ed6c24fab079148269159400e7da295dbb726c842eb658748ad4c1d86"
+      },
+      "objects.disabled": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/objects_in_collections.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/objects.disabled.js"
+        ],
+        "environment": {
+          "DARTFORGE_JSPROD_NUMBER_MODULO": "0"
+        },
+        "compile_exit": 0,
+        "artifact_sha256": "b029b98ea98e30a3443e31d496745ffa49f6ddaeaf6caca1ffc50088e4830d59"
+      },
+      "objects.raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/objects_in_collections.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "--no-minify",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/objects.raw.js"
+        ],
+        "environment": {
+          "DARTFORGE_JSPROD_NUMBER_MODULO": "1"
+        },
+        "compile_exit": 0,
+        "artifact_sha256": "ebccb1408f4054f1def147bdf4dc1b6ef7bacd718f4137a717b6e285f728c005"
+      },
+      "json.enabled": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/json.enabled.js"
+        ],
+        "environment": {
+          "DARTFORGE_JSPROD_NUMBER_MODULO": "1"
+        },
+        "compile_exit": 0,
+        "artifact_sha256": "02afea0310a2803b88bbcd851d95bdc879c4c957f5a05ccdf8a042ccbc722a74"
+      },
+      "json.disabled": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/json.disabled.js"
+        ],
+        "environment": {
+          "DARTFORGE_JSPROD_NUMBER_MODULO": "0"
+        },
+        "compile_exit": 0,
+        "artifact_sha256": "913132e2c29c86870b4626e1e0511dbca8a6a1b66803a5905830ede7bc2dd8a3"
+      },
+      "json.raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/json.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "--no-minify",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/json.raw.js"
+        ],
+        "environment": {
+          "DARTFORGE_JSPROD_NUMBER_MODULO": "1"
+        },
+        "compile_exit": 0,
+        "artifact_sha256": "b83ba05c0ee55b65362d41813f664b0788e912da87c9b11bf8c1a3d70e272aa0"
+      },
+      "numbers.enabled": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/native_number_ranges.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/numbers.enabled.js"
+        ],
+        "environment": {
+          "DARTFORGE_JSPROD_NUMBER_MODULO": "1"
+        },
+        "compile_exit": 0,
+        "artifact_sha256": "2cc752743760510d69b5cb0288907ae601c26e58fca675b61aae1a1c35cabf6b",
+        "exit_code": 0,
+        "stdout": "-zero:3.000=zero:true:false:true:false:-1\n-zero:-3.000=zero:false:true:false:true:1\n-zero:zero=nan:false:false:true:true:-1\n-zero:-zero=nan:false:false:true:true:0\n-zero:infinity=zero:true:false:true:false:-1\n-zero:-infinity=zero:false:true:false:true:1\n-zero:nan=nan:false:false:false:false:-1\nzero:3.000=zero:true:false:true:false:-1\nzero:-3.000=zero:false:true:false:true:1\nzero:zero=nan:false:false:true:true:0\nzero:-zero=nan:false:false:true:true:1\nzero:infinity=zero:true:false:true:false:-1\nzero:-infinity=zero:false:true:false:true:1\nzero:nan=nan:false:false:false:false:-1\n1.000:3.000=1.000:true:false:true:false:-1\n1.000:-3.000=1.000:false:true:false:true:1\n1.000:zero=nan:false:true:false:true:1\n1.000:-zero=nan:false:true:false:true:1\n1.000:infinity=1.000:true:false:true:false:-1\n1.000:-infinity=1.000:false:true:false:true:1\n1.000:nan=nan:false:false:false:false:-1\n-1.000:3.000=2.000:true:false:true:false:-1\n-1.000:-3.000=2.000:false:true:false:true:1\n-1.000:zero=nan:true:false:true:false:-1\n-1.000:-zero=nan:true:false:true:false:-1\n-1.000:infinity=infinity:true:false:true:false:-1\n-1.000:-infinity=infinity:false:true:false:true:1\n-1.000:nan=nan:false:false:false:false:-1\n7.250:3.000=1.250:false:true:false:true:1\n7.250:-3.000=1.250:false:true:false:true:1\n7.250:zero=nan:false:true:false:true:1\n7.250:-zero=nan:false:true:false:true:1\n7.250:infinity=7.250:true:false:true:false:-1\n7.250:-infinity=7.250:false:true:false:true:1\n7.250:nan=nan:false:false:false:false:-1\n-7.250:3.000=1.750:true:false:true:false:-1\n-7.250:-3.000=1.750:true:false:true:false:-1\n-7.250:zero=nan:true:false:true:false:-1\n-7.250:-zero=nan:true:false:true:false:-1\n-7.250:infinity=infinity:true:false:true:false:-1\n-7.250:-infinity=infinity:false:true:false:true:1\n-7.250:nan=nan:false:false:false:false:-1\nnan:3.000=nan:false:false:false:false:1\nnan:-3.000=nan:false:false:false:false:1\nnan:zero=nan:false:false:false:false:1\nnan:-zero=nan:false:false:false:false:1\nnan:infinity=nan:false:false:false:false:1\nnan:-infinity=nan:false:false:false:false:1\nnan:nan=nan:false:false:false:false:0\ninfinity:3.000=nan:false:true:false:true:1\ninfinity:-3.000=nan:false:true:false:true:1\ninfinity:zero=nan:false:true:false:true:1\ninfinity:-zero=nan:false:true:false:true:1\ninfinity:infinity=nan:false:false:true:true:0\ninfinity:-infinity=nan:false:true:false:true:1\ninfinity:nan=nan:false:false:false:false:-1\n-infinity:3.000=nan:true:false:true:false:-1\n-infinity:-3.000=nan:true:false:true:false:-1\n-infinity:zero=nan:true:false:true:false:-1\n-infinity:-zero=nan:true:false:true:false:-1\n-infinity:infinity=nan:true:false:true:false:-1\n-infinity:-infinity=nan:false:false:true:true:0\n-infinity:nan=nan:false:false:false:false:-1\n9007199254740992.000:3.000=2.000:false:true:false:true:1\n9007199254740992.000:-3.000=2.000:false:true:false:true:1\n9007199254740992.000:zero=nan:false:true:false:true:1\n9007199254740992.000:-zero=nan:false:true:false:true:1\n9007199254740992.000:infinity=9007199254740992.000:true:false:true:false:-1\n9007199254740992.000:-infinity=9007199254740992.000:false:true:false:true:1\n9007199254740992.000:nan=nan:false:false:false:false:-1\nint=-100:2:2\nint=-1:2:2\nint=0:0:0\nint=1:1:1\nint=100:1:1\nint=4503599627370495:0:0\nordered=1.750:[left, right]\ncustom=true:false:42:[lt, gt, mod]\nbad=true\nbad=true\nbad=true\n",
+        "stderr": ""
+      },
+      "numbers.disabled": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/native_number_ranges.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/numbers.disabled.js"
+        ],
+        "environment": {
+          "DARTFORGE_JSPROD_NUMBER_MODULO": "0"
+        },
+        "compile_exit": 0,
+        "artifact_sha256": "079124e8e27098d749ae6fdc3886837cffff03456d95362109d68f543da8be6b",
+        "exit_code": 0,
+        "stdout": "-zero:3.000=zero:true:false:true:false:-1\n-zero:-3.000=zero:false:true:false:true:1\n-zero:zero=nan:false:false:true:true:-1\n-zero:-zero=nan:false:false:true:true:0\n-zero:infinity=zero:true:false:true:false:-1\n-zero:-infinity=zero:false:true:false:true:1\n-zero:nan=nan:false:false:false:false:-1\nzero:3.000=zero:true:false:true:false:-1\nzero:-3.000=zero:false:true:false:true:1\nzero:zero=nan:false:false:true:true:0\nzero:-zero=nan:false:false:true:true:1\nzero:infinity=zero:true:false:true:false:-1\nzero:-infinity=zero:false:true:false:true:1\nzero:nan=nan:false:false:false:false:-1\n1.000:3.000=1.000:true:false:true:false:-1\n1.000:-3.000=1.000:false:true:false:true:1\n1.000:zero=nan:false:true:false:true:1\n1.000:-zero=nan:false:true:false:true:1\n1.000:infinity=1.000:true:false:true:false:-1\n1.000:-infinity=1.000:false:true:false:true:1\n1.000:nan=nan:false:false:false:false:-1\n-1.000:3.000=2.000:true:false:true:false:-1\n-1.000:-3.000=2.000:false:true:false:true:1\n-1.000:zero=nan:true:false:true:false:-1\n-1.000:-zero=nan:true:false:true:false:-1\n-1.000:infinity=infinity:true:false:true:false:-1\n-1.000:-infinity=infinity:false:true:false:true:1\n-1.000:nan=nan:false:false:false:false:-1\n7.250:3.000=1.250:false:true:false:true:1\n7.250:-3.000=1.250:false:true:false:true:1\n7.250:zero=nan:false:true:false:true:1\n7.250:-zero=nan:false:true:false:true:1\n7.250:infinity=7.250:true:false:true:false:-1\n7.250:-infinity=7.250:false:true:false:true:1\n7.250:nan=nan:false:false:false:false:-1\n-7.250:3.000=1.750:true:false:true:false:-1\n-7.250:-3.000=1.750:true:false:true:false:-1\n-7.250:zero=nan:true:false:true:false:-1\n-7.250:-zero=nan:true:false:true:false:-1\n-7.250:infinity=infinity:true:false:true:false:-1\n-7.250:-infinity=infinity:false:true:false:true:1\n-7.250:nan=nan:false:false:false:false:-1\nnan:3.000=nan:false:false:false:false:1\nnan:-3.000=nan:false:false:false:false:1\nnan:zero=nan:false:false:false:false:1\nnan:-zero=nan:false:false:false:false:1\nnan:infinity=nan:false:false:false:false:1\nnan:-infinity=nan:false:false:false:false:1\nnan:nan=nan:false:false:false:false:0\ninfinity:3.000=nan:false:true:false:true:1\ninfinity:-3.000=nan:false:true:false:true:1\ninfinity:zero=nan:false:true:false:true:1\ninfinity:-zero=nan:false:true:false:true:1\ninfinity:infinity=nan:false:false:true:true:0\ninfinity:-infinity=nan:false:true:false:true:1\ninfinity:nan=nan:false:false:false:false:-1\n-infinity:3.000=nan:true:false:true:false:-1\n-infinity:-3.000=nan:true:false:true:false:-1\n-infinity:zero=nan:true:false:true:false:-1\n-infinity:-zero=nan:true:false:true:false:-1\n-infinity:infinity=nan:true:false:true:false:-1\n-infinity:-infinity=nan:false:false:true:true:0\n-infinity:nan=nan:false:false:false:false:-1\n9007199254740992.000:3.000=2.000:false:true:false:true:1\n9007199254740992.000:-3.000=2.000:false:true:false:true:1\n9007199254740992.000:zero=nan:false:true:false:true:1\n9007199254740992.000:-zero=nan:false:true:false:true:1\n9007199254740992.000:infinity=9007199254740992.000:true:false:true:false:-1\n9007199254740992.000:-infinity=9007199254740992.000:false:true:false:true:1\n9007199254740992.000:nan=nan:false:false:false:false:-1\nint=-100:2:2\nint=-1:2:2\nint=0:0:0\nint=1:1:1\nint=100:1:1\nint=4503599627370495:0:0\nordered=1.750:[left, right]\ncustom=true:false:42:[lt, gt, mod]\nbad=true\nbad=true\nbad=true\n",
+        "stderr": ""
+      },
+      "numbers.raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js/release/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/native_number_ranges.dart",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "--no-minify",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/hotspot/number-final/numbers.raw.js"
+        ],
+        "environment": {
+          "DARTFORGE_JSPROD_NUMBER_MODULO": "1"
+        },
+        "compile_exit": 0,
+        "artifact_sha256": "d84978b71cc3e286e87bd8c6e56a1c45be1effd19fd44d08b49fcaaa7db5f0c4",
+        "exit_code": 0,
+        "stdout": "-zero:3.000=zero:true:false:true:false:-1\n-zero:-3.000=zero:false:true:false:true:1\n-zero:zero=nan:false:false:true:true:-1\n-zero:-zero=nan:false:false:true:true:0\n-zero:infinity=zero:true:false:true:false:-1\n-zero:-infinity=zero:false:true:false:true:1\n-zero:nan=nan:false:false:false:false:-1\nzero:3.000=zero:true:false:true:false:-1\nzero:-3.000=zero:false:true:false:true:1\nzero:zero=nan:false:false:true:true:0\nzero:-zero=nan:false:false:true:true:1\nzero:infinity=zero:true:false:true:false:-1\nzero:-infinity=zero:false:true:false:true:1\nzero:nan=nan:false:false:false:false:-1\n1.000:3.000=1.000:true:false:true:false:-1\n1.000:-3.000=1.000:false:true:false:true:1\n1.000:zero=nan:false:true:false:true:1\n1.000:-zero=nan:false:true:false:true:1\n1.000:infinity=1.000:true:false:true:false:-1\n1.000:-infinity=1.000:false:true:false:true:1\n1.000:nan=nan:false:false:false:false:-1\n-1.000:3.000=2.000:true:false:true:false:-1\n-1.000:-3.000=2.000:false:true:false:true:1\n-1.000:zero=nan:true:false:true:false:-1\n-1.000:-zero=nan:true:false:true:false:-1\n-1.000:infinity=infinity:true:false:true:false:-1\n-1.000:-infinity=infinity:false:true:false:true:1\n-1.000:nan=nan:false:false:false:false:-1\n7.250:3.000=1.250:false:true:false:true:1\n7.250:-3.000=1.250:false:true:false:true:1\n7.250:zero=nan:false:true:false:true:1\n7.250:-zero=nan:false:true:false:true:1\n7.250:infinity=7.250:true:false:true:false:-1\n7.250:-infinity=7.250:false:true:false:true:1\n7.250:nan=nan:false:false:false:false:-1\n-7.250:3.000=1.750:true:false:true:false:-1\n-7.250:-3.000=1.750:true:false:true:false:-1\n-7.250:zero=nan:true:false:true:false:-1\n-7.250:-zero=nan:true:false:true:false:-1\n-7.250:infinity=infinity:true:false:true:false:-1\n-7.250:-infinity=infinity:false:true:false:true:1\n-7.250:nan=nan:false:false:false:false:-1\nnan:3.000=nan:false:false:false:false:1\nnan:-3.000=nan:false:false:false:false:1\nnan:zero=nan:false:false:false:false:1\nnan:-zero=nan:false:false:false:false:1\nnan:infinity=nan:false:false:false:false:1\nnan:-infinity=nan:false:false:false:false:1\nnan:nan=nan:false:false:false:false:0\ninfinity:3.000=nan:false:true:false:true:1\ninfinity:-3.000=nan:false:true:false:true:1\ninfinity:zero=nan:false:true:false:true:1\ninfinity:-zero=nan:false:true:false:true:1\ninfinity:infinity=nan:false:false:true:true:0\ninfinity:-infinity=nan:false:true:false:true:1\ninfinity:nan=nan:false:false:false:false:-1\n-infinity:3.000=nan:true:false:true:false:-1\n-infinity:-3.000=nan:true:false:true:false:-1\n-infinity:zero=nan:true:false:true:false:-1\n-infinity:-zero=nan:true:false:true:false:-1\n-infinity:infinity=nan:true:false:true:false:-1\n-infinity:-infinity=nan:false:false:true:true:0\n-infinity:nan=nan:false:false:false:false:-1\n9007199254740992.000:3.000=2.000:false:true:false:true:1\n9007199254740992.000:-3.000=2.000:false:true:false:true:1\n9007199254740992.000:zero=nan:false:true:false:true:1\n9007199254740992.000:-zero=nan:false:true:false:true:1\n9007199254740992.000:infinity=9007199254740992.000:true:false:true:false:-1\n9007199254740992.000:-infinity=9007199254740992.000:false:true:false:true:1\n9007199254740992.000:nan=nan:false:false:false:false:-1\nint=-100:2:2\nint=-1:2:2\nint=0:0:0\nint=1:1:1\nint=100:1:1\nint=4503599627370495:0:0\nordered=1.750:[left, right]\ncustom=true:false:42:[lt, gt, mod]\nbad=true\nbad=true\nbad=true\n",
+        "stderr": ""
+      }
+    },
+    "vm": {
+      "stdout": "-zero:3.000=zero:true:false:true:false:-1\n-zero:-3.000=zero:false:true:false:true:1\n-zero:zero=nan:false:false:true:true:-1\n-zero:-zero=nan:false:false:true:true:0\n-zero:infinity=zero:true:false:true:false:-1\n-zero:-infinity=zero:false:true:false:true:1\n-zero:nan=nan:false:false:false:false:-1\nzero:3.000=zero:true:false:true:false:-1\nzero:-3.000=zero:false:true:false:true:1\nzero:zero=nan:false:false:true:true:0\nzero:-zero=nan:false:false:true:true:1\nzero:infinity=zero:true:false:true:false:-1\nzero:-infinity=zero:false:true:false:true:1\nzero:nan=nan:false:false:false:false:-1\n1.000:3.000=1.000:true:false:true:false:-1\n1.000:-3.000=1.000:false:true:false:true:1\n1.000:zero=nan:false:true:false:true:1\n1.000:-zero=nan:false:true:false:true:1\n1.000:infinity=1.000:true:false:true:false:-1\n1.000:-infinity=1.000:false:true:false:true:1\n1.000:nan=nan:false:false:false:false:-1\n-1.000:3.000=2.000:true:false:true:false:-1\n-1.000:-3.000=2.000:false:true:false:true:1\n-1.000:zero=nan:true:false:true:false:-1\n-1.000:-zero=nan:true:false:true:false:-1\n-1.000:infinity=infinity:true:false:true:false:-1\n-1.000:-infinity=infinity:false:true:false:true:1\n-1.000:nan=nan:false:false:false:false:-1\n7.250:3.000=1.250:false:true:false:true:1\n7.250:-3.000=1.250:false:true:false:true:1\n7.250:zero=nan:false:true:false:true:1\n7.250:-zero=nan:false:true:false:true:1\n7.250:infinity=7.250:true:false:true:false:-1\n7.250:-infinity=7.250:false:true:false:true:1\n7.250:nan=nan:false:false:false:false:-1\n-7.250:3.000=1.750:true:false:true:false:-1\n-7.250:-3.000=1.750:true:false:true:false:-1\n-7.250:zero=nan:true:false:true:false:-1\n-7.250:-zero=nan:true:false:true:false:-1\n-7.250:infinity=infinity:true:false:true:false:-1\n-7.250:-infinity=infinity:false:true:false:true:1\n-7.250:nan=nan:false:false:false:false:-1\nnan:3.000=nan:false:false:false:false:1\nnan:-3.000=nan:false:false:false:false:1\nnan:zero=nan:false:false:false:false:1\nnan:-zero=nan:false:false:false:false:1\nnan:infinity=nan:false:false:false:false:1\nnan:-infinity=nan:false:false:false:false:1\nnan:nan=nan:false:false:false:false:0\ninfinity:3.000=nan:false:true:false:true:1\ninfinity:-3.000=nan:false:true:false:true:1\ninfinity:zero=nan:false:true:false:true:1\ninfinity:-zero=nan:false:true:false:true:1\ninfinity:infinity=nan:false:false:true:true:0\ninfinity:-infinity=nan:false:true:false:true:1\ninfinity:nan=nan:false:false:false:false:-1\n-infinity:3.000=nan:true:false:true:false:-1\n-infinity:-3.000=nan:true:false:true:false:-1\n-infinity:zero=nan:true:false:true:false:-1\n-infinity:-zero=nan:true:false:true:false:-1\n-infinity:infinity=nan:true:false:true:false:-1\n-infinity:-infinity=nan:false:false:true:true:0\n-infinity:nan=nan:false:false:false:false:-1\n9007199254740992.000:3.000=2.000:false:true:false:true:1\n9007199254740992.000:-3.000=2.000:false:true:false:true:1\n9007199254740992.000:zero=nan:false:true:false:true:1\n9007199254740992.000:-zero=nan:false:true:false:true:1\n9007199254740992.000:infinity=9007199254740992.000:true:false:true:false:-1\n9007199254740992.000:-infinity=9007199254740992.000:false:true:false:true:1\n9007199254740992.000:nan=nan:false:false:false:false:-1\nint=-100:2:2\nint=-1:2:2\nint=0:0:0\nint=1:1:1\nint=100:1:1\nint=4503599627370495:0:0\nordered=1.750:[left, right]\ncustom=true:false:42:[lt, gt, mod]\nbad=true\nbad=true\nbad=true\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    "inputs_stable": true
+  },
+  "summary": {
+    "disabled": {
+      "object_list": 24000,
+      "object_sort": 87000,
+      "map_int_object": 18000,
+      "map_str_object": 18000
+    },
+    "enabled": {
+      "object_list": 22000,
+      "object_sort": 82000,
+      "map_int_object": 17000,
+      "map_str_object": 17000
+    },
+    "officialO2": {
+      "object_list": 5000,
+      "object_sort": 31000,
+      "map_int_object": 9000,
+      "map_str_object": 5000
+    }
+  },
+  "inputs_stable": true
+}

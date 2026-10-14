@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "change": "Record the existing throw-only pruned-global getter signature through register_rejection_facts; managed Ref returns keep the nominal Owned Dart ABI and scalar/void returns stay Trivial.",
+  "production_edits": [
+    "crates/emit_native/src/lower/sdk_source.rs::lower_pruned_global"
+  ],
+  "unchanged_rules": [
+    "Dart Owned Ref return convention",
+    "runtime native handle representation and ownership",
+    "ARC token/effect/return-transfer verification",
+    "reachability policy"
+  ],
+  "source_sha256": {
+    "crates/emit_native/src/lower/sdk_source.rs": "3673bdd04ff350864fb014aa5173f7dd30b092012dd971d1eca7aaa57dba6dc7",
+    "crates/emit_native/tests/fixtures/arc_global_getters.dart": "44e3c8a37ad0633c508d4cfdc3191e33988ebda90f6bc3e49989fe66ed7fc1c9",
+    "native_sdk/ffi/ffi_dynamic_library_patch.dart": "61848d36a138516f951c8809f59f2a1bb736c12190429ab084205c673dab1df1",
+    "crates/emit_native/src/optimize/arc/returns.rs": "07d5b5d4940a1202924e9342f65862669b2755467153152408158085f407108a",
+    "crates/emit_native/src/optimize/arc/contracts.rs": "2ac191c6c8d956d9a85b57764313580199009e575f4e18573e4e06c9ae748285"
+  },
+  "gates": {
+    "before_fix": {
+      "terminal_exit": 101,
+      "reason": "Actual unused DynamicLibrary getter lowered as Ref without nominal Owned ABI metadata."
+    },
+    "focused": {
+      "terminal_exit": 0,
+      "passed": 3,
+      "failed": 0
+    },
+    "previous_full_library": {
+      "terminal_exit": 0,
+      "passed": 561,
+      "failed": 0,
+      "source_bound_evidence": "../2026-10-14-native-pruning/verification.json"
+    },
+    "current_full_library": {
+      "terminal_exit": 0,
+      "passed": 563,
+      "failed": 0,
+      "ignored": 0,
+      "elapsed_seconds": 283.33,
+      "timing_is_performance_measurement": false,
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "dartforge-emit-native",
+        "--lib",
+        "-j2",
+        "--",
+        "--include-ignored",
+        "--test-threads=2"
+      ],
+      "doctests_run": false
+    },
+    "official_oracles": {
+      "sdk": "3.6.2",
+      "analyze_issues": 0,
+      "vm_and_official_aot_stdout_equal": true,
+      "stderr_empty": true
+    },
+    "native_matrix": {
+      "status": "passed",
+      "terminal_exit": 0,
+      "commands_passed": 12,
+      "native_modes_passed": 6,
+      "memory_modes": [
+        "tracing",
+        "arc",
+        "prepared_arc"
+      ],
+      "normal_and_gc_stress": true,
+      "effects_check": true,
+      "arc_check": true,
+      "exact_vm_and_official_aot_stdout": true,
+      "stderr_empty": true,
+      "inputs_stable": true,
+      "evidence": "native-matrix.json"
+    }
+  },
+  "environment": {
+    "target_dir": "target/p4",
+    "temporary_dir": "target/arc-global-getter-validation",
+    "sdk_library": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "clang": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang"
+  },
+  "evidence_sha256": {
+    "before-fix.log": "072320787a9885af3064418be695c458a14d13a5ab2aa08a1c46b296eb58f99f",
+    "focused-three.log": "03cd3d214a9be51b6cee0239263fd723e3f08a32e134006fc0e7e8712367b39c",
+    "emitter-full-563.log": "1dc57a977f3ed56678560110fecc0fb5a584a17877f256913bb043a22906ff45",
+    "emitter-previous-561.log": "a9211580caee10bd3f8c15b48d4df5910e674f3531ed9834f73931097d0f9f27",
+    "vm.stdout": "3b42bd5a348055d946db78ae869002a128a0a6bfa24134bea54d7a88e4e8b302",
+    "vm.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "official.stdout": "3b42bd5a348055d946db78ae869002a128a0a6bfa24134bea54d7a88e4e8b302",
+    "official.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "analyze.log": "881a52d69d940311838ce93400eed5d0a8be99e823ab59c13cb66024ec62c5e9",
+    "official-build.log": "e471c75566c0e717a48715c08b691ee339b765f415b11dcd5c4e3770cac11019",
+    "native-matrix.json": "9790a8284044d9f60a33b885562d78a9950af8981b7828a800bf1ecf66548677",
+    "native-matrix.log": "6a85e1de5fca45340cde415efdb72519bf267cc25f4b2542608675109265f5c8"
+  },
+  "performance_measurement": false,
+  "limitations": [
+    "The ordinary getter fixture passes all six native memory/stress combinations; this is a focused compatibility result.",
+    "No runtime ARC/JIT throughput or complete prepared-ARC readiness claim follows from this metadata repair.",
+    "The broader foreign-thread SyncNativeCallable prepared-JIT retry remains independently owned by the JIT agent."
+  ],
+  "compiler_sha256": "fbbdd375c6a6058be2a83d4443619b2a18c95e149ee0840cc44594a303ff4a7f"
+}

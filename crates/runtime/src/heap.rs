@@ -27,6 +27,73 @@ pub struct HeapStats {
     pub boxes_avoided: u64,
 }
 
+/// A bounded policy for automatic collection, independent of RC/destruction.
+#[derive(Debug)]
+struct AutomaticGcPolicy {
+    origin: std::time::Instant,
+    window: Option<(std::time::Instant, usize)>,
+    debt: bool,
+    idle_requested: bool,
+}
+impl Default for AutomaticGcPolicy {
+    fn default() -> Self {
+        Self { origin: std::time::Instant::now(), window: None, debt: false, idle_requested: false }
+    }
+}
+impl AutomaticGcPolicy {
+    fn refresh(&mut self, now: std::time::Instant) {
+        if self.window.is_some_and(|(deadline, _)| now >= deadline) {
+            self.window = None;
+        }
+    }
+    fn arm(&mut self, now: std::time::Instant, duration: std::time::Duration, budget: usize) -> i64 {
+        if duration.is_zero() || budget == 0 { return -1; }
+        let Some(deadline) = now.checked_add(duration) else { return -1 };
+        self.refresh(now);
+        if self.debt { return 0; }
+        self.window = Some(match self.window {
+            Some((old_deadline, remaining)) => (old_deadline.min(deadline), remaining.min(budget)),
+            None => (deadline, budget),
+        });
+        1
+    }
+    fn charge(&mut self, bytes: usize) {
+        if let Some((deadline, remaining)) = self.window {
+            if bytes >= remaining {
+                self.window = None;
+                self.debt = true;
+            } else {
+                self.window = Some((deadline, remaining - bytes));
+            }
+        }
+    }
+    fn collect_before(&mut self, now: std::time::Instant, bytes: usize, ordinary: bool, forced: bool) -> bool {
+        self.refresh(now);
+        if forced { return true; }
+        if self.debt && self.window.is_none() { return true; }
+        if let Some((_, remaining)) = self.window {
+            if bytes >= remaining {
+                self.window = None;
+                self.debt = true;
+                return true;
+            }
+            if ordinary { self.debt = true; }
+            return false;
+        }
+        ordinary
+    }
+    fn cancel(&mut self) {
+        self.window = None;
+    }
+    fn serviced(&mut self) {
+        self.window = None;
+        self.debt = false;
+        self.idle_requested = false;
+    }
+    fn is_active(&self) -> bool { self.window.is_some() || self.debt }
+    fn blocks_tlabs(&self) -> bool { self.debt }
+}
+
 // `Text`, `StringMut`, `UnitsIter` and `push_point` live in `text.rs` (P1,
 // docs/NATIVO-ESPACO-UNIFICADO.md §4.3).
 pub use crate::text::{UnitsIter, Text, StringMut, push_point};
@@ -1439,6 +1506,7 @@ pub struct Heap {
     /// `DARTFORGE_GC_SCHEDULE`; `None` without it.
     schedule: Option<Schedule>,
     stats: HeapStats,
+    gc_policy: AutomaticGcPolicy,
     /// Positions walked by the last marking.
     marking_work: usize,
     pending: Vec<i64>,
@@ -1648,6 +1716,7 @@ impl Heap {
             stress,
             schedule: Schedule::from_env(),
             stats: HeapStats::default(),
+            gc_policy: AutomaticGcPolicy::default(),
             marking_work: 0,
             pending: Vec::new(),
             byte_threshold: 2 * YOUNG_LIMIT,
@@ -2289,6 +2358,44 @@ impl Heap {
         self.allocations += k;
         self.stats.allocations += k as u64;
         self.young_bytes = self.young_bytes.saturating_add(bytes);
+        self.gc_policy_after_growth(false);
+    }
+    /// Invalidates cached reservations without collecting: callers may still
+    /// hold an unrooted newly allocated header or attachment.
+    fn gc_policy_after_growth(&mut self, external_growth: bool) {
+        // External growth can invalidate prepaid quotas even after cancellation
+        // or expiry. Never let an old cached range conceal that pressure.
+        if !external_growth && !self.gc_policy.is_active() { return; }
+        self.gc_policy.refresh(std::time::Instant::now());
+        let pressure = self.allocations >= YOUNG_COUNT
+            || self.young_bytes >= self.young_limit
+            || self.stats.estimated_bytes >= self.byte_threshold
+            || (self.byte_limit != usize::MAX && self.total_bytes(0) >= self.byte_limit);
+        if self.gc_policy.window.is_some() && pressure {
+            self.gc_policy.debt = true;
+        }
+        if self.gc_policy.debt || (external_growth && pressure) { self.return_tlabs(); }
+    }
+    /// Arms automatic-GC deferral after returning unspent inline reservations.
+    pub(crate) fn gc_policy_defer(&mut self, duration: std::time::Duration, budget: usize) -> i64 {
+        let status = self.gc_policy.arm(std::time::Instant::now(), duration, budget);
+        if status == 1 { self.return_tlabs(); }
+        status
+    }
+    pub(crate) fn gc_policy_elapsed_micros(&self) -> i64 {
+        self.gc_policy.origin.elapsed().as_micros().min(i64::MAX as u128) as i64
+    }
+    pub(crate) fn gc_policy_cancel(&mut self) { self.gc_policy.cancel(); }
+    pub(crate) fn gc_policy_request_idle(&mut self) { self.gc_policy.idle_requested = true; }
+    pub(crate) fn gc_policy_idle_deadline(&self) -> Option<std::time::Instant> {
+        if self.gc_policy.idle_requested { self.gc_policy.window.map(|(deadline, _)| deadline) } else { None }
+    }
+    /// Called only after the owner scheduler establishes genuine idleness.
+    pub(crate) fn gc_policy_collect_if_idle(&mut self) -> bool {
+        self.gc_policy.refresh(std::time::Instant::now());
+        if !self.gc_policy.idle_requested || self.gc_policy.window.is_some() { return false; }
+        self.collect();
+        true
     }
     /// Was the `late` field `key` (handle, index) already written?
     #[inline]
@@ -2341,13 +2448,17 @@ impl Heap {
     /// allocations) since the last collection; the full one, when the total exceeds the
     /// trigger the last full one computed (`byte_threshold`) or the ceiling.
     #[inline]
-    fn needs_collection(&self, bytes: usize) -> bool {
-        self.stress
+    fn needs_collection(&mut self, bytes: usize) -> bool {
+        let forced = self.stress
             || self.schedule.as_ref().is_some_and(Schedule::draws)
-            || self.allocations >= YOUNG_COUNT
+            || (self.byte_limit != usize::MAX && self.total_bytes(bytes) > self.byte_limit);
+        let ordinary = self.allocations >= YOUNG_COUNT
             || self.young_bytes.saturating_add(bytes) > self.young_limit
-            || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold
-            || (self.byte_limit != usize::MAX && self.total_bytes(bytes) > self.byte_limit)
+            || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold;
+        if !self.gc_policy.is_active() { return forced || ordinary; }
+        let collect = self.gc_policy.collect_before(std::time::Instant::now(), bytes, ordinary, forced);
+        if self.gc_policy.debt { self.return_tlabs(); }
+        collect
     }
     /// The collection the triggers ask for before allocating `bytes`: the full one if
     /// the total exceeded its trigger (or the ceiling, or every
@@ -2374,7 +2485,8 @@ impl Heap {
     /// nor in test heaps.
     pub fn refill_tlab(&mut self, words: usize) {
         let n = words;
-        if !self.published || self.stress || self.schedule.is_some() || n == 0 || n > TLAB_N {
+        if self.gc_policy.window.is_some() { self.gc_policy.refresh(std::time::Instant::now()); }
+        if !self.published || self.stress || self.schedule.is_some() || self.gc_policy.blocks_tlabs() || n == 0 || n > TLAB_N {
             return;
         }
         let size = block_bytes(n);
@@ -2388,12 +2500,24 @@ impl Heap {
         if self.byte_limit != usize::MAX {
             k = k.min(self.byte_limit.saturating_sub(self.total_bytes(0)) / size);
         }
+        if let Some((_, remaining)) = self.gc_policy.window {
+            // Reservations count as gross growth now. Leave one byte so their
+            // accounting cannot create debt while the range is unpublished.
+            k = k.min(remaining.saturating_sub(1) / size);
+        }
         if k == 0 {
             return;
         }
         let (start, k) = self.objects.take_range(n, k);
         self.objects.live_set += k;
-        self.count_allocation(k, k * size);
+        // This transaction has already checked all quotas and the policy
+        // allowance. Do not run the growth checkpoint until the range exists
+        // in Context: returning TLABs here would miss this reservation.
+        let bytes = k * size;
+        self.add_estimated_bytes(bytes);
+        self.allocations += k;
+        self.stats.allocations += k as u64;
+        self.young_bytes = self.young_bytes.saturating_add(bytes);
         CONTEXT.with(|c| {
             c.tlab[n][0].set(start);
             c.tlab[n][1].set(start.wrapping_add(k * size));
@@ -3158,6 +3282,7 @@ impl Heap {
         // direct roots (docs/ARC-IMPLEMENTACAO.md §6).
         if self.arc.as_ref().is_some_and(|a| a.pure) {
             self.drain_arc(!minor);
+            self.gc_policy.serviced();
             return;
         }
         check_collection_allowed();
@@ -3420,6 +3545,8 @@ impl Heap {
                 self.objects.remembered.len()
             );
         }
+        // Clear debt only after the collector has actually completed.
+        self.gc_policy.serviced();
     }
 
     /// The memory breakdown (`DARTFORGE_GC_MEMORY=1`): the object space, the
@@ -3906,6 +4033,7 @@ impl Heap {
         self.objects.attach(b, release, ptr, bytes);
         self.add_estimated_bytes(bytes);
         self.young_bytes = self.young_bytes.saturating_add(bytes);
+        if bytes > 0 { self.gc_policy_after_growth(true); }
     }
     /// The bytes of the attachment of `h` become `bytes` (the `StringBuffer`
     /// accumulator grew): the difference enters the collection triggers, like
@@ -3916,6 +4044,7 @@ impl Heap {
         if delta >= 0 {
             self.add_estimated_bytes(delta.unsigned_abs());
             self.young_bytes = self.young_bytes.saturating_add(delta.unsigned_abs());
+            if delta > 0 { self.gc_policy_after_growth(true); }
         } else {
             self.subtract_estimated_bytes(delta.unsigned_abs());
         }
@@ -3935,6 +4064,9 @@ impl Heap {
     }
 
     fn add_estimated_bytes(&mut self, bytes: usize) {
+        // Gross growth, including TLAB reservations and external attachments.
+        // Discounts and collector estimate recomputation do not restore budget.
+        self.gc_policy.charge(bytes);
         self.set_estimated_bytes(self.exact_estimated_bytes.saturating_add(bytes as u128));
     }
 
@@ -3950,6 +4082,7 @@ impl Heap {
             self.external = self.external.saturating_add(d as u128);
             self.add_estimated_bytes(d);
             self.young_bytes = self.young_bytes.saturating_add(d);
+            if d > 0 { self.gc_policy_after_growth(true); }
         } else {
             let d = delta.unsigned_abs();
             self.external = self.external.saturating_sub(d as u128);
@@ -4150,7 +4283,7 @@ mod object_space {
     /// The generated code's inline allocation: advances the cursor of the TLAB
     /// range and writes the header (`llvm/mod.rs`).
     #[allow(unsafe_code)]
-    fn allocate_like_generated_code(heap: &mut Heap, class_id: i64, n: usize) -> i64 {
+    pub(super) fn allocate_like_generated_code(heap: &mut Heap, class_id: i64, n: usize) -> i64 {
         // The TLAB is by body words (`n ≤ TLAB_N` fields: `max(n, 1)`).
         let w = crate::layout::instance_words(n);
         let size = block_size(n);
@@ -7416,6 +7549,344 @@ mod tests_observation_without_reset {
             assert_eq!(heap.observe_code_owner(neighbor), 3);
             heap.release_code_owner(neighbor);
             heap.collect();
+        }
+    }
+}
+
+#[cfg(test)]
+mod gc_policy_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn logical_deadline_and_repeated_requests_cannot_extend_or_restart_allowance() {
+        let now = Instant::now();
+        let mut policy = AutomaticGcPolicy::default();
+        assert_eq!(policy.arm(now, Duration::from_secs(2), 100), 1);
+        policy.charge(30);
+        assert_eq!(policy.arm(now + Duration::from_secs(1), Duration::from_secs(9), 1000), 1);
+        assert_eq!(policy.window, Some((now + Duration::from_secs(2), 70)));
+        assert!(!policy.collect_before(now + Duration::from_secs(1), 10, true, false));
+        assert_eq!(policy.arm(now, Duration::from_secs(1), 100), 0);
+        assert!(policy.collect_before(now + Duration::from_secs(2), 10, false, false));
+        assert_eq!(policy.arm(now + Duration::from_secs(2), Duration::from_secs(1), 100), 0);
+        policy.serviced();
+        assert_eq!(policy.arm(now, Duration::from_secs(1), 100), 1);
+    }
+
+    #[test]
+    fn unused_cancel_or_expiry_does_not_manufacture_collection_debt() {
+        let mut heap = Heap::new(false);
+        heap.schedule = None;
+        let before = heap.stats().collections;
+        assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024), 1);
+        heap.allocate_object(308, 1);
+        heap.gc_policy_cancel();
+        assert!(!heap.gc_policy.debt);
+        heap.allocate_object(308, 1);
+        assert_eq!(heap.stats().collections, before);
+        assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024), 1);
+        heap.gc_policy.window = Some((Instant::now() - Duration::from_secs(1), 1024));
+        heap.allocate_object(308, 1);
+        assert!(!heap.gc_policy.debt);
+        assert_eq!(heap.stats().collections, before);
+        assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024), 1);
+        heap.young_bytes = heap.young_limit;
+        assert!(!heap.needs_collection(16));
+        assert!(heap.gc_policy.debt);
+        heap.gc_policy_cancel();
+        assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024), 0);
+        heap.allocate_object(308, 1);
+        assert_eq!(heap.stats().collections, before + 1);
+    }
+
+    #[test]
+    fn budget_precheck_and_gross_growth_force_debt_without_refunds() {
+        let now = Instant::now();
+        let mut policy = AutomaticGcPolicy::default();
+        assert_eq!(policy.arm(now, Duration::from_secs(9), 100), 1);
+        policy.charge(40);
+        assert!(!policy.collect_before(now, 59, true, false));
+        assert!(policy.collect_before(now, 60, false, false));
+        assert_eq!(policy.arm(now, Duration::from_secs(9), 100), 0);
+        policy.serviced();
+        assert_eq!(policy.arm(now, Duration::from_secs(9), 100), 1);
+        policy.charge(1000);
+        assert!(policy.collect_before(now, 1, false, false));
+    }
+
+    #[test]
+    fn runtime_allocation_external_growth_and_explicit_collection_preserve_roots() {
+        let mut heap = Heap::new(false);
+        heap.schedule = None;
+        let frame = heap.push_frame_with_slots(1);
+        let root = heap.new_object(301, &[(77, false)]);
+        heap.set_root(frame, 0, root);
+        let before = heap.stats().collections;
+        assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 256), 1);
+        heap.count_external(300);
+        heap.count_external(-300);
+        assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 256), 0);
+        heap.allocate_object(302, 1);
+        assert_eq!(heap.stats().collections, before + 1);
+        assert_eq!(heap.object(root).unwrap().field(0), (77, false));
+        assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 256), 1);
+        heap.collect();
+        assert!(!heap.gc_policy.blocks_tlabs());
+        assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 256), 1);
+    }
+
+    #[test]
+    fn stress_schedule_and_hard_ceiling_bypass_the_deferral_gate() {
+        for forced in 0..3 {
+            let mut heap = Heap::new(forced == 0);
+            heap.schedule = if forced == 1 {
+                Some(Schedule { state: std::cell::Cell::new(1), rate: 1, pending: std::cell::Cell::new(false) })
+            } else { None };
+            assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024 * 1024), 1);
+            if forced == 2 { heap.byte_limit = 1; }
+            assert!(heap.needs_collection(16));
+            if forced < 2 {
+                let before = heap.stats().collections;
+                heap.allocate_object(303, 1);
+                assert_eq!(heap.stats().collections, before + 1);
+                assert!(!heap.gc_policy.blocks_tlabs());
+            }
+        }
+    }
+
+    #[test]
+    fn tlab_reservations_are_drained_and_disabled_until_debt_is_serviced() {
+        std::thread::spawn(|| {
+            let mut heap = Heap::for_isolate(false);
+            heap.schedule = None;
+            let frame = heap.push_frame_with_slots(1);
+            let root = heap.allocate_object(304, 2);
+            heap.set_root(frame, 0, root);
+            heap.refill_tlab(2);
+            assert!(CONTEXT.with(|c| c.tlab[2][0].get() != c.tlab[2][1].get()));
+            assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024), 1);
+            assert!(CONTEXT.with(|c| c.tlab[2][0].get().is_null() && c.tlab[2][1].get().is_null()));
+            heap.refill_tlab(2);
+            assert!(CONTEXT.with(|c| c.tlab[2][0].get() != c.tlab[2][1].get()));
+            // A suppressed ordinary trigger creates real debt before cancel.
+            heap.young_bytes = heap.young_limit;
+            assert!(!heap.needs_collection(16));
+            heap.gc_policy_cancel();
+            heap.refill_tlab(2);
+            assert!(CONTEXT.with(|c| c.tlab[2][0].get().is_null()));
+            assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024), 0);
+            heap.collect();
+            heap.refill_tlab(2);
+            assert!(CONTEXT.with(|c| c.tlab[2][0].get() != c.tlab[2][1].get()));
+            heap.return_tlabs();
+        }).join().unwrap();
+    }
+
+    fn has_reservation(words: usize) -> bool {
+        CONTEXT.with(|c| c.tlab[words][0].get() != c.tlab[words][1].get())
+    }
+
+    #[test]
+    fn bounded_pre_debt_reservation_is_prepaid_and_cannot_reenter_accounting() {
+        std::thread::spawn(|| {
+            let mut heap = Heap::for_isolate(false);
+            heap.schedule = None;
+            let size = block_bytes(2);
+            let before = heap.stats.estimated_bytes;
+            assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 3 * size + 1), 1);
+            heap.refill_tlab(2);
+            assert!(has_reservation(2));
+            assert_eq!(heap.stats.estimated_bytes, before + 3 * size);
+            assert_eq!(heap.gc_policy.window.unwrap().1, 1);
+            assert!(!heap.gc_policy.debt);
+            // A second refill sees the published range, not a new charge.
+            heap.refill_tlab(2);
+            assert_eq!(heap.gc_policy.window.unwrap().1, 1);
+            let h = object_space::allocate_like_generated_code(&mut heap, 309, 2);
+            assert_eq!(heap.stats.estimated_bytes, before + 3 * size);
+            assert!(heap.object(h).is_some());
+            heap.count_external(1);
+            assert!(heap.gc_policy.debt);
+            assert!(!has_reservation(2));
+            assert_eq!(heap.stats.estimated_bytes, before + size + 1);
+            assert!(heap.object(h).is_some());
+            heap.refill_tlab(2);
+            assert!(!has_reservation(2));
+            assert_eq!(heap.stats.collections, 0);
+        }).join().unwrap();
+    }
+
+    #[test]
+    fn suppressed_ordinary_debt_drains_every_size_class() {
+        std::thread::spawn(|| {
+            let mut heap = Heap::for_isolate(false);
+            heap.schedule = None;
+            assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024 * 1024), 1);
+            heap.refill_tlab(2);
+            heap.refill_tlab(3);
+            assert!(has_reservation(2) && has_reservation(3));
+            heap.young_limit = heap.young_bytes;
+            assert!(!heap.needs_collection(16));
+            assert!(heap.gc_policy.debt);
+            assert!(!has_reservation(2) && !has_reservation(3));
+            assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024), 0);
+            heap.refill_tlab(2);
+            assert!(!has_reservation(2));
+            heap.gc_policy.window = Some((Instant::now() - Duration::from_secs(1), 1024));
+            assert!(heap.needs_collection(16));
+            assert_eq!(heap.stats.collections, 0);
+        }).join().unwrap();
+    }
+
+    #[test]
+    fn unused_expiry_or_cancel_preserves_prepaid_blocks_but_external_pressure_drains_them() {
+        for expired in [false, true] {
+            std::thread::spawn(move || {
+                let mut heap = Heap::for_isolate(false);
+                heap.schedule = None;
+                assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024 * 1024), 1);
+                heap.refill_tlab(2);
+                if expired {
+                    heap.gc_policy.window = Some((Instant::now() - Duration::from_secs(1), 1024));
+                    heap.refill_tlab(3);
+                } else { heap.gc_policy_cancel(); }
+                assert!(!heap.gc_policy.is_active());
+                assert!(has_reservation(2));
+                let before = heap.stats.estimated_bytes;
+                let h = object_space::allocate_like_generated_code(&mut heap, 310, 2);
+                assert!(heap.object(h).is_some());
+                assert_eq!(heap.stats.estimated_bytes, before);
+                heap.byte_limit = before + 1;
+                heap.count_external(1);
+                assert!(!has_reservation(2) && !has_reservation(3));
+                assert!(!heap.gc_policy.debt);
+                assert_eq!(heap.stats.collections, 0);
+            }).join().unwrap();
+        }
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn external_attachment_growth_invalidates_budget_and_quotas_without_collecting_unrooted_headers() {
+        unsafe fn release_nothing(_: *mut u8) {}
+        for endpoint in 0..3 {
+            for limit in 0..3 {
+                std::thread::spawn(move || {
+                    let mut heap = Heap::for_isolate(false);
+                    heap.schedule = None;
+                    let h = heap.allocate(crate::layout::cid::STRING_ACCUMULATOR, 1, crate::layout::flags::RAW);
+                    if endpoint == 1 {
+                        // SAFETY: null is never dereferenced and release is a no-op.
+                        unsafe { heap.attach(h, release_nothing, std::ptr::null_mut(), 0) };
+                    }
+                    let before_collections = heap.stats.collections;
+                    assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024 * 1024), 1);
+                    heap.refill_tlab(2);
+                    heap.refill_tlab(3);
+                    assert!(has_reservation(2) && has_reservation(3));
+                    match limit {
+                        0 => heap.gc_policy.window.as_mut().unwrap().1 = 100,
+                        1 => heap.young_limit = heap.young_bytes + 100,
+                        _ => heap.byte_limit = heap.stats.estimated_bytes + 100,
+                    }
+                    match endpoint {
+                        0 => {
+                            // SAFETY: null is never dereferenced and release is a no-op.
+                            unsafe { heap.attach(h, release_nothing, std::ptr::null_mut(), 100) };
+                        }
+                        1 => heap.adjust_attachment(h, 100),
+                        _ => heap.count_external(100),
+                    }
+                    assert!(heap.gc_policy.debt);
+                    assert!(!has_reservation(2) && !has_reservation(3));
+                    assert_eq!(heap.stats.collections, before_collections);
+                    // Raw attachment headers are not instances, so object()
+                    // is inapplicable; the precise live-block check must pass.
+                    let _ = heap.live_block(h);
+                    assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024), 0);
+                    heap.refill_tlab(2);
+                    assert!(!has_reservation(2));
+                    // A negative counter adjustment cannot forgive recorded debt.
+                    if endpoint == 2 { heap.count_external(-100); }
+                    assert!(heap.gc_policy.debt);
+                }).join().unwrap();
+            }
+        }
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn zero_external_growth_at_quota_equality_preserves_reservations_without_debt() {
+        unsafe fn release_nothing(_: *mut u8) {}
+        for endpoint in 0..3 {
+            std::thread::spawn(move || {
+                let mut heap = Heap::for_isolate(false);
+                heap.schedule = None;
+                let h = heap.allocate(crate::layout::cid::STRING_ACCUMULATOR, 1, crate::layout::flags::RAW);
+                if endpoint == 1 {
+                    // SAFETY: null is never dereferenced and release is a no-op.
+                    unsafe { heap.attach(h, release_nothing, std::ptr::null_mut(), 7) };
+                }
+                assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024 * 1024), 1);
+                heap.refill_tlab(2);
+                heap.refill_tlab(3);
+                assert!(has_reservation(2) && has_reservation(3));
+                heap.young_limit = heap.young_bytes;
+                heap.byte_threshold = heap.stats.estimated_bytes;
+                heap.byte_limit = heap.stats.estimated_bytes;
+                let before = (heap.stats.estimated_bytes, heap.allocations, heap.stats.collections, heap.gc_policy.window);
+                match endpoint {
+                    0 => {
+                        // SAFETY: null is never dereferenced and release is a no-op.
+                        unsafe { heap.attach(h, release_nothing, std::ptr::null_mut(), 0) };
+                    }
+                    1 => heap.adjust_attachment(h, 7),
+                    _ => heap.count_external(0),
+                }
+                assert_eq!((heap.stats.estimated_bytes, heap.allocations, heap.stats.collections, heap.gc_policy.window), before);
+                assert!(!heap.gc_policy.debt);
+                assert!(has_reservation(2) && has_reservation(3));
+                let _ = heap.live_block(h);
+                heap.return_tlabs();
+            }).join().unwrap();
+        }
+    }
+
+    #[test]
+    fn idle_collection_requires_request_and_waits_for_cancel_or_expiry() {
+        let mut heap = Heap::new(false);
+        heap.gc_disabled = true;
+        assert!(!heap.gc_policy_collect_if_idle());
+        assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1000), 1);
+        heap.gc_policy_request_idle();
+        assert!(heap.gc_policy_idle_deadline().is_some());
+        assert!(!heap.gc_policy_collect_if_idle());
+        heap.gc_policy_cancel();
+        assert!(heap.gc_policy_collect_if_idle());
+        assert!(!heap.gc_policy_collect_if_idle());
+        assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1000), 1);
+        heap.gc_policy_request_idle();
+        heap.gc_policy.window = Some((Instant::now() - Duration::from_secs(1), 1000));
+        assert!(heap.gc_policy_collect_if_idle());
+    }
+
+    #[test]
+    fn idle_collection_keeps_ready_finalizers_and_arc_roots_alive() {
+        for arc in [false, true] {
+            let mut heap = Heap::new(false);
+            if arc { heap.enable_arc(); }
+            let frame = heap.push_frame_with_slots(1);
+            let owner = heap.allocate_object(305, 0);
+            heap.set_root(frame, 0, owner);
+            let value = heap.allocate_object(306, 0);
+            let action = heap.allocate_object(307, 0);
+            heap.add_attachment(FinalizerAttachment { owner, value, detach: 0, action: FinalizerAction::Dart(action) });
+            heap.gc_policy_request_idle();
+            assert!(heap.gc_policy_collect_if_idle());
+            assert!(heap.object(owner).is_some());
+            assert_eq!(heap.ready_finalizations.front().copied(), Some(action));
+            assert!(heap.object(action).is_some());
         }
     }
 }

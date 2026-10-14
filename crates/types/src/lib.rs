@@ -20,6 +20,7 @@ pub mod self_reference;
 pub mod raw_cycles;
 pub mod a_main;
 pub mod annotations;
+pub mod optimization_annotations;
 pub mod best_practices;
 pub mod bounds;
 pub mod codes;

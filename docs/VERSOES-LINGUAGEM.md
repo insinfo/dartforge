@@ -36,7 +36,7 @@ qualquer `@Since` 3.7+. A API SIMD do Dart 3.14 (`Int32x4.lessThan`, `<<`,
 `allTrue`, …) entra por outro caminho, sem mexer no SDK nem na versão de
 linguagem: uma **extensão comum** de Dart 3.6 com as assinaturas exatas do
 3.14 e os corpos do `typed_data_patch.dart` da VM
-(`packages/dartforge_simd/lib/int32x4_3_14.dart`, marcada com
+(`packages/dartforge/lib/src/simd/int32x4_3_14.dart`, marcada com
 `@pragma('dartforge:simd-api', '3.14')`), que o backend nativo reconhece
 pelo pragma e compila em instruções vetoriais. O programa que a importa roda
 igual na VM 3.6.2 (o oráculo executa os corpos em Dart) e num SDK 3.14 (os

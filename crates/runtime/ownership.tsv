@@ -13,6 +13,16 @@ dartforge_arc_rti_string_owned_v1	i64:native	ref:owned	0	1	normal
 dartforge_arc_rti_object_type_owned_v1	i64:native	ref:owned	0	1	normal
 dartforge_rti_init_table	ptr:native,i64:scalar	void:scalar	0	0	normal
 dartforge_ffi_closure_address	ref:borrow	i64:scalar	0	1	pending
+# Scalar means no managed Ref ownership here; late-return bits may be a native pointer.
+dartforge_ffi_callback_late_calls	-	i64:scalar	0	0	normal
+dartforge_ffi_callback_late_return	ptr:native	i64:scalar	0	0	normal
+dartforge_ffi_callback_owner_cancel_retire	i64:scalar	u8:scalar	0	0	normal
+dartforge_ffi_callback_owner_finish_retire	i64:scalar	u8:scalar	0	0	normal
+dartforge_ffi_callback_owner_new	-	i64:scalar	0	0	normal
+dartforge_ffi_callback_owner_prepare_retire	i64:scalar	u8:scalar	0	0	normal
+dartforge_ffi_callback_owner_published	i64:scalar	u8:scalar	0	0	normal
+dartforge_ffi_register_callback_owned	bytes:native,i64:scalar,usize:native,i64:scalar	u8:scalar	0	0	normal
+dartforge_ffi_callback_sync	ptr:native,ptr:native,i64:scalar	i64:scalar	0	0	normal
 dartforge_ffi_pointer_address	ref:borrow	i64:scalar	0	1	pending-dart
 dartforge_ffi_native_symbol	bytes:native,i64:scalar	i64:scalar	0	1	pending-dart
 dartforge_rti_tuple_join	i64:scalar,i64:scalar,i64:scalar,i64:scalar	i64:scalar	0	0	normal
@@ -154,6 +164,15 @@ dartforge_native_DartApiDLInitializeData	-	i64:scalar	0	1	pending
 dartforge_native_DartApiDLMajorVersion	-	i64:scalar	0	1	pending
 dartforge_native_DartApiDLMinorVersion	-	i64:scalar	0	1	pending
 dartforge_native_DartForge_Timer_new	i64:scalar,ref:borrow,u8:scalar	i64:scalar	1	1	pending
+# Scalar timer IDs/statuses carry no Dart owners. Effects remain conservative;
+# native-pump setup/removal may mutate OS/runtime state but never runs Dart here.
+dartforge_native_DartForge_Timer_tick	i64:scalar	i64:scalar	0	1	pending
+dartforge_native_DartForge_native_pump_supported	-	u8:scalar	0	1	pending
+dartforge_native_DartForge_native_pump_enable	-	i64:scalar	0	1	pending
+dartforge_native_DartForge_native_pump_disable	-	i64:scalar	0	1	pending
+dartforge_native_DartForge_native_pump_dispatcher_supported	-	u8:scalar	0	1	pending
+dartforge_native_DartForge_native_pump_set_dispatcher	ref:borrow	i64:scalar	1	1	pending
+dartforge_native_DartForge_native_pump_clear_dispatcher	-	i64:scalar	0	1	pending
 dartforge_native_DartForge_capability_new	-	i64:scalar	0	1	pending
 dartforge_native_DartForge_double_ceil	f64:scalar	f64:scalar	0	1	pending
 dartforge_native_DartForge_double_floor	f64:scalar	f64:scalar	0	1	pending
@@ -165,6 +184,9 @@ dartforge_native_DartForge_double_toInt	f64:scalar	i64:scalar	0	1	pending-dart
 dartforge_native_DartForge_double_truncate	f64:scalar	f64:scalar	0	1	pending
 dartforge_native_DartForge_ffi_abi	-	i64:scalar	0	1	pending
 dartforge_native_DartForge_ffi_callback_new	ref:borrow,ref:borrow,ref:borrow,i64:scalar,i64:scalar	i64:scalar	1	1	pending-dart
+dartforge_native_DartForge_ffi_callback_sync_claim	ref:borrow	u8:scalar	0	1	pending-dart
+dartforge_native_DartForge_ffi_callback_sync_complete	ref:borrow,ref:borrow,u8:scalar	void:scalar	0	1	pending-dart
+dartforge_native_DartForge_ffi_callback_sync_new	ref:borrow,ref:borrow,ref:borrow,i64:scalar,i64:scalar	i64:scalar	1	1	pending-dart
 dartforge_native_DartForge_ffi_load_abi	ref:borrow,ref:borrow,i64:scalar	i64:scalar	1	1	pending-dart
 dartforge_native_DartForge_ffi_load_f32	ref:borrow,i64:scalar	f64:scalar	1	1	pending-dart
 dartforge_native_DartForge_ffi_load_f64	ref:borrow,i64:scalar	f64:scalar	1	1	pending-dart
@@ -417,3 +439,11 @@ dartforge_stack_trace_exit	i64:scalar	void:scalar	0	0	normal
 # writes bytes, without Dart, allocation or pending exception; 0 returns to the dispatch.
 dartforge_typed_fill_int	ref:borrow,i64:scalar,i64:scalar,i64:scalar,i64:scalar	i64:scalar	0	0	normal
 dartforge_typed_fill_double	ref:borrow,i64:scalar,i64:scalar,i64:scalar,f64:scalar	i64:scalar	0	0	normal
+dartforge_native_DartForge_event_next_deadline_micros	-	i64:scalar	0	0	normal
+dartforge_native_DartForge_isolate_thread_id	-	i64:scalar	0	0	normal
+dartforge_native_DartForge_gc_policy_supported	-	u8:scalar	0	0	normal
+dartforge_native_DartForge_gc_policy_elapsed_micros	-	i64:scalar	0	0	normal
+dartforge_native_DartForge_gc_policy_defer	i64:scalar,i64:scalar	i64:scalar	0	1	pending-dart
+dartforge_native_DartForge_gc_policy_cancel	-	void:scalar	0	0	normal
+dartforge_native_DartForge_gc_policy_request_idle	-	void:scalar	0	0	normal
+dartforge_native_DartForge_gc_policy_collections	-	i64:scalar	0	0	normal

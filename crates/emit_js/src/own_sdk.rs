@@ -1431,3 +1431,97 @@ pub fn external_without_body(ctx: &Ctx, fid: FunctionElementId) -> bool {
         _ => true,
     }
 }
+
+/// Certify only the positive-result comparison in the SDK's Euclidean modulo.
+///
+/// The canonical Number peer, operator identity and complete body shape must
+/// match. The emitted typeof guard retains symbol dispatch for foreign BigInt
+/// borrowing; the divisor comparison is deliberately left unchanged.
+pub(crate) fn modulo_number_comparison(e: &mut FnEmitter, fid: FunctionElementId) -> Option<ExprId> {
+    use ast::{BinaryOp, FunctionBody, StmtKind};
+    if !e.ctx.production() || std::env::var("DARTFORGE_JSPROD_NUMBER_MODULO").is_ok_and(|v| v == "0") { return None; }
+    let ctx = e.ctx;
+    let sdk = ctx.sdk.as_ref()?;
+    let c = ctx.jsnumber?;
+    let class = ctx.program.class(c);
+    let f = ctx.program.function(fid);
+    if f.class != Some(c) || f.static_ || e.ctx.name(f.name) != "%" || f.kind != FunctionKind::Operator
+        || !class.modifiers.final_ || e.ctx.program.library(class.library).uri != "dart:_interceptors"
+        || !sdk.primitives.contains(&c) || !sdk.peers.get(&c).is_some_and(|p| p.len() == 1 && p[0] == "Number") { return None; }
+    let FunctionRef::Function { unit, function } = f.node else { return None };
+    if unit != e.unit { return None; }
+    let af = e.ast().function(function);
+    let [param] = af.parameters.as_deref()? else { return None };
+    let other = param.name?;
+    if param.kind != ast::ParameterKind::Required || !e.ctx.is_num_like(&e.lookup_local(other.sym)?.ty)
+        || !sdk.null_checked_params.contains(&(unit.0, other.span.start as u32)) || af.modifier != ast::AsyncModifier::None { return None; }
+    let FunctionBody::Block(body) = af.body else { return None };
+    let StmtKind::Block(stmts) = &e.ast().stmt(body).kind else { return None };
+    let [declaration, zero, positive, negative] = stmts.as_ref() else { return None };
+    let StmtKind::Variables(list) = &e.ast().stmt(*declaration).kind else { return None };
+    let [result] = list.variables.as_ref() else { return None };
+    if list.late || list.external { return None; }
+    let result_ty = e.resolve_type(list.ty?);
+    if result_ty.class() != Some(c) || result_ty.is_nullable() || e.ret_ty.class() != Some(c) { return None; }
+    let init = modulo_js_arguments(e, result.initializer?, "# % #")?;
+    if init.len() != 2 || !matches!(e.expr(init[0]).kind, ExprKind::This) || !modulo_identifier(e, init[1], other.sym) { return None; }
+    let StmtKind::If { condition: z, then: zret, else_: None, case_pattern: None, guard: None } = e.ast().stmt(*zero).kind else { return None };
+    if !modulo_binary_zero(e, z, BinaryOp::Eq, result.name.sym) || !modulo_js_arguments(e, modulo_return(e, zret)?, "0")?.is_empty() { return None; }
+    let StmtKind::If { condition, then, else_: None, case_pattern: None, guard: None } = e.ast().stmt(*positive).kind else { return None };
+    if !modulo_binary_zero(e, condition, BinaryOp::Gt, result.name.sym) || !modulo_identifier(e, modulo_return(e, then)?, result.name.sym) { return None; }
+    let StmtKind::If { condition: n, then: sub, else_: Some(add), case_pattern: None, guard: None } = e.ast().stmt(*negative).kind else { return None };
+    let ExprKind::Binary { op: BinaryOp::Lt, left, right } = e.expr(n).kind else { return None };
+    if !modulo_zero(e, right) { return None; }
+    let args = modulo_js_arguments(e, left, "#")?;
+    if args.len() != 1 || !modulo_identifier(e, args[0], other.sym) { return None; }
+    for (st, template) in [(sub, "# - #"), (add, "# + #")] {
+        let args = modulo_js_arguments(e, modulo_return(e, st)?, template)?;
+        if args.len() != 2 || !modulo_identifier(e, args[0], result.name.sym) || !modulo_identifier(e, args[1], other.sym) { return None; }
+    }
+    // Also certify the dispatched comparison being replaced. SDK changes or a
+    // patched/custom comparator must not silently lose behavior.
+    let gt = *class.instance_members.get(&e.ctx.sym(">")?)?;
+    let gf = e.ctx.program.function(gt);
+    let FunctionRef::Function { unit: gu, function: gn } = gf.node else { return None };
+    if gu != unit || gf.class != Some(c) || gf.patched_by.is_some() || gf.static_ || gf.kind != FunctionKind::Operator { return None; }
+    let Ty::Fn { pos, opt, named, ret, .. } = ctx.fn_ty(gt) else { return None };
+    if pos.len() != 1 || !ctx.is_num_like(&pos[0]) || !opt.is_empty() || !named.is_empty() || !ctx.is_bool(&ret) { return None; }
+    let ga = e.ast().function(gn);
+    let [gp] = ga.parameters.as_deref()? else { return None };
+    let gname = gp.name?;
+    if !sdk.null_checked_params.contains(&(gu.0, gname.span.start as u32)) { return None; }
+    let FunctionBody::Block(gbody) = ga.body else { return None };
+    let args = modulo_js_arguments(e, modulo_return(e, gbody)?, "# > #")?;
+    if args.len() != 2 || !matches!(e.expr(args[0]).kind, ExprKind::This) || !modulo_identifier(e, args[1], gname.sym) { return None; }
+    Some(condition)
+}
+
+fn modulo_identifier(e: &FnEmitter, x: ExprId, name: dartforge_intern::SymbolId) -> bool {
+    matches!(e.expr(x).kind, ExprKind::Identifier(n) if n.sym == name)
+}
+
+fn modulo_zero(e: &FnEmitter, x: ExprId) -> bool {
+    matches!(e.expr(x).kind, ExprKind::Int(s) if e.text(s) == "0")
+}
+
+fn modulo_binary_zero(e: &FnEmitter, x: ExprId, op: ast::BinaryOp, name: dartforge_intern::SymbolId) -> bool {
+    matches!(e.expr(x).kind, ExprKind::Binary { op: o, left, right } if o == op && modulo_identifier(e, left, name) && modulo_zero(e, right))
+}
+
+fn modulo_return(e: &FnEmitter, s: ast::StmtId) -> Option<ExprId> {
+    match &e.ast().stmt(s).kind {
+        ast::StmtKind::Return(Some(x)) => Some(*x),
+        ast::StmtKind::Block(stmts) if stmts.len() == 1 => modulo_return(e, stmts[0]),
+        _ => None,
+    }
+}
+
+fn modulo_js_arguments(e: &FnEmitter, x: ExprId, template: &str) -> Option<Vec<ExprId>> {
+    let ExprKind::Call { target, arguments } = &e.expr(x).kind else { return None };
+    if intrinsic_of(e.ctx, called_function(e, *target)?) != Some(Intrinsic::Js) || arguments.args.iter().any(|a| a.name.is_some()) { return None; }
+    let [tag, text, rest @ ..] = arguments.args.as_ref() else { return None };
+    let ExprKind::String(t) = &e.expr(tag.value).kind else { return None };
+    let ExprKind::String(s) = &e.expr(text.value).kind else { return None };
+    if t.constant_value()?.to_string_lossy() != "!" || s.constant_value()?.to_string_lossy() != template { return None; }
+    Some(rest.iter().map(|a| a.value).collect())
+}

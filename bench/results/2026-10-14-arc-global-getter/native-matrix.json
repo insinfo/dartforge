@@ -1,0 +1,211 @@
+{
+  "schema": 1,
+  "compiler_sha256": "fbbdd375c6a6058be2a83d4443619b2a18c95e149ee0840cc44594a303ff4a7f",
+  "source_sha256": "44e3c8a37ad0633c508d4cfdc3191e33988ebda90f6bc3e49989fe66ed7fc1c9",
+  "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/arc_global_getters.dart",
+  "runs": [
+    {
+      "label": "vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/arc_global_getters.dart"
+      ],
+      "environment_overrides": {},
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "3b42bd5a348055d946db78ae869002a128a0a6bfa24134bea54d7a88e4e8b302"
+    },
+    {
+      "label": "official-build",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "exe",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/arc_global_getters.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/arc-global-getter-validation/native-final/official"
+      ],
+      "environment_overrides": {},
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "661957387dc087499140f1e45733fe3fcf407b5f8c7ca4d09237ab72f62cc960"
+    },
+    {
+      "label": "official",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/arc-global-getter-validation/native-final/official"
+      ],
+      "environment_overrides": {},
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "3b42bd5a348055d946db78ae869002a128a0a6bfa24134bea54d7a88e4e8b302"
+    },
+    {
+      "label": "tracing-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/arc_global_getters.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/arc-global-getter-validation/native-final/tracing.exe"
+      ],
+      "environment_overrides": {
+        "DARTFORGE_ARC_PREPARED": "0"
+      },
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "tracing-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/arc-global-getter-validation/native-final/tracing.exe"
+      ],
+      "environment_overrides": {
+        "DARTFORGE_ARC_PREPARED": "0"
+      },
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "3b42bd5a348055d946db78ae869002a128a0a6bfa24134bea54d7a88e4e8b302"
+    },
+    {
+      "label": "tracing-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/arc-global-getter-validation/native-final/tracing.exe"
+      ],
+      "environment_overrides": {
+        "DARTFORGE_ARC_PREPARED": "0",
+        "DARTFORGE_GC_STRESS": "1"
+      },
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "3b42bd5a348055d946db78ae869002a128a0a6bfa24134bea54d7a88e4e8b302"
+    },
+    {
+      "label": "arc-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/arc_global_getters.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/arc-global-getter-validation/native-final/arc.exe"
+      ],
+      "environment_overrides": {
+        "DARTFORGE_ARC_PREPARED": "0"
+      },
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "arc-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/arc-global-getter-validation/native-final/arc.exe"
+      ],
+      "environment_overrides": {
+        "DARTFORGE_ARC_PREPARED": "0"
+      },
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "3b42bd5a348055d946db78ae869002a128a0a6bfa24134bea54d7a88e4e8b302"
+    },
+    {
+      "label": "arc-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/arc-global-getter-validation/native-final/arc.exe"
+      ],
+      "environment_overrides": {
+        "DARTFORGE_ARC_PREPARED": "0",
+        "DARTFORGE_GC_STRESS": "1"
+      },
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "3b42bd5a348055d946db78ae869002a128a0a6bfa24134bea54d7a88e4e8b302"
+    },
+    {
+      "label": "prepared-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/arc_global_getters.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/arc-global-getter-validation/native-final/prepared.exe"
+      ],
+      "environment_overrides": {
+        "DARTFORGE_ARC_PREPARED": "1"
+      },
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "prepared-normal",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/arc-global-getter-validation/native-final/prepared.exe"
+      ],
+      "environment_overrides": {
+        "DARTFORGE_ARC_PREPARED": "1"
+      },
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "3b42bd5a348055d946db78ae869002a128a0a6bfa24134bea54d7a88e4e8b302"
+    },
+    {
+      "label": "prepared-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/arc-global-getter-validation/native-final/prepared.exe"
+      ],
+      "environment_overrides": {
+        "DARTFORGE_ARC_PREPARED": "1",
+        "DARTFORGE_GC_STRESS": "1"
+      },
+      "exit_code": 0,
+      "passed": true,
+      "stdout_sha256": "3b42bd5a348055d946db78ae869002a128a0a6bfa24134bea54d7a88e4e8b302"
+    }
+  ],
+  "artifacts": {
+    "tracing": {
+      "binary_sha256": "f86e1cd4f858e0bfbfcb7af2fc8f68844e2d71d314b4efbd35d513abf9fe1bf3",
+      "memory": "tracing",
+      "prepared": "0",
+      "bytes": 3252640
+    },
+    "arc": {
+      "binary_sha256": "416ccbf252bb6ef8d58aa4f903d1ccd651176372ef6040ecf374622541e2b478",
+      "memory": "arc",
+      "prepared": "0",
+      "bytes": 3467376
+    },
+    "prepared": {
+      "binary_sha256": "5088bbf7b5f578a65279a579bc5b7e3f5f7315a074332b7a5ee12b17c471b8f0",
+      "memory": "arc",
+      "prepared": "1",
+      "bytes": 22590736
+    }
+  },
+  "performance_measurement": false,
+  "inputs_stable": true,
+  "passed": true
+}

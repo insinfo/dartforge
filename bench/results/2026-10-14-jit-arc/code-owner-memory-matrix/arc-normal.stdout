@@ -1,0 +1,7 @@
+
+running 2 tests
+test ffi::callback_lifetime_tests::captured_closure_survives_replacement_before_callback_publication ... ok
+test ffi::callback_lifetime_tests::closed_native_callable_survives_reload_and_session_drop ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 30 filtered out; finished in 12.64s
+

@@ -420,6 +420,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// overlay that implements them, with the same parameters, and how the
     /// type arguments and the site reach it.
     pub fn redirected_ffi_call(&self, fid: usize) -> Option<(usize, Redirection)> {
+        if super::sync_native_callable::is_creation(self.ctx, fid) {
+            return Some((self.top_level_function("dart:ffi", "_dartforgeCallableSync")?, Redirection::DirectOnly));
+        }
         let f = &self.ctx.program.functions[fid];
         let c = f.class?;
         if self.ctx.program.library(f.library).uri != "dart:ffi" {

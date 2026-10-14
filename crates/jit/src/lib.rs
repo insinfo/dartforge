@@ -228,6 +228,17 @@ pub struct JitSession {
     lljit: ffi::Lljit,
 }
 
+impl Drop for JitSession {
+    fn drop(&mut self) {
+        if self.lljit.seal_callback_owners_for_drop() {
+            // Stable-entry cells are read by resident code, so retaining only
+            // LLVM's instruction memory would leave dangling indirection cells.
+            std::mem::forget(std::mem::take(&mut self.modules));
+            std::mem::forget(std::mem::take(&mut self.reloadables));
+        }
+    }
+}
+
 /// A module already incorporated into the session and the tracker that unloads it.
 struct Module {
     name: String,
@@ -311,8 +322,16 @@ impl JitSession {
         lljit
             .use_library_registry(dll)
             .map_err(|detail| JitError::new("sdk", "could not link the stack maps to the SDK DLL runtime", detail))?;
+        let mut requested = used_count.to_vec();
+        if requested.iter().any(|name| matches!(name.as_str(), "dartforge_ffi_register_callback" | "dartforge_ffi_register_callback_owned")) {
+            // Host-only owner operations are not in the original Dart IR.
+            // Resolve every operation from this SDK's runtime, never ours.
+            for name in ffi::CALLBACK_OWNER_APIS {
+                if !requested.iter().any(|existing| existing == name) { requested.push(name.to_owned()); }
+            }
+        }
         let names = lljit
-            .define_symbols_from_dll(dll, used_count, true)
+            .define_symbols_from_dll(dll, &requested, true)
             .map_err(|detail| JitError::new("sdk", "could not publish the SDK DLL symbols", detail))?;
         // The program's runtime is the library's: the arguments of `main`
         // go to it.
@@ -505,6 +524,7 @@ impl JitSession {
         // The contract fingerprint is read here, and not only in hot reload,
         // because it is what allows a future reload to compare the new version with
         // this one — including when this module came in through the simple path.
+        let callback_registration = parsed.callback_registration_plan(self.lljit.supports_callback_owners());
         let layouts = parsed.class_layouts();
         let class_names = parsed.class_names();
         let globals = parsed
@@ -518,6 +538,8 @@ impl JitSession {
             .add_module(&tracker, module)
             .map_err(|detail| JitError::new("add-module", "the LLJIT refused the module", detail))?;
         let add_module = phase.elapsed();
+        self.lljit.initialize_callback_owner(&tracker, &callback_registration)
+            .map_err(|detail| JitError::new("callback-owner", "could not initialize callback ownership", detail))?;
         self.modules.push(Module {
             name: name.to_owned(),
             tracker,
@@ -575,6 +597,8 @@ impl JitSession {
             .add_object(&tracker, &parts.object, &module.name)
             .map_err(|detail| JitError::new("add-module", "the LLJIT refused the object", detail))?;
         let add_module = phase.elapsed();
+        self.lljit.initialize_callback_owner(&tracker, &parts.callback_registration)
+            .map_err(|detail| JitError::new("callback-owner", "could not initialize callback ownership", detail))?;
         self.modules.push(Module {
             name: module.name.clone(),
             tracker,
@@ -736,6 +760,9 @@ impl JitSession {
     /// Index out of range, module already removed or LLVM failure become an error at the
     /// `resource` stage.
     pub fn remove_module(&mut self, index: usize) -> Result<(), JitError> {
+        if self.lljit.retains_callback_code() {
+            return Err(JitError::new("resource", "cannot unload modules after publishing native callback code; this session remains resident until process exit", String::new()));
+        }
         let module = self.modules.get_mut(index).ok_or_else(|| JitError {
             stage: "resource",
             message: format!("there is no module at index {index} in this session"),

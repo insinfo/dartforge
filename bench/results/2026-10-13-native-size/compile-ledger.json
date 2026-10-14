@@ -1,0 +1,58 @@
+{
+  "schema": 1,
+  "entrypoint": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+  "entrypoint_sha256": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+  "sdk": "Dart3.6.2",
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-arc-readiness/native-cli-before-jit",
+  "compiler_sha256": "a4ef0cf37d2d86379bb5c433e28b38cf39891a25a8eea12f4f6d124591b4a833",
+  "source_api_changes": false,
+  "common_native_flags": [
+    "--optimize",
+    "--roots=shadow",
+    "--stack-trace=none"
+  ],
+  "variants": [
+    {
+      "label": "forge-check-none",
+      "flags": [
+        "--exceptions=check"
+      ],
+      "file_bytes": 28824832
+    },
+    {
+      "label": "forge-tables-none",
+      "flags": [
+        "--exceptions=tables"
+      ],
+      "file_bytes": 37183328
+    },
+    {
+      "label": "official",
+      "command": [
+        "dart",
+        "compile",
+        "exe",
+        "bin/file_explorer.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-size-audit/file_explorer-official"
+      ],
+      "file_bytes": 11682896
+    }
+  ],
+  "tools": {
+    "clang22_sha256": "9a690e9e11d4774d63e95ed2ab90abd82889f949b0bb9db8208f7e18f278ea50",
+    "dart_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa"
+  },
+  "link_map": true,
+  "keep_symbols": false,
+  "ui_equivalence": {
+    "forge-check-none": "Basic real-window capture, child navigation, back, native close exit0; stdout/stderr empty",
+    "evidence": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-size-audit/ui-compat/check-none-validation.json",
+    "activation": "AXFrontmost plus AXRaise of actual AXWindow; excludes menu windows",
+    "limits": "Other explorer features and tables-mode UI not validated in this audit."
+  },
+  "limitations": [
+    "Earlier symbolic binary uses an earlier compiler and is not a controlled one-flag size comparison.",
+    "This size measurement does not assert functional or performance parity."
+  ]
+}

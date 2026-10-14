@@ -255,14 +255,29 @@ pub extern "C" fn dartforge_native_Socket_Read(this: i64, n: i64) -> i64 {
         throw_os_error(&OsError::invalid_argument());
         return 0;
     }
-    let mut buf = vec![0u8; n as usize];
-    match read_from(s, &mut buf) {
-        Ok(read_list) if read_list as i64 == n => dart_bytes(buf),
+    // As in the SDK's Socket_Read: read directly into the Dart buffer, then
+    // copy only a short read to an exactly sized result. Root the receiver
+    // before allocation so collection cannot finalize the native socket.
+    let (buffer, result) = with_roots(&[this], || HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let buffer = heap.new_typed(TYPE_UINT8, n as usize);
+        let result = read_from(s, heap.typed_bytes_mut(buffer).unwrap());
+        (buffer, result)
+    }));
+    match result {
+        Ok(read_list) if read_list as i64 == n => buffer,
         Ok(0) => 0,
-        Ok(read_list) => {
-            buf.truncate(read_list);
-            dart_bytes(buf)
-        }
+        Ok(read_list) => with_roots(&[buffer], || HEAP.with(|heap| {
+            let mut heap = heap.borrow_mut();
+            let short = heap.new_typed(TYPE_UINT8, read_list);
+            let source = heap.typed(buffer).unwrap();
+            let dest = heap.typed(short).unwrap();
+            // SAFETY: distinct, internal buffers rooted across allocation;
+            // read_from returned at most the destination's requested length.
+            // The exclusive heap borrow prevents collection and other access.
+            unsafe { std::ptr::copy_nonoverlapping(source.data, dest.data, read_list); }
+            short
+        })),
         Err(e) => {
             throw_os_error(&e);
             0
@@ -274,10 +289,18 @@ pub extern "C" fn dartforge_native_Socket_Read(this: i64, n: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_Socket_WriteList(this: i64, buffer: i64, start: i64, n: i64) -> i64 {
     let Some(s) = object_socket(this) else { return 0 };
-    let bytes = typed_list_bytes(buffer).unwrap_or_default();
-    let start = (start.max(0) as usize).min(bytes.len());
-    let end = (start + n.max(0) as usize).min(bytes.len());
-    match write_at(s, &bytes[start..end]) {
+    // Keep the Dart storage alive until the OS has consumed the slice. Unix
+    // writes synchronously; Windows copies the submitted slice into its owned
+    // overlapped operation before returning. Neither path calls Dart or collects.
+    // Release the heap borrow before constructing an error (which can allocate).
+    let result = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let bytes = heap.typed_bytes(buffer).unwrap_or_default();
+        let start = (start.max(0) as usize).min(bytes.len());
+        let end = start.saturating_add(n.max(0) as usize).min(bytes.len());
+        write_at(s, &bytes[start..end])
+    });
+    match result {
         Ok(written) => written as i64,
         Err(e) => {
             throw_os_error(&e);
@@ -1169,4 +1192,142 @@ pub extern "C" fn dartforge_native_ResourceHandleImpl_toSocket(_this: i64) -> i6
 pub extern "C" fn dartforge_native_ResourceHandleImpl_toRawDatagramSocket(_this: i64) -> i64 {
     throw_unsupported_resource("toRawDatagramSocket");
     0
+}
+
+#[cfg(all(test, unix))]
+mod tests_socket_write_slices {
+    use super::*;
+    use std::io::Read;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::net::UnixStream;
+
+    extern "C" fn os_error(message: i64, _code: i64) -> i64 {
+        message
+    }
+
+    #[test]
+    fn reads_full_and_short_buffers_without_retaining_spare_capacity_under_stress() {
+        use std::io::Write;
+        let (mut sender, receiver) = UnixStream::pair().unwrap();
+        receiver.set_nonblocking(true).unwrap();
+        let peer = NativeSocket::new(i64::from(receiver.as_raw_fd()));
+        let previous = HEAP.with(|h| h.replace(Heap::new(true)));
+        let (object, frame) = HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            let object = h.allocate_instance(1000, 1);
+            h.set_field(object, 0, peer, false);
+            let frame = h.push_frame_with_slots(1);
+            h.set_root(frame, 0, object);
+            (object, frame)
+        });
+        let empty = dartforge_native_Socket_Read(object, 0);
+        HEAP.with(|h| assert_eq!(h.borrow().typed_bytes(empty).unwrap(), b""));
+        assert_eq!(dartforge_native_Socket_Read(object, 16), 0);
+        sender.write_all(b"abcdef").unwrap();
+        let first = dartforge_native_Socket_Read(object, 4);
+        HEAP.with(|h| assert_eq!(h.borrow().typed_bytes(first).unwrap(), b"abcd"));
+        let short = dartforge_native_Socket_Read(object, 65536);
+        HEAP.with(|h| {
+            let h = h.borrow();
+            assert_eq!(h.typed_bytes(short).unwrap(), b"ef");
+            assert_eq!(usize::from(h.header(short).n), crate::layout::typed_words(2, 1));
+            assert!(h.is_live_object(object));
+        });
+        assert_eq!(dartforge_native_Socket_Read(object, 16), 0);
+        drop(sender);
+        assert_eq!(dartforge_native_Socket_Read(object, 16), 0);
+        let old_helper = HELPERS.with(|h| h.borrow_mut().insert("_dartforgeOSError".into(), os_error as usize));
+        assert_eq!(dartforge_native_Socket_Read(object, -1), 0);
+        assert_ne!(dartforge_exception_pending(), 0);
+        dartforge_exception_clear();
+        let invalid = NativeSocket::new(-1);
+        write_native_field(object, invalid);
+        assert_eq!(dartforge_native_Socket_Read(object, 8), 0);
+        assert_ne!(dartforge_exception_pending(), 0);
+        dartforge_exception_clear();
+        NativeSocket::free(invalid);
+        NativeSocket::free(peer);
+        HELPERS.with(|h| {
+            let mut h = h.borrow_mut();
+            if let Some(previous) = old_helper { h.insert("_dartforgeOSError".into(), previous); }
+            else { h.remove("_dartforgeOSError"); }
+        });
+        HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            h.pop_frame(frame);
+        });
+        HEAP.with(|h| { h.replace(previous); });
+    }
+
+    #[test]
+    fn writes_internal_external_and_unmodifiable_view_slices() {
+        let (sender, mut receiver) = UnixStream::pair().unwrap();
+        receiver
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let peer = NativeSocket::new(i64::from(sender.as_raw_fd()));
+        let previous = HEAP.with(|h| h.replace(Heap::new(false)));
+        let mut external = *b"external";
+        let (object, internal, view, native) = HEAP.with(|h| {
+            let mut h = h.borrow_mut();
+            let object = h.allocate_instance(1000, 1);
+            h.set_field(object, 0, peer, false);
+            let internal = h.new_typed(TYPE_UINT8, 8);
+            h.typed_bytes_mut(internal)
+                .unwrap()
+                .copy_from_slice(b"internal");
+            let view = h.new_view(
+                crate::typed_lists::view_cid(TYPE_UINT8, true),
+                internal,
+                2,
+                4,
+            );
+            let native = h.external_typed(TYPE_UINT8, external.as_mut_ptr(), external.len());
+            (object, internal, view, native)
+        });
+        for (buffer, start, count, expected) in [
+            (internal, 1, 3, &b"nte"[..]),
+            (view, 1, 2, &b"er"[..]),
+            (native, 2, 4, &b"tern"[..]),
+            (internal, 6, i64::MAX, &b"al"[..]),
+        ] {
+            assert_eq!(
+                dartforge_native_Socket_WriteList(object, buffer, start, count),
+                expected.len() as i64
+            );
+            let mut received = vec![0; expected.len()];
+            receiver.read_exact(&mut received).unwrap();
+            assert_eq!(received, expected);
+        }
+        assert_eq!(dartforge_native_Socket_WriteList(object, internal, 8, 3), 0);
+        assert_eq!(dartforge_native_Socket_WriteList(object, internal, 0, 0), 0);
+        assert_eq!(dartforge_native_Socket_WriteList(object, view, -1, 1), 1);
+        let mut received = [0];
+        receiver.read_exact(&mut received).unwrap();
+        assert_eq!(&received, b"t");
+        NativeSocket::free(peer);
+
+        // An OS error constructs a Dart exception after releasing the borrow.
+        let old_helper = HELPERS.with(|h| {
+            h.borrow_mut()
+                .insert("_dartforgeOSError".into(), os_error as usize)
+        });
+        let invalid = NativeSocket::new(-1);
+        write_native_field(object, invalid);
+        assert_eq!(dartforge_native_Socket_WriteList(object, internal, 0, 1), 0);
+        assert_ne!(dartforge_exception_pending(), 0);
+        dartforge_exception_clear();
+        NativeSocket::free(invalid);
+        HELPERS.with(|h| {
+            let mut h = h.borrow_mut();
+            if let Some(previous) = old_helper {
+                h.insert("_dartforgeOSError".into(), previous);
+            } else {
+                h.remove("_dartforgeOSError");
+            }
+        });
+        HEAP.with(|h| {
+            h.replace(previous);
+        });
+    }
 }

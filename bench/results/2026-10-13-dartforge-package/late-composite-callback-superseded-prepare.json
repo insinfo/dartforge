@@ -1,0 +1,130 @@
+{
+  "cli_sha256": "6f963ffc2c2075e3b1080d729361f220dd1fbe758eb6de1da6cf8769436b8194",
+  "source_sha256": "5c1ef1f80f1670918ab6413fefa95a0c15b7fa1ad25042002c97f539f85449b6",
+  "results": [
+    {
+      "mode": "tracing",
+      "stress": false,
+      "binary_sha256": "a895139999705efd08f97778a3646fc8d44d01e300ed826dd9a90d4f4a707a8e",
+      "manifest_sha256": "a8c87aa49d7d189be6e89fefe881ee263dabf75917e96a7fd87ea77c0581e6e1",
+      "stdout": "closed composite direct and indirect native returns zeroed\n",
+      "compile_command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_composite_probe.dart",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-composite-final/tracing"
+      ]
+    },
+    {
+      "mode": "tracing",
+      "stress": true,
+      "binary_sha256": "a895139999705efd08f97778a3646fc8d44d01e300ed826dd9a90d4f4a707a8e",
+      "manifest_sha256": "a8c87aa49d7d189be6e89fefe881ee263dabf75917e96a7fd87ea77c0581e6e1",
+      "stdout": "closed composite direct and indirect native returns zeroed\n",
+      "compile_command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_composite_probe.dart",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=tracing",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-composite-final/tracing"
+      ]
+    },
+    {
+      "mode": "arc",
+      "stress": false,
+      "binary_sha256": "21cd27d640885a96c00dcff3e69d25b6f9ca43d195b4594aa1129cc086d74594",
+      "manifest_sha256": "5f2d123a0d6a978c92ed968612e0330c42e4efdb6193de0d05d347ae5b674fa2",
+      "stdout": "closed composite direct and indirect native returns zeroed\n",
+      "compile_command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_composite_probe.dart",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-composite-final/arc"
+      ]
+    },
+    {
+      "mode": "arc",
+      "stress": true,
+      "binary_sha256": "21cd27d640885a96c00dcff3e69d25b6f9ca43d195b4594aa1129cc086d74594",
+      "manifest_sha256": "5f2d123a0d6a978c92ed968612e0330c42e4efdb6193de0d05d347ae5b674fa2",
+      "stdout": "closed composite direct and indirect native returns zeroed\n",
+      "compile_command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_composite_probe.dart",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-composite-final/arc"
+      ]
+    },
+    {
+      "mode": "prepared",
+      "stress": false,
+      "binary_sha256": "e8ee556d489d1e56b259e3d29810f87634feb50f4329125ab8d9d92becdbc6df",
+      "manifest_sha256": "7affe8f82dbcb78f7a0a2c0fe605c761aa4116dc089ad94926fb952507c60b0e",
+      "stdout": "closed composite direct and indirect native returns zeroed\n",
+      "compile_command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_composite_probe.dart",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-composite-final/prepared"
+      ]
+    },
+    {
+      "mode": "prepared",
+      "stress": true,
+      "binary_sha256": "e8ee556d489d1e56b259e3d29810f87634feb50f4329125ab8d9d92becdbc6df",
+      "manifest_sha256": "7affe8f82dbcb78f7a0a2c0fe605c761aa4116dc089ad94926fb952507c60b0e",
+      "stdout": "closed composite direct and indirect native returns zeroed\n",
+      "compile_command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_composite_probe.dart",
+        "--optimize",
+        "--exceptions=tables",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "--dartforge-contracts=verify",
+        "--memory=arc",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-composite-final/prepared"
+      ]
+    }
+  ],
+  "jit_reload_certified": false,
+  "superseded": true,
+  "prepared_profile_verified": false,
+  "reason": "DARTFORGE_ARC_PREPARE is unsupported; those two cases repeated ordinary ARC."
+}

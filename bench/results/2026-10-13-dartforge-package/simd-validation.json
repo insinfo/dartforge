@@ -1,0 +1,185 @@
+{
+  "description": "SIMD implementation consolidated into package:dartforge; obsolete dartforge_simd removed by explicit user request",
+  "git_head": "2f68f91037bbd47eac498b05eed1e672bfe7f736",
+  "cli_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+  "cli_sha256": "8b3160e3a43146fb5952090c904e7c0ee6b44ae8a01c3397fc9216a42664c744",
+  "sdk_version": "Dart SDK version: 3.6.2 (stable)",
+  "host_architecture": "aarch64-apple-darwin",
+  "implementation": {
+    "path": "packages/dartforge/lib/src/simd/int32x4_3_14.dart",
+    "sha256": "526449d79ff9cd3ed6bd3cb79449eca829f2ab6cc882d3b3b16efb9214833c1a",
+    "matches_original_legacy_source": true
+  },
+  "package_sources": {
+    "packages/dartforge/lib/dartforge.dart": "553f0e8d1aa2bbf652f9103087759efd02d629e9be9c4623271e0d7c0a67a00f",
+    "packages/dartforge/lib/simd.dart": "b1dedd94a952ce5055c8356668d0882a2c55e71c196bfc4de8ea8352e40fab9a",
+    "bench/simd/pubspec.yaml": "95e5d4008ec88b178444c1bc38c7b2b531ff59b6c4a03a470b099a55bdbac228",
+    "bench/simd/bin/blend.dart": "1cd39616c197c211639ea90d8c77db90e0d0efc9e6e464bdcf1db9d76213d281"
+  },
+  "package_config_sha256": "b6b0d5ba25c9ca33687161501aadeb5458448f1cf0bbf47d5dcfb20acdf27f23",
+  "meta_version": "1.19.0",
+  "commands": {
+    "vm": "dart --packages=target/tmp-simd-package/package_config.json <source>",
+    "official_aot_compile": "dart compile exe --packages=target/tmp-simd-package/package_config.json <source> -o <output>",
+    "official_aot_run": "<output>",
+    "native_compile": "target/p4/release/dartforge compile-native packages/dartforge/test/simd_probe.dart --packages /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package/current_package_config.json --optimize --exceptions=tables -o /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package/new.final.native",
+    "native_run": "DARTFORGE_EFFECTS=check /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package/new.final.native",
+    "native_gc_stress_run": "DARTFORGE_GC_STRESS=1 DARTFORGE_EFFECTS=check /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package/new.final.native",
+    "ir_compile": "target/p4/release/dartforge compile-native packages/dartforge/test/simd_probe.dart --packages /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package/current_package_config.json --optimize --emit-ir -o /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package/new.final.ll",
+    "compiler_environment": {
+      "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+      "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package"
+    }
+  },
+  "variants": [
+    {
+      "name": "new_package_full",
+      "source": "packages/dartforge/test/simd_probe.dart",
+      "source_sha256": "24ff33a43ffd6d4269cb9328148c19f48bc723c8022b0cbdfb35db13f3328488",
+      "vm": {
+        "exit_code": 0,
+        "stdout_bytes": 812,
+        "stdout_sha256": "4fcef87df1535a6bc9b686e37892f39315e3f5af4b02161bb6530ddb303ca868",
+        "stderr_bytes": 0,
+        "matches_reference": true
+      },
+      "official_aot": {
+        "exit_code": 0,
+        "stdout_bytes": 812,
+        "stdout_sha256": "4fcef87df1535a6bc9b686e37892f39315e3f5af4b02161bb6530ddb303ca868",
+        "stderr_bytes": 0,
+        "matches_reference": true
+      },
+      "native": {
+        "exit_code": 0,
+        "stdout_bytes": 812,
+        "stdout_sha256": "4fcef87df1535a6bc9b686e37892f39315e3f5af4b02161bb6530ddb303ca868",
+        "stderr_bytes": 0,
+        "matches_reference": true
+      },
+      "native_gc_stress": {
+        "exit_code": 0,
+        "stdout_bytes": 812,
+        "stdout_sha256": "4fcef87df1535a6bc9b686e37892f39315e3f5af4b02161bb6530ddb303ca868",
+        "stderr_bytes": 0,
+        "matches_reference": true
+      },
+      "status": "current_primary_source",
+      "source_exists_now": true,
+      "actual_vm_command": "dart --packages=packages/dartforge_simd/.dart_tool/package_config.json packages/dartforge/test/simd_probe.dart",
+      "actual_native_compile_command": "target/p4/release/dartforge compile-native packages/dartforge/test/simd_probe.dart --packages /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package/current_package_config.json --optimize --exceptions=tables -o /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package/new.final.native",
+      "cli_sha256": "8b3160e3a43146fb5952090c904e7c0ee6b44ae8a01c3397fc9216a42664c744",
+      "native_binary_sha256": "5ad686111c27b46b7cab1323136e063979b8ab043348c5aa2c8bfccd6f223930",
+      "actual_native_run_command": "DARTFORGE_EFFECTS=check /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package/new.final.native",
+      "actual_native_gc_stress_run_command": "DARTFORGE_GC_STRESS=1 DARTFORGE_EFFECTS=check /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package/new.final.native",
+      "note": "VM and official AOT oracle outputs are reused after verifying unchanged source and implementation hashes; final CLI native normal/stress binaries and IR were rebuilt after legacy package removal."
+    }
+  ],
+  "ir": {
+    "sha256": "e9f131557678b1d426065dff98639c464fde0053fd5e299781d45afa18b34984",
+    "vector_operations": {
+      "mul <4 x i32>": true,
+      "shl <4 x i32>": true,
+      "ashr <4 x i32>": true,
+      "icmp slt <4 x i32>": true,
+      "xor <4 x i32>": true
+    }
+  },
+  "analysis": {
+    "new_entry_implementation_probe_and_legacy_shim": "No issues found",
+    "legacy_entire_package": "No issues found"
+  },
+  "limits": [
+    "Native validation is host macOS arm64 tracing; ARC/prepared were not run in this batch.",
+    "The full legacy-source variant has no separate official AOT build; the persistent legacy compatibility probe does.",
+    "No performance measurement was performed.",
+    "An initial CLI binary without the native feature rejected compilation before backend execution; those preflight failures are excluded from successful variants.",
+    "Only package:dartforge remains; old package:dartforge_simd imports are intentionally no longer supported.",
+    "Legacy forwarding results are historical validation before removal, not evidence of a remaining compatibility package.",
+    "The primary package remains unpublished (publish_to: none).",
+    "Final native runs and vector IR use the rebuilt CLI including Timer_tick and pump ownership-catalog fixes; only host macOS arm64 tracing was tested in this SIMD batch."
+  ],
+  "legacy_package_removed": true,
+  "historical_legacy_package_sources": {
+    "packages/dartforge_simd/lib/int32x4_3_14.dart": "472b4261694b7a963961da175429f218f28abb072f209d10cc5dc7c7b356f30d",
+    "packages/dartforge_simd/pubspec.yaml": "e847cd0b4107cbf98812b5d82549ec8b8f0f518c3ead454519eaee7f310cba26"
+  },
+  "current_primary_verification_after_removal": {
+    "command": "dart --packages=bench/simd/.dart_tool/package_config.json packages/dartforge/test/simd_probe.dart",
+    "exit_code": 0,
+    "matches_pre_removal_vm_and_native": true,
+    "stdout_sha256": "4fcef87df1535a6bc9b686e37892f39315e3f5af4b02161bb6530ddb303ca868",
+    "stderr_bytes": 0
+  },
+  "historical_legacy_validation": {
+    "cli_sha256": "8ccfbfff6c8263d546af76062d094fcdef6b322ff74650272579c3fc231bc616",
+    "note": "Legacy forwarding and mixed imports passed VM, official AOT (compact probe), and native normal/stress checks before the explicitly requested package deletion. These are historical results, not a compatibility guarantee after deletion.",
+    "variants": [
+      {
+        "name": "legacy_forwarding_full",
+        "source": "target/tmp-simd-package/shim_probe.dart",
+        "source_sha256": "257445cc322eb37f520ee54eb2160523f91f56d80a57c9b27592cea3d8dd3426",
+        "vm": {
+          "exit_code": 0,
+          "stdout_bytes": 812,
+          "stdout_sha256": "4fcef87df1535a6bc9b686e37892f39315e3f5af4b02161bb6530ddb303ca868",
+          "stderr_bytes": 0,
+          "matches_reference": true
+        },
+        "official_aot": null,
+        "native": {
+          "exit_code": 0,
+          "stdout_bytes": 812,
+          "stdout_sha256": "4fcef87df1535a6bc9b686e37892f39315e3f5af4b02161bb6530ddb303ca868",
+          "stderr_bytes": 0,
+          "matches_reference": true
+        },
+        "native_gc_stress": {
+          "exit_code": 0,
+          "stdout_bytes": 812,
+          "stdout_sha256": "4fcef87df1535a6bc9b686e37892f39315e3f5af4b02161bb6530ddb303ca868",
+          "stderr_bytes": 0,
+          "matches_reference": true
+        },
+        "status": "historical_before_legacy_package_removal",
+        "source_exists_now": true,
+        "actual_vm_command": "dart --packages=packages/dartforge_simd/.dart_tool/package_config.json /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package/shim_probe.dart",
+        "actual_native_compile_command": "target/p4/release/dartforge compile-native /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package/shim_probe.dart --packages /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package/package_config.json --optimize --exceptions=tables -o /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package/shim.native",
+        "cli_sha256": "8ccfbfff6c8263d546af76062d094fcdef6b322ff74650272579c3fc231bc616"
+      },
+      {
+        "name": "legacy_imports_compatibility",
+        "source": "packages/dartforge_simd/test/compatibility_probe.dart",
+        "source_sha256": "cbfc7e9419d931dbd7245871031ec9a84c027fc1735ee861aa1c5d456683f821",
+        "vm": {
+          "exit_code": 0,
+          "stdout_bytes": 28,
+          "stdout_sha256": "cee5fee3e65761638aaa99c0e79c8350fa360f942cd6c64cca3b873424d7d0f1",
+          "stderr_bytes": 0,
+          "matches_reference": true
+        },
+        "official_aot": {
+          "exit_code": 0,
+          "stdout_bytes": 28,
+          "stdout_sha256": "cee5fee3e65761638aaa99c0e79c8350fa360f942cd6c64cca3b873424d7d0f1",
+          "stderr_bytes": 0,
+          "matches_reference": true
+        },
+        "native": {
+          "exit_code": 0,
+          "stdout_bytes": 28,
+          "stdout_sha256": "cee5fee3e65761638aaa99c0e79c8350fa360f942cd6c64cca3b873424d7d0f1",
+          "stderr_bytes": 0,
+          "matches_reference": true
+        },
+        "native_gc_stress": null,
+        "status": "historical_before_legacy_package_removal",
+        "source_exists_now": false,
+        "actual_vm_command": "dart --packages=/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package/package_config.json packages/dartforge_simd/test/compatibility_probe.dart",
+        "actual_native_compile_command": "target/p4/release/dartforge compile-native packages/dartforge_simd/test/compatibility_probe.dart --packages /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package/package_config.json --optimize --exceptions=tables -o /Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-simd-package/compat.native",
+        "cli_sha256": "8ccfbfff6c8263d546af76062d094fcdef6b322ff74650272579c3fc231bc616"
+      }
+    ]
+  },
+  "historical_package_config_sha256": "d3ddc00edf9faed8487996304b95b7e0966acbbe6a9f7a938d9ab496bf4cbb5c"
+}

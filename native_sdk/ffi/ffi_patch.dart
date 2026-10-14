@@ -252,6 +252,17 @@ external void _callbackKeep(int delta);
 @pragma("vm:external-name", "DartForge_ffi_callback_args")
 external List _callbackArgs(List message);
 
+@pragma("vm:external-name", "DartForge_ffi_callback_sync_new")
+external int _callbackSyncNew(Type signature, Function callback,
+    Object? exceptionalReturn, int port, int queueTimeoutMicros);
+
+@pragma("vm:external-name", "DartForge_ffi_callback_sync_claim")
+external bool _callbackSyncClaim(List message);
+
+@pragma("vm:external-name", "DartForge_ffi_callback_sync_complete")
+external void _callbackSyncComplete(
+    List message, Object? result, bool failed);
+
 /// `site` identifies the call in the program: each site has its own
 /// trampoline, unique during the isolate's life (the VM compiles one per site).
 Pointer<NativeFunction<T>> _dartforgeFromFunction<T extends Function>(
@@ -276,6 +287,42 @@ NativeCallable<T> _dartforgeCallableListener<T extends Function>(
       'NativeCallable($callback)');
   c._pointer = Pointer<NativeFunction<T>>.fromAddress(_callbackNew(
       T, null, null, _listenerMode, c._port.sendPort.nativePort));
+  return c;
+}
+
+/// Runs same-owner calls directly and queues foreign calls to the owner port.
+/// Claiming before argument conversion prevents expired requests from entering
+/// Dart. A claimed request retains its native argument buffers until completion.
+NativeCallable<T> _dartforgeCallableSync<T extends Function>(
+    Function callback, Object? exceptionalReturn, int queueTimeoutMicros) {
+  if (queueTimeoutMicros <= 0) {
+    throw ArgumentError.value(
+        queueTimeoutMicros, 'queueTimeoutMicros', 'Must be positive.');
+  }
+  final c = _NativeCallableSync<T>((List message) {
+    if (!_callbackSyncClaim(message)) return;
+    Object? result = exceptionalReturn;
+    bool failed = true;
+    try {
+      result = Function.apply(callback, _callbackArgs(message));
+      failed = false;
+    } catch (_) {
+      // Completion returns the configured exceptional value to the caller.
+    } finally {
+      _callbackSyncComplete(message, result, failed);
+    }
+  }, 'SyncNativeCallable($callback)');
+  try {
+    final address = _callbackSyncNew(T, callback, exceptionalReturn,
+        c._port.sendPort.nativePort, queueTimeoutMicros);
+    if (address == 0) {
+      throw StateError('Unable to create synchronous native callback.');
+    }
+    c._pointer = Pointer<NativeFunction<T>>.fromAddress(address);
+  } catch (_) {
+    c._port.close();
+    rethrow;
+  }
   return c;
 }
 
@@ -384,6 +431,29 @@ final class _NativeCallableListener<T extends Function>
   final RawReceivePort _port;
 
   _NativeCallableListener(void Function(List) handler, String portDebugName)
+      : _port = RawReceivePort(
+            Zone.current.bindUnaryCallbackGuarded(handler), portDebugName),
+        super(nullptr);
+
+  @override
+  void _close() {
+    _port.close();
+  }
+
+  @override
+  void set _keepIsolateAlive(bool value) {
+    _port.keepIsolateAlive = value;
+  }
+
+  @override
+  bool get _keepIsolateAlive => _port.keepIsolateAlive;
+}
+
+final class _NativeCallableSync<T extends Function>
+    extends _NativeCallableBase<T> {
+  final RawReceivePort _port;
+
+  _NativeCallableSync(void Function(List) handler, String portDebugName)
       : _port = RawReceivePort(
             Zone.current.bindUnaryCallbackGuarded(handler), portDebugName),
         super(nullptr);

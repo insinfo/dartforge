@@ -1,0 +1,110 @@
+{
+  "dartforge_sha256": "8b3160e3a43146fb5952090c904e7c0ee6b44ae8a01c3397fc9216a42664c744",
+  "performance_measurement": false,
+  "results": [
+    {
+      "probe": "native_pump_lifecycle_probe",
+      "mode": "tracing",
+      "gc_stress": false,
+      "source_sha256": "f9a0e7303f5fd361f8fb70475545946985aa7af8750a18026fb6f4ef7c8bb833",
+      "passed": true
+    },
+    {
+      "probe": "native_pump_lifecycle_probe",
+      "mode": "tracing",
+      "gc_stress": true,
+      "source_sha256": "f9a0e7303f5fd361f8fb70475545946985aa7af8750a18026fb6f4ef7c8bb833",
+      "passed": true
+    },
+    {
+      "probe": "native_pump_lifecycle_probe",
+      "mode": "arc",
+      "gc_stress": false,
+      "source_sha256": "f9a0e7303f5fd361f8fb70475545946985aa7af8750a18026fb6f4ef7c8bb833",
+      "passed": true
+    },
+    {
+      "probe": "native_pump_lifecycle_probe",
+      "mode": "arc",
+      "gc_stress": true,
+      "source_sha256": "f9a0e7303f5fd361f8fb70475545946985aa7af8750a18026fb6f4ef7c8bb833",
+      "passed": true
+    },
+    {
+      "probe": "native_pump_lifecycle_probe",
+      "mode": "prepared",
+      "gc_stress": false,
+      "source_sha256": "f9a0e7303f5fd361f8fb70475545946985aa7af8750a18026fb6f4ef7c8bb833",
+      "passed": true
+    },
+    {
+      "probe": "native_pump_lifecycle_probe",
+      "mode": "prepared",
+      "gc_stress": true,
+      "source_sha256": "f9a0e7303f5fd361f8fb70475545946985aa7af8750a18026fb6f4ef7c8bb833",
+      "passed": true
+    },
+    {
+      "probe": "native_pump_probe",
+      "mode": "tracing",
+      "gc_stress": false,
+      "source_sha256": "eed8ce3699e7f7425e66c5ba9893e11d571955c7b90222ffb970a7e218492900",
+      "passed": true
+    },
+    {
+      "probe": "native_pump_probe",
+      "mode": "tracing",
+      "gc_stress": true,
+      "source_sha256": "eed8ce3699e7f7425e66c5ba9893e11d571955c7b90222ffb970a7e218492900",
+      "passed": true
+    },
+    {
+      "probe": "native_pump_probe",
+      "mode": "arc",
+      "gc_stress": false,
+      "source_sha256": "eed8ce3699e7f7425e66c5ba9893e11d571955c7b90222ffb970a7e218492900",
+      "passed": true
+    },
+    {
+      "probe": "native_pump_probe",
+      "mode": "arc",
+      "gc_stress": true,
+      "source_sha256": "eed8ce3699e7f7425e66c5ba9893e11d571955c7b90222ffb970a7e218492900",
+      "passed": true
+    },
+    {
+      "probe": "native_pump_probe",
+      "mode": "prepared",
+      "gc_stress": false,
+      "source_sha256": "eed8ce3699e7f7425e66c5ba9893e11d571955c7b90222ffb970a7e218492900",
+      "passed": true
+    },
+    {
+      "probe": "native_pump_probe",
+      "mode": "prepared",
+      "gc_stress": true,
+      "source_sha256": "eed8ce3699e7f7425e66c5ba9893e11d571955c7b90222ffb970a7e218492900",
+      "passed": true
+    }
+  ],
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "sdk": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\"",
+  "flags": [
+    "--optimize",
+    "--exceptions=tables",
+    "--roots=shadow",
+    "--stack-trace=none",
+    "DARTFORGE_EFFECTS=check",
+    "DARTFORGE_ARC_CHECK=1"
+  ],
+  "commands_script": "target/tmp-native-pump/validate.py",
+  "fallback_vm_and_official_aot_match": true,
+  "package_library_sha256": {
+    "packages/dartforge/lib/annotations.dart": "5e2c7b13e957da6ba74800ed7fc1eb7440fbc905551f296ad85f848b1d10b3b8",
+    "packages/dartforge/lib/dartforge.dart": "553f0e8d1aa2bbf652f9103087759efd02d629e9be9c4623271e0d7c0a67a00f",
+    "packages/dartforge/lib/simd.dart": "b1dedd94a952ce5055c8356668d0882a2c55e71c196bfc4de8ea8352e40fab9a",
+    "packages/dartforge/lib/src/annotations.dart": "769a2a85a5bfe3415652413084f8bb613014fbda392292fa78574fdc54bdf9bf",
+    "packages/dartforge/lib/src/native_pump.dart": "0d8fa60bda8fbe77eee86a82eec08b695f7f858fc375dd91efd5f5f1fb299cf7",
+    "packages/dartforge/lib/src/simd/int32x4_3_14.dart": "526449d79ff9cd3ed6bd3cb79449eca829f2ab6cc882d3b3b16efb9214833c1a"
+  }
+}

@@ -189,15 +189,21 @@ pub fn has_pragma(program: &Program, interner: &Interner, fid: usize, text: &str
     use dartforge_elements::model::FunctionRef;
     use dartforge_frontend::ast;
     let f = &program.functions[fid];
-    let FunctionRef::Function { unit, function } = f.node else { return false };
+    let (unit, constructor, function) = match f.node {
+        FunctionRef::Function { unit, function } => (unit, None, Some(function)),
+        FunctionRef::Constructor { unit, member } => (unit, Some(member), None),
+        FunctionRef::None => return false,
+    };
     let a = &program.unit(unit).ast;
-    let metadata: &[ast::Annotation] = a
+    let metadata: &[ast::Annotation] = if let Some(member) = constructor {
+        &a.members[member.0 as usize].metadata
+    } else { a
         .members
         .iter()
-        .find(|m| matches!(m.kind, ast::MemberKind::Method(id) if id == function))
+        .find(|m| matches!(m.kind, ast::MemberKind::Method(id) if Some(id) == function))
         .map(|m| &*m.metadata)
-        .or_else(|| a.decls.iter().find(|d| matches!(d.kind, ast::DeclKind::Function(id) if id == function)).map(|d| &*d.metadata))
-        .unwrap_or(&[]);
+        .or_else(|| a.decls.iter().find(|d| matches!(d.kind, ast::DeclKind::Function(id) if Some(id) == function)).map(|d| &*d.metadata))
+        .unwrap_or(&[]) };
     metadata.iter().any(|an| pragma_with_string(interner, a, an, text))
 }
 

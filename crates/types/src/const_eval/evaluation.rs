@@ -1986,6 +1986,18 @@ impl<'a> Engine<'a> {
     /// does not resolve or is not constant.
     pub fn evaluate_annotation(&mut self, u: UnitId, m: &ast::Annotation) -> Option<Value> {
         let lib = self.program.unit(u).library;
+        if let Some(offset) = self.body.units.get(u.0 as usize)
+            .and_then(|b| b.metadata_local_declarations.get(&m.span.start)).copied() {
+            if m.name.len() != 1 || m.arguments.is_some() { return None; }
+            if !self.unit_locals.contains_key(&u) {
+                self.unit_locals.insert(u, constant_locals(self.ast(u)));
+            }
+            let &(stmt, index) = self.unit_locals.get(&u)?.get(&offset)?;
+            return match self.declared_local_value(u, lib, stmt, index) {
+                Constant::Value(value) => Some(value),
+                Constant::Invalid(_) => None,
+            };
+        }
         let cx = Ctx::simple(u, lib);
         let names: Vec<SymbolId> = m.name.iter().map(|n| n.sym).collect();
         let (tgt, mem) = match names.as_slice() {

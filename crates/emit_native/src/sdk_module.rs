@@ -353,11 +353,17 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
             *m = h;
         }
     }
+    // The witness borrows all final bodies together. No callee can be replaced
+    // between proving a factory's return classes and emitting its callers.
+    let provenance = if crate::pruning::receiver_provenance::enabled() {
+        crate::pruning::receiver_provenance::analyze(&modules.iter().map(|(_, m)| m).collect::<Vec<_>>())
+    } else { crate::pruning::receiver_provenance::Provenance::default() };
     let mut exit = Vec::new();
-    for (uri, mut module) in modules {
+    for (uri, module) in &modules {
         // The SDK DLL stays loaded for the whole process: the literals are
         // static objects in the JIT too (docs/NATIVO-ESPACO-UNIFICADO.md §2.11).
-        let ir = crate::llvm::LlvmEmitter::new(&module)
+        let ir = crate::llvm::LlvmEmitter::new(module)
+            .with_receiver_provenance(provenance.for_module(module))
             .with_lean_area(production)
             .with_static_objects(true)
             // The production SDK only goes to AOT; the development one (the DLL)
@@ -383,8 +389,8 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
         } else {
             ir
         };
-        let tables = if production { std::mem::take(&mut module.method_tables) } else { Vec::new() };
-        exit.push(SdkLibrary { uri, ir, rejected: std::mem::take(&mut module.rejected), tables });
+        let tables = if production { module.method_tables.clone() } else { Vec::new() };
+        exit.push(SdkLibrary { uri: uri.clone(), ir, rejected: module.rejected.clone(), tables });
     }
     Ok(exit)
 }
@@ -473,6 +479,9 @@ fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> String {
     h.update(b"\0");
     h.update(env!("DARTFORGE_EMITTER_HASH").as_bytes());
     h.update(b"\0");
+    if !crate::pruning::receiver_provenance::enabled() {
+        h.update(b"factory_receiver_provenance=disabled\0");
+    }
     // The debug trace changes the code (`llvm/mod.rs`).
     h.update(std::env::var("DARTFORGE_CALL_TRACE").unwrap_or_default().as_bytes());
     h.update(b"\0");
@@ -1241,7 +1250,7 @@ mod tests {
             .spawn(move || {
 
                 let optimize = std::env::var("DARTFORGE_OPTIMIZE").is_ok_and(|v| v == "1");
-                let options = crate::CompileOptions { sdk: Some(crate::sdk_tests()), packages: None, timings: true, optimize: optimize, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+                let options = crate::CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(crate::sdk_tests()), packages: None, timings: true, optimize: optimize, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
                 crate::compile(&entry, &exit, &options).map(|_| exit)
             })
             .unwrap()
@@ -1278,7 +1287,7 @@ mod tests {
             .stack_size(256 << 20)
             .spawn(move || {
 
-                let options = crate::CompileOptions { sdk: Some(&sdk_dir), packages: None, timings: false, optimize: true, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+                let options = crate::CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(&sdk_dir), packages: None, timings: false, optimize: true, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
                 crate::compile_with(&e2, &x2, &options)
             })
             .unwrap()
@@ -1317,7 +1326,7 @@ mod tests {
         std::thread::Builder::new()
             .stack_size(256 << 20)
             .spawn(move || {
-                let options = crate::CompileOptions { sdk: Some(&sdk_dir), packages: None, timings: false, optimize: true, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+                let options = crate::CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(&sdk_dir), packages: None, timings: false, optimize: true, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
                 crate::compile_with(&e2, &x2, &options)
             })
             .unwrap()

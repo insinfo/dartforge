@@ -1,0 +1,70 @@
+{
+  "state": {
+    "url": "http://127.0.0.1:8769/final/",
+    "pronto": "complete",
+    "montados": 2,
+    "erros": [],
+    "titulo": "Limitless UI - Example",
+    "corpo": "Navegação\nVisão geral\nFeedback\nInputs\nPickers\nDados\nUtilitários\nComponentes Visão geral\nVisão geral da biblioteca\nLimitless UI Example\nGaleria executável para documentar componentes e configurações\n\nEste example usa o tema Limitless no index.html, navega com ngx_router e renderiza componentes reais do pacote em cenários mais próximos do produto.\n\n24\nCOMPONENTES\nExamples executáveis com API real do pacote.\nLimitless 4\nTEMA\nLayout e classes alinhados com o CSS do Limitless.\nngx_router\nNAVEGAÇÃO\nRo",
+    "head": true,
+    "sdkHead": "ReferenceError: dart is not defined",
+    "htmlHead": "ReferenceError: html is not defined",
+    "symbolHead": "ReferenceError: dartx is not defined",
+    "viaSymbol": "ReferenceError: html is not defined",
+    "headSymbols": "ReferenceError: html is not defined"
+  },
+  "diagnostics": [],
+  "pausas": [
+    {
+      "reason": "exception",
+      "error": "TypeError: Cannot assign to read only property 'Symbol(Symbol.toStringTag)' of object '#<DataView>'\n    at http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:117990\n    at u (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:118068)\n    at 7995 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:121019)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)\n    at 3707 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:123082)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)\n    at 6142 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:23082)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)\n    at 3729 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:8068)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)",
+      "at": ""
+    },
+    {
+      "reason": "exception",
+      "error": "TypeError: Cannot assign to read only property 'Symbol(Symbol.toStringTag)' of object '#<Map>'\n    at http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:117990\n    at u (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:118068)\n    at 7995 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:121057)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)\n    at 3707 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:123082)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)\n    at 6142 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:23082)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)\n    at 3729 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:8068)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)",
+      "at": ""
+    },
+    {
+      "reason": "exception",
+      "error": "TypeError: Cannot assign to read only property 'Symbol(Symbol.toStringTag)' of object '#<Promise>'\n    at http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:117990\n    at u (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:118068)\n    at 7995 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:121075)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)\n    at 3707 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:123082)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)\n    at 6142 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:23082)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)\n    at 3729 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:8068)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)",
+      "at": ""
+    },
+    {
+      "reason": "exception",
+      "error": "TypeError: Cannot assign to read only property 'Symbol(Symbol.toStringTag)' of object '#<Set>'\n    at http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:117990\n    at u (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:118068)\n    at 7995 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:121097)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)\n    at 3707 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:123082)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)\n    at 6142 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:23082)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)\n    at 3729 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:8068)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)",
+      "at": ""
+    },
+    {
+      "reason": "exception",
+      "error": "TypeError: Cannot assign to read only property 'Symbol(Symbol.toStringTag)' of object '#<WeakMap>'\n    at http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:117990\n    at u (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:118068)\n    at 7995 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:121113)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)\n    at 3707 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:123082)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)\n    at 6142 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:23082)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)\n    at 3729 (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:8068)\n    at n (http://127.0.0.1:8769/final/assets/js/quill/2.0.3/quill.js:2:155797)",
+      "at": ""
+    },
+    {
+      "reason": "exception",
+      "error": "ReferenceError: dart is not defined\n    at <anonymous>:1:267\n    at <anonymous>:1:339",
+      "at": ""
+    },
+    {
+      "reason": "exception",
+      "error": "ReferenceError: html is not defined\n    at <anonymous>:1:367\n    at <anonymous>:1:432",
+      "at": ""
+    },
+    {
+      "reason": "exception",
+      "error": "ReferenceError: dartx is not defined\n    at <anonymous>:1:476\n    at <anonymous>:1:525",
+      "at": ""
+    },
+    {
+      "reason": "exception",
+      "error": "ReferenceError: html is not defined\n    at <anonymous>:1:568\n    at <anonymous>:1:632",
+      "at": ""
+    },
+    {
+      "reason": "exception",
+      "error": "ReferenceError: html is not defined\n    at <anonymous>:1:692\n    at <anonymous>:1:967",
+      "at": ""
+    }
+  ],
+  "source": []
+}

@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-size-audit/file_explorer-forge-check-none",
+  "binary_sha256": "42aaa7d1e10b9b82705c4d8aaf1b0e02153ced2cfa9e1c28112a1a7738bb06eb",
+  "binary_bytes": 28824832,
+  "working_directory": "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+  "arguments": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+    "--lang=en"
+  ],
+  "native_exit_code": 0,
+  "stdout_bytes": 0,
+  "stderr_bytes": 0,
+  "foreground_method": "AXFrontmost followed by AXRaise on actual AXWindow child",
+  "observations": {
+    "capture": "Root folder and text file;2 items",
+    "navigate": "Child folder;child-content.txt;1 item",
+    "back-button": "Root folder and text file restored;2 items"
+  },
+  "screenshots": {
+    "navigate.png": {
+      "sha256": "1d77ebc097986a8e66993a2bc9068a60a27fd12b8102691aced0f42dddf19484",
+      "dimensions": [
+        1392,
+        912
+      ]
+    },
+    "capture.png": {
+      "sha256": "00c203f00cdc9fd717abf684e4cbc14607ed7ebd988341342b6bfa9cb439b852",
+      "dimensions": [
+        1392,
+        912
+      ]
+    },
+    "back-button.png": {
+      "sha256": "349c87f4e0f8a061e5b6aa14b7f7916ad5577aba5daf913b2b20a36dd22bbd2d",
+      "dimensions": [
+        1392,
+        912
+      ]
+    }
+  },
+  "product_source_changed": false,
+  "limits": [
+    "Basic navigation and native close only;not every application feature.",
+    "Initial onscreen status depends on foreground/Space;same visibility issue observed on official VM.",
+    "Ordinary existing native-host backend;no custom DartForge API or annotation required."
+  ]
+}

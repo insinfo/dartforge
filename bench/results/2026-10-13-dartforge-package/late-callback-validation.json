@@ -1,0 +1,930 @@
+{
+  "cli": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+  "cli_sha256": "6f963ffc2c2075e3b1080d729361f220dd1fbe758eb6de1da6cf8769436b8194",
+  "host": "macOS-27.2-arm64-arm-64bit",
+  "source_hashes": {
+    "scripts/verify-ffi-late-close.py": "2daa6e4c9f74fda1e5499ca4764c19120df49891f14d6bb6db5d7ea5b11c7fae",
+    "crates/runtime/tests/ffi_late_close_probe.dart": "93b1410b094316ccf34505a3f5eb8fff2266bc1d807b10da50b27e3462eca5c7",
+    "crates/runtime/tests/ffi_callback_finalize_probe.dart": "0507a643b36108f032748298b738fdf66a5b26dbe4b75fc4f8ff312dd131019b",
+    "crates/runtime/tests/ffi_late_close_helper.c": "1285efc126e8e0d0a0cba3eac23e8f300ef1b68012ea9172a3e0eb4f867b5c71"
+  },
+  "compile_environment": {
+    "DARTFORGE_EFFECTS": "check",
+    "DARTFORGE_ARC_CHECK": "1",
+    "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang"
+  },
+  "default_stripped_symbols": true,
+  "jit_reload_certified": false,
+  "results": [
+    {
+      "label": "callbacks",
+      "mode": "tracing",
+      "stress": false,
+      "error": false,
+      "expected_exit": 0,
+      "stdout": "late callback exceptional returns, stable pointers and foreign drops verified\n",
+      "stderr": "",
+      "artifact": {
+        "binary_sha256": "dc5a6d0ce3f9bfbcaf13675b8691af352f62bc2913cee8e0ac6f0431ed88cf0e",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.tracing.contracts.json",
+        "manifest_sha256": "7c2732cf964cf66826b25a164bffc8658046f1ae11dd3532f6d62eddc296e1eb",
+        "manifest": {
+          "artifact": {
+            "blake3": "fd39f975696be9abe1bf4e49e65e2a95ccb011950a5102a7817058aad653b83e",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "5bf5a62072e7adab2528d0378231274791e911dc66ad6b0b4c703cfd5826a987",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.tracing"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "9fb35e106505eb7e778f05abb613cc9e95861e83abfd054b12ca1f9856f47bc8",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.tracing",
+          "--optimize",
+          "--memory",
+          "tracing",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {}
+      }
+    },
+    {
+      "label": "callbacks",
+      "mode": "tracing",
+      "stress": true,
+      "error": false,
+      "expected_exit": 0,
+      "stdout": "late callback exceptional returns, stable pointers and foreign drops verified\n",
+      "stderr": "",
+      "artifact": {
+        "binary_sha256": "dc5a6d0ce3f9bfbcaf13675b8691af352f62bc2913cee8e0ac6f0431ed88cf0e",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.tracing.contracts.json",
+        "manifest_sha256": "7c2732cf964cf66826b25a164bffc8658046f1ae11dd3532f6d62eddc296e1eb",
+        "manifest": {
+          "artifact": {
+            "blake3": "fd39f975696be9abe1bf4e49e65e2a95ccb011950a5102a7817058aad653b83e",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "5bf5a62072e7adab2528d0378231274791e911dc66ad6b0b4c703cfd5826a987",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.tracing"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "9fb35e106505eb7e778f05abb613cc9e95861e83abfd054b12ca1f9856f47bc8",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.tracing",
+          "--optimize",
+          "--memory",
+          "tracing",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {}
+      }
+    },
+    {
+      "label": "finalize",
+      "mode": "tracing",
+      "stress": false,
+      "error": false,
+      "expected_exit": 0,
+      "stdout": "normal main completed before callback retirement\n",
+      "stderr": "atexit callback exceptional return verified\n",
+      "artifact": {
+        "binary_sha256": "49958f832333aaff1ed44bb57a5ea7a8ee659857a724d1b2b9c9d256809aede2",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.tracing.contracts.json",
+        "manifest_sha256": "ee7ed0bb1681763deee4a6342040fa48c3388cfb1cfab2c8a8e896c31639644c",
+        "manifest": {
+          "artifact": {
+            "blake3": "b66bea0c6ac855c72a63a39296dd984ebc7327aa943621d332969934bf0181d3",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "61f00bc878e29364c2514589c8eff7df07ea87d8c1d2fd60d8527c8372e92352",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.tracing"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "d528926e4527cad1716a335b6bf963a8a5a362aa06a9b15817930e829df4bf71",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.tracing",
+          "--optimize",
+          "--memory",
+          "tracing",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {}
+      }
+    },
+    {
+      "label": "finalize",
+      "mode": "tracing",
+      "stress": false,
+      "error": true,
+      "expected_exit": 255,
+      "stdout": "",
+      "stderr": "Unhandled exception:\nerror callback lifetime verified: 15\natexit callback exceptional return verified\n",
+      "artifact": {
+        "binary_sha256": "49958f832333aaff1ed44bb57a5ea7a8ee659857a724d1b2b9c9d256809aede2",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.tracing.contracts.json",
+        "manifest_sha256": "ee7ed0bb1681763deee4a6342040fa48c3388cfb1cfab2c8a8e896c31639644c",
+        "manifest": {
+          "artifact": {
+            "blake3": "b66bea0c6ac855c72a63a39296dd984ebc7327aa943621d332969934bf0181d3",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "61f00bc878e29364c2514589c8eff7df07ea87d8c1d2fd60d8527c8372e92352",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.tracing"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "d528926e4527cad1716a335b6bf963a8a5a362aa06a9b15817930e829df4bf71",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.tracing",
+          "--optimize",
+          "--memory",
+          "tracing",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {}
+      }
+    },
+    {
+      "label": "finalize",
+      "mode": "tracing",
+      "stress": true,
+      "error": false,
+      "expected_exit": 0,
+      "stdout": "normal main completed before callback retirement\n",
+      "stderr": "atexit callback exceptional return verified\n",
+      "artifact": {
+        "binary_sha256": "49958f832333aaff1ed44bb57a5ea7a8ee659857a724d1b2b9c9d256809aede2",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.tracing.contracts.json",
+        "manifest_sha256": "ee7ed0bb1681763deee4a6342040fa48c3388cfb1cfab2c8a8e896c31639644c",
+        "manifest": {
+          "artifact": {
+            "blake3": "b66bea0c6ac855c72a63a39296dd984ebc7327aa943621d332969934bf0181d3",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "61f00bc878e29364c2514589c8eff7df07ea87d8c1d2fd60d8527c8372e92352",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.tracing"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "d528926e4527cad1716a335b6bf963a8a5a362aa06a9b15817930e829df4bf71",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.tracing",
+          "--optimize",
+          "--memory",
+          "tracing",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {}
+      }
+    },
+    {
+      "label": "finalize",
+      "mode": "tracing",
+      "stress": true,
+      "error": true,
+      "expected_exit": 255,
+      "stdout": "",
+      "stderr": "Unhandled exception:\nerror callback lifetime verified: 15\natexit callback exceptional return verified\n",
+      "artifact": {
+        "binary_sha256": "49958f832333aaff1ed44bb57a5ea7a8ee659857a724d1b2b9c9d256809aede2",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.tracing.contracts.json",
+        "manifest_sha256": "ee7ed0bb1681763deee4a6342040fa48c3388cfb1cfab2c8a8e896c31639644c",
+        "manifest": {
+          "artifact": {
+            "blake3": "b66bea0c6ac855c72a63a39296dd984ebc7327aa943621d332969934bf0181d3",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "61f00bc878e29364c2514589c8eff7df07ea87d8c1d2fd60d8527c8372e92352",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.tracing"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "d528926e4527cad1716a335b6bf963a8a5a362aa06a9b15817930e829df4bf71",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.tracing",
+          "--optimize",
+          "--memory",
+          "tracing",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {}
+      }
+    },
+    {
+      "label": "callbacks",
+      "mode": "arc",
+      "stress": false,
+      "error": false,
+      "expected_exit": 0,
+      "stdout": "late callback exceptional returns, stable pointers and foreign drops verified\n",
+      "stderr": "",
+      "artifact": {
+        "binary_sha256": "6dfda76c54c16b2583a5c9aaa29c2696d7a22600e82f1a6c259376ce378377d9",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.arc.contracts.json",
+        "manifest_sha256": "582f82a2f4330e996f1f78a8d1592dc01143a64e7980d2854555a739a904c589",
+        "manifest": {
+          "artifact": {
+            "blake3": "59a3f550d8fb8818e1a6a701658ce11fde52ebe06a7c5e02082010d40412cdb0",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "21cc6b58d5c1d8e9e8d0c485a02da7ca99d74313c2fbb2da7ad560d896450a20",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.arc"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "9fb35e106505eb7e778f05abb613cc9e95861e83abfd054b12ca1f9856f47bc8",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.arc",
+          "--optimize",
+          "--memory",
+          "arc",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {}
+      }
+    },
+    {
+      "label": "callbacks",
+      "mode": "arc",
+      "stress": true,
+      "error": false,
+      "expected_exit": 0,
+      "stdout": "late callback exceptional returns, stable pointers and foreign drops verified\n",
+      "stderr": "",
+      "artifact": {
+        "binary_sha256": "6dfda76c54c16b2583a5c9aaa29c2696d7a22600e82f1a6c259376ce378377d9",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.arc.contracts.json",
+        "manifest_sha256": "582f82a2f4330e996f1f78a8d1592dc01143a64e7980d2854555a739a904c589",
+        "manifest": {
+          "artifact": {
+            "blake3": "59a3f550d8fb8818e1a6a701658ce11fde52ebe06a7c5e02082010d40412cdb0",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "21cc6b58d5c1d8e9e8d0c485a02da7ca99d74313c2fbb2da7ad560d896450a20",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.arc"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "9fb35e106505eb7e778f05abb613cc9e95861e83abfd054b12ca1f9856f47bc8",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.arc",
+          "--optimize",
+          "--memory",
+          "arc",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {}
+      }
+    },
+    {
+      "label": "finalize",
+      "mode": "arc",
+      "stress": false,
+      "error": false,
+      "expected_exit": 0,
+      "stdout": "normal main completed before callback retirement\n",
+      "stderr": "atexit callback exceptional return verified\n",
+      "artifact": {
+        "binary_sha256": "46a65ba1edc3b2b00d84aac728b6a03c35fdc1b833cb1850ef41247f210b6c97",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.arc.contracts.json",
+        "manifest_sha256": "3d0a13b24290e2ed09831e644ba619348bc756b048ee5b1e44691ec521d4217a",
+        "manifest": {
+          "artifact": {
+            "blake3": "1b6c1f317e227595e8c6615e8cab5a1be1e100d0c9384e803507d27df73cf252",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "0246b12725ca4e1b850da6f12b03512de60c7dc0f060c6cbf9a108a841848871",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.arc"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "d528926e4527cad1716a335b6bf963a8a5a362aa06a9b15817930e829df4bf71",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.arc",
+          "--optimize",
+          "--memory",
+          "arc",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {}
+      }
+    },
+    {
+      "label": "finalize",
+      "mode": "arc",
+      "stress": false,
+      "error": true,
+      "expected_exit": 255,
+      "stdout": "",
+      "stderr": "Unhandled exception:\nerror callback lifetime verified: 15\natexit callback exceptional return verified\n",
+      "artifact": {
+        "binary_sha256": "46a65ba1edc3b2b00d84aac728b6a03c35fdc1b833cb1850ef41247f210b6c97",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.arc.contracts.json",
+        "manifest_sha256": "3d0a13b24290e2ed09831e644ba619348bc756b048ee5b1e44691ec521d4217a",
+        "manifest": {
+          "artifact": {
+            "blake3": "1b6c1f317e227595e8c6615e8cab5a1be1e100d0c9384e803507d27df73cf252",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "0246b12725ca4e1b850da6f12b03512de60c7dc0f060c6cbf9a108a841848871",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.arc"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "d528926e4527cad1716a335b6bf963a8a5a362aa06a9b15817930e829df4bf71",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.arc",
+          "--optimize",
+          "--memory",
+          "arc",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {}
+      }
+    },
+    {
+      "label": "finalize",
+      "mode": "arc",
+      "stress": true,
+      "error": false,
+      "expected_exit": 0,
+      "stdout": "normal main completed before callback retirement\n",
+      "stderr": "atexit callback exceptional return verified\n",
+      "artifact": {
+        "binary_sha256": "46a65ba1edc3b2b00d84aac728b6a03c35fdc1b833cb1850ef41247f210b6c97",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.arc.contracts.json",
+        "manifest_sha256": "3d0a13b24290e2ed09831e644ba619348bc756b048ee5b1e44691ec521d4217a",
+        "manifest": {
+          "artifact": {
+            "blake3": "1b6c1f317e227595e8c6615e8cab5a1be1e100d0c9384e803507d27df73cf252",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "0246b12725ca4e1b850da6f12b03512de60c7dc0f060c6cbf9a108a841848871",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.arc"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "d528926e4527cad1716a335b6bf963a8a5a362aa06a9b15817930e829df4bf71",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.arc",
+          "--optimize",
+          "--memory",
+          "arc",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {}
+      }
+    },
+    {
+      "label": "finalize",
+      "mode": "arc",
+      "stress": true,
+      "error": true,
+      "expected_exit": 255,
+      "stdout": "",
+      "stderr": "Unhandled exception:\nerror callback lifetime verified: 15\natexit callback exceptional return verified\n",
+      "artifact": {
+        "binary_sha256": "46a65ba1edc3b2b00d84aac728b6a03c35fdc1b833cb1850ef41247f210b6c97",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.arc.contracts.json",
+        "manifest_sha256": "3d0a13b24290e2ed09831e644ba619348bc756b048ee5b1e44691ec521d4217a",
+        "manifest": {
+          "artifact": {
+            "blake3": "1b6c1f317e227595e8c6615e8cab5a1be1e100d0c9384e803507d27df73cf252",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "0246b12725ca4e1b850da6f12b03512de60c7dc0f060c6cbf9a108a841848871",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.arc"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "d528926e4527cad1716a335b6bf963a8a5a362aa06a9b15817930e829df4bf71",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.arc",
+          "--optimize",
+          "--memory",
+          "arc",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {}
+      }
+    },
+    {
+      "label": "callbacks",
+      "mode": "prepared",
+      "stress": false,
+      "error": false,
+      "expected_exit": 0,
+      "stdout": "late callback exceptional returns, stable pointers and foreign drops verified\n",
+      "stderr": "",
+      "artifact": {
+        "binary_sha256": "35e6f0f86a580e619974a6d00762406a641d950c7be1f259a51f66b2a5b307cb",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.prepared.contracts.json",
+        "manifest_sha256": "2ce8c3f3cdaa41c3dd0551bb41a679c31d86883f58009c901135897566d84a80",
+        "manifest": {
+          "artifact": {
+            "blake3": "b97e1c9129c7563a5c192af55fb090b7490953ab8117ebf87fc79281dfaca201",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "b52635c59febc214ebab11105561c5714412b32e1df8bd62a9b822af1cfdf1c3",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.prepared"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "9fb35e106505eb7e778f05abb613cc9e95861e83abfd054b12ca1f9856f47bc8",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.prepared",
+          "--optimize",
+          "--memory",
+          "arc",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {
+          "DARTFORGE_ARC_PREPARED": "1"
+        }
+      }
+    },
+    {
+      "label": "callbacks",
+      "mode": "prepared",
+      "stress": true,
+      "error": false,
+      "expected_exit": 0,
+      "stdout": "late callback exceptional returns, stable pointers and foreign drops verified\n",
+      "stderr": "",
+      "artifact": {
+        "binary_sha256": "35e6f0f86a580e619974a6d00762406a641d950c7be1f259a51f66b2a5b307cb",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.prepared.contracts.json",
+        "manifest_sha256": "2ce8c3f3cdaa41c3dd0551bb41a679c31d86883f58009c901135897566d84a80",
+        "manifest": {
+          "artifact": {
+            "blake3": "b97e1c9129c7563a5c192af55fb090b7490953ab8117ebf87fc79281dfaca201",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "b52635c59febc214ebab11105561c5714412b32e1df8bd62a9b822af1cfdf1c3",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.prepared"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "9fb35e106505eb7e778f05abb613cc9e95861e83abfd054b12ca1f9856f47bc8",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/callbacks.prepared",
+          "--optimize",
+          "--memory",
+          "arc",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {
+          "DARTFORGE_ARC_PREPARED": "1"
+        }
+      }
+    },
+    {
+      "label": "finalize",
+      "mode": "prepared",
+      "stress": false,
+      "error": false,
+      "expected_exit": 0,
+      "stdout": "normal main completed before callback retirement\n",
+      "stderr": "atexit callback exceptional return verified\n",
+      "artifact": {
+        "binary_sha256": "eff7b57817f9689d5eef0d69e9e90e043b65a522a29a1550b5c1e181f0f95b0c",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.prepared.contracts.json",
+        "manifest_sha256": "68a3ba3c351cc6aa4fc41f2a9ee1e6f2d318131147e56e5a68297e7d0b8b8cc3",
+        "manifest": {
+          "artifact": {
+            "blake3": "060641e5d9b5ba46ad48e66331fced7b20fbd0282d8d3e830a97f076fa23f3a9",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "3ad7e834f99c671bfbb9a742a71e18c868522dd13f2e1f448c7d912eb39885a0",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.prepared"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "d528926e4527cad1716a335b6bf963a8a5a362aa06a9b15817930e829df4bf71",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.prepared",
+          "--optimize",
+          "--memory",
+          "arc",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {
+          "DARTFORGE_ARC_PREPARED": "1"
+        }
+      }
+    },
+    {
+      "label": "finalize",
+      "mode": "prepared",
+      "stress": false,
+      "error": true,
+      "expected_exit": 255,
+      "stdout": "",
+      "stderr": "Unhandled exception:\nerror callback lifetime verified: 15\natexit callback exceptional return verified\n",
+      "artifact": {
+        "binary_sha256": "eff7b57817f9689d5eef0d69e9e90e043b65a522a29a1550b5c1e181f0f95b0c",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.prepared.contracts.json",
+        "manifest_sha256": "68a3ba3c351cc6aa4fc41f2a9ee1e6f2d318131147e56e5a68297e7d0b8b8cc3",
+        "manifest": {
+          "artifact": {
+            "blake3": "060641e5d9b5ba46ad48e66331fced7b20fbd0282d8d3e830a97f076fa23f3a9",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "3ad7e834f99c671bfbb9a742a71e18c868522dd13f2e1f448c7d912eb39885a0",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.prepared"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "d528926e4527cad1716a335b6bf963a8a5a362aa06a9b15817930e829df4bf71",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.prepared",
+          "--optimize",
+          "--memory",
+          "arc",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {
+          "DARTFORGE_ARC_PREPARED": "1"
+        }
+      }
+    },
+    {
+      "label": "finalize",
+      "mode": "prepared",
+      "stress": true,
+      "error": false,
+      "expected_exit": 0,
+      "stdout": "normal main completed before callback retirement\n",
+      "stderr": "atexit callback exceptional return verified\n",
+      "artifact": {
+        "binary_sha256": "eff7b57817f9689d5eef0d69e9e90e043b65a522a29a1550b5c1e181f0f95b0c",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.prepared.contracts.json",
+        "manifest_sha256": "68a3ba3c351cc6aa4fc41f2a9ee1e6f2d318131147e56e5a68297e7d0b8b8cc3",
+        "manifest": {
+          "artifact": {
+            "blake3": "060641e5d9b5ba46ad48e66331fced7b20fbd0282d8d3e830a97f076fa23f3a9",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "3ad7e834f99c671bfbb9a742a71e18c868522dd13f2e1f448c7d912eb39885a0",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.prepared"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "d528926e4527cad1716a335b6bf963a8a5a362aa06a9b15817930e829df4bf71",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.prepared",
+          "--optimize",
+          "--memory",
+          "arc",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {
+          "DARTFORGE_ARC_PREPARED": "1"
+        }
+      }
+    },
+    {
+      "label": "finalize",
+      "mode": "prepared",
+      "stress": true,
+      "error": true,
+      "expected_exit": 255,
+      "stdout": "",
+      "stderr": "Unhandled exception:\nerror callback lifetime verified: 15\natexit callback exceptional return verified\n",
+      "artifact": {
+        "binary_sha256": "eff7b57817f9689d5eef0d69e9e90e043b65a522a29a1550b5c1e181f0f95b0c",
+        "manifest_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.prepared.contracts.json",
+        "manifest_sha256": "68a3ba3c351cc6aa4fc41f2a9ee1e6f2d318131147e56e5a68297e7d0b8b8cc3",
+        "manifest": {
+          "artifact": {
+            "blake3": "060641e5d9b5ba46ad48e66331fced7b20fbd0282d8d3e830a97f076fa23f3a9",
+            "cpu": "None",
+            "debug": false,
+            "ir_blake3": "3ad7e834f99c671bfbb9a742a71e18c868522dd13f2e1f448c7d912eb39885a0",
+            "optimized": true,
+            "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.prepared"
+          },
+          "certified": false,
+          "diagnostics": [],
+          "manifest_schema": 1,
+          "mode": "verify",
+          "package": null,
+          "requests": [],
+          "sources": [
+            {
+              "blake3": "d528926e4527cad1716a335b6bf963a8a5a362aa06a9b15817930e829df4bf71",
+              "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart"
+            }
+          ],
+          "verification_implemented": false
+        },
+        "compile_command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/dartforge",
+          "aot",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_callback_finalize_probe.dart",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/finalize.prepared",
+          "--optimize",
+          "--memory",
+          "arc",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+        ],
+        "preparation_environment": {
+          "DARTFORGE_ARC_PREPARED": "1"
+        }
+      }
+    }
+  ],
+  "sdk_version": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\"",
+  "clang_version": "clang version 22.1.8 (https://github.com/llvm/llvm-project ca7933e47d3a3451d81e72ac174dcb5aa28b59d1)\nTarget: arm64-apple-darwin27.2.0\nThread model: posix\nInstalledDir: /Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin",
+  "mac_sdk_path": "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+  "helper_build_command": [
+    "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+    "-isysroot",
+    "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+    "-dynamiclib",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/tests/ffi_late_close_helper.c",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/ffi-late-close-prepared-correct/ffi_late_close_helper.dylib"
+  ],
+  "helper_sha256": "41e4bf54f3e3773959905c11d8a43febf4cbdc4ae0dc40b978a5405bf9601a27"
+}
