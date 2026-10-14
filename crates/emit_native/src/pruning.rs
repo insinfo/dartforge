@@ -1427,7 +1427,8 @@ pub fn hir_summary(m: &crate::hir::Module) -> Summary {
 /// for the keys of `live_ffis` (`None`: all of them, §3.14).
 fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>) -> Summary {
     use crate::hir::{Constant, Instruction, Operand};
-    let provenance = if receiver_provenance::enabled() { receiver_provenance::analyze(&[m]) } else { receiver_provenance::Provenance::default() };
+    let registry_closed = receiver_provenance::registry::closed(&[m]);
+    let provenance = if receiver_provenance::enabled() && registry_closed { receiver_provenance::analyze(&[m]) } else { receiver_provenance::Provenance::default() };
     let mut r = Summary::new("programa");
     r.declared_field_layouts = m.declared_field_layouts.iter()
         .filter(|(cid, _)| !m.pruning_ambiguous_class_ids.contains(cid))
@@ -1503,7 +1504,7 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
                         }
                     }
                     Instruction::CallSelector { selector: s, recv, .. } | Instruction::CallSelectorForward { selector: s, recv, .. } => {
-                        let cone = m.pruning_this_receivers.get(&f.symbol)
+                        let cone = m.pruning_this_receivers.get(&f.symbol).filter(|_| registry_closed)
                             .filter(|(parameter, _)| f.params.iter().any(|(id, _, ty)| id == parameter && *ty == crate::hir::Type::Ref))
                             .filter(|(parameter, _)| recv == &Operand::Val(*parameter))
                             .map(|(_, cid)| i64::from(*cid));

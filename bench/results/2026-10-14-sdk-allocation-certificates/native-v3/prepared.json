@@ -1,0 +1,10 @@
+{
+  "copied_sdk": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-allocation-copied-v3/sdk/lib",
+  "entry": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-allocation-copied-v3/main.dart",
+  "entry_sha256": "eada1cd5fc02cf38b40252a5c1ab4a6779f30763c1883dfc5e21b8588a34a272",
+  "selected_factory_unit": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-allocation-copied-v3/sdk/lib/convert/convert.dart",
+  "factory_unit_sha256": "40d2159b2147c27eae50df03a06e69edc2cef4b2237abc82a5ff6fece72a1fd7",
+  "stock_factory_unit_sha256": "1499a12d41b1134b3991ee1e6fc0d7d7dca24a9e8bf741d9b8f9488e5008b1fa",
+  "official_oracle_scope": "Same ordinary source list factory defined locally; official platform cannot expose injected SDK member.",
+  "no_stock_sdk_performance_claim": true
+}

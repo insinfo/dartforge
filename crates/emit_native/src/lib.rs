@@ -130,6 +130,12 @@ fn prune_program_hir(module: &mut hir::Module, production: bool, sdk_lib: &Path)
     let summaries = pruning::read_summaries(&sdk.summaries)?;
     let refs: Vec<&pruning::Summary> = summaries.iter().map(|r| r.as_ref()).collect();
     module.arc_external_ancestry = hir::ArcExternalAncestry::from_summaries(&refs);
+    let artifacts: Vec<_> = sdk.objects.iter().zip(&sdk.summaries).flat_map(|(object, summary)| [
+        object.file_name().unwrap().to_string_lossy().to_string(), summary.file_name().unwrap().to_string_lossy().to_string()]).collect();
+    if let Some(directory) = sdk.objects.first().and_then(|path| path.parent()) {
+        module.imported_allocation_returns = Some(pruning::receiver_provenance::allocation_certificates::load(
+            directory, &sdk.key, production, &artifacts));
+    }
     Ok(Some(pruning::prune_hir(module, &refs)))
 }
 

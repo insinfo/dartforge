@@ -1,0 +1,446 @@
+{
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-producer-v3/dartforge": "3d1a72b4194623bd134fa48c1ff913325bf4b2aecb1c6668a0aca5469c3e567b",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json": "c5c1c22ad085905aa6341ddf11b3999b001cb6ac128a61f117a1fb8d532ec934",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart": "d1dd06b17ec373922dbda23dbb4b5a4667f2a2e1c225e387b73d6b7deab87cd3",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/primitive_multiply.dart": "0b0f6ba12550f0bfbeebcd708726575ac1f80154fbe3a7fb3b195b733ac279fe",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/devirtualization/sdk_factory_returns.dart": "a50d7b353d844d0f399fba94b9ce1b474decbdf49e76379973d973ee3899846c"
+  },
+  "environment": {
+    "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_KEEP_IR": "1",
+    "DARTFORGE_LINK_MAP": "1"
+  },
+  "scope": "Same frozen compiler per OFF/ON; official VM/AOT consumed outputs, native normal/GCstress. Static IR and executable bytes are separate from runtime performance.",
+  "cases": {
+    "color": {
+      "source_sha256": "d1dd06b17ec373922dbda23dbb4b5a4667f2a2e1c225e387b73d6b7deab87cd3",
+      "ablation": "DARTFORGE_NO_PRIMITIVE_MULTIPLY",
+      "expected_lines": 2736,
+      "profiles": {
+        "off": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-producer-v3/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/color/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3335008,
+            "sha256": "d3e65bf3eb77821f69197bffde9145cb030e8cb5206911936a2dc35e5a8b16ce"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/color/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/color/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "sha256": "24ab2492417746bbf3c3e409dd029922720aeab7edb1c0a5c49bbd564fb0924d",
+              "bytes": 1139509
+            }
+          }
+        },
+        "on": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-producer-v3/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/color/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3335008,
+            "sha256": "dcb697a6644f0c328b4639055d297a21ba7968615e0eb639a7ec5f22ce073c5e"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/color/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/color/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "sha256": "c5840e8f4a457c152c42fb37935de5a1813dfa7a1cd3b7245ef1a257cc536621",
+              "bytes": 1187553
+            }
+          }
+        }
+      },
+      "vm": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart"
+        ],
+        "exit": 0,
+        "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official-compile": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "exe",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/color/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "a4f8b4d28cff3167a3ee77999c4b7aba043cff4fbb02e2dae7002fe4e4450ed7",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/color/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "exact": true
+      }
+    },
+    "multiply": {
+      "source_sha256": "0b0f6ba12550f0bfbeebcd708726575ac1f80154fbe3a7fb3b195b733ac279fe",
+      "ablation": "DARTFORGE_NO_PRIMITIVE_MULTIPLY",
+      "expected_lines": 230,
+      "profiles": {
+        "off": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-producer-v3/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/primitive_multiply.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/multiply/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3252304,
+            "sha256": "0ddc420bbf0a283398df51448532a1b223091ae4dedd6875b70729c101239d30"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/multiply/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "2fe5d584338a752c7246d29ad3537905882a4242f0cde175b0c4f62c851cb8bb",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/multiply/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "2fe5d584338a752c7246d29ad3537905882a4242f0cde175b0c4f62c851cb8bb",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "sha256": "cd55ac43f6efa6c97cb919812c7bf071431490f15d198f00ada4da88050c89ce",
+              "bytes": 652718
+            }
+          }
+        },
+        "on": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-producer-v3/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/primitive_multiply.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/multiply/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3252304,
+            "sha256": "14f91d4eb59df43a64942be9f3bc04a3b758952615061b5253d06a3c459d5476"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/multiply/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "2fe5d584338a752c7246d29ad3537905882a4242f0cde175b0c4f62c851cb8bb",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/multiply/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "2fe5d584338a752c7246d29ad3537905882a4242f0cde175b0c4f62c851cb8bb",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "sha256": "e4c657ad69105d4bf149dd1bf0fb9f6171d804f17f76fda481b8e31ea5f36681",
+              "bytes": 656389
+            }
+          }
+        }
+      },
+      "vm": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/primitive_multiply.dart"
+        ],
+        "exit": 0,
+        "stdout_sha256": "2fe5d584338a752c7246d29ad3537905882a4242f0cde175b0c4f62c851cb8bb",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official-compile": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "exe",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/primitive_multiply.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/multiply/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "5080298a5b5ad574a65483546594a9173b965225b6a8e88b6c7edf0e16bee2fe",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/multiply/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "2fe5d584338a752c7246d29ad3537905882a4242f0cde175b0c4f62c851cb8bb",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "exact": true
+      }
+    },
+    "sdk-factory": {
+      "source_sha256": "a50d7b353d844d0f399fba94b9ce1b474decbdf49e76379973d973ee3899846c",
+      "ablation": "DARTFORGE_NO_SDK_ALLOCATION_PROOFS",
+      "expected_lines": 5,
+      "profiles": {
+        "off": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-producer-v3/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/devirtualization/sdk_factory_returns.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/sdk-factory/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3186144,
+            "sha256": "7197d937c6fd51694c919dd0930ab1a8c122329bf076f36534c30c47614fbaea"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/sdk-factory/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "c3a7d047dfca2ea0799fc582bc1c6cbefbe4191eb29428b58636542891d4fd7f",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/sdk-factory/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "c3a7d047dfca2ea0799fc582bc1c6cbefbe4191eb29428b58636542891d4fd7f",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "sha256": "4c9a9139d8ede10fce448c1cedb61b6d810be54b904cc5dfbabd4a11b86b3807",
+              "bytes": 572448
+            }
+          }
+        },
+        "on": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-producer-v3/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/devirtualization/sdk_factory_returns.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/sdk-factory/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3186144,
+            "sha256": "7197d937c6fd51694c919dd0930ab1a8c122329bf076f36534c30c47614fbaea"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/sdk-factory/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "c3a7d047dfca2ea0799fc582bc1c6cbefbe4191eb29428b58636542891d4fd7f",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/sdk-factory/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "c3a7d047dfca2ea0799fc582bc1c6cbefbe4191eb29428b58636542891d4fd7f",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "sha256": "4c9a9139d8ede10fce448c1cedb61b6d810be54b904cc5dfbabd4a11b86b3807",
+              "bytes": 572448
+            }
+          }
+        }
+      },
+      "vm": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/devirtualization/sdk_factory_returns.dart"
+        ],
+        "exit": 0,
+        "stdout_sha256": "c3a7d047dfca2ea0799fc582bc1c6cbefbe4191eb29428b58636542891d4fd7f",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official-compile": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "exe",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/devirtualization/sdk_factory_returns.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/sdk-factory/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "b81a2aec0342884806a5b85ba2b164bab7e568475638f4a875f09814d04b60be",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-sdk-native-v3/sdk-factory/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "c3a7d047dfca2ea0799fc582bc1c6cbefbe4191eb29428b58636542891d4fd7f",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "exact": true
+      }
+    }
+  },
+  "inputs_unchanged": true
+}

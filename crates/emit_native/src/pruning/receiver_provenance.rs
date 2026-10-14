@@ -4,7 +4,10 @@
 //! dynamic calls, and recursive return summaries. They are not ownership/effect proofs.
 
 mod canonical_cache;
+pub(crate) mod allocation_only_exports;
+pub(crate) mod allocation_certificates;
 mod selector_returns;
+pub(crate) mod registry;
 #[cfg(test)]
 mod field_provenance;
 
@@ -71,7 +74,9 @@ pub(crate) fn analyze<'a>(modules: &[&'a Module]) -> Provenance<'a> {
         .iter()
         .filter_map(|(symbol, f)| Shape::new(f).ok().map(|shape| (symbol.clone(), shape)))
         .collect();
-    let getters = selector_returns::Inventory::new(modules, &functions, &duplicates, &shapes);
+    let imported = if modules.len() == 1 { modules[0].imported_allocation_returns.as_ref()
+        .map(|imports| imports.reconcile(modules)).unwrap_or_default() } else { allocation_certificates::Imports::default() };
+    let getters = selector_returns::Inventory::new(modules, &functions, &duplicates, &shapes, &imported);
     let dependencies: HashMap<_, Vec<String>> = functions
         .iter()
         .map(|(symbol, f)| {
@@ -116,6 +121,7 @@ pub(crate) fn analyze<'a>(modules: &[&'a Module]) -> Provenance<'a> {
         })
         .collect();
     let mut result = Provenance::default();
+    result.returns.extend(imported.exports.iter().map(|(symbol, export)| (symbol.clone(), export.classes.clone())));
     if std::env::var("DARTFORGE_NO_CANONICAL_CACHE_PROVENANCE").as_deref() != Ok("1") {
         let caches = canonical_cache::Inventory::new(modules);
         for (symbol, function) in &functions {
@@ -140,7 +146,7 @@ pub(crate) fn analyze<'a>(modules: &[&'a Module]) -> Provenance<'a> {
             let Some(shape) = shapes.get(symbol) else {
                 continue;
             };
-            let values = value_classes(f, shape, &functions, &result.returns, &getters);
+            let values = value_classes(f, shape, &functions, &result.returns, &getters, &imported);
             if !recursive && f.return_ty == Type::Ref {
                 let mut classes = Classes::new();
                 let mut normal_returns = 0;
@@ -183,6 +189,7 @@ fn value_classes(
     functions: &HashMap<String, &Function>,
     returns: &HashMap<String, Classes>,
     getters: &selector_returns::Inventory,
+    imported: &allocation_certificates::Imports,
 ) -> HashMap<ValueId, Classes> {
     let mut values = HashMap::new();
     loop {
@@ -279,7 +286,11 @@ fn value_classes(
                         args,
                         ret_ty: Type::Ref,
                     } => {
-                        functions
+                        if let Some(export) = imported.exports.get(symbol) {
+                            (export.parameters.len() == args.len()
+                                && export.parameters.iter().zip(args).all(|(ty, arg)| shape.operand_type(arg) == Some(*ty)))
+                                .then(|| export.classes.clone())
+                        } else { functions
                             .get(symbol)
                             .filter(|callee| {
                                 callee.return_ty == Type::Ref
@@ -289,7 +300,7 @@ fn value_classes(
                                     })
                             })
                             .and_then(|_| returns.get(symbol))
-                            .cloned()
+                            .cloned() }
                     }
                     instruction if selector_returns::getter(instruction).is_some() => {
                         let (selector, receiver) = selector_returns::getter(instruction).unwrap();

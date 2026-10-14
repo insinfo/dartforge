@@ -1,0 +1,23 @@
+{
+  "artifact": {
+    "blake3": "683e80c83af13441c90894d40a15d7ed358fa8a30aeea052d7c63102fdf31563",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "8cfff9341e39efcbac3fcddeaf2f0ab99c61a3e0825442e10483b9e7598eb574",
+    "optimized": true,
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-allocation-copied-v3/modified-on-warm/program"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "b0400f22035e0ff7f36fbb4aec8dbf657317991086e409ff55964ef9a597510a",
+      "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-allocation-copied-v3/main.dart"
+    }
+  ],
+  "verification_implemented": false
+}

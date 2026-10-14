@@ -103,6 +103,7 @@ pub struct LlvmEmitter<'a> {
     current_function: String,
     /// Lowered SDK `this`, revalidated against the current formal parameters.
     current_receiver_cone: Option<(ValueId, u32)>,
+    registry_closed: bool,
     /// Allocation facts retain witnesses to the exact immutable HIR bodies.
     receiver_provenance: Option<crate::pruning::receiver_provenance::Provenance<'a>>,
     current_exact_receivers: std::collections::HashMap<ValueId, crate::pruning::receiver_provenance::Classes>,
@@ -303,6 +304,7 @@ impl<'a> LlvmEmitter<'a> {
             selector_caches: 0,
             current_function: String::new(),
             current_receiver_cone: None,
+            registry_closed: crate::pruning::receiver_provenance::registry::closed(&[module]),
             receiver_provenance: None,
             current_exact_receivers: std::collections::HashMap::new(),
             cache_in_function: 0,
@@ -530,6 +532,9 @@ impl<'a> LlvmEmitter<'a> {
     /// A module with diagnostics or incoherent exceptional metadata.
     /// Resume still requires Itanium without statepoints; Windows needs funclets.
     pub fn emit_all(mut self) -> String {
+        if !self.registry_closed {
+            self.receiver_provenance = Some(crate::pruning::receiver_provenance::Provenance::default());
+        }
         if self.receiver_provenance.is_none() {
             self.receiver_provenance = Some(if crate::pruning::receiver_provenance::enabled() {
                 crate::pruning::receiver_provenance::analyze(&[self.module])
@@ -876,6 +881,7 @@ impl<'a> LlvmEmitter<'a> {
         self.current_exact_receivers = self.receiver_provenance.as_ref()
             .and_then(|proof| proof.values_for(func)).cloned().unwrap_or_default();
         self.current_receiver_cone = self.module.pruning_this_receivers.get(&func.symbol)
+            .filter(|_| self.registry_closed)
             .copied().filter(|(id, _)| func.params.iter().any(|(parameter, _, ty)| parameter == id && *ty == Type::Ref));
         self.cache_in_function = 0;
         self.frame_allocas = Self::escaping_ref_allocas(func);

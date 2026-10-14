@@ -1141,6 +1141,8 @@ pub struct Module {
     pub checked_double_identity: bool,
     /// Registration facts from the same compiled SDK summaries used at link time.
     pub arc_external_ancestry: ArcExternalAncestry,
+    /// Artifact-bound allocation return facts from the exact selected linked SDK.
+    pub(crate) imported_allocation_returns: Option<crate::pruning::receiver_provenance::allocation_certificates::Imports>,
     /// The ARC preparation accepts direct calls to Dart functions of another
     /// already prepared image (the prepared source SDK), with the summary taken
     /// from the call itself: arguments by the representation of the operands,

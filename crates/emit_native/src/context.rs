@@ -112,6 +112,10 @@ pub struct Context<'a> {
             Option<std::sync::Arc<Vec<(i64, crate::lower::sdk_source::Implementation)>>>,
         >,
     >,
+    /// Selected SDK multiplication semantics, certified once for this immutable program.
+    pub(crate) primitive_multiply_certificate: std::sync::OnceLock<bool>,
+    /// Experimental guarded multiplication; disabled unless explicitly requested.
+    pub(crate) primitive_multiply_enabled: bool,
 }
 
 /// The name of the variable of a `:x`/`:var x`/`:x?`/`:x as T` pattern.
@@ -322,6 +326,8 @@ impl<'a> Context<'a> {
             world: None,
             subtypes_memo: Default::default(),
             implementations_by_class_memo: Default::default(),
+            primitive_multiply_certificate: Default::default(),
+            primitive_multiply_enabled: std::env::var("DARTFORGE_PRIMITIVE_MULTIPLY").as_deref() == Ok("1"),
             te: crate::erasure::ExtensionTypes::default(),
             previous_ids: None,
             debug_info: None,

@@ -16,6 +16,7 @@ pub mod primitive_const;
 pub mod constants;
 mod environment;
 mod double_identity;
+mod primitive_multiply;
 mod platform;
 mod native_pump;
 mod sync_native_callable;

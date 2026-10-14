@@ -12,9 +12,10 @@ impl Inventory {
         functions: &HashMap<String, &Function>,
         duplicates: &HashSet<String>,
         shapes: &HashMap<String, Shape>,
+        imported: &allocation_certificates::Imports,
     ) -> Self {
         let mut result = Self { tables: HashMap::new(), dependencies: HashMap::new() };
-        if std::env::var("DARTFORGE_NO_SELECTOR_RETURN_PROVENANCE").as_deref() == Ok("1")
+        if !registry::closed(modules) || std::env::var("DARTFORGE_NO_SELECTOR_RETURN_PROVENANCE").as_deref() == Ok("1")
             || modules.iter().any(|m| !m.arc_fixed_ancestry || m.arc_memory || m.arc_prepared || m.arc_aot_ports.is_some())
             || functions.keys().any(|name| matches!(name.as_str(), "dartforge_selector" | "dartforge_register_methods"))
         { return result; }
@@ -52,6 +53,15 @@ impl Inventory {
                 }
                 result.tables.insert(*cid, getters);
             }
+        }
+        for (cid, pairs) in &imported.tables {
+            if result.tables.contains_key(cid) { continue; }
+            let getters: HashMap<_, _> = pairs.iter().filter(|(selector, symbol)|
+                selector.starts_with("g:") && imported.exports.get(symbol).is_some_and(|export|
+                    export.parameters == [Type::Ref, Type::Ptr, Type::Ptr]))
+                .cloned().collect();
+            for (selector, symbol) in &getters { result.dependencies.entry(selector.clone()).or_default().insert(symbol.clone()); }
+            result.tables.insert(*cid, getters);
         }
         result
     }

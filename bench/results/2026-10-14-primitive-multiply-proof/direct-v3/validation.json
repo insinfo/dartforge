@@ -1,0 +1,44 @@
+{
+  "status": "Scoped source tests passed; numeric sources frozen for new producer and actual native validation.",
+  "implementation": {
+    "default": "Disabled. DARTFORGE_PRIMITIVE_MULTIPLY=1 explicitly enables the experimental path; DARTFORGE_NO_PRIMITIVE_MULTIPLY=1 still disables it.",
+    "arithmetic": "Physical numeric guards, checked Ref-to-I64 integer conversion and wrapping HIR Mul for integer pairs; checked inline df.num_to_double conversion and HIR FMul for mixed/double pairs. Scalar inputs remain scalar. Box only arithmetic product; unknown receiver retains original selector. Existing Smi specialization remains first.",
+    "generic_runtime_helper": "No dartforge_dyn_op in experimental arithmetic fast body.",
+    "sdk_policy_key": "Always includes positive policy value, default0 even when unset; invalidates historical defaultON key and separates experimental ON/OFF SDK artifacts.",
+    "memory": "Tracing only; ARC remains excluded."
+  },
+  "focused_tests": [
+    {
+      "filter": "lower::primitive_multiply",
+      "exit_code": 0,
+      "passed": 2,
+      "duration_seconds": 2.23,
+      "log": "primitive-multiply-p4-v3.log",
+      "coverage": [
+        "Canonical selected SDK proof and guarded direct arithmetic + selector fallback.",
+        "Changed integer body, changed native alias and program native homonym deny.",
+        "Source proof cannot enable disabled policy; ARC excluded.",
+        "Actual ordinary color source experimental ON preserves all8checked return-box rewrites."
+      ]
+    },
+    {
+      "filter": "actual_format_widened_booleans_preserve_all_eight_checked_return_rewrites",
+      "exit_code": 0,
+      "passed": 1,
+      "log": "format-rewrites-p4-v3.log",
+      "coverage": "Original regression assertions and source untouched; default preserves8return-box eliminations, unbox count, and widened-Or count."
+    }
+  ],
+  "source_hashes": {
+    "crates/emit_native/src/context.rs": "a5741774e9dc14c719aa0f9db484d399cf70aa6a15c6ba4d6a1f730125cd03ac",
+    "crates/emit_native/src/lower/primitive_multiply.rs": "14dc62e1585c7ea34008a3aa939fe54da6086b795b18b504d009d1b57cf0e735",
+    "crates/emit_native/src/lower/primitive_multiply/tests.rs": "21c7f1ce3d37cebece9cbee9c06db5ba9033c57472452e9902171f095406a1b6",
+    "crates/emit_native/src/sdk_module.rs": "293f33483a0d02a4b7d554aba031b610f03b1619e3a16c7f1f43a03f54366d0e"
+  },
+  "not_claimed": [
+    "Native OFF/ON outputs validated after this change.",
+    "Whole native library gate passed after this change.",
+    "Size or performance benefit."
+  ],
+  "prior_regression": "../../2026-10-14-primitive-sdk-production/performance-v2/measurement.json remains preserved; V2 broadened runtime helper regressed actual color kernel and grew binary."
+}

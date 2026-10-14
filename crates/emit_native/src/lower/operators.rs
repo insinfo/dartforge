@@ -244,7 +244,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Branch(join));
 
         self.set_block(slow);
-        let s = self.operate_dynamic(op, lop, rop, span);
+        let s = self.certified_primitive_multiply(op, lop.clone(), rop.clone(), span)
+            .unwrap_or_else(|| self.operate_dynamic(op, lop, rop, span));
         let s = self.coerce(s, ty);
         let slow_end = self.current_block;
         if self.is_terminated() {
@@ -308,7 +309,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if admits_smi && Self::smi_op(op) && matches!(ta, Type::I64 | Type::Ref) && matches!(tb, Type::I64 | Type::Ref) {
                 return self.operate_smi(op, lop, rop, span);
             }
-            return self.operate_dynamic(op, lop, rop, span);
+            return self.certified_primitive_multiply(op, lop.clone(), rop.clone(), span)
+                .unwrap_or_else(|| self.operate_dynamic(op, lop, rop, span));
         }
         let in_double = ta == Type::F64 || tb == Type::F64 || matches!(op, BinaryOp::Div);
         if in_double {

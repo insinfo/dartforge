@@ -16,6 +16,7 @@ pub(crate) fn rewrite_getters(module: &mut Module) -> usize {
         || module.arc_aot_ports.is_some()
         || module.sdk_library
         || !receiver_provenance::enabled()
+        || !receiver_provenance::registry::closed(&[module])
         || module.functions.iter().any(|function| {
             matches!(
                 function.symbol.as_str(),

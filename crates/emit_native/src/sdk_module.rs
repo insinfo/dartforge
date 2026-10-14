@@ -272,6 +272,7 @@ pub struct SdkLibrary {
     /// production profile, docs/NATIVO-PODA-DE-TABELAS.md §3.2): they go into the summary of the
     /// library. Empty in development.
     pub tables: Vec<crate::pruning::ModuleTable>,
+    pub(crate) allocation_exports: Vec<crate::pruning::receiver_provenance::allocation_certificates::Export>,
 }
 
 /// Lowers and emits each of the [`SOURCE_LIBRARIES`] in its own module (P5c):
@@ -360,6 +361,9 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
     let provenance = if crate::pruning::receiver_provenance::enabled() {
         crate::pruning::receiver_provenance::analyze(&modules.iter().map(|(_, m)| m).collect::<Vec<_>>())
     } else { crate::pruning::receiver_provenance::Provenance::default() };
+    let allocation_exports = if production {
+        crate::pruning::receiver_provenance::allocation_certificates::export(&modules.iter().map(|(_, module)| module).collect::<Vec<_>>(), &provenance)
+    } else { Vec::new() };
     let mut exit = Vec::new();
     for (uri, module) in &modules {
         // The SDK DLL stays loaded for the whole process: the literals are
@@ -393,7 +397,9 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
             ir
         };
         let tables = if production { module.method_tables.clone() } else { Vec::new() };
-        exit.push(SdkLibrary { uri: uri.clone(), ir, rejected: module.rejected.clone(), tables });
+        let owned: std::collections::HashSet<_> = module.functions.iter().map(|f| f.symbol.as_str()).collect();
+        let allocation_exports = allocation_exports.iter().filter(|export| owned.contains(export.symbol.as_str())).cloned().collect();
+        exit.push(SdkLibrary { uri: uri.clone(), ir, rejected: module.rejected.clone(), tables, allocation_exports });
     }
     Ok(exit)
 }
@@ -421,6 +427,7 @@ pub struct CompiledSdk {
     /// How long it took to compile (the cold cost); `None` when it came from the
     /// cache.
     pub cold: Option<std::time::Duration>,
+    pub(crate) key: String,
 }
 
 /// The symbols that an IR defines with external linkage (what the DLL exports).
@@ -494,7 +501,7 @@ fn sdk_key_with_overlay(lib_dir: &Path, overlay: &Path, clang_id: &str, args: &[
     files.sort();
     files.dedup();
     let mut h = blake3::Hasher::new();
-    h.update(b"dartforge-sdk-selected-source-v4\0");
+    h.update(b"dartforge-sdk-selected-source-v5\0");
     h.update(env!("CARGO_PKG_VERSION").as_bytes());
     h.update(b"\0");
     h.update(env!("DARTFORGE_EMITTER_HASH").as_bytes());
@@ -556,6 +563,8 @@ fn sdk_key_with_overlay(lib_dir: &Path, overlay: &Path, clang_id: &str, args: &[
     // optimization to compare before and after) change the code.
     let mut keys: Vec<(String, String)> = std::env::vars()
         .filter(|(k, _)| k.starts_with("DARTFORGE_NO_"))
+        .chain(std::iter::once(("DARTFORGE_PRIMITIVE_MULTIPLY".into(),
+            std::env::var("DARTFORGE_PRIMITIVE_MULTIPLY").unwrap_or_else(|_| "0".into()))))
         .collect();
     keys.sort();
     for (k, v) in keys {
@@ -671,6 +680,7 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
             d.join(&dll_file)
         },
         cold,
+        key: key.clone(),
     };
     if dir.join("pronto").is_file() {
         // The mark records the last use (the cache pruning respects it).
@@ -742,6 +752,12 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
     if let Some(e) = errors.into_inner().unwrap().into_iter().next() {
         return Err(e);
     }
+    let allocation_exports: Vec<_> = libs.iter().flat_map(|lib| lib.allocation_exports.iter().cloned()).collect();
+    let allocation_exports = crate::pruning::receiver_provenance::allocation_certificates::bind_final_ir(allocation_exports, &libs);
+    let allocation_tables: Vec<_> = libs.iter().flat_map(|lib| lib.tables.iter().cloned()).collect();
+    let allocation_artifacts: Vec<_> = SOURCE_LIBRARIES.iter().flat_map(|b| [format!("{b}.{ext_obj}"), format!("{b}.poda")]).collect();
+    let allocation_proof = crate::pruning::receiver_provenance::allocation_certificates::publish(&tmp, &key,
+        profile == SdkProfile::Production, &allocation_artifacts, &allocation_exports, &allocation_tables)?;
     // The DLL (development): the SDK objects and the runtime (the variant without
     // `main`). In production, the objects (bitcode) go directly into the
     // executable.
@@ -834,7 +850,7 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
         )
         .map_err(|e| format!("linking the source SDK DLL failed: {e}"))?;
     }
-    std::fs::write(tmp.join("pronto"), b"").map_err(|e| e.to_string())?;
+    std::fs::write(tmp.join("pronto"), serde_json::to_vec(&serde_json::json!({"cache_key":key,"allocation_proof":allocation_proof})).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     if std::fs::rename(&tmp, &dir).is_err() {
         // Another process finished first: its result stays.
         let _ = std::fs::remove_dir_all(&tmp);

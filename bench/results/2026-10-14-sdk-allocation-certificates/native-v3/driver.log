@@ -1,0 +1,151 @@
+{
+  "producer": "target/primitive-sdk-producer-v3/dartforge",
+  "producer_sha256": "3d1a72b4194623bd134fa48c1ff913325bf4b2aecb1c6668a0aca5469c3e567b",
+  "cases": [
+    {
+      "case": "fresh-off-cold",
+      "program_bytes": 3186128,
+      "program_sha256": "ee1e92495adc7580c9e3e706f357dcc775329738718b7a797f05602e7f9b409d",
+      "oracle_match": true,
+      "gc_stress_oracle_match": true,
+      "factory_call_regions": 1,
+      "imported_downstream_list_fact": false
+    },
+    {
+      "case": "fresh-off-warm",
+      "program_bytes": 3186128,
+      "program_sha256": "ee1e92495adc7580c9e3e706f357dcc775329738718b7a797f05602e7f9b409d",
+      "oracle_match": true,
+      "gc_stress_oracle_match": true,
+      "factory_call_regions": 1,
+      "imported_downstream_list_fact": false
+    },
+    {
+      "case": "fresh-on-cold",
+      "program_bytes": 3186128,
+      "program_sha256": "ee1e92495adc7580c9e3e706f357dcc775329738718b7a797f05602e7f9b409d",
+      "oracle_match": true,
+      "gc_stress_oracle_match": true,
+      "factory_call_regions": 1,
+      "imported_downstream_list_fact": true
+    },
+    {
+      "case": "fresh-on-warm",
+      "program_bytes": 3186128,
+      "program_sha256": "ee1e92495adc7580c9e3e706f357dcc775329738718b7a797f05602e7f9b409d",
+      "oracle_match": true,
+      "gc_stress_oracle_match": true,
+      "factory_call_regions": 1,
+      "imported_downstream_list_fact": true
+    },
+    {
+      "case": "modified-off-cold",
+      "program_bytes": 3186128,
+      "program_sha256": "90e3c081883f2f2a982d847fa72a207b9b6638a053b3228ca51e7d6f78585d20",
+      "oracle_match": true,
+      "gc_stress_oracle_match": true,
+      "factory_call_regions": 1,
+      "imported_downstream_list_fact": false
+    },
+    {
+      "case": "modified-off-warm",
+      "program_bytes": 3186128,
+      "program_sha256": "90e3c081883f2f2a982d847fa72a207b9b6638a053b3228ca51e7d6f78585d20",
+      "oracle_match": true,
+      "gc_stress_oracle_match": true,
+      "factory_call_regions": 1,
+      "imported_downstream_list_fact": false
+    },
+    {
+      "case": "modified-on-cold",
+      "program_bytes": 3186128,
+      "program_sha256": "90e3c081883f2f2a982d847fa72a207b9b6638a053b3228ca51e7d6f78585d20",
+      "oracle_match": true,
+      "gc_stress_oracle_match": true,
+      "factory_call_regions": 1,
+      "imported_downstream_list_fact": false
+    },
+    {
+      "case": "modified-on-warm",
+      "program_bytes": 3186128,
+      "program_sha256": "90e3c081883f2f2a982d847fa72a207b9b6638a053b3228ca51e7d6f78585d20",
+      "oracle_match": true,
+      "gc_stress_oracle_match": true,
+      "factory_call_regions": 1,
+      "imported_downstream_list_fact": false
+    }
+  ],
+  "proof_manifests": [
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-allocation-copied-v3/native-cache/sdk/2415584d4075b9c6d2dbd1272bd287b5/allocation-returns.json",
+      "sha256": "8246bd84e4bc3a267c2f9dc9d1c702d8933891ceea0953527c0a492e1f0020c1",
+      "cache_key": "2415584d4075b9c6d2dbd1272bd287b5",
+      "factory_exports": []
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-allocation-copied-v3/native-cache/sdk/a0a0e7d1c74877c94e5440bd582fa27b/allocation-returns.json",
+      "sha256": "08751fb769faba30b96154da55076ca2d89b7b9ea430b0722b794d45b1e2734d",
+      "cache_key": "a0a0e7d1c74877c94e5440bd582fa27b",
+      "factory_exports": [
+        {
+          "classes": [
+            10
+          ],
+          "closure": [
+            {
+              "body": "ac5549141587ed94d7d0096399431514bfbddcfcc62bfbf2b601170ee8729ddc",
+              "parameters": [],
+              "result": "i64",
+              "symbol": "df.rti.fa1d73087962e879.dart$3aconvert"
+            },
+            {
+              "body": "ba4eea25b9d1dc4acf9afa8c69e7dce390109419309b895d6ead8c6585917855",
+              "parameters": [],
+              "result": "ref",
+              "symbol": "df.dart$3aconvert..dartforgeFreshList"
+            }
+          ],
+          "parameters": [],
+          "symbol": "df.dart$3aconvert..dartforgeFreshList"
+        }
+      ]
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-allocation-copied-v3/native-cache/sdk/b5b373e197c0162310b727f2198e4dd6/allocation-returns.json",
+      "sha256": "5476ecbac4aec77649d80685c798380cc96150216bdb33a10a001ed512d9aef7",
+      "cache_key": "b5b373e197c0162310b727f2198e4dd6",
+      "factory_exports": []
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-allocation-copied-v3/native-cache/sdk/ba41bf8044b784aaa2842eebe980e55b/allocation-returns.json",
+      "sha256": "95f7da8c1192e8a9a1b444ce85ff6cce985e8148a129b687cb7ddeba824f41ea",
+      "cache_key": "ba41bf8044b784aaa2842eebe980e55b",
+      "factory_exports": [
+        {
+          "classes": [
+            10
+          ],
+          "closure": [
+            {
+              "body": "ac5549141587ed94d7d0096399431514bfbddcfcc62bfbf2b601170ee8729ddc",
+              "parameters": [],
+              "result": "i64",
+              "symbol": "df.rti.fa1d73087962e879.dart$3aconvert"
+            },
+            {
+              "body": "ba4eea25b9d1dc4acf9afa8c69e7dce390109419309b895d6ead8c6585917855",
+              "parameters": [],
+              "result": "ref",
+              "symbol": "df.dart$3aconvert..dartforgeFreshList"
+            }
+          ],
+          "parameters": [],
+          "symbol": "df.dart$3aconvert..dartforgeFreshList"
+        }
+      ]
+    }
+  ],
+  "scope": "Same ordinary source list factory defined locally; official platform cannot expose injected SDK member.",
+  "timing_claim": false,
+  "stock_sdk_size_gain_claim": false
+}

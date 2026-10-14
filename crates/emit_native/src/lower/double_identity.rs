@@ -8,6 +8,10 @@ mod selected_sdk;
 const DOUBLE: &str = include_str!("../../../../native_sdk/core/double.dart");
 const IDENTICAL: &str = include_str!("../../../../native_sdk/core/identical_patch.dart");
 
+pub(super) fn reviewed_selected_sources(ctx: &Context) -> bool {
+    selected_sdk::trusted_sources(ctx) && selected_sdk::canonical_hash_binding(ctx)
+}
+
 pub(super) fn certified(ctx: &Context) -> bool {
     if !selected_sdk::trusted_sources(ctx) || !selected_sdk::canonical_hash_binding(ctx) {
         return false;

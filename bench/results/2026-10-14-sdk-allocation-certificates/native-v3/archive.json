@@ -1,0 +1,277 @@
+{
+  "producer": "target/primitive-sdk-producer-v3/dartforge",
+  "producer_sha256": "3d1a72b4194623bd134fa48c1ff913325bf4b2aecb1c6668a0aca5469c3e567b",
+  "cases": [
+    {
+      "case": "fresh-off-cold",
+      "program_bytes": 3186128,
+      "program_sha256": "ee1e92495adc7580c9e3e706f357dcc775329738718b7a797f05602e7f9b409d",
+      "oracle_match": true,
+      "gc_stress_oracle_match": true,
+      "factory_call_regions": 1,
+      "imported_downstream_list_fact": false
+    },
+    {
+      "case": "fresh-off-warm",
+      "program_bytes": 3186128,
+      "program_sha256": "ee1e92495adc7580c9e3e706f357dcc775329738718b7a797f05602e7f9b409d",
+      "oracle_match": true,
+      "gc_stress_oracle_match": true,
+      "factory_call_regions": 1,
+      "imported_downstream_list_fact": false
+    },
+    {
+      "case": "fresh-on-cold",
+      "program_bytes": 3186128,
+      "program_sha256": "ee1e92495adc7580c9e3e706f357dcc775329738718b7a797f05602e7f9b409d",
+      "oracle_match": true,
+      "gc_stress_oracle_match": true,
+      "factory_call_regions": 1,
+      "imported_downstream_list_fact": true
+    },
+    {
+      "case": "fresh-on-warm",
+      "program_bytes": 3186128,
+      "program_sha256": "ee1e92495adc7580c9e3e706f357dcc775329738718b7a797f05602e7f9b409d",
+      "oracle_match": true,
+      "gc_stress_oracle_match": true,
+      "factory_call_regions": 1,
+      "imported_downstream_list_fact": true
+    },
+    {
+      "case": "modified-off-cold",
+      "program_bytes": 3186128,
+      "program_sha256": "90e3c081883f2f2a982d847fa72a207b9b6638a053b3228ca51e7d6f78585d20",
+      "oracle_match": true,
+      "gc_stress_oracle_match": true,
+      "factory_call_regions": 1,
+      "imported_downstream_list_fact": false
+    },
+    {
+      "case": "modified-off-warm",
+      "program_bytes": 3186128,
+      "program_sha256": "90e3c081883f2f2a982d847fa72a207b9b6638a053b3228ca51e7d6f78585d20",
+      "oracle_match": true,
+      "gc_stress_oracle_match": true,
+      "factory_call_regions": 1,
+      "imported_downstream_list_fact": false
+    },
+    {
+      "case": "modified-on-cold",
+      "program_bytes": 3186128,
+      "program_sha256": "90e3c081883f2f2a982d847fa72a207b9b6638a053b3228ca51e7d6f78585d20",
+      "oracle_match": true,
+      "gc_stress_oracle_match": true,
+      "factory_call_regions": 1,
+      "imported_downstream_list_fact": false
+    },
+    {
+      "case": "modified-on-warm",
+      "program_bytes": 3186128,
+      "program_sha256": "90e3c081883f2f2a982d847fa72a207b9b6638a053b3228ca51e7d6f78585d20",
+      "oracle_match": true,
+      "gc_stress_oracle_match": true,
+      "factory_call_regions": 1,
+      "imported_downstream_list_fact": false
+    }
+  ],
+  "proof_manifests": [
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-allocation-copied-v3/native-cache/sdk/2415584d4075b9c6d2dbd1272bd287b5/allocation-returns.json",
+      "sha256": "8246bd84e4bc3a267c2f9dc9d1c702d8933891ceea0953527c0a492e1f0020c1",
+      "cache_key": "2415584d4075b9c6d2dbd1272bd287b5",
+      "factory_exports": []
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-allocation-copied-v3/native-cache/sdk/a0a0e7d1c74877c94e5440bd582fa27b/allocation-returns.json",
+      "sha256": "08751fb769faba30b96154da55076ca2d89b7b9ea430b0722b794d45b1e2734d",
+      "cache_key": "a0a0e7d1c74877c94e5440bd582fa27b",
+      "factory_exports": [
+        {
+          "classes": [
+            10
+          ],
+          "closure": [
+            {
+              "body": "ac5549141587ed94d7d0096399431514bfbddcfcc62bfbf2b601170ee8729ddc",
+              "parameters": [],
+              "result": "i64",
+              "symbol": "df.rti.fa1d73087962e879.dart$3aconvert"
+            },
+            {
+              "body": "ba4eea25b9d1dc4acf9afa8c69e7dce390109419309b895d6ead8c6585917855",
+              "parameters": [],
+              "result": "ref",
+              "symbol": "df.dart$3aconvert..dartforgeFreshList"
+            }
+          ],
+          "parameters": [],
+          "symbol": "df.dart$3aconvert..dartforgeFreshList"
+        }
+      ]
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-allocation-copied-v3/native-cache/sdk/b5b373e197c0162310b727f2198e4dd6/allocation-returns.json",
+      "sha256": "5476ecbac4aec77649d80685c798380cc96150216bdb33a10a001ed512d9aef7",
+      "cache_key": "b5b373e197c0162310b727f2198e4dd6",
+      "factory_exports": []
+    },
+    {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-allocation-copied-v3/native-cache/sdk/ba41bf8044b784aaa2842eebe980e55b/allocation-returns.json",
+      "sha256": "95f7da8c1192e8a9a1b444ce85ff6cce985e8148a129b687cb7ddeba824f41ea",
+      "cache_key": "ba41bf8044b784aaa2842eebe980e55b",
+      "factory_exports": [
+        {
+          "classes": [
+            10
+          ],
+          "closure": [
+            {
+              "body": "ac5549141587ed94d7d0096399431514bfbddcfcc62bfbf2b601170ee8729ddc",
+              "parameters": [],
+              "result": "i64",
+              "symbol": "df.rti.fa1d73087962e879.dart$3aconvert"
+            },
+            {
+              "body": "ba4eea25b9d1dc4acf9afa8c69e7dce390109419309b895d6ead8c6585917855",
+              "parameters": [],
+              "result": "ref",
+              "symbol": "df.dart$3aconvert..dartforgeFreshList"
+            }
+          ],
+          "parameters": [],
+          "symbol": "df.dart$3aconvert..dartforgeFreshList"
+        }
+      ]
+    }
+  ],
+  "scope": "Same ordinary source list factory defined locally; official platform cannot expose injected SDK member.",
+  "timing_claim": false,
+  "stock_sdk_size_gain_claim": false,
+  "archive_sha256": {
+    "driver.log": "5de24643def22a448ae30c2042f44359914fcebce472aa543ebec8443d3ebb1e",
+    "fresh-cold-main.diff": "ac1615fcffab04314c45b536f51e449c5a48b0ea4c157b1eb89d89733d338508",
+    "fresh-convert.dart": "40d2159b2147c27eae50df03a06e69edc2cef4b2237abc82a5ff6fece72a1fd7",
+    "fresh-off-cold/compile.json": "12dda9a9490500d3dcb73e21a5462be9befd7c1fbaf94196a268df63d4a0b944",
+    "fresh-off-cold/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fresh-off-cold/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fresh-off-cold/execute.json": "731b7f9d51e641742e84ae80a28cf7b85bfb684b0919af2489c81f0725a7c90a",
+    "fresh-off-cold/execute.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fresh-off-cold/execute.stdout": "59460907114a22522154420d781fb367287ca668dd9a53a2b9256faf137c2eb8",
+    "fresh-off-cold/factory-ir-region.txt": "7faa9b4052627f114cfc87a3a20e60945b29f769bb9376dab3bed6c451e153a3",
+    "fresh-off-cold/gc-stress.json": "731b7f9d51e641742e84ae80a28cf7b85bfb684b0919af2489c81f0725a7c90a",
+    "fresh-off-cold/gc-stress.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fresh-off-cold/gc-stress.stdout": "59460907114a22522154420d781fb367287ca668dd9a53a2b9256faf137c2eb8",
+    "fresh-off-cold/main.ll": "2fed88523398060f6cd536568e6c971e684707fb1cdb61d44d4bd3ae0343c521",
+    "fresh-off-cold/program.contracts.json": "6c022d0cc0b946a5948180f1b0c34df1ce8835ef5fdcc6be203493c9fcc09e69",
+    "fresh-off-warm/compile.json": "bc0df4035d1529c8e84271240dbcc6452ef7ec68cc0056064f96153f24a08635",
+    "fresh-off-warm/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fresh-off-warm/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fresh-off-warm/execute.json": "d814a93eb8a0cfc56b54f3c8e744e0aa55c31c535dc9d7cf6672c02ff657c534",
+    "fresh-off-warm/execute.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fresh-off-warm/execute.stdout": "59460907114a22522154420d781fb367287ca668dd9a53a2b9256faf137c2eb8",
+    "fresh-off-warm/factory-ir-region.txt": "7faa9b4052627f114cfc87a3a20e60945b29f769bb9376dab3bed6c451e153a3",
+    "fresh-off-warm/gc-stress.json": "d814a93eb8a0cfc56b54f3c8e744e0aa55c31c535dc9d7cf6672c02ff657c534",
+    "fresh-off-warm/gc-stress.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fresh-off-warm/gc-stress.stdout": "59460907114a22522154420d781fb367287ca668dd9a53a2b9256faf137c2eb8",
+    "fresh-off-warm/main.ll": "2fed88523398060f6cd536568e6c971e684707fb1cdb61d44d4bd3ae0343c521",
+    "fresh-off-warm/program.contracts.json": "05aa38a616d2d41d0e6e43133cb51c4edb9f6bd882653636eb48e3e031a8ce13",
+    "fresh-on-cold/compile.json": "3e3deed056b553c94bce78934c73fb002e9f1cc75dc49215b58bc38a6ececa75",
+    "fresh-on-cold/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fresh-on-cold/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fresh-on-cold/execute.json": "bc40270d4096e816fde42ac670da6ba88d3310918710996f689f4edc036a108c",
+    "fresh-on-cold/execute.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fresh-on-cold/execute.stdout": "59460907114a22522154420d781fb367287ca668dd9a53a2b9256faf137c2eb8",
+    "fresh-on-cold/factory-ir-region.txt": "90ecd1068289bf930fd8160d4a93200265342e2c901f2b3b10d4baebb30d3680",
+    "fresh-on-cold/gc-stress.json": "bc40270d4096e816fde42ac670da6ba88d3310918710996f689f4edc036a108c",
+    "fresh-on-cold/gc-stress.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fresh-on-cold/gc-stress.stdout": "59460907114a22522154420d781fb367287ca668dd9a53a2b9256faf137c2eb8",
+    "fresh-on-cold/main.ll": "d82df2a3e35b11a3d3966bbe9dcf8385cf8b1bb8daa91ff9a106b4fccf9220da",
+    "fresh-on-cold/program.contracts.json": "f7c6690dfea32b1902fea80b3534121692a1d281cdba4d6ceb227529aeaa6fba",
+    "fresh-on-warm/compile.json": "f0199203cb7d537999d2e10179be5b889d09393659fd1e473fc4d71a4bcb6c31",
+    "fresh-on-warm/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fresh-on-warm/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fresh-on-warm/execute.json": "d6666193330ecec65ab640bd18bb915105b4c48115be43dd2a0fffba7df6620f",
+    "fresh-on-warm/execute.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fresh-on-warm/execute.stdout": "59460907114a22522154420d781fb367287ca668dd9a53a2b9256faf137c2eb8",
+    "fresh-on-warm/factory-ir-region.txt": "90ecd1068289bf930fd8160d4a93200265342e2c901f2b3b10d4baebb30d3680",
+    "fresh-on-warm/gc-stress.json": "d6666193330ecec65ab640bd18bb915105b4c48115be43dd2a0fffba7df6620f",
+    "fresh-on-warm/gc-stress.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fresh-on-warm/gc-stress.stdout": "59460907114a22522154420d781fb367287ca668dd9a53a2b9256faf137c2eb8",
+    "fresh-on-warm/main.ll": "d82df2a3e35b11a3d3966bbe9dcf8385cf8b1bb8daa91ff9a106b4fccf9220da",
+    "fresh-on-warm/program.contracts.json": "1ddb2118c97c9fbbb2c11b61eff79f88191e012404eba8bb55909b605ab11969",
+    "fresh-warm-main.diff": "08ce331c78d5eb183c78b34a892083da69b33ca3d5dd45efa83eadaf0b68ab90",
+    "main.dart": "eada1cd5fc02cf38b40252a5c1ab4a6779f30763c1883dfc5e21b8588a34a272",
+    "modified-convert.dart": "9dbe738b93fddcb1f892bd2a6f7263c6c1db920bc0e57a24dc2bfa869461c977",
+    "modified-off-cold/compile.json": "4c108ec140cbb39d15e83a12c74d831a0c34dc6cc736085f27f141ffc7f85ea8",
+    "modified-off-cold/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modified-off-cold/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modified-off-cold/execute.json": "7bcc18fa3185cc8bdba52897e1eeb5d92420b42e557af33337667fa56dc57f0d",
+    "modified-off-cold/execute.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modified-off-cold/execute.stdout": "e3cb7e19829d9a900a9c3bf0bc2ac9ca28890a244ab779bfc9f0920b47280872",
+    "modified-off-cold/factory-ir-region.txt": "7faa9b4052627f114cfc87a3a20e60945b29f769bb9376dab3bed6c451e153a3",
+    "modified-off-cold/gc-stress.json": "7bcc18fa3185cc8bdba52897e1eeb5d92420b42e557af33337667fa56dc57f0d",
+    "modified-off-cold/gc-stress.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modified-off-cold/gc-stress.stdout": "e3cb7e19829d9a900a9c3bf0bc2ac9ca28890a244ab779bfc9f0920b47280872",
+    "modified-off-cold/main.ll": "2fed88523398060f6cd536568e6c971e684707fb1cdb61d44d4bd3ae0343c521",
+    "modified-off-cold/program.contracts.json": "b273a988fd4eff7db601cb27ca63654a03ef26e3db345eb8b925d4264f65e903",
+    "modified-off-warm/compile.json": "51b538f68afd75381cd882aa2d7853ed1ee57d87708809ebe6ba8a60e80112ae",
+    "modified-off-warm/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modified-off-warm/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modified-off-warm/execute.json": "11b6abc6a7ddc54cff102006713af00d3184b64f650c38788546d02993f5fbba",
+    "modified-off-warm/execute.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modified-off-warm/execute.stdout": "e3cb7e19829d9a900a9c3bf0bc2ac9ca28890a244ab779bfc9f0920b47280872",
+    "modified-off-warm/factory-ir-region.txt": "7faa9b4052627f114cfc87a3a20e60945b29f769bb9376dab3bed6c451e153a3",
+    "modified-off-warm/gc-stress.json": "11b6abc6a7ddc54cff102006713af00d3184b64f650c38788546d02993f5fbba",
+    "modified-off-warm/gc-stress.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modified-off-warm/gc-stress.stdout": "e3cb7e19829d9a900a9c3bf0bc2ac9ca28890a244ab779bfc9f0920b47280872",
+    "modified-off-warm/main.ll": "2fed88523398060f6cd536568e6c971e684707fb1cdb61d44d4bd3ae0343c521",
+    "modified-off-warm/program.contracts.json": "44fdb157d7a7e6023cb3f11b4bb53b6db020c4a1a1a1a7de6c2ad8b7bfbbd4a8",
+    "modified-on-cold/compile.json": "846d482f0227c43a65a47fe1c6203481adb4effec5d859434d1f432d13504f3f",
+    "modified-on-cold/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modified-on-cold/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modified-on-cold/execute.json": "9c6d4413775e814e9001557698894d2a6293ce52546e0981548beaae4d1115fb",
+    "modified-on-cold/execute.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modified-on-cold/execute.stdout": "e3cb7e19829d9a900a9c3bf0bc2ac9ca28890a244ab779bfc9f0920b47280872",
+    "modified-on-cold/factory-ir-region.txt": "7faa9b4052627f114cfc87a3a20e60945b29f769bb9376dab3bed6c451e153a3",
+    "modified-on-cold/gc-stress.json": "9c6d4413775e814e9001557698894d2a6293ce52546e0981548beaae4d1115fb",
+    "modified-on-cold/gc-stress.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modified-on-cold/gc-stress.stdout": "e3cb7e19829d9a900a9c3bf0bc2ac9ca28890a244ab779bfc9f0920b47280872",
+    "modified-on-cold/main.ll": "2fed88523398060f6cd536568e6c971e684707fb1cdb61d44d4bd3ae0343c521",
+    "modified-on-cold/program.contracts.json": "aa27e381b8c1a014cbfc111a4de3daef2c9d41bc93789f22b65faaf97f574a28",
+    "modified-on-warm/compile.json": "0872495d8bda7b9e751c0f646a4e1039aac5eda78d8fb218b01da36fa6d29cbd",
+    "modified-on-warm/compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modified-on-warm/compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modified-on-warm/execute.json": "c08a2c5d69c92c1024fe15d0cac66097e040800d0911a73e20749791dc2c74dd",
+    "modified-on-warm/execute.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modified-on-warm/execute.stdout": "e3cb7e19829d9a900a9c3bf0bc2ac9ca28890a244ab779bfc9f0920b47280872",
+    "modified-on-warm/factory-ir-region.txt": "7faa9b4052627f114cfc87a3a20e60945b29f769bb9376dab3bed6c451e153a3",
+    "modified-on-warm/gc-stress.json": "c08a2c5d69c92c1024fe15d0cac66097e040800d0911a73e20749791dc2c74dd",
+    "modified-on-warm/gc-stress.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modified-on-warm/gc-stress.stdout": "e3cb7e19829d9a900a9c3bf0bc2ac9ca28890a244ab779bfc9f0920b47280872",
+    "modified-on-warm/main.ll": "2fed88523398060f6cd536568e6c971e684707fb1cdb61d44d4bd3ae0343c521",
+    "modified-on-warm/program.contracts.json": "b706e1cf105cfa9b1d369e7f17f4d141f7efc8187df0a5451ade6c33e6ee0dd0",
+    "oracle-False.json": "63f5364e3d8cb9f1b5909c48a7ee5bc1c834e03d5ce0a473050134e1f888843c",
+    "oracle-False.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "oracle-False.stdout": "59460907114a22522154420d781fb367287ca668dd9a53a2b9256faf137c2eb8",
+    "oracle-True.json": "e1438461e6bd5e7b55dc4e8b048506eaae24458b31b105dc63058c195d6163c2",
+    "oracle-True.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "oracle-True.stdout": "e3cb7e19829d9a900a9c3bf0bc2ac9ca28890a244ab779bfc9f0920b47280872",
+    "oracle.dart": "e38b7eb4e983a587068b7c341b96ba6f64ec46353f7541dafa197498cbfa72e9",
+    "prepared.json": "fd78617d9675b888d623aec25a71f027e7a95580ed357f5188c571cd2a898a7f",
+    "sdk-proof-manifests/2415584d4075b9c6d2dbd1272bd287b5/allocation-returns.json": "8246bd84e4bc3a267c2f9dc9d1c702d8933891ceea0953527c0a492e1f0020c1",
+    "sdk-proof-manifests/2415584d4075b9c6d2dbd1272bd287b5/factory-summary-records.txt": "48b8c8ee2a1bb88d956c5d2063220ab7cc91c4cc4d8bebca2048dd1522e35ff5",
+    "sdk-proof-manifests/2415584d4075b9c6d2dbd1272bd287b5/pronto": "597e067998ebe293a479621f1858589ee490e0523bafd3efae2331363aa0c88f",
+    "sdk-proof-manifests/a0a0e7d1c74877c94e5440bd582fa27b/allocation-returns.json": "08751fb769faba30b96154da55076ca2d89b7b9ea430b0722b794d45b1e2734d",
+    "sdk-proof-manifests/a0a0e7d1c74877c94e5440bd582fa27b/factory-summary-records.txt": "48b8c8ee2a1bb88d956c5d2063220ab7cc91c4cc4d8bebca2048dd1522e35ff5",
+    "sdk-proof-manifests/a0a0e7d1c74877c94e5440bd582fa27b/pronto": "6be3a7947f26ed36ede2a7d37f2f15e06142c3d717c885659cc24f5bf9e07513",
+    "sdk-proof-manifests/b5b373e197c0162310b727f2198e4dd6/allocation-returns.json": "5476ecbac4aec77649d80685c798380cc96150216bdb33a10a001ed512d9aef7",
+    "sdk-proof-manifests/b5b373e197c0162310b727f2198e4dd6/factory-summary-records.txt": "48b8c8ee2a1bb88d956c5d2063220ab7cc91c4cc4d8bebca2048dd1522e35ff5",
+    "sdk-proof-manifests/b5b373e197c0162310b727f2198e4dd6/pronto": "64e233ca392a4fa33f65c6b0316a8a2ce702fad9030ca5eced54b3733fd737f4",
+    "sdk-proof-manifests/ba41bf8044b784aaa2842eebe980e55b/allocation-returns.json": "95f7da8c1192e8a9a1b444ce85ff6cce985e8148a129b687cb7ddeba824f41ea",
+    "sdk-proof-manifests/ba41bf8044b784aaa2842eebe980e55b/factory-summary-records.txt": "48b8c8ee2a1bb88d956c5d2063220ab7cc91c4cc4d8bebca2048dd1522e35ff5",
+    "sdk-proof-manifests/ba41bf8044b784aaa2842eebe980e55b/pronto": "0f0303db794161af2a77dca757c63b11393989652e9248801386f291186bc3c6",
+    "validation.json": "5de24643def22a448ae30c2042f44359914fcebce472aa543ebec8443d3ebb1e"
+  },
+  "claim": "V3 frozen producer: actual imported SDK body fact and modified-SDK invalidation demonstrated. No timing or stock-SDK performance/size benefit claim."
+}
