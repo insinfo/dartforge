@@ -1,0 +1,84 @@
+{
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart": "d1dd06b17ec373922dbda23dbb4b5a4667f2a2e1c225e387b73d6b7deab87cd3",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/lib/src/graphics/image/codecs/color/format.dart": "c7750e025311ea78a05c0ec73cec464a8845ac99599b61be9c089afee97c62db",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-producer/dartforge": "0a876b5adb34707a38fc75d4a5f74da90d22fb26fc77cf9520c403b7d5e79d2f",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json": "c5c1c22ad085905aa6341ddf11b3999b001cb6ac128a61f117a1fb8d532ec934"
+  },
+  "cases": 2736,
+  "scope": "Actual unmodified dart_ui format.dart. Exact output bit fingerprints and error type; no timing or optimization benefit claim.",
+  "runs": {
+    "vm": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "official-compile": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "compile",
+        "exe",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/color-numeric-baseline/official"
+      ],
+      "exit_code": 64,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "9d3aa08fc4fc920c4c95bbc1ec28d0bc00db9d81974af4b91affcc9f383649e4"
+    },
+    "forge-compile": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/color-numeric-baseline/forge"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "forge": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/color-numeric-baseline/forge"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "forge-stress": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/color-numeric-baseline/forge"
+      ],
+      "exit_code": 0,
+      "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "artifact": {
+    "bytes": 3335008,
+    "sha256": "53c834f66b837d5abdc7fe9b14f5227db09e91aa0b4602fb1162789c145fc641"
+  },
+  "exact_oracle_matches": {
+    "official": false,
+    "forge": true,
+    "forge-stress": true
+  },
+  "inputs_unchanged": true
+}

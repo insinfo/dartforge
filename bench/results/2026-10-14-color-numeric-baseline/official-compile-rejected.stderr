@@ -1,0 +1,14 @@
+Could not find an option named "--packages".
+
+Usage: dart compile <subcommand> [arguments]
+-h, --help    Print this usage information.
+
+Available subcommands:
+  aot-snapshot   Compile Dart to an AOT snapshot.
+  exe            Compile Dart to a self-contained executable.
+  jit-snapshot   Compile Dart to a JIT snapshot.
+  js             Compile Dart to JavaScript.
+  kernel         Compile Dart to a kernel snapshot.
+  wasm           Compile Dart to a WebAssembly/WasmGC module.
+
+Run "dart help" to see global options.

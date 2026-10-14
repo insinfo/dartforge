@@ -1,0 +1,36 @@
+{
+  "reference_revision": "6c4009687d2c881f880127fc12b9ad7c72111d33",
+  "reference_files": {
+    "runtime/lib/double.cc": "6655873f9a502301ef500ff002aa77f00423f14fd32cb138a66bb3f1fbfc8d9c",
+    "sdk/lib/_internal/vm/lib/integers.dart": "40f26ba77f65c92c38cb951328bb33d780871ff8b2031bae853f639676cfe773",
+    "sdk/lib/_internal/vm/lib/double.dart": "c91d6682f04f7920f9e20391aadaee82f2e9a3f13a93f6e2d16971feca49804b"
+  },
+  "contract_evidence": {
+    "double.cc:80-83": "Double_greaterThanFromInteger compares left.ToDouble() > right.value().",
+    "double.cc:97-100": "Double_equalToInteger compares left.value() == right.ToDouble().",
+    "integers.dart:214-254": "compareTo checks bounds and exact integer ordering separately.",
+    "double.dart:341-393": "compareTo distinguishes signed zero and compares large integers exactly."
+  },
+  "result": "No cast-to-double defect in mixed ==,<,<=,>,>=. Replacing these with exact ordering would violate Dart 3.6.2. All16cases matched VM, upstream AOT, frozen native default and scalar-off (normal and GCstress).",
+  "actual_program_path": "No-inline ordinary Dart dynamic operands invoke SDK operator/compareTo selectors. dartforge_dyn_op is declared but not called by this fixture; do not claim the fallback is exercised.",
+  "runtime_change": false,
+  "IR": {
+    "default": {
+      "full_IR_sha256": "91f2e951788b6aabcd677070e4f4b9631ed7a164a9d409f4bece8fc50ce1247c",
+      "compare_IR_sha256": "5ab02d56f215f104b7a2573983bc25c63cc7e95e54e3e6cb7af3483610d2386a",
+      "dynamic_selector_calls": 8,
+      "dyn_op_calls": 0,
+      "binary_sha256": "158752741cbab1a1f58156fb6fe89024aab80fb3085341ec6c1f9773273e258e",
+      "binary_bytes": 3202688
+    },
+    "scalar-off": {
+      "full_IR_sha256": "91f2e951788b6aabcd677070e4f4b9631ed7a164a9d409f4bece8fc50ce1247c",
+      "compare_IR_sha256": "5ab02d56f215f104b7a2573983bc25c63cc7e95e54e3e6cb7af3483610d2386a",
+      "dynamic_selector_calls": 8,
+      "dyn_op_calls": 0,
+      "binary_sha256": "dd1d4e99885c12d31e9d31fa103a77ecb7cf7833eb29c2e47fce9d6c1af83c2d",
+      "binary_bytes": 3202688
+    }
+  },
+  "limitations": "No runtime unit tests/build were added because the proposed production change was disproven by oracle. No performance measurement. Legacy direct dyn_op fallback not exercised by actual CLI fixture."
+}

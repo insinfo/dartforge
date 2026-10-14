@@ -1,0 +1,132 @@
+{
+  "source_sha256": "805813cc843a53f7d3793e4f7d2d7a13c2e432b0d27a65b6f3bdf54994ced6a3",
+  "compiler_sha256": "0a876b5adb34707a38fc75d4a5f74da90d22fb26fc77cf9520c403b7d5e79d2f",
+  "SDK_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+  "runs": {
+    "vm": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/devirtualization/mixed_numeric_comparison.dart"
+      ],
+      "exit": 0,
+      "stdout": "above53:true,false,true,false,true,1\nabove53-reverse:true,false,true,false,true,-1\nbelow53:true,false,true,false,true,-1\nbelow53-reverse:true,false,true,false,true,1\nmax:true,false,true,false,true,-1\nmax-reverse:true,false,true,false,true,1\nmin:true,false,true,false,true,0\nmin-reverse:true,false,true,false,true,0\nnegative-zero:true,false,true,false,true,1\nnegative-zero-reverse:true,false,true,false,true,-1\nfraction:false,true,true,false,false,-1\nfraction-reverse:false,false,false,true,true,1\npositive-infinity:false,true,true,false,false,-1\nnegative-infinity:false,false,false,true,true,1\nnan:false,false,false,false,false,-1\nnan-reverse:false,false,false,false,false,1\n",
+      "stderr": ""
+    },
+    "official-compile": {
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "exe",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/devirtualization/mixed_numeric_comparison.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mixed-numeric-comparison/official"
+      ],
+      "exit": 0,
+      "stdout": "Generated: /Volumes/ssd_dock/MyRustProjects/dartforge/target/mixed-numeric-comparison/official\n",
+      "stderr": ""
+    },
+    "official": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mixed-numeric-comparison/official"
+      ],
+      "exit": 0,
+      "stdout": "above53:true,false,true,false,true,1\nabove53-reverse:true,false,true,false,true,-1\nbelow53:true,false,true,false,true,-1\nbelow53-reverse:true,false,true,false,true,1\nmax:true,false,true,false,true,-1\nmax-reverse:true,false,true,false,true,1\nmin:true,false,true,false,true,0\nmin-reverse:true,false,true,false,true,0\nnegative-zero:true,false,true,false,true,1\nnegative-zero-reverse:true,false,true,false,true,-1\nfraction:false,true,true,false,false,-1\nfraction-reverse:false,false,false,true,true,1\npositive-infinity:false,true,true,false,false,-1\nnegative-infinity:false,false,false,true,true,1\nnan:false,false,false,false,false,-1\nnan-reverse:false,false,false,false,false,1\n",
+      "stderr": ""
+    },
+    "default-compile": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/devirtualization/mixed_numeric_comparison.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mixed-numeric-comparison/default/program"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "default": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mixed-numeric-comparison/default/program"
+      ],
+      "exit": 0,
+      "stdout": "above53:true,false,true,false,true,1\nabove53-reverse:true,false,true,false,true,-1\nbelow53:true,false,true,false,true,-1\nbelow53-reverse:true,false,true,false,true,1\nmax:true,false,true,false,true,-1\nmax-reverse:true,false,true,false,true,1\nmin:true,false,true,false,true,0\nmin-reverse:true,false,true,false,true,0\nnegative-zero:true,false,true,false,true,1\nnegative-zero-reverse:true,false,true,false,true,-1\nfraction:false,true,true,false,false,-1\nfraction-reverse:false,false,false,true,true,1\npositive-infinity:false,true,true,false,false,-1\nnegative-infinity:false,false,false,true,true,1\nnan:false,false,false,false,false,-1\nnan-reverse:false,false,false,false,false,1\n",
+      "stderr": "",
+      "exact": true
+    },
+    "default-repeat": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mixed-numeric-comparison/default/program"
+      ],
+      "exit": 0,
+      "stdout": "above53:true,false,true,false,true,1\nabove53-reverse:true,false,true,false,true,-1\nbelow53:true,false,true,false,true,-1\nbelow53-reverse:true,false,true,false,true,1\nmax:true,false,true,false,true,-1\nmax-reverse:true,false,true,false,true,1\nmin:true,false,true,false,true,0\nmin-reverse:true,false,true,false,true,0\nnegative-zero:true,false,true,false,true,1\nnegative-zero-reverse:true,false,true,false,true,-1\nfraction:false,true,true,false,false,-1\nfraction-reverse:false,false,false,true,true,1\npositive-infinity:false,true,true,false,false,-1\nnegative-infinity:false,false,false,true,true,1\nnan:false,false,false,false,false,-1\nnan-reverse:false,false,false,false,false,1\n",
+      "stderr": "",
+      "exact": true
+    },
+    "default-stress": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mixed-numeric-comparison/default/program"
+      ],
+      "exit": 0,
+      "stdout": "above53:true,false,true,false,true,1\nabove53-reverse:true,false,true,false,true,-1\nbelow53:true,false,true,false,true,-1\nbelow53-reverse:true,false,true,false,true,1\nmax:true,false,true,false,true,-1\nmax-reverse:true,false,true,false,true,1\nmin:true,false,true,false,true,0\nmin-reverse:true,false,true,false,true,0\nnegative-zero:true,false,true,false,true,1\nnegative-zero-reverse:true,false,true,false,true,-1\nfraction:false,true,true,false,false,-1\nfraction-reverse:false,false,false,true,true,1\npositive-infinity:false,true,true,false,false,-1\nnegative-infinity:false,false,false,true,true,1\nnan:false,false,false,false,false,-1\nnan-reverse:false,false,false,false,false,1\n",
+      "stderr": "",
+      "exact": true
+    },
+    "scalar-off-compile": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/selector-getter-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/devirtualization/mixed_numeric_comparison.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mixed-numeric-comparison/scalar-off/program"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "scalar-off": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mixed-numeric-comparison/scalar-off/program"
+      ],
+      "exit": 0,
+      "stdout": "above53:true,false,true,false,true,1\nabove53-reverse:true,false,true,false,true,-1\nbelow53:true,false,true,false,true,-1\nbelow53-reverse:true,false,true,false,true,1\nmax:true,false,true,false,true,-1\nmax-reverse:true,false,true,false,true,1\nmin:true,false,true,false,true,0\nmin-reverse:true,false,true,false,true,0\nnegative-zero:true,false,true,false,true,1\nnegative-zero-reverse:true,false,true,false,true,-1\nfraction:false,true,true,false,false,-1\nfraction-reverse:false,false,false,true,true,1\npositive-infinity:false,true,true,false,false,-1\nnegative-infinity:false,false,false,true,true,1\nnan:false,false,false,false,false,-1\nnan-reverse:false,false,false,false,false,1\n",
+      "stderr": "",
+      "exact": true
+    },
+    "scalar-off-repeat": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mixed-numeric-comparison/scalar-off/program"
+      ],
+      "exit": 0,
+      "stdout": "above53:true,false,true,false,true,1\nabove53-reverse:true,false,true,false,true,-1\nbelow53:true,false,true,false,true,-1\nbelow53-reverse:true,false,true,false,true,1\nmax:true,false,true,false,true,-1\nmax-reverse:true,false,true,false,true,1\nmin:true,false,true,false,true,0\nmin-reverse:true,false,true,false,true,0\nnegative-zero:true,false,true,false,true,1\nnegative-zero-reverse:true,false,true,false,true,-1\nfraction:false,true,true,false,false,-1\nfraction-reverse:false,false,false,true,true,1\npositive-infinity:false,true,true,false,false,-1\nnegative-infinity:false,false,false,true,true,1\nnan:false,false,false,false,false,-1\nnan-reverse:false,false,false,false,false,1\n",
+      "stderr": "",
+      "exact": true
+    },
+    "scalar-off-stress": {
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/mixed-numeric-comparison/scalar-off/program"
+      ],
+      "exit": 0,
+      "stdout": "above53:true,false,true,false,true,1\nabove53-reverse:true,false,true,false,true,-1\nbelow53:true,false,true,false,true,-1\nbelow53-reverse:true,false,true,false,true,1\nmax:true,false,true,false,true,-1\nmax-reverse:true,false,true,false,true,1\nmin:true,false,true,false,true,0\nmin-reverse:true,false,true,false,true,0\nnegative-zero:true,false,true,false,true,1\nnegative-zero-reverse:true,false,true,false,true,-1\nfraction:false,true,true,false,false,-1\nfraction-reverse:false,false,false,true,true,1\npositive-infinity:false,true,true,false,false,-1\nnegative-infinity:false,false,false,true,true,1\nnan:false,false,false,false,false,-1\nnan-reverse:false,false,false,false,false,1\n",
+      "stderr": "",
+      "exact": true
+    }
+  },
+  "scope": "Correctness only. Equality and relational operators round mixed operands; compareTo has a distinct exact ordering. No runtime implementation change or performance claim.",
+  "inputs_stable": true,
+  "all_native_exact": true
+}

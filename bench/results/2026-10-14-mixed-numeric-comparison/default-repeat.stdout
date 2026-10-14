@@ -1,0 +1,16 @@
+above53:true,false,true,false,true,1
+above53-reverse:true,false,true,false,true,-1
+below53:true,false,true,false,true,-1
+below53-reverse:true,false,true,false,true,1
+max:true,false,true,false,true,-1
+max-reverse:true,false,true,false,true,1
+min:true,false,true,false,true,0
+min-reverse:true,false,true,false,true,0
+negative-zero:true,false,true,false,true,1
+negative-zero-reverse:true,false,true,false,true,-1
+fraction:false,true,true,false,false,-1
+fraction-reverse:false,false,false,true,true,1
+positive-infinity:false,true,true,false,false,-1
+negative-infinity:false,false,false,true,true,1
+nan:false,false,false,false,false,-1
+nan-reverse:false,false,false,false,false,1
