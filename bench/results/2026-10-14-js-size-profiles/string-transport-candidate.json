@@ -1,0 +1,30 @@
+{
+  "scope": "Read-only structural estimate on checked raw gallery output. Not compiler-generated transformed output, not a runtime validation, not a performance claim. Decoder/profit-threshold/escaping/property-key reservation/evaluation-order proof still required.",
+  "raw_source": "target/tmp-js-production-audit/const-cache-use/gallery.final.enabled.raw.js",
+  "selected_string_literals": 83,
+  "dictionary": [
+    {
+      "fragment": "_ngcontent-%ID%",
+      "utf8_bytes": 15,
+      "occurrences": 2255,
+      "literal_only_upper_bound_bytes_saved_with_two_byte_token": 29315
+    },
+    {
+      "fragment": "_nghost-%ID%",
+      "utf8_bytes": 12,
+      "occurrences": 227,
+      "literal_only_upper_bound_bytes_saved_with_two_byte_token": 2270
+    },
+    {
+      "fragment": "var(--li-",
+      "utf8_bytes": 9,
+      "occurrences": 161,
+      "literal_only_upper_bound_bytes_saved_with_two_byte_token": 1127
+    }
+  ],
+  "literal_payload_utf8_bytes_before": 228546,
+  "literal_payload_utf8_bytes_after_tokenization": 195848,
+  "literal_payload_gzip9_bytes_before": 29294,
+  "literal_payload_gzip9_bytes_after_tokenization": 28327,
+  "decoder_and_dictionary_cost_not_included": true
+}

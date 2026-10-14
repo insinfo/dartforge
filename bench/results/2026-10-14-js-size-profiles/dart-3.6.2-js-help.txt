@@ -1,0 +1,190 @@
+Compile Dart to JavaScript.
+
+Usage: dart compile js [arguments] <dart entry point>
+  -h, /h, /?, --help
+    Print this usage information (add -v for information about all options).
+
+  -o <file name>, --output=<file name>
+    Write the output to <file name>.
+
+  -m, --minify
+    Generate minified output.
+
+  --enable-asserts
+    Enable assertions.
+
+  -v, --verbose
+    Display verbose information.
+
+  -D<name>=<value>, --define=<name>=<value>
+    Define an environment declaration.
+
+  --version
+    Display version information.
+
+  --packages=<path>
+    Path to the package resolution configuration file, which supplies a mapping
+    of package names to paths.
+
+  --suppress-warnings
+    Do not display any warnings.
+
+  --fatal-warnings
+    Treat warnings as compilation errors.
+
+  --suppress-hints
+    Do not display any hints.
+
+  --enable-diagnostic-colors
+    Add colors to diagnostic messages.
+
+  --terse
+    Emit diagnostics without suggestions for how to get rid of the diagnosed
+    problems.
+
+  --show-package-warnings
+    Show warnings and hints generated from packages.
+
+  --csp
+    Disable dynamic generation of code in the generated output. This is
+    necessary to satisfy CSP restrictions (see http://www.w3.org/TR/CSP/).
+
+  --no-source-maps
+    Do not generate a source map file.
+
+  --omit-late-names
+    Do not include names of late variables in error messages. This allows
+    the compiler to generate smaller code by removing late variable names from
+    the generated JavaScript.
+
+  --native-null-assertions
+    Add assertions to web library APIs to ensure that non-nullable APIs do not
+    return null. This is by default set to true in sound null-safety, unless
+    -O3 or higher is passed.
+
+  -O<0,1,2,3,4>
+    Controls optimizations that can help reduce code-size and improve
+    performance of the generated code for deployment.
+
+    -O0
+       Disables all optimizations. Equivalent to calling the compiler with these
+       extra flags:
+        --disable-inlining
+        --disable-type-inference
+        --disable-rti-optimizations
+
+
+       Some optimizations cannot be disabled at this time, as we add the option
+       to disable them, they will be added here as well.
+
+    -O1
+       Enables default optimizations. Equivalent to calling the compiler with no
+       extra flags.
+
+    -O2
+       Enables optimizations that respect the language semantics and are safe
+       for all programs. It however changes the string representation of types,
+       which will no longer be consistent with the Dart VM or DDC.
+
+       Equivalent to calling the compiler with these extra flags:
+        --minify
+        --lax-runtime-type-to-string
+        --omit-late-names
+
+    -O3
+       Enables optimizations that respect the language semantics only on
+       programs that do not ever throw any subtype of `Error`.  These
+       optimizations improve the generated code, but they may cause programs to
+       behave unexpectedly if this assumption is not met.  To use this
+       option, we recommend that you properly test your application first
+       without it, and ensure that no subtype of `Error` (such as `TypeError`)
+       is ever thrown.
+
+       Equivalent to calling the compiler with these extra flags:
+         -O2
+         --omit-implicit-checks
+
+    -O4
+       Enables more aggressive optimizations than -O3, but with the same
+       assumptions. These optimizations are on a separate group because they
+       are more susceptible to variations in input data. To use this option we
+       recommend to pay special attention to test edge cases in user input.
+
+       Equivalent to calling the compiler with these extra flags:
+         -O3
+         --trust-primitives
+
+    While some of the individual optimizations and flags may change with time,
+    we intend to keep the -O* flags stable. New safe optimizations may be added
+    on any level, and optimizations that only work on some programs may move up
+    from one level to the next (for instance, once alternative safe
+    optimizations are implemented, `omit-implicit-checks` may be removed or may
+    move to the O4 level).
+
+The following individual options are included in some of the -O optimization
+levels above. They help reduce the size of the generated code, but they may
+cause programs to behave unexpectedly if assumptions are not met. Only turn on
+these flags if you have enough test coverage to ensure they are safe to use:
+
+  --omit-implicit-checks
+    Omit implicit runtime checks, such as parameter checks and implicit
+    downcasts. These checks are included by default in Dart 2.0. By
+    using this flag the checks are removed, however the compiler will assume
+    that all such checks were valid and may use this information for
+    optimizations. Use this option only if you have enough testing to ensure
+    that your program works with the checks.
+
+  --trust-primitives
+    Assume that operations on numbers, strings, and lists have valid inputs.
+    This option allows the compiler to drop runtime checks for those operations.
+    Note: a well-typed program is not guaranteed to have valid inputs. For
+    example, an int index argument may be null or out of range.
+
+  --lax-runtime-type-to-string
+    Omits reified class type arguments when these are only needed for `toString`
+    on `runtimeType`. This is useful if `runtimeType.toString()` is only used
+    for debugging. Note that semantics of other uses of `.runtimeType`, for
+    instance `a.runtimeType == b.runtimeType`, is not affected by this flag.
+
+The following options are only used for compiler development and may
+be removed in a future version:
+
+  --throw-on-error
+    Throw an exception if a compile-time error is detected.
+
+  --libraries-spec=<file>
+    A .json file containing the SDK libraries specification.
+
+  --allow-mock-compilation
+    Do not generate a call to main if either of the following
+    libraries are used: dart:dom, dart:html dart:io.
+
+  --disable-native-live-type-analysis
+    Disable the optimization that removes unused native types from dart:html
+    and related libraries.
+
+  --server-mode
+    Compile with server support. The compiler will use a library specification
+    that disables dart:html but supports dart:js in conditional imports.
+
+  --categories=<categories>
+    (deprecated)
+    Use '--server-mode' instead of '--categories=Server'. All other category
+    values have no effect on the compiler behavior.
+
+  --deferred-map=<file>
+    Generates a json file with a mapping from each deferred import to a list of
+    the part.js files that will be loaded.
+
+  --dump-info[=<format>]
+    Generates information about the generated code. 'format' can be either
+    'json' or 'binary'.
+    You can inspect the generated data using tools from 'package:dart2js_info'.
+
+  --generate-code-with-compile-time-errors
+    Generates output even if the program contains compile-time errors. Use the
+    exit code to determine if compilation failed.
+
+  --no-frequency-based-minification
+    Experimental.  Disabled the new frequency based minifying namer and use the
+    old namer instead.

@@ -1,0 +1,317 @@
+{
+  "compiler": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+    "sha256": "96a34ad807a15943ba5ab041653e7d64b84ff76e99a7331cf32278592eedfa7a"
+  },
+  "sdk_version": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\"",
+  "inputs_count": 9161,
+  "input_hashes_file_sha256": "10c29a4be8fa3a5ea7408e79d2222c5aabe0368cfe468e782fb419b3943b0a96",
+  "all_inputs_stable": true,
+  "artifacts_have_equal_output_basenames": "program.js",
+  "scope": "Compile-only size comparisons, no fresh execution or timing/performance claim. Large app inputs are frozen source/generated snapshots and normalized copied package configs, not edited live projects.",
+  "policies": {
+    "forge_checked": "Default checks and type-name policy retained.",
+    "dart2js_O2": "Installed 3.6.2 help: safe optimizations with minification, lax runtime type strings and omitted late names. Not byte-for-byte VM type/error text policy.",
+    "dart2js_O4": "Installed 3.6.2 help: O3 omit implicit checks plus trust primitives; assumes no subtype of Error ever thrown. Unequal safety/semantics profile, not default checked parity."
+  },
+  "cases": {
+    "limitless_ui": {
+      "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+      "source_sha256": "308471ba62a75f589dc8b070fcdef04ac7a5b123175ff5bbc0e0a8ef4cb3b280",
+      "package_config": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json",
+      "package_config_sha256": "9395450bc1340ec9640b9716221293ebdd249dc9e75fc3af59fad19c7ada69b2",
+      "profiles": {
+        "forge_checked": {
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+            "--sdk",
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/limitless_ui/forge_checked/program.js",
+            "--packages",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json"
+          ],
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/limitless_ui/forge_checked/program.js",
+          "bytes": 3533442,
+          "gzip9_bytes": 1019065,
+          "sha256": "b27c4e1988d5eaeac957797a279972cf47c75ca99c44ceb8ffb78aa7726ae817",
+          "compile_stdout_log": "limitless_ui/forge_checked/compile.stdout",
+          "compile_stderr_log": "limitless_ui/forge_checked/compile.stderr"
+        },
+        "dart2js_O2": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "compile",
+            "js",
+            "-O2",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/limitless_ui/dart2js_O2/program.js",
+            "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json"
+          ],
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/limitless_ui/dart2js_O2/program.js",
+          "bytes": 3870230,
+          "gzip9_bytes": 1020812,
+          "sha256": "c5bc2e6643d4ff9619a5be7369425da5b2243c6e7e5452402e7d75c1ff9a1815",
+          "compile_stdout_log": "limitless_ui/dart2js_O2/compile.stdout",
+          "compile_stderr_log": "limitless_ui/dart2js_O2/compile.stderr"
+        },
+        "dart2js_O4": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "compile",
+            "js",
+            "-O4",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/limitless_ui/limitless_ui_example/web/main.dart",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/limitless_ui/dart2js_O4/program.js",
+            "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/limitless_ui.package_config.json"
+          ],
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/limitless_ui/dart2js_O4/program.js",
+          "bytes": 3708478,
+          "gzip9_bytes": 983801,
+          "sha256": "bc80e25b30c00e0ad9019fb9e70080730579aa09634e93ca22cd5d27a5cd9fd9",
+          "compile_stdout_log": "limitless_ui/dart2js_O4/compile.stdout",
+          "compile_stderr_log": "limitless_ui/dart2js_O4/compile.stderr"
+        }
+      }
+    },
+    "new_sali": {
+      "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/new_sali/new_sali_frontend/web/main.dart",
+      "source_sha256": "ced7b68b37b2ddc0f6acc2e24a69de2527ea98dc5b1b7420754ed862f92e2f78",
+      "package_config": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/new_sali.package_config.json",
+      "package_config_sha256": "33e7aad90e8013b888ce210202759bcd86e4377532d3dc70713c68d507206144",
+      "profiles": {
+        "forge_checked": {
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/new_sali/new_sali_frontend/web/main.dart",
+            "--sdk",
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/new_sali/forge_checked/program.js",
+            "--packages",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/new_sali.package_config.json"
+          ],
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/new_sali/forge_checked/program.js",
+          "bytes": 7606092,
+          "gzip9_bytes": 2072353,
+          "sha256": "d2f4c9e844ff83556de95daef240d1a0c4edb092f48a2d2c22f06e64550d955a",
+          "compile_stdout_log": "new_sali/forge_checked/compile.stdout",
+          "compile_stderr_log": "new_sali/forge_checked/compile.stderr"
+        },
+        "dart2js_O2": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "compile",
+            "js",
+            "-O2",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/new_sali/new_sali_frontend/web/main.dart",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/new_sali/dart2js_O2/program.js",
+            "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/new_sali.package_config.json"
+          ],
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/new_sali/dart2js_O2/program.js",
+          "bytes": 8022590,
+          "gzip9_bytes": 2110700,
+          "sha256": "4552e529b873eeacbb614c5de3c32a3972e2e790affb0ef78a35c95da6e0aed0",
+          "compile_stdout_log": "new_sali/dart2js_O2/compile.stdout",
+          "compile_stderr_log": "new_sali/dart2js_O2/compile.stderr"
+        },
+        "dart2js_O4": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "compile",
+            "js",
+            "-O4",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/web-inputs/new_sali/new_sali_frontend/web/main.dart",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/new_sali/dart2js_O4/program.js",
+            "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/new_sali.package_config.json"
+          ],
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/new_sali/dart2js_O4/program.js",
+          "bytes": 7616037,
+          "gzip9_bytes": 2018929,
+          "sha256": "34711cc3871c82352cd60d406645e5a58411c533ea2e8d2098bed76fa0b451e9",
+          "compile_stdout_log": "new_sali/dart2js_O4/compile.stdout",
+          "compile_stderr_log": "new_sali/dart2js_O4/compile.stderr"
+        }
+      }
+    },
+    "hello": {
+      "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/hello.dart",
+      "source_sha256": "35b588df25e6a17a07c0530c01d0d93c065028094f08357308fa27863f4ded9c",
+      "package_config": null,
+      "package_config_sha256": null,
+      "profiles": {
+        "forge_checked": {
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/hello.dart",
+            "--sdk",
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/hello/forge_checked/program.js"
+          ],
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/hello/forge_checked/program.js",
+          "bytes": 46203,
+          "gzip9_bytes": 16037,
+          "sha256": "5c6b269babca3bff98de7da9c1f92ec4be272ecf53047acdd710e7e2a5fbc06f",
+          "compile_stdout_log": "hello/forge_checked/compile.stdout",
+          "compile_stderr_log": "hello/forge_checked/compile.stderr"
+        },
+        "dart2js_O2": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "compile",
+            "js",
+            "-O2",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/hello.dart",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/hello/dart2js_O2/program.js"
+          ],
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/hello/dart2js_O2/program.js",
+          "bytes": 33592,
+          "gzip9_bytes": 11104,
+          "sha256": "9358171f9ff55e75dbd478f22225372d7a389da4bfa8e5b36a7b1a05c8c4ce95",
+          "compile_stdout_log": "hello/dart2js_O2/compile.stdout",
+          "compile_stderr_log": "hello/dart2js_O2/compile.stderr"
+        },
+        "dart2js_O4": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "compile",
+            "js",
+            "-O4",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/baseline/hello.dart",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/hello/dart2js_O4/program.js"
+          ],
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/hello/dart2js_O4/program.js",
+          "bytes": 5078,
+          "gzip9_bytes": 1796,
+          "sha256": "92cedde377c4082ba35438ad274a31045c99c246b6fc8e7740507dabba9f4626",
+          "compile_stdout_log": "hello/dart2js_O4/compile.stdout",
+          "compile_stderr_log": "hello/dart2js_O4/compile.stderr"
+        }
+      }
+    },
+    "print_corpus": {
+      "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/01_print.dart",
+      "source_sha256": "a15237a8c31d7d209fd5e4207e0787078aee65aea1a3890195bf19916157532e",
+      "package_config": null,
+      "package_config_sha256": null,
+      "profiles": {
+        "forge_checked": {
+          "command": [
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/const-cache-use/final-jsprod",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/01_print.dart",
+            "--sdk",
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/print_corpus/forge_checked/program.js"
+          ],
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/print_corpus/forge_checked/program.js",
+          "bytes": 55109,
+          "gzip9_bytes": 18583,
+          "sha256": "e620316a7b6c81cf32a8cd229fef621781407886124166858eb5ae2dcaab20a4",
+          "compile_stdout_log": "print_corpus/forge_checked/compile.stdout",
+          "compile_stderr_log": "print_corpus/forge_checked/compile.stderr"
+        },
+        "dart2js_O2": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "compile",
+            "js",
+            "-O2",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/01_print.dart",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/print_corpus/dart2js_O2/program.js"
+          ],
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/print_corpus/dart2js_O2/program.js",
+          "bytes": 37155,
+          "gzip9_bytes": 12408,
+          "sha256": "f5d10a57ff2e01f879f35e6959de3b02c251a2c59bcab9e8cb5f4b78c950563a",
+          "compile_stdout_log": "print_corpus/dart2js_O2/compile.stdout",
+          "compile_stderr_log": "print_corpus/dart2js_O2/compile.stderr"
+        },
+        "dart2js_O4": {
+          "command": [
+            "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+            "compile",
+            "js",
+            "-O4",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/01_print.dart",
+            "-o",
+            "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/print_corpus/dart2js_O4/program.js"
+          ],
+          "exit": 0,
+          "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-js-production-audit/size-reconciliation/print_corpus/dart2js_O4/program.js",
+          "bytes": 34925,
+          "gzip9_bytes": 11543,
+          "sha256": "4de543845ca65c0ee02385f030bba5181cf9c44b377fe9b5d9d4a2a625b13f6d",
+          "compile_stdout_log": "print_corpus/dart2js_O4/compile.stdout",
+          "compile_stderr_log": "print_corpus/dart2js_O4/compile.stderr"
+        }
+      }
+    }
+  },
+  "input_hashes_archive_scope": "Full source/generated snapshot and SDK hash inventory remains at target/tmp-js-production-audit/size-reconciliation/input-hashes.json; digest and count are archived here. Frozen copied web input snapshots/configurations are the same as 2026-10-14-js-production/web-baseline-sizes.json; current fixture/config hashes are explicit in each case.",
+  "fresh_execution_performed": false,
+  "performance_timing_performed": false,
+  "help_log": "dart-3.6.2-js-help.txt",
+  "ratios": {
+    "limitless_ui": {
+      "dart2js_O2": {
+        "forge_minified_ratio": 0.9129798487428396,
+        "forge_gzip9_ratio": 0.9982886172968186
+      },
+      "dart2js_O4": {
+        "forge_minified_ratio": 0.9528011221854357,
+        "forge_gzip9_ratio": 1.0358446474439444
+      }
+    },
+    "new_sali": {
+      "dart2js_O2": {
+        "forge_minified_ratio": 0.948084346825651,
+        "forge_gzip9_ratio": 0.9818320936182309
+      },
+      "dart2js_O4": {
+        "forge_minified_ratio": 0.9986942027723867,
+        "forge_gzip9_ratio": 1.0264615546163338
+      }
+    },
+    "hello": {
+      "dart2js_O2": {
+        "forge_minified_ratio": 1.375416765896642,
+        "forge_gzip9_ratio": 1.4442543227665705
+      },
+      "dart2js_O4": {
+        "forge_minified_ratio": 9.098660890114218,
+        "forge_gzip9_ratio": 8.929287305122495
+      }
+    },
+    "print_corpus": {
+      "dart2js_O2": {
+        "forge_minified_ratio": 1.4832189476517292,
+        "forge_gzip9_ratio": 1.497662798194713
+      },
+      "dart2js_O4": {
+        "forge_minified_ratio": 1.5779241231209735,
+        "forge_gzip9_ratio": 1.6098934419128477
+      }
+    }
+  }
+}
