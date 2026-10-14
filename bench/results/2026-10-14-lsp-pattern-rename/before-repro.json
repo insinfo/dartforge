@@ -1,0 +1,85 @@
+{
+  "forge": {
+    "binary_sha256": "1dd2ad8a04ff3eeb25d57c7fcdbb213f3289e30fe22d4efd5dc097fd680c29d6",
+    "rename": {
+      "changes": {
+        "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/main.dart": [
+          {
+            "newText": "item",
+            "range": {
+              "end": {
+                "character": 41,
+                "line": 1
+              },
+              "start": {
+                "character": 36,
+                "line": 1
+              }
+            }
+          },
+          {
+            "newText": "item",
+            "range": {
+              "end": {
+                "character": 58,
+                "line": 1
+              },
+              "start": {
+                "character": 53,
+                "line": 1
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "official": {
+    "binary_sha256": "12d14da7bbbcacffd1f0f860a8c999a85fd180a3e865f72676e570ae1e1de1f9",
+    "rename": {
+      "changes": {
+        "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/main.dart": [
+          {
+            "newText": "value",
+            "range": {
+              "end": {
+                "character": 29,
+                "line": 1
+              },
+              "start": {
+                "character": 29,
+                "line": 1
+              }
+            }
+          },
+          {
+            "newText": "item",
+            "range": {
+              "end": {
+                "character": 41,
+                "line": 1
+              },
+              "start": {
+                "character": 36,
+                "line": 1
+              }
+            }
+          },
+          {
+            "newText": "item",
+            "range": {
+              "end": {
+                "character": 58,
+                "line": 1
+              },
+              "start": {
+                "character": 53,
+                "line": 1
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

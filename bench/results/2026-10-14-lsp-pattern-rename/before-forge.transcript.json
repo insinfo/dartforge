@@ -1,0 +1,317 @@
+[
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "initialize",
+      "params": {
+        "processId": 10594,
+        "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand",
+        "capabilities": {}
+      },
+      "id": 1
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 1,
+      "jsonrpc": "2.0",
+      "result": {
+        "capabilities": {
+          "callHierarchyProvider": true,
+          "codeActionProvider": true,
+          "codeLensProvider": {
+            "resolveProvider": false
+          },
+          "colorProvider": {},
+          "completionProvider": {
+            "resolveProvider": true,
+            "triggerCharacters": [
+              "."
+            ]
+          },
+          "definitionProvider": true,
+          "documentFormattingProvider": true,
+          "documentHighlightProvider": true,
+          "documentLinkProvider": {
+            "resolveProvider": false
+          },
+          "documentOnTypeFormattingProvider": {
+            "firstTriggerCharacter": "}",
+            "moreTriggerCharacter": [
+              ";"
+            ]
+          },
+          "documentRangeFormattingProvider": true,
+          "documentSymbolProvider": true,
+          "executeCommandProvider": {
+            "commands": [
+              "dart.edit.sortMembers",
+              "dart.edit.organizeImports",
+              "dart.edit.fixAll",
+              "dart.edit.fixAllInWorkspace.preview",
+              "dart.edit.fixAllInWorkspace",
+              "dart.edit.sendWorkspaceEdit",
+              "refactor.perform",
+              "refactor.validate",
+              "dart.logAction",
+              "dart.refactor.convert_all_formal_parameters_to_named",
+              "dart.refactor.convert_selected_formal_parameters_to_named",
+              "dart.refactor.move_selected_formal_parameters_left",
+              "dart.refactor.move_top_level_to_file"
+            ],
+            "workDoneProgress": true
+          },
+          "foldingRangeProvider": true,
+          "hoverProvider": true,
+          "implementationProvider": true,
+          "inlayHintProvider": {
+            "resolveProvider": false
+          },
+          "positionEncoding": "utf-16",
+          "referencesProvider": true,
+          "renameProvider": true,
+          "selectionRangeProvider": true,
+          "semanticTokensProvider": {
+            "full": true,
+            "legend": {
+              "tokenModifiers": [
+                "documentation",
+                "constructor",
+                "declaration",
+                "importPrefix",
+                "instance",
+                "static",
+                "escape",
+                "annotation",
+                "control",
+                "label",
+                "interpolation",
+                "void",
+                "wildcard"
+              ],
+              "tokenTypes": [
+                "annotation",
+                "keyword",
+                "class",
+                "comment",
+                "method",
+                "variable",
+                "parameter",
+                "enum",
+                "enumMember",
+                "type",
+                "source",
+                "property",
+                "namespace",
+                "boolean",
+                "number",
+                "string",
+                "function",
+                "typeParameter"
+              ]
+            },
+            "range": true
+          },
+          "signatureHelpProvider": {
+            "retriggerCharacters": [
+              ","
+            ],
+            "triggerCharacters": [
+              "("
+            ]
+          },
+          "textDocumentSync": 2,
+          "typeDefinitionProvider": true,
+          "typeHierarchyProvider": true,
+          "workspace": {
+            "fileOperations": {
+              "willRename": {
+                "filters": [
+                  {
+                    "pattern": {
+                      "glob": "**/*.dart",
+                      "matches": "file"
+                    },
+                    "scheme": "file"
+                  },
+                  {
+                    "pattern": {
+                      "glob": "**/",
+                      "matches": "folder"
+                    },
+                    "scheme": "file"
+                  }
+                ]
+              }
+            },
+            "workspaceFolders": {
+              "changeNotifications": true,
+              "supported": true
+            }
+          },
+          "workspaceSymbolProvider": true
+        },
+        "serverInfo": {
+          "name": "dartforge-lsp",
+          "version": "0.1.0"
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "initialized",
+      "params": {}
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/didOpen",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/main.dart",
+          "languageId": "dart",
+          "version": 1,
+          "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(:final value)) { return value; } return 0; }\n"
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/rename",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/main.dart"
+        },
+        "position": {
+          "line": 1,
+          "character": 54
+        },
+        "newName": "item"
+      },
+      "id": 2
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "$/analyzerStatus",
+      "params": {
+        "isAnalyzing": true
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 2,
+      "jsonrpc": "2.0",
+      "result": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 41,
+                  "line": 1
+                },
+                "start": {
+                  "character": 36,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 58,
+                  "line": 1
+                },
+                "start": {
+                  "character": 53,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "shutdown",
+      "params": null,
+      "id": 3
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "$/analyzerStatus",
+      "params": {
+        "isAnalyzing": false
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/publishDiagnostics",
+      "params": {
+        "diagnostics": [
+          {
+            "code": "dead_code",
+            "message": "Dead code.\nTry removing the code, or fixing the code before it so that it can be reached.",
+            "range": {
+              "end": {
+                "character": 71,
+                "line": 1
+              },
+              "start": {
+                "character": 62,
+                "line": 1
+              }
+            },
+            "severity": 2,
+            "source": "dartforge"
+          }
+        ],
+        "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/main.dart",
+        "version": 1
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 3,
+      "jsonrpc": "2.0",
+      "result": null
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "exit",
+      "params": null
+    }
+  }
+]

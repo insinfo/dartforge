@@ -1,0 +1,1282 @@
+{
+  "fixed": {
+    "var": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 39,
+                  "line": 1
+                },
+                "start": {
+                  "character": 34,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 56,
+                  "line": 1
+                },
+                "start": {
+                  "character": 51,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:var item)) { return item; } return 0; }\n",
+      "source_sha256": "397e098669dc2b9b6eb43c6443d62ddd806a507a9227e8022109a4860c51df1d"
+    },
+    "final": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 41,
+                  "line": 1
+                },
+                "start": {
+                  "character": 36,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 58,
+                  "line": 1
+                },
+                "start": {
+                  "character": 53,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:final item)) { return item; } return 0; }\n",
+      "source_sha256": "a5ac9b17c7ea69d3cecf438952b1dd215b84d4278144ae503de52c02db8d6172"
+    },
+    "typed_final": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 45,
+                  "line": 1
+                },
+                "start": {
+                  "character": 40,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 62,
+                  "line": 1
+                },
+                "start": {
+                  "character": 57,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:final int item)) { return item; } return 0; }\n",
+      "source_sha256": "7553847c946879035f89b8d326be9d6c626fc5a0c72a04f71d3225316bc15cd4"
+    },
+    "typed": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 39,
+                  "line": 1
+                },
+                "start": {
+                  "character": 34,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 56,
+                  "line": 1
+                },
+                "start": {
+                  "character": 51,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:int item)) { return item; } return 0; }\n",
+      "source_sha256": "40a8fd9dc60e666c912ed4dbfb5f4a99322fb3cfea8356f3abdb69ade20aa27f"
+    },
+    "comments": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 62,
+                  "line": 1
+                },
+                "start": {
+                  "character": 57,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 79,
+                  "line": 1
+                },
+                "start": {
+                  "character": 74,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value: /* colon: marker */ final item)) { return item; } return 0; }\n",
+      "source_sha256": "0c67e151f5b90e950af6b1faed1bef5de6999cf8cc53fa0281f19bef5451b843"
+    },
+    "explicit": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 46,
+                  "line": 1
+                },
+                "start": {
+                  "character": 41,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 63,
+                  "line": 1
+                },
+                "start": {
+                  "character": 58,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:final item)) { return item; } return 0; }\n",
+      "source_sha256": "977d496fdcd155a8100bacfb06a985db7b9ac78358c46a9e6f4d3eb5989bac8e"
+    },
+    "record": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 46,
+                  "line": 0
+                },
+                "start": {
+                  "character": 41,
+                  "line": 0
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 70,
+                  "line": 0
+                },
+                "start": {
+                  "character": 65,
+                  "line": 0
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 40,
+                  "line": 0
+                },
+                "start": {
+                  "character": 40,
+                  "line": 0
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "int read(({int value}) record) { final (value:item) = record; return item; }\n",
+      "source_sha256": "1f79a60c16c4f8e85280638431612bc23c3029b9840206555ad383f313500ded"
+    },
+    "nested": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 57,
+                  "line": 2
+                },
+                "start": {
+                  "character": 52,
+                  "line": 2
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 75,
+                  "line": 2
+                },
+                "start": {
+                  "character": 70,
+                  "line": 2
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 45,
+                  "line": 2
+                },
+                "start": {
+                  "character": 45,
+                  "line": 2
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nclass Outer { C get inner => C(1); }\nint read(Outer o) { if (o case Outer(inner:C(value:final item))) { return item; } return 0; }\n",
+      "source_sha256": "66c215d3d987cf40881459c15a498d9c51df8a272a80eaca5e4a19154a365a81"
+    }
+  },
+  "official": {
+    "var": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 39,
+                  "line": 1
+                },
+                "start": {
+                  "character": 34,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 56,
+                  "line": 1
+                },
+                "start": {
+                  "character": 51,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:var item)) { return item; } return 0; }\n",
+      "source_sha256": "397e098669dc2b9b6eb43c6443d62ddd806a507a9227e8022109a4860c51df1d"
+    },
+    "final": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 41,
+                  "line": 1
+                },
+                "start": {
+                  "character": 36,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 58,
+                  "line": 1
+                },
+                "start": {
+                  "character": 53,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:final item)) { return item; } return 0; }\n",
+      "source_sha256": "a5ac9b17c7ea69d3cecf438952b1dd215b84d4278144ae503de52c02db8d6172"
+    },
+    "typed_final": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 45,
+                  "line": 1
+                },
+                "start": {
+                  "character": 40,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 62,
+                  "line": 1
+                },
+                "start": {
+                  "character": 57,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:final int item)) { return item; } return 0; }\n",
+      "source_sha256": "7553847c946879035f89b8d326be9d6c626fc5a0c72a04f71d3225316bc15cd4"
+    },
+    "typed": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 39,
+                  "line": 1
+                },
+                "start": {
+                  "character": 34,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 56,
+                  "line": 1
+                },
+                "start": {
+                  "character": 51,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:int item)) { return item; } return 0; }\n",
+      "source_sha256": "40a8fd9dc60e666c912ed4dbfb5f4a99322fb3cfea8356f3abdb69ade20aa27f"
+    },
+    "comments": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 62,
+                  "line": 1
+                },
+                "start": {
+                  "character": 57,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 79,
+                  "line": 1
+                },
+                "start": {
+                  "character": 74,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value: /* colon: marker */ final item)) { return item; } return 0; }\n",
+      "source_sha256": "0c67e151f5b90e950af6b1faed1bef5de6999cf8cc53fa0281f19bef5451b843"
+    },
+    "explicit": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 46,
+                  "line": 1
+                },
+                "start": {
+                  "character": 41,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 63,
+                  "line": 1
+                },
+                "start": {
+                  "character": 58,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:final item)) { return item; } return 0; }\n",
+      "source_sha256": "977d496fdcd155a8100bacfb06a985db7b9ac78358c46a9e6f4d3eb5989bac8e"
+    },
+    "record": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 40,
+                  "line": 0
+                },
+                "start": {
+                  "character": 40,
+                  "line": 0
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 46,
+                  "line": 0
+                },
+                "start": {
+                  "character": 41,
+                  "line": 0
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 70,
+                  "line": 0
+                },
+                "start": {
+                  "character": 65,
+                  "line": 0
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "int read(({int value}) record) { final (value:item) = record; return item; }\n",
+      "source_sha256": "1f79a60c16c4f8e85280638431612bc23c3029b9840206555ad383f313500ded"
+    },
+    "nested": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 45,
+                  "line": 2
+                },
+                "start": {
+                  "character": 45,
+                  "line": 2
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 57,
+                  "line": 2
+                },
+                "start": {
+                  "character": 52,
+                  "line": 2
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 75,
+                  "line": 2
+                },
+                "start": {
+                  "character": 70,
+                  "line": 2
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nclass Outer { C get inner => C(1); }\nint read(Outer o) { if (o case Outer(inner:C(value:final item))) { return item; } return 0; }\n",
+      "source_sha256": "66c215d3d987cf40881459c15a498d9c51df8a272a80eaca5e4a19154a365a81"
+    }
+  },
+  "metadata": {
+    "sdk": "3.6.2",
+    "binary_sha256": {
+      "fixed": "5219c7775502df6685bdf58213baaf3cafd052d90a1e1eb8cfef06e793d74603",
+      "dart": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+      "repeat_fixed": "5219c7775502df6685bdf58213baaf3cafd052d90a1e1eb8cfef06e793d74603"
+    },
+    "sources": {
+      "crates/lsp/src/rename.rs": "35939634b64c9535e419351760f5f4d00f9efd2bb9cc221954465022b99f5159",
+      "crates/lsp/tests/rename_patterns.rs": "f245245caac8bd254fed56eddc03e2c551e9859eb52b8874cd1b3a226f60ae0d"
+    },
+    "comparison": "applied WorkspaceEdit text (edit ordering is not required equal)",
+    "cases": 8,
+    "fixed_matches_official": true,
+    "before_fix_single_case": {
+      "forge": {
+        "binary_sha256": "1dd2ad8a04ff3eeb25d57c7fcdbb213f3289e30fe22d4efd5dc097fd680c29d6",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/main.dart": [
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 41,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 36,
+                    "line": 1
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 58,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 53,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "official": {
+        "binary_sha256": "12d14da7bbbcacffd1f0f860a8c999a85fd180a3e865f72676e570ae1e1de1f9",
+        "rename": {
+          "changes": {
+            "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/main.dart": [
+              {
+                "newText": "value",
+                "range": {
+                  "end": {
+                    "character": 29,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 29,
+                    "line": 1
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 41,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 36,
+                    "line": 1
+                  }
+                }
+              },
+              {
+                "newText": "item",
+                "range": {
+                  "end": {
+                    "character": 58,
+                    "line": 1
+                  },
+                  "start": {
+                    "character": 53,
+                    "line": 1
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "before_source_sha256": "a5ac9b17c7ea69d3cecf438952b1dd215b84d4278144ae503de52c02db8d6172",
+    "git_head": "2283e418b9f46f80b66f3636ae414d1fb7a96845",
+    "commands": [
+      "cargo build --locked -p dartforge-lsp --bin dartforge-lsp -j2",
+      "python3 target/lsp-shorthand/repro.py (before edit)",
+      "cargo test --locked -p dartforge-lsp --lib --test rename --test rename_patterns -j2",
+      "cargo build --locked -p dartforge-lsp --bin dartforge-lsp -j2",
+      "python3 target/lsp-shorthand/compare.py (after edit)"
+    ],
+    "tests": {
+      "lib": 42,
+      "existing_rename": 22,
+      "new_pattern_protocol": 4,
+      "all_passed": true
+    },
+    "provenance_note": "The compare.py baseline label accidentally referred to a copied already-fixed binary; it is recorded here as repeat_fixed. Genuine pre-edit baseline evidence is the separate before_fix_single_case transcript and SHA. No eight-case pre-edit baseline is claimed.",
+    "context_cli_sha256": "6ec21e1eb65740148f562cd2700ba962abbbc10197d85545a3647f4cf4990e72",
+    "context_cli_used_in_lsp_proof": false,
+    "evidence_sha256": {
+      "before-forge.stderr": "2c252776fd0d2a6b8f49d57c62c4fff73318847a4f4bb7fd0b639f6e7137cfdc",
+      "before-build.log": "c92508a29848820f033cd2ea015c85dde0953c88b07cc967ce34b7c08f610549",
+      "repeat-fixed.transcript.json": "1e8e975ddd78c8b78f63716d172afeb3544da55956b3b5fe66dd1feb49b59e57",
+      "before-main.dart": "a5ac9b17c7ea69d3cecf438952b1dd215b84d4278144ae503de52c02db8d6172",
+      "before-repro.py": "aeefce4174b037fa1934167af625f464eaade4c6293f1647c5b9952a5ea56973",
+      "before-repro.json": "3df16242afc4c4b6d82ae25051a9da475e0efbf90f999dc5c7a712d34289a61e",
+      "official.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fixed.stderr": "2c252776fd0d2a6b8f49d57c62c4fff73318847a4f4bb7fd0b639f6e7137cfdc",
+      "after-build.log": "02db5a66fa0c60ca8618bd08aac556eac4f3ec863e8630a0d353dba6a0f6e126",
+      "before-official.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "official.transcript.json": "be616943cf93c485eeed48f1593ef30d6664df48d6a8c3f5d2e14327fd399239",
+      "before-forge.transcript.json": "5d2d63d11068e61bbad3a336ac090d71b2830fc4933d2819f7c2ae2b1f7622ec",
+      "before-official.transcript.json": "0609c52ab90a967ec9120e8576ca2f88d3bee45f55097cf0848ec8b37c855929",
+      "repeat-fixed.stderr": "2c252776fd0d2a6b8f49d57c62c4fff73318847a4f4bb7fd0b639f6e7137cfdc",
+      "fixed.transcript.json": "1e8e975ddd78c8b78f63716d172afeb3544da55956b3b5fe66dd1feb49b59e57",
+      "after-compare.py": "1dc26bee096c80ba4a4e29198ff14a3a2eb695230e5125993ef4cef2671e3759",
+      "gate.log": "62bbd0107ab246f58a0b74dfa0a649c6189a602e2749b91e4ea4af6465420cc0"
+    }
+  },
+  "repeat_fixed": {
+    "var": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 39,
+                  "line": 1
+                },
+                "start": {
+                  "character": 34,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 56,
+                  "line": 1
+                },
+                "start": {
+                  "character": 51,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:var item)) { return item; } return 0; }\n",
+      "source_sha256": "397e098669dc2b9b6eb43c6443d62ddd806a507a9227e8022109a4860c51df1d"
+    },
+    "final": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 41,
+                  "line": 1
+                },
+                "start": {
+                  "character": 36,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 58,
+                  "line": 1
+                },
+                "start": {
+                  "character": 53,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:final item)) { return item; } return 0; }\n",
+      "source_sha256": "a5ac9b17c7ea69d3cecf438952b1dd215b84d4278144ae503de52c02db8d6172"
+    },
+    "typed_final": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 45,
+                  "line": 1
+                },
+                "start": {
+                  "character": 40,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 62,
+                  "line": 1
+                },
+                "start": {
+                  "character": 57,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:final int item)) { return item; } return 0; }\n",
+      "source_sha256": "7553847c946879035f89b8d326be9d6c626fc5a0c72a04f71d3225316bc15cd4"
+    },
+    "typed": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 39,
+                  "line": 1
+                },
+                "start": {
+                  "character": 34,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 56,
+                  "line": 1
+                },
+                "start": {
+                  "character": 51,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:int item)) { return item; } return 0; }\n",
+      "source_sha256": "40a8fd9dc60e666c912ed4dbfb5f4a99322fb3cfea8356f3abdb69ade20aa27f"
+    },
+    "comments": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 62,
+                  "line": 1
+                },
+                "start": {
+                  "character": 57,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 79,
+                  "line": 1
+                },
+                "start": {
+                  "character": 74,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value: /* colon: marker */ final item)) { return item; } return 0; }\n",
+      "source_sha256": "0c67e151f5b90e950af6b1faed1bef5de6999cf8cc53fa0281f19bef5451b843"
+    },
+    "explicit": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 46,
+                  "line": 1
+                },
+                "start": {
+                  "character": 41,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 63,
+                  "line": 1
+                },
+                "start": {
+                  "character": 58,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:final item)) { return item; } return 0; }\n",
+      "source_sha256": "977d496fdcd155a8100bacfb06a985db7b9ac78358c46a9e6f4d3eb5989bac8e"
+    },
+    "record": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 46,
+                  "line": 0
+                },
+                "start": {
+                  "character": 41,
+                  "line": 0
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 70,
+                  "line": 0
+                },
+                "start": {
+                  "character": 65,
+                  "line": 0
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 40,
+                  "line": 0
+                },
+                "start": {
+                  "character": 40,
+                  "line": 0
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "int read(({int value}) record) { final (value:item) = record; return item; }\n",
+      "source_sha256": "1f79a60c16c4f8e85280638431612bc23c3029b9840206555ad383f313500ded"
+    },
+    "nested": {
+      "reply": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 57,
+                  "line": 2
+                },
+                "start": {
+                  "character": 52,
+                  "line": 2
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 75,
+                  "line": 2
+                },
+                "start": {
+                  "character": 70,
+                  "line": 2
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 45,
+                  "line": 2
+                },
+                "start": {
+                  "character": 45,
+                  "line": 2
+                }
+              }
+            }
+          ]
+        }
+      },
+      "text": "class C { final int value; C(this.value); }\nclass Outer { C get inner => C(1); }\nint read(Outer o) { if (o case Outer(inner:C(value:final item))) { return item; } return 0; }\n",
+      "source_sha256": "66c215d3d987cf40881459c15a498d9c51df8a272a80eaca5e4a19154a365a81"
+    }
+  }
+}

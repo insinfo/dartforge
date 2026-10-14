@@ -1063,6 +1063,45 @@ impl Project {
 
     // -- The edits -------------------------------------------------------------
 
+    // Renaming a shorthand binding must preserve the selected object/record
+    // field. The parser records its colon at the field span, independently of
+    // comments or whitespace between the colon and the variable pattern.
+    fn shorthand_pattern_labels(&self, unit: UnitId, declaration: usize) -> Vec<(Span, String)> {
+        let unit = self.program().unit(unit);
+        let ast = &unit.ast;
+        let mut labels = Vec::new();
+        for pattern in &ast.patterns {
+            let fields = match &pattern.kind {
+                ast::PatternKind::Record { fields } | ast::PatternKind::Object { fields, .. } => fields,
+                _ => continue,
+            };
+            for field in fields {
+                if unit.source.as_bytes().get(field.span.start) != Some(&b':') {
+                    continue;
+                }
+                let mut child = field.pattern;
+                // Only the wrappers that retain a shorthand's binding name
+                // participate; a nested object/list does not infer that name.
+                for _ in 0..ast.patterns.len() {
+                    match &ast.pattern(child).kind {
+                        ast::PatternKind::NullCheck(inner) | ast::PatternKind::NullAssert(inner)
+                            | ast::PatternKind::Parenthesized(inner) => child = *inner,
+                        ast::PatternKind::Cast { pattern, .. } => child = *pattern,
+                        ast::PatternKind::Variable { name, .. } => {
+                            if name.span.start == declaration && field.name.is_some_and(|label| label.span == name.span && label.sym == name.sym) {
+                                labels.push((Span { start: field.span.start, end: field.span.start },
+                                    unit.source[name.span.start..name.span.end].to_string()));
+                            }
+                            break;
+                        }
+                        _ => break,
+                    }
+                }
+            }
+        }
+        labels
+    }
+
     /// `fillChange` of each class.
     fn rename_edits(&self, request: &Request, new: &str) -> Result<Vec<Edit>, String> {
         let p = self.program();
@@ -1161,6 +1200,11 @@ impl Project {
                 };
                 for (u, a, b) in self.occurrences(&target, true)? {
                     by(u, Span { start: a, end: b }, new, &mut edits);
+                }
+                if matches!(&request.class, Class::Local { .. }) {
+                    for (span, label) in self.shorthand_pattern_labels(*unit, *declaration) {
+                        by(*unit, span, &label, &mut edits);
+                    }
                 }
             }
             Class::Label { unit, declaration } => {

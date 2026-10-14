@@ -1,0 +1,1014 @@
+[
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "initialize",
+      "params": {
+        "processId": 11159,
+        "rootUri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final",
+        "capabilities": {}
+      },
+      "id": 1
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 1,
+      "jsonrpc": "2.0",
+      "result": {
+        "capabilities": {
+          "callHierarchyProvider": true,
+          "codeActionProvider": true,
+          "codeLensProvider": {
+            "resolveProvider": false
+          },
+          "colorProvider": {},
+          "completionProvider": {
+            "resolveProvider": true,
+            "triggerCharacters": [
+              "."
+            ]
+          },
+          "definitionProvider": true,
+          "documentFormattingProvider": true,
+          "documentHighlightProvider": true,
+          "documentLinkProvider": {
+            "resolveProvider": false
+          },
+          "documentOnTypeFormattingProvider": {
+            "firstTriggerCharacter": "}",
+            "moreTriggerCharacter": [
+              ";"
+            ]
+          },
+          "documentRangeFormattingProvider": true,
+          "documentSymbolProvider": true,
+          "executeCommandProvider": {
+            "commands": [
+              "dart.edit.sortMembers",
+              "dart.edit.organizeImports",
+              "dart.edit.fixAll",
+              "dart.edit.fixAllInWorkspace.preview",
+              "dart.edit.fixAllInWorkspace",
+              "dart.edit.sendWorkspaceEdit",
+              "refactor.perform",
+              "refactor.validate",
+              "dart.logAction",
+              "dart.refactor.convert_all_formal_parameters_to_named",
+              "dart.refactor.convert_selected_formal_parameters_to_named",
+              "dart.refactor.move_selected_formal_parameters_left",
+              "dart.refactor.move_top_level_to_file"
+            ],
+            "workDoneProgress": true
+          },
+          "foldingRangeProvider": true,
+          "hoverProvider": true,
+          "implementationProvider": true,
+          "inlayHintProvider": {
+            "resolveProvider": false
+          },
+          "positionEncoding": "utf-16",
+          "referencesProvider": true,
+          "renameProvider": true,
+          "selectionRangeProvider": true,
+          "semanticTokensProvider": {
+            "full": true,
+            "legend": {
+              "tokenModifiers": [
+                "documentation",
+                "constructor",
+                "declaration",
+                "importPrefix",
+                "instance",
+                "static",
+                "escape",
+                "annotation",
+                "control",
+                "label",
+                "interpolation",
+                "void",
+                "wildcard"
+              ],
+              "tokenTypes": [
+                "annotation",
+                "keyword",
+                "class",
+                "comment",
+                "method",
+                "variable",
+                "parameter",
+                "enum",
+                "enumMember",
+                "type",
+                "source",
+                "property",
+                "namespace",
+                "boolean",
+                "number",
+                "string",
+                "function",
+                "typeParameter"
+              ]
+            },
+            "range": true
+          },
+          "signatureHelpProvider": {
+            "retriggerCharacters": [
+              ","
+            ],
+            "triggerCharacters": [
+              "("
+            ]
+          },
+          "textDocumentSync": 2,
+          "typeDefinitionProvider": true,
+          "typeHierarchyProvider": true,
+          "workspace": {
+            "fileOperations": {
+              "willRename": {
+                "filters": [
+                  {
+                    "pattern": {
+                      "glob": "**/*.dart",
+                      "matches": "file"
+                    },
+                    "scheme": "file"
+                  },
+                  {
+                    "pattern": {
+                      "glob": "**/",
+                      "matches": "folder"
+                    },
+                    "scheme": "file"
+                  }
+                ]
+              }
+            },
+            "workspaceFolders": {
+              "changeNotifications": true,
+              "supported": true
+            }
+          },
+          "workspaceSymbolProvider": true
+        },
+        "serverInfo": {
+          "name": "dartforge-lsp",
+          "version": "0.1.0"
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "initialized",
+      "params": {}
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/didOpen",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart",
+          "languageId": "dart",
+          "version": 1,
+          "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(:var value)) { return value; } return 0; }\n"
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/rename",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart"
+        },
+        "position": {
+          "line": 1,
+          "character": 52
+        },
+        "newName": "item"
+      },
+      "id": 2
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "$/analyzerStatus",
+      "params": {
+        "isAnalyzing": true
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 2,
+      "jsonrpc": "2.0",
+      "result": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 39,
+                  "line": 1
+                },
+                "start": {
+                  "character": 34,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 56,
+                  "line": 1
+                },
+                "start": {
+                  "character": 51,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/didChange",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart",
+          "version": 2
+        },
+        "contentChanges": [
+          {
+            "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(:final value)) { return value; } return 0; }\n"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/rename",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart"
+        },
+        "position": {
+          "line": 1,
+          "character": 54
+        },
+        "newName": "item"
+      },
+      "id": 3
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "$/analyzerStatus",
+      "params": {
+        "isAnalyzing": false
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/publishDiagnostics",
+      "params": {
+        "diagnostics": [
+          {
+            "code": "dead_code",
+            "message": "Dead code.\nTry removing the code, or fixing the code before it so that it can be reached.",
+            "range": {
+              "end": {
+                "character": 69,
+                "line": 1
+              },
+              "start": {
+                "character": 60,
+                "line": 1
+              }
+            },
+            "severity": 2,
+            "source": "dartforge"
+          }
+        ],
+        "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart",
+        "version": 1
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "$/analyzerStatus",
+      "params": {
+        "isAnalyzing": true
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/publishDiagnostics",
+      "params": {
+        "diagnostics": [],
+        "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart",
+        "version": 2
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 3,
+      "jsonrpc": "2.0",
+      "result": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 41,
+                  "line": 1
+                },
+                "start": {
+                  "character": 36,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 58,
+                  "line": 1
+                },
+                "start": {
+                  "character": 53,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/didChange",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart",
+          "version": 3
+        },
+        "contentChanges": [
+          {
+            "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(:final int value)) { return value; } return 0; }\n"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/rename",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart"
+        },
+        "position": {
+          "line": 1,
+          "character": 58
+        },
+        "newName": "item"
+      },
+      "id": 4
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 4,
+      "jsonrpc": "2.0",
+      "result": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 45,
+                  "line": 1
+                },
+                "start": {
+                  "character": 40,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 62,
+                  "line": 1
+                },
+                "start": {
+                  "character": 57,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/didChange",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart",
+          "version": 4
+        },
+        "contentChanges": [
+          {
+            "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(:int value)) { return value; } return 0; }\n"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/rename",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart"
+        },
+        "position": {
+          "line": 1,
+          "character": 52
+        },
+        "newName": "item"
+      },
+      "id": 5
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 5,
+      "jsonrpc": "2.0",
+      "result": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 39,
+                  "line": 1
+                },
+                "start": {
+                  "character": 34,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 56,
+                  "line": 1
+                },
+                "start": {
+                  "character": 51,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/didChange",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart",
+          "version": 5
+        },
+        "contentChanges": [
+          {
+            "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(: /* colon: marker */ final value)) { return value; } return 0; }\n"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/rename",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart"
+        },
+        "position": {
+          "line": 1,
+          "character": 75
+        },
+        "newName": "item"
+      },
+      "id": 6
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 6,
+      "jsonrpc": "2.0",
+      "result": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 62,
+                  "line": 1
+                },
+                "start": {
+                  "character": 57,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 79,
+                  "line": 1
+                },
+                "start": {
+                  "character": 74,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 29,
+                  "line": 1
+                },
+                "start": {
+                  "character": 29,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/didChange",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart",
+          "version": 6
+        },
+        "contentChanges": [
+          {
+            "text": "class C { final int value; C(this.value); }\nint read(C c) { if (c case C(value:final value)) { return value; } return 0; }\n"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/rename",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart"
+        },
+        "position": {
+          "line": 1,
+          "character": 59
+        },
+        "newName": "item"
+      },
+      "id": 7
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 7,
+      "jsonrpc": "2.0",
+      "result": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 46,
+                  "line": 1
+                },
+                "start": {
+                  "character": 41,
+                  "line": 1
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 63,
+                  "line": 1
+                },
+                "start": {
+                  "character": 58,
+                  "line": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/didChange",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart",
+          "version": 7
+        },
+        "contentChanges": [
+          {
+            "text": "int read(({int value}) record) { final (:value) = record; return value; }\n"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/rename",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart"
+        },
+        "position": {
+          "line": 0,
+          "character": 66
+        },
+        "newName": "item"
+      },
+      "id": 8
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 8,
+      "jsonrpc": "2.0",
+      "result": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 46,
+                  "line": 0
+                },
+                "start": {
+                  "character": 41,
+                  "line": 0
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 70,
+                  "line": 0
+                },
+                "start": {
+                  "character": 65,
+                  "line": 0
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 40,
+                  "line": 0
+                },
+                "start": {
+                  "character": 40,
+                  "line": 0
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/didChange",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart",
+          "version": 8
+        },
+        "contentChanges": [
+          {
+            "text": "class C { final int value; C(this.value); }\nclass Outer { C get inner => C(1); }\nint read(Outer o) { if (o case Outer(inner:C(:final value))) { return value; } return 0; }\n"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/rename",
+      "params": {
+        "textDocument": {
+          "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart"
+        },
+        "position": {
+          "line": 2,
+          "character": 71
+        },
+        "newName": "item"
+      },
+      "id": 9
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "$/analyzerStatus",
+      "params": {
+        "isAnalyzing": false
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "$/analyzerStatus",
+      "params": {
+        "isAnalyzing": true
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 9,
+      "jsonrpc": "2.0",
+      "result": {
+        "changes": {
+          "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart": [
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 57,
+                  "line": 2
+                },
+                "start": {
+                  "character": 52,
+                  "line": 2
+                }
+              }
+            },
+            {
+              "newText": "item",
+              "range": {
+                "end": {
+                  "character": 75,
+                  "line": 2
+                },
+                "start": {
+                  "character": 70,
+                  "line": 2
+                }
+              }
+            },
+            {
+              "newText": "value",
+              "range": {
+                "end": {
+                  "character": 45,
+                  "line": 2
+                },
+                "start": {
+                  "character": 45,
+                  "line": 2
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "shutdown",
+      "params": null,
+      "id": 10
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "$/analyzerStatus",
+      "params": {
+        "isAnalyzing": false
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "textDocument/publishDiagnostics",
+      "params": {
+        "diagnostics": [
+          {
+            "code": "dead_code",
+            "message": "Dead code.\nTry removing the code, or fixing the code before it so that it can be reached.",
+            "range": {
+              "end": {
+                "character": 88,
+                "line": 2
+              },
+              "start": {
+                "character": 79,
+                "line": 2
+              }
+            },
+            "severity": 2,
+            "source": "dartforge"
+          }
+        ],
+        "uri": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/lsp-shorthand/final/main.dart",
+        "version": 8
+      }
+    }
+  },
+  {
+    "direction": "server",
+    "message": {
+      "id": 10,
+      "jsonrpc": "2.0",
+      "result": null
+    }
+  },
+  {
+    "direction": "client",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "exit",
+      "params": null
+    }
+  }
+]
