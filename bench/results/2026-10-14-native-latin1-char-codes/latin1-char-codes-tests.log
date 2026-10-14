@@ -1,0 +1,11 @@
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.58s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_runtime-439dcf0178efcb43)
+
+running 3 tests
+test abi::latin1_core_list_tests::native_empty_slice_keeps_existing_acceptance ... ok
+test abi::latin1_core_list_tests::native_refuses_wide_negative_null_mint_and_typed_inputs_without_allocating ... ok
+test abi::latin1_core_list_tests::native_copies_latin1_slices_across_collection_and_releases_source_edges ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 303 filtered out; finished in 0.00s
+

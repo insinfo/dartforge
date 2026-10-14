@@ -1,0 +1,24 @@
+[
+  {
+    "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/latin1-native-validation/http-utf8-before/program",
+    "sha256": "1afa973a83fdd87a7dbc4d3d758946c95a478f7b19e9d98244cf73a9f3386e52",
+    "bytes": 4643424,
+    "requests": 100,
+    "json_responses": 50,
+    "bodies_exact": true,
+    "exit": 0,
+    "remaining_stdout_empty": true,
+    "stderr_empty": true
+  },
+  {
+    "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/latin1-native-validation/http-utf8-after/program",
+    "sha256": "9e4b738bf2507d05d5b6461ae2820d1e722723524ad5a37f4e3facd2eb0d92ee",
+    "bytes": 4643424,
+    "requests": 100,
+    "json_responses": 50,
+    "bodies_exact": true,
+    "exit": 0,
+    "remaining_stdout_empty": true,
+    "stderr_empty": true
+  }
+]

@@ -1,0 +1,8 @@
+tracing-normal exact VM True
+tracing-stress exact VM True
+legacy-arc-normal exact VM True
+legacy-arc-stress exact VM True
+prepared-arc-normal exact VM True
+prepared-arc-stress exact VM True
+http-utf8 before compile exit 0
+http-utf8 after compile exit 0

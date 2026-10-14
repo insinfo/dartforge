@@ -1,0 +1,31 @@
+{
+  "source_sha256": {
+    "crates/runtime/src/natives_strings.rs": "7f5feab5d5dc4593ac168cab79f181ba37be159b95296738f12786c08329bd37",
+    "crates/emit_native/tests/fixtures/arc_ports/latin1_char_codes.dart": "e50d0264bc8ad7041ca1647deafd14a322096d43fe058f202c2814f0531cb725"
+  },
+  "focused_tests": {
+    "passed": 3,
+    "failed": 0
+  },
+  "runtime_library_tests": {
+    "passed": 303,
+    "ignored": 3,
+    "failed": 0
+  },
+  "environment": {
+    "DARTFORGE_ARC_CHECK": "1",
+    "heap_stress": "true in focused runtime tests",
+    "target": "target/p4"
+  },
+  "ordinary_fixture_vm": {
+    "exit": 0,
+    "stderr_empty": true,
+    "stdout_sha256": "23a60a951078c1066ab267063996e76e691559e80802ccb1be17e57503f3d41a"
+  },
+  "implementation_scope": "Only existing core-list Latin-1 native path: validate exact same Int/Smi/range/0..255 conditions, root source across fresh string allocation, reacquire source then direct copy. Existing fallback and empty acceptance retained. No SDK/compiler/ABI change.",
+  "opportunity": "HTTP SDK parser constructs strings from core method/URI/header lists, and core string overlay invokes this fast path for Latin-1. The former native materialized a temporary byte Vec then copied it into managed string storage.",
+  "limitations": "Existing historical profile identifies parser/stringifier work but does not quantify this exact native in immutable2919. No claim that this explains entire HTTP gap; no timing performed for this patch.",
+  "pending": "No correctness runs remain for this patch: native-validation.json records all six modes. HTTP correctness and diagnostic CPU comparison are recorded in http-correctness.json and http-summary.json; no measurable median improvement.",
+  "ordinary_native_six_runs_exact_vm": true,
+  "fresh_compiler_sha256": "528e4ceac3d471ee9784b2aea19e1cfe0e5530de8ed137feb2393d4657cdbffc"
+}

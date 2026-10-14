@@ -605,28 +605,214 @@ pub extern "C" fn dartforge_native_DartForge_sb_to_string(accumulator: i64) -> i
 /// goes on through the VM's path, with its errors.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_string_from_char_codes(list: i64, start: i64, end: i64) -> i64 {
-    let bytes = HEAP.with(|heap| {
-        let heap = heap.borrow();
-        if !crate::layout::is_object(list) || !heap.is_list(list) {
-            return None;
+    HEAP.with(|heap| latin1_core_list(&mut heap.borrow_mut(), list, start, end).unwrap_or(0))
+}
+
+fn latin1_unit(value: crate::heap::Value) -> Option<u8> {
+    let n = match value {
+        crate::heap::Value::Int(n) => n,
+        crate::heap::Value::Ref(r) if crate::layout::smi::is_smi(r) => crate::layout::smi::value(r),
+        _ => return None,
+    };
+    u8::try_from(n).ok()
+}
+
+fn latin1_core_list(heap: &mut Heap, list: i64, start: i64, end: i64) -> Option<i64> {
+    if !crate::layout::is_object(list) || !heap.is_list(list) {
+        return None;
+    }
+    let (start, end) = (usize::try_from(start).ok()?, usize::try_from(end).ok()?);
+    if start > end || end > heap.list_len(list) {
+        return None;
+    }
+    // Refuse without allocation or mutation, exactly as the SDK fallback expects.
+    let elements = heap.list_elements(list);
+    for index in start..end {
+        latin1_unit(elements.get(index))?;
+    }
+    Some(heap.list_with_roots(&[list], |heap| {
+        let string = heap.new_string(end - start, false);
+        // Allocation may collect, so reacquire the source only after it completes.
+        let destination = heap.one_units_mut(string).as_mut_ptr();
+        let elements = heap.list_elements(list);
+        for index in start..end {
+            let unit = latin1_unit(elements.get(index))
+                .expect("validated Latin-1 list changed during allocation");
+            // SAFETY: the fresh string has exactly end-start bytes. The rooted
+            // source is a different live allocation; neither this read nor write
+            // allocates, collects or calls Dart. The heap does not move objects.
+            #[allow(unsafe_code)]
+            unsafe {
+                destination.add(index - start).write(unit);
+            }
         }
-        let (i, f) = (usize::try_from(start).ok()?, usize::try_from(end).ok()?);
-        if i > f || f > heap.list_len(list) {
-            return None;
+        string
+    }))
+}
+
+#[cfg(test)]
+mod latin1_core_list_tests {
+    use super::*;
+    use crate::{
+        heap::Value,
+        layout::{cid, smi},
+        lists::Element,
+    };
+
+    #[test]
+    fn native_copies_latin1_slices_across_collection_and_releases_source_edges() {
+        for arc in [false, true] {
+            for class in [cid::LIST, cid::IMMUTABLE_LIST, cid::GROWABLE_LIST] {
+                for shape in [Element::Int, Element::General] {
+                    std::thread::spawn(move || {
+                        HEAP.with(|heap| {
+                            let mut heap = heap.borrow_mut();
+                            *heap = Heap::new(true);
+                            if arc {
+                                heap.enable_arc();
+                            }
+                        });
+                        let expected: Vec<_> = (0..1024).map(|index| (index & 255) as u8).collect();
+                        let (list, storage, roots, before) = HEAP.with(|heap| {
+                            let mut heap = heap.borrow_mut();
+                            let roots = heap.push_owning_frame(2);
+                            let list = if class == cid::GROWABLE_LIST {
+                                heap.new_growable(expected.len(), expected.len() + 3, shape)
+                            } else {
+                                heap.new_list(class, expected.len(), shape)
+                            };
+                            heap.set_root(roots, 0, list);
+                            for (index, &unit) in expected.iter().enumerate() {
+                                let value = if shape == Element::Int {
+                                    Value::Int(i64::from(unit))
+                                } else {
+                                    Value::Ref(smi::of(i64::from(unit)).unwrap())
+                                };
+                                heap.list_set(list, index, value);
+                            }
+                            (list, heap.list_data(list), roots, heap.stats())
+                        });
+                        let string =
+                            dartforge_native_DartForge_string_from_char_codes(list, 13, 1000);
+                        assert_ne!(string, 0);
+                        HEAP.with(|heap| {
+                            let mut heap = heap.borrow_mut();
+                            assert_eq!(heap.stats().allocations, before.allocations + 1);
+                            assert!(heap.stats().collections > before.collections);
+                            heap.set_root(roots, 1, string);
+                            assert_eq!(heap.class(string), cid::ONE_BYTE_STRING);
+                            assert_eq!(
+                                heap.text(string).unwrap().units().collect::<Vec<_>>(),
+                                expected[13..1000]
+                                    .iter()
+                                    .map(|&unit| u16::from(unit))
+                                    .collect::<Vec<_>>()
+                            );
+                            assert_eq!(heap.list_len(list), expected.len());
+                            assert_eq!(heap.list_shape(list), shape);
+                            heap.set_root(roots, 0, 0);
+                            heap.collect();
+                            assert!(!heap.is_live_object(list));
+                            assert!(!heap.is_live_object(storage));
+                            assert_eq!(heap.text(string).unwrap().len(), 987);
+                            heap.pop_frame(roots);
+                            heap.collect();
+                            assert!(!heap.is_live_object(string));
+                        });
+                    })
+                    .join()
+                    .unwrap();
+                }
+            }
         }
-        let e = heap.list_elements(list);
-        let mut v = Vec::with_capacity(f - i);
-        for k in i..f {
-            let n = match e.get(k) {
-                crate::heap::Value::Int(x) => x,
-                crate::heap::Value::Ref(r) if crate::layout::smi::is_smi(r) => crate::layout::smi::value(r),
-                _ => return None,
-            };
-            v.push(u8::try_from(n).ok()?);
+    }
+
+    #[test]
+    fn native_refuses_wide_negative_null_mint_and_typed_inputs_without_allocating() {
+        for arc in [false, true] {
+            std::thread::spawn(move || {
+                HEAP.with(|heap| {
+                    let mut heap = heap.borrow_mut();
+                    *heap = Heap::new(true);
+                    if arc {
+                        heap.enable_arc();
+                    }
+                });
+                for value in [256, -1] {
+                    let (list, roots) = HEAP.with(|heap| {
+                        let mut heap = heap.borrow_mut();
+                        let roots = heap.push_owning_frame(1);
+                        let list = heap.new_list(cid::LIST, 1, Element::Int);
+                        heap.set_root(roots, 0, list);
+                        heap.list_set(list, 0, Value::Int(value));
+                        (list, roots)
+                    });
+                    let before = HEAP.with(|heap| heap.borrow().stats().allocations);
+                    for (start, end) in [(0, 1), (-1, 1), (1, 0), (0, 2)] {
+                        assert_eq!(
+                            dartforge_native_DartForge_string_from_char_codes(list, start, end),
+                            0
+                        );
+                        assert_eq!(HEAP.with(|heap| heap.borrow().stats().allocations), before);
+                    }
+                    HEAP.with(|heap| heap.borrow_mut().pop_frame(roots));
+                }
+                let (list, mint, typed, roots) = HEAP.with(|heap| {
+                    let mut heap = heap.borrow_mut();
+                    let roots = heap.push_owning_frame(3);
+                    let list = heap.new_list(cid::LIST, 2, Element::General);
+                    heap.set_root(roots, 0, list);
+                    let mint = heap.allocate(cid::MINT, 1, crate::layout::flags::RAW);
+                    heap.words_mut(mint)[0] = 65;
+                    heap.set_root(roots, 1, mint);
+                    heap.list_set(list, 1, Value::Ref(mint));
+                    let typed = heap.new_typed(crate::typed_lists::ty::UINT8, 1);
+                    heap.set_root(roots, 2, typed);
+                    (list, mint, typed, roots)
+                });
+                let before = HEAP.with(|heap| heap.borrow().stats().allocations);
+                for (source, start, end) in [
+                    (list, 0, 1),
+                    (list, 1, 2),
+                    (typed, 0, 1),
+                    (mint, 0, 1),
+                    (0, 0, 0),
+                ] {
+                    assert_eq!(
+                        dartforge_native_DartForge_string_from_char_codes(source, start, end),
+                        0
+                    );
+                    assert_eq!(HEAP.with(|heap| heap.borrow().stats().allocations), before);
+                }
+                HEAP.with(|heap| heap.borrow_mut().pop_frame(roots));
+            })
+            .join()
+            .unwrap();
         }
-        Some(v)
-    });
-    bytes.map_or(0, |b| HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::text::TextRef::OneByte(&b))))
+    }
+
+    #[test]
+    fn native_empty_slice_keeps_existing_acceptance() {
+        std::thread::spawn(|| {
+            HEAP.with(|heap| *heap.borrow_mut() = Heap::new(true));
+            for shape in [
+                Element::General,
+                Element::Int,
+                Element::Double,
+                Element::Bool,
+            ] {
+                let list = HEAP.with(|heap| heap.borrow_mut().new_list(cid::LIST, 0, shape));
+                let string = dartforge_native_DartForge_string_from_char_codes(list, 0, 0);
+                assert_ne!(string, 0);
+                assert_eq!(
+                    HEAP.with(|heap| heap.borrow().text(string).unwrap().len()),
+                    0
+                );
+            }
+        })
+        .join()
+        .unwrap();
+    }
 }
 
 // ─── Unified space (docs/NATIVO-ESPACO-UNIFICADO.md §3.6) ────────────────────

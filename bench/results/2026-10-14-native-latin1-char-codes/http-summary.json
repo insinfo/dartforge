@@ -1,0 +1,47 @@
+{
+  "medians": [
+    {
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/latin1-native-validation/http-utf8-before/program",
+      "route": "/",
+      "median_cpu_ms_per_1000_requests": 50.0,
+      "minimum": 50.0,
+      "maximum": 51.0
+    },
+    {
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/latin1-native-validation/http-utf8-before/program",
+      "route": "/json",
+      "median_cpu_ms_per_1000_requests": 53.0,
+      "minimum": 52.0,
+      "maximum": 54.0
+    },
+    {
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/latin1-native-validation/http-utf8-after/program",
+      "route": "/",
+      "median_cpu_ms_per_1000_requests": 50.0,
+      "minimum": 50.0,
+      "maximum": 50.0
+    },
+    {
+      "executable": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/native-provenance/latin1-native-validation/http-utf8-after/program",
+      "route": "/json",
+      "median_cpu_ms_per_1000_requests": 53.0,
+      "minimum": 52.0,
+      "maximum": 53.0
+    }
+  ],
+  "conclusion": "No measurable median HTTP CPU change: text50 and UTF-8 JSON53 ms per1000 requests before and after. Exact responses and clean shutdown passed separately.",
+  "scope": "Tracing HTTP, two frozen producers2919 and528, five alternating rounds,1000warmup and10000measured requests per process, single local keep-alive connection. Compiler528 also includes semantic field-type metadata, which is not executed by this server.",
+  "limitations": [
+    "Local Python client limits wall throughput",
+    "One keep-alive connection",
+    "macOS CPU counter resolution is 0.01 seconds"
+  ],
+  "measurement_script_sha256": "596adbe93ab93baa2da08ba2823de6b3fbb1f8b44e59aa6a7904f796f6bbb503",
+  "performance_claims_excluded": [
+    "server capacity",
+    "tail latency",
+    "ARC throughput",
+    "statistical significance",
+    "isolated production speedup"
+  ]
+}
