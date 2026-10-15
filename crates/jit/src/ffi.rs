@@ -3136,7 +3136,26 @@ mod callback_lifetime_tests {
             let driver = directory.join(if cfg!(target_os = "macos") { "driver.dylib" } else { "driver.so" });
             std::fs::write(&c, "#include <stdint.h>\nstatic int32_t (*saved)(int32_t);\nvoid store(int32_t (*callback)(int32_t)) { saved = callback; }\nint32_t invoke(int32_t value) { return saved(value); }\n").unwrap();
             let clang = std::env::var_os("DARTFORGE_CLANG").unwrap_or_else(|| "clang".into());
-            let status = Command::new(clang).args(["-shared", "-fPIC"]).arg(&c).arg("-o").arg(&driver).status().unwrap();
+            let mut compile_driver = Command::new(clang);
+            compile_driver.args(["-shared", "-fPIC"]);
+            #[cfg(target_os = "macos")]
+            {
+                // Standalone LLVM Clang does not discover Apple's SDK like
+                // the Xcode driver does. Resolve it without changing process
+                // environment shared with the other tests.
+                let sysroot = std::env::var_os("SDKROOT").filter(|path| !path.is_empty())
+                    .map(PathBuf::from).unwrap_or_else(|| {
+                        let output = Command::new("xcrun")
+                            .args(["--sdk", "macosx", "--show-sdk-path"]).output()
+                            .expect("discover macOS SDK for native callback driver");
+                        assert!(output.status.success(), "macOS SDK discovery failed: {}",
+                            String::from_utf8_lossy(&output.stderr));
+                        PathBuf::from(String::from_utf8(output.stdout).unwrap().trim())
+                    });
+                assert!(sysroot.is_dir(), "macOS SDK is not a directory: {}", sysroot.display());
+                compile_driver.arg("-isysroot").arg(sysroot);
+            }
+            let status = compile_driver.arg(&c).arg("-o").arg(&driver).status().unwrap();
             assert!(status.success(), "native callback driver did not compile");
             let source = directory.join("main.dart");
             let code = format!(r#"

@@ -12,6 +12,9 @@ int sum(Uint8List values) {
 void main() {
   final values = Uint8List.fromList([1, 2, 3]);
   installBufferProbe();
-  print(sum(values));
-  print(bufferReads());
+  final result = sum(values);
+  // Capture the measured loop before console I/O can touch typed arrays.
+  final reads = bufferReads();
+  print(result);
+  print(reads);
 }

@@ -29,11 +29,11 @@ import 'dart:io';
 Future<void> worker() async {{
   final value = 37;
   {extra}
-  File('{signal}').writeAsStringSync('suspended');
-  while (!File('{release}').existsSync()) {{
+  File(r'{signal}').writeAsStringSync('suspended');
+  while (!File(r'{release}').existsSync()) {{
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }}
-  File('{output}').writeAsStringSync('{version}:$value{suffix}\n', mode: FileMode.append);
+  File(r'{output}').writeAsStringSync('{version}:$value{suffix}\n', mode: FileMode.append);
 }}
 Future<void> main() async {{
   await worker();

@@ -50,7 +50,7 @@ fn typed_guards_preserve_public_accessor_effects() {
             String::from_utf8_lossy(&result.stdout),
             String::from_utf8_lossy(&result.stderr)
         );
-        for mode in ["buffer", "byteOffset", "byteLength", "baseBuffer", "resizable", "descriptor", "isView"] {
+        for mode in ["buffer", "byteOffset", "byteLength", "baseBuffer", "resizable", "descriptor", "isView", "consoleByteLength"] {
             let host = directory.join("host.js");
             std::fs::write(&host, HOST).unwrap();
             let result = Command::new("node")
@@ -85,9 +85,10 @@ globalThis.installBufferProbe = function() {
   const t = Object.getPrototypeOf(p);
   const get = Object.getOwnPropertyDescriptor;
   const apply = Reflect.apply;
-  if (mode === 'buffer' || mode === 'byteOffset' || mode === 'byteLength' || mode === 'length') {
-    const d = get(t, mode);
-    Object.defineProperty(p, mode, {configurable: true, get() { reads++; return apply(d.get, this, []); }});
+  if (mode === 'buffer' || mode === 'byteOffset' || mode === 'byteLength' || mode === 'length' || mode === 'consoleByteLength') {
+    const property = mode === 'consoleByteLength' ? 'byteLength' : mode;
+    const d = get(t, property);
+    Object.defineProperty(p, property, {configurable: true, get() { reads++; return apply(d.get, this, []); }});
   } else if (mode === 'baseBuffer') {
     const d = get(t, 'buffer');
     Object.defineProperty(t, 'buffer', {...d, get() { reads++; return apply(d.get, this, []); }});
@@ -99,6 +100,15 @@ globalThis.installBufferProbe = function() {
   } else if (mode === 'isView') {
     const f = ArrayBuffer.isView;
     ArrayBuffer.isView = function(...args) { reads++; return apply(f, ArrayBuffer, args); };
+  }
+  if (mode === 'consoleByteLength') {
+    const log = console.log;
+    console.log = function(...args) {
+      // Model console transports that inspect typed arrays while printing.
+      const bytes = new Uint8Array(1);
+      void bytes.byteLength;
+      return apply(log, console, args);
+    };
   }
 };
 globalThis.bufferReads = () => reads;
