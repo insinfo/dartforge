@@ -199,18 +199,35 @@ mod transport_tests {
         }
     }
     #[test]
+    fn allocation_audits_and_ambiguous_classes_roundtrip_independently() {
+        let mut summary = summary();
+        summary.ambiguous_classes = vec![128, 300];
+        summary.allocation_inventory = vec![AllocationRecord {
+            definition: summary.definitions[0].name,
+            state: AllocationState::Known(vec![300]),
+        }];
+        let text = summary.to_text();
+        assert!(text.contains("\nA\t128\n"));
+        assert!(text.contains("\nI\t"));
+        let parsed = Summary::from_string(&text).unwrap();
+        assert_eq!(parsed, summary);
+        assert_eq!(parsed.ambiguous_classes, [128, 300]);
+        assert_eq!(parsed.audited_allocations(summary.definitions[0].name), Some([300].as_slice()));
+    }
+
+    #[test]
     fn malformed_duplicate_old_and_nondefinition_audits_are_rejected() {
         let summary = summary();
         let node = summary.definitions[0].name;
         let text = summary.to_text();
         for record in [
-            format!("A\t{node}\tknown\t-1\n"),
-            format!("A\t{node}\tknown\t4294967296\n"),
-            format!("A\t{node}\tknown\t300 300\n"),
-            format!("A\t{node}\tunknown\t300\n"),
-            format!("A\t{node}\tknown\t300\textra\n"),
-            "A\t99999\tknown\t300\n".to_string(),
-            format!("A\t{node}\tknown\t\nA\t{node}\tunknown\t\n"),
+            format!("I\t{node}\tknown\t-1\n"),
+            format!("I\t{node}\tknown\t4294967296\n"),
+            format!("I\t{node}\tknown\t300 300\n"),
+            format!("I\t{node}\tunknown\t300\n"),
+            format!("I\t{node}\tknown\t300\textra\n"),
+            "I\t99999\tknown\t300\n".to_string(),
+            format!("I\t{node}\tknown\t\nI\t{node}\tunknown\t\n"),
         ] {
             assert!(
                 Summary::from_string(&format!("{text}{record}")).is_err(),
@@ -218,13 +235,13 @@ mod transport_tests {
             );
         }
         assert!(
-            Summary::from_string(&text.replace("dartforge-poda\t7", "dartforge-poda\t6")).is_err()
+            Summary::from_string(&text.replace("dartforge-poda\t8", "dartforge-poda\t7")).is_err()
         );
         let mut summary = summary;
         let orphan = summary.names.len() as u32;
         summary.names.push("orphan".into());
         assert!(
-            Summary::from_string(&format!("{}A\t{orphan}\tknown\t300\n", summary.to_text()))
+            Summary::from_string(&format!("{}I\t{orphan}\tknown\t300\n", summary.to_text()))
                 .is_err()
         );
     }

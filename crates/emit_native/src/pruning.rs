@@ -24,7 +24,7 @@ pub(crate) mod allocation_inventory;
 pub(crate) mod arc_ports;
 
 /// First line of a summary; the number changes with the format.
-const HEADER: &str = "dartforge-poda\t7";
+const HEADER: &str = "dartforge-poda\t8";
 
 /// Selectors that live in every live class, without a call in the IR (§3.6):
 /// `c:call` the runtime looks up by text (`dartforge_closure_entry`, the
@@ -397,11 +397,11 @@ impl Summary {
         for record in audits {
             match &record.state {
                 AllocationState::Known(classes) => {
-                    writeln!(s, "A\t{}\tknown\t{}", record.definition,
+                    writeln!(s, "I\t{}\tknown\t{}", record.definition,
                         join(&mut classes.iter().map(u32::to_string))).unwrap();
                 }
                 AllocationState::Unknown => {
-                    writeln!(s, "A\t{}\tunknown\t", record.definition).unwrap();
+                    writeln!(s, "I\t{}\tunknown\t", record.definition).unwrap();
                 }
             }
         }
@@ -489,7 +489,7 @@ impl Summary {
                         .collect::<Result<_, _>>()?;
                     r.definitions.push(Definition { name, refs, calls });
                 }
-                Some("A") => {
+                Some("I") => {
                     let definition = c.next().and_then(|v| v.parse().ok()).ok_or_else(|| bad(l))?;
                     let state = c.next().ok_or_else(|| bad(l))?;
                     let payload = c.next().ok_or_else(|| bad(l))?;
@@ -2325,7 +2325,7 @@ mod declared_field_summary_tests {
     #[test]
     fn persistent_field_facts_refuse_corruption_and_old_schema() {
         let summary = hir_summary(&module()).to_text();
-        assert!(Summary::from_string(&summary.replace("dartforge-poda\t7", "dartforge-poda\t6")).is_err());
+        assert!(Summary::from_string(&summary.replace("dartforge-poda\t8", "dartforge-poda\t7")).is_err());
         assert!(Summary::from_string(&summary.replace("\"storage\":\"ref\"", "\"storage\":\"ptr\"")).is_err());
         let record = summary.lines().find(|line| line.starts_with("F\t")).unwrap();
         assert!(Summary::from_string(&format!("{summary}{record}\n")).is_err());

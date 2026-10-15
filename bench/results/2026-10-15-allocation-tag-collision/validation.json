@@ -1,0 +1,27 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-emit-native",
+    "--lib",
+    "pruning::",
+    "--",
+    "--test-threads=2"
+  ],
+  "environment_file": "bench/results/2026-10-14-jit-private-field-identity/env.zsh",
+  "exit_code": 0,
+  "passed": 82,
+  "failed": 0,
+  "source_unchanged": true,
+  "scope": "All pruning tests, after six allocation tests; native source snapshot includes pending unrelated async frame metadata.",
+  "schema": 8,
+  "allocation_tag": "I",
+  "ambiguity_tag": "A",
+  "logs": {
+    "tests.log": "385764acde9992d0fe1dfd3ac7d769bf628618cc010a8106ef72c243b7f6699f",
+    "pruning.log": "1d229f66a24a1b3ba9fe57f88dbf25441c25fc3aecccb5a0626667a5b18a8b2a"
+  }
+}
