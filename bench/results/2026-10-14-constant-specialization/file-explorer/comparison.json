@@ -1,0 +1,26 @@
+{
+  "off": {
+    "bytes": 28293424,
+    "sha256": "a6561c983c57dee9f6e1b925ee6eaa4c840d263926ad95c360f00c87312f8866",
+    "ir_sha256": "4e341dfc4e94cc22753d4b5b4d7b80a5bdb1fc17c60e4367fe62286e2c0b5350",
+    "specialized_definitions": [],
+    "manifest": "bench/results/2026-10-14-constant-specialization/file-explorer/validation.json"
+  },
+  "on": {
+    "bytes": 28293776,
+    "sha256": "eec28c1e790db044169900cafaa0c642bdabe0c2adb6d259c7f3bafe57a31588",
+    "ir_sha256": "c53fb2a94672a8e2b6f9ec1d3e0a9e54e77e829635ba3cbbcb1ca17aa1775379",
+    "specialized_definitions": [
+      "df.specialized.8dd607df8671a97b88f69da5be281644b60a4146724b1242667cffb60c32aa47.3ed9110ea64f148ce9c25e2f437e0defe934612f620417013e48b03beae5de71",
+      "df.specialized.130f1d68bddf65d7df5ca785102386841169b9597bd027714590f165b0edcc63.3ed9110ea64f148ce9c25e2f437e0defe934612f620417013e48b03beae5de71",
+      "df.specialized.2abd58b8eb982787d0f0de78932925d88584d635126f6a32926c91e7ebed626b.3ed9110ea64f148ce9c25e2f437e0defe934612f620417013e48b03beae5de71",
+      "df.specialized.fc022bb6ec78e7f211c579fd1c067f8a21ed5af4687f71966685cb79d1a0f76b.46bb152a1caf9d057f5ebba24d59fdf643a168db6fc84d6665513dea79e08308",
+      "df.specialized.c0f88759f997b5d30ab698270e890e36d07c3c38809106abf61069bb878a40ab.955fae0cec0b346941d2abe02fe5335fc3cbfa37809f542832ee8622b4461ff7",
+      "df.specialized.31c75c68c1643d9e84cd8f22dba0b45b478715fd6db5616265c6f4974984032b.fc0f1d061c8c883ba34c230734209b88db437348e021666d59dce97eaebffea2",
+      "df.specialized.31c75c68c1643d9e84cd8f22dba0b45b478715fd6db5616265c6f4974984032b.cebc185139b15b375814fa76ddabff6cd44798bcfe5c8651f48f2e017db71113"
+    ],
+    "manifest": "bench/results/2026-10-14-constant-specialization/file-explorer/on/validation.json"
+  },
+  "on_minus_off_bytes": 352,
+  "scope": "Whole ordinary File Explorer, exact frozen compiler and same recorded inputs. Static size only; no performance gain claim."
+}

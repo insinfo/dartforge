@@ -1,0 +1,9 @@
+{
+  "pid": 95460,
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-file-explorer-on/program",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/file-explorer-fixture",
+    "--lang=en"
+  ],
+  "binary_sha256": "eec28c1e790db044169900cafaa0c642bdabe0c2adb6d259c7f3bafe57a31588"
+}

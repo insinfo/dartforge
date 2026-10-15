@@ -1,0 +1,33 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-producer-v3/dartforge",
+    "compile-native",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+    "--sdk",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "--packages",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+    "--optimize",
+    "--memory=tracing",
+    "--exceptions=check",
+    "--roots=shadow",
+    "--stack-trace=none",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-file-explorer-off/program"
+  ],
+  "producer_sha256": "c363ac60f6dd39338eb5dbd84dffb863767c1c8a2a2ae4c725c996b2847c4a79",
+  "input_count": 11652,
+  "historical_input_changes": [],
+  "input_scope": "Same previously recorded 11652 SDK/package/application inputs; no new dependency census claim.",
+  "exit_code": 0,
+  "inputs_unchanged": true,
+  "binary_bytes": 28293424,
+  "binary_sha256": "a6561c983c57dee9f6e1b925ee6eaa4c840d263926ad95c360f00c87312f8866",
+  "gui_validated": true,
+  "gui_scope": "Original ordinary Dart entrypoint on existing macOS host backend. Root listing, child navigation, back button, native close, exit 0; screenshots visually inspected. No timing claim.",
+  "gui_evidence": "gui-off",
+  "gui_helpers": {
+    "bench/results/2026-10-14-primitive-sdk-production/file-explorer-v3/gui/run_gui.py": "14455a5428eda320edb12992535865eeac247dd037be89ae4e546e92ab60c239",
+    "bench/results/2026-10-14-primitive-sdk-production/file-explorer-v3/gui/ordinary_window_control.py": "ad31f92c6ae142d8c5ba61ee2255282f2d2c4d0353ff185e146bf2b68679ead8"
+  }
+}
