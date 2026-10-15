@@ -1,0 +1,28 @@
+{
+  "validated_code_commit": "c42f5995925f1fbd5718921468f0b299a96ae5d7",
+  "checks": [
+    {
+      "name": "CI",
+      "run": 38701702025,
+      "conclusion": "success",
+      "scope": "Linux, Windows, macOS; full configured behavioral CI"
+    },
+    {
+      "name": "No system toolchain",
+      "run": 38701701967,
+      "conclusion": "success",
+      "scope": "Windows and macOS"
+    },
+    {
+      "name": "Heavy",
+      "run": 38701717466,
+      "conclusion": "success",
+      "suite": "native",
+      "scope": "Native suite including directed B0; not a fresh JS/analysis/modern selection"
+    }
+  ],
+  "release_tag": "v0.1.0-alpha.2",
+  "release_publication": "Performed by the separate Release workflow after its three platform packages pass",
+  "behavioral_checks_removed_or_skipped": false,
+  "final_followup_changes": "State report and CI evidence only; compiler source unchanged"
+}

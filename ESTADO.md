@@ -224,27 +224,39 @@ conservadores: maps mantém a operação original, e os predecessores Phi seguem
 a mesma decisão de emissão. O checker não foi alterado. **Sete testes focados
 e os quatro `directed_maps` completos passaram localmente**, incluindo stress,
 poison, sabotagens e comparação com shadow stack. A confirmação Windows remota
-continua pendente. Evidência: `bench/results/2026-10-15-maps-native-effects/`.
+também passou na suíte pesada nativa. Evidência: `bench/results/2026-10-15-maps-native-effects/`.
 Não é ganho de desempenho nem certificação de todos os perfis do coletor.
 
 ### Fechamento verificável
 
-O código de `feb3c1c3` passou no CI Linux e na validação **sem toolchain do
-sistema em Windows/macOS**. [CI](https://github.com/insinfo/dartforge/actions/runs/38688605371)
-e [sem toolchain](https://github.com/insinfo/dartforge/actions/runs/38688612123).
-O Windows atingiu o limite antigo de 90 minutos ainda executando testes;
-nenhuma asserção falhou no log obtido, mas a suíte final não terminou. O macOS
-foi interrompido para diagnóstico após a linkedição de testes/exemplos ficar
-mais de uma hora em andamento; os testes dessa etapa ainda não haviam iniciado.
-Isso **não é CI verde**. O novo orçamento Windows é 180 minutos; builds Cargo
-macOS são serializados para evitar múltiplos links LLVM estáticos simultâneos.
-Todos os alvos, testes e contraprovas continuam habilitados.
+O código final **`c42f5995`** passou nas três validações:
 
-A versão planejada é `v0.1.0-alpha.2`, para Windows x64, Linux x64 e macOS
-arm64. Ainda não foi publicada neste registro. O workflow cria draft, testa
-cada pacote e só publica após sucesso de todas as plataformas. O fechamento
-aguarda a nova rodada completa. O trabalho geral de desempenho/tamanho e de
-compatibilidade Dart continua aberto.
+- [CI completo — Linux, Windows e macOS](https://github.com/insinfo/dartforge/actions/runs/38701702025): **verde**, incluindo workspace Windows, emissor/JIT,
+  reload, provas ARC e distribuição em ambiente limpo.
+- [Sem toolchain do sistema](https://github.com/insinfo/dartforge/actions/runs/38701701967): **verde** em Windows sem MSVC/SDK e macOS sem Xcode/CLT.
+- [Suíte pesada nativa](https://github.com/insinfo/dartforge/actions/runs/38701717466): **verde**, incluindo B0 dirigido/sabotagens, B1, ARC, GC stress,
+  SDK compilado das fontes e AOT/JIT Unix. É a suíte `native`; os gates de JS,
+  análise e versões modernas pertencem a outras seleções, sem declarar nova
+  execução desses gates nesta rodada.
+
+As falhas e cancelamentos intermediários permanecem nos registros. O orçamento
+Windows passou a 180 minutos; builds Cargo macOS são serializados para evitar
+links LLVM estáticos simultâneos. Todos os alvos, testes e contraprovas foram
+preservados. A correção B0 não modifica o checker RS4GC.
+
+A release desta rodada usa
+[`v0.1.0-alpha.2`](https://github.com/insinfo/dartforge/releases/tag/v0.1.0-alpha.2),
+com distribuições Windows x64, Linux x64 e macOS arm64. O
+[workflow Release](https://github.com/insinfo/dartforge/actions/workflows/release.yml)
+cria draft, compila cada pacote, verifica AOT de desenvolvimento/produção e
+resolução Pub offline no SDK relocado, e publica após sucesso das três plataformas.
+O estado público e os arquivos ficam no link da release. A atualização final
+deste relatório e dos registros de CI não muda as fontes do compilador validadas
+em `c42f5995`.
+
+O trabalho geral de desempenho/tamanho e de compatibilidade Dart continua
+aberto; esta versão é experimental e não transforma as limitações acima em
+paridade com o SDK oficial.
 
 
 ## Continuação: callbacks fechados, SSA e janela AppKit (2026-10-13)
