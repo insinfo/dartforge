@@ -1091,7 +1091,7 @@
     {
       "library": "dart:isolate",
       "role": 3,
-      "source_blake3": "380d3f8624a535743b5e0c57bcdc963cfdf5de5683a8bc4afe8af838e8f29b94"
+      "source_blake3": "36d8217678572b72478303ce1e1120e966147091b180e897583cc75792315508"
     },
     {
       "library": "dart:math",

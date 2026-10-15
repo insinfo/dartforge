@@ -493,15 +493,19 @@ fn sdk_key_with_overlay(lib_dir: &Path, overlay: &Path, clang_id: &str, args: &[
     if let Some(diagnostic) = diagnostics.first() {
         return Err(format!("SDK key source closure: {}", diagnostic.message));
     }
+    // The loader canonicalizes the synthetic entry path. Exclude that library
+    // by semantic identity so temp aliases and Windows path prefixes cannot
+    // leak its random filename into an otherwise stable SDK key.
+    let entry_library = program.entry.ok_or("SDK key source closure has no entry library")?;
     let mut selected_units: Vec<_> = program.units.iter()
-        .filter_map(|unit| unit.path.as_ref().filter(|path| **path != entry)
-            .map(|path| (path, &unit.source)))
+        .filter(|unit| unit.library != entry_library)
+        .filter_map(|unit| unit.path.as_ref().map(|path| (path, &unit.source)))
         .collect();
     selected_units.sort_by(|a, b| a.0.cmp(b.0));
     files.sort();
     files.dedup();
     let mut h = blake3::Hasher::new();
-    h.update(b"dartforge-sdk-selected-source-v5\0");
+    h.update(b"dartforge-sdk-selected-source-v6\0");
     h.update(env!("CARGO_PKG_VERSION").as_bytes());
     h.update(b"\0");
     h.update(env!("DARTFORGE_EMITTER_HASH").as_bytes());
@@ -1514,6 +1518,25 @@ mod selected_source_cache_tests {
         assert_eq!(baseline, key());
         std::fs::remove_file(&replacement).unwrap();
         assert!(sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generated_entry_temp_alias_does_not_contaminate_sdk_key() {
+        let directory = tempfile::tempdir().unwrap();
+        let actual = directory.path().join("actual temp directory");
+        let alias = directory.path().join("temp alias");
+        std::fs::create_dir(&actual).unwrap();
+        std::os::unix::fs::symlink(&actual, &alias).unwrap();
+        // Isolate the temp-directory environment from concurrently running
+        // tests. The existing fixture checks key equality after restoring the
+        // exact SDK bytes, across multiple generated entry filenames.
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "sdk_module::selected_source_cache_tests::external_replacement_and_logical_parts_change_sdk_key", "--nocapture"])
+            .env("TMPDIR", &alias).env("TMP", &alias).env("TEMP", &alias)
+            .output().unwrap();
+        assert!(result.status.success(), "aliased temp SDK key failed: {}\n{}",
+            String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
     }
 
     #[test]

@@ -1159,8 +1159,10 @@ mod native_pump_contract_tests {
             let dir = tempfile::tempdir().unwrap();
             let package = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/dartforge").canonicalize().unwrap();
             let config = dir.path().join("packages.json");
-            let root = format!("file://{}/", package.display());
-            std::fs::write(&config, format!(r#"{{"configVersion":2,"packages":[{{"name":"dartforge","rootUri":"{root}","packageUri":"lib/","languageVersion":"3.6"}}]}}"#)).unwrap();
+            let root = url::Url::from_directory_path(&package).unwrap();
+            std::fs::write(&config, serde_json::json!({"configVersion": 2, "packages": [{
+                "name": "dartforge", "rootUri": root.as_str(), "packageUri": "lib/", "languageVersion": "3.6"
+            }]}).to_string()).unwrap();
             let entry = dir.path().join("main.dart");
             let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(sdk_tests()), packages: Some(&config), timings: false,
                 optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };

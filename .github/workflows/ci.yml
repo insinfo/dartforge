@@ -86,6 +86,8 @@ jobs:
       # The memory examples have distinct names per crate (memory_<crate>):
       # with the same name, cargo linked the four into the same
       # examples/memory.exe (LNK1104 when two links crossed).
+      - name: Selected SDK source contracts (Windows)
+        run: cargo test --locked -p dartforge-emit-native --lib lower::double_identity::tests -- --nocapture
       - name: test
         run: cargo test --locked --workspace --no-fail-fast
       # The CLI reload test is gated by `--features jit`; the default

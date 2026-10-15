@@ -445,6 +445,7 @@ dependencies = [
  "dartforge-world",
  "serde_json",
  "tempfile",
+ "url",
 ]
 
 [[package]]

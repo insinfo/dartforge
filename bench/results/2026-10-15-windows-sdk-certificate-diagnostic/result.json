@@ -1,0 +1,306 @@
+[
+  {
+    "name": "dart-sdk/lib/libraries.json",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "212213fd5898a8530dc437ffbef34980cd0c7c96d74dd2cd08ee240214530f17",
+    "local_sha256": "212213fd5898a8530dc437ffbef34980cd0c7c96d74dd2cd08ee240214530f17"
+  },
+  {
+    "name": "dart-sdk/lib/core/annotations.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "77dd9a74165c87204f11fc6ab0e2b0b66883013d637e4ca3b6fc62bae9295324",
+    "local_sha256": "77dd9a74165c87204f11fc6ab0e2b0b66883013d637e4ca3b6fc62bae9295324"
+  },
+  {
+    "name": "dart-sdk/lib/core/bigint.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "aa30b4f63a6f75373c2fba4ecdb7c06bc2f740bb8b80cda2a298b884f7fd2e2d",
+    "local_sha256": "aa30b4f63a6f75373c2fba4ecdb7c06bc2f740bb8b80cda2a298b884f7fd2e2d"
+  },
+  {
+    "name": "dart-sdk/lib/core/bool.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "3a38f9bf8e68ffd9d22045f81663f47af23f32279b420f4364f63663159db888",
+    "local_sha256": "3a38f9bf8e68ffd9d22045f81663f47af23f32279b420f4364f63663159db888"
+  },
+  {
+    "name": "dart-sdk/lib/core/comparable.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "b2c44d3fe986ed3089ee5b5f068df9b14b466edcb9cb13cabbcb27b24751f830",
+    "local_sha256": "b2c44d3fe986ed3089ee5b5f068df9b14b466edcb9cb13cabbcb27b24751f830"
+  },
+  {
+    "name": "dart-sdk/lib/core/core.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "b8404ba5d8c0fa6db89d4101b5545b37670dd58fe76dc495c38dcacfd7e91049",
+    "local_sha256": "b8404ba5d8c0fa6db89d4101b5545b37670dd58fe76dc495c38dcacfd7e91049"
+  },
+  {
+    "name": "dart-sdk/lib/core/date_time.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "8be933a638085f497ed3d92e15b2273d5f4a341f861a82acb3dfaf8013696c1d",
+    "local_sha256": "8be933a638085f497ed3d92e15b2273d5f4a341f861a82acb3dfaf8013696c1d"
+  },
+  {
+    "name": "dart-sdk/lib/core/double.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "a4c197ac3a666cb8b370ad04d68bd634a20b0b2c3aa1dbabf40f691fe14851f2",
+    "local_sha256": "a4c197ac3a666cb8b370ad04d68bd634a20b0b2c3aa1dbabf40f691fe14851f2"
+  },
+  {
+    "name": "dart-sdk/lib/core/duration.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "220ad00b53a59d6203297caa0ab75b900ee065059d954914a91482f3af475bd5",
+    "local_sha256": "220ad00b53a59d6203297caa0ab75b900ee065059d954914a91482f3af475bd5"
+  },
+  {
+    "name": "dart-sdk/lib/core/enum.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "0d17ff43065f756739672fb20e786b8952f3942220a6446dd5269ae278d94a37",
+    "local_sha256": "0d17ff43065f756739672fb20e786b8952f3942220a6446dd5269ae278d94a37"
+  },
+  {
+    "name": "dart-sdk/lib/core/errors.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "19d3f3d44ced51d6eae9cb89af01fa1c5ea25bdb77dab58810ccfb52d7fa38cf",
+    "local_sha256": "19d3f3d44ced51d6eae9cb89af01fa1c5ea25bdb77dab58810ccfb52d7fa38cf"
+  },
+  {
+    "name": "dart-sdk/lib/core/exceptions.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "33083793accdcee6966ea91cb91c3f20939f2a60da9dab3da2dc7758c9a6dc2d",
+    "local_sha256": "33083793accdcee6966ea91cb91c3f20939f2a60da9dab3da2dc7758c9a6dc2d"
+  },
+  {
+    "name": "dart-sdk/lib/core/function.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "d6d3db0efec632a6453b9130efbc187319810887417cecd87e465171cee84d2e",
+    "local_sha256": "d6d3db0efec632a6453b9130efbc187319810887417cecd87e465171cee84d2e"
+  },
+  {
+    "name": "dart-sdk/lib/core/identical.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "3e32eae09f55e091114097a15148729af74644558b7c73b2e54895fc69d0e976",
+    "local_sha256": "3e32eae09f55e091114097a15148729af74644558b7c73b2e54895fc69d0e976"
+  },
+  {
+    "name": "dart-sdk/lib/core/int.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "eecad05be1faab4d6e612a6daa25b8cc8cf8034517727ce981f6cdff8f4bde41",
+    "local_sha256": "eecad05be1faab4d6e612a6daa25b8cc8cf8034517727ce981f6cdff8f4bde41"
+  },
+  {
+    "name": "dart-sdk/lib/core/invocation.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "b7e7f82f8fc8a2cc204ff61ad6ff2a9b4807cf2f9ff7a7e069851cb74c2a16bd",
+    "local_sha256": "b7e7f82f8fc8a2cc204ff61ad6ff2a9b4807cf2f9ff7a7e069851cb74c2a16bd"
+  },
+  {
+    "name": "dart-sdk/lib/core/iterable.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "2ef33f0f8cca8ad7450a100e4e692b0f747be04219318e521945b232b4099d8d",
+    "local_sha256": "2ef33f0f8cca8ad7450a100e4e692b0f747be04219318e521945b232b4099d8d"
+  },
+  {
+    "name": "dart-sdk/lib/core/iterator.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "bec62a98fae91159780c3ad4818ae091ffc525b3a8983a3a1576c602e705e63b",
+    "local_sha256": "bec62a98fae91159780c3ad4818ae091ffc525b3a8983a3a1576c602e705e63b"
+  },
+  {
+    "name": "dart-sdk/lib/core/list.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "e9e295d337d554d61e64d7d607d8c24a43d9383274b44957cd5604001b11f257",
+    "local_sha256": "e9e295d337d554d61e64d7d607d8c24a43d9383274b44957cd5604001b11f257"
+  },
+  {
+    "name": "dart-sdk/lib/core/map.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "6c9e953ef0a41cad1079102935172f1f977dc340f165b6c7d7cb5a65deae67fe",
+    "local_sha256": "6c9e953ef0a41cad1079102935172f1f977dc340f165b6c7d7cb5a65deae67fe"
+  },
+  {
+    "name": "dart-sdk/lib/core/null.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "dfdbcd8446aabdc6a4788d9c74d5af1d61dcb8cc04d4df2aabcf6d065f3dbbe1",
+    "local_sha256": "dfdbcd8446aabdc6a4788d9c74d5af1d61dcb8cc04d4df2aabcf6d065f3dbbe1"
+  },
+  {
+    "name": "dart-sdk/lib/core/num.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "6f08a3b482f72841f22b67d087065e71de84638db86d3a8a2a234c2cdd929b61",
+    "local_sha256": "6f08a3b482f72841f22b67d087065e71de84638db86d3a8a2a234c2cdd929b61"
+  },
+  {
+    "name": "dart-sdk/lib/core/object.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "fa3f097f9db410a75572bcaf18d81c42644c65de3b6fba83e40bc19b445dd0af",
+    "local_sha256": "fa3f097f9db410a75572bcaf18d81c42644c65de3b6fba83e40bc19b445dd0af"
+  },
+  {
+    "name": "dart-sdk/lib/core/pattern.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "97b91a7676968c19d2c41f52a7385fdc1a272e9af86aafc348a079b39445e329",
+    "local_sha256": "97b91a7676968c19d2c41f52a7385fdc1a272e9af86aafc348a079b39445e329"
+  },
+  {
+    "name": "dart-sdk/lib/core/print.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "9c038eefc7336c18a64d34541dd515de0f89d83633751900341108c2c883e0e0",
+    "local_sha256": "9c038eefc7336c18a64d34541dd515de0f89d83633751900341108c2c883e0e0"
+  },
+  {
+    "name": "dart-sdk/lib/core/record.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "ecec343607d6afd7e8473b94e72331c10525cd6bd0ac26a4ab3fd6c5f92a24ad",
+    "local_sha256": "ecec343607d6afd7e8473b94e72331c10525cd6bd0ac26a4ab3fd6c5f92a24ad"
+  },
+  {
+    "name": "dart-sdk/lib/core/regexp.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "609d769456c7a0b1d237fa68c8fd93f7f676fe47c6cc22310bbe25739a18c853",
+    "local_sha256": "609d769456c7a0b1d237fa68c8fd93f7f676fe47c6cc22310bbe25739a18c853"
+  },
+  {
+    "name": "dart-sdk/lib/core/set.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "c7a754fb61b3a3ecb72053f5caf47e203e2e0c85b0e61bbc644cb39a0cbf3d54",
+    "local_sha256": "c7a754fb61b3a3ecb72053f5caf47e203e2e0c85b0e61bbc644cb39a0cbf3d54"
+  },
+  {
+    "name": "dart-sdk/lib/core/sink.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "a644fbc305c51269794d0fb44bdabce3a3a31f62e2ec21786bfc8cc61334e842",
+    "local_sha256": "a644fbc305c51269794d0fb44bdabce3a3a31f62e2ec21786bfc8cc61334e842"
+  },
+  {
+    "name": "dart-sdk/lib/core/stacktrace.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "eb4529dacb2072a18a3315edbc3b8d1558643e3bde263bd7a90282039d7fe27b",
+    "local_sha256": "eb4529dacb2072a18a3315edbc3b8d1558643e3bde263bd7a90282039d7fe27b"
+  },
+  {
+    "name": "dart-sdk/lib/core/stopwatch.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "bb12fac0c5ed2e3736453249f696034bfb0f41bfc61d177a445314f0865bf914",
+    "local_sha256": "bb12fac0c5ed2e3736453249f696034bfb0f41bfc61d177a445314f0865bf914"
+  },
+  {
+    "name": "dart-sdk/lib/core/string.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "2422e4cdad81ad7f0a80b4e6171e3c87418daaa44935f9fa6ff8c7ef21531540",
+    "local_sha256": "2422e4cdad81ad7f0a80b4e6171e3c87418daaa44935f9fa6ff8c7ef21531540"
+  },
+  {
+    "name": "dart-sdk/lib/core/string_buffer.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "36f59e47d3f2ee8f3e2ccdc502fa206f3bf8c63adce89f4f9b7dbd68113631e6",
+    "local_sha256": "36f59e47d3f2ee8f3e2ccdc502fa206f3bf8c63adce89f4f9b7dbd68113631e6"
+  },
+  {
+    "name": "dart-sdk/lib/core/string_sink.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "c1670ca3ab672332610c41e4ffbd9082ce2077186b14c77232aca1a31ef3c49e",
+    "local_sha256": "c1670ca3ab672332610c41e4ffbd9082ce2077186b14c77232aca1a31ef3c49e"
+  },
+  {
+    "name": "dart-sdk/lib/core/symbol.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "e984c9c20cba5a90320b957212986a703061ca52c51e0a9f43454a21c8c8145b",
+    "local_sha256": "e984c9c20cba5a90320b957212986a703061ca52c51e0a9f43454a21c8c8145b"
+  },
+  {
+    "name": "dart-sdk/lib/core/type.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "893eb5ca97d87c2ef4102f99ce822088ac6b2a096644a722db7bd34353e61781",
+    "local_sha256": "893eb5ca97d87c2ef4102f99ce822088ac6b2a096644a722db7bd34353e61781"
+  },
+  {
+    "name": "dart-sdk/lib/core/uri.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "afa38eb505da98fb0ae06512fddb3c75253e1184448867c4cab07ab130460a79",
+    "local_sha256": "afa38eb505da98fb0ae06512fddb3c75253e1184448867c4cab07ab130460a79"
+  },
+  {
+    "name": "dart-sdk/lib/core/weak.dart",
+    "equal": true,
+    "windows_crlf": 0,
+    "local_crlf": 0,
+    "windows_sha256": "8da256180df6669f8d386d84d53eb8c0e37f8eee43b69fbae7041d90642550eb",
+    "local_sha256": "8da256180df6669f8d386d84d53eb8c0e37f8eee43b69fbae7041d90642550eb"
+  }
+]

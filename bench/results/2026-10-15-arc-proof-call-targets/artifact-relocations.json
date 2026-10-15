@@ -7853,5 +7853,5 @@
   ],
   "file_count": 1510,
   "bytes_preserved": 42689031,
-  "replay": "Original generation commands and exact mode/level/path/control records are retained in validation/result.json and validation/<example>/evidence.json; run in a fresh output directory/worktree. Relocation records tie archived bytes and decompressed IR to original manifest SHA256 values."
+  "replay": "validate.py is the exact executed driver and deliberately refuses an existing validation/ output directory. Rename/archive the retained validation/ metadata directory before rerunning it, or execute original generation commands from validation/result.json and validation/<example>/evidence.json with fresh target proof output directories. Relocation records bind local archived byte hashes and decompressed IR hashes to original proof manifests."
 }

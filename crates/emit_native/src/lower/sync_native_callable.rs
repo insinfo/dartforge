@@ -144,7 +144,7 @@ mod tests {
             let directory = tempfile::tempdir().unwrap();
             let package = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/dartforge").canonicalize().unwrap();
             let config = directory.path().join("packages.json");
-            std::fs::write(&config, serde_json::json!({"configVersion": 2, "packages": [{"name": "dartforge", "rootUri": format!("file://{}/", package.display()), "packageUri": "lib/", "languageVersion": "3.6"}]}).to_string()).unwrap();
+            std::fs::write(&config, serde_json::json!({"configVersion": 2, "packages": [{"name": "dartforge", "rootUri": url::Url::from_directory_path(&package).unwrap().as_str(), "packageUri": "lib/", "languageVersion": "3.6"}]}).to_string()).unwrap();
             let entry = directory.path().join("main.dart");
             std::fs::write(&entry, "import 'dart:ffi'; import 'package:dartforge/src/sync_native_callable.dart'; typedef Mixed = Double Function(Pointer<Void>, Float, Double); SyncNativeCallable<T> make<T extends Function>(Function callback) => SyncNativeCallable<T>(callback, exceptionalReturn: 17, queueTimeout: const Duration(microseconds: 731)); void main() { print(SyncNativeCallable.isSupported); final a = make<Int32 Function(Int32)>((int value) => value + 1); final b = make<Mixed>((Pointer<Void> p, double f, double d) => f + d); a.close(); b.close(); }").unwrap();
             let module = lower(&entry, &config);

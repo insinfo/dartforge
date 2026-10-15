@@ -1,0 +1,19 @@
+{
+  "exit": 0,
+  "passed": 8,
+  "failed": 0,
+  "ignored": 1,
+  "sources_unchanged": true,
+  "source_after_sha256": {
+    "crates/emit_native/src/lower/double_identity/tests.rs": "e115a569ca59b80cf26d01b6626b95d7e796cf2186722764d68a4997995f5321",
+    "crates/emit_native/src/lower/double_identity/selected_sdk.rs": "ad04c6186f233d951f190ffe29d66df4e642c38808ac0ef9d9c5688af97d96d8",
+    "crates/emit_native/src/lower/double_identity/selected_sdk_manifest.json": "76b49477f8528de8ddd079a993829d391aef06f8fa077df16419b59e414a5abc"
+  },
+  "groups": {
+    "double_identity": 4,
+    "primitive_multiply": 2,
+    "primitive_clamp": 2
+  },
+  "negative_controls": "Modified selected SDK identity/ambient observers/multiply/clamp bodies and native alias exposures continue to deny certification",
+  "compiler_test_binary_sha256": "65959e69f4569755fa2ef7ba5a843b40629481cc01b7610fc02100aa608b70a1"
+}

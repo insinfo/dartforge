@@ -52,16 +52,83 @@ fn with_entry_context(
     action(&mut context);
 }
 
+fn assert_canonical_certificate(ctx: &Context) {
+    if certified(ctx) {
+        return;
+    }
+    let manifest: serde_json::Value =
+        serde_json::from_str(include_str!("selected_sdk_manifest.json")).unwrap();
+    eprintln!(
+        "selected SDK certificate rejected: core expected={} actual={:?}; trusted_sources={} canonical_hash_binding={}",
+        manifest["core_fingerprint"].as_str().unwrap(),
+        selected_sdk::core_fingerprint(ctx),
+        selected_sdk::trusted_sources(ctx),
+        selected_sdk::canonical_hash_binding(ctx)
+    );
+    if selected_sdk::core_fingerprint(ctx).as_deref() != manifest["core_fingerprint"].as_str() {
+        if let Some(core) = ctx.program.core {
+            let library = ctx.program.library(core);
+            for (ordinal, id) in library.units.iter().enumerate() {
+                let unit = ctx.program.unit(*id);
+                eprintln!(
+                    "selected core graph: ordinal={ordinal} unit={id:?} role={:?} uri={} logical_path={:?} parent={:?}",
+                    unit.role,
+                    unit.uri,
+                    unit.path,
+                    library.unit_parents.get(id)
+                );
+            }
+        }
+    }
+    let expected: std::collections::HashSet<_> = manifest["units"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            (
+                entry["library"].as_str().unwrap(),
+                entry["role"].as_u64().unwrap(),
+                entry["source_blake3"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    for unit in &ctx.program.units {
+        let library = ctx.program.library(unit.library);
+        if !library.is_sdk {
+            continue;
+        }
+        let role = match unit.role {
+            dartforge_elements::model::UnitRole::Library => 1,
+            dartforge_elements::model::UnitRole::Part => 2,
+            dartforge_elements::model::UnitRole::Patch => 3,
+            dartforge_elements::model::UnitRole::Augmentation => 4,
+        };
+        let digest = blake3::hash(unit.source.as_bytes()).to_hex().to_string();
+        if !expected.contains(&(library.uri.as_str(), role, digest.as_str())) {
+            eprintln!(
+                "unreviewed SDK unit: library={} role={role} uri={} source_blake3={digest} bytes={} crlf={} skipped={}",
+                library.uri,
+                unit.uri,
+                unit.source.len(),
+                unit.source
+                    .as_bytes()
+                    .windows(2)
+                    .filter(|bytes| *bytes == b"\r\n")
+                    .count(),
+                unit.skipped.len()
+            );
+        }
+    }
+    panic!("actual canonical SDK declarations must certify");
+}
+
 #[test]
 fn canonical_selected_sdk_certifies_and_modified_identity_hash_fails_closed() {
     std::thread::Builder::new()
         .stack_size(64 << 20)
         .spawn(|| {
             with_context(None, |ctx| {
-                assert!(
-                    certified(ctx),
-                    "actual canonical SDK declarations must certify"
-                );
+                assert_canonical_certificate(ctx);
                 let mut module = crate::lower::lower_program(ctx);
                 assert!(module.checked_double_identity);
                 assert!(module.errors.is_empty(), "{:?}", module.errors);

@@ -1,0 +1,22 @@
+{
+  "exit": 101,
+  "passed": 0,
+  "failed": 4,
+  "ignored": 1,
+  "sources_unchanged": true,
+  "source_after_sha256": {
+    "crates/emit_native/src/lower/double_identity/tests.rs": "e115a569ca59b80cf26d01b6626b95d7e796cf2186722764d68a4997995f5321",
+    "crates/emit_native/src/lower/double_identity/selected_sdk.rs": "ad04c6186f233d951f190ffe29d66df4e642c38808ac0ef9d9c5688af97d96d8",
+    "crates/emit_native/src/lower/double_identity/selected_sdk_manifest.json": "7002ae890f46f650269ec6730adac2c57bb0eb920aa5a2fd9ca53c4f7d1604a1"
+  },
+  "root_cause": {
+    "library": "dart:isolate",
+    "role": 3,
+    "unit": "dart:isolate#patch_isolate_patch.dart",
+    "core_fingerprint_unchanged": true,
+    "canonical_hash_binding": true,
+    "unreviewed_source_blake3": "36d8217678572b72478303ce1e1120e966147091b180e897583cc75792315508",
+    "overlay_change_commit": "6c032b02115fc234b88685234e608d48bd54ca37",
+    "change": "Nullable package URI behavior overlay not added to reviewed source manifest"
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "commands": [
+    [
+      "cargo",
+      "test",
+      "--locked",
+      "-j2",
+      "-p",
+      "dartforge-emit-native",
+      "--lib",
+      "selected_source_cache_tests",
+      "--",
+      "--test-threads=2",
+      "--nocapture"
+    ],
+    [
+      "cargo",
+      "test",
+      "--locked",
+      "-j2",
+      "-p",
+      "dartforge-emit-native",
+      "--lib",
+      "real_package_creation_preserves_generic_timeout_and_native_signatures",
+      "--",
+      "--test-threads=2",
+      "--nocapture"
+    ],
+    [
+      "cargo",
+      "test",
+      "--locked",
+      "-j2",
+      "-p",
+      "dartforge-emit-native",
+      "--lib",
+      "versioned_package_body_is_native_but_arbitrary_pragmas_are_not",
+      "--",
+      "--test-threads=2",
+      "--nocapture"
+    ]
+  ],
+  "source": "9446fe12715d8e89a51dd5a95b64badb979fb25a",
+  "environment": {
+    "CARGO_TARGET_DIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build",
+    "DARTFORGE_TEST_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+    "RUSTFLAGS": "-C link-arg=-fuse-ld=lld -C link-arg=-isysroot -C link-arg=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+    "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/allocation-closure-hardening-tmp"
+  },
+  "runs": [
+    {
+      "filter": "selected_source_cache_tests",
+      "exit_code": 0,
+      "seconds": 102.26554822921753,
+      "log": "tests-0.log"
+    },
+    {
+      "filter": "real_package_creation_preserves_generic_timeout_and_native_signatures",
+      "exit_code": 0,
+      "seconds": 0.6181719303131104,
+      "log": "tests-1.log"
+    },
+    {
+      "filter": "versioned_package_body_is_native_but_arbitrary_pragmas_are_not",
+      "exit_code": 0,
+      "seconds": 51.8965699672699,
+      "log": "tests-2.log"
+    }
+  ],
+  "source_unchanged": true,
+  "passed": true,
+  "scope": "Local SDK3.6.2 source-cache and package intrinsic regression tests; Windows resolution requires actual remote execution.",
+  "counterexample": "../sdk-key-symlink-counterexample.log"
+}

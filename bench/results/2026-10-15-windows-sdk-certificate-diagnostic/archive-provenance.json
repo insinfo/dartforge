@@ -1,0 +1,10 @@
+{
+  "commit": "9446fe12715d8e89a51dd5a95b64badb979fb25a",
+  "windows_sdk_url": "https://storage.googleapis.com/dart-archive/channels/stable/release/3.6.2/sdk/dartsdk-windows-x64-release.zip",
+  "zip_etag": "1fb6cb4b63124ca7c6e4d4edc3525443",
+  "zip_bytes": 222667616,
+  "all_library_dart_json_entries": 428,
+  "all_byte_identical_to_local_selected_sdk": true,
+  "local_sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk",
+  "normalization": null
+}
