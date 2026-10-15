@@ -1,0 +1,447 @@
+{
+  "complete": true,
+  "iterations": 1000000,
+  "orders": [
+    [
+      "off",
+      "on",
+      "official"
+    ],
+    [
+      "official",
+      "on",
+      "off"
+    ],
+    [
+      "off",
+      "on",
+      "official"
+    ]
+  ],
+  "rows": [
+    {
+      "round": 0,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-color-performance-v2/off/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 807.543458,
+      "stdout_sha256": "fb553c6ed3ac82cc2e44a03e9df0e36085913efccc502b5b1aa69d5ab63c1351",
+      "stderr_sha256": "1d6351d2547eed03ad75e21ddd04d18a6063bc23ee7b27fc9f6a79eaf79b8c8c",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        98200,
+        75503,
+        75672,
+        75704,
+        75424
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 11141120,
+      "retained_kernel_median_microseconds": 75587.5
+    },
+    {
+      "round": 0,
+      "profile": "on",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-color-performance-v2/on/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 588.158166,
+      "stdout_sha256": "bba6a28c4c3225e77054a023221808add6153da93a6a36bc6a991985468dd6a1",
+      "stderr_sha256": "1d370e0b08eb99c850e440830cc1875ac011ab7b79319f60c80bd11055b54e2e",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        76929,
+        72053,
+        72015,
+        71904,
+        74867
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10911744,
+      "retained_kernel_median_microseconds": 72034.0
+    },
+    {
+      "round": 0,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-color-performance-v2/official/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 301.482791,
+      "stdout_sha256": "1da65852a84ae4e26a32e054e0963174c7cc3c37540c3b03c8bcca1ba3c00c29",
+      "stderr_sha256": "761f84f9916e813a762f88e155244520819d3e12dfe24e048596a64afbce8aed",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        11067,
+        8903,
+        7617,
+        7007,
+        6615
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 16695296,
+      "retained_kernel_median_microseconds": 7312.0
+    },
+    {
+      "round": 1,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-color-performance-v2/official/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 42.912625,
+      "stdout_sha256": "a0baa18be93836445e53e52c93b7ff831bcfc85708d630ec2a8e4e139afe49fa",
+      "stderr_sha256": "1214ec86f6b4f2fd6ff6b5196ac9d39f175fb9a3ea9e95a150d4d210fc9a1f98",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        6276,
+        6188,
+        6126,
+        5816,
+        6017
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 16515072,
+      "retained_kernel_median_microseconds": 6071.5
+    },
+    {
+      "round": 1,
+      "profile": "on",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-color-performance-v2/on/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 374.468542,
+      "stdout_sha256": "988e1e60a4b1d2460c74a2f1b7d69ea8277b1cefe2b83081f54b417e01176cd8",
+      "stderr_sha256": "0e81a9924d6b9a35b211cd07b66e84ae65e605871ae4f1dc706dcdfd4cf6155f",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        73151,
+        73009,
+        73019,
+        73414,
+        74292
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10911744,
+      "retained_kernel_median_microseconds": 73216.5
+    },
+    {
+      "round": 1,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-color-performance-v2/off/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 386.538333,
+      "stdout_sha256": "abbc5be95c708677dfc39573136ee6ebe46d5d7a61656c14eec5b1e9789d4ec3",
+      "stderr_sha256": "fd1eccc961836c24789c04f586424ccd4014210eeb37bc24a81bf0627d6bbc80",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        75481,
+        75462,
+        75289,
+        75720,
+        76866
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 11059200,
+      "retained_kernel_median_microseconds": 75591.0
+    },
+    {
+      "round": 2,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-color-performance-v2/off/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 387.657208,
+      "stdout_sha256": "9e37843b33c95d6a9b8bb272ea12e161957663da12e2aa7fd7488fd7faca2f3f",
+      "stderr_sha256": "428fb57bd14374e1cd0b0d6175943996dba0305c628e44afb4322a464a3d362b",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        76297,
+        76466,
+        76043,
+        75894,
+        75735
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 11059200,
+      "retained_kernel_median_microseconds": 75968.5
+    },
+    {
+      "round": 2,
+      "profile": "on",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-color-performance-v2/on/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 376.255292,
+      "stdout_sha256": "00aca855cc936a26e3dd83a3b80368948bc04fb0853f1becebde26bbe262e392",
+      "stderr_sha256": "9f87f126e62739e7e95c769d46cbb33f8e0f61376cfc9b6d9dbd6ab8aae4a325",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        73494,
+        73239,
+        73093,
+        74061,
+        74996
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10911744,
+      "retained_kernel_median_microseconds": 73650.0
+    },
+    {
+      "round": 2,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-color-performance-v2/official/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 38.411625,
+      "stdout_sha256": "b3dcfad43b83bfef52c678cd98a25e11c65b1eea6cc7b6e2c5acfe02a827ec54",
+      "stderr_sha256": "bdee3e50feb2616b3a1ff378fa337ef3c3553fbd155f56ff7bc6a29982749246",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        5352,
+        5344,
+        5348,
+        5370,
+        5300
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 16433152,
+      "retained_kernel_median_microseconds": 5346.0
+    }
+  ],
+  "prepared_sha256": "9a323b20a81ed2fe87de572d24d6899758498a9100cc55e19ce6f6de98abefca",
+  "artifacts": {
+    "official": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-color-performance-v2/official/program",
+      "sha256": "5000f4afa15e64928f64968b3ed04c75709bec303ec6314d5e74127355c05ad1",
+      "bytes": 5329888
+    },
+    "off": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-color-performance-v2/off/program",
+      "sha256": "2f1fd0ca67d96f3a2be8d96b1daf90fe1542f74bb04263eea7c45e5525ce0b95",
+      "bytes": 3268880,
+      "ir": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-color-performance-v2/off/.df_tmp/program.ll",
+        "sha256": "2e1e4a9f36efafbd83e4c8897480108ca36fe5e3ae423b0ac050532948ea0192",
+        "bytes": 1020619,
+        "all_defined_bodies": {
+          "selector_calls": 98,
+          "indirect_selector_calls": 97,
+          "runtime_dynamic_operator_calls": 0,
+          "primitive_class_guards": 69,
+          "box_int_calls": 224,
+          "box_double_calls": 3,
+          "exception_clear_calls": 93,
+          "conditional_branches": 960
+        },
+        "focused_functions": {
+          "define i64 @df.color_numeric_performance$2edart..convertPixels(i64 %v0, i64 %v3) noinline nounwind {": {
+            "selector_calls": 3,
+            "indirect_selector_calls": 3,
+            "runtime_dynamic_operator_calls": 0,
+            "primitive_class_guards": 1,
+            "box_int_calls": 3,
+            "box_double_calls": 1,
+            "exception_clear_calls": 1,
+            "conditional_branches": 18
+          },
+          "define i64 @df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue(i64 %v0, i64 %v3, i64 %v6) nounwind {": {
+            "selector_calls": 88,
+            "indirect_selector_calls": 88,
+            "runtime_dynamic_operator_calls": 0,
+            "primitive_class_guards": 65,
+            "box_int_calls": 218,
+            "box_double_calls": 0,
+            "exception_clear_calls": 92,
+            "conditional_branches": 778
+          }
+        },
+        "scope": "Pre-LTO static IR sites, including guarded slow branches; these are not executed call counts."
+      }
+    },
+    "on": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-color-performance-v2/on/program",
+      "sha256": "82cacadd59d17a2b9f040bd322055732bb7ad16bb60f233c82f801510653a6a8",
+      "bytes": 3235808,
+      "ir": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-color-performance-v2/on/.df_tmp/program.ll",
+        "sha256": "2b792a0c4f5f0216bf76c99ff035e08aaa63477252ca67e45883d6394a4ea611",
+        "bytes": 662764,
+        "all_defined_bodies": {
+          "selector_calls": 14,
+          "indirect_selector_calls": 13,
+          "runtime_dynamic_operator_calls": 0,
+          "primitive_class_guards": 6,
+          "box_int_calls": 15,
+          "box_double_calls": 3,
+          "exception_clear_calls": 3,
+          "conditional_branches": 152
+        },
+        "focused_functions": {
+          "define i64 @df.color_numeric_performance$2edart..convertPixels(i64 %v0, i64 %v3) noinline nounwind {": {
+            "selector_calls": 3,
+            "indirect_selector_calls": 3,
+            "runtime_dynamic_operator_calls": 0,
+            "primitive_class_guards": 1,
+            "box_int_calls": 3,
+            "box_double_calls": 1,
+            "exception_clear_calls": 1,
+            "conditional_branches": 18
+          }
+        },
+        "scope": "Pre-LTO static IR sites, including guarded slow branches; these are not executed call counts."
+      }
+    }
+  },
+  "scope": "Three alternating fresh processes per profile. First of five kernel samples discarded; process wall/RSS includes all five. No other builds or timing workloads should run during this command.",
+  "oracle": {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric_performance.dart",
+      "1000000"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "11ef1fd095773589b15692b84fdc2686a05bf12d9ee5865eb6cfd72c87244c92",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "expected_checksum": 126625349,
+  "medians": {
+    "off": {
+      "kernel_microseconds": 75712.0,
+      "process_kernel_medians_microseconds": [
+        75587.5,
+        75591.0,
+        75968.5
+      ],
+      "wall_ms": 387.657208,
+      "max_rss_bytes": 11059200
+    },
+    "on": {
+      "kernel_microseconds": 73166.0,
+      "process_kernel_medians_microseconds": [
+        72034.0,
+        73216.5,
+        73650.0
+      ],
+      "wall_ms": 376.255292,
+      "max_rss_bytes": 10911744
+    },
+    "official": {
+      "kernel_microseconds": 6071.5,
+      "process_kernel_medians_microseconds": [
+        7312.0,
+        6071.5,
+        5346.0
+      ],
+      "wall_ms": 42.912625,
+      "max_rss_bytes": 16515072
+    }
+  },
+  "paired_on_over_off_kernel_ratios": [
+    0.9529882586406483,
+    0.9685875302615391,
+    0.9694807716356121
+  ],
+  "inputs_unchanged": true,
+  "artifacts_unchanged": true
+}

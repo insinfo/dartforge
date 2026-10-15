@@ -57,6 +57,30 @@ fn pattern_enum_class(
     (declaration.constants.get(index)?.name.sym == value.name).then_some(cid)
 }
 
+/// Certifies only declaration shape; the optimizer still audits current bodies.
+pub(super) fn simple_enum_constant(ctx: &Context, variable: VariableId) -> Option<crate::hir::SimpleEnumConstant> {
+    let value = ctx.program.variable(variable);
+    let VariableRef::EnumConstant { unit, decl, index } = value.node else { return None; };
+    let class_id = value.class?;
+    let class = ctx.program.class(class_id);
+    let declaration = class.decl?;
+    if declaration.unit != unit || declaration.decl != decl || value.library != class.library
+        || class.enum_constants.get(index) != Some(&variable)
+        || !ctx.enum_pattern_identity_enabled || !enum_identity_operator(ctx, class_id) { return None; }
+    let DeclKind::Enum(ast) = &ctx.program.unit(unit).ast.decl(decl).kind else { return None; };
+    if !ast.type_params.is_empty() || !ast.with.is_empty() || !ast.implements.is_empty()
+        || !ast.members.is_empty() || ast.primary_constructor.is_some()
+        || ast.constants.iter().any(|constant| !constant.type_args.is_empty() || constant.constructor.is_some()
+            || constant.arguments.as_ref().is_some_and(|arguments| !arguments.args.is_empty()))
+        || ast.constants.get(index)?.name.sym != value.name { return None; }
+    Some(crate::hir::SimpleEnumConstant {
+        library_uri: ctx.program.library(class.library).uri.clone(), unit_uri: ctx.program.unit(unit).uri.clone(),
+        owner: ctx.symbol_name(class.name).to_string(), declaration: decl.0, index,
+        name: ctx.symbol_name(value.name).to_string(), class_id: ctx.class_id_of(class_id)?,
+        getter: super::global_symbol(ctx, variable), global: super::global_value_symbol(ctx, variable), root: variable.0,
+    })
+}
+
 /// Missing synthetic enum ancestry is not evidence that the SDK kept identity.
 /// Verify both implicit SDK classes and the actual patched Object operator.
 fn enum_identity_operator(ctx: &Context, cid: ClassId) -> bool {

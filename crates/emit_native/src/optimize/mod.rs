@@ -34,6 +34,8 @@ mod tests;
 mod pre_prune_tests;
 mod physical_devirtualize;
 mod checked_double_roundtrip;
+mod constant_specialize;
+pub(crate) mod enum_constants;
 mod scalar_coalesce;
 
 use crate::hir::*;
@@ -47,6 +49,17 @@ pub(crate) fn prepare_for_pruning(module: &mut Module) {
     }
     prune_constant_cfg(module);
 }
+
+/// Specialize bounded constant contexts after the first reachability pruning.
+/// Dead native adapters must be removed before constructing enum identity proofs.
+/// This runs before effect summaries can remove pending-exception checks.
+pub(crate) fn specialize_constants(module: &mut Module, requested_table_exceptions: bool) -> usize {
+    if disabled() || requested_table_exceptions {
+        return 0;
+    }
+    constant_specialize::rewrite(module)
+}
+
 
 fn prune_constant_cfg(module: &mut Module) {
     for function in &mut module.functions {

@@ -1,0 +1,31 @@
+{
+  "exit_code": 101,
+  "log_sha256": "f954b0e9c3e0b80101ec3b26170385cfa7f37160203f579c43e9f7ed7e86a72c",
+  "source_fixture": "bench/comparison/color_numeric_performance.dart",
+  "package_configuration": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+  "selected_sdk_class_ids": true,
+  "reachability_stage": "pruning::prune_hir with empty external summaries; same signature/FFI recipe fixpoint, imported external summary differences not modeled",
+  "lowered_target_size": 4687,
+  "cleaned_target_size": 4441,
+  "target_branches": 714,
+  "target_budget": 4000,
+  "certified_argument_tokens": [
+    {
+      "owner": "Format",
+      "name": "float32",
+      "index": 10
+    },
+    {
+      "owner": "Format",
+      "name": "uint8",
+      "index": 3
+    }
+  ],
+  "folded_identity_comparisons": 121,
+  "reduced_clone_size": 193,
+  "reduced_clone_branches": 31,
+  "postfold_growth_limit": 2048,
+  "postfold_reduction_ratio_pass": true,
+  "accepted_clones": 0,
+  "exact_rejection": "Target body exceeds MAX_BODY before constructing a reduced enum-context clone."
+}

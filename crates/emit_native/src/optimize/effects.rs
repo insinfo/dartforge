@@ -74,7 +74,10 @@ pub fn do_not_throw(module: &Module) -> HashSet<String> {
         .functions
         .iter()
         .enumerate()
-        .filter(|(k, f)| recursive[*k] || canonical_cache_getter(f) || function_throws(f, &all))
+        .filter(|(k, f)| recursive[*k] || canonical_cache_getter(f)
+            || super::constant_specialize::is_specialized_symbol(&f.symbol)
+            || module.simple_enum_constants.contains_key(&f.symbol)
+            || function_throws(f, &all))
         .map(|(k, _)| k)
         .collect();
     while let Some(k) = queue.pop() {

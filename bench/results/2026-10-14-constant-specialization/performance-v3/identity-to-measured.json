@@ -1,0 +1,11 @@
+{
+  "current_producer": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-producer-v3/dartforge",
+  "artifact_identity_to_measured_v2": {
+    "official": true,
+    "off": true,
+    "on": true
+  },
+  "measured_evidence": "../performance-v2/measurement.json",
+  "measurement_sha256": "32c7640cf9774e4f437bc890e49d319b1d67d8d5bf9b46361d230f00344bbb14",
+  "scope": "Test-only portability adjustment changed compiler fingerprint. Fresh compiler and SDK cache produce byte-identical executable artifacts; timing evidence applies by exact binary identity. No additional timing run."
+}

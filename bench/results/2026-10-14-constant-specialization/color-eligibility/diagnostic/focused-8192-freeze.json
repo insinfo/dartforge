@@ -1,0 +1,24 @@
+{
+  "exit_code": 0,
+  "passed": 9,
+  "failed": 0,
+  "source_frozen": true,
+  "source_sha256": {
+    "crates/emit_native/src/optimize/constant_specialize.rs": "d628a2fb77ee053d229660086739e7593264c94d9b6d20d168643873f4901f3d",
+    "crates/emit_native/src/optimize/constant_specialize/tests.rs": "7a1c21a3f2ec412c0f8d8dece4bb2e8fa95319c5475def7c3a304e4e65a51c00",
+    "crates/emit_native/src/optimize/mod.rs": "8ec0184700d025e579bc3bc0f7e404b37352c11f80873b60ff4d35feb0777995",
+    "crates/emit_native/src/lib.rs": "bb3d58a241f7155c71d2d605b27a2f405b1281553403805222218cc00151426d",
+    "crates/emit_native/src/optimize/effects.rs": "d902a8eab88595984619ce82d0cdc9ae5c7a31e19c5a4d4f78e41e5adccc524d"
+  },
+  "log_sha256": "e4c92c2d5f5839bdfaf0250117cd7bee178de238b6241f9887d7968f4686f063",
+  "input_analysis_limit": 8192,
+  "existing_inline_caller_limit": 4000,
+  "postfold_growth_limit": 2048,
+  "actual_color_target_size": 4441,
+  "actual_color_accepted_clones": 1,
+  "actual_color_reduced_clone_size": 193,
+  "actual_color_folded_identity_comparisons": 121,
+  "actual_color_branches_before": 714,
+  "actual_color_branches_after": 31,
+  "limitation": "Focused post-prune HIR test uses empty external summaries. Final ordinary CLI and native correctness/performance validation remain required."
+}

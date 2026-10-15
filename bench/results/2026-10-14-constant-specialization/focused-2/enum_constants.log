@@ -1,0 +1,22 @@
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 3 tests
+test optimize::enum_constants::tests::guarded_success_tokens_are_body_bound_and_fold_only_identity ... ok
+test optimize::enum_constants::tests::writer_marker_shape_aliases_and_unsuccessful_use_are_unknown ... ok
+actual enum main HIR blocks=18 certified getters=2
+test optimize::enum_constants::tests::ordinary_simple_enum_lowering_certifies_current_getter_and_rejects_enhanced_shape ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 721 filtered out; finished in 0.42s
+

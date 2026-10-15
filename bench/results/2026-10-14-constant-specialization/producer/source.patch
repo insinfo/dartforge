@@ -1,0 +1,2046 @@
+diff --git a/crates/emit_native/src/hir.rs b/crates/emit_native/src/hir.rs
+index bbb417b4..0c1ae993 100644
+--- a/crates/emit_native/src/hir.rs
++++ b/crates/emit_native/src/hir.rs
+@@ -258,6 +258,22 @@ impl FieldDeclaration {
+     }
+ }
+ 
++/// Lowering premise for a resolved, simple enum declaration with certified equality.
++/// Consumers must separately audit the current getter/cache bodies and all writers.
++#[derive(Debug, Clone, PartialEq, Eq, Hash)]
++pub(crate) struct SimpleEnumConstant {
++    pub(crate) library_uri: String,
++    pub(crate) unit_uri: String,
++    pub(crate) owner: String,
++    pub(crate) declaration: u32,
++    pub(crate) index: usize,
++    pub(crate) name: String,
++    pub(crate) class_id: u32,
++    pub(crate) getter: String,
++    pub(crate) global: String,
++    pub(crate) root: u32,
++}
++
+ /// Instructions that produce a value (or perform a write effect).
+ #[derive(Debug, Clone)]
+ pub enum Instruction {
+@@ -1195,6 +1211,8 @@ pub struct Module {
+     /// symbol of the value `dfg.<path>`); the initialization flag is
+     /// `<symbol>$ok`.
+     pub globals: Vec<(u32, Type, String)>,
++    /// Enum declaration premises, not canonical value or successful-return certificates.
++    pub(crate) simple_enum_constants: std::collections::HashMap<String, SimpleEnumConstant>,
+     /// Constructs that the lowering cannot lower (N1). Non-empty = the
+     /// program does not compile; the emitter produces only the message.
+     pub errors: Vec<String>,
+diff --git a/crates/emit_native/src/lib.rs b/crates/emit_native/src/lib.rs
+index b5a5dddd..06ceea25 100644
+--- a/crates/emit_native/src/lib.rs
++++ b/crates/emit_native/src/lib.rs
+@@ -472,6 +472,7 @@ fn emit_ir_internal(
+     if !hir_module.errors.is_empty() {
+         return Err(compile_error(&hir_module.errors));
+     }
++    hir_module.arc_fixed_ancestry = prune;
+     // 2a. Pruning of the HIR of the program through the graph of symbols and selectors with
+     // the SDK summaries (`pruning::prune_hir`): what the production link would
+     // remove later leaves before optimizing and emitting. Not in the JIT (the next
+@@ -493,12 +494,16 @@ fn emit_ir_internal(
+                 t_prune.elapsed()
+             );
+         }
++        if optimize::specialize_constants(&mut hir_module, table_exceptions) > 0 {
++            // New bodies and folded branches change reachability. Reuse the
++            // same SDK summaries before computing effect or escape facts.
++            prune_program_hir(&mut hir_module, options.optimize, &sdk_dir)?;
++        }
+     }
+     // 2b. HIR optimization (inlining, scalar replacement: `optimize/`).
+     let t_optimize = Instant::now();
+     // The same pipeline prepares the SDK libraries and materializes tables
+     // only after the HIR transformations.
+-    hir_module.arc_fixed_ancestry = prune;
+     optimize::prepare_for_emission(&mut hir_module, arc_memory, table_exceptions);
+     // The published ARC preparation (`DARTFORGE_ARC_PREPARED=1`): the program
+     // alone, calling the prepared SDK (`sdk_module`, the same option in the
+diff --git a/crates/emit_native/src/lower/enums.rs b/crates/emit_native/src/lower/enums.rs
+index 4e5d9d85..76638316 100644
+--- a/crates/emit_native/src/lower/enums.rs
++++ b/crates/emit_native/src/lower/enums.rs
+@@ -57,6 +57,30 @@ fn pattern_enum_class(
+     (declaration.constants.get(index)?.name.sym == value.name).then_some(cid)
+ }
+ 
++/// Certifies only declaration shape; the optimizer still audits current bodies.
++pub(super) fn simple_enum_constant(ctx: &Context, variable: VariableId) -> Option<crate::hir::SimpleEnumConstant> {
++    let value = ctx.program.variable(variable);
++    let VariableRef::EnumConstant { unit, decl, index } = value.node else { return None; };
++    let class_id = value.class?;
++    let class = ctx.program.class(class_id);
++    let declaration = class.decl?;
++    if declaration.unit != unit || declaration.decl != decl || value.library != class.library
++        || class.enum_constants.get(index) != Some(&variable)
++        || !ctx.enum_pattern_identity_enabled || !enum_identity_operator(ctx, class_id) { return None; }
++    let DeclKind::Enum(ast) = &ctx.program.unit(unit).ast.decl(decl).kind else { return None; };
++    if !ast.type_params.is_empty() || !ast.with.is_empty() || !ast.implements.is_empty()
++        || !ast.members.is_empty() || ast.primary_constructor.is_some()
++        || ast.constants.iter().any(|constant| !constant.type_args.is_empty() || constant.constructor.is_some()
++            || constant.arguments.as_ref().is_some_and(|arguments| !arguments.args.is_empty()))
++        || ast.constants.get(index)?.name.sym != value.name { return None; }
++    Some(crate::hir::SimpleEnumConstant {
++        library_uri: ctx.program.library(class.library).uri.clone(), unit_uri: ctx.program.unit(unit).uri.clone(),
++        owner: ctx.symbol_name(class.name).to_string(), declaration: decl.0, index,
++        name: ctx.symbol_name(value.name).to_string(), class_id: ctx.class_id_of(class_id)?,
++        getter: super::global_symbol(ctx, variable), global: super::global_value_symbol(ctx, variable), root: variable.0,
++    })
++}
++
+ /// Missing synthetic enum ancestry is not evidence that the SDK kept identity.
+ /// Verify both implicit SDK classes and the actual patched Object operator.
+ fn enum_identity_operator(ctx: &Context, cid: ClassId) -> bool {
+diff --git a/crates/emit_native/src/lower/enums/pattern_identity_tests.rs b/crates/emit_native/src/lower/enums/pattern_identity_tests.rs
+index 89b44210..c64ca52f 100644
+--- a/crates/emit_native/src/lower/enums/pattern_identity_tests.rs
++++ b/crates/emit_native/src/lower/enums/pattern_identity_tests.rs
+@@ -136,6 +136,7 @@ fn changed_sdk_object_body_native_and_implicit_enum_member_fail_closed() {
+                 assert!(!enum_identity_operator(context, ClassId(cid as u32)), "SDK mutation must invalidate identity proof: {edit:?}");
+                 let module = crate::lower::lower_program(context);
+                 assert!(selector_count(&module, "direct") > 0, "altered SDK must retain the generic path");
++                assert!(module.simple_enum_constants.is_empty(), "altered SDK equality must not export symbolic enum premises: {edit:?}");
+             });
+         }
+     }).unwrap().join().unwrap();
+diff --git a/crates/emit_native/src/lower/mod.rs b/crates/emit_native/src/lower/mod.rs
+index 7c960ae6..8bdd8d54 100644
+--- a/crates/emit_native/src/lower/mod.rs
++++ b/crates/emit_native/src/lower/mod.rs
+@@ -535,6 +535,14 @@ pub(crate) fn join_arc_facts(dest: &mut Module, origin: &mut Module) {
+     dest.pruning_class_ids.extend(std::mem::take(&mut origin.pruning_class_ids));
+     dest.pruning_ambiguous_class_ids.extend(std::mem::take(&mut origin.pruning_ambiguous_class_ids));
+     dest.inline_policies.extend(std::mem::take(&mut origin.inline_policies));
++    for (getter, premise) in std::mem::take(&mut origin.simple_enum_constants) {
++        match dest.simple_enum_constants.entry(getter) {
++            std::collections::hash_map::Entry::Vacant(entry) => { entry.insert(premise); }
++            // Empty getter is a permanent ambiguity tombstone. A third chunk
++            // cannot revive a declaration whose body ownership already collided.
++            std::collections::hash_map::Entry::Occupied(mut entry) => entry.get_mut().getter.clear(),
++        }
++    }
+     dest.dart_scalar_parameters.extend(std::mem::take(&mut origin.dart_scalar_parameters));
+     dest.dart_rti_parameters.extend(std::mem::take(&mut origin.dart_rti_parameters));
+     dest.dart_vector_parameters.extend(std::mem::take(&mut origin.dart_vector_parameters));
+@@ -983,6 +991,9 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
+             );
+             builder.lower_enum_value(vid);
+             builder.finish(&mut module);
++            if let Some(premise) = enums::simple_enum_constant(ctx, vid) {
++                module.simple_enum_constants.insert(premise.getter.clone(), premise);
++            }
+             continue;
+         }
+         let ty = members::variable_type(ctx, vid);
+diff --git a/crates/emit_native/src/optimize/constant_specialize.rs b/crates/emit_native/src/optimize/constant_specialize.rs
+new file mode 100644
+index 00000000..d4f01d78
+--- /dev/null
++++ b/crates/emit_native/src/optimize/constant_specialize.rs
+@@ -0,0 +1,477 @@
++//! Bounded static-call specialization without changing parameter ABI or evaluation order.
++use super::{mem2reg, operands::*, representation_constants, scc, simplify};
++use crate::hir::*;
++use std::collections::{BTreeMap, HashMap, HashSet};
++
++const MAX_CLONES: usize = 32;
++const MAX_PER_TARGET: usize = 4;
++const MAX_GROWTH: usize = 2048;
++const MAX_BODY: usize = super::inline::CALLER_LIMIT;
++const PREFIX: &str = "df.specialized.";
++
++#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
++enum Scalar {
++    Int(i64),
++    Double(u64),
++    Bool(bool),
++}
++impl Scalar {
++    fn read(value: &Constant, ty: Type) -> Option<Self> {
++        match (value, ty) {
++            (Constant::Int(value), Type::I64) => Some(Self::Int(*value)),
++            (Constant::Double(value), Type::F64) => Some(Self::Double(value.to_bits())),
++            (Constant::Bool(value), Type::I1) => Some(Self::Bool(*value)),
++            _ => None,
++        }
++    }
++    fn operand(&self) -> Operand {
++        Operand::Constant(match self {
++            Self::Int(value) => Constant::Int(*value),
++            Self::Double(bits) => Constant::Double(f64::from_bits(*bits)),
++            Self::Bool(value) => Constant::Bool(*value),
++        })
++    }
++}
++
++#[derive(Clone, PartialEq, Eq)]
++enum Argument {
++    Scalar(Scalar),
++    Enum(super::enum_constants::EnumToken),
++}
++impl Argument {
++    fn key(&self) -> String {
++        match self {
++            Self::Scalar(value) => format!("scalar:{value:?}"),
++            Self::Enum(value) => format!("enum:{}", value.key()),
++        }
++    }
++}
++
++pub(super) fn is_specialized_symbol(symbol: &str) -> bool {
++    symbol.starts_with(PREFIX)
++}
++
++fn size(function: &Function) -> usize {
++    function
++        .blocks
++        .iter()
++        .map(|b| b.instructions.len() + 1)
++        .sum()
++}
++fn branches(function: &Function) -> usize {
++    function
++        .blocks
++        .iter()
++        .filter(|b| {
++            matches!(
++                b.terminator,
++                Terminator::CondBranch { .. } | Terminator::Switch { .. }
++            )
++        })
++        .count()
++}
++fn types(function: &Function) -> Option<HashMap<ValueId, Type>> {
++    if function.blocks.first()?.id != BlockId(0) {
++        return None;
++    }
++    let mut values = HashMap::new();
++    for (value, _, ty) in &function.params {
++        if values.insert(*value, *ty).is_some() {
++            return None;
++        }
++    }
++    let mut blocks = HashSet::new();
++    for block in &function.blocks {
++        if !blocks.insert(block.id) {
++            return None;
++        }
++        for (value, instruction, ty) in &block.instructions {
++            if values
++                .insert(
++                    *value,
++                    crate::llvm::LlvmEmitter::result_type(instruction, *ty),
++                )
++                .is_some()
++            {
++                return None;
++            }
++        }
++    }
++    let mut valid = true;
++    for block in &function.blocks {
++        valid &= super::cfg::successors(&block.terminator)
++            .iter()
++            .all(|id| blocks.contains(id));
++        let mut check = |operand: &Operand| {
++            if let Operand::Val(value) = operand {
++                valid &= values.contains_key(value);
++            }
++        };
++        for (_, instruction, _) in &block.instructions {
++            operands(instruction, &mut check);
++        }
++        terminator_operands(&block.terminator, &mut check);
++    }
++    valid.then_some(values)
++}
++fn literals(function: &Function, types: &HashMap<ValueId, Type>) -> HashMap<ValueId, Scalar> {
++    let mut facts = HashMap::new();
++    for (value, instruction, ty) in function.blocks.iter().flat_map(|b| &b.instructions) {
++        if types.get(value) != Some(ty) {
++            continue;
++        }
++        if let Instruction::Const(constant) = instruction
++            && let Some(value_fact) = Scalar::read(constant, *ty)
++        {
++            facts.insert(*value, value_fact);
++        }
++    }
++    loop {
++        let before = facts.len();
++        for (value, instruction, ty) in function.blocks.iter().flat_map(|b| &b.instructions) {
++            if facts.contains_key(value) || types.get(value) != Some(ty) {
++                continue;
++            }
++            if let Instruction::FNeg(operand) = instruction {
++                let fact = match operand {
++                    Operand::Constant(constant) => Scalar::read(constant, Type::F64),
++                    Operand::Val(value) if types.get(value) == Some(&Type::F64) => {
++                        facts.get(value).cloned()
++                    }
++                    _ => None,
++                };
++                if *ty == Type::F64
++                    && let Some(Scalar::Double(bits)) = fact
++                {
++                    facts.insert(*value, Scalar::Double(bits ^ (1 << 63)));
++                }
++                continue;
++            }
++            let Instruction::Phi {
++                incoming,
++                ty: phi_ty,
++            } = instruction
++            else {
++                continue;
++            };
++            if phi_ty != ty || incoming.is_empty() {
++                continue;
++            }
++            let read = |operand: &Operand| match operand {
++                Operand::Constant(constant) => Scalar::read(constant, *ty),
++                Operand::Val(id) => facts.get(id).and_then(|fact| {
++                    let Operand::Constant(constant) = fact.operand() else {
++                        return None;
++                    };
++                    Scalar::read(&constant, *ty)
++                }),
++            };
++            let Some(first) = read(&incoming[0].1) else {
++                continue;
++            };
++            if incoming
++                .iter()
++                .all(|(_, operand)| read(operand).as_ref() == Some(&first))
++            {
++                facts.insert(*value, first);
++            }
++        }
++        if before == facts.len() {
++            break;
++        }
++    }
++    facts
++}
++fn cleanup(function: &mut Function) {
++    mem2reg::promote(function);
++    representation_constants::propagate_literals(function);
++    simplify::fold_constants(function);
++    simplify::remove_unreachable(function);
++}
++
++/// Appends profitable context-specific bodies and retargets only their proved callsites.
++pub(super) fn rewrite(module: &mut Module) -> usize {
++    if module.arc_memory
++        || module.arc_prepared
++        || module.arc_aot_ports.is_some()
++        || module.sdk_library
++        || module.dwarf
++        || module.table_exceptions
++        || std::env::var("DARTFORGE_CONSTANT_SPECIALIZATION").as_deref() != Ok("1")
++    {
++        return 0;
++    }
++    rewrite_enabled(module)
++}
++fn rewrite_enabled(module: &mut Module) -> usize {
++    if module.arc_memory
++        || module.arc_prepared
++        || module.arc_aot_ports.is_some()
++        || module.sdk_library
++        || module.dwarf
++        || module.table_exceptions
++    {
++        return 0;
++    }
++    for function in &mut module.functions {
++        if function.debug_info.is_none() && types(function).is_some() {
++            cleanup(function);
++        }
++    }
++    let mut index = HashMap::new();
++    for (position, function) in module.functions.iter().enumerate() {
++        index
++            .entry(function.symbol.clone())
++            .and_modify(|entry| *entry = None)
++            .or_insert(Some(position));
++    }
++    let edges: Vec<Vec<usize>> = module
++        .functions
++        .iter()
++        .map(|function| {
++            function
++                .blocks
++                .iter()
++                .flat_map(|b| &b.instructions)
++                .filter_map(|(_, instruction, _)| {
++                    let Instruction::CallStatic { symbol, .. } = instruction else {
++                        return None;
++                    };
++                    index.get(symbol).copied().flatten()
++                })
++                .collect()
++        })
++        .collect();
++    let recursive: HashSet<usize> = scc::components(&edges)
++        .into_iter()
++        .filter(|group| group.len() > 1 || edges[group[0]].contains(&group[0]))
++        .flatten()
++        .collect();
++    let inventory = super::enum_constants::Inventory::new(module);
++    type Key = (String, Vec<Option<String>>);
++    type Calls = Vec<(usize, usize, usize)>;
++    let mut candidates: BTreeMap<Key, (Vec<Option<Argument>>, Calls)> = BTreeMap::new();
++    for (caller_index, caller) in module.functions.iter().enumerate() {
++        if caller.debug_info.is_some() {
++            continue;
++        }
++        let Some(caller_types) = types(caller) else {
++            continue;
++        };
++        let facts = literals(caller, &caller_types);
++        for (block_index, block) in caller.blocks.iter().enumerate() {
++            for (instruction_index, (_, instruction, output_ty)) in
++                block.instructions.iter().enumerate()
++            {
++                let Instruction::CallStatic {
++                    symbol,
++                    args,
++                    ret_ty,
++                } = instruction
++                else {
++                    continue;
++                };
++                let Some(target_index) = index.get(symbol).copied().flatten() else {
++                    continue;
++                };
++                let target = &module.functions[target_index];
++                if recursive.contains(&target_index)
++                    || is_specialized_symbol(symbol)
++                    || target.debug_info.is_some()
++                    || types(target).is_none()
++                    || module.inline_policies.get(symbol) == Some(&InlinePolicy::Never)
++                    || target.params.len() != args.len()
++                    || target.return_ty != *ret_ty
++                    || *output_ty != *ret_ty
++                    || size(target) > MAX_BODY
++                    || module
++                        .source_errors
++                        .iter()
++                        .any(|(name, errors)| name == symbol && !errors.is_empty())
++                {
++                    continue;
++                }
++                let mut compatible = true;
++                let argument_facts: Vec<_> = args
++                    .iter()
++                    .zip(&target.params)
++                    .map(|(argument, (_, _, ty))| match argument {
++                        Operand::Constant(value) => {
++                            let fact = Scalar::read(value, *ty).map(Argument::Scalar);
++                            compatible &= fact.is_some()
++                                || (*ty == Type::Ref
++                                    && matches!(
++                                        value,
++                                        Constant::Null
++                                            | Constant::String(_)
++                                            | Constant::StringWtf8(_)
++                                    ));
++                            fact
++                        }
++                        Operand::Val(value) => {
++                            compatible &= caller_types.get(value) == Some(ty);
++                            facts.get(value).cloned().map(Argument::Scalar).or_else(|| {
++                                (*ty == Type::Ref)
++                                    .then(|| inventory.token_for_call(caller, *value))
++                                    .flatten()
++                                    .map(Argument::Enum)
++                            })
++                        }
++                    })
++                    .collect();
++                if compatible && argument_facts.iter().any(Option::is_some) {
++                    let key = (
++                        symbol.clone(),
++                        argument_facts
++                            .iter()
++                            .map(|fact| fact.as_ref().map(Argument::key))
++                            .collect(),
++                    );
++                    let candidate = candidates
++                        .entry(key)
++                        .or_insert_with(|| (argument_facts.clone(), vec![]));
++                    if candidate.0 == argument_facts {
++                        candidate
++                            .1
++                            .push((caller_index, block_index, instruction_index));
++                    } else {
++                        candidate.1.clear();
++                    }
++                }
++            }
++        }
++    }
++    let mut total = module
++        .functions
++        .iter()
++        .filter(|f| is_specialized_symbol(&f.symbol))
++        .count();
++    let mut growth: usize = module
++        .functions
++        .iter()
++        .filter(|f| is_specialized_symbol(&f.symbol))
++        .map(size)
++        .sum();
++    let mut per_target = HashMap::<String, usize>::new();
++    let mut plans = Vec::new();
++    let mut names: HashSet<_> = module.functions.iter().map(|f| f.symbol.clone()).collect();
++    for ((symbol, _), (arguments, calls)) in candidates {
++        if total >= MAX_CLONES {
++            break;
++        }
++        if calls.is_empty() {
++            continue;
++        }
++        let owner_prefix = format!("{PREFIX}{}.", blake3::hash(symbol.as_bytes()).to_hex());
++        let existing = module
++            .functions
++            .iter()
++            .filter(|f| f.symbol.starts_with(&owner_prefix))
++            .count();
++        if existing + per_target.get(&symbol).copied().unwrap_or(0) >= MAX_PER_TARGET {
++            continue;
++        }
++        let target = &module.functions[index[&symbol].expect("unique target")];
++        let mut clone = target.clone();
++        let replacements: HashMap<_, _> = clone
++            .params
++            .iter()
++            .zip(&arguments)
++            .filter_map(|((value, _, _), fact)| match fact {
++                Some(Argument::Scalar(fact)) => Some((*value, fact.operand())),
++                _ => None,
++            })
++            .collect();
++        let enum_formals: HashMap<_, _> = clone
++            .params
++            .iter()
++            .zip(&arguments)
++            .filter_map(|((value, _, _), fact)| match fact {
++                Some(Argument::Enum(token)) => Some((*value, token.clone())),
++                _ => None,
++            })
++            .collect();
++        for block in &mut clone.blocks {
++            let mut replace = |operand: &mut Operand| {
++                if let Operand::Val(value) = operand
++                    && let Some(literal) = replacements.get(value)
++                {
++                    *operand = literal.clone();
++                }
++            };
++            for (_, instruction, _) in &mut block.instructions {
++                operands_mut(instruction, &mut replace);
++            }
++            terminator_operands_mut(&mut block.terminator, &mut replace);
++        }
++        inventory.fold_identity_comparisons(&mut clone, &enum_formals);
++        cleanup(&mut clone);
++        if branches(&clone) >= branches(target)
++            || size(&clone) * 4 > size(target) * 3
++            || growth + size(&clone) > MAX_GROWTH
++        {
++            continue;
++        }
++        let mut hash = blake3::Hasher::new();
++        for argument in &arguments {
++            let key = argument.as_ref().map(Argument::key).unwrap_or_default();
++            hash.update(&(key.len() as u64).to_le_bytes());
++            hash.update(key.as_bytes());
++        }
++        let clone_symbol = format!("{owner_prefix}{}", hash.finalize().to_hex());
++        if !names.insert(clone_symbol.clone()) {
++            continue;
++        }
++        clone.name = target.stack_trace_name();
++        clone.symbol = clone_symbol;
++        growth += size(&clone);
++        *per_target.entry(symbol.clone()).or_default() += 1;
++        total += 1;
++        plans.push((symbol, clone, replacements, calls));
++    }
++    drop(inventory);
++    let count = plans.len();
++    for (symbol, clone, replacements, calls) in plans {
++        let clone_symbol = clone.symbol.clone();
++        if let Some(policy) = module.inline_policies.get(&symbol).copied() {
++            module.inline_policies.insert(clone_symbol.clone(), policy);
++        }
++        if let Some(parameters) = module.dart_scalar_parameters.get(&symbol).cloned() {
++            module
++                .dart_scalar_parameters
++                .insert(clone_symbol.clone(), parameters);
++        }
++        if let Some(parameters) = module.dart_rti_parameters.get(&symbol).cloned() {
++            module
++                .dart_rti_parameters
++                .insert(clone_symbol.clone(), parameters);
++        }
++        if let Some(parameters) = module.dart_vector_parameters.get(&symbol).cloned() {
++            module
++                .dart_vector_parameters
++                .insert(clone_symbol.clone(), parameters);
++        }
++        if module.dart_ref_returns.contains(&symbol) {
++            module.dart_ref_returns.insert(clone_symbol.clone());
++        }
++        if let Some(&(receiver, class)) = module.pruning_this_receivers.get(&symbol)
++            && !replacements.contains_key(&receiver)
++        {
++            module
++                .pruning_this_receivers
++                .insert(clone_symbol.clone(), (receiver, class));
++        }
++        for (caller, block, instruction) in calls {
++            if let Instruction::CallStatic { symbol, .. } =
++                &mut module.functions[caller].blocks[block].instructions[instruction].1
++            {
++                *symbol = clone_symbol.clone();
++            }
++        }
++        module.functions.push(clone);
++    }
++    count
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/crates/emit_native/src/optimize/constant_specialize/tests.rs b/crates/emit_native/src/optimize/constant_specialize/tests.rs
+new file mode 100644
+index 00000000..7afbc29d
+--- /dev/null
++++ b/crates/emit_native/src/optimize/constant_specialize/tests.rs
+@@ -0,0 +1,345 @@
++use super::*;
++fn integer(value: i64) -> Operand {
++    Operand::Constant(Constant::Int(value))
++}
++fn leaf(symbol: &str) -> Function {
++    Function {
++        symbol: symbol.into(),
++        name: symbol.into(),
++        params: vec![],
++        return_ty: Type::I64,
++        debug_info: None,
++        blocks: vec![BasicBlock {
++            id: BlockId(0),
++            instructions: vec![],
++            terminator: Terminator::Return(Some(integer(0))),
++        }],
++    }
++}
++fn target() -> Function {
++    let mut f = leaf("df.test.choose");
++    f.params = vec![
++        (ValueId(0), "value".into(), Type::I64),
++        (ValueId(1), "mode".into(), Type::I64),
++    ];
++    f.blocks = vec![
++        BasicBlock {
++            id: BlockId(0),
++            instructions: vec![
++                (
++                    ValueId(2),
++                    Instruction::CallRuntime {
++                        name: "visible_effect".into(),
++                        args: vec![],
++                        ret_ty: Type::Void,
++                    },
++                    Type::Void,
++                ),
++                (
++                    ValueId(3),
++                    Instruction::ICmp(ICmpOp::Eq, Operand::Val(ValueId(1)), integer(0)),
++                    Type::I1,
++                ),
++            ],
++            terminator: Terminator::CondBranch {
++                cond: Operand::Val(ValueId(3)),
++                then_block: BlockId(1),
++                else_block: BlockId(2),
++            },
++        },
++        BasicBlock {
++            id: BlockId(1),
++            instructions: vec![(
++                ValueId(4),
++                Instruction::Add(Operand::Val(ValueId(0)), integer(3)),
++                Type::I64,
++            )],
++            terminator: Terminator::Return(Some(Operand::Val(ValueId(4)))),
++        },
++        BasicBlock {
++            id: BlockId(2),
++            instructions: vec![(
++                ValueId(5),
++                Instruction::CallRuntime {
++                    name: "throw_error".into(),
++                    args: vec![],
++                    ret_ty: Type::Void,
++                },
++                Type::Void,
++            )],
++            terminator: Terminator::Return(Some(integer(0))),
++        },
++    ];
++    f
++}
++fn call(symbol: &str, value: i64, mode: Operand) -> Instruction {
++    Instruction::CallStatic {
++        symbol: symbol.into(),
++        args: vec![integer(value), mode],
++        ret_ty: Type::I64,
++    }
++}
++fn fixture() -> Module {
++    let mut module = Module::new();
++    let mut caller = leaf("dart_main");
++    caller.params = vec![(ValueId(0), "unknown".into(), Type::I64)];
++    caller.blocks[0].instructions = vec![
++        (
++            ValueId(1),
++            Instruction::CallRuntime {
++                name: "argument_effect".into(),
++                args: vec![],
++                ret_ty: Type::I64,
++            },
++            Type::I64,
++        ),
++        (ValueId(2), call("df.test.choose", 5, integer(0)), Type::I64),
++        (
++            ValueId(3),
++            Instruction::CallRuntime {
++                name: "dartforge_exception_pending".into(),
++                args: vec![],
++                ret_ty: Type::I8,
++            },
++            Type::I8,
++        ),
++        (ValueId(4), call("df.test.choose", 5, integer(0)), Type::I64),
++        (ValueId(5), call("df.test.choose", 5, integer(1)), Type::I64),
++        (
++            ValueId(6),
++            call("df.test.choose", 5, Operand::Val(ValueId(0))),
++            Type::I64,
++        ),
++        (
++            ValueId(7),
++            Instruction::TearOff {
++                code_symbol: "df.test.choose".into(),
++            },
++            Type::Ref,
++        ),
++    ];
++    module.functions = vec![caller, target()];
++    module
++}
++fn call_symbol(module: &Module, value: u32) -> &str {
++    let Instruction::CallStatic { symbol, .. } = &module.functions[0].blocks[0]
++        .instructions
++        .iter()
++        .find(|(id, _, _)| id.0 == value)
++        .unwrap()
++        .1
++    else {
++        panic!("static call")
++    };
++    symbol
++}
++#[test]
++fn clones_reduce_branches_reuse_keys_keep_abi_effects_and_generic_entry() {
++    let mut module = fixture();
++    let original = format!("{:?}", module.functions[1]);
++    assert_eq!(rewrite_enabled(&mut module), 2);
++    assert_eq!(call_symbol(&module, 2), call_symbol(&module, 4));
++    assert_ne!(call_symbol(&module, 2), call_symbol(&module, 5));
++    assert_eq!(call_symbol(&module, 6), "df.test.choose");
++    assert_eq!(format!("{:?}", module.functions[1]), original);
++    assert!(matches!(module.functions[0].blocks[0].instructions[0].1,
++        Instruction::CallRuntime { ref name, .. } if name == "argument_effect"));
++    for clone in module
++        .functions
++        .iter()
++        .filter(|f| is_specialized_symbol(&f.symbol))
++    {
++        assert_eq!(clone.params, module.functions[1].params);
++        assert_eq!(branches(clone), 0);
++        assert!(clone.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
++            matches!(i, Instruction::CallRuntime { name, .. } if name == "visible_effect")));
++    }
++    let throwing = module
++        .functions
++        .iter()
++        .find(|f| f.symbol == call_symbol(&module, 5))
++        .unwrap();
++    assert!(throwing.blocks.iter().flat_map(|b| &b.instructions).any(
++        |(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. } if name == "throw_error")
++    ));
++}
++#[test]
++fn nonrecursive_specialized_guards_keep_original_pending_check() {
++    let mut module = fixture();
++    assert_eq!(rewrite_enabled(&mut module), 2);
++    let no_throw = super::super::effects::do_not_throw(&module);
++    assert!(!no_throw.contains(call_symbol(&module, 2)));
++    super::super::simplify::dead_checks(&mut module.functions[0], &no_throw);
++    assert!(module.functions[0].blocks[0]
++        .instructions
++        .iter()
++        .any(|(id, _, _)| id.0 == 3));
++}
++#[test]
++fn unknown_recursive_ambiguous_debug_and_never_inline_targets_remain_generic() {
++    for kind in 0..5 {
++        let mut module = fixture();
++        match kind {
++            0 => {
++                module.functions.pop();
++            }
++            1 => module.functions[1].blocks[0].instructions.push((
++                ValueId(9),
++                call("df.test.choose", 5, integer(0)),
++                Type::I64,
++            )),
++            2 => module.functions.push(target()),
++            3 => module.functions[1].debug_info = Some(Box::default()),
++            _ => {
++                module
++                    .inline_policies
++                    .insert("df.test.choose".into(), InlinePolicy::Never);
++            }
++        }
++        assert_eq!(
++            rewrite_enabled(&mut module),
++            0,
++            "rejected target kind {kind}"
++        );
++        assert_eq!(call_symbol(&module, 2), "df.test.choose");
++    }
++}
++#[test]
++fn deterministic_ids_and_literal_float_bits_are_preserved() {
++    assert_ne!(
++        Scalar::read(&Constant::Double(-0.0), Type::F64),
++        Scalar::read(&Constant::Double(0.0), Type::F64)
++    );
++    let nan = f64::from_bits(0x7ff8000000000042);
++    assert_eq!(
++        Scalar::read(&Constant::Double(nan), Type::F64).unwrap(),
++        Scalar::Double(nan.to_bits())
++    );
++    let mut a = fixture();
++    let mut b = fixture();
++    rewrite_enabled(&mut a);
++    rewrite_enabled(&mut b);
++    assert_eq!(
++        a.functions.iter().map(|f| &f.symbol).collect::<Vec<_>>(),
++        b.functions.iter().map(|f| &f.symbol).collect::<Vec<_>>()
++    );
++}
++#[test]
++fn unsupported_memory_modes_and_unprofitable_clones_do_not_expand() {
++    let mut module = fixture();
++    module.arc_memory = true;
++    assert_eq!(rewrite_enabled(&mut module), 0);
++    let mut module = fixture();
++    module.functions[1].blocks = vec![BasicBlock {
++        id: BlockId(0),
++        instructions: vec![],
++        terminator: Terminator::Return(Some(integer(9))),
++    }];
++    assert_eq!(rewrite_enabled(&mut module), 0);
++}
++
++#[test]
++fn clone_budget_stops_distinct_context_growth() {
++    let mut module = fixture();
++    module.functions[0].blocks[0].instructions = (0..40)
++        .map(|value| {
++            (
++                ValueId(value + 1),
++                call("df.test.choose", i64::from(value), integer(0)),
++                Type::I64,
++            )
++        })
++        .collect();
++    assert_eq!(rewrite_enabled(&mut module), MAX_PER_TARGET);
++    assert_eq!(
++        module
++            .functions
++            .iter()
++            .filter(|f| is_specialized_symbol(&f.symbol))
++            .count(),
++        MAX_PER_TARGET
++    );
++    assert!(module.functions[0].blocks[0].instructions.iter().any(|(_, i, _)|
++        matches!(i, Instruction::CallStatic { symbol, .. } if symbol == "df.test.choose")));
++    assert_eq!(
++        rewrite_enabled(&mut module),
++        0,
++        "the per-target bound persists across repeated invocations"
++    );
++}
++
++fn with_context(
++    entry: &std::path::Path,
++    edit: Option<(&str, &str, &str)>,
++    action: impl FnOnce(&mut crate::context::Context),
++) {
++    let temporary = tempfile::tempdir().unwrap();
++    let mut sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
++    if let Some((file, old, new)) = edit {
++        let original = sdk.root.join(file);
++        let selected = sdk.replacements.get(&original).unwrap_or(&original);
++        let source = std::fs::read_to_string(selected).unwrap();
++        assert!(
++            source.contains(old),
++            "SDK test replacement must actually apply: {file}"
++        );
++        let modified = temporary.path().join("sdk-edit.dart");
++        std::fs::write(&modified, source.replace(old, new)).unwrap();
++        sdk.replacements.insert(original, modified);
++    }
++    let mut interner = dartforge_intern::Interner::new();
++    let (program, diagnostics) =
++        dartforge_elements::load::load_lenient(entry, &sdk, None, &mut interner);
++    assert!(diagnostics.is_empty(), "{diagnostics:?}");
++    let mut table = dartforge_types::TypeTable::new();
++    let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
++    let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
++    let libraries: Vec<_> = program
++        .libraries
++        .iter()
++        .enumerate()
++        .filter(|(_, l)| !l.is_sdk)
++        .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32))
++        .collect();
++    let (bodies, _) = dartforge_types::infer_library_bodies_with_locals(
++        &program,
++        &interner,
++        &mut table,
++        &core,
++        &mut outline,
++        &libraries,
++    );
++    let mut context =
++        crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies)
++            .with_source_sdk();
++    action(&mut context);
++}
++
++#[test]
++fn actual_double_source_specialization_preserves_zero_sign_and_nan_arguments() {
++    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
++        let temporary = tempfile::tempdir().unwrap();
++        let entry = temporary.path().join("double-constants.dart");
++        std::fs::write(&entry, "double select(double value, bool first) { if (first) return value; return value * 2.0; } void main() { print(select(-0.0, true)); print(select(0.0, true)); print(select(double.nan, true)); }").unwrap();
++        with_context(&entry, None, |ctx| {
++            let mut module = crate::lower::lower_program(ctx);
++            module.arc_fixed_ancestry = true;
++            assert!(module.errors.is_empty(), "{:?}", module.errors);
++            let original = module.functions.iter().find(|f| f.name == "select").unwrap().clone();
++            assert_eq!(rewrite_enabled(&mut module), 3);
++            assert!(module.functions.iter().any(|f| f.symbol == original.symbol));
++            let clones: Vec<_> = module.functions.iter().filter(|f| is_specialized_symbol(&f.symbol)).collect();
++            assert!(clones.iter().all(|f| f.params == original.params && branches(f) == 0));
++            let returns: Vec<_> = clones.iter().flat_map(|f| &f.blocks).filter_map(|b| match &b.terminator {
++                Terminator::Return(Some(Operand::Constant(Constant::Double(value)))) => Some(value.to_bits()),
++                _ => None,
++            }).collect();
++            assert!(returns.contains(&(-0.0f64).to_bits()));
++            assert!(returns.contains(&0.0f64.to_bits()));
++            assert!(clones.iter().any(|f| f.blocks.iter().any(|b| matches!(b.terminator,
++                Terminator::Return(Some(Operand::Val(value))) if value == original.params[0].0)))
++                || returns.iter().any(|bits| f64::from_bits(*bits).is_nan()),
++                "NaN remains the original evaluated argument or its exact scalar literal");
++        });
++    }).unwrap().join().unwrap();
++}
+diff --git a/crates/emit_native/src/optimize/effects.rs b/crates/emit_native/src/optimize/effects.rs
+index b7823606..985f2687 100644
+--- a/crates/emit_native/src/optimize/effects.rs
++++ b/crates/emit_native/src/optimize/effects.rs
+@@ -74,7 +74,10 @@ pub fn do_not_throw(module: &Module) -> HashSet<String> {
+         .functions
+         .iter()
+         .enumerate()
+-        .filter(|(k, f)| recursive[*k] || canonical_cache_getter(f) || function_throws(f, &all))
++        .filter(|(k, f)| recursive[*k] || canonical_cache_getter(f)
++            || super::constant_specialize::is_specialized_symbol(&f.symbol)
++            || module.simple_enum_constants.contains_key(&f.symbol)
++            || function_throws(f, &all))
+         .map(|(k, _)| k)
+         .collect();
+     while let Some(k) = queue.pop() {
+diff --git a/crates/emit_native/src/optimize/enum_constants.rs b/crates/emit_native/src/optimize/enum_constants.rs
+new file mode 100644
+index 00000000..3eb433a7
+--- /dev/null
++++ b/crates/emit_native/src/optimize/enum_constants.rs
+@@ -0,0 +1,530 @@
++//! Successful canonical enum handles for symbolic argument specialization.
++//!
++//! A declaration is only a premise. The inventory audits the current lazy getter,
++//! every global writer and the caller's pending-check success dominance. Tokens
++//! never replace real Ref operands or remove lazy getter evaluation/exception checks.
++use super::cfg::Cfg;
++use super::operands::{operands, terminator_operands};
++use crate::hir::*;
++use std::collections::{HashMap, HashSet};
++
++#[derive(Debug, Clone, PartialEq, Eq, Hash)]
++pub(crate) struct EnumToken {
++    pub(crate) library_uri: String,
++    pub(crate) unit_uri: String,
++    pub(crate) owner: String,
++    pub(crate) declaration: u32,
++    pub(crate) index: usize,
++    pub(crate) getter: String,
++}
++impl EnumToken {
++    pub(crate) fn key(&self) -> String {
++        format!(
++            "{:?}",
++            (
++                &self.library_uri,
++                &self.unit_uri,
++                &self.owner,
++                self.declaration,
++                self.index,
++                &self.getter
++            )
++        )
++    }
++}
++
++pub(crate) struct Inventory<'a> {
++    getters: HashMap<String, EnumToken>,
++    callers: HashMap<String, &'a Function>,
++    calls: HashMap<String, HashMap<ValueId, EnumToken>>,
++}
++impl<'a> Inventory<'a> {
++    pub(crate) fn new(module: &'a Module) -> Self {
++        let mut result = Self {
++            getters: HashMap::new(),
++            callers: HashMap::new(),
++            calls: HashMap::new(),
++        };
++        if !module.arc_fixed_ancestry
++            || module.arc_memory
++            || module.arc_prepared
++            || module.arc_aot_ports.is_some()
++            || !crate::pruning::receiver_provenance::registry::closed(&[module])
++        {
++            return result;
++        }
++        let mut functions = HashMap::new();
++        let mut duplicates = HashSet::new();
++        let mut writers: HashMap<&str, Vec<&Function>> = HashMap::new();
++        let mut exposed = false;
++        for function in &module.functions {
++            if functions
++                .insert(function.symbol.as_str(), function)
++                .is_some()
++            {
++                duplicates.insert(function.symbol.as_str());
++            }
++            for (_, instruction, _) in function.blocks.iter().flat_map(|block| &block.instructions)
++            {
++                match instruction {
++                    Instruction::StoreGlobal { symbol, .. } => {
++                        writers.entry(symbol).or_default().push(function)
++                    }
++                    Instruction::NativeCall { .. }
++                    | Instruction::CompositeNativeCall { .. }
++                    | Instruction::ArcStoreStrong { .. } => exposed = true,
++                    Instruction::CallRuntime { name, .. }
++                    | Instruction::CallStatic { symbol: name, .. }
++                        if matches!(
++                            name.as_str(),
++                            "dartforge_globals_area"
++                                | "dartforge_globals_area_id"
++                                | "dartforge_ffi_native_symbol"
++                        ) =>
++                    {
++                        exposed = true
++                    }
++                    _ => {}
++                }
++            }
++        }
++        if exposed
++            || [
++                "dartforge_object_new",
++                "dartforge_object_set",
++                "dartforge_mark_constant",
++                "dartforge_exception_pending",
++            ]
++            .iter()
++            .any(|name| functions.contains_key(name))
++        {
++            return result;
++        }
++        for (getter, premise) in &module.simple_enum_constants {
++            if premise.getter != *getter
++                || duplicates.contains(getter.as_str())
++                || module
++                    .pruning_ambiguous_class_ids
++                    .contains(&premise.class_id)
++            {
++                continue;
++            }
++            let Some(&function) = functions.get(getter.as_str()) else {
++                continue;
++            };
++            if module
++                .classes
++                .iter()
++                .filter(|class| class.id == premise.class_id && class.field_count == 2)
++                .count()
++                != 1
++                || module
++                    .classes
++                    .iter()
++                    .filter(|class| class.id == premise.class_id)
++                    .count()
++                    != 1
++            {
++                continue;
++            }
++            let flag = format!("{}$ok", premise.global);
++            if module
++                .globals
++                .iter()
++                .filter(|(root, ty, global)| {
++                    *root == premise.root && *ty == Type::Ref && *global == premise.global
++                })
++                .count()
++                != 1
++                || module
++                    .globals
++                    .iter()
++                    .filter(|(root, ty, global)| {
++                        (*root == premise.root && *ty == Type::Ref) || *global == premise.global
++                    })
++                    .count()
++                    != 1
++                || module
++                    .globals
++                    .iter()
++                    .any(|(_, ty, global)| *global == flag && *ty != Type::I8)
++            {
++                continue;
++            }
++            if ![premise.global.as_str(), flag.as_str()]
++                .iter()
++                .all(|global| {
++                    writers
++                        .get(global)
++                        .is_some_and(|w| w.len() == 1 && std::ptr::eq(w[0], function))
++                })
++            {
++                continue;
++            }
++            if !getter_body(function, premise) {
++                continue;
++            }
++            result.getters.insert(
++                getter.clone(),
++                EnumToken {
++                    library_uri: premise.library_uri.clone(),
++                    unit_uri: premise.unit_uri.clone(),
++                    owner: premise.owner.clone(),
++                    declaration: premise.declaration,
++                    index: premise.index,
++                    getter: getter.clone(),
++                },
++            );
++        }
++        for function in &module.functions {
++            if duplicates.contains(function.symbol.as_str()) {
++                continue;
++            }
++            result.calls.insert(
++                function.symbol.clone(),
++                successful_calls(function, &result.getters),
++            );
++            result.callers.insert(function.symbol.clone(), function);
++        }
++        result
++    }
++    pub(crate) fn token_for_call(&self, function: &Function, value: ValueId) -> Option<EnumToken> {
++        self.callers
++            .get(&function.symbol)
++            .filter(|body| std::ptr::eq(**body, function))?;
++        self.calls.get(&function.symbol)?.get(&value).cloned()
++    }
++    /// Fold only existing Ref identity instructions. Calls and ABI parameters
++    /// stay present; generic equality and field/argument validation remain untouched.
++    pub(crate) fn fold_identity_comparisons(
++        &self,
++        function: &mut Function,
++        formals: &HashMap<ValueId, EnumToken>,
++    ) -> usize {
++        let mut facts = successful_calls(function, &self.getters);
++        for (value, token) in formals {
++            if function
++                .params
++                .iter()
++                .any(|(parameter, _, ty)| parameter == value && *ty == Type::Ref)
++                && self.getters.get(&token.getter) == Some(token)
++            {
++                facts.insert(*value, token.clone());
++            }
++        }
++        let mut changed = 0;
++        for (_, instruction, _) in function
++            .blocks
++            .iter_mut()
++            .flat_map(|block| &mut block.instructions)
++        {
++            if let Instruction::ICmp(
++                operation @ (ICmpOp::Eq | ICmpOp::Ne),
++                Operand::Val(left),
++                Operand::Val(right),
++            ) = instruction
++                && let (Some(left), Some(right)) = (facts.get(left), facts.get(right))
++            {
++                let equal = left == right;
++                *instruction = Instruction::Const(Constant::Bool(if *operation == ICmpOp::Eq {
++                    equal
++                } else {
++                    !equal
++                }));
++                changed += 1;
++            }
++        }
++        changed
++    }
++}
++
++fn getter_body(function: &Function, premise: &SimpleEnumConstant) -> bool {
++    if !function.params.is_empty() || function.return_ty != Type::Ref || function.blocks.len() != 3
++    {
++        return false;
++    }
++    let ids: HashSet<_> = function.blocks.iter().map(|block| block.id).collect();
++    let values: Vec<_> = function
++        .blocks
++        .iter()
++        .flat_map(|block| block.instructions.iter().map(|(value, _, _)| *value))
++        .collect();
++    if ids.len() != 3 || values.iter().collect::<HashSet<_>>().len() != values.len() {
++        return false;
++    }
++    let flag = format!("{}$ok", premise.global);
++    let entry = &function.blocks[0];
++    let [
++        (
++            loaded,
++            Instruction::LoadGlobal {
++                symbol,
++                ty: Type::I8,
++            },
++            Type::I8,
++        ),
++        (
++            condition,
++            Instruction::ICmp(
++                ICmpOp::Ne,
++                Operand::Val(flag_value),
++                Operand::Constant(Constant::Int(0)),
++            ),
++            Type::I1,
++        ),
++    ] = entry.instructions.as_slice()
++    else {
++        return false;
++    };
++    if symbol != &flag || loaded != flag_value {
++        return false;
++    }
++    let Terminator::CondBranch {
++        cond: Operand::Val(branch),
++        then_block,
++        else_block,
++    } = &entry.terminator
++    else {
++        return false;
++    };
++    if branch != condition {
++        return false;
++    }
++    let Some(warm) = function.blocks.iter().find(|b| b.id == *then_block) else {
++        return false;
++    };
++    let Some(cold) = function.blocks.iter().find(|b| b.id == *else_block) else {
++        return false;
++    };
++    let [
++        (
++            value,
++            Instruction::LoadGlobal {
++                symbol,
++                ty: Type::Ref,
++            },
++            Type::Ref,
++        ),
++    ] = warm.instructions.as_slice()
++    else {
++        return false;
++    };
++    if symbol != &premise.global
++        || !matches!(&warm.terminator, Terminator::Return(Some(Operand::Val(returned))) if returned == value)
++    {
++        return false;
++    }
++    let instructions = &cold.instructions;
++    if instructions.len() != 7
++        || [0, 2, 3, 4, 6]
++            .iter()
++            .any(|index| instructions[*index].2 != Type::Void)
++    {
++        return false;
++    }
++    if !matches!(&instructions[0].1, Instruction::StoreGlobal { symbol, val: Operand::Constant(Constant::Int(1)), ty: Type::I8, root: None } if symbol == &flag)
++    {
++        return false;
++    }
++    let object = Operand::Val(instructions[1].0);
++    if !runtime(
++        &instructions[1].1,
++        "dartforge_object_new",
++        &[
++            (
++                Operand::Constant(Constant::Int(i64::from(premise.class_id))),
++                Type::I64,
++            ),
++            (Operand::Constant(Constant::Int(2)), Type::I64),
++        ],
++        Type::Ref,
++    ) || instructions[1].2 != Type::Ref
++    {
++        return false;
++    }
++    if !matches!(&instructions[2].1, Instruction::StoreGlobal { symbol, val, ty: Type::Ref, root: Some(root) } if symbol == &premise.global && val == &object && *root == premise.root)
++    {
++        return false;
++    }
++    if !runtime(
++        &instructions[3].1,
++        "dartforge_mark_constant",
++        &[
++            (object.clone(), Type::Ref),
++            (
++                Operand::Constant(Constant::Function(function.symbol.clone())),
++                Type::I64,
++            ),
++        ],
++        Type::Void,
++    ) {
++        return false;
++    }
++    if !runtime(
++        &instructions[4].1,
++        "dartforge_object_set",
++        &[
++            (object.clone(), Type::Ref),
++            (Operand::Constant(Constant::Int(0)), Type::I64),
++            (
++                Operand::Constant(Constant::Int(premise.index as i64)),
++                Type::I64,
++            ),
++            (Operand::Constant(Constant::Int(0)), Type::I8),
++        ],
++        Type::Void,
++    ) {
++        return false;
++    }
++    if !matches!(&instructions[5].1, Instruction::Const(Constant::String(name)) if name == &premise.name)
++        || instructions[5].2 != Type::Ref
++    {
++        return false;
++    }
++    if !runtime(
++        &instructions[6].1,
++        "dartforge_object_set",
++        &[
++            (object.clone(), Type::Ref),
++            (Operand::Constant(Constant::Int(1)), Type::I64),
++            (Operand::Val(instructions[5].0), Type::I64),
++            (Operand::Constant(Constant::Int(1)), Type::I8),
++        ],
++        Type::Void,
++    ) {
++        return false;
++    }
++    matches!(&cold.terminator, Terminator::Return(Some(value)) if value == &object)
++}
++fn runtime(instruction: &Instruction, name: &str, args: &[(Operand, Type)], ty: Type) -> bool {
++    matches!(instruction, Instruction::CallRuntime { name: actual, args: observed, ret_ty } if actual == name && observed == args && *ret_ty == ty)
++}
++
++fn dominates(cfg: &Cfg, dominator: usize, mut block: usize) -> bool {
++    if !cfg.reachable(block) {
++        return false;
++    }
++    loop {
++        if block == dominator {
++            return true;
++        }
++        let parent = cfg.idom[block];
++        if parent == block || parent == usize::MAX {
++            return false;
++        }
++        block = parent;
++    }
++}
++fn successful_calls(
++    function: &Function,
++    getters: &HashMap<String, EnumToken>,
++) -> HashMap<ValueId, EnumToken> {
++    let mut result = HashMap::new();
++    if function.blocks.is_empty() || function.blocks.len() > 4096 {
++        return result;
++    }
++    let positions: HashMap<_, _> = function
++        .blocks
++        .iter()
++        .enumerate()
++        .map(|(i, b)| (b.id, i))
++        .collect();
++    if positions.len() != function.blocks.len()
++        || function.blocks.iter().any(|block| {
++            super::cfg::successors(&block.terminator)
++                .iter()
++                .any(|id| !positions.contains_key(id))
++        })
++    {
++        return result;
++    }
++    let cfg = Cfg::new(function);
++    for (block_index, block) in function.blocks.iter().enumerate() {
++        if !cfg.reachable(block_index) {
++            continue;
++        }
++        for (index, (value, instruction, ty)) in block.instructions.iter().enumerate() {
++            let Instruction::CallStatic {
++                symbol,
++                args,
++                ret_ty: Type::Ref,
++            } = instruction
++            else {
++                continue;
++            };
++            let Some(token) = getters.get(symbol) else {
++                continue;
++            };
++            if !args.is_empty() || *ty != Type::Ref {
++                continue;
++            }
++            let [
++                (
++                    pending,
++                    Instruction::CallRuntime {
++                        name,
++                        args: pending_args,
++                        ret_ty: Type::I8,
++                    },
++                    Type::I8,
++                ),
++                (
++                    condition,
++                    Instruction::ICmp(
++                        ICmpOp::Ne,
++                        Operand::Val(pending_value),
++                        Operand::Constant(Constant::Int(0)),
++                    ),
++                    Type::I1,
++                ),
++            ] = &block.instructions[index + 1..]
++            else {
++                continue;
++            };
++            if name != "dartforge_exception_pending"
++                || !pending_args.is_empty()
++                || pending != pending_value
++            {
++                continue;
++            }
++            let Terminator::CondBranch {
++                cond: Operand::Val(branch),
++                else_block,
++                ..
++            } = &block.terminator
++            else {
++                continue;
++            };
++            if branch != condition {
++                continue;
++            }
++            let success = positions[else_block];
++            if cfg.predecessors[success].as_slice() != [block_index] {
++                continue;
++            }
++            let mut all_successful = true;
++            for (use_block, candidate) in function.blocks.iter().enumerate() {
++                for (_, instruction, _) in &candidate.instructions {
++                    operands(instruction, &mut |operand| {
++                        if *operand == Operand::Val(*value) && !dominates(&cfg, success, use_block)
++                        {
++                            all_successful = false;
++                        }
++                    });
++                }
++                terminator_operands(&candidate.terminator, &mut |operand| {
++                    if *operand == Operand::Val(*value) && !dominates(&cfg, success, use_block) {
++                        all_successful = false;
++                    }
++                });
++            }
++            if all_successful {
++                result.insert(*value, token.clone());
++            }
++        }
++    }
++    result
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/crates/emit_native/src/optimize/enum_constants/tests.rs b/crates/emit_native/src/optimize/enum_constants/tests.rs
+new file mode 100644
+index 00000000..89399857
+--- /dev/null
++++ b/crates/emit_native/src/optimize/enum_constants/tests.rs
+@@ -0,0 +1,361 @@
++use super::*;
++
++fn constant(value: i64) -> Operand {
++    Operand::Constant(Constant::Int(value))
++}
++fn call(
++    value: u32,
++    name: &str,
++    args: Vec<(Operand, Type)>,
++    ty: Type,
++) -> (ValueId, Instruction, Type) {
++    (
++        ValueId(value),
++        Instruction::CallRuntime {
++            name: name.into(),
++            args,
++            ret_ty: ty,
++        },
++        ty,
++    )
++}
++fn fixture() -> Module {
++    let mut module = Module::new();
++    module.arc_fixed_ancestry = true;
++    module.classes.push(ClassDef {
++        id: 300,
++        name: "Simple".into(),
++        field_count: 2,
++        vtable: vec![],
++        to_string_symbol: None,
++    });
++    for index in 0..2 {
++        let getter = format!("getter{index}");
++        let global = format!("cache{index}");
++        let flag = format!("{global}$ok");
++        let object = Operand::Val(ValueId(4));
++        let function = Function {
++            symbol: getter.clone(),
++            name: getter.clone(),
++            params: vec![],
++            return_ty: Type::Ref,
++            debug_info: None,
++            blocks: vec![
++                BasicBlock {
++                    id: BlockId(0),
++                    instructions: vec![
++                        (
++                            ValueId(0),
++                            Instruction::LoadGlobal {
++                                symbol: flag.clone(),
++                                ty: Type::I8,
++                            },
++                            Type::I8,
++                        ),
++                        (
++                            ValueId(1),
++                            Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(0)), constant(0)),
++                            Type::I1,
++                        ),
++                    ],
++                    terminator: Terminator::CondBranch {
++                        cond: Operand::Val(ValueId(1)),
++                        then_block: BlockId(1),
++                        else_block: BlockId(2),
++                    },
++                },
++                BasicBlock {
++                    id: BlockId(1),
++                    instructions: vec![(
++                        ValueId(2),
++                        Instruction::LoadGlobal {
++                            symbol: global.clone(),
++                            ty: Type::Ref,
++                        },
++                        Type::Ref,
++                    )],
++                    terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))),
++                },
++                BasicBlock {
++                    id: BlockId(2),
++                    instructions: vec![
++                        (
++                            ValueId(3),
++                            Instruction::StoreGlobal {
++                                symbol: flag,
++                                val: constant(1),
++                                ty: Type::I8,
++                                root: None,
++                            },
++                            Type::Void,
++                        ),
++                        call(
++                            4,
++                            "dartforge_object_new",
++                            vec![(constant(300), Type::I64), (constant(2), Type::I64)],
++                            Type::Ref,
++                        ),
++                        (
++                            ValueId(5),
++                            Instruction::StoreGlobal {
++                                symbol: global.clone(),
++                                val: object.clone(),
++                                ty: Type::Ref,
++                                root: Some(index),
++                            },
++                            Type::Void,
++                        ),
++                        call(
++                            6,
++                            "dartforge_mark_constant",
++                            vec![
++                                (object.clone(), Type::Ref),
++                                (
++                                    Operand::Constant(Constant::Function(getter.clone())),
++                                    Type::I64,
++                                ),
++                            ],
++                            Type::Void,
++                        ),
++                        call(
++                            7,
++                            "dartforge_object_set",
++                            vec![
++                                (object.clone(), Type::Ref),
++                                (constant(0), Type::I64),
++                                (constant(i64::from(index)), Type::I64),
++                                (constant(0), Type::I8),
++                            ],
++                            Type::Void,
++                        ),
++                        (
++                            ValueId(8),
++                            Instruction::Const(Constant::String(format!("v{index}"))),
++                            Type::Ref,
++                        ),
++                        call(
++                            9,
++                            "dartforge_object_set",
++                            vec![
++                                (object.clone(), Type::Ref),
++                                (constant(1), Type::I64),
++                                (Operand::Val(ValueId(8)), Type::I64),
++                                (constant(1), Type::I8),
++                            ],
++                            Type::Void,
++                        ),
++                    ],
++                    terminator: Terminator::Return(Some(object)),
++                },
++            ],
++        };
++        module.globals.push((index, Type::Ref, global.clone()));
++        module.simple_enum_constants.insert(
++            getter.clone(),
++            SimpleEnumConstant {
++                library_uri: "file:enum.dart".into(),
++                unit_uri: "file:enum.dart".into(),
++                owner: "Simple".into(),
++                declaration: 0,
++                index: index as usize,
++                name: format!("v{index}"),
++                class_id: 300,
++                getter,
++                global,
++                root: index,
++            },
++        );
++        module.functions.push(function);
++    }
++    module.functions.push(Function {
++        symbol: "caller".into(),
++        name: "caller".into(),
++        params: vec![],
++        return_ty: Type::Ref,
++        debug_info: None,
++        blocks: vec![
++            BasicBlock {
++                id: BlockId(0),
++                instructions: vec![
++                    (
++                        ValueId(0),
++                        Instruction::CallStatic {
++                            symbol: "getter0".into(),
++                            args: vec![],
++                            ret_ty: Type::Ref,
++                        },
++                        Type::Ref,
++                    ),
++                    call(1, "dartforge_exception_pending", vec![], Type::I8),
++                    (
++                        ValueId(2),
++                        Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(1)), constant(0)),
++                        Type::I1,
++                    ),
++                ],
++                terminator: Terminator::CondBranch {
++                    cond: Operand::Val(ValueId(2)),
++                    then_block: BlockId(2),
++                    else_block: BlockId(1),
++                },
++            },
++            BasicBlock {
++                id: BlockId(1),
++                instructions: vec![],
++                terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
++            },
++            BasicBlock {
++                id: BlockId(2),
++                instructions: vec![],
++                terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
++            },
++        ],
++    });
++    module
++}
++#[test]
++fn guarded_success_tokens_are_body_bound_and_fold_only_identity() {
++    let module = fixture();
++    let inventory = Inventory::new(&module);
++    let caller = &module.functions[2];
++    let token = inventory.token_for_call(caller, ValueId(0)).unwrap();
++    assert!(
++        inventory
++            .token_for_call(&caller.clone(), ValueId(0))
++            .is_none()
++    );
++    let mut clone = Function {
++        symbol: "clone".into(),
++        name: "clone".into(),
++        params: vec![
++            (ValueId(0), "from".into(), Type::Ref),
++            (ValueId(1), "to".into(), Type::Ref),
++        ],
++        return_ty: Type::I1,
++        debug_info: None,
++        blocks: vec![BasicBlock {
++            id: BlockId(0),
++            instructions: vec![(
++                ValueId(2),
++                Instruction::ICmp(
++                    ICmpOp::Eq,
++                    Operand::Val(ValueId(0)),
++                    Operand::Val(ValueId(1)),
++                ),
++                Type::I1,
++            )],
++            terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))),
++        }],
++    };
++    let before = clone.params.clone();
++    assert_eq!(
++        inventory.fold_identity_comparisons(
++            &mut clone,
++            &HashMap::from([(ValueId(0), token.clone()), (ValueId(1), token)])
++        ),
++        1
++    );
++    assert!(matches!(
++        clone.blocks[0].instructions[0].1,
++        Instruction::Const(Constant::Bool(true))
++    ));
++    assert_eq!(before, clone.params);
++}
++#[test]
++fn writer_marker_shape_aliases_and_unsuccessful_use_are_unknown() {
++    for variant in 0..11 {
++        let mut module = fixture();
++        match variant {
++            0 => module.functions.push(module.functions[0].clone()),
++            1 => module.globals.push(module.globals[0].clone()),
++            2 => {
++                let write = module.functions[0].blocks[2].instructions[2].clone();
++                module.functions[2].blocks[1].instructions.push(write);
++            }
++            3 => {
++                module.functions[0].blocks[2].instructions[3].1 = Instruction::Const(Constant::Null)
++            }
++            4 => {
++                module.functions[0].blocks[2].instructions[4].1 = Instruction::Const(Constant::Null)
++            }
++            5 => module
++                .simple_enum_constants
++                .get_mut("getter0")
++                .unwrap()
++                .getter
++                .clear(),
++            6 => {
++                module.pruning_ambiguous_class_ids.insert(300);
++            }
++            7 => module.functions[2].blocks[0].instructions.truncate(1),
++            8 => {
++                module.functions[2].blocks[2].terminator =
++                    Terminator::Return(Some(Operand::Val(ValueId(0))))
++            }
++            9 => module.functions[2].blocks[1].instructions.push((
++                ValueId(90),
++                Instruction::NativeCall {
++                    target: Operand::Constant(Constant::Int(1)),
++                    args: Vec::new(),
++                    ret: CType::Void,
++                },
++                Type::Void,
++            )),
++            _ => module.functions[2].blocks[1].instructions.push((
++                ValueId(91),
++                Instruction::CompositeNativeCall {
++                    target: Operand::Constant(Constant::Int(1)),
++                    args: vec![(Operand::Constant(Constant::Int(2)), NativeType::Composite(LayoutC {
++                        size: 8, alignment: 8, leaves: vec![(0, CType::I64)],
++                    }))],
++                    ret: NativeType::Prim(CType::Void),
++                    dest: None,
++                    variadic_flag: None,
++                },
++                Type::Void,
++            )),
++        };
++        assert!(
++            Inventory::new(&module)
++                .token_for_call(&module.functions[2], ValueId(0))
++                .is_none(),
++            "variant {variant}"
++        );
++    }
++}
++
++#[test]
++fn ordinary_simple_enum_lowering_certifies_current_getter_and_rejects_enhanced_shape() {
++    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
++        use dartforge_types::table::{CoreTypes, TypeTable};
++        let directory=tempfile::tempdir().unwrap();let entry=directory.path().join("main.dart");
++        std::fs::write(&entry,"enum Simple { a, b }\nenum Enhanced { a(1); const Enhanced(this.x); final int x; }\nvoid main() { print(Simple.a == Simple.b); print(Enhanced.a.x); }\n").unwrap();
++        let sdk=crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();let mut interner=dartforge_intern::Interner::new();
++        let (program,diagnostics)=dartforge_elements::load::load_lenient(&entry,&sdk,None,&mut interner);assert!(diagnostics.is_empty());
++        let mut table=TypeTable::new();let core=CoreTypes::init(&mut table,&program,&interner);
++        let (mut outline,_)=dartforge_types::resolve_outline(&program,&interner,&mut table,&core);
++        let libraries:Vec<_>=program.libraries.iter().enumerate().filter(|(_,library)|!library.is_sdk).map(|(i,_)|dartforge_elements::model::LibraryId(i as u32)).collect();
++        let (bodies,_)=dartforge_types::infer_library_bodies(&program,&interner,&mut table,&core,&mut outline,&libraries);
++        let context=crate::context::Context::new(&program,&interner,&table,&core,&outline,&bodies).with_source_sdk();
++        let mut module=crate::lower::lower_program(&context);assert!(module.errors.is_empty(),"{:?}",module.errors);module.arc_fixed_ancestry=true;
++        assert_eq!(module.simple_enum_constants.len(),2);
++        assert!(module.simple_enum_constants.values().all(|premise|premise.owner=="Simple"));
++        // Lowering emits native adapters for the complete loaded SDK signature
++        // table. Only the existing recipe/reachability fixpoint proves them dead.
++        assert!(Inventory::new(&module).getters.is_empty());
++        assert!(!module.ffi_trampolines.is_empty());
++        crate::pruning::prune_hir(&mut module,&[]);
++        let inventory=Inventory::new(&module);assert_eq!(inventory.getters.len(),2);
++        let main=module.functions.iter().find(|f|f.symbol=="dart_main").unwrap();
++        let calls:Vec<_>=main.blocks.iter().flat_map(|b|&b.instructions).filter_map(|(value,instruction,_)| match instruction {
++            Instruction::CallStatic { symbol,.. } if module.simple_enum_constants.contains_key(symbol)=>Some(*value),_=>None,
++        }).collect();
++        assert_eq!(calls.len(),2);assert!(calls.iter().all(|value|inventory.token_for_call(main,*value).is_some()));
++        eprintln!("actual enum main HIR blocks={} certified getters={}",main.blocks.len(),inventory.getters.len());
++        // Three independently lowered chunks with the same declaration ownership
++        // permanently poison the premise; a third join cannot revive it.
++        let mut combined=Module::new();
++        for _ in 0..3 { let mut chunk=Module::new();chunk.simple_enum_constants=module.simple_enum_constants.clone();crate::lower::join_arc_facts(&mut combined,&mut chunk); }
++        assert!(combined.simple_enum_constants.values().all(|premise|premise.getter.is_empty()));
++    }).unwrap().join().unwrap();
++}
+diff --git a/crates/emit_native/src/optimize/mod.rs b/crates/emit_native/src/optimize/mod.rs
+index 77db6d0d..27cab056 100644
+--- a/crates/emit_native/src/optimize/mod.rs
++++ b/crates/emit_native/src/optimize/mod.rs
+@@ -34,6 +34,8 @@ mod tests;
+ mod pre_prune_tests;
+ mod physical_devirtualize;
+ mod checked_double_roundtrip;
++mod constant_specialize;
++pub(crate) mod enum_constants;
+ mod scalar_coalesce;
+ 
+ use crate::hir::*;
+@@ -48,6 +50,17 @@ pub(crate) fn prepare_for_pruning(module: &mut Module) {
+     prune_constant_cfg(module);
+ }
+ 
++/// Specialize bounded constant contexts after the first reachability pruning.
++/// Dead native adapters must be removed before constructing enum identity proofs.
++/// This runs before effect summaries can remove pending-exception checks.
++pub(crate) fn specialize_constants(module: &mut Module, requested_table_exceptions: bool) -> usize {
++    if disabled() || requested_table_exceptions {
++        return 0;
++    }
++    constant_specialize::rewrite(module)
++}
++
++
+ fn prune_constant_cfg(module: &mut Module) {
+     for function in &mut module.functions {
+         representation_constants::propagate_literals(function);
+diff --git a/crates/emit_native/src/sdk_module.rs b/crates/emit_native/src/sdk_module.rs
+index aa27c87b..03ec1863 100644
+--- a/crates/emit_native/src/sdk_module.rs
++++ b/crates/emit_native/src/sdk_module.rs
+@@ -565,6 +565,8 @@ fn sdk_key_with_overlay(lib_dir: &Path, overlay: &Path, clang_id: &str, args: &[
+         .filter(|(k, _)| k.starts_with("DARTFORGE_NO_"))
+         .chain(std::iter::once(("DARTFORGE_PRIMITIVE_MULTIPLY".into(),
+             std::env::var("DARTFORGE_PRIMITIVE_MULTIPLY").unwrap_or_else(|_| "0".into()))))
++        .chain(std::iter::once(("DARTFORGE_CONSTANT_SPECIALIZATION".into(),
++            std::env::var("DARTFORGE_CONSTANT_SPECIALIZATION").unwrap_or_else(|_| "0".into()))))
+         .collect();
+     keys.sort();
+     for (k, v) in keys {
+diff --git a/crates/emit_native/tests/fixtures/constant_arguments.dart b/crates/emit_native/tests/fixtures/constant_arguments.dart
+new file mode 100644
+index 00000000..73876391
+--- /dev/null
++++ b/crates/emit_native/tests/fixtures/constant_arguments.dart
+@@ -0,0 +1,70 @@
++final events = <String>[];
++
++int record(String name, int value) {
++  events.add(name);
++  return value;
++}
++
++int fail(String name) {
++  events.add(name);
++  throw StateError(name);
++}
++
++int choose(int value, int mode) {
++  events.add('choose:$mode');
++  if (mode == 0) return value + 3;
++  if (mode == 1) return value * 7;
++  if (mode == 2) throw StateError('mode');
++  return value - mode;
++}
++
++int recurse(int value, int mode) {
++  if (value == 0) return mode;
++  return recurse(value - 1, mode);
++}
++
++int boolChoice(int value, bool flag) => flag ? value + 1 : value - 1;
++
++enum Mode { add, multiply }
++
++int enumChoice(int value, Mode mode) {
++  switch (mode) {
++    case Mode.add:
++      return value + 3;
++    case Mode.multiply:
++      return value * 7;
++  }
++}
++
++void main() {
++  print(choose(record('left', 5), 0));
++  print(choose(record('left', 5), 1));
++  print(choose(record('left', 5), record('right', 4)));
++  try {
++    choose(record('left', 5), 2);
++  } on StateError catch (error) {
++    print(error.message);
++  } finally {
++    events.add('finally');
++  }
++  try {
++    choose(fail('argument'), 1);
++  } on StateError catch (error) {
++    print(error.message);
++  }
++  final generic = choose;
++  for (final mode in <int>[0, 1, 4]) {
++    print(generic(6, mode));
++  }
++  print(recurse(4, 8));
++  print(boolChoice(9, true));
++  print(boolChoice(9, false));
++  for (var i = 0; i < 2; i++) {
++    print(enumChoice(5, Mode.add));
++    print(enumChoice(5, Mode.multiply));
++  }
++  for (var i = 0; i < 0; i++) {
++    choose(fail('unreachable'), 0);
++  }
++  print(events.join('|'));
++}
+diff --git a/crates/emit_native/tests/fixtures/constant_double_arguments.dart b/crates/emit_native/tests/fixtures/constant_double_arguments.dart
+new file mode 100644
+index 00000000..cd91010b
+--- /dev/null
++++ b/crates/emit_native/tests/fixtures/constant_double_arguments.dart
+@@ -0,0 +1,25 @@
++import 'dart:typed_data';
++
++double chooseDouble(double value, int mode) {
++  if (mode == 0) return value;
++  if (mode == 1) return -value;
++  return value * 2.0;
++}
++
++String bits(double value) {
++  final bytes = ByteData(8)..setFloat64(0, value, Endian.big);
++  return bytes.getUint64(0, Endian.big).toRadixString(16);
++}
++
++void main() {
++  print(bits(chooseDouble(0.0, 0)));
++  print(bits(chooseDouble(-0.0, 0)));
++  print(bits(chooseDouble(0.0, 1)));
++  print(bits(chooseDouble(-0.0, 1)));
++  print(bits(chooseDouble(double.nan, 0)));
++  print(bits(chooseDouble(double.infinity, 0)));
++  print(bits(chooseDouble(double.negativeInfinity, 0)));
++  print(bits(chooseDouble(0.5, 2)));
++  final generic = chooseDouble;
++  print(bits(generic(-0.0, 0)));
++}

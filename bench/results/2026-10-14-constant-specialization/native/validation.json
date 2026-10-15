@@ -1,0 +1,571 @@
+{
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-producer/dartforge": "16a944eba213939ef449ff59daf7f9c75cb5bdd9569b9ed8f07f86ecdae43e3d",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json": "c5c1c22ad085905aa6341ddf11b3999b001cb6ac128a61f117a1fb8d532ec934",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/constant_arguments.dart": "f225adecf38557337b2c89047ed78fbb6cc3f1fd445d641dffcc55b770b92796",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/constant_double_arguments.dart": "808e7d5262389791b9e16028a117931a9c0b920fb15635c6a394a41e740b3692",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart": "d1dd06b17ec373922dbda23dbb4b5a4667f2a2e1c225e387b73d6b7deab87cd3",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/primitive_multiply.dart": "0b0f6ba12550f0bfbeebcd708726575ac1f80154fbe3a7fb3b195b733ac279fe"
+  },
+  "cases": {
+    "arguments": {
+      "profiles": {
+        "off": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-producer/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/constant_arguments.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/arguments/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3186160,
+            "sha256": "0463a631c98897b3c56cc5d79add575fcd2e91dd583fd61a6d28ff6548559581"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/arguments/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "97216b137d38c6c0e84f9d3f683f927a43811f4ff33f4c4bbe224d3799600d05",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/arguments/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "97216b137d38c6c0e84f9d3f683f927a43811f4ff33f4c4bbe224d3799600d05",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "bytes": 640866,
+              "sha256": "f8459b1223fa85816f9b6862051719083d132a6ca2c4e8c8cf2a8ab109cf5d69"
+            }
+          }
+        },
+        "on": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-producer/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/constant_arguments.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/arguments/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3186144,
+            "sha256": "1cfbf6f7d44d7d0ac8c7d6aadf69c45365dd109c7ce9dbf704df3d2f6133557a"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/arguments/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "97216b137d38c6c0e84f9d3f683f927a43811f4ff33f4c4bbe224d3799600d05",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/arguments/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "97216b137d38c6c0e84f9d3f683f927a43811f4ff33f4c4bbe224d3799600d05",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "bytes": 639242,
+              "sha256": "6ecb4090b23488106c9d031675c3c7d6dd8a57d28d1f9536a2ab1622495dedd2"
+            }
+          }
+        }
+      },
+      "vm": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/constant_arguments.dart"
+        ],
+        "exit": 0,
+        "stdout_sha256": "97216b137d38c6c0e84f9d3f683f927a43811f4ff33f4c4bbe224d3799600d05",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official_compile": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "exe",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/constant_arguments.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/arguments/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "4ea408504305e64c6f4ea7b6100ccf1ee87cfb1554acf702615d41c1196f5bc9",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/arguments/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "97216b137d38c6c0e84f9d3f683f927a43811f4ff33f4c4bbe224d3799600d05",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "exact": true
+      }
+    },
+    "double-arguments": {
+      "profiles": {
+        "off": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-producer/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/constant_double_arguments.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/double-arguments/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3235792,
+            "sha256": "83bdef74edf808f905e32780e43a2e04d26c74efc4e4fb959c71f474b078e40b"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/double-arguments/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "bd8a2c427dda9d999253e69fd7da97b7c2cc21ce052e7e42a167efcee3c5604d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/double-arguments/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "bd8a2c427dda9d999253e69fd7da97b7c2cc21ce052e7e42a167efcee3c5604d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "bytes": 600585,
+              "sha256": "db7e57d3a62d9d708739d4ead4a9648a5cbd5e25669a2fc39c68acadf3b247aa"
+            }
+          }
+        },
+        "on": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-producer/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/constant_double_arguments.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/double-arguments/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3235792,
+            "sha256": "83bdef74edf808f905e32780e43a2e04d26c74efc4e4fb959c71f474b078e40b"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/double-arguments/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "bd8a2c427dda9d999253e69fd7da97b7c2cc21ce052e7e42a167efcee3c5604d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/double-arguments/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "bd8a2c427dda9d999253e69fd7da97b7c2cc21ce052e7e42a167efcee3c5604d",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "bytes": 600585,
+              "sha256": "db7e57d3a62d9d708739d4ead4a9648a5cbd5e25669a2fc39c68acadf3b247aa"
+            }
+          }
+        }
+      },
+      "vm": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/constant_double_arguments.dart"
+        ],
+        "exit": 0,
+        "stdout_sha256": "bd8a2c427dda9d999253e69fd7da97b7c2cc21ce052e7e42a167efcee3c5604d",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official_compile": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "exe",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/constant_double_arguments.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/double-arguments/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "bdf8c0a7aa371a2630191091f88d0bc256091c6faddff6fdb761c7a5baf80601",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/double-arguments/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "bd8a2c427dda9d999253e69fd7da97b7c2cc21ce052e7e42a167efcee3c5604d",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "exact": true
+      }
+    },
+    "color": {
+      "profiles": {
+        "off": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-producer/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/color/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3335008,
+            "sha256": "a39e8014c072169b6451c1640cb706812005c157f52b485256ae6641476b0cff"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/color/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/color/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "bytes": 1145129,
+              "sha256": "74de898e7b4122bcb3a3e9c5fc0087984005f279dae8db5d7434e3145545a14f"
+            }
+          }
+        },
+        "on": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-producer/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/color/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3335008,
+            "sha256": "a39e8014c072169b6451c1640cb706812005c157f52b485256ae6641476b0cff"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/color/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/color/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "bytes": 1145129,
+              "sha256": "74de898e7b4122bcb3a3e9c5fc0087984005f279dae8db5d7434e3145545a14f"
+            }
+          }
+        }
+      },
+      "vm": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart"
+        ],
+        "exit": 0,
+        "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official_compile": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "exe",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/color/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "a505fdb2337cf2e46c639fef51e590f64665e6982a23b64396118c21ed1ec5a8",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/color/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "exact": true
+      }
+    },
+    "multiply": {
+      "profiles": {
+        "off": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-producer/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/primitive_multiply.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/multiply/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3252304,
+            "sha256": "0ddc420bbf0a283398df51448532a1b223091ae4dedd6875b70729c101239d30"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/multiply/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "2fe5d584338a752c7246d29ad3537905882a4242f0cde175b0c4f62c851cb8bb",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/multiply/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "2fe5d584338a752c7246d29ad3537905882a4242f0cde175b0c4f62c851cb8bb",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "bytes": 652718,
+              "sha256": "cd55ac43f6efa6c97cb919812c7bf071431490f15d198f00ada4da88050c89ce"
+            }
+          }
+        },
+        "on": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-producer/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/primitive_multiply.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/multiply/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3252304,
+            "sha256": "0ddc420bbf0a283398df51448532a1b223091ae4dedd6875b70729c101239d30"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/multiply/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "2fe5d584338a752c7246d29ad3537905882a4242f0cde175b0c4f62c851cb8bb",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/multiply/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "2fe5d584338a752c7246d29ad3537905882a4242f0cde175b0c4f62c851cb8bb",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "bytes": 652718,
+              "sha256": "cd55ac43f6efa6c97cb919812c7bf071431490f15d198f00ada4da88050c89ce"
+            }
+          }
+        }
+      },
+      "vm": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/primitive_multiply.dart"
+        ],
+        "exit": 0,
+        "stdout_sha256": "2fe5d584338a752c7246d29ad3537905882a4242f0cde175b0c4f62c851cb8bb",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official_compile": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "exe",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/primitive_multiply.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/multiply/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "92645119a6feda719e33d44d7724fa383393153e6b40dac1b6666e772d102e9f",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-native/multiply/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "2fe5d584338a752c7246d29ad3537905882a4242f0cde175b0c4f62c851cb8bb",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "exact": true
+      }
+    }
+  },
+  "scope": "One frozen producer, tracing/check/shadow; specialization OFF/ON only. Consumed output and GC stress comparison, no performance claim.",
+  "inputs_unchanged": true
+}

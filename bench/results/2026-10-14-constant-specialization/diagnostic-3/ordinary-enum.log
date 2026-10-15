@@ -1,0 +1,635 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 1 warning (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.93s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 1 test
+test optimize::enum_constants::tests::ordinary_simple_enum_lowering_certifies_current_getter_and_rejects_enhanced_shape ... enum premise=SimpleEnumConstant { library_uri: "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-rea-build/.tmp68O77o/main.dart", unit_uri: "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-rea-build/.tmp68O77o/main.dart", owner: "Simple", declaration: 0, index: 0, name: "a", class_id: 717, getter: "df.main$2edart.Simple.a", global: "dfg.main$2edart.Simple.a", root: 355 } body_valid=true body=Function {
+    symbol: "df.main$2edart.Simple.a",
+    name: "a",
+    params: [],
+    return_ty: Ref,
+    blocks: [
+        BasicBlock {
+            id: BlockId(
+                0,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        0,
+                    ),
+                    LoadGlobal {
+                        symbol: "dfg.main$2edart.Simple.a$ok",
+                        ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        1,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                0,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        1,
+                    ),
+                ),
+                then_block: BlockId(
+                    1,
+                ),
+                else_block: BlockId(
+                    2,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                1,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        2,
+                    ),
+                    LoadGlobal {
+                        symbol: "dfg.main$2edart.Simple.a",
+                        ty: Ref,
+                    },
+                    Ref,
+                ),
+            ],
+            terminator: Return(
+                Some(
+                    Val(
+                        ValueId(
+                            2,
+                        ),
+                    ),
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                2,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        3,
+                    ),
+                    StoreGlobal {
+                        symbol: "dfg.main$2edart.Simple.a$ok",
+                        val: Constant(
+                            Int(
+                                1,
+                            ),
+                        ),
+                        ty: I8,
+                        root: None,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        4,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_object_new",
+                        args: [
+                            (
+                                Constant(
+                                    Int(
+                                        717,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        2,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                        ],
+                        ret_ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        5,
+                    ),
+                    StoreGlobal {
+                        symbol: "dfg.main$2edart.Simple.a",
+                        val: Val(
+                            ValueId(
+                                4,
+                            ),
+                        ),
+                        ty: Ref,
+                        root: Some(
+                            355,
+                        ),
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        6,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_mark_constant",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        4,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Function(
+                                        "df.main$2edart.Simple.a",
+                                    ),
+                                ),
+                                I64,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        7,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        4,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        8,
+                    ),
+                    Const(
+                        String(
+                            "a",
+                        ),
+                    ),
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        9,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        4,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        8,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+            ],
+            terminator: Return(
+                Some(
+                    Val(
+                        ValueId(
+                            4,
+                        ),
+                    ),
+                ),
+            ),
+        },
+    ],
+    debug_info: None,
+}
+enum globals=[(355, Ref, "dfg.main$2edart.Simple.a")]
+enum classes=[ClassDef { id: 717, name: "Simple", field_count: 2, vtable: [], to_string_symbol: Some("df.main$2edart.Simple.toString") }]
+enum premise=SimpleEnumConstant { library_uri: "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-rea-build/.tmp68O77o/main.dart", unit_uri: "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-rea-build/.tmp68O77o/main.dart", owner: "Simple", declaration: 0, index: 1, name: "b", class_id: 717, getter: "df.main$2edart.Simple.b", global: "dfg.main$2edart.Simple.b", root: 356 } body_valid=true body=Function {
+    symbol: "df.main$2edart.Simple.b",
+    name: "b",
+    params: [],
+    return_ty: Ref,
+    blocks: [
+        BasicBlock {
+            id: BlockId(
+                0,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        0,
+                    ),
+                    LoadGlobal {
+                        symbol: "dfg.main$2edart.Simple.b$ok",
+                        ty: I8,
+                    },
+                    I8,
+                ),
+                (
+                    ValueId(
+                        1,
+                    ),
+                    ICmp(
+                        Ne,
+                        Val(
+                            ValueId(
+                                0,
+                            ),
+                        ),
+                        Constant(
+                            Int(
+                                0,
+                            ),
+                        ),
+                    ),
+                    I1,
+                ),
+            ],
+            terminator: CondBranch {
+                cond: Val(
+                    ValueId(
+                        1,
+                    ),
+                ),
+                then_block: BlockId(
+                    1,
+                ),
+                else_block: BlockId(
+                    2,
+                ),
+            },
+        },
+        BasicBlock {
+            id: BlockId(
+                1,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        2,
+                    ),
+                    LoadGlobal {
+                        symbol: "dfg.main$2edart.Simple.b",
+                        ty: Ref,
+                    },
+                    Ref,
+                ),
+            ],
+            terminator: Return(
+                Some(
+                    Val(
+                        ValueId(
+                            2,
+                        ),
+                    ),
+                ),
+            ),
+        },
+        BasicBlock {
+            id: BlockId(
+                2,
+            ),
+            instructions: [
+                (
+                    ValueId(
+                        3,
+                    ),
+                    StoreGlobal {
+                        symbol: "dfg.main$2edart.Simple.b$ok",
+                        val: Constant(
+                            Int(
+                                1,
+                            ),
+                        ),
+                        ty: I8,
+                        root: None,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        4,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_object_new",
+                        args: [
+                            (
+                                Constant(
+                                    Int(
+                                        717,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        2,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                        ],
+                        ret_ty: Ref,
+                    },
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        5,
+                    ),
+                    StoreGlobal {
+                        symbol: "dfg.main$2edart.Simple.b",
+                        val: Val(
+                            ValueId(
+                                4,
+                            ),
+                        ),
+                        ty: Ref,
+                        root: Some(
+                            356,
+                        ),
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        6,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_mark_constant",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        4,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Function(
+                                        "df.main$2edart.Simple.b",
+                                    ),
+                                ),
+                                I64,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        7,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        4,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        0,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+                (
+                    ValueId(
+                        8,
+                    ),
+                    Const(
+                        String(
+                            "b",
+                        ),
+                    ),
+                    Ref,
+                ),
+                (
+                    ValueId(
+                        9,
+                    ),
+                    CallRuntime {
+                        name: "dartforge_object_set",
+                        args: [
+                            (
+                                Val(
+                                    ValueId(
+                                        4,
+                                    ),
+                                ),
+                                Ref,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Val(
+                                    ValueId(
+                                        8,
+                                    ),
+                                ),
+                                I64,
+                            ),
+                            (
+                                Constant(
+                                    Int(
+                                        1,
+                                    ),
+                                ),
+                                I8,
+                            ),
+                        ],
+                        ret_ty: Void,
+                    },
+                    Void,
+                ),
+            ],
+            terminator: Return(
+                Some(
+                    Val(
+                        ValueId(
+                            4,
+                        ),
+                    ),
+                ),
+            ),
+        },
+    ],
+    debug_info: None,
+}
+enum globals=[(356, Ref, "dfg.main$2edart.Simple.b")]
+enum classes=[ClassDef { id: 717, name: "Simple", field_count: 2, vtable: [], to_string_symbol: Some("df.main$2edart.Simple.toString") }]
+enum exposure function=df.ffi.v_lp$ent instruction=NativeCall { target: Val(ValueId(12)), args: [(Val(ValueId(15)), I64), (Val(ValueId(18)), Ptr)], ret: Void }
+enum exposure function=df.ffi.v_p$ent instruction=NativeCall { target: Val(ValueId(11)), args: [(Val(ValueId(14)), Ptr)], ret: Void }
+enum exposure function=df.ffi.p_$ent instruction=NativeCall { target: Val(ValueId(10)), args: [], ret: Ptr }
+enum exposure function=df.ffi.a_lp$ent instruction=NativeCall { target: Val(ValueId(12)), args: [(Val(ValueId(15)), I64), (Val(ValueId(18)), Ptr)], ret: I8 }
+enum exposure function=df.ffi.l_ppa$ent instruction=NativeCall { target: Val(ValueId(13)), args: [(Val(ValueId(16)), Ptr), (Val(ValueId(19)), Ptr), (Val(ValueId(22)), I8)], ret: I64 }
+enum exposure function=df.ffi.a_l$ent instruction=NativeCall { target: Val(ValueId(11)), args: [(Val(ValueId(14)), I64)], ret: I8 }
+enum exposure function=df.ffi.a_$ent instruction=NativeCall { target: Val(ValueId(10)), args: [], ret: I8 }
+enum exposure function=df.ffi.s_$ent instruction=NativeCall { target: Val(ValueId(10)), args: [], ret: I16 }
+enum exposure function=df.ffi.i_$ent instruction=NativeCall { target: Val(ValueId(10)), args: [], ret: I32 }
+enum exposure function=df.ffi.l_$ent instruction=NativeCall { target: Val(ValueId(10)), args: [], ret: I64 }
+enum exposure function=df.ffi.h_$ent instruction=NativeCall { target: Val(ValueId(10)), args: [], ret: U8 }
+enum exposure function=df.ffi.t_$ent instruction=NativeCall { target: Val(ValueId(10)), args: [], ret: U16 }
+enum exposure function=df.ffi.j_$ent instruction=NativeCall { target: Val(ValueId(10)), args: [], ret: U32 }
+enum exposure function=df.ffi.m_$ent instruction=NativeCall { target: Val(ValueId(10)), args: [], ret: U64 }
+enum exposure function=df.ffi.f_$ent instruction=NativeCall { target: Val(ValueId(10)), args: [], ret: F32 }
+enum exposure function=df.ffi.d_$ent instruction=NativeCall { target: Val(ValueId(10)), args: [], ret: F64 }
+enum exposure function=df.ffi.b_$ent instruction=NativeCall { target: Val(ValueId(10)), args: [], ret: Bool }
+enum exposure function=df.ffi.l_HHl$ent instruction=NativeCall { target: Val(ValueId(13)), args: [(Val(ValueId(20)), Handle), (Val(ValueId(21)), Handle), (Val(ValueId(16)), I64)], ret: I64 }
+
+thread '<unnamed>' (1898308) panicked at crates/emit_native/src/optimize/enum_constants/tests.rs:336:9:
+assertion `left == right` failed
+  left: 0
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'optimize::enum_constants::tests::ordinary_simple_enum_lowering_certifies_current_getter_and_rejects_enhanced_shape' (1898307) panicked at crates/emit_native/src/optimize/enum_constants/tests.rs:348:24:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+FAILED
+
+failures:
+
+failures:
+    optimize::enum_constants::tests::ordinary_simple_enum_lowering_certifies_current_getter_and_rejects_enhanced_shape
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 723 filtered out; finished in 0.49s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

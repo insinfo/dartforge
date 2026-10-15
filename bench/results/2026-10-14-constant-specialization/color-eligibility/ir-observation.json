@@ -1,0 +1,56 @@
+{
+  "off": {
+    "ir_sha256": "2e1e4a9f36efafbd83e4c8897480108ca36fe5e3ae423b0ac050532948ea0192",
+    "ir_bytes": 1020619,
+    "binary_sha256": "2f1fd0ca67d96f3a2be8d96b1daf90fe1542f74bb04263eea7c45e5525ce0b95",
+    "binary_bytes": 3268880,
+    "specialized_definitions": 0,
+    "specialized_calls": 0,
+    "focused": {
+      "convertPixels": {
+        "header": "define i64 @df.color_numeric_performance$2edart..convertPixels(i64 %v0, i64 %v3) noinline nounwind {",
+        "ssa_assignments": 62,
+        "numbered_blocks": 40,
+        "generic_conversion_calls": 1,
+        "format_float32_getter_calls": 1,
+        "format_uint8_getter_calls": 1
+      },
+      "convertFormatValue": {
+        "header": "define i64 @df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue(i64 %v0, i64 %v3, i64 %v6) nounwind {",
+        "ssa_assignments": 2553,
+        "numbered_blocks": 1632,
+        "generic_conversion_calls": 0,
+        "format_float32_getter_calls": 10,
+        "format_uint8_getter_calls": 10
+      }
+    }
+  },
+  "on": {
+    "ir_sha256": "2e1e4a9f36efafbd83e4c8897480108ca36fe5e3ae423b0ac050532948ea0192",
+    "ir_bytes": 1020619,
+    "binary_sha256": "2f1fd0ca67d96f3a2be8d96b1daf90fe1542f74bb04263eea7c45e5525ce0b95",
+    "binary_bytes": 3268880,
+    "specialized_definitions": 0,
+    "specialized_calls": 0,
+    "focused": {
+      "convertPixels": {
+        "header": "define i64 @df.color_numeric_performance$2edart..convertPixels(i64 %v0, i64 %v3) noinline nounwind {",
+        "ssa_assignments": 62,
+        "numbered_blocks": 40,
+        "generic_conversion_calls": 1,
+        "format_float32_getter_calls": 1,
+        "format_uint8_getter_calls": 1
+      },
+      "convertFormatValue": {
+        "header": "define i64 @df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue(i64 %v0, i64 %v3, i64 %v6) nounwind {",
+        "ssa_assignments": 2553,
+        "numbered_blocks": 1632,
+        "generic_conversion_calls": 0,
+        "format_float32_getter_calls": 10,
+        "format_uint8_getter_calls": 10
+      }
+    }
+  },
+  "conclusion": "The intended enum-context specialization did not alter final color IR or binary. No performance effect can be attributed to the specialization toggle.",
+  "eligibility_limit": "The exact rejection gate is not observable in final LLVM; source-stage diagnostic is required. The 4000-instruction-plus-block target budget is a candidate, not an established cause."
+}

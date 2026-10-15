@@ -565,6 +565,8 @@ fn sdk_key_with_overlay(lib_dir: &Path, overlay: &Path, clang_id: &str, args: &[
         .filter(|(k, _)| k.starts_with("DARTFORGE_NO_"))
         .chain(std::iter::once(("DARTFORGE_PRIMITIVE_MULTIPLY".into(),
             std::env::var("DARTFORGE_PRIMITIVE_MULTIPLY").unwrap_or_else(|_| "0".into()))))
+        .chain(std::iter::once(("DARTFORGE_CONSTANT_SPECIALIZATION".into(),
+            std::env::var("DARTFORGE_CONSTANT_SPECIALIZATION").unwrap_or_else(|_| "0".into()))))
         .collect();
     keys.sort();
     for (k, v) in keys {

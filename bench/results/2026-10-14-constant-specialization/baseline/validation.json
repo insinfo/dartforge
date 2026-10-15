@@ -1,0 +1,25 @@
+{
+  "rows": {
+    "official": {
+      "exit": 0,
+      "exact": true,
+      "bytes": 5329888,
+      "sha256": "82eba8ef77c7c2a0cb48340822ead851ea8d582cb8f4c6ce163a51299046084a"
+    },
+    "native": {
+      "exit": 0,
+      "exact": true,
+      "bytes": 3186160,
+      "sha256": "061f8b0294d770d850fcfad5fa8edc03919dd4ebd992aab0580e5620a36c28d2"
+    },
+    "native-stress": {
+      "exit": 0,
+      "exact": true,
+      "bytes": 3186160,
+      "sha256": "061f8b0294d770d850fcfad5fa8edc03919dd4ebd992aab0580e5620a36c28d2"
+    }
+  },
+  "fixture_sha256": "f225adecf38557337b2c89047ed78fbb6cc3f1fd445d641dffcc55b770b92796",
+  "producer_sha256": "3d1a72b4194623bd134fa48c1ff913325bf4b2aecb1c6668a0aca5469c3e567b",
+  "scope": "Pre-specialization frozen V3 producer. Compiler process handle expired before final exit observation; existing artifact hashes and observed executions recorded without a compiler exit claim."
+}

@@ -1,0 +1,38 @@
+{
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-color-performance-v3/off/.df_tmp/program.ll",
+  "sha256": "2e1e4a9f36efafbd83e4c8897480108ca36fe5e3ae423b0ac050532948ea0192",
+  "bytes": 1020619,
+  "all_defined_bodies": {
+    "selector_calls": 98,
+    "indirect_selector_calls": 97,
+    "runtime_dynamic_operator_calls": 0,
+    "primitive_class_guards": 69,
+    "box_int_calls": 224,
+    "box_double_calls": 3,
+    "exception_clear_calls": 93,
+    "conditional_branches": 960
+  },
+  "focused_functions": {
+    "define i64 @df.color_numeric_performance$2edart..convertPixels(i64 %v0, i64 %v3) noinline nounwind {": {
+      "selector_calls": 3,
+      "indirect_selector_calls": 3,
+      "runtime_dynamic_operator_calls": 0,
+      "primitive_class_guards": 1,
+      "box_int_calls": 3,
+      "box_double_calls": 1,
+      "exception_clear_calls": 1,
+      "conditional_branches": 18
+    },
+    "define i64 @df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue(i64 %v0, i64 %v3, i64 %v6) nounwind {": {
+      "selector_calls": 88,
+      "indirect_selector_calls": 88,
+      "runtime_dynamic_operator_calls": 0,
+      "primitive_class_guards": 65,
+      "box_int_calls": 218,
+      "box_double_calls": 0,
+      "exception_clear_calls": 92,
+      "conditional_branches": 778
+    }
+  },
+  "scope": "Pre-LTO static IR sites, including guarded slow branches; these are not executed call counts."
+}

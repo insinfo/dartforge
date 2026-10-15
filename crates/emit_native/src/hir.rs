@@ -258,6 +258,22 @@ impl FieldDeclaration {
     }
 }
 
+/// Lowering premise for a resolved, simple enum declaration with certified equality.
+/// Consumers must separately audit the current getter/cache bodies and all writers.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct SimpleEnumConstant {
+    pub(crate) library_uri: String,
+    pub(crate) unit_uri: String,
+    pub(crate) owner: String,
+    pub(crate) declaration: u32,
+    pub(crate) index: usize,
+    pub(crate) name: String,
+    pub(crate) class_id: u32,
+    pub(crate) getter: String,
+    pub(crate) global: String,
+    pub(crate) root: u32,
+}
+
 /// Instructions that produce a value (or perform a write effect).
 #[derive(Debug, Clone)]
 pub enum Instruction {
@@ -1195,6 +1211,8 @@ pub struct Module {
     /// symbol of the value `dfg.<path>`); the initialization flag is
     /// `<symbol>$ok`.
     pub globals: Vec<(u32, Type, String)>,
+    /// Enum declaration premises, not canonical value or successful-return certificates.
+    pub(crate) simple_enum_constants: std::collections::HashMap<String, SimpleEnumConstant>,
     /// Constructs that the lowering cannot lower (N1). Non-empty = the
     /// program does not compile; the emitter produces only the message.
     pub errors: Vec<String>,

@@ -535,6 +535,14 @@ pub(crate) fn join_arc_facts(dest: &mut Module, origin: &mut Module) {
     dest.pruning_class_ids.extend(std::mem::take(&mut origin.pruning_class_ids));
     dest.pruning_ambiguous_class_ids.extend(std::mem::take(&mut origin.pruning_ambiguous_class_ids));
     dest.inline_policies.extend(std::mem::take(&mut origin.inline_policies));
+    for (getter, premise) in std::mem::take(&mut origin.simple_enum_constants) {
+        match dest.simple_enum_constants.entry(getter) {
+            std::collections::hash_map::Entry::Vacant(entry) => { entry.insert(premise); }
+            // Empty getter is a permanent ambiguity tombstone. A third chunk
+            // cannot revive a declaration whose body ownership already collided.
+            std::collections::hash_map::Entry::Occupied(mut entry) => entry.get_mut().getter.clear(),
+        }
+    }
     dest.dart_scalar_parameters.extend(std::mem::take(&mut origin.dart_scalar_parameters));
     dest.dart_rti_parameters.extend(std::mem::take(&mut origin.dart_rti_parameters));
     dest.dart_vector_parameters.extend(std::mem::take(&mut origin.dart_vector_parameters));
@@ -983,6 +991,9 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
             );
             builder.lower_enum_value(vid);
             builder.finish(&mut module);
+            if let Some(premise) = enums::simple_enum_constant(ctx, vid) {
+                module.simple_enum_constants.insert(premise.getter.clone(), premise);
+            }
             continue;
         }
         let ty = members::variable_type(ctx, vid);

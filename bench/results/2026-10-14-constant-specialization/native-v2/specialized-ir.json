@@ -1,0 +1,53 @@
+{
+  "scope": "Post-HIR pre-LTO static definitions/calls; no runtime count claim.",
+  "cases": {
+    "arguments": {
+      "off": {
+        "ir_sha256": "f8459b1223fa85816f9b6862051719083d132a6ca2c4e8c8cf2a8ab109cf5d69",
+        "specialized_definitions": [],
+        "static_specialized_calls": 0
+      },
+      "on": {
+        "ir_sha256": "6ecb4090b23488106c9d031675c3c7d6dd8a57d28d1f9536a2ab1622495dedd2",
+        "specialized_definitions": [],
+        "static_specialized_calls": 0
+      }
+    },
+    "double-arguments": {
+      "off": {
+        "ir_sha256": "db7e57d3a62d9d708739d4ead4a9648a5cbd5e25669a2fc39c68acadf3b247aa",
+        "specialized_definitions": [],
+        "static_specialized_calls": 0
+      },
+      "on": {
+        "ir_sha256": "db7e57d3a62d9d708739d4ead4a9648a5cbd5e25669a2fc39c68acadf3b247aa",
+        "specialized_definitions": [],
+        "static_specialized_calls": 0
+      }
+    },
+    "color": {
+      "off": {
+        "ir_sha256": "74de898e7b4122bcb3a3e9c5fc0087984005f279dae8db5d7434e3145545a14f",
+        "specialized_definitions": [],
+        "static_specialized_calls": 0
+      },
+      "on": {
+        "ir_sha256": "74de898e7b4122bcb3a3e9c5fc0087984005f279dae8db5d7434e3145545a14f",
+        "specialized_definitions": [],
+        "static_specialized_calls": 0
+      }
+    },
+    "multiply": {
+      "off": {
+        "ir_sha256": "cd55ac43f6efa6c97cb919812c7bf071431490f15d198f00ada4da88050c89ce",
+        "specialized_definitions": [],
+        "static_specialized_calls": 0
+      },
+      "on": {
+        "ir_sha256": "cd55ac43f6efa6c97cb919812c7bf071431490f15d198f00ada4da88050c89ce",
+        "specialized_definitions": [],
+        "static_specialized_calls": 0
+      }
+    }
+  }
+}

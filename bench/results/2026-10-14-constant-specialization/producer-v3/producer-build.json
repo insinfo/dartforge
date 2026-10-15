@@ -1,0 +1,21 @@
+{
+  "head": "f62f6948dadb8c88bea897360539c3f9b7c06de3",
+  "command": [
+    "cargo",
+    "build",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-cli",
+    "--release",
+    "--features",
+    "native"
+  ],
+  "exit": 0,
+  "source_scope": "Cargo manifests and Rust/Dart/C/header/JSON sources under crates and native_sdk, including tests.",
+  "source_stable": true,
+  "changed_during_build": [],
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-producer-v3/dartforge",
+  "compiler_sha256": "c363ac60f6dd39338eb5dbd84dffb863767c1c8a2a2ae4c725c996b2847c4a79",
+  "compiler_bytes": 25635840
+}

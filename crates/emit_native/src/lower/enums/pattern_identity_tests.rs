@@ -136,6 +136,7 @@ fn changed_sdk_object_body_native_and_implicit_enum_member_fail_closed() {
                 assert!(!enum_identity_operator(context, ClassId(cid as u32)), "SDK mutation must invalidate identity proof: {edit:?}");
                 let module = crate::lower::lower_program(context);
                 assert!(selector_count(&module, "direct") > 0, "altered SDK must retain the generic path");
+                assert!(module.simple_enum_constants.is_empty(), "altered SDK equality must not export symbolic enum premises: {edit:?}");
             });
         }
     }).unwrap().join().unwrap();

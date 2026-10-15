@@ -1,0 +1,60 @@
+{
+  "producer_sha256": "c363ac60f6dd39338eb5dbd84dffb863767c1c8a2a2ae4c725c996b2847c4a79",
+  "full_gate": {
+    "evidence": "full-lib-gate-v2/validation.json",
+    "passed": 726,
+    "scope": "Before test-only portability adjustment; production code unchanged afterward."
+  },
+  "portable_test": {
+    "passed": 1,
+    "evidence": "portable-test/actual-color.log"
+  },
+  "native_differential": {
+    "evidence": "native-v2/validation.json",
+    "profiles": 8,
+    "normal_and_gc_stress_executions": 16
+  },
+  "test_only_changes_after_measurement": [
+    "crates/emit_native/src/optimize/constant_specialize/tests.rs",
+    "crates/emit_native/tests/fixtures/color_context/format.dart",
+    "crates/emit_native/tests/fixtures/color_context/origin.json"
+  ],
+  "current_artifact_identity": "performance-v3/identity-to-measured.json",
+  "kernel": {
+    "off": {
+      "kernel_microseconds": 75712.0,
+      "process_kernel_medians_microseconds": [
+        75587.5,
+        75591.0,
+        75968.5
+      ],
+      "wall_ms": 387.657208,
+      "max_rss_bytes": 11059200
+    },
+    "on": {
+      "kernel_microseconds": 73166.0,
+      "process_kernel_medians_microseconds": [
+        72034.0,
+        73216.5,
+        73650.0
+      ],
+      "wall_ms": 376.255292,
+      "max_rss_bytes": 10911744
+    },
+    "official": {
+      "kernel_microseconds": 6071.5,
+      "process_kernel_medians_microseconds": [
+        7312.0,
+        6071.5,
+        5346.0
+      ],
+      "wall_ms": 42.912625,
+      "max_rss_bytes": 16515072
+    }
+  },
+  "on_over_off_time": 0.9663725697379544,
+  "on_over_off_bytes": 0.989882773304618,
+  "saved_bytes": 33072,
+  "policy": "Experimental default OFF; enable DARTFORGE_CONSTANT_SPECIALIZATION=1. No whole-application or HTTP/JSON gain claim.",
+  "next_work": "Remaining certified primitive clamp and scalar continuation; current color still about12x behind official AOT."
+}

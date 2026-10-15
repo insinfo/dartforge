@@ -472,6 +472,7 @@ fn emit_ir_internal(
     if !hir_module.errors.is_empty() {
         return Err(compile_error(&hir_module.errors));
     }
+    hir_module.arc_fixed_ancestry = prune;
     // 2a. Pruning of the HIR of the program through the graph of symbols and selectors with
     // the SDK summaries (`pruning::prune_hir`): what the production link would
     // remove later leaves before optimizing and emitting. Not in the JIT (the next
@@ -493,12 +494,16 @@ fn emit_ir_internal(
                 t_prune.elapsed()
             );
         }
+        if optimize::specialize_constants(&mut hir_module, table_exceptions) > 0 {
+            // New bodies and folded branches change reachability. Reuse the
+            // same SDK summaries before computing effect or escape facts.
+            prune_program_hir(&mut hir_module, options.optimize, &sdk_dir)?;
+        }
     }
     // 2b. HIR optimization (inlining, scalar replacement: `optimize/`).
     let t_optimize = Instant::now();
     // The same pipeline prepares the SDK libraries and materializes tables
     // only after the HIR transformations.
-    hir_module.arc_fixed_ancestry = prune;
     optimize::prepare_for_emission(&mut hir_module, arc_memory, table_exceptions);
     // The published ARC preparation (`DARTFORGE_ARC_PREPARED=1`): the program
     // alone, calling the prepared SDK (`sdk_module`, the same option in the
