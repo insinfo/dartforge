@@ -1,0 +1,6 @@
+
+running 1 test
+test reload::tests::eager_stubs_preserve_running_code_and_reuse_zero_slot_orphans_after_failure ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 44 filtered out; finished in 0.01s
+

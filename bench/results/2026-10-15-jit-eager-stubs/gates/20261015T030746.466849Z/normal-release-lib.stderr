@@ -1,0 +1,6 @@
+   Compiling bitflags v2.13.2
+   Compiling security-framework v3.7.0
+   Compiling rustls-native-certs v0.8.4
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)
+    Finished `release` profile [optimized] target(s) in 13.55s

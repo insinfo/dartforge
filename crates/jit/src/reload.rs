@@ -78,6 +78,24 @@ use crate::{ENTRY_SYMBOL, JitError, JitSession};
 /// program. It is also accepted in unquoted IR identifiers.
 const SLOT_PREFIX: &str = "__dfslot$";
 
+#[derive(Clone, Copy)]
+enum StubMaterialization {
+    Lazy,
+    Eager,
+    #[cfg(test)]
+    FailAfterEager,
+}
+
+impl StubMaterialization {
+    fn from_environment() -> Self {
+        if std::env::var("DARTFORGE_JIT_EAGER_STUBS").is_ok_and(|value| value == "1") {
+            Self::Eager
+        } else {
+            Self::Lazy
+        }
+    }
+}
+
 /// Cost of a reload cycle, split by stage.
 ///
 /// The first two stages of the cycle `PLANO.md` requires — analysis of the new Dart
@@ -515,6 +533,16 @@ impl JitSession {
         ir: &str,
         safepoint: Option<&mut dyn FnMut(ffi::Task)>,
     ) -> Result<HotReloadReport, JitError> {
+        self.install_generation_with_stubs(name, ir, safepoint, StubMaterialization::from_environment())
+    }
+
+    fn install_generation_with_stubs(
+        &mut self,
+        name: &str,
+        ir: &str,
+        safepoint: Option<&mut dyn FnMut(ffi::Task)>,
+        stub_materialization: StubMaterialization,
+    ) -> Result<HotReloadReport, JitError> {
         let started = Instant::now();
         if let Some(reason) = self.poisoned.clone() {
             return Err(JitError {
@@ -892,6 +920,29 @@ impl JitSession {
                 })
                 .map_err(|error| self.poison_if(promoted, error))?;
             stub_tracker = Some(created);
+        }
+        if !matches!(stub_materialization, StubMaterialization::Lazy)
+            && let Some(first) = fresh.first()
+        {
+            // The stub module depends only on the already registered absolute
+            // slots. Looking up one entry compiles this independent module;
+            // it never invokes an entry whose implementation slot is still zero.
+            let result = self.lljit.lookup(&first.name).map(|_| ());
+            #[cfg(test)]
+            let result = result.and_then(|()| {
+                if matches!(stub_materialization, StubMaterialization::FailAfterEager) {
+                    Err("injected failure after eager stub materialization".to_string())
+                } else {
+                    Ok(())
+                }
+            });
+            if let Err(detail) = result {
+                let error = JitError::new("link", "could not materialize the stable-entry stubs", detail);
+                let _ = tracker.remove();
+                let orphans = std::mem::take(&mut slots);
+                self.register_unimplemented(name, orphans, &published, stub_tracker.take());
+                return Err(self.poison_if(promoted, error));
+            }
         }
         let stubs = phase.elapsed();
 
@@ -1536,6 +1587,43 @@ mod tests {
         // Calling an `i64 ()` entry with an argument is an error, not a wrong ABI.
         let error = input.call_with(&session, 7).unwrap_err();
         assert_eq!(error.stage, "lookup");
+    }
+
+    #[test]
+    #[ignore = "requires the full LLVM distribution"]
+    fn eager_stubs_preserve_running_code_and_reuse_zero_slot_orphans_after_failure() {
+        let before = "define i64 @df_fn_0() { ret i64 7 }\n";
+        let after = "define i64 @df_fn_0() {\n\
+            %value = call i64 @df_fn_1()\n\
+            %result = add i64 %value, 1\n\
+            ret i64 %result\n}\n\
+            define i64 @df_fn_1() { ret i64 9 }\n";
+        let mut session = JitSession::new().unwrap();
+        session.install_generation_with_stubs("app", before, None, StubMaterialization::Eager).unwrap();
+        let old = session.stable_entry("df_fn_0").unwrap();
+        let old_address = session.lookup("df_fn_0").unwrap();
+        assert_eq!(old.call(&session).unwrap(), 7);
+
+        // This failure occurs after the real LLVM stub module has materialized,
+        // before any implementation pointer is published or invoked.
+        let error = session.install_generation_with_stubs("app", after, None, StubMaterialization::FailAfterEager).unwrap_err();
+        assert_eq!(error.stage, "link");
+        assert!(error.message.contains("injected failure"));
+        assert_eq!(session.generation("app"), Some(1));
+        assert_eq!(session.lookup("df_fn_0").unwrap(), old_address);
+        assert_eq!(old.call(&session).unwrap(), 7);
+        assert!(session.stable_entry("df_fn_1").unwrap_err().message.contains("no generation implemented"));
+        let orphan = &session.reloadables[0].entries["df_fn_1"];
+        assert_eq!(orphan.generation, 0);
+        assert_eq!(orphan.slot.load(std::sync::atomic::Ordering::Acquire), 0);
+        let orphan_address = session.lookup("df_fn_1").unwrap();
+
+        session.install_generation_with_stubs("app", after, None, StubMaterialization::Eager).unwrap();
+        assert_eq!(session.generation("app"), Some(2));
+        assert_eq!(session.lookup("df_fn_0").unwrap(), old_address);
+        assert_eq!(session.lookup("df_fn_1").unwrap(), orphan_address);
+        assert_eq!(old.call(&session).unwrap(), 10);
+        assert_eq!(session.stable_entry("df_fn_1").unwrap().call(&session).unwrap(), 9);
     }
 
     /// Promotion: a simple module gets trampolines on the first reload.

@@ -1,0 +1,45 @@
+{
+  "status": "passed",
+  "source_sha256": {
+    "crates/jit/src/frame_layouts.rs": "1b06850e5415d03a12a8ead9e5f1e29ff8bb1c1de12f67f15d6aed0d4c01195b",
+    "crates/jit/src/lib.rs": "672a5e385029534c1ee91a2a4974a9eb342d323ff89b0a2d01a36a80bca9412f",
+    "crates/jit/src/reload.rs": "3313cedb35500c5a9373f2cbe3f64c6f41d9b974992e7ddf2b1fdcd4a93df35a",
+    "crates/jit/src/ffi.rs": "29c576dc01f88898d323d20bc6493177a4d706f831c4446534ef840331c02132",
+    "crates/jit/src/migration.rs": "798644406cac8f010cd4a7e0c84a77864e80309291a5a2191f03a8103bc74964",
+    "crates/jit/src/live.rs": "396d1ce626d47d224ddb8af179a25c344c62bb4132df27bafcf6e6a62cebe9f7",
+    "crates/jit/src/delta.rs": "73562fd422a58391abeeff93608d1d25f1fc516a2400cd27cad8ab893e3f3d13",
+    "crates/jit/src/bin/run_ir.rs": "da6a847844573d29c163b3d143addfdf219650ddbbba49d4cd30f64518d3d99f"
+  },
+  "commands": [
+    {
+      "label": "parallel-all-lib",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "dartforge-jit",
+        "--release",
+        "--lib",
+        "-j2",
+        "--",
+        "--include-ignored",
+        "--nocapture"
+      ],
+      "exit": 0
+    },
+    {
+      "label": "normal-release-lib",
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "dartforge-jit",
+        "--release",
+        "--lib",
+        "-j2"
+      ],
+      "exit": 0
+    }
+  ],
+  "jit_sources_unchanged": true
+}

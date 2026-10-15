@@ -1,0 +1,13 @@
+{
+  "command": [
+    "target/jit-readiness-build/release/deps/dartforge_jit-e650df7b69e1d90e",
+    "ffi::callback_lifetime_tests::captured_closure_survives_replacement_before_callback_publication",
+    "--exact",
+    "--ignored",
+    "--nocapture"
+  ],
+  "binary_sha256": "47dbc7c754cffc4c83a2ede85f70647618253ca246656b9819e28313b24fd679",
+  "status": "passed",
+  "eager_environment": null,
+  "exit": 0
+}

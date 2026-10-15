@@ -3123,6 +3123,11 @@ mod callback_lifetime_tests {
     }
 
     fn run_callback_lifetime(deferred: bool) {
+        // Callback publication intentionally leases every active code owner in
+        // the process. Keep these metadata-only assertions isolated from the
+        // other scenario's real callback publication without weakening them.
+        static CALLBACK_LIFETIME_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _isolation = CALLBACK_LIFETIME_TEST.lock().unwrap_or_else(|error| error.into_inner());
         std::thread::Builder::new().stack_size(64 << 20).spawn(move || {
             let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
             let directory = std::env::temp_dir().join(format!("dartforge-jit-callback-lifetime-{}-{stamp}", std::process::id()));

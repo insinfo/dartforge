@@ -1,0 +1,55 @@
+
+running 45 tests
+test ffi::tests::only_listed_externals_are_known ... ok
+test delta::tests_mod::signature_without_names_or_linkage ... ok
+test ffi::tests::symbol_table_matches_the_announced_names ... ok
+test frame_layouts::tests::duplicate_and_malformed_markers_fail_closed ... ok
+test frame_layouts::tests::declared_resume_requires_the_exact_previously_certified_abi ... ok
+test frame_layouts::tests::heterogeneous_generated_frames_are_not_nominal_class_layouts ... ok
+test delta::tests_mod::changed_local_recompiles_users ... ok
+test frame_layouts::tests::nominal_and_generated_reserved_cid_cannot_change_domains ... ok
+test delta::tests_mod::excluded_and_non_live_are_compiled ... ok
+test delta::tests_mod::changed_callee_signature_recompiles_caller ... ok
+test delta::tests_mod::keeps_unchanged_and_compiles_rest ... ok
+test frame_layouts::tests::same_owner_and_size_do_not_certify_a_different_allocation_site ... ok
+test frame_layouts::tests::unmarked_or_mismatched_reserved_cid_stays_nominal ... ok
+test migration::tests_mod::declaring_owners_distinguish_reordered_and_removed_homonymous_fields ... ok
+test migration::tests_mod::ambiguous_legacy_fields_and_changed_identity_format_are_refused ... ok
+test migration::tests_mod::migrates_by_name_and_accepts_nullable_and_late ... ok
+test migration::tests_mod::preserved_legacy_empty_unknown_and_trailing_type_metadata_are_refused ... ok
+test migration::tests_mod::reads_the_ir_layouts ... ok
+test migration::tests_mod::rejects_new_field_without_value_and_changed_type ... ok
+test migration::tests_mod::same_display_type_cannot_hide_library_or_argument_identity_changes ... ok
+test reload::tests::class_names_reject_a_renumbered_class ... ok
+test reload::tests::contract_accepts_a_body_change ... ok
+test reload::tests::contract_keeps_a_vanished_function ... ok
+test reload::tests::contract_rejects_a_changed_class_layout ... ok
+test reload::tests::contract_rejects_a_changed_signature ... ok
+test reload::tests::contract_rejects_variadics ... ok
+test reload::tests::references_accept_exports_of_the_sdk_loaded_in_this_session ... ok
+test reload::tests::references_must_be_resolvable ... ok
+test reload::tests::references_reject_unimplemented_trampoline ... ok
+test reload::tests::stub_module_carries_the_signature ... ok
+test target_tests::different_targets_are_rejected ... ok
+test target_tests::spellings_of_same_target_are_compatible ... ok
+test ffi::tests::function_version_in_comdat_produces_coff_object ... ok
+test tests::entry_symbol_is_not_a_runtime_symbol ... ok
+test tests::error_display_keeps_stage_and_detail ... ok
+test reload::tests::promotion_rejects_incompatible_contract_without_destroying_anything ... ok
+test tests::registry_declaration_does_not_change_runtime_profile ... ok
+test reload::tests::full_cycle_with_direct_ir ... ok
+test tests::cached_object_accepts_external_authorized_by_sdk ... ok
+test reload::tests::simple_module_promotion ... ok
+test reload::tests::eager_stubs_preserve_running_code_and_reuse_zero_slot_orphans_after_failure ... ok
+33
+303
+test migration::tests_mod::emitted_private_fields_migrate_by_declaration_not_spelling ... ok
+102
+103
+104
+test migration::tests_mod::emitted_same_spelling_field_type_change_rejects_before_publication ... ok
+test ffi::callback_lifetime_tests::captured_closure_survives_replacement_before_callback_publication ... ok
+test ffi::callback_lifetime_tests::closed_native_callable_survives_reload_and_session_drop ... ok
+
+test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.64s
+
