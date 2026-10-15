@@ -1,0 +1,26 @@
+{
+  "application_pid": 18722,
+  "action": "capture",
+  "window": {
+    "kCGWindowName": "File Explorer",
+    "kCGWindowLayer": 0,
+    "kCGWindowMemoryUsage": 2432,
+    "kCGWindowIsOnscreen": true,
+    "kCGWindowSharingState": 1,
+    "kCGWindowOwnerPID": 19485,
+    "kCGWindowOwnerName": "dart_ui_macos_host",
+    "kCGWindowNumber": 4210,
+    "kCGWindowStoreType": 1,
+    "kCGWindowBounds": {
+      "X": 147.0,
+      "Height": 800.0,
+      "Y": 93.0,
+      "Width": 1280.0
+    },
+    "kCGWindowAlpha": 1.0
+  },
+  "recorded_at_epoch": 1792032009.643103,
+  "scope": "Window identity metadata only; raw accessibility menus are retained locally to avoid publishing unrelated document names.",
+  "raw_accessibility_sha256": "adf94fb148932192ef18966c114d3bd9ebb69275abdc3114bb8f84fca02c90e4",
+  "raw_accessibility_local_only": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T022522.385083Z/private-ui-observations/raw-accessibility/marker2-before-retry/capture.json"
+}

@@ -1,0 +1,6 @@
+{
+  "reason": "Stop failed body-reload gate after layout rejection/restart to prioritize missing font resource resolution; not clean UI close.",
+  "supervisor_pid": 2049,
+  "restart_child_pid": 12691,
+  "recorded_at_epoch": 1792028594.1264682
+}

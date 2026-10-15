@@ -1,0 +1,17 @@
+{
+  "scope": "Initial failed-trial raw AX records retained unchanged outside publishable evidence; safe fixture screenshots retained.",
+  "records": [
+    {
+      "phase": "child",
+      "raw_sha256": "0bef7f76ac1b6740be095971df9e29f148218ad3248d9466b461b32eead99b49",
+      "local_only": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T013103.009012Z/private-ui-observations/raw-accessibility/child/navigate.json",
+      "derived": "qa/child/window-summary.json"
+    },
+    {
+      "phase": "root",
+      "raw_sha256": "49806755f63086dc4ffb82d765c6dbdb1c523a00fa27fc6705327e7764fef5ec",
+      "local_only": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T013103.009012Z/private-ui-observations/raw-accessibility/root/capture.json",
+      "derived": "qa/root/window-summary.json"
+    }
+  ]
+}

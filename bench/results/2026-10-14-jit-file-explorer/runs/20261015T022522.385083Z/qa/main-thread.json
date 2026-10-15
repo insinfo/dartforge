@@ -1,0 +1,14 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-package-config-producer-v2/dartforge",
+    "run",
+    "--sdk",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-jit-file-explorer/main_thread_probe.dart"
+  ],
+  "exit": 0,
+  "producer_sha256": "83877f7379f98349b4601b6afe40a24e56017fc6de101179443553f942078a35",
+  "source_sha256": "799c515f71db26912c804d2eb6a1509d258b66df93eac1455209669a8257d5ad",
+  "stdout": "pthread_main_np=0\n",
+  "scope": "Actual JIT program thread identity; host-backed UI acceptance does not establish AppKit process-main-thread integration."
+}

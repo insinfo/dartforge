@@ -1,0 +1,21 @@
+{
+  "status": "sources_frozen_awaiting_coordinated_producer",
+  "changes": "Explicit -- argument handoff in run/reload/supervisor/restart, preserved UTF-8 and empty args, nearest package root polling for sibling lib edits. No changes to JIT/runtime crates.",
+  "source_sha256": {
+    "crates/cli/src/jit.rs": "29c6567546680d955e7a331990da8efeabb94ca9d4f665a641560680060dd078",
+    "crates/cli/tests/jit_program.rs": "f7d109efc103ccc2a49c25b25aa5a1ae1c4bc704752b7cb0f7eb45860b36e3ba",
+    "crates/cli/tests/fixtures/jit_main_arguments.dart": "05e52bae3d16a6e1699c5974e1654fb9a4079141071e857b80418990a02ea876"
+  },
+  "prepared_scripts_sha256": {
+    "run_argv.py": "7a70ce12f6eff11ca1d1ab2845fee422d1bdb795d0b3c3f2a2cafaf6c8b642f0",
+    "launch.py": "6475c73809ced291ac55ca790f85fb61c374f72b371f9cfd2e98f5c123e3d7ee",
+    "prepare.py": "56d240ebc07b5bea9b31bce08b50625f1b3103381e6a81ee4c2efc53a5429b3b"
+  },
+  "diagnostic_only_previous_jit": {
+    "path": "target/current-toolchain-status/dartforge-jit",
+    "sha256": "e106c2da3f1156bdd851f45706d36644f375815b7a20fe933c765f7aef6b2354",
+    "provenance": "target/current-toolchain-status/jit-provenance.json"
+  },
+  "native_main_thread_scope": "live.rs runs the Dart program on a dedicated worker; native_pump supports only process-main-thread CFRunLoop. Real UI acceptance uses the existing host backend; a pthread_main_np ordinary FFI probe will verify worker-thread behavior.",
+  "no_original_application_sources_modified": true
+}

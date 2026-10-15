@@ -1,0 +1,34 @@
+{
+  "status": "inconclusive",
+  "reason": "The observed location was outside the controlled fixture; no cause or folder-state preservation is asserted. Raw captures are retained locally outside publishable evidence.",
+  "observations": [
+    {
+      "phase": "body-preserved",
+      "local_only_destination": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T022522.385083Z/private-ui-observations/body-preserved",
+      "files": [
+        {
+          "name": "capture.json",
+          "sha256": "99d5758423ef92ecbb4450408255c46d895a6987e2fd82e440954836e3bed255"
+        },
+        {
+          "name": "capture.png",
+          "sha256": "edcf4233cc478c31e4db86554342219adc1fe032d7fd3a964e8b9a3b12a828d4"
+        }
+      ]
+    },
+    {
+      "phase": "body-child",
+      "local_only_destination": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T022522.385083Z/private-ui-observations/body-child",
+      "files": [
+        {
+          "name": "navigate.json",
+          "sha256": "287c19db38b972f2017f3c27854f4f97e777fc0c18e3bf7179243d547ec1bc36"
+        },
+        {
+          "name": "navigate.png",
+          "sha256": "fe1d8865fa4a5699fd3e25c0344debda4c13d46adea33eeed78a6ae9d186a7d7"
+        }
+      ]
+    }
+  ]
+}

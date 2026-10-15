@@ -1,0 +1,15 @@
+{
+  "status": "source-prepared-not-rebuilt",
+  "source_sha256": {
+    "crates/cli/src/jit.rs": "39da8557023f9420ec080896b3c1be437d9f5ff8ab0065a47cfce599c8d84bc4",
+    "crates/cli/tests/jit_program.rs": "d684b2e842899b4cc5cc6e4142b27f08b00aa68efeffb1ec74e57d305871db14",
+    "crates/cli/tests/fixtures/jit_package_resource.dart": "429ca02c0115bfe73807b7a7811f196965533fdd238f6f0e792b8e84f9165574",
+    "bench/results/2026-10-14-jit-file-explorer/probe_resources.py": "23b8884dad05249b07a08c597580a1ec65b975a631b8d347fc7553c323fb47b7",
+    "bench/results/2026-10-14-jit-file-explorer/resource_probe.dart": "3a90d83df657716db78115bce9b10422c94706e4700425d3adacaedbfa6ac051"
+  },
+  "before_probe": "resource-runs/20261015T014404.115729Z/validation.json",
+  "initial_ui_trial": "runs/20261015T013103.009012Z/launch.json",
+  "scope": "Publish exact source loader package selection before JIT threads. No font or cwd override. Initial UI trial failed body hot reload due variable async-frame nominal layout fingerprint and was terminated explicitly, not cleanclosed. Preserve canonical selected parent for symlinked configuration files, matching the loader and VM; four CLI selection/argument units.",
+  "previous_preparation_sha256": "4da8993205caac5b0fb8ac8487f9cdfc85d8818d9b97cfb02c37632747d6ba3f",
+  "symlink_vm_oracle": "symlink-runs/20261015T014819.687139Z/validation.json"
+}

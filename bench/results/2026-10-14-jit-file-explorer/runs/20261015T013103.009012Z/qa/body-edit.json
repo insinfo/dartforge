@@ -1,0 +1,10 @@
+{
+  "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T013103.009012Z/example/lib/src/ui/folder_view.dart",
+  "before_sha256": "70d003d9019bb871f9bc1c77063868e6b52a2f4cf42e6e7ecc9564e594b77aa1",
+  "after_sha256": "744a7f55a3572fa784729731d782779a75a6e1dfdb8a4873d0fe5c00f0d37ca1",
+  "recorded_at_epoch": 1792028404.115593,
+  "program_pid": 2050,
+  "host_pid": 12372,
+  "window_id": 3324,
+  "expected_state": "child-folder with one child-file.txt"
+}

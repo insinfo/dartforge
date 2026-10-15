@@ -1,0 +1,19 @@
+{
+  "status": "explicit-runtime-bridge-prepared-not-rebuilt",
+  "source_sha256": {
+    "crates/cli/src/jit.rs": "1ac5e5b3463770cc7890f88e30420351fd6371758ff39dd2e539498e01e83d70",
+    "crates/cli/tests/jit_program.rs": "d684b2e842899b4cc5cc6e4142b27f08b00aa68efeffb1ec74e57d305871db14",
+    "crates/cli/tests/fixtures/jit_package_resource.dart": "429ca02c0115bfe73807b7a7811f196965533fdd238f6f0e792b8e84f9165574",
+    "bench/results/2026-10-14-jit-file-explorer/probe_resources.py": "23b8884dad05249b07a08c597580a1ec65b975a631b8d347fc7553c323fb47b7",
+    "bench/results/2026-10-14-jit-file-explorer/resource_probe.dart": "3a90d83df657716db78115bce9b10422c94706e4700425d3adacaedbfa6ac051",
+    "crates/jit/src/lib.rs": "672a5e385029534c1ee91a2a4974a9eb342d323ff89b0a2d01a36a80bca9412f",
+    "crates/jit/src/ffi.rs": "e72206b34f60dd773616191bb3c21d330501bd2f553512177f6524e4c06e97e4",
+    "crates/runtime/src/compat_jit.rs": "2ba825cb140c2788d29458070f93813897e6a56f656f773de010a8ad9a0b027e",
+    "crates/runtime/effects.tsv": "2658375bba600242c0c14ee97995431b2523e3c4141100d9dfd9c14e7125f480"
+  },
+  "before_probe": "resource-runs/20261015T014404.115729Z/validation.json",
+  "initial_ui_trial": "runs/20261015T013103.009012Z/launch.json",
+  "scope": "Safe CLI publishes canonical selected package configuration through an explicit tri-state runtime API, mirrored into the SDK runtime via its host ABI. Unset keeps raw-IR environment fallback; explicit None suppresses stale inherited config. R0 child uses safe Command.env/env_remove. No process environment mutation or font/CWD override. Earlier failed unsafe-code producer and GUI/reload evidence remain preserved.",
+  "previous_preparation_sha256": "a1cbd8d9e0b9ffde57ce8bd60a3e1ab6213e49313d9b8e3ee673735c985c4b0e",
+  "symlink_vm_oracle": "symlink-runs/20261015T014819.687139Z/validation.json"
+}

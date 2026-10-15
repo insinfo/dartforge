@@ -1,0 +1,11 @@
+{
+  "phase": "invalid",
+  "file": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T022522.385083Z/example/lib/src/ui/folder_view.dart",
+  "before_sha256": "744a7f55a3572fa784729731d782779a75a6e1dfdb8a4873d0fe5c00f0d37ca1",
+  "after_sha256": "921e9e4c4598cf1fa6167569c9817d930d1e539b358ec791f03d3318c800408e",
+  "program_pid": 18722,
+  "host_pid": 19485,
+  "window_id": 4210,
+  "recorded_at_epoch": 1792031745.4095309,
+  "scope": "Source mutation only; actual publication/state/window results require separate logs and observations."
+}

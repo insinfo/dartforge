@@ -1,0 +1,53 @@
+{
+  "scope": "Unmodified raw accessibility records are retained locally. Public derived records keep only owned-window identity; safe screenshots remain publishable.",
+  "records": [
+    {
+      "phase": "child",
+      "raw_sha256": "f810152a0cceafade85d6ebe41b464f2478b215b792d7f98d536349ed116e959",
+      "local_only": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T022522.385083Z/private-ui-observations/raw-accessibility/child/navigate.json",
+      "derived": "qa/child/window-summary.json"
+    },
+    {
+      "phase": "invalid-navigation-retry",
+      "raw_sha256": "ba10cc83ff6c771c722adee7bd4b5a8a258dbdb7082c6f796c5bf7a55d0bd5f9",
+      "local_only": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T022522.385083Z/private-ui-observations/raw-accessibility/invalid-navigation-retry/navigate.json",
+      "derived": "qa/invalid-navigation-retry/window-summary.json"
+    },
+    {
+      "phase": "marker2-after",
+      "raw_sha256": "0dfd00b7b5c1b278cb2b847a319fe37365f45e0797e80b4c12eb6f4b8d8067a5",
+      "local_only": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T022522.385083Z/private-ui-observations/raw-accessibility/marker2-after/capture.json",
+      "derived": "qa/marker2-after/window-summary.json"
+    },
+    {
+      "phase": "marker2-before",
+      "raw_sha256": "1be311d8ae18c9327376753ef7ca93eab9867fdbd537dab0861fa123e6a354ac",
+      "local_only": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T022522.385083Z/private-ui-observations/raw-accessibility/marker2-before/capture.json",
+      "derived": "qa/marker2-before/window-summary.json"
+    },
+    {
+      "phase": "marker2-before-retry",
+      "raw_sha256": "adf94fb148932192ef18966c114d3bd9ebb69275abdc3114bb8f84fca02c90e4",
+      "local_only": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T022522.385083Z/private-ui-observations/raw-accessibility/marker2-before-retry/capture.json",
+      "derived": "qa/marker2-before-retry/window-summary.json"
+    },
+    {
+      "phase": "marker2-refresh",
+      "raw_sha256": "7184bc06aa01fbeb700216bf99b03376b2c8efcbea053512f1573652235fae9e",
+      "local_only": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T022522.385083Z/private-ui-observations/raw-accessibility/marker2-refresh/capture.json",
+      "derived": "qa/marker2-refresh/window-summary.json"
+    },
+    {
+      "phase": "restored-navigation-retry",
+      "raw_sha256": "4e9c481fab8c275d35f7b6698e91e30f465c5985a2571d1369c771d2966fbc5f",
+      "local_only": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T022522.385083Z/private-ui-observations/raw-accessibility/restored-navigation-retry/navigate.json",
+      "derived": "qa/restored-navigation-retry/window-summary.json"
+    },
+    {
+      "phase": "root",
+      "raw_sha256": "d7483bb9c08f373a46ff99b8cb6b316289ab2a610f03efcf1a0c84a404cc53e4",
+      "local_only": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T022522.385083Z/private-ui-observations/raw-accessibility/root/capture.json",
+      "derived": "qa/root/window-summary.json"
+    }
+  ]
+}

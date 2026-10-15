@@ -1,0 +1,83 @@
+{
+  "status": "scoped-acceptance-passed",
+  "producer_sha256": "83877f7379f98349b4601b6afe40a24e56017fc6de101179443553f942078a35",
+  "gates": {
+    "packages": {
+      "manifest": "bench/results/2026-10-14-jit-file-explorer/package-runs/20261015T022445.305219Z/validation.json",
+      "sha256": "c1810ab67e27e59d3e39d57c3409600b27a25896c379473b5945ec7ac8290225",
+      "status": "passed",
+      "inputs_stable": true
+    },
+    "fonts": {
+      "manifest": "bench/results/2026-10-14-jit-file-explorer/resource-runs/20261015T022506.739595Z/validation.json",
+      "sha256": "b9c7624ce7ab02960aa797a0d470c18c16d1ad257514abc55eeed7c063e66107",
+      "status": "passed",
+      "inputs_stable": true
+    },
+    "argv": {
+      "manifest": "bench/results/2026-10-14-jit-file-explorer/argv-runs/20261015T022628.435112Z/validation.json",
+      "sha256": "a6e153c5b0fd77475e1c30a379a85120f971a4109f73c4586b19f0b74e09a677",
+      "status": "passed",
+      "inputs_stable": true
+    }
+  },
+  "entry_pristine_at_launch": true,
+  "original_inputs_unchanged": true,
+  "original_package_config_unchanged": true,
+  "producer_unchanged": true,
+  "processes_gone": {
+    "18721": true,
+    "18722": true,
+    "19485": true
+  },
+  "native_close_exit": 0,
+  "window_identities": [
+    {
+      "step": "root",
+      "host_pid": 19485,
+      "window_id": 4210
+    },
+    {
+      "step": "child",
+      "host_pid": 19485,
+      "window_id": 4210
+    },
+    {
+      "step": "invalid-navigation-retry",
+      "host_pid": 19485,
+      "window_id": 4210
+    },
+    {
+      "step": "restored-navigation-retry",
+      "host_pid": 19485,
+      "window_id": 4210
+    },
+    {
+      "step": "marker2-after",
+      "host_pid": 19485,
+      "window_id": 4210
+    },
+    {
+      "step": "marker2-refresh",
+      "host_pid": 19485,
+      "window_id": 4210
+    }
+  ],
+  "observed_gui": {
+    "initial_icons": "Toolbar and sidebar glyphs visibly restored in qa/root/capture.png.",
+    "initial_navigation": "Safe root contains two items; safe child contains one child-file.txt.",
+    "body_reload": "Generation2 executed marker1; generations3/4 also published with same process/window.",
+    "invalid_edit": "Parser rejected invalid copied body; prior generation accepted safe navigation, with icons and marker1 intact.",
+    "controlled_state_preservation": "After generation4, focus-only capture retained same safe child-folder and one item; ordinary Refresh then rendered marker2 without changing folder.",
+    "final_screenshot": "qa/marker2-refresh/capture.png"
+  },
+  "limitations": [
+    "Earlier off-fixture observations and short-settle navigation are inconclusive; raw captures stay local-only, with hashes in generic manifests.",
+    "Two passive captures were black; cause is not asserted. Later focus-only capture verified the controlled state.",
+    "JIT program pthread_main_np=0; this validates the existing host backend, not process-main-thread AppKit integration.",
+    "No performance or startup-time claim."
+  ],
+  "stderr_sha256": "053978461770095df1124b135b24a872777989bd3d5b2ef3772c3561f852fa39",
+  "main_thread_manifest": "qa/main-thread.json",
+  "private_evidence_manifest": "qa/accessibility-retention.json"
+}
