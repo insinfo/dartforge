@@ -20,7 +20,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "DartForge - Dart to JavaScript compiler\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--interval <ms>] [--once]
        dartforge serve <input.dart> -o <dir> [--web <dir>] [--port N] [--packages <cfg>]\n       dartforge build [<input.dart>] [--root <dir>] [--plan] [--compare] [--release] [--strict] [--workers N] [--write-cache <dir>] [--dart <exe>] [--state]\n       dartforge aot|abi-info ...  (build with --features native)
        dartforge run|reload <input.dart> ...  (build with --features jit)
-       dartforge pack <destination>  (the distribution: executable, runtime, SDK, linker)\n       dartforge analyze [--format=json] [--all] [<dir|file>]  (the JSON of dart analyze)\n       dartforge format [-o write|show|json|none] [--set-exit-if-changed] [-l N] <files|dirs>  (dart format 3.6.2)\n       dartforge test [<file|directory> ...] [--name <regex>] [--sdk <lib>] [--packages <cfg>]\n       dartforge pub get [--offline] [--directory <dir>] [--sdk-version <version>]\n       dartforge macros <input.dart> [--materialize] [--shape 3.6|current] [--dart <exe>]\n\ncompile-js emits one ES module per library under the DDC contract.\ndev keeps the session alive and recompiles only what the edit affects."
+       dartforge pack <destination>  (the distribution: executable, runtime, SDK, linker)\n       dartforge analyze [--format=json] [--all] [<dir|file>]  (the JSON of dart analyze)\n       dartforge format [-o write|show|json|none] [--set-exit-if-changed] [-l N] <files|dirs>  (dart format 3.6.2)\n       dartforge test [<file|directory> ...] [--name <regex>] [--sdk <lib>] [--packages <cfg>]\n       dartforge pub get [--offline] [--directory <dir>] [--sdk <lib>] [--sdk-version <version>]\n       dartforge macros <input.dart> [--materialize] [--shape 3.6|current] [--dart <exe>]\n\ncompile-js emits one ES module per library under the DDC contract.\ndev keeps the session alive and recompiles only what the edit affects."
         );
         return Ok(());
     }
@@ -72,7 +72,7 @@ fn main() -> ExitCode {
     }
     if args.first().is_some_and(|a| a == "pub") {
         if args.get(1).is_none_or(|a| a != "get") {
-            eprintln!("error: usage: dartforge pub get [--offline] [--directory <dir>] [--sdk-version <version>]");
+            eprintln!("error: usage: dartforge pub get [--offline] [--directory <dir>] [--sdk <lib>] [--sdk-version <version>]");
             return ExitCode::from(64);
         }
         return match pub_get::run(&args[2..]) {

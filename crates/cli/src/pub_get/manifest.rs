@@ -12,6 +12,7 @@ use yaml_rust2::{Yaml, YamlLoader};
 pub(super) enum Source {
     Path(PathBuf),
     Hosted(String),
+    Sdk(String),
 }
 #[derive(Clone, Debug)]
 pub(super) struct Dependency {
@@ -180,12 +181,30 @@ fn parse_dependencies(
             let map = value
                 .as_object()
                 .ok_or("dependency must be a constraint or mapping")?;
-            if map.contains_key("git") || map.contains_key("sdk") {
-                return Err(format!(
-                    "{name}: git and SDK package sources are not yet supported"
-                ));
+            if map.contains_key("git") {
+                return Err(format!("{name}: git package sources are not yet supported"));
             }
-            if let Some(path) = value.get("path") {
+            if let Some(sdk) = value.get("sdk") {
+                if map.keys().any(|key| key != "sdk" && key != "version") {
+                    return Err(format!("{name}: unsupported SDK dependency fields"));
+                }
+                let sdk = sdk.as_str().ok_or("dependency sdk must be a name")?;
+                if sdk != "dart" {
+                    return Err(format!(
+                        "{name}: SDK package source {sdk:?} is not supported"
+                    ));
+                }
+                Dependency {
+                    source: Source::Sdk(sdk.into()),
+                    constraint: Constraint::parse(
+                        value
+                            .get("version")
+                            .map(|value| value.as_str().ok_or("version must be a string"))
+                            .transpose()?
+                            .unwrap_or("any"),
+                    )?,
+                }
+            } else if let Some(path) = value.get("path") {
                 if map.len() != 1 {
                     return Err(format!("{name}: unsupported path dependency fields"));
                 }

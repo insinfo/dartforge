@@ -1,0 +1,54 @@
+{
+  "status": "prepared_not_executed",
+  "producer": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-producer-v3/dartforge",
+  "producer_sha256": "c363ac60f6dd39338eb5dbd84dffb863767c1c8a2a2ae4c725c996b2847c4a79",
+  "producer_features": [
+    "native"
+  ],
+  "producer_provenance": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-producer-v3/provenance.json",
+  "command_help": {
+    "test": {
+      "exit": 0,
+      "stdout_sha256": "bec39d91909d215c736f690f6c8489fba8a5dfb3063b4486646fee8160fe68f2"
+    },
+    "pub-get": {
+      "exit": 0,
+      "stdout_sha256": "899db4d3263e5a1da6437a64c758213435b2ce09e668b52b3466fbfb469b48df"
+    }
+  },
+  "current_cli_sources_match_frozen_producer": true,
+  "source_sha256": {
+    "crates/cli/src/main.rs": "aa04749badc4f13437af74ed7b2daa783c69677778daf8104fb351911544cf39",
+    "crates/cli/src/test_runner.rs": "28ba842275689bb53bfbb663b2acfa31e4561b6448ee66e8c0c54fc576b52fba",
+    "crates/cli/src/test_runner/worker.dart": "115f0ee59a85c587553d10375f68d39e4d0b08e2cb52467e2e4568b8ded211de",
+    "crates/cli/src/pub_get.rs": "ff45a0e1ba03c65ddc56a373a7df5b152e3e7bc7428eceda2d1a28fdd9657e06",
+    "crates/cli/src/pub_get/manifest.rs": "a9901296fd80d2b8891aec05476b22feb7d82d1803728a7f2888c0a6e1b3c97d",
+    "crates/cli/src/pub_get/hosted.rs": "d918aeaa71473d6abc5a885107a883ce73eb9411f5f57c5dec29bfd3138eaf20",
+    "crates/cli/src/pub_get/output.rs": "2ff374329b2b275d52c8ba50fc03179ccca1c7bb94deb40b7a59698016652074",
+    "crates/cli/src/pub_get/constraints.rs": "9b9690b8f254ecf692093ff0526050ff0b0b811e2548fea2eaa5cfdcf80f7430",
+    "crates/cli/src/pub_get/tests.rs": "6fc8c3f5cbf3406373cd33ac574c0d4b95d3a4032fb6ef9eb7c6641ce14d66ab",
+    "crates/cli/src/pub_get/resolver.rs": "f8829e245f3051ede3e72b30dc53c1c0c11d7ee7e43248c85d495b02031f9081"
+  },
+  "fixture_sha256": {
+    "project/pubspec.yaml": "e54bdcdf9abc578fcddb665dd5eefc79f5c28d33446c9036bf610108390f5cbc",
+    "project/test/integration_test.dart": "c2f707d54f42c880f2363ddccaa96f841a09cafa9345a5a0a5d31c23757043d3"
+  },
+  "previous_evidence": [
+    "bench/results/2026-10-14-native-test-runner/validation.json",
+    "bench/results/2026-10-14-native-test-runner/integrated-cli/validation.json",
+    "bench/results/2026-10-14-native-pub-get/validation.json",
+    "bench/results/2026-10-14-native-pub-get/implementation-validation.json",
+    "bench/results/2026-10-14-pub-root-overrides/validation.json"
+  ],
+  "known_resolution_obstacle": "Prior official test1.25.7 package config includes _macros from SDK/pkg/_macros via analyzer6.11. Native Pub currently refuses SDK package sources. Script preserves fresh own resolution failure, executes independently resolved official VM reference, and cannot report pass without both complete integration paths. No workaround or copied official package_config.",
+  "invocation": [
+    "python3",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-native-pub-test-integration/verify.py",
+    "--producer",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-producer-v3/dartforge",
+    "--producer-sha256",
+    "c363ac60f6dd39338eb5dbd84dffb863767c1c8a2a2ae4c725c996b2847c4a79"
+  ],
+  "script_sha256": "a508c5a871d27d595c3eefa8dfa7bcd9bc3baba471726aea130f238dcd3011fe",
+  "python_syntax_checked_without_execution": true
+}

@@ -38,6 +38,15 @@ pub(super) fn read_lock(
             Some("hosted") => Source::Hosted(super::hosted::normalize_host(
                 p["description"]["url"].as_str().unwrap_or(host),
             )?),
+            Some("sdk") => {
+                let sdk = p["description"]
+                    .as_str()
+                    .ok_or("SDK lockfile description must be a name")?;
+                if sdk != "dart" {
+                    return Err(format!("unsupported locked SDK {sdk:?}"));
+                }
+                Source::Sdk(sdk.into())
+            }
             _ => return Err(format!("unsupported locked source for {name}")),
         };
         result.insert(name.clone(), (source, version));
@@ -68,17 +77,14 @@ pub(super) fn write(
         } else {
             "transitive"
         };
-        lock.push_str(&format!(
-            "  {name}:\n    dependency: {}\n    description:\n",
-            quote(kind)
-        ));
+        lock.push_str(&format!("  {name}:\n    dependency: {}\n", quote(kind)));
         match &value.source {
             Source::Path(path) => lock.push_str(&format!(
-                "      path: {}\n      relative: false\n    source: path\n",
+                "    description:\n      path: {}\n      relative: false\n    source: path\n",
                 quote(&path.to_string_lossy())
             )),
             Source::Hosted(host) => lock.push_str(&format!(
-                "      name: {}\n      sha256: {}\n      url: {}\n    source: hosted\n",
+                "    description:\n      name: {}\n      sha256: {}\n      url: {}\n    source: hosted\n",
                 quote(name),
                 quote(
                     value
@@ -88,6 +94,9 @@ pub(super) fn write(
                         .ok_or("missing archive hash")?
                 ),
                 quote(host)
+            )),
+            Source::Sdk(sdk) => lock.push_str(&format!(
+                "    description: {}\n    source: sdk\n", quote(sdk)
             )),
         }
         lock.push_str(&format!(

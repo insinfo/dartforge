@@ -1,0 +1,1 @@
+usage: dartforge pub get [--offline] [--directory <dir>] [--sdk-version <version>]

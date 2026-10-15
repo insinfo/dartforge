@@ -30,6 +30,7 @@ pub(super) struct Resolver {
     pub hosted: Hosted,
     pub sdk: Version,
     pub locked: BTreeMap<String, (Source, Version)>,
+    pub sdk_root: Option<std::path::PathBuf>,
     attempts: usize,
     overrides: BTreeMap<String, Dependency>,
     root_name: String,
@@ -40,6 +41,7 @@ impl Resolver {
             hosted,
             sdk,
             locked,
+            sdk_root: None,
             attempts: 0,
             overrides: BTreeMap::new(),
             root_name: String::new(),
@@ -132,6 +134,13 @@ impl Resolver {
                 digest: None,
             }],
             Source::Hosted(host) => self.hosted.candidates(name, host)?,
+            Source::Sdk(sdk_name) => vec![super::sdk::candidate(
+                self.sdk_root.as_deref(),
+                sdk_name,
+                name,
+                &self.sdk,
+                &self.hosted.default_host,
+            )?],
         };
         candidates.retain(|c| {
             c.manifest.name == *name

@@ -1,0 +1,3 @@
+usage: dartforge test [<file|directory> ...] [--name <regex> | --plain-name <text>] [--reporter expanded|json] [--sdk <lib>] [--packages <package_config.json>] [--process-timeout <seconds>] [--keep-artifacts]
+Runs resolved package:test suites in native DartForge executables, serially.
+Requires resolved test, test_api and test_core dependencies. Library annotations, dart_test.yaml, browser platforms, coverage and watch mode are not supported yet.

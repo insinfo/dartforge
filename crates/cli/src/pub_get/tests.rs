@@ -338,7 +338,7 @@ fn hosted_integrity_missing_metadata_and_source_conflict_fail() {
     );
 }
 #[test]
-fn irrelevant_unsupported_historical_versions_do_not_poison_supported_release() {
+fn irrelevant_unavailable_sdk_historical_versions_do_not_poison_supported_release() {
     let f = Fixture::new();
     let cache = f.0.join("cache");
     let mut supported = version_row("a", "2.0.0", serde_json::json!({}));
@@ -371,7 +371,7 @@ fn irrelevant_unsupported_historical_versions_do_not_poison_supported_release() 
         resolver(cache)
             .resolve(&m, &root)
             .unwrap_err()
-            .contains("SDK package sources are not yet supported")
+            .contains("SDK packages require a selected SDK")
     );
 }
 #[test]
@@ -505,5 +505,215 @@ fn explicit_lower_prerelease_allows_same_release_below_stable_upper() {
         Constraint::parse("<2.0.0-beta")
             .unwrap()
             .allows(&parse_version("2.0.0-alpha").unwrap())
+    );
+}
+
+fn declared_sdk(fixture: &Fixture) -> PathBuf {
+    let sdk = fixture.0.join("selected-sdk");
+    std::fs::create_dir_all(sdk.join("lib")).unwrap();
+    std::fs::write(sdk.join("lib/libraries.json"), "{}").unwrap();
+    std::fs::write(sdk.join("version"), "3.6.2\n").unwrap();
+    std::fs::write(sdk.join("sdk_packages.yaml"), "version: 1\nsdk: dart\npackages:\n  - name: vendor_one\n    path: declared/one\n  - name: vendor_two\n    path: declared/two\n").unwrap();
+    fixture.package("selected-sdk/declared/one", "name: vendor_one\nversion: 1.2.3\nenvironment:\n  sdk: ^3.4.0\ndependencies:\n  vendor_two:\n    sdk: dart\n    version: ^2.0.0\ndev_dependencies:\n  ignored:\n    git: unsupported\n");
+    fixture.package(
+        "selected-sdk/declared/two",
+        "name: vendor_two\nversion: 2.1.0\nenvironment:\n  sdk: ^3.0.0\n",
+    );
+    sdk.canonicalize().unwrap()
+}
+
+#[test]
+fn declared_sdk_packages_resolve_transitively_offline_and_write_sdk_lock_identity() {
+    let fixture = Fixture::new();
+    let sdk = declared_sdk(&fixture);
+    let root = fixture.package("app", "name: app\nenvironment:\n  sdk: ^3.6.0\ndependencies:\n  vendor_one:\n    sdk: dart\n    version: ^1.0.0\n");
+    let manifest = manifest::Manifest::read(&root, "https://pub.dev", true).unwrap();
+    let mut resolver = resolver(fixture.0.join("cache"));
+    resolver.sdk_root = Some(sdk.clone());
+    let selected = resolver.resolve(&manifest, &root).unwrap();
+    assert_eq!(selected.len(), 2);
+    assert_eq!(
+        selected["vendor_one"].source,
+        manifest::Source::Sdk("dart".into())
+    );
+    assert_eq!(
+        selected["vendor_one"].candidate.directory,
+        sdk.join("declared/one")
+    );
+    output::write(&root, &manifest, &selected, &resolver.sdk).unwrap();
+    let lock = output::read_lock(&root, "https://pub.dev").unwrap();
+    assert_eq!(
+        lock["vendor_one"],
+        (
+            manifest::Source::Sdk("dart".into()),
+            constraints::parse_version("1.2.3").unwrap()
+        )
+    );
+    let text = std::fs::read_to_string(root.join("pubspec.lock")).unwrap();
+    assert!(text.contains("description: \"dart\"\n    source: sdk"));
+    let config: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(root.join(".dart_tool/package_config.json")).unwrap(),
+    )
+    .unwrap();
+    let entry = config["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["name"] == "vendor_one")
+        .unwrap();
+    assert_eq!(entry["languageVersion"], "3.4");
+    assert_eq!(
+        entry["rootUri"],
+        url::Url::from_directory_path(sdk.join("declared/one"))
+            .unwrap()
+            .as_str()
+    );
+    let hashes = [
+        root.join("pubspec.lock"),
+        root.join(".dart_tool/package_config.json"),
+    ]
+    .map(|path| std::fs::read(path).unwrap());
+    resolver.locked = lock;
+    let repeated = resolver.resolve(&manifest, &root).unwrap();
+    output::write(&root, &manifest, &repeated, &resolver.sdk).unwrap();
+    assert_eq!(
+        hashes,
+        [
+            root.join("pubspec.lock"),
+            root.join(".dart_tool/package_config.json")
+        ]
+        .map(|path| std::fs::read(path).unwrap())
+    );
+}
+
+#[test]
+fn sdk_lookup_requires_selected_version_and_declared_unique_matching_package() {
+    let fixture = Fixture::new();
+    let sdk_root = declared_sdk(&fixture);
+    let version = constraints::parse_version("3.6.2").unwrap();
+    let lookup = |root: Option<&std::path::Path>, name: &str, version: &semver::Version| {
+        sdk::candidate(root, "dart", name, version, "https://pub.dev")
+    };
+    assert!(
+        lookup(None, "vendor_one", &version)
+            .unwrap_err()
+            .contains("selected SDK")
+    );
+    assert!(
+        lookup(
+            Some(&sdk_root),
+            "vendor_one",
+            &constraints::parse_version("3.7.0").unwrap()
+        )
+        .unwrap_err()
+        .contains("version differs")
+    );
+    fixture.package(
+        "selected-sdk/pkg/undeclared",
+        "name: undeclared\nversion: 1.0.0\nenvironment:\n  sdk: ^3.0.0\n",
+    );
+    assert!(
+        lookup(Some(&sdk_root), "undeclared", &version)
+            .unwrap_err()
+            .contains("not declared")
+    );
+    let config = sdk_root.join("sdk_packages.yaml");
+    let original = std::fs::read_to_string(&config).unwrap();
+    std::fs::write(
+        &config,
+        format!("{original}  - name: vendor_one\n    path: declared/two\n"),
+    )
+    .unwrap();
+    assert!(
+        lookup(Some(&sdk_root), "vendor_one", &version)
+            .unwrap_err()
+            .contains("duplicate")
+    );
+    std::fs::write(&config, &original).unwrap();
+    fixture.package(
+        "selected-sdk/declared/one",
+        "name: different\nversion: 1.2.3\nenvironment:\n  sdk: ^3.4.0\n",
+    );
+    assert!(
+        lookup(Some(&sdk_root), "vendor_one", &version)
+            .unwrap_err()
+            .contains("pubspec name")
+    );
+}
+
+#[test]
+fn sdk_vendor_packages_refuse_non_sdk_regular_sources_and_source_identity_conflicts() {
+    let fixture = Fixture::new();
+    let sdk_root = declared_sdk(&fixture);
+    let version = constraints::parse_version("3.6.2").unwrap();
+    fixture.package("selected-sdk/declared/one", "name: vendor_one\nversion: 1.2.3\nenvironment:\n  sdk: ^3.4.0\ndependencies:\n  hosted_dependency: any\n");
+    assert!(
+        sdk::candidate(
+            Some(&sdk_root),
+            "dart",
+            "vendor_one",
+            &version,
+            "https://pub.dev"
+        )
+        .unwrap_err()
+        .contains("only declare SDK")
+    );
+    let root = fixture.package("app", "name: app\nenvironment:\n  sdk: ^3.6.0\ndependencies:\n  vendor_one:\n    sdk: dart\n  bridge:\n    path: ../bridge\n");
+    fixture.package(
+        "bridge",
+        "name: bridge\nenvironment:\n  sdk: ^3.0.0\ndependencies:\n  vendor_one: any\n",
+    );
+    let manifest = manifest::Manifest::read(&root, "https://pub.dev", true).unwrap();
+    let mut resolver = resolver(fixture.0.join("cache"));
+    resolver.sdk_root = Some(sdk_root);
+    assert!(
+        resolver
+            .resolve(&manifest, &root)
+            .unwrap_err()
+            .contains("conflicting package sources")
+    );
+    for source in ["flutter", "unknown"] {
+        let value = serde_json::json!({"name":"app", "dependencies":{"vendor_one":{"sdk":source}}});
+        assert!(manifest::Manifest::parse(&value, Some(&root), "https://pub.dev").is_err());
+    }
+}
+
+#[test]
+fn sdk_package_versions_are_constraints_not_hosted_fallbacks_and_selected_mapping_changes() {
+    let fixture = Fixture::new();
+    let sdk_root = declared_sdk(&fixture);
+    let root = fixture.package("app", "name: app\nenvironment:\n  sdk: ^3.6.0\ndependencies:\n  vendor_one:\n    sdk: dart\n    version: '>=2.0.0 <3.0.0'\n");
+    let manifest = manifest::Manifest::read(&root, "https://pub.dev", true).unwrap();
+    let mut resolver = resolver(fixture.0.join("cache"));
+    resolver.sdk_root = Some(sdk_root.clone());
+    assert!(
+        resolver
+            .resolve(&manifest, &root)
+            .unwrap_err()
+            .contains("no compatible version for vendor_one")
+    );
+    fixture.package(
+        "selected-sdk/replacement",
+        "name: vendor_one\nversion: 2.2.0\nenvironment:\n  sdk: ^3.6.0\n",
+    );
+    std::fs::write(
+        sdk_root.join("sdk_packages.yaml"),
+        "version: 1\nsdk: dart\npackages:\n  - name: vendor_one\n    path: replacement\n",
+    )
+    .unwrap();
+    let selected = resolver.resolve(&manifest, &root).unwrap();
+    assert_eq!(
+        selected["vendor_one"].candidate.directory,
+        sdk_root.join("replacement")
+    );
+    assert_eq!(
+        selected["vendor_one"].candidate.manifest.version,
+        constraints::parse_version("2.2.0").unwrap()
+    );
+    // Hosted registry metadata can declare a selected SDK package; its source identity remains SDK.
+    let hosted = manifest::Manifest::parse(&serde_json::json!({"name":"wrapper","version":"1.0.0","environment":{"sdk":"^3.6.0"},"dependencies":{"vendor_one":{"sdk":"dart","version":"^2.0.0"}}}), None, "https://pub.dev").unwrap();
+    assert_eq!(
+        hosted.dependencies["vendor_one"].source,
+        manifest::Source::Sdk("dart".into())
     );
 }

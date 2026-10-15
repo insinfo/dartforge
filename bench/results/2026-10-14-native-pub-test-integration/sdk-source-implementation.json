@@ -1,0 +1,65 @@
+{
+  "status": "focused_tests_passed_combined_producer_pending",
+  "changes": "Selected Dart SDK declared-package source resolution; no package:test-specific path or package name special case. Own Pub command accepts --sdk lib and reads selected version; SDK dependencies require the exact selected root version, vendor declaration, matching package name and SDK-only regular dependencies. SDK lock source and actual package roots are published.",
+  "source_sha256": {
+    "crates/cli/src/pub_get.rs": "126384f8d2f45459ddf8730a0c59010e5919fc4acfa0e6ab5e977f94b5bf331e",
+    "crates/cli/src/pub_get/sdk.rs": "0440aaa0b87ff401129ce61fe27441ba471bd5d2cb5dccb00608e077097dea15",
+    "crates/cli/src/pub_get/manifest.rs": "0e55bf59e96847b86ab6ddf5ecbc06059562831cd747262585fbaddb3dbb8ee8",
+    "crates/cli/src/pub_get/hosted.rs": "d918aeaa71473d6abc5a885107a883ce73eb9411f5f57c5dec29bfd3138eaf20",
+    "crates/cli/src/pub_get/output.rs": "7b2743ad173b6ddcc48cbb6efb0cbadf3e9c972234b545d476eb856f39e52b06",
+    "crates/cli/src/pub_get/constraints.rs": "9b9690b8f254ecf692093ff0526050ff0b0b811e2548fea2eaa5cfdcf80f7430",
+    "crates/cli/src/pub_get/tests.rs": "de5937952f49d4d01b6ebec64bdc79ab8a4627eb77d553aea4607d30f3831711",
+    "crates/cli/src/pub_get/resolver.rs": "0109d37dab98ce78acb0da8c5d7c592fbccfcea2ed8c2481692363a6619a19d3"
+  },
+  "primary_semantics_sources": [
+    "https://raw.githubusercontent.com/dart-lang/pub/master/lib/src/source/sdk.dart",
+    "https://raw.githubusercontent.com/dart-lang/pub/master/lib/src/sdk/dart.dart"
+  ],
+  "selected_3_6_2_sdk_evidence": {
+    "sdk_packages.yaml": "0d4a1e657563c643bfffd28a17b554f923174ebcdc3ecbf4008e5dee7c919df5",
+    "version": "bb8408e7188bc6e00f87159c1898e6bfee03926fb2c65b5af3f372a7abfbc7fb",
+    "pkg/_macros/pubspec.yaml": "22b4e765574f1a3c1161b1b7d21e69a862988059944dd646bef262d6aa3c44f1"
+  },
+  "selected_3_6_2_declared_configuration": "# Describes the SDK vendored packages shipped with the Dart SDK.\nversion: 1\nsdk: dart\n# Note that paths are relative to the root of the built SDK.\npackages:\n  - name: _macros\n    path: pkg/_macros\n",
+  "first_integration_attempt": "runs/20261015T003407.895256Z/validation.json",
+  "actual_blocker": "macros 0.1.3-main.0: _macros: git and SDK package sources are not yet supported",
+  "separate_harness_failure": "Official package_config.generated timestamp changes on offline rerun. Revised checker compares official package graph and lock; own deterministic artifacts still require byte equality. Initial script and evidence preserved.",
+  "initial_script_sha256": "a508c5a871d27d595c3eefa8dfa7bcd9bc3baba471726aea130f238dcd3011fe",
+  "revised_script_sha256": "de9bf7db28d69df20da1d4ba48ba2880fe325528c6cc3d6e1a00122c1b964f69",
+  "focused_initial_tests": {
+    "handle": 81827,
+    "exit": 101,
+    "passed": 18,
+    "failed": 1,
+    "log": "focused-pub-tests-initial.log",
+    "failure": "Existing test expected SDK packages unsupported; now supported source requires selected SDK instead. Updated expectation, no production semantics weakened."
+  },
+  "compiler_snapshot_scope": "CLI pub_get source and tests only. Emit-native changed while the initial Cargo compile began; no stable complete compiler or producer claim.",
+  "revised_python_syntax_checked_without_execution": true,
+  "focused_corrected_tests": {
+    "handle": 89091,
+    "exit": 0,
+    "passed": 19,
+    "failed": 0,
+    "ignored": 0,
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-j2",
+      "-p",
+      "dartforge-cli",
+      "--features",
+      "native",
+      "--bin",
+      "dartforge",
+      "pub_get::",
+      "--",
+      "--test-threads=2"
+    ],
+    "CARGO_TARGET_DIR": "target/p4",
+    "log": "focused-pub-tests-corrected.log",
+    "log_sha256": "4646880bff4be0b5202ddc4942b4bf2ead0aaaa82304698cdb55865f16c6fe56"
+  },
+  "pub_source_inputs_unchanged": true
+}
