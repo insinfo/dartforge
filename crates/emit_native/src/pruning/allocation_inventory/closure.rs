@@ -1,0 +1,277 @@
+//! Final-LLVM allocation obligations and conservative SCC closure.
+//!
+//! These facts are separate from the legacy direct leaf records in `.poda`.
+//! Allocation closure is not an escape, registry, reflection or native-exposure
+//! certificate, and publishing this inventory does not enable import pruning.
+use std::collections::{BTreeSet, HashMap};
+use serde_json::{Value, json};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Abi { result: String, parameters: Vec<String> }
+#[derive(Clone, Debug)]
+struct Call { symbol: String, abi: Abi, arguments: Vec<String> }
+#[derive(Clone, Debug)]
+struct Definition {
+    module: String, symbol: String, key: String, body_digest: String,
+    abi: Option<Abi>, local: bool, unique_linkage: bool, complete: bool,
+    direct: BTreeSet<u32>, calls: Vec<Call>, unknown: BTreeSet<String>,
+    exposures: BTreeSet<String>,
+}
+#[derive(Debug)]
+pub(crate) struct Bundle {
+    definitions: Vec<Definition>,
+    modules: Vec<Value>,
+    globals: Vec<Value>,
+    closures: Vec<Option<BTreeSet<u32>>>,
+    dependencies: Vec<Vec<usize>>,
+}
+
+fn primitive(token: &str) -> bool {
+    matches!(token, "void" | "i1" | "i8" | "i16" | "i32" | "i64" | "float" | "double" | "ptr")
+}
+/// Delimiter-aware splitting avoids treating commas in constant expressions as
+/// ABI parameter boundaries. Unsupported vectors/aggregate types stay unknown.
+fn arguments(text: &str) -> Option<Vec<String>> {
+    let mut depth = 0i32; let mut start = 0; let mut output = Vec::new();
+    for (index, byte) in text.bytes().enumerate() {
+        match byte {
+            b'(' | b'[' | b'{' | b'<' => depth += 1,
+            b')' | b']' | b'}' | b'>' => { depth -= 1; if depth < 0 { return None } },
+            b',' if depth == 0 => { output.push(text[start..index].trim().to_string()); start = index + 1; },
+            b'"' => return None,
+            _ => {}
+        }
+    }
+    if depth != 0 { return None }
+    if !text.trim().is_empty() { output.push(text[start..].trim().to_string()); }
+    Some(output)
+}
+fn signature(text: &str) -> Option<(String, Abi, Vec<String>)> {
+    let (prefix, after) = text.split_once('@')?;
+    let result = prefix.split_whitespace().last()?;
+    if !primitive(result) { return None }
+    // Calling conventions, return attributes and constant-expression callees
+    // need their own ABI rules; this first inventory does not guess them.
+    let prefix_words: Vec<_> = prefix.split_whitespace().collect();
+    if prefix_words[..prefix_words.len().checked_sub(1)?].iter().any(|word| !matches!(*word,
+        "define" | "declare" | "call" | "internal" | "private" | "dso_local" | "dso_preemptable"
+        | "linkonce_odr" | "linkonce" | "weak" | "weak_odr" | "available_externally" | "hidden" | "protected")) { return None }
+    let (symbol, tail) = after.split_once('(')?;
+    if symbol.is_empty() || !symbol.bytes().all(|b| b.is_ascii_alphanumeric() || b"_$.-".contains(&b)) { return None }
+    let mut depth = 1; let mut end = None;
+    for (index, byte) in tail.bytes().enumerate() {
+        if byte == b'(' { depth += 1; }
+        if byte == b')' { depth -= 1; if depth == 0 { end = Some(index); break } }
+    }
+    let end = end?;
+    if prefix.starts_with("call ") && !tail[end + 1..].trim().is_empty() { return None }
+    let values = arguments(&tail[..end])?;
+    let parameters = values.iter().map(|arg| {
+        let mut words = arg.split_whitespace();
+        let ty = words.next()?;
+        if let Some(value) = words.next() {
+            let operand = value.starts_with('%') || value.starts_with('@')
+                || value.as_bytes().first().is_some_and(|byte| byte.is_ascii_digit() || *byte == b'-')
+                || matches!(value,"null"|"undef"|"poison"|"true"|"false"|"zeroinitializer"|"getelementptr"|"ptrtoint"|"inttoptr"|"bitcast"|"add"|"sub"|"and"|"or"|"xor"|"shl"|"lshr"|"ashr"|"select"|"icmp"|"blockaddress");
+            if !operand { return None }
+        }
+        (primitive(ty) && ty != "void").then(|| ty.to_string())
+    }).collect::<Option<Vec<_>>>()?;
+    Some((symbol.into(), Abi { result: result.into(), parameters }, values))
+}
+fn global_references(text: &str) -> Vec<String> {
+    super::super::cited(text).map(str::to_owned).collect()
+}
+fn native_bytes(line: &str) -> bool {
+    // Classify the actual initializer, not a suggestive name or comment. Static
+    // managed-image blocks and function-pointer tables remain separate globals.
+    let line = line.split(';').next().unwrap_or_default();
+    let Some((_, value)) = line.split_once(" = ") else { return false };
+    let mut value = value.trim();
+    loop {
+        let Some((word, tail)) = value.split_once(' ') else { return false };
+        if matches!(word, "private" | "internal" | "unnamed_addr" | "local_unnamed_addr" | "dso_local") { value = tail.trim_start(); }
+        else { break }
+    }
+    let Some(array) = value.strip_prefix("constant [") else { return false };
+    let Some((length, rest)) = array.split_once(" x i8] c\"") else { return false };
+    length.parse::<usize>().is_ok() && rest.contains('"') && !rest.contains('@')
+}
+
+fn analyze_body(definition: &mut Definition, body: &[&str], byte_globals: &BTreeSet<String>) {
+    for raw in body {
+        let line = raw.split(';').next().unwrap_or_default().trim();
+        if line.is_empty() || line.ends_with(':') { continue }
+        let operation = line.split_once(" = ").map_or(line, |(_, value)| value.trim());
+        let operation = operation.strip_prefix("tail ").or_else(|| operation.strip_prefix("musttail ")).or_else(|| operation.strip_prefix("notail ")).unwrap_or(operation);
+        let opcode = operation.split_whitespace().next().unwrap_or_default();
+        if operation.split_whitespace().skip(1).any(|token| matches!(token,"call"|"invoke"|"callbr")) {
+            definition.unknown.insert("multiple_instructions_or_embedded_call".into());
+        }
+        if opcode == "call" {
+            if let Some((symbol, abi, arguments)) = signature(operation) {
+                for argument in &arguments {
+                    for name in global_references(argument) {
+                        if !byte_globals.contains(&name) {
+                            definition.unknown.insert(format!("global_or_function_address_argument:{name}"));
+                            definition.exposures.insert("global_or_function_address".into());
+                        }
+                    }
+                }
+                definition.calls.push(Call {symbol, abi, arguments});
+            } else {
+                definition.unknown.insert("indirect_or_unsupported_call_abi".into());
+            }
+            continue;
+        }
+        if !matches!(opcode,
+            "ret" | "br" | "unreachable" | "add" | "sub" | "mul" | "udiv" | "sdiv" | "urem" | "srem"
+            | "shl" | "lshr" | "ashr" | "and" | "or" | "xor" | "fadd" | "fsub" | "fmul" | "fdiv" | "frem" | "fneg"
+            | "icmp" | "fcmp" | "select" | "phi" | "zext" | "sext" | "trunc" | "sitofp" | "uitofp" | "fptosi" | "fptoui"
+            | "fpext" | "fptrunc" | "alloca" | "load" | "store" | "getelementptr" | "bitcast" | "ptrtoint" | "inttoptr" | "freeze") {
+            definition.unknown.insert(format!("unsupported_opcode:{opcode}"));
+        }
+        if matches!(opcode, "load" | "store" | "getelementptr" | "ptrtoint" | "inttoptr" | "bitcast") {
+            // Generated allocation fast paths update the heap through raw
+            // pointers without calling an allocator. Until these operations
+            // have a complete memory-region proof, they can create objects.
+            definition.unknown.insert("unresolved_raw_memory_allocation".into());
+            definition.exposures.insert("raw_memory_or_pointer_operation".into());
+        }
+        for symbol in global_references(line) {
+            if !byte_globals.contains(&symbol) {
+                definition.unknown.insert(format!("global_image_or_function_address:{symbol}"));
+                definition.exposures.insert("global_or_function_address".into());
+            }
+        }
+    }
+}
+
+/// Exhaustively scans each definition's emitted body. Unknown syntax is a
+/// recorded obligation, never an implicit empty allocation set.
+pub(crate) fn audit(modules: &[(&str, &str)]) -> Bundle {
+    let mut definitions = Vec::new(); let mut globals = Vec::new();
+    let mut module_counts = HashMap::new();
+    for (module, _) in modules { *module_counts.entry(*module).or_insert(0usize) += 1; }
+    for &(module, ir) in modules {
+        let byte_globals: BTreeSet<_> = ir.lines().filter(|line| line.starts_with('@') && native_bytes(line))
+            .filter_map(|line| global_references(line).into_iter().next()).collect();
+        for line in ir.lines().filter(|line| line.starts_with('@') && line.contains(" = ")) {
+            let name = global_references(line).into_iter().next().unwrap_or_default();
+            globals.push(json!({"module":module,"symbol":name,"kind":if native_bytes(line) {"native_bytes"} else {"unclassified_initializer"},
+                "initializer_digest":blake3::hash(line.as_bytes()).to_hex().to_string(),"references":global_references(line).into_iter().skip(1).collect::<Vec<_>>()}));
+        }
+        let mut lines = ir.lines();
+        while let Some(header) = lines.next() {
+            if !header.starts_with("define ") { continue }
+            let Some(symbol) = global_references(header).into_iter().next() else { continue };
+            let prefix = header.split_once('@').map_or(header, |(prefix, _)| prefix);
+            let local = prefix.split_whitespace().any(|part| matches!(part,"private"|"internal"));
+            let unique_linkage = !prefix.split_whitespace().any(|part| part.starts_with("weak") || part.starts_with("linkonce") || part == "available_externally");
+            let abi = signature(header).map(|(_, abi, _)| abi);
+            let mut body = Vec::new(); let mut text = format!("{header}\n"); let mut complete = false;
+            let structural_header = header.split(';').next().unwrap_or_default();
+            if let Some((_, inline)) = structural_header.split_once('{') {
+                if let Some((inline, _)) = inline.rsplit_once('}') { body.push(inline); complete = true; }
+            }
+            if !complete {
+                for line in lines.by_ref() {
+                    text.push_str(line); text.push('\n');
+                    if line.trim() == "}" { complete = true; break }
+                    body.push(line);
+                }
+            }
+            let key = if local { format!("{module}#{symbol}") } else { symbol.clone() };
+            let mut definition = Definition { module:module.into(), symbol, key, body_digest:blake3::hash(text.as_bytes()).to_hex().to_string(),
+                abi, local, unique_linkage, complete, direct:BTreeSet::new(), calls:Vec::new(), unknown:BTreeSet::new(), exposures:BTreeSet::new() };
+            if module_counts[module] != 1 { definition.unknown.insert("duplicate_module_identity".into()); }
+            if !complete { definition.unknown.insert("incomplete_definition".into()); }
+            if definition.abi.is_none() { definition.unknown.insert("unsupported_definition_abi".into()); }
+            if !unique_linkage { definition.unknown.insert("interposable_linkage".into()); }
+            analyze_body(&mut definition, &body, &byte_globals);
+            definitions.push(definition);
+        }
+    }
+    let mut bundle = close(definitions, globals);
+    bundle.modules = modules.iter().map(|(module, ir)| json!({"module":module,"final_ir_digest":blake3::hash(ir.as_bytes()).to_hex().to_string()})).collect();
+    bundle
+}
+
+fn close(mut definitions: Vec<Definition>, globals: Vec<Value>) -> Bundle {
+    let mut names: HashMap<String, Vec<usize>> = HashMap::new();
+    for (index, definition) in definitions.iter().enumerate() { names.entry(definition.key.clone()).or_default().push(index); }
+    let canonical: HashMap<_, _> = crate::llvm::externs::EXTERNS.iter().filter_map(|external| signature(external.decl).map(|(symbol, abi, _)| (symbol, abi))).collect();
+    let mut dependencies = vec![Vec::new(); definitions.len()];
+    for index in 0..definitions.len() {
+        if names[&definitions[index].key].len() != 1 { definitions[index].unknown.insert("ambiguous_definition".into()); }
+        let calls = definitions[index].calls.clone();
+        for call in calls {
+            let local_key = format!("{}#{}", definitions[index].module, call.symbol);
+            let target = names.get(&local_key).or_else(|| names.get(&call.symbol));
+            if let Some(targets) = target {
+                if targets.len() == 1 && definitions[targets[0]].abi.as_ref() == Some(&call.abi) {
+                    dependencies[index].push(targets[0]);
+                } else { definitions[index].unknown.insert(format!("unresolved_definition_or_abi:{}",call.symbol)); }
+                continue;
+            }
+            // GC allocation-neutral does not mean registry/image-neutral. These
+            // APIs can introduce managed image CIDs or replace helper bindings.
+            if call.symbol.starts_with("dartforge_register_") || call.symbol == "dartforge_set_migration" {
+                definitions[index].unknown.insert(format!("image_registry_or_helper_binding:{}",call.symbol));
+                definitions[index].exposures.insert("image_registry_or_helper_binding".into());
+                continue;
+            }
+            // The object allocator's finite footprint is an explicit ABI rule,
+            // not an inference from the result type or a function name prefix.
+            if call.symbol == "dartforge_object_new" && canonical.get(&call.symbol) == Some(&call.abi) {
+                let literal = |arg: &String| arg.strip_prefix("i64 ").and_then(|value| value.parse::<i64>().ok());
+                let values: Option<Vec<_>> = call.arguments.iter().map(literal).collect();
+                if let Some(values) = values.filter(|values| values.len() == 2 && (0..=i64::from(i32::MAX)).contains(&values[0]) && values[1] >= 0) {
+                    definitions[index].direct.insert(values[0] as u32);
+                } else { definitions[index].unknown.insert("nonconstant_allocation_cid_or_size".into()); }
+                continue;
+            }
+            let intrinsic = match call.symbol.as_str() { "llvm.expect.i1"=>Some("i1"), "llvm.expect.i64"=>Some("i64"), _=>None };
+            if intrinsic.is_some_and(|ty| call.abi.result == ty && call.abi.parameters == vec![ty.to_string(),ty.to_string()]) { continue }
+            let effects = crate::llvm::externs::effects_of(&call.symbol);
+            if canonical.get(&call.symbol) == Some(&call.abi) && !effects.allocates && !effects.calls_dart { continue }
+            definitions[index].unknown.insert(format!("runtime_native_selector_or_helper_obligation:{}",call.symbol));
+            definitions[index].exposures.insert("unresolved_external_boundary".into());
+        }
+        dependencies[index].sort_unstable(); dependencies[index].dedup();
+    }
+    let mut closures: Vec<Option<BTreeSet<u32>>> = vec![None; definitions.len()];
+    for component in crate::optimize::scc::components(&dependencies) {
+        let members: BTreeSet<_> = component.iter().copied().collect();
+        let mut known = true; let mut classes = BTreeSet::new();
+        for &index in &component {
+            known &= definitions[index].unknown.is_empty();
+            classes.extend(definitions[index].direct.iter().copied());
+            for &target in &dependencies[index] {
+                if members.contains(&target) { continue }
+                if let Some(callee) = &closures[target] { classes.extend(callee.iter().copied()); }
+                else { known = false; }
+            }
+        }
+        if known { for index in component { closures[index] = Some(classes.clone()); } }
+    }
+    Bundle {definitions, modules:Vec::new(), globals, closures, dependencies}
+}
+
+impl Bundle {
+    pub(crate) fn to_json(&self) -> Value {
+        let functions: Vec<_> = self.definitions.iter().enumerate().map(|(index, definition)| json!({
+            "module":definition.module,"symbol":definition.symbol,"key":definition.key,
+            "body_digest":definition.body_digest,"local":definition.local,"unique_linkage":definition.unique_linkage,"complete_body":definition.complete,
+            "abi":definition.abi.as_ref().map(|abi| json!({"result":abi.result,"parameters":abi.parameters})),
+            "direct_classes":definition.direct,"unknown_obligations":definition.unknown,"exposure_obligations":definition.exposures,
+            "calls":definition.calls.iter().map(|call| json!({"symbol":call.symbol,"abi":{"result":call.abi.result,"parameters":call.abi.parameters}})).collect::<Vec<_>>(),
+            "dependencies":self.dependencies[index].iter().map(|&target| self.definitions[target].key.clone()).collect::<Vec<_>>(),
+            "transitive_classes":self.closures[index],
+        })).collect();
+        json!({"modules":self.modules,"functions":functions,"globals":self.globals,"scope":"allocation closure only; import pruning and native/registry exposure remain unverified"})
+    }
+}
+
+#[cfg(test)]
+mod tests;

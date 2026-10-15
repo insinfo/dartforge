@@ -1,0 +1,151 @@
+warning: linker stderr: ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libblake3-f832dcd72f9cea51.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-emit-native` (build script) generated 1 warning
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: linker stderr: ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libblake3-f832dcd72f9cea51.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-deflate.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-adler32.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-crc32.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-inflate.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-inffast.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-inftrees.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-trees.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-zutil.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(25ac62e5b3c53843-curve25519.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(0bbbd18bda93c05b-aes_nohw.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(00c879ee3285a50d-montgomery.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(00c879ee3285a50d-montgomery_inv.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a0330e891e733f4e-gfp_p384.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a0330e891e733f4e-ecp_nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(aaa1ba3e455ee2e1-limbs.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a4019cc0736b0423-mem.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(d5a9841f3dc6e253-poly1305.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a0330e891e733f4e-p256-nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-chacha-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-chacha20_poly1305_armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-aesv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-aesv8-gcm-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-ghash-neon-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-ghashv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-vpaes-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-armv8-mont-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-p256-armv8-asm-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-sha512-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-sha256-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-emit-native` (lib test) generated 2 warnings (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/jit-readiness-build/debug/deps/dartforge_emit_native-2df35d96c630952a)
+
+running 95 tests
+test pruning::allocation_inventory::closure::tests::actual_emitter_helpers_are_audited_by_body_with_pointer_exposure_kept_separate ... ok
+test pruning::allocation_inventory::closure::tests::call_bundles_neutral_image_registration_and_initializer_comments_stay_open ... ok
+test pruning::allocation_inventory::closure::tests::comment_brace_does_not_hide_a_real_allocating_body ... ok
+test pruning::allocation_inventory::closure::tests::duplicate_modules_and_hidden_inline_calls_never_gain_empty_closure ... ok
+test pruning::allocation_inventory::closure::tests::globals_function_addresses_and_indirect_calls_keep_distinct_open_obligations ... ok
+test pruning::allocation_inventory::closure::tests::mutually_recursive_finite_allocation_union_is_complete ... ok
+test pruning::allocation_inventory::closure::tests::neutral_runtime_abi_and_local_actual_helpers_are_not_name_only_proofs ... ok
+test pruning::allocation_inventory::closure::tests::only_exact_module_target_and_abi_can_close_a_direct_call ... ok
+test pruning::allocation_inventory::closure::tests::opaque_runtime_selector_and_helper_boundaries_poison_the_complete_scc ... ok
+test pruning::allocation_inventory::closure::tests::scalar_return_does_not_hide_an_allocation_and_wrappers_propagate_it ... ok
+test pruning::allocation_inventory::closure::tests::unsupported_body_syntax_nonconstant_cid_and_weak_definitions_are_unknown ... ok
+test pruning::allocation_inventory::publication::tests::absent_old_duplicate_or_traversing_publication_does_not_verify ... ok
+test pruning::allocation_inventory::publication::tests::selected_objects_runtime_profile_key_and_abi_payload_are_bound ... ok
+test pruning::allocation_inventory::tests::actual_scalar_leaf_gets_empty_audit_but_allocating_scalar_return_stays_unknown ... ok
+test pruning::allocation_inventory::tests::all_possible_emitted_definitions_must_agree_on_coverage ... ok
+test pruning::allocation_inventory::tests::memory_globals_pointer_conversion_and_unterminated_bodies_are_unknown ... ok
+test pruning::allocation_inventory::transport_tests::allocation_audits_and_ambiguous_classes_roundtrip_independently ... ok
+test pruning::allocation_inventory::transport_tests::explicit_known_empty_and_cid_union_roundtrip_distinct_from_absent_or_unknown ... ok
+test pruning::allocation_inventory::transport_tests::malformed_duplicate_old_and_nondefinition_audits_are_rejected ... ok
+test pruning::arc_ports::tests::cross_inventory_word_and_uniform_contracts_for_the_same_arity_conflict ... ok
+test pruning::arc_ports::tests::deferred_ir_inventory_is_nonretaining_but_eager_ir_keeps_addresses_live ... ok
+test pruning::arc_ports::tests::duplicate_registrations_and_cross_module_signatures_are_rejected ... ok
+test pruning::arc_ports::tests::empty_inventory_round_trips_and_emits_an_empty_registration ... ok
+test pruning::arc_ports::tests::inventory_addresses_do_not_root_cold_code_and_no_pruning_preserves_it ... ok
+test pruning::arc_ports::tests::live_selector_closure_callback_and_typed_targets_keep_their_contracts ... ok
+test pruning::arc_ports::tests::malformed_serialized_inventory_records_and_stale_headers_are_rejected ... ok
+test pruning::arc_ports::tests::multiple_typed_contracts_and_distinct_sdk_registration_symbols_survive ... ok
+test pruning::arc_ports::tests::numeric_unquoted_llvm_target_names_are_rejected ... ok
+test pruning::arc_ports::tests::typed_inventory_accepts_twelve_arguments_and_rejects_thirteen ... ok
+test pruning::class_reachability::tests::inactive_foreign_body_is_not_mistaken_for_an_active_exposure ... ok
+test pruning::class_reachability::tests::inherited_implementation_transitively_activates_its_allocated_class ... ok
+test pruning::class_reachability::tests::unallocated_tables_protocol_methods_and_emitted_dispatch_disappear ... ok
+test pruning::class_reachability::tests::unknown_creation_exposure_and_entry_inputs_keep_original_wide_behavior ... ok
+test pruning::declared_field_summary_tests::actual_sdk_base64_declarations_survive_summary_roundtrip ... ok
+test pruning::declared_field_summary_tests::hir_field_observation_survives_disk_summary_roundtrip ... ok
+test pruning::declared_field_summary_tests::persistent_field_facts_refuse_corruption_and_old_schema ... ok
+test pruning::ffi_tests::ir_recipes_go_to_summary ... ok
+test pruning::ffi_tests::signature_key_in_recipe ... ok
+test pruning::receiver_cone_tests::actual_hir_and_llvm_use_the_same_allocation_receiver_classes ... ok
+test pruning::receiver_cone_tests::actual_sdk_getter_adapter_keeps_its_formal_receiver_cone ... ok
+test pruning::receiver_cone_tests::assembled_table_does_not_reference_an_excluded_adapter ... ok
+test pruning::receiver_cone_tests::exact_classes_do_not_expand_to_subclasses_or_unknown_identities ... ok
+test pruning::receiver_cone_tests::incomplete_ancestry_and_legacy_summaries_are_conservative ... ok
+test pruning::receiver_cone_tests::ir_comment_scopes_only_the_immediately_following_dispatch ... ok
+test pruning::receiver_cone_tests::malformed_or_detached_exact_ir_annotations_remain_unrestricted ... ok
+test pruning::receiver_cone_tests::receiver_metadata_round_trips_and_rejects_invalid_definition_indices ... ok
+test pruning::receiver_cone_tests::unknown_receiver_call_overrides_restricted_calls_without_order_dependence ... ok
+test pruning::receiver_cone_tests::unrelated_nominal_receiver_is_removed_but_subclasses_and_interfaces_stay ... ok
+test pruning::receiver_provenance::allocation_certificates::tests::edited_proof_and_non_strong_final_definitions_are_not_certificates ... ok
+test pruning::receiver_provenance::allocation_certificates::tests::exact_artifact_profile_and_cache_closure_binding ... ok
+test pruning::receiver_provenance::allocation_certificates::tests::imported_static_and_physical_getter_results_require_abi_and_symbol_reconciliation ... ok
+test pruning::receiver_provenance::allocation_certificates::tests::malformed_duplicate_stale_signature_and_table_records_fail_closed ... ok
+test pruning::receiver_provenance::allocation_only_exports::tests::actual_lowered_sdk_candidate_census_keeps_codec_caches_unknown ... ok
+test pruning::receiver_provenance::allocation_only_exports::tests::complete_dependency_census_rejects_cache_global_address_and_opaque_operations ... ok
+test pruning::receiver_provenance::allocation_only_exports::tests::complete_immutable_factory_closure_and_nullable_union ... ok
+test pruning::receiver_provenance::allocation_only_exports::tests::ordinary_native_registry_alias_disables_getter_tables_without_erasing_allocations ... ok
+test pruning::receiver_provenance::allocation_only_exports::tests::policy_abi_duplicates_and_stale_dependency_bodies_are_unknown ... ok
+test pruning::receiver_provenance::allocation_only_exports::tests::rejected_operations_in_unreachable_blocks_are_not_exportable ... ok
+test pruning::receiver_provenance::canonical_cache::tests::cache_allocation_propagates_to_callers_without_using_getter_name ... ok
+test pruning::receiver_provenance::canonical_cache::tests::cache_rejects_changed_returns_publication_and_opaque_effects ... ok
+test pruning::receiver_provenance::canonical_cache::tests::cache_rejects_external_writers_arc_stores_duplicates_and_runtime_homonyms ... ok
+test pruning::receiver_provenance::canonical_cache::tests::certified_receiver_limits_both_typed_and_untyped_selector_domains ... ok
+test pruning::receiver_provenance::field_provenance::tests::incomplete_source_corpus_never_certifies_even_with_layout_and_all_local_writers ... ok
+test pruning::receiver_provenance::field_provenance::tests::refuses_missing_guard_failure_publication_and_partial_or_raw_initialization ... ok
+test pruning::receiver_provenance::field_provenance::tests::refuses_other_births_unknown_alias_writers_and_conflicting_layouts ... ok
+test pruning::receiver_provenance::field_provenance::tests::requires_physical_receiver_and_guarded_complete_constant_initialization ... ok
+test pruning::receiver_provenance::selector_returns::source_tests::actual_sdk_dynamic_codec_getter_results_have_body_proved_classes ... ok
+test pruning::receiver_provenance::tests::actual_sdk_list_filled_returns_are_proved_without_trusting_captured_receivers ... ok
+test pruning::receiver_provenance::tests::allocation_call_and_cfg_phi_union_are_body_proved ... ok
+test pruning::receiver_provenance::tests::borrowed_witness_rejects_same_symbol_body_replacement ... ok
+test pruning::receiver_provenance::tests::cycles_duplicates_wrong_call_abi_and_bad_cfg_are_unknown ... ok
+test pruning::receiver_provenance::tests::getter_result_never_bootstraps_recursive_getter_cycle ... ok
+test pruning::receiver_provenance::tests::getter_union_requires_every_receiver_and_preserves_unknown_formals ... ok
+test pruning::receiver_provenance::tests::instance_allocation_cids_and_factory_returns_are_physical ... ok
+test pruning::receiver_provenance::tests::instance_runtime_allocations_reject_unproved_abi_ranges_and_homonyms ... ok
+test pruning::receiver_provenance::tests::mutations_keep_physical_class_but_loaded_alias_does_not_gain_fact ... ok
+test pruning::receiver_provenance::tests::native_homonym_or_substituted_factory_body_is_not_a_certificate ... ok
+test pruning::receiver_provenance::tests::parameter_load_capture_and_opaque_returns_stay_unknown ... ok
+test pruning::receiver_provenance::tests::phi_unknown_arm_and_non_dominating_definition_do_not_narrow ... ok
+test pruning::receiver_provenance::tests::physical_getter_result_requires_complete_registered_body_and_abi ... ok
+test pruning::receiver_provenance::tests::throws_do_not_pollute_normal_returns_and_dead_returns_are_not_evidence ... ok
+test pruning::receiver_provenance::tests::unreviewed_prepared_arc_allocation_abi_stays_unknown ... ok
+test pruning::tests::cited_reads_plain_and_quoted_names ... ok
+test pruning::tests::compact_call_reads_selector_from_descriptor ... ok
+test pruning::tests::dead_program_definitions_leave_the_ir ... ok
+test pruning::tests::hir_pruning_removes_unreachable ... ok
+test pruning::tests::hir_pruning_sees_selector_called_by_sdk ... ok
+test pruning::tests::locals_carry_module_prefix ... ok
+test pruning::tests::only_the_called_selector_pair_stays ... ok
+test pruning::tests::program_table_rewritten_with_only_live_pairs ... ok
+test pruning::tests::report_tells_the_cause ... ok
+test pruning::tests::root_selector_keeps_the_pair ... ok
+test pruning::tests::summary_round_trip ... ok
+test pruning::tests::typed_selector_also_calls_untyped ... ok
+test pruning::tests::without_pruning_all_live_table_pairs ... ok
+
+test result: ok. 95 passed; 0 failed; 0 ignored; 0 measured; 662 filtered out; finished in 177.92s
+

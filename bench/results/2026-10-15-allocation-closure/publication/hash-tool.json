@@ -1,0 +1,24 @@
+{
+  "command": [
+    "rustc",
+    "--edition=2024",
+    "bench/results/2026-10-15-allocation-closure/publication/hash.rs",
+    "--extern",
+    "blake3=/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libblake3-f832dcd72f9cea51.rlib",
+    "-L",
+    "dependency=/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps",
+    "-C",
+    "linker=/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "-C",
+    "link-arg=-fuse-ld=lld",
+    "-C",
+    "link-arg=-isysroot",
+    "-C",
+    "link-arg=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/allocation-closure-publication-artifacts/hash-tool"
+  ],
+  "exit_code": 0,
+  "stderr": "warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib\n         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libblake3-f832dcd72f9cea51.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 11.0.0\n  |\n  = note: `#[warn(linker_messages)]` on by default\n\nwarning: 1 warning emitted\n\n",
+  "binary_sha256": "0f2a49a60d286abb56e36fe004d898e8ea927bfcd3a5de0c4506fe0f217fe806"
+}

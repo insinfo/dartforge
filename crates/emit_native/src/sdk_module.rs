@@ -755,6 +755,22 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
     if let Some(e) = errors.into_inner().unwrap().into_iter().next() {
         return Err(e);
     }
+    // Complete allocation inventories support fixed-image production analysis.
+    // Development keeps its existing direct summaries and return witnesses.
+    if profile == SdkProfile::Production {
+        let inventory = crate::pruning::allocation_inventory::closure::audit(
+            &libs.iter().map(|lib| (lib.uri.as_str(), lib.ir.as_str())).collect::<Vec<_>>()
+        );
+        let inventory_runtime = crate::cache::RuntimeCache::for_production()?.lib_path;
+        let inventory_artifacts: Vec<_> = SOURCE_LIBRARIES.iter()
+            .flat_map(|library| [format!("{library}.{ext_obj}"), format!("{library}.poda")]).collect();
+        crate::pruning::allocation_inventory::publication::publish(&tmp, &key,
+            true, &inventory_artifacts, &inventory_runtime, &inventory)?;
+        if !crate::pruning::allocation_inventory::publication::verify(&tmp, &key,
+            true, &inventory_artifacts, &inventory_runtime) {
+            return Err("published SDK allocation inventory failed integrity verification".into());
+        }
+    }
     let allocation_exports: Vec<_> = libs.iter().flat_map(|lib| lib.allocation_exports.iter().cloned()).collect();
     let allocation_exports = crate::pruning::receiver_provenance::allocation_certificates::bind_final_ir(allocation_exports, &libs);
     let allocation_tables: Vec<_> = libs.iter().flat_map(|lib| lib.tables.iter().cloned()).collect();

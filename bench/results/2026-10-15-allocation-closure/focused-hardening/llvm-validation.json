@@ -1,0 +1,15 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "-x",
+    "ir",
+    "-c",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-15-allocation-closure/focused-hardening/heap-bump.ll",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/allocation-raw-memory-hardening.o"
+  ],
+  "exit_code": 0,
+  "stderr": "warning: overriding the module target triple with arm64-apple-macosx27.0.0 [-Woverride-module]\n1 warning generated.\n",
+  "ir_sha256": "e1f24690fcfc74651ed3ef23842d2d03b71782fdc388cec0e707916968826bd8",
+  "scope": "LLVM accepts this raw heap bump/header allocation fixture; inventory must report allocation Unknown even without allocator calls."
+}

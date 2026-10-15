@@ -1,0 +1,39 @@
+{
+  "scope": "Allocation proof hardening; this does not measure or enable native size/performance changes. Earlier publication is preserved with its original, weaker raw-memory handling.",
+  "pre_hardening": {
+    "report": "../publication/published-bundle.json",
+    "report_sha256": "1153f2d080e3a2ff5c82e99e10c7efc4d86006c0b83dd72b719c4e67a7d5130e",
+    "counts": {
+      "modules": 15,
+      "functions": 32724,
+      "globals": 13270,
+      "transitive_known_empty": 947,
+      "transitive_known_nonempty": 0,
+      "transitive_unknown": 31777,
+      "direct_nonempty_functions": 74,
+      "legacy_poda_states": {
+        "unknown": 46318,
+        "known": 338
+      }
+    }
+  },
+  "post_hardening": {
+    "report": "published-bundle.json",
+    "report_sha256": "77d1dee452fd3ad93ec8b35cd893cf603416acb09442c109b8c2e412c15b4695",
+    "counts": {
+      "modules": 15,
+      "functions": 32724,
+      "globals": 13270,
+      "transitive_known_empty": 429,
+      "transitive_known_nonempty": 0,
+      "transitive_unknown": 32295,
+      "direct_nonempty_functions": 74,
+      "legacy_poda_states": {
+        "unknown": 46318,
+        "known": 338
+      }
+    }
+  },
+  "new_rule": "Every unresolved raw-memory/pointer operation carries unresolved_raw_memory_allocation; any such definition and callers have Unknown allocation closure.",
+  "pruning_import_consumer_enabled": false
+}

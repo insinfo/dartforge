@@ -1,0 +1,20 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-emit-native",
+    "--lib",
+    "allocation_inventory",
+    "--",
+    "--test-threads=2"
+  ],
+  "exit_code": 0,
+  "passed": 18,
+  "failed": 0,
+  "source_unchanged": true,
+  "scope": "Direct/closure inventory and artifact-binding unit tests; no imported pruning enabled",
+  "log_sha256": "bead9e2603d18ec5b95d377432d74adf3af62465b85d773d9b2162b8defd0aa7"
+}

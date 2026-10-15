@@ -1,0 +1,76 @@
+{
+  "goal": "Increase complete allocation coverage so closed allocated-class reachability can eventually remove unreachable class tables in an ordinary imported-SDK/FFI application.",
+  "implementation_status": "Design only; no compiler edits, builds or timings performed.",
+  "current_exact_evidence": "coverage.json audits current published schema8 development bundle ec56edf3cb71e2dfaf5afadc4d1fd950. Summary references are not a direct-call graph, and definition nodes include globals. No final LLVM is retained in this exact cache.",
+  "semantics": {
+    "I_known": "A complete finite set of every managed physical CID potentially materialized during this definition execution, including callees, runtime error paths, registered helper callbacks and static-image materialization. Known(empty) never follows from scalar return type, absent record, missing callee or native signature alone.",
+    "unknown": "Unsupported opcode, unresolved/import-interposable target, unbounded CID, raw indirect target, incomplete native/runtime callback obligation, unsupported static-image data, stale artifact or incomplete body makes the definition and its calling SCC unknown.",
+    "exposure_is_separate": "An allocation inventory is not a no-reflection/no-registry-mutation/no-escape certificate. Native raw pointers, function-address escapes, Handle conversion and imported objects require separate coverage before class-table pruning."
+  },
+  "next_minimal_patch": [
+    {
+      "step": 1,
+      "change": "Replace bool leaf parsing by exhaustive final-LLVM body audit records: direct CID set, statically resolved call obligations, data dependencies, native/callback exposure flags, and explicit unknown reason. Keep the current public Known/Unknown meaning; unresolved obligations remain Unknown. Audit all 15 finalized library IRs together before their .poda files are written.",
+      "paths": [
+        "crates/emit_native/src/pruning/allocation_inventory.rs",
+        "crates/emit_native/src/sdk_module.rs:731"
+      ]
+    },
+    {
+      "step": 2,
+      "change": "Admit non-calling scalar/memory instructions as allocation-neutral after exact opcode/syntax validation. alloca/load/store/getelementptr/bitcast/ptrtoint/inttoptr/switch do not themselves allocate managed objects; record function-address/native exposure and static data independently. Do not infer neutral calls from nounwind, memory(read), return type, @df helper name or linkage spelling."
+    },
+    {
+      "step": 3,
+      "change": "Resolve every direct call against the actual complete linked definition inventory and exact ABI. Actual local helper bodies are audited even when helper effects are cataloged. Only reserved, artifact-bound runtime externs with checked allocates=false AND calls_dart=false can seed Known(empty); exact supported LLVM intrinsics such as llvm.expect are separately parsed. User replacements and unknown aliases stay open.",
+      "paths": [
+        "crates/emit_native/src/llvm/externs.rs:1127",
+        "crates/runtime/effects.tsv",
+        "crates/emit_native/src/pruning/receiver_provenance/allocation_certificates.rs:load_checked"
+      ]
+    },
+    {
+      "step": 4,
+      "change": "Add explicit runtime allocation contracts for constant-CID object construction and finite fixed runtime kinds. Contract includes all possible error paths, calls-Dart helper dependencies, and ABI/native exposure. First high-impact dependency is dartforge_stack_overflow, referenced by 27086 current unknown nodes: it calls dartforge_stack_overflow_error_new, selected registered SDK _dartforgeStackOverflowError, and exception/trace construction. Retain the actual error and trace CIDs and helpers; never classify this path as non-allocating.",
+      "paths": [
+        "crates/runtime/src/gc_roots.rs:147",
+        "crates/runtime/src/exceptions.rs:506",
+        "native_sdk/internal/print_patch.dart:32",
+        "crates/runtime/src/natives_lists.rs:28",
+        "crates/emit_native/src/llvm/selectors.rs:271"
+      ]
+    },
+    {
+      "step": 5,
+      "change": "Compute SCCs of the audited direct-call/dependency graph. A component is complete only if every member body is completely audited and every external obligation is complete. Its CID set is the union of member direct sets and all outgoing known component sets. A recursive SCC with no allocations or unknown outgoing edge has Known(empty); recursion alone does not require Unknown. Unknown in any member propagates to the whole component and callers. Termination is not needed for a finite possible-allocation set."
+    },
+    {
+      "step": 6,
+      "change": "Bind complete closure records to exact selected compiler/runtime ABI version, SDK cache key, finalized strong definition bodies and all linked object/summary hashes. Reuse existing allocation_certificates marker/hash/ABI reconciliation machinery, but keep complete allocations distinct from return-CID witnesses. Select production profile explicitly; current inspected development bundle has zero return exports and cannot certify imported production bodies.",
+      "paths": [
+        "crates/emit_native/src/pruning/receiver_provenance/allocation_certificates.rs",
+        "crates/emit_native/src/pruning.rs:AllocationRecord"
+      ]
+    }
+  ],
+  "needed_before_real_file_explorer_pruning": [
+    "Account for readonly native-byte globals separately from image-embedded Dart objects. The 6186 .str.-named unknown nodes are name candidates only; immutable string data does not execute allocations, while registered image headers can instantiate managed CIDs.",
+    "Replace blanket sdk.is_empty rejection with complete imported definition coverage and linked CID/table/ancestry reconciliation, not merely absence of return uncertainty.",
+    "Resolve selector obligations in the same monotone reachability fixed point as allocated CIDs; activate methods for the conservative receiver cone, inherited implementations and noSuchMethod fallbacks. Reuse existing receiver/exact-call metadata; do not turn all dynamic dispatch into unknown forever.",
+    "Include finite closure/tearoff/native callback entry roots and allocations from callback bodies. NativeCall itself does not allocate an arbitrary Dart class, but unknown native function addresses, Dart_Handle manufacture, runtime allocation/registry/helper lookup aliases and reflection remain genuinely open until separately covered.",
+    "Differentiate platform-native objects/pointers from Dart managed handles and registered FFI compound CIDs. Prove selected foreign-target/callback contracts or retain the wide fallback for unresolved calls. Do not accept an ABI with no Handle arguments as a standalone proof that foreign code cannot call exposed runtime APIs.",
+    "Current registry checker covers register_methods/table/cids/subclass/migration, but complete allocation helper dependencies also require proving register_helper bindings cannot change through direct calls or dynamic native-symbol aliases.",
+    "Only then run ordinary File Explorer OFF/ON semantic/GUI checks and compare actual map attribution and file size. This design does not claim a size reduction or authorize enabling imported pruning."
+  ],
+  "required_regressions": [
+    "A scalar-returning allocator has nonempty CID footprint; wrapper/SCC propagates it.",
+    "Pure recursive SCC closes to empty; SCC with one unknown call stays unknown.",
+    "StackOverflowError, TypeError, noSuchMethod and stack-trace error paths retain their actual selected SDK/runtime allocations.",
+    "Modified SDK helper, duplicate/interposable definition, missing function, stale object/hash, wrong ABI and absent record cannot gain coverage.",
+    "Same direct body under different SDK helper registration or native alias exposure is refused.",
+    "Unknown pointer call, runtime symbol resolution, Dart_Handle creation and callback reentry cannot be silently treated as empty.",
+    "Readonly byte data, function-address data and static managed-image objects receive distinct facts; symbol spelling alone is insufficient.",
+    "A narrow known-SDK/FFI fixture loses a genuinely unallocated class table; adding a native-exposed CID/reflection path restores wide behavior.",
+    "Ordinary File Explorer remains wide until every required live imported/native obligation is covered; no platform/backend-name filtering."
+  ]
+}

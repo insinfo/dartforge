@@ -1,0 +1,19 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-emit-native",
+    "--lib",
+    "allocation_inventory",
+    "--",
+    "--test-threads=2"
+  ],
+  "exit_code": 0,
+  "seconds": 11.189020872116089,
+  "source_unchanged": true,
+  "log_sha256": "66d6a33e372c51fdbd1c2f91fe08a39e55d3d0af0d1151e37aa1b6c1cfc334e9",
+  "scope": "Direct/closure allocation inventory and binding tests; import pruning remains conservative"
+}

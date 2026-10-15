@@ -1,0 +1,18 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-emit-native",
+    "--lib",
+    "pruning::",
+    "--",
+    "--include-ignored",
+    "--test-threads=1"
+  ],
+  "exit_code": 0,
+  "seconds": 178.073557138443,
+  "log_sha256": "19631f500ec9e57fea0ef3fe70704336d075f8e61da0f059ee2287f5076f3cc5"
+}

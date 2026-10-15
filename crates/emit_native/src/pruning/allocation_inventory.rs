@@ -3,6 +3,9 @@
 //! This first producer proves only leaf LLVM bodies without calls, memory/global
 //! access or pointer conversion. Everything else remains explicitly unknown.
 //! It does not certify transitive allocation closure or enable import pruning.
+pub(crate) mod closure;
+pub(crate) mod publication;
+
 use super::{AllocationRecord, AllocationState, Summary};
 use std::collections::HashMap;
 

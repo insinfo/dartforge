@@ -1,0 +1,29 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-emit-native",
+    "--lib",
+    "production_is_a_self_contained_executable",
+    "--",
+    "--ignored",
+    "--test-threads=1",
+    "--nocapture"
+  ],
+  "environment": {
+    "CARGO_TARGET_DIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build",
+    "DARTFORGE_NATIVE_CACHE": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/allocation-closure-hardening-cache",
+    "DARTFORGE_TEST_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_KEEP_IR": "1",
+    "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+    "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/allocation-closure-hardening-tmp",
+    "RUSTFLAGS": "-C link-arg=-fuse-ld=lld -C link-arg=-isysroot -C link-arg=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+    "LIBRARY_PATH": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-arc-readiness/zstd:/usr/local/lib:/usr/local/lib"
+  },
+  "cache_initial_files": [],
+  "started": 1792033865.689312
+}

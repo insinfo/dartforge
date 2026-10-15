@@ -1,0 +1,490 @@
+{
+  "cache": "target/jit-readiness-build/native_cache/sdk/ec56edf3cb71e2dfaf5afadc4d1fd950",
+  "schema": 8,
+  "scope": "Exact published summary nodes and reference incidence; not executable cost or complete function opcode auditing.",
+  "counts": {
+    "unknown": 46277,
+    "unknown_without_symbol_references": 13435,
+    "unknown_native_string_name_candidates": 6186,
+    "unknown_with_selector_edges": 6746,
+    "known": 338
+  },
+  "modules": [
+    {
+      "module": "_compact_hash",
+      "definition_nodes": 1025,
+      "states": {
+        "unknown": 1021,
+        "known": 4
+      }
+    },
+    {
+      "module": "_http",
+      "definition_nodes": 6519,
+      "states": {
+        "unknown": 6493,
+        "known": 26
+      }
+    },
+    {
+      "module": "_internal",
+      "definition_nodes": 3307,
+      "states": {
+        "unknown": 3263,
+        "known": 44
+      }
+    },
+    {
+      "module": "async",
+      "definition_nodes": 4709,
+      "states": {
+        "unknown": 4664,
+        "known": 45
+      }
+    },
+    {
+      "module": "collection",
+      "definition_nodes": 3131,
+      "states": {
+        "unknown": 3123,
+        "known": 8
+      }
+    },
+    {
+      "module": "convert",
+      "definition_nodes": 3330,
+      "states": {
+        "unknown": 3307,
+        "known": 23
+      }
+    },
+    {
+      "module": "core",
+      "definition_nodes": 6407,
+      "states": {
+        "unknown": 6358,
+        "known": 49
+      }
+    },
+    {
+      "module": "developer",
+      "definition_nodes": 527,
+      "states": {
+        "unknown": 525,
+        "known": 2
+      }
+    },
+    {
+      "module": "ffi",
+      "definition_nodes": 1272,
+      "states": {
+        "unknown": 1242,
+        "known": 30
+      }
+    },
+    {
+      "module": "io",
+      "definition_nodes": 8891,
+      "states": {
+        "unknown": 8867,
+        "known": 24
+      }
+    },
+    {
+      "module": "isolate",
+      "definition_nodes": 672,
+      "states": {
+        "unknown": 671,
+        "known": 1
+      }
+    },
+    {
+      "module": "math",
+      "definition_nodes": 435,
+      "states": {
+        "unknown": 433,
+        "known": 2
+      }
+    },
+    {
+      "module": "mirrors",
+      "definition_nodes": 377,
+      "states": {
+        "unknown": 371,
+        "known": 6
+      }
+    },
+    {
+      "module": "nativewrappers",
+      "definition_nodes": 75,
+      "states": {
+        "unknown": 75
+      }
+    },
+    {
+      "module": "typed_data",
+      "definition_nodes": 5938,
+      "states": {
+        "unknown": 5864,
+        "known": 74
+      }
+    }
+  ],
+  "most_frequent_unknown_references": [
+    {
+      "reference": "dartforge_context",
+      "unknown_definition_nodes_referencing_it": 27161,
+      "runtime_effects_collects_throws_runs_dart": [
+        0,
+        0,
+        0
+      ],
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "llvm.expect.i1",
+      "unknown_definition_nodes_referencing_it": 27146,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dartforge_stack_overflow",
+      "unknown_definition_nodes_referencing_it": 27086,
+      "runtime_effects_collects_throws_runs_dart": [
+        1,
+        1,
+        1
+      ],
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dartforge_nsm_call",
+      "unknown_definition_nodes_referencing_it": 13143,
+      "runtime_effects_collects_throws_runs_dart": [
+        1,
+        1,
+        1
+      ],
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dartforge_rti_set",
+      "unknown_definition_nodes_referencing_it": 5400,
+      "runtime_effects_collects_throws_runs_dart": [
+        1,
+        0,
+        0
+      ],
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dartforge_exception_throw",
+      "unknown_definition_nodes_referencing_it": 5390,
+      "runtime_effects_collects_throws_runs_dart": [
+        1,
+        1,
+        0
+      ],
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dartforge_exception_clear",
+      "unknown_definition_nodes_referencing_it": 4854,
+      "runtime_effects_collects_throws_runs_dart": [
+        0,
+        0,
+        0
+      ],
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dartforge_rti_as_with_context",
+      "unknown_definition_nodes_referencing_it": 4448,
+      "runtime_effects_collects_throws_runs_dart": [
+        1,
+        1,
+        1
+      ],
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dartforge_object_new_t",
+      "unknown_definition_nodes_referencing_it": 4408,
+      "runtime_effects_collects_throws_runs_dart": [
+        1,
+        0,
+        0
+      ],
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:typed_data#df.get_area",
+      "unknown_definition_nodes_referencing_it": 4079,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:io#df.get_area",
+      "unknown_definition_nodes_referencing_it": 3974,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dartforge_rti_e_cache",
+      "unknown_definition_nodes_referencing_it": 3866,
+      "runtime_effects_collects_throws_runs_dart": [
+        0,
+        0,
+        0
+      ],
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dartforge_closure_entry",
+      "unknown_definition_nodes_referencing_it": 3101,
+      "runtime_effects_collects_throws_runs_dart": [
+        1,
+        1,
+        1
+      ],
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:core#df.get_area",
+      "unknown_definition_nodes_referencing_it": 2779,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dartforge_rti_recipe",
+      "unknown_definition_nodes_referencing_it": 2654,
+      "runtime_effects_collects_throws_runs_dart": [
+        0,
+        0,
+        0
+      ],
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:_http#df.get_area",
+      "unknown_definition_nodes_referencing_it": 2519,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:async#df.get_area",
+      "unknown_definition_nodes_referencing_it": 2156,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dartforge_rti_eval_cache",
+      "unknown_definition_nodes_referencing_it": 2081,
+      "runtime_effects_collects_throws_runs_dart": [
+        1,
+        1,
+        0
+      ],
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dartforge_stack_overflow_error_new",
+      "unknown_definition_nodes_referencing_it": 1839,
+      "runtime_effects_collects_throws_runs_dart": [
+        1,
+        1,
+        1
+      ],
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:_internal#df.get_area",
+      "unknown_definition_nodes_referencing_it": 1771,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:convert#df.get_area",
+      "unknown_definition_nodes_referencing_it": 1694,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:collection#df.get_area",
+      "unknown_definition_nodes_referencing_it": 1662,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:typed_data#df.unbox_int",
+      "unknown_definition_nodes_referencing_it": 1358,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:io#df.selector",
+      "unknown_definition_nodes_referencing_it": 1325,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dartforge_gc_global_root",
+      "unknown_definition_nodes_referencing_it": 1128,
+      "runtime_effects_collects_throws_runs_dart": [
+        1,
+        0,
+        0
+      ],
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:_http#df.selector",
+      "unknown_definition_nodes_referencing_it": 976,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:io#df.allocate",
+      "unknown_definition_nodes_referencing_it": 947,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:core#df.box_int",
+      "unknown_definition_nodes_referencing_it": 891,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:typed_data#df.typed_len",
+      "unknown_definition_nodes_referencing_it": 828,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:core#df.unbox_int",
+      "unknown_definition_nodes_referencing_it": 820,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:io#df.arr.1",
+      "unknown_definition_nodes_referencing_it": 799,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:typed_data#df.box_int",
+      "unknown_definition_nodes_referencing_it": 779,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:_internal#df.selector",
+      "unknown_definition_nodes_referencing_it": 741,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:io#df.arr.0",
+      "unknown_definition_nodes_referencing_it": 739,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "df.rti.877bf89dd991b2af.dart$3atyped_data",
+      "unknown_definition_nodes_referencing_it": 734,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:io#df.box_int",
+      "unknown_definition_nodes_referencing_it": 733,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dartforge_assertion_error_new",
+      "unknown_definition_nodes_referencing_it": 732,
+      "runtime_effects_collects_throws_runs_dart": [
+        1,
+        1,
+        1
+      ],
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:core#df.selector",
+      "unknown_definition_nodes_referencing_it": 729,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:async#df.selector",
+      "unknown_definition_nodes_referencing_it": 686,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:typed_data#df.selector",
+      "unknown_definition_nodes_referencing_it": 671,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dartforge_rti_eval",
+      "unknown_definition_nodes_referencing_it": 670,
+      "runtime_effects_collects_throws_runs_dart": [
+        0,
+        0,
+        0
+      ],
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "df.mt.dart$3acore.UnsupportedError",
+      "unknown_definition_nodes_referencing_it": 651,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:typed_data#df.allocate",
+      "unknown_definition_nodes_referencing_it": 639,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "dart:collection#df.selector",
+      "unknown_definition_nodes_referencing_it": 627,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    },
+    {
+      "reference": "df.s.edaf1bd3d1c2ffcc44df55829c002f26",
+      "unknown_definition_nodes_referencing_it": 626,
+      "runtime_effects_collects_throws_runs_dart": null,
+      "scope": "summary references include addresses and data; not necessarily direct calls"
+    }
+  ],
+  "return_certificate_exports": 0,
+  "runtime_effect_catalog_rows": 858,
+  "runtime_catalog_no_collection_no_dart_rows": 114,
+  "actual_final_llvm_available_in_this_cache": false,
+  "summary_hashes_sha256": {
+    "target/jit-readiness-build/native_cache/sdk/ec56edf3cb71e2dfaf5afadc4d1fd950/_compact_hash.poda": "f4459c7bc4528505320a37770b4e5baef54fcb2d783121f540e9c92fbd8b2de0",
+    "target/jit-readiness-build/native_cache/sdk/ec56edf3cb71e2dfaf5afadc4d1fd950/_http.poda": "8c2912ea7d0e697f6118ac1a5325095b67e4126ff321cd95a66c4cc7bf42bb69",
+    "target/jit-readiness-build/native_cache/sdk/ec56edf3cb71e2dfaf5afadc4d1fd950/_internal.poda": "cded5f386f11a4c6383797a3b8be9dcb813cf1b0a4da94f3d86adf8e06a3ce75",
+    "target/jit-readiness-build/native_cache/sdk/ec56edf3cb71e2dfaf5afadc4d1fd950/async.poda": "402dc90448fe69ed1dfa0c07c285c7ab00706775583464bdc8b13151f9407412",
+    "target/jit-readiness-build/native_cache/sdk/ec56edf3cb71e2dfaf5afadc4d1fd950/collection.poda": "22af794f7afe054734b77db9dbab9282e7700c50071bfdee57be4b99d8cd54f7",
+    "target/jit-readiness-build/native_cache/sdk/ec56edf3cb71e2dfaf5afadc4d1fd950/convert.poda": "0d33241ec9c7d45d057ef22f8f5812ecdb7b90a9e072b59db3e27725fc7b61f0",
+    "target/jit-readiness-build/native_cache/sdk/ec56edf3cb71e2dfaf5afadc4d1fd950/core.poda": "1e523997ae13adbb1624fe5b9c641bf79f044279184cc81fbc9888ccc052a509",
+    "target/jit-readiness-build/native_cache/sdk/ec56edf3cb71e2dfaf5afadc4d1fd950/developer.poda": "b54eb776c434995e7644a8394dd53c1fedb296a9ce93a721758e45db687117c4",
+    "target/jit-readiness-build/native_cache/sdk/ec56edf3cb71e2dfaf5afadc4d1fd950/ffi.poda": "105f43b4653ec8f6748dc924998a90dd1d87d887faf79f76f3a48bd7d6e6451c",
+    "target/jit-readiness-build/native_cache/sdk/ec56edf3cb71e2dfaf5afadc4d1fd950/io.poda": "9d7c9a0a07ed7d5638026f8a58db133cb44517df7aa553761d8f0b2779e775a1",
+    "target/jit-readiness-build/native_cache/sdk/ec56edf3cb71e2dfaf5afadc4d1fd950/isolate.poda": "46a3da300f8f14b4750e59ad6683952795f2daf56dd577a5a7eba522e0e3342e",
+    "target/jit-readiness-build/native_cache/sdk/ec56edf3cb71e2dfaf5afadc4d1fd950/math.poda": "e6c5789182838d12978d880673ebb0cfefecb94b79935b722989042c7e642e13",
+    "target/jit-readiness-build/native_cache/sdk/ec56edf3cb71e2dfaf5afadc4d1fd950/mirrors.poda": "63f182f45722eaff4b3dcd9a91ddc81fd50d29a3a848c7eeb127ec3399be087c",
+    "target/jit-readiness-build/native_cache/sdk/ec56edf3cb71e2dfaf5afadc4d1fd950/nativewrappers.poda": "aa86d250b2350937c8398cc9e15360050ace5a07fbbd9295629134c2aea64dda",
+    "target/jit-readiness-build/native_cache/sdk/ec56edf3cb71e2dfaf5afadc4d1fd950/typed_data.poda": "88ec72cdcdb120fdee65ca022742d98798dddb9d2f52bc52c4b3ac64c0822998"
+  }
+}

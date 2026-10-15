@@ -1,0 +1,440 @@
+{
+  "cache": "target/allocation-closure-publication-cache/sdk/3811f214570aca919ae64cc43ea70fbd",
+  "schema": 1,
+  "profile": "production",
+  "compiler": "d3fb1dbeaf0d171353a64ae803f3caf8beea1cf6179d8dca7b48fdfce83fc633",
+  "sidecar_size": 57174402,
+  "sidecar_blake3": "9d0a603d980b7ba76b48daf353d67f815914725c9f56461cbdb1142a3d97e4cf",
+  "sidecar_sha256": "a91a558c4adc74d2192aa108fbcfb34dcdd557970f3ab0bc674780b89287e56a",
+  "runtime": {
+    "matching_artifacts": [
+      "target/jit-readiness-build/debug/build/dartforge-emit-native-b3f5662d5d9039bb/out/dartforge_rtprod_f0064d344b877e711691fa37211e0499.a",
+      "target/jit-readiness-build/debug/build/dartforge-emit-native-feb08db5794ad08a/out/dartforge_rtprod_f0064d344b877e711691fa37211e0499.a"
+    ],
+    "artifact_digest": "0e130693cead7d9a7555a3fedece07b3ab28c714bc5e77febca9955f98ec5e76",
+    "effect_catalog_digest": "83c296acd7dc872360ff9c663d933c72706e13b11f1147d35672b66f7c870020",
+    "sha256": {
+      "target/jit-readiness-build/debug/build/dartforge-emit-native-b3f5662d5d9039bb/out/dartforge_rtprod_f0064d344b877e711691fa37211e0499.a": "a5be904e492b4243dbf4760313f74cdd6fc355753279f1636d49e40e66688098",
+      "target/jit-readiness-build/debug/build/dartforge-emit-native-feb08db5794ad08a/out/dartforge_rtprod_f0064d344b877e711691fa37211e0499.a": "a5be904e492b4243dbf4760313f74cdd6fc355753279f1636d49e40e66688098"
+    }
+  },
+  "checks": {
+    "ready_digest": true,
+    "all_30_object_summary_hashes": true,
+    "all_final_module_hashes": true,
+    "all_actual_function_bodies_and_supported_abi": true,
+    "all_actual_global_initializers": true,
+    "independent_transitive_graph_closure": true
+  },
+  "counts": {
+    "modules": 15,
+    "functions": 32724,
+    "globals": 13270,
+    "transitive_known_empty": 947,
+    "transitive_known_nonempty": 0,
+    "transitive_unknown": 31777,
+    "direct_nonempty_functions": 74,
+    "legacy_poda_states": {
+      "unknown": 46318,
+      "known": 338
+    }
+  },
+  "unknown_obligations": [
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+      27086
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_nsm_call",
+      13143
+    ],
+    [
+      "indirect_or_unsupported_call_abi",
+      9250
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_rti_set",
+      5400
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_exception_throw",
+      5388
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_rti_as_with_context",
+      4448
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_object_new_t",
+      4406
+    ],
+    [
+      "interposable_linkage",
+      3575
+    ],
+    [
+      "global_image_or_function_address:df_clo_invalido",
+      3101
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_closure_entry",
+      3101
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_rti_eval_cache",
+      2081
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow_error_new",
+      1839
+    ],
+    [
+      "unsupported_opcode:switch",
+      1288
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_gc_global_root",
+      1128
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_assertion_error_new",
+      732
+    ],
+    [
+      "global_or_function_address_argument:df.mt.dart$3acore.UnsupportedError",
+      649
+    ],
+    [
+      "global_image_or_function_address:df.s.edaf1bd3d1c2ffcc44df55829c002f26",
+      626
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_mark_constant",
+      569
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_safepoint",
+      547
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:llvm.expect.i8",
+      547
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_string_join_typed",
+      485
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_canonical_constant",
+      473
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_null_check_error_new",
+      456
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_list_new",
+      450
+    ],
+    [
+      "global_image_or_function_address:df.s.a7cbe5a9598d88720144feb015fff3f3",
+      444
+    ],
+    [
+      "global_image_or_function_address:df.s.8f1c34baa8d5beacd23d46ca0a046a75",
+      432
+    ],
+    [
+      "global_image_or_function_address:df.s.92a43bf7d6c723e94d77aa16abe4a92a",
+      397
+    ],
+    [
+      "runtime_native_selector_or_helper_obligation:dartforge_typed_new_t",
+      354
+    ],
+    [
+      "global_image_or_function_address:df.s.1100c46208fc9dd37882bd8ef847f1ce",
+      353
+    ],
+    [
+      "global_or_function_address_argument:df.mt.dart$3acore.ArgumentError",
+      330
+    ]
+  ],
+  "exposure_obligations": [
+    [
+      "raw_memory_or_pointer_operation",
+      32191
+    ],
+    [
+      "unresolved_external_boundary",
+      27381
+    ],
+    [
+      "global_or_function_address",
+      18686
+    ],
+    [
+      "image_registry_or_helper_binding",
+      15
+    ]
+  ],
+  "artifacts": [
+    {
+      "name": "_internal.o",
+      "size": 4489856,
+      "blake3": "f93c3c2fc4aee1db31cbe44a4fb040be970c88a60712966ed71fb770a399c434",
+      "sha256": "bf39e9c3332d41ad865acea4522a0f0d67c84cff3d0b53ff856970e3563de6bf"
+    },
+    {
+      "name": "_internal.poda",
+      "size": 499981,
+      "blake3": "90dec8a6f1304d717464c8914b4f98d3fc2772d159a7d24a81dbe44d57ae45c1",
+      "sha256": "363488cb8f607934460570d24c98aeea0504a3315b418671e76b2bfd19f45f53"
+    },
+    {
+      "name": "core.o",
+      "size": 9361104,
+      "blake3": "6d5011d6396be12cfd5c35c136bf21b5d291a4251441865e2b72e8e1b7a40bbe",
+      "sha256": "ab39f2aef3f3bc1ac2b91a1406fbc70a42e34e4efe3ed0a4a29feefccd87b29b"
+    },
+    {
+      "name": "core.poda",
+      "size": 925226,
+      "blake3": "d89810676a908db8708bbc01b64a2186e9a48010d475956c7406ebe27e949d8b",
+      "sha256": "4d384e19e0ef5fc555759e6dbf730cda6d86a65277f533c380df0c185d72dcfe"
+    },
+    {
+      "name": "_compact_hash.o",
+      "size": 1707888,
+      "blake3": "de8d2fd841733031381b935053ba2dc17e58d7446664a0d643abaa3ddd48ba7e",
+      "sha256": "2cfa4716ea5e02a531f8ba503dfb2149640f7f0d191c0462b89d052579f0217a"
+    },
+    {
+      "name": "_compact_hash.poda",
+      "size": 181254,
+      "blake3": "e35a7e7f1fb5c4a320387adb9e8fa167cd08ce7c6d65c41774ba6651ab321c80",
+      "sha256": "2994159acd1f927e7dee84341836f13ad856bd338210ccc46e821d8fb10dd588"
+    },
+    {
+      "name": "collection.o",
+      "size": 4906896,
+      "blake3": "5280ce9ff768af55d98879f3c882653d5a1c8e3e89a0bfa214fb5a6870c16c38",
+      "sha256": "7e5e25e97c4f467e18193843cebef50ca10b9f64773755b25771b9c0ed17c4e8"
+    },
+    {
+      "name": "collection.poda",
+      "size": 470090,
+      "blake3": "e3077d1b1365284557ff31788e106e16b1841bf533c7223fe33ce8e623c68087",
+      "sha256": "8a6e02193ee5d6fcbd5b7c9595fab60555c2da21e70ab15a4a5ad52fb4e40bfd"
+    },
+    {
+      "name": "math.o",
+      "size": 536736,
+      "blake3": "974116337aa07b90eacd4783ab05e3dec95fd81fd2816c9914fbdb715532544a",
+      "sha256": "aa33c6769fa803530d31542679b5c6527bef43d1e7003b74efcef72f65255de2"
+    },
+    {
+      "name": "math.poda",
+      "size": 57126,
+      "blake3": "c51e00c7ad0b99d1c909c4d9b47c68058f30a4d3d88ce793605ed8441491f106",
+      "sha256": "c049f986609c6bfa2f69cb1ddbc307ff52d947526812c9eb896b3b295ddc9f2a"
+    },
+    {
+      "name": "convert.o",
+      "size": 5152800,
+      "blake3": "55824bcc97c2e3e7614b3a47dbceed4ec1f0ed847b6943b9e1e2fa7c58b0e816",
+      "sha256": "977225d28bcb7d7e3aeee18cbcfccb7b264d3aeb7252ed32ca6d705123d0b666"
+    },
+    {
+      "name": "convert.poda",
+      "size": 502116,
+      "blake3": "a92f76d272435f3a3dba9b7a5f5b9596942dae988c0cdbb0459b1ce6d8e7c365",
+      "sha256": "dcd421f520410fea24cc746101fd48a06afad44c7e8a955c283fbdc51d961652"
+    },
+    {
+      "name": "async.o",
+      "size": 6875360,
+      "blake3": "621c8038619a3505e0f018587393de1f87b3682a03a0274d240f9652d90afd29",
+      "sha256": "71b227b08220659168b4fc041318b3cd9addc048c6a390111292e8f44b7f61e2"
+    },
+    {
+      "name": "async.poda",
+      "size": 695188,
+      "blake3": "3b070095126d227efd1d71dddfc0b6a683686b5fce876f2da8bc53f1d53649f1",
+      "sha256": "85337b41a5f67c112b2d4f96606f84df6b18e89a442c4d477389bc0718a14989"
+    },
+    {
+      "name": "typed_data.o",
+      "size": 9488368,
+      "blake3": "2006bf4d6abdf0d6361373531acc37ad92dc56bbe20761a7e5249e93d71144fd",
+      "sha256": "c92fd327d1bbe708e3ccf111ba2e9ac4952cb2d666a58eb207512cdc438ccbf4"
+    },
+    {
+      "name": "typed_data.poda",
+      "size": 1115906,
+      "blake3": "29f666db8a82520f87eb0865440178fdb5b3784c0200414be1de7420dc1d91cd",
+      "sha256": "28f88705ffa8421745caf90a3487a26f00c08f372a6b4ea835dbc7ea7059ce16"
+    },
+    {
+      "name": "isolate.o",
+      "size": 681616,
+      "blake3": "287b18ff08930c1f2a2032849bf1a064a0457531b66ee2a8c9696cb59f4ae33e",
+      "sha256": "a507ad31708b707a6ccdb786474a0775bae6ee5fbaa877bee475fc48a710fc19"
+    },
+    {
+      "name": "isolate.poda",
+      "size": 94408,
+      "blake3": "72b850f3566ffeb563a52a4b245b799602806f6a9323cf4f51a561d729d7b079",
+      "sha256": "558ff78b52e3f1d86710a5ab8daf774bb53dd8009200e5cf4cf490b963202019"
+    },
+    {
+      "name": "developer.o",
+      "size": 405504,
+      "blake3": "3e0078951243d7ee8ea2b20c2ccf0df072325be34da4d9268db77972f9bf4280",
+      "sha256": "8ee54e8c795bc82bf662af13c67fb6691fadcf0d60fad4cdc47206dde08ddf98"
+    },
+    {
+      "name": "developer.poda",
+      "size": 60192,
+      "blake3": "a7bf89a24798cf37c75b6fad23f5152e2459b5030814d5348e4157589c713e87",
+      "sha256": "86edd4d253062fb5dd329ff0c742fbf2b9919b8233016ba7890e0ae537fd419e"
+    },
+    {
+      "name": "nativewrappers.o",
+      "size": 10672,
+      "blake3": "39bec9ef8018040e8ef6c6f5ebd76e9c431d6dad43f117d250aa133dc3d73540",
+      "sha256": "2bbce838d3ff3f5d6d54267cb970e3808db63360be94904140ed550b9a36c60c"
+    },
+    {
+      "name": "nativewrappers.poda",
+      "size": 10246,
+      "blake3": "c1b09c25f5b158ac586305bc7c3361c250de96a224190a6da6e0b05f01aaee47",
+      "sha256": "93cd348055c458b2005ea35da832f14c8b9ffacd8d183a1db56a17797e52a366"
+    },
+    {
+      "name": "ffi.o",
+      "size": 1425888,
+      "blake3": "eb983455ef5ee0619b5a723c7c53d3c0873ff646ac843c2962750b22b0d0638a",
+      "sha256": "c493819fb729961a80d37f8a06bbd35b3bcd40658b87ef27dcdf87dcef681f77"
+    },
+    {
+      "name": "ffi.poda",
+      "size": 170664,
+      "blake3": "aff579b402e9a97f2cd4877b9c8174d37a1a5806ebb2eed69561aabd0ca535ff",
+      "sha256": "fbb27eafcadcd50116cd18588b692fb5ca479f92e42accbc0ca9a29e2c92a61d"
+    },
+    {
+      "name": "_http.o",
+      "size": 8238256,
+      "blake3": "a26bb2b261ea49ae262d6609c895fc3c169673a4b5261cdefd4f7f7cbbd59eb0",
+      "sha256": "a6de4d73b5c80505cff3a754cf6eeb5d83fc302d166a2c1fab7e84e3d4bafa32"
+    },
+    {
+      "name": "_http.poda",
+      "size": 946996,
+      "blake3": "b467c1b12889238953def737c5f789dbebe33ad3ab4aa43355bbde1a496867ad",
+      "sha256": "c8af71c374874bcd7650531830ca8e6761d30fd1cbdcf23af10bd621931c99ff"
+    },
+    {
+      "name": "io.o",
+      "size": 12491856,
+      "blake3": "94bcb65aeb59510ce662aaf0ad5ad841a9489921d38656d255ec09a6dd2e5d90",
+      "sha256": "4cdfc337b210cab12b9bebf370615a09646f514dbb072070946918d0875b5f9a"
+    },
+    {
+      "name": "io.poda",
+      "size": 1292543,
+      "blake3": "fc9d0028eca3a287cf4f463fd09ef9ac50dfb5a3b29d517d919225911c7359d3",
+      "sha256": "42af0773e9c16c39994290877d1d73c550aea2fc721080fb33fa0f2b4f459897"
+    },
+    {
+      "name": "mirrors.o",
+      "size": 294672,
+      "blake3": "ec7548928759f16fc8642b26159b32c367c2c03e6c564f10dcf43c2bb2de5742",
+      "sha256": "b95cdd1c1df46662d21014e78581ad102160eb88a908112112f1ac360f6537db"
+    },
+    {
+      "name": "mirrors.poda",
+      "size": 42599,
+      "blake3": "e8bc4f81270b0929a7f22e305b9a84c37f08cdef9f448f348e970aa4b91ba510",
+      "sha256": "5301a9a6610bf33ed25359654f87a604beb0f894bddc6d07694a29a932bbfe70"
+    }
+  ],
+  "modules": [
+    {
+      "final_ir_digest": "ccf9a99cc147eb42a7c21bdacc97f2bf5f1b5959b9aa4a4636c3ea96a0e716f6",
+      "module": "dart:_internal"
+    },
+    {
+      "final_ir_digest": "5ce0dbd3fededd4c80b3030f9d1bc1263906658078a2ed3b466b2db9b8c3650b",
+      "module": "dart:core"
+    },
+    {
+      "final_ir_digest": "ed5b33f6f32e3d73fc32bf84a71f5f4ffc2e03e25317c67f35ea61ac83f3dbe8",
+      "module": "dart:_compact_hash"
+    },
+    {
+      "final_ir_digest": "5f05d92e0c7321b98e46e88c8050217bc61a1ba6478221244f1feb3e025ea6b3",
+      "module": "dart:collection"
+    },
+    {
+      "final_ir_digest": "2a700771fc8bb17c4ea78d71c990242397761f938844552b41bfac988ce27f83",
+      "module": "dart:math"
+    },
+    {
+      "final_ir_digest": "f6340fe2d0025a45724f31516cb3037f050136cf3df45b70789a444fc39d9d31",
+      "module": "dart:convert"
+    },
+    {
+      "final_ir_digest": "5687c7cbe02a486fbe81203d8756cb190911aa54d0e2f2bff4745f645065ca10",
+      "module": "dart:async"
+    },
+    {
+      "final_ir_digest": "cba76d6e51d2c9229b1e8824b415547f46630dda7f4f9366b9f6ec48e96b348a",
+      "module": "dart:typed_data"
+    },
+    {
+      "final_ir_digest": "5d7c887d4ee9c2b521032cb3f857a5ad54a28174214613dfc7d3f3a80cf7bde7",
+      "module": "dart:isolate"
+    },
+    {
+      "final_ir_digest": "7823d0974fcf5620bccfda303c872f0ec8b2d8837bbefcb516280008d90a6596",
+      "module": "dart:developer"
+    },
+    {
+      "final_ir_digest": "b8f77b9df277053be066671782e020d88711891cf5b625c30f19dfd8300a4bd4",
+      "module": "dart:nativewrappers"
+    },
+    {
+      "final_ir_digest": "a6985a5ff8f465feadf666b2a4ea05c02e3aaac7e3486e4dee8f7256ddee171b",
+      "module": "dart:ffi"
+    },
+    {
+      "final_ir_digest": "973e98e92c8a133cd4033516efc61a325e1efbc0eee4a985f1393cd7a09451fc",
+      "module": "dart:_http"
+    },
+    {
+      "final_ir_digest": "5c4c720b1b764df8b7f61f59a2e71c44bbac6ea359ed2a2612c265598fd467fd",
+      "module": "dart:io"
+    },
+    {
+      "final_ir_digest": "ce68fbdb787552f535d746a02f0bead1b033a0e32653f4144842427871176764",
+      "module": "dart:mirrors"
+    }
+  ],
+  "scope": "Actual fresh SDK compile and publication verified; no import class pruning or native size/performance benefit claimed.",
+  "body_verification_stream": {
+    "path": "target/allocation-closure-publication-artifacts/actual-body-digests.txt",
+    "sha256": "4c051932f9efda4679f373476d2304ee6382e11855705dc7b471f4fb1d35a1bf",
+    "records": 45994
+  },
+  "official_sdk_source": {
+    "path": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "version": "3.6.2",
+    "files": 428,
+    "tree_sha256": "c985893cf914634caab305a41e05a139706c625c2f8e9018ecd10a009b5aba95",
+    "libraries_json_sha256": "212213fd5898a8530dc437ffbef34980cd0c7c96d74dd2cd08ee240214530f17",
+    "captured": "after the gate; the cache key and final IR bind the compilation inputs"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "scope": "Reuse the exact independent BLAKE3 inspector binary/source validated for the pre-hardening publication; no Cargo rebuild.",
+  "copied_from": "target/allocation-closure-publication-artifacts/hash-tool",
+  "binary": "target/allocation-closure-hardening-artifacts/hash-tool",
+  "sha256": "0f2a49a60d286abb56e36fe004d898e8ea927bfcd3a5de0c4506fe0f217fe806",
+  "source_sha256": "7325dc70ee0efb2f79ab2cbce9997e82ab29ad61ed4dc97e1de1a36e621b4683"
+}

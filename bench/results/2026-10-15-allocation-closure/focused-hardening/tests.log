@@ -1,0 +1,188 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling libc v0.2.189
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.13
+   Compiling syn v3.0.6
+   Compiling cc v1.4.7
+   Compiling stable_deref_trait v1.2.1
+   Compiling synstructure v0.14.0
+   Compiling version_check v0.9.5
+   Compiling generic-array v0.14.7
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.3
+   Compiling zerofrom v0.1.8
+   Compiling zerovec-derive v0.11.6
+   Compiling yoke v0.8.3
+   Compiling cfg-if v1.0.5
+   Compiling zerovec v0.11.8
+   Compiling displaydoc v0.2.7
+   Compiling typenum v1.20.1
+   Compiling serde_core v1.0.229
+   Compiling tinystr v0.8.4
+   Compiling writeable v0.6.4
+   Compiling litemap v0.8.3
+   Compiling icu_locale_core v2.3.0
+   Compiling zerotrie v0.2.5
+   Compiling potential_utf v0.1.6
+   Compiling icu_properties_data v2.3.0
+   Compiling serde v1.0.229
+   Compiling utf8_iter v1.0.4
+   Compiling icu_normalizer_data v2.3.0
+   Compiling icu_collections v2.3.0
+   Compiling icu_provider v2.3.1
+   Compiling crypto-common v0.1.7
+   Compiling serde_derive v1.0.229
+   Compiling block-padding v0.3.3
+   Compiling ring v0.17.14
+   Compiling smallvec v1.16.1
+   Compiling thiserror v2.0.20
+   Compiling icu_normalizer v2.3.0
+   Compiling inout v0.1.4
+   Compiling icu_properties v2.3.0
+   Compiling thiserror-impl v2.0.20
+   Compiling vcpkg v0.2.15
+   Compiling zeroize v1.9.0
+   Compiling pkg-config v0.3.34
+   Compiling zmij v1.0.23
+   Compiling libz-sys v1.1.29
+   Compiling rustls-pki-types v1.15.1
+   Compiling idna_adapter v1.2.2
+   Compiling cipher v0.4.4
+   Compiling core-foundation-sys v0.8.7
+   Compiling serde_json v1.0.151
+   Compiling percent-encoding v2.3.2
+   Compiling bitflags v2.13.2
+   Compiling form_urlencoded v1.2.2
+   Compiling idna v1.1.0
+   Compiling cobs v0.3.0
+   Compiling dartforge-intern v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/intern)
+   Compiling dartforge-diagnostics v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/diagnostics)
+   Compiling getrandom v0.2.17
+   Compiling blake3 v1.8.7
+   Compiling itoa v1.0.18
+   Compiling memchr v2.8.3
+   Compiling untrusted v0.9.0
+   Compiling crc32fast v1.5.2
+   Compiling dartforge-frontend v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/frontend)
+   Compiling postcard v1.1.3
+   Compiling url v2.5.8
+   Compiling security-framework-sys v2.17.0
+   Compiling core-foundation v0.10.1
+   Compiling block-buffer v0.10.4
+   Compiling getrandom v0.4.3
+   Compiling once_cell v1.21.4
+   Compiling rustix v1.1.5
+   Compiling constant_time_eq v0.4.2
+   Compiling arrayvec v0.7.8
+   Compiling rustls v0.23.45
+   Compiling digest v0.10.7
+   Compiling security-framework v3.7.0
+   Compiling dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)
+   Compiling rustls-webpki v0.103.15
+   Compiling errno v0.3.14
+   Compiling cpufeatures v0.2.17
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling subtle v2.6.1
+   Compiling rustc-hash v2.1.3
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+         ld64.lld: directory not found for option -L/usr/local/lib
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-runtime` (build script) generated 1 warning
+   Compiling dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+   Compiling aes v0.8.4
+   Compiling flate2 v1.1.10
+   Compiling rustls-native-certs v0.8.4
+   Compiling md-5 v0.10.6
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+         ld64.lld: directory not found for option -L/usr/local/lib
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libblake3-f832dcd72f9cea51.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-emit-native` (build script) generated 1 warning
+   Compiling des v0.8.1
+   Compiling cbc v0.1.2
+   Compiling rc2 v0.8.1
+   Compiling webpki-roots v1.0.9
+   Compiling fastrand v2.5.0
+   Compiling tempfile v3.27.0
+   Compiling dartforge-world v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/world)
+   Compiling dartforge-instrument v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/instrument)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+         ld64.lld: directory not found for option -L/usr/local/lib
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libblake3-f832dcd72f9cea51.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-deflate.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-adler32.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-crc32.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-inflate.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-inffast.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-inftrees.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-trees.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-zutil.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(25ac62e5b3c53843-curve25519.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(0bbbd18bda93c05b-aes_nohw.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(00c879ee3285a50d-montgomery.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(00c879ee3285a50d-montgomery_inv.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a0330e891e733f4e-gfp_p384.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a0330e891e733f4e-ecp_nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(aaa1ba3e455ee2e1-limbs.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a4019cc0736b0423-mem.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(d5a9841f3dc6e253-poly1305.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a0330e891e733f4e-p256-nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-chacha-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-chacha20_poly1305_armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-aesv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-aesv8-gcm-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-ghash-neon-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-ghashv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-vpaes-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-armv8-mont-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-p256-armv8-asm-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-sha512-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-sha256-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-emit-native` (lib test) generated 2 warnings (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 48.90s
+     Running unittests src/lib.rs (target/jit-readiness-build/debug/deps/dartforge_emit_native-2df35d96c630952a)
+
+running 20 tests
+test pruning::allocation_inventory::closure::tests::call_bundles_neutral_image_registration_and_initializer_comments_stay_open ... ok
+test pruning::allocation_inventory::closure::tests::actual_emitter_helpers_keep_unresolved_memory_allocations_unknown ... ok
+test pruning::allocation_inventory::closure::tests::comment_brace_does_not_hide_a_real_allocating_body ... ok
+test pruning::allocation_inventory::closure::tests::globals_function_addresses_and_indirect_calls_keep_distinct_open_obligations ... ok
+test pruning::allocation_inventory::closure::tests::duplicate_modules_and_hidden_inline_calls_never_gain_empty_closure ... ok
+test pruning::allocation_inventory::closure::tests::mutually_recursive_finite_allocation_union_is_complete ... ok
+test pruning::allocation_inventory::closure::tests::neutral_runtime_abi_and_local_actual_helpers_are_not_name_only_proofs ... ok
+test pruning::allocation_inventory::closure::tests::only_exact_module_target_and_abi_can_close_a_direct_call ... ok
+test pruning::allocation_inventory::closure::tests::scalar_return_does_not_hide_an_allocation_and_wrappers_propagate_it ... ok
+test pruning::allocation_inventory::closure::tests::opaque_runtime_selector_and_helper_boundaries_poison_the_complete_scc ... ok
+test pruning::allocation_inventory::closure::tests::unsupported_body_syntax_nonconstant_cid_and_weak_definitions_are_unknown ... ok
+test pruning::allocation_inventory::closure::tests::valid_inline_heap_bump_allocation_is_not_a_proven_empty_footprint ... ok
+test pruning::allocation_inventory::publication::tests::absent_old_duplicate_or_traversing_publication_does_not_verify ... ok
+test pruning::allocation_inventory::publication::tests::selected_objects_runtime_profile_key_and_abi_payload_are_bound ... ok
+test pruning::allocation_inventory::tests::all_possible_emitted_definitions_must_agree_on_coverage ... ok
+test pruning::allocation_inventory::tests::actual_scalar_leaf_gets_empty_audit_but_allocating_scalar_return_stays_unknown ... ok
+test pruning::allocation_inventory::tests::memory_globals_pointer_conversion_and_unterminated_bodies_are_unknown ... ok
+test pruning::allocation_inventory::transport_tests::allocation_audits_and_ambiguous_classes_roundtrip_independently ... ok
+test pruning::allocation_inventory::transport_tests::explicit_known_empty_and_cid_union_roundtrip_distinct_from_absent_or_unknown ... ok
+test pruning::allocation_inventory::transport_tests::malformed_duplicate_old_and_nondefinition_audits_are_rejected ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 738 filtered out; finished in 0.11s
+
