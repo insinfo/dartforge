@@ -1,0 +1,14 @@
+dartforge: the failing module was saved at /Volumes/ssd_dock/MyRustProjects/dartforge/target/release-ci-audit/maps-repro/rs4gc-mirrors.ll
+dartforge: the failing module was saved at /Volumes/ssd_dock/MyRustProjects/dartforge/target/release-ci-audit/maps-repro/rs4gc-ffi.ll
+dartforge: the failing module was saved at /Volumes/ssd_dock/MyRustProjects/dartforge/target/release-ci-audit/maps-repro/rs4gc-isolate.ll
+dartforge: the failing module was saved at /Volumes/ssd_dock/MyRustProjects/dartforge/target/release-ci-audit/maps-repro/rs4gc-_http.ll
+dartforge: the failing module was saved at /Volumes/ssd_dock/MyRustProjects/dartforge/target/release-ci-audit/maps-repro/rs4gc-async.ll
+dartforge: the failing module was saved at /Volumes/ssd_dock/MyRustProjects/dartforge/target/release-ci-audit/maps-repro/rs4gc-math.ll
+dartforge: the failing module was saved at /Volumes/ssd_dock/MyRustProjects/dartforge/target/release-ci-audit/maps-repro/rs4gc-typed_data.ll
+dartforge: the failing module was saved at /Volumes/ssd_dock/MyRustProjects/dartforge/target/release-ci-audit/maps-repro/rs4gc-io.ll
+dartforge: the failing module was saved at /Volumes/ssd_dock/MyRustProjects/dartforge/target/release-ci-audit/maps-repro/rs4gc-_compact_hash.ll
+dartforge: the failing module was saved at /Volumes/ssd_dock/MyRustProjects/dartforge/target/release-ci-audit/maps-repro/rs4gc-convert.ll
+dartforge: the failing module was saved at /Volumes/ssd_dock/MyRustProjects/dartforge/target/release-ci-audit/maps-repro/rs4gc-collection.ll
+dartforge: the failing module was saved at /Volumes/ssd_dock/MyRustProjects/dartforge/target/release-ci-audit/maps-repro/rs4gc-_internal.ll
+dartforge: the failing module was saved at /Volumes/ssd_dock/MyRustProjects/dartforge/target/release-ci-audit/maps-repro/rs4gc-core.ll
+error: dart:mirrors: mirrors: RS4GC checker, line 1353: the argument `%v49` is not live in the call (outside the "deopt"): `%statepoint_token12 = call token (i64, i32, ptr, i32, i32, ...) @llvm.experimental.gc.statepoint.p0(i64 2882400000, i32 0, ptr elementtype(i8 (i64, i64)) @dartforge_native_DartForge_string_equals_object, i32 2, i32 0, i64 %v49, i64 0, i32 0, i32 0)`

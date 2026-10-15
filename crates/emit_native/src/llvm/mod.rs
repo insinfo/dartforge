@@ -1047,7 +1047,7 @@ impl<'a> LlvmEmitter<'a> {
                         Some((b.id.0, format!("ls{v}.fim")))
                     } else if matches!(i, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_exception_clear") {
                         Some((b.id.0, format!("xc{v}.fim")))
-                    } else if Self::rti_evaluate_cached(i) {
+                    } else if !self.maps && Self::rti_evaluate_cached(i) {
                         Some((b.id.0, format!("ra{v}.fim")))
                     } else if Self::rti_test_cached(i) {
                         Some((b.id.0, format!("rt{v}.fim")))
@@ -1717,7 +1717,10 @@ impl<'a> LlvmEmitter<'a> {
                         // of the loop.
                         writeln!(self.out, "  %v{v} = call i8 @llvm.expect.i8(i8 %iv{v}, i8 0)").unwrap();
                     }
-                    Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } if Self::rti_evaluate_cached(inst) => {
+                    // The cache miss helper has more conservative effects than
+                    // the source operation. In maps mode retain the direct
+                    // operation until root placement models that extra call.
+                    Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } if !self.maps && Self::rti_evaluate_cached(inst) => {
                         self.emit_rti_evaluate_cached(v, args);
                     }
                     Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } if Self::rti_test_cached(inst) => {

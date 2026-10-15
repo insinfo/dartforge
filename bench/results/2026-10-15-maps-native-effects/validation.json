@@ -1,0 +1,47 @@
+{
+  "before": {
+    "heavy_run": 38694069886,
+    "job": 116290549250,
+    "directed_maps": "1 passed, 3 failed at RS4GC compile checking",
+    "local_counterexample": "before-failure.txt",
+    "intermediate_regression": "First fix exposed a missing Phi predecessor for the disabled RTI cache; preserved in maps-directed-after.log and fixed in both branch selection sites."
+  },
+  "after": {
+    "focused_tests_passed": 7,
+    "directed_maps_tests_passed": 4,
+    "directed_maps_ignored": 0,
+    "directed_maps_seconds": 293.66,
+    "directed_maps_command": "cargo test --locked --release -j2 -p dartforge-cli --features native,jit --test directed_maps -- --test-threads=1 --nocapture",
+    "environment_file": "bench/results/2026-10-14-jit-private-field-identity/env.zsh",
+    "environment_extra": {
+      "DARTFORGE_MAPS_TESTS": "1"
+    },
+    "checks": "Native GC effect declarations; unknown/allocating natives remain conservative; RTI cache/Phi emission; GC stress, poison, sabotage and shadow walk comparison"
+  },
+  "scope": "Local macOS arm64 LLVM22.1.8 SDK3.6.2. Windows remote validation pending. No checker/test assertions removed; no performance claim. Maps uses original RTI call until root placement models cache helper effects.",
+  "source_sha256": {
+    "crates/emit_native/src/llvm/mod.rs": "b481cb376f6f5f00627a1831ad846cfee4fcef2a1d252c8bd8e41b5efd40c399",
+    "crates/emit_native/src/llvm/selectors.rs": "e232b390f9c6e48bf43211fe33a5979d2ca5e3f319ef7f7b4ab48168f41f5842",
+    "crates/emit_native/src/llvm/tests.rs": "d833a4986e178cee6c4df3c116a6e180ca73ffd2167ae13afcc0b2f2d04aef39",
+    "crates/llvm/src/check_rs4gc.rs": "82999ab0dc8d1b7fbed5576785b127d256698157c7bd3925eed7ab640d88bf11"
+  },
+  "producer_sha256": "ac48cb4a21ba830fc86551e868b4f3e015bc550cc154582a39ccc5f3163b6043",
+  "full_logs": {
+    "maps-focused-final-3.log": {
+      "path": "target/release-ci-audit/maps-focused-final-3.log",
+      "sha256": "038a932c452ca97ee8174882ed41c10f6488bef96d3526563d3c828a1d41d1b3"
+    },
+    "maps-directed-final.log": {
+      "path": "target/release-ci-audit/maps-directed-final.log",
+      "sha256": "26dcfebbf7cee5e96c94d48ded3fb866588808d40f70e5e3d143ab786e568d78"
+    },
+    "maps-directed-after.log": {
+      "path": "target/release-ci-audit/maps-directed-after.log",
+      "sha256": "64cabace954ed665288b25de6a816b9719e8b1b420b6f3f7c83deeff9e8d7bb2"
+    },
+    "feb-heavy-b0.log": {
+      "path": "target/release-ci-audit/feb-heavy-b0.log",
+      "sha256": "1117b7c9cb2d91bdedcf4f07dace3e9b99d720d874cfcf441abbb84d993cfa75"
+    }
+  }
+}

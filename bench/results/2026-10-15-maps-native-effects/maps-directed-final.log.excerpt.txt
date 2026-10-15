@@ -1,0 +1,9 @@
+Excerpt; full log SHA-256 is recorded in validation.json.
+running 4 tests
+test leaf_that_collects_is_found_by_name ... ok
+test seed_scheduled_collection ... ok
+test targeted_cases_pass_and_fail_with_the_sabotage ... ok
+test walk_checked_against_the_shadow_stack ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 293.66s
+

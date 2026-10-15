@@ -1145,3 +1145,49 @@ fn declaration_inline_policies_emit_preferences_and_prohibitions() {
         assert!(!header("preferred").contains("alwaysinline"));
     }
 }
+
+#[test]
+fn maps_native_declarations_follow_certified_gc_effects() {
+    let mut module = Module::new();
+    module.sdk_mode = true;
+    for maps in [false, true] {
+        let mut emitter = LlvmEmitter::new(&module).with_roots_by_maps(maps);
+        emitter.annotate_external("dartforge_native_DartForge_string_equals_object", Type::I8, &[Type::Ref, Type::Ref]);
+        emitter.annotate_external("dartforge_native_DartForge_mirrors_name", Type::Ref, &[Type::Ref]);
+        emitter.annotate_external("dartforge_native_unclassified_test", Type::Ref, &[Type::Ref]);
+        let ir = emitter.emit_all();
+        for (name, leaf) in [
+            ("dartforge_native_DartForge_string_equals_object", true),
+            ("dartforge_native_DartForge_mirrors_name", false),
+            ("dartforge_native_unclassified_test", false),
+        ] {
+            let declaration = ir.lines().find(|line| line.starts_with("declare ") && line.contains(&format!("@{name}("))).unwrap();
+            assert_eq!(declaration.contains("\"gc-leaf-function\""), maps && leaf, "{declaration}");
+        }
+    }
+}
+
+#[test]
+fn maps_rti_evaluation_keeps_the_source_operation_effects() {
+    let mut module = Module::new();
+    module.sdk_mode = true;
+    module.functions.push(function("rti_maps_effects", vec![(ValueId(0), "receiver".into(), Type::Ref)], Type::I64,
+        vec![BasicBlock { id: BlockId(0), instructions: vec![
+            (ValueId(1), Instruction::CallRuntime {
+                name: "dartforge_rti_eval".into(),
+                args: vec![(Operand::Constant(Constant::Int(1)), Type::I64),
+                    (Operand::Val(ValueId(0)), Type::Ref),
+                    (Operand::Constant(Constant::Int(1024)), Type::I64),
+                    (Operand::Constant(Constant::Int(0)), Type::I64)],
+                ret_ty: Type::I64,
+            }, Type::I64),
+        ], terminator: Terminator::Branch(BlockId(1)) },
+        BasicBlock { id: BlockId(1), instructions: vec![
+            (ValueId(2), Instruction::Phi { incoming: vec![(BlockId(0), Operand::Val(ValueId(1)))], ty: Type::I64 }, Type::I64),
+        ], terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))) }]));
+    let ir = LlvmEmitter::new(&module).with_roots_by_maps(true).emit_all();
+    let body = body_of(&ir, "rti_maps_effects");
+    assert!(body.contains("call i64 @dartforge_rti_eval("), "{body}");
+    assert!(!body.contains("@dartforge_rti_eval_cache("), "{body}");
+    assert!(!body.contains("%ra1.fim"), "Phi predecessor must name an emitted block: {body}");
+}

@@ -1,0 +1,12 @@
+Excerpt; full log SHA-256 is recorded in validation.json.
+running 7 tests
+test hir::declared_field_tests::cloned_field_call_keeps_identity_and_remaps_all_arguments ... ok
+test contracts::no_escape::tests::dependency_hash_excludes_unordered_debug_maps_and_preserves_scalar_nan_bits ... ok
+test optimize::arc::analysis::origins::tests::inliner_remaps_ssa_but_keeps_site_and_pruning_does_not_forge_facts ... ok
+test llvm::tests::inlining_remaps_arc_operand_and_preserves_return_token ... ok
+test llvm::tests::maps_rti_evaluation_keeps_the_source_operation_effects ... ok
+test llvm::tests::catch_in_cleanup_profile_checks_selector_and_remaps_landing_pad_phi ... ok
+test llvm::tests::maps_native_declarations_follow_certified_gc_effects ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 754 filtered out; finished in 0.00s
+

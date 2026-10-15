@@ -212,6 +212,21 @@ análise/LSP/format registradas nos commits de 14/10.
   uma nova medição de espaço livre. Artefatos grandes/observações privadas de UI
   ficam fora do Git; evidências publicadas usam somente fixtures controlados.
 
+### Correção adicional: raízes por mapas (B0)
+
+A execução pesada agendada encontrou três recusas RS4GC nos testes dirigidos.
+A reprodução local confirmou que declarações nativas fora da tabela fixa
+perdiam o atributo LLVM `gc-leaf-function`, apesar dos efeitos certificados
+usados pela análise de raízes. A emissão agora aplica a mesma regra às duas
+fontes de declarações; funções desconhecidas/coletáveis continuam conservadoras.
+A especialização RTI substituía uma operação por um helper com efeitos mais
+conservadores: maps mantém a operação original, e os predecessores Phi seguem
+a mesma decisão de emissão. O checker não foi alterado. **Sete testes focados
+e os quatro `directed_maps` completos passaram localmente**, incluindo stress,
+poison, sabotagens e comparação com shadow stack. A confirmação Windows remota
+continua pendente. Evidência: `bench/results/2026-10-15-maps-native-effects/`.
+Não é ganho de desempenho nem certificação de todos os perfis do coletor.
+
 ### Fechamento verificável
 
 O código de `feb3c1c3` passou no CI Linux e na validação **sem toolchain do

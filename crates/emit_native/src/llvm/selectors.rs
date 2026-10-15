@@ -485,8 +485,18 @@ impl LlvmEmitter<'_> {
             return;
         }
         self.out.push_str("; Defined in another module (source SDK) or in the runtime\n");
-        for (_, d) in exit {
+        for (symbol, d) in exit {
             self.out.push_str(&d);
+            if self.maps {
+                let effects = super::externs::effects_of(&symbol);
+                if (!effects.allocates && !effects.calls_dart)
+                    || crate::target::sabotaged_leaf(&symbol)
+                {
+                    // Match the effects used by root placement, including
+                    // native declarations absent from the fixed extern table.
+                    self.out.push_str(" \"gc-leaf-function\"");
+                }
+            }
             self.out.push('\n');
         }
         self.out.push('\n');
