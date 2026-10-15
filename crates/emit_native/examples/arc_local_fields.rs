@@ -3,6 +3,9 @@
 //! overwriting it. The harness observes owners/death, without a C++ fixture.
 //! Does not certify complete Dart lowering, late, publication or reload.
 
+#[path = "support/arc_symbols.rs"]
+mod arc_symbols;
+
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
@@ -233,20 +236,23 @@ fn main() -> Result<(), String> {
         &format!("{allocate}  store i64 %v1, ptr @prova.objeto\n"),
     );
     if control.as_deref() == Some("no-retain") {
+        let source_retain = arc_symbols::source_symbol(&ir, "retain");
+        let source_call = format!("call void @{source_retain}(i64 %v");
         let line = ir
             .lines()
-            .filter(|l| l.contains("call void @dartforge_arc_retain(i64 %v"))
+            .filter(|l| l.contains(&source_call))
             .collect::<Vec<_>>();
         if line.len() != 1 {
             return Err("keepalive without a single target".into());
         }
         ir = ir.replace(&format!("{}\n", line[0]), "");
     } else if control.as_deref() == Some("no-object-drop") {
-        let line = "  call void @dartforge_arc_release(i64 %v1)\n";
-        if !ir.contains(line) {
+        let source_release = arc_symbols::source_symbol(&ir, "release");
+        let line = format!("  call void @{source_release}(i64 %v1)\n");
+        if !ir.contains(&line) {
             return Err("missing object cleanup".into());
         }
-        ir = ir.replace(line, "");
+        ir = ir.replace(&line, "");
     }
     ir.push_str(
         r#"

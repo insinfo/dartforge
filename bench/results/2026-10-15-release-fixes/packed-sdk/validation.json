@@ -1,0 +1,126 @@
+{
+  "status": "passed",
+  "head": "2e54bdc0e833ec241ac3cebb0933213ee0b77903",
+  "source_manifest_sha256": "1e3b6d6a0fd4b4a1c65dc849bdd8ddefb8ba961520f677d47f769c557f845815",
+  "commands": [
+    {
+      "label": "pack-units",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--release",
+        "-j2",
+        "-p",
+        "dartforge-cli",
+        "--features",
+        "native,jit",
+        "--bin",
+        "dartforge",
+        "pack::tests",
+        "--",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "stdout_sha256": "cddad5d65bdaed52078ad81ddb4c5241a13171ae1174463a432942faa3e2f5cb",
+      "stderr_sha256": "5904fb5c44354a1d876184351e0a9c0481a06e474b4f73fafb44ab0ef3df46c5"
+    },
+    {
+      "label": "pub-units",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--release",
+        "-j2",
+        "-p",
+        "dartforge-cli",
+        "--features",
+        "native,jit",
+        "--bin",
+        "dartforge",
+        "pub_get::tests",
+        "--",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "stdout_sha256": "d10fc141188c31b90e78dda66b79f05e2a2027a304f646fd8cebe9ad3d86fd2d",
+      "stderr_sha256": "2056d7fa897e39dcc5d0cd13771c153322d9537d53252d114207398b35670a8a"
+    },
+    {
+      "label": "build",
+      "command": [
+        "cargo",
+        "build",
+        "--locked",
+        "--release",
+        "-j2",
+        "-p",
+        "dartforge-cli",
+        "--features",
+        "native,jit"
+      ],
+      "exit": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "1070969a820c6bc03dc080d7445f0a7941b97f0c13f35ee5b8b22b97ae7ab9b2"
+    },
+    {
+      "label": "pack",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/release-pack-sdk-work/20261015T033159.747216Z/producer/dartforge",
+        "pack",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/release-pack-sdk-work/20261015T033159.747216Z/distribution"
+      ],
+      "exit": 0,
+      "stdout_sha256": "61cdd8c8baae1e5f7c34f51d9df286ccb6aa886884603b0bd8ca387b30c06bec",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "release-offline-smoke",
+      "command": [
+        "/bin/bash",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/release-pack-sdk-evidence/20261015T033159.747216Z/release-smoke.sh"
+      ],
+      "exit": 0,
+      "stdout_sha256": "838c9c4f17dc9ab21d57b68110847e181f4010e16557c9d2e929ba6d008fc69d",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "offline-retry",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/release-pack-sdk-work/20261015T033159.747216Z/distribution/bin/dartforge",
+        "pub",
+        "get",
+        "--offline",
+        "--sdk",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/release-pack-sdk-work/20261015T033159.747216Z/distribution/lib/dart-sdk/lib",
+        "--directory",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/release-pack-sdk-work/20261015T033159.747216Z/clean-project/sdk-package-smoke"
+      ],
+      "exit": 0,
+      "stdout_sha256": "838c9c4f17dc9ab21d57b68110847e181f4010e16557c9d2e929ba6d008fc69d",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "scope": "Focused pack/Pub units, current locked release native,JIT build, actual relocated distribution offline SDK package resolution in a clean environment. No performance claim.",
+  "producer": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/release-pack-sdk-work/20261015T033159.747216Z/producer/dartforge",
+  "producer_sha256": "8929b5f3b8e7708efad37bf6cfcb47485e4f07bb12fce6c2bf3836dea9c75655",
+  "clean_environment": {
+    "PATH": "/usr/bin:/bin",
+    "HOME": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/release-pack-sdk-work/20261015T033159.747216Z/clean-project/home",
+    "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/release-pack-sdk-work/20261015T033159.747216Z",
+    "PUB_CACHE": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/release-pack-sdk-work/20261015T033159.747216Z/clean-project/cache",
+    "PUB_HOSTED_URL": "https://invalid.invalid",
+    "dist": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/release-pack-sdk-work/20261015T033159.747216Z/distribution",
+    "d": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/release-pack-sdk-work/20261015T033159.747216Z/clean-project",
+    "exe": "dartforge",
+    "RUNNER_OS": "macOS"
+  },
+  "sdk_version": "3.6.2",
+  "sdk_package_version": "0.3.3",
+  "resolved_package_root": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/release-pack-sdk-work/20261015T033159.747216Z/distribution/lib/dart-sdk/pkg/_macros",
+  "config_sha256": "0088ee953c6dbda9eace2c4c6e24994dfe021edfc72351c56721b9a6b7744726",
+  "lock_sha256": "8eaf99a53432c00e2e41038a9a686610a84d38e294957885ada2aa64e94a726f",
+  "source_unchanged": true,
+  "producer_unchanged": true
+}

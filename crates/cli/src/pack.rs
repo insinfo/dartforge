@@ -50,10 +50,11 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
     copy_tree(&dartforge_emit_native::sdk_module::overlay_dir(), &lib.join("native_sdk"))?;
     let sdk = dartforge_emit_native::dart_sdk()?;
     copy_tree(&sdk, &lib.join("dart-sdk").join("lib"))?;
-    if let Some(root) = sdk.parent()
-        && root.join("version").is_file()
-    {
-        copy(&root.join("version"), &lib.join("dart-sdk").join("version"))?;
+    if let Some(root) = sdk.parent() {
+        if root.join("version").is_file() {
+            copy(&root.join("version"), &lib.join("dart-sdk").join("version"))?;
+        }
+        copy_sdk_packages(root, &lib.join("dart-sdk"))?;
     }
 
     // The target system's lld (from the same LLVM as the generator) and what
@@ -158,4 +159,154 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Retains the selected SDK's declared package locations after relocation.
+fn copy_sdk_packages(source: &Path, destination: &Path) -> Result<(), String> {
+    let config = source.join("sdk_packages.yaml");
+    match std::fs::symlink_metadata(&config) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("{}: {error}", config.display())),
+        Ok(_) => {}
+    }
+    let root = source.canonicalize().map_err(|error| format!("{}: {error}", source.display()))?;
+    let packages = crate::pub_get::sdk_package_paths(source)?;
+    for (name, relative) in packages {
+        let package = source.join(&relative);
+        if !package.is_dir() {
+            return Err(format!("declared SDK package {name} is not a directory: {}", package.display()));
+        }
+        copy_sdk_tree(&package, &destination.join(relative), &root, &mut std::collections::HashSet::new())?;
+    }
+    copy_sdk_tree(&config, &destination.join("sdk_packages.yaml"), &root, &mut std::collections::HashSet::new())
+}
+
+fn copy_sdk_tree(source: &Path, destination: &Path, root: &Path, active: &mut std::collections::HashSet<PathBuf>) -> Result<(), String> {
+    let canonical = source.canonicalize().map_err(|error| format!("{}: {error}", source.display()))?;
+    if !canonical.starts_with(root) {
+        return Err(format!("SDK package path escapes the selected SDK: {}", source.display()));
+    }
+    if !canonical.is_dir() {
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+        }
+        return copy(source, destination);
+    }
+    if !active.insert(canonical.clone()) {
+        return Err(format!("cyclic SDK package directory: {}", source.display()));
+    }
+    std::fs::create_dir_all(destination).map_err(|error| format!("{}: {error}", destination.display()))?;
+    for entry in std::fs::read_dir(source).map_err(|error| format!("{}: {error}", source.display()))? {
+        let entry = entry.map_err(|error| format!("{}: {error}", source.display()))?;
+        copy_sdk_tree(&entry.path(), &destination.join(entry.file_name()), root, active)?;
+    }
+    active.remove(&canonical);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Fixture(PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!("dartforge-pack-sdk-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+        fn sdk(&self, mapping: &str) -> PathBuf {
+            let sdk = self.0.join("source-sdk");
+            std::fs::create_dir_all(&sdk).unwrap();
+            std::fs::write(sdk.join("sdk_packages.yaml"), mapping).unwrap();
+            sdk
+        }
+        fn package(&self, sdk: &Path, relative: &str, name: &str) {
+            let path = sdk.join(relative);
+            std::fs::create_dir_all(path.join("lib")).unwrap();
+            std::fs::write(path.join("pubspec.yaml"), format!("name: {name}\nversion: 1.2.3\n")).unwrap();
+            std::fs::write(path.join("lib/value.dart"), "const value = 37;\n").unwrap();
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+
+    #[test]
+    fn declared_sdk_packages_keep_metadata_and_arbitrary_paths_after_relocation() {
+        let fixture = Fixture::new();
+        let mapping = "version: 1\nsdk: dart\npackages:\n  - name: one\n    path: vendored/first\n  - name: two\n    path: elsewhere/second\n";
+        let source = fixture.sdk(mapping);
+        fixture.package(&source, "vendored/first", "one");
+        fixture.package(&source, "elsewhere/second", "two");
+        let destination = fixture.0.join("relocated-sdk");
+        copy_sdk_packages(&source, &destination).unwrap();
+        assert_eq!(std::fs::read(destination.join("sdk_packages.yaml")).unwrap(), mapping.as_bytes());
+        assert_eq!(crate::pub_get::sdk_package_paths(&source).unwrap(), crate::pub_get::sdk_package_paths(&destination).unwrap());
+        for path in ["vendored/first", "elsewhere/second"] {
+            for file in ["pubspec.yaml", "lib/value.dart"] {
+                assert_eq!(std::fs::read(source.join(path).join(file)).unwrap(), std::fs::read(destination.join(path).join(file)).unwrap());
+            }
+        }
+        std::fs::remove_dir_all(source).unwrap();
+        assert!(destination.join("vendored/first/lib/value.dart").is_file());
+    }
+
+    #[test]
+    fn declared_sdk_packages_reject_nonrelative_and_traversing_paths() {
+        for path in ["../outside", "/outside", ".", "pkg/../../outside", "pkg\\outside", "C:/outside", "C:outside"] {
+            let fixture = Fixture::new();
+            let source = fixture.sdk(&format!("version: 1\nsdk: dart\npackages:\n  - name: one\n    path: '{path}'\n"));
+            assert!(copy_sdk_packages(&source, &fixture.0.join("packed")).unwrap_err().contains("relative path without traversal"), "{path}");
+        }
+    }
+
+    #[test]
+    fn declared_sdk_packages_reject_missing_duplicate_and_malformed_declarations() {
+        for (mapping, expected) in [
+            ("version: 1\nsdk: dart\npackages:\n  - name: one\n    path: absent\n", "not a directory"),
+            ("version: 1\nsdk: dart\npackages:\n  - name: one\n    path: first\n  - name: one\n    path: second\n", "duplicate declared"),
+            ("version: 2\nsdk: dart\npackages: []\n", "unsupported selected"),
+        ] {
+            let fixture = Fixture::new();
+            let source = fixture.sdk(mapping);
+            assert!(copy_sdk_packages(&source, &fixture.0.join("packed")).unwrap_err().contains(expected));
+        }
+    }
+
+    #[test]
+    fn sdk_without_declared_packages_keeps_optional_metadata_absent() {
+        let fixture = Fixture::new();
+        let source = fixture.0.join("old-sdk");
+        std::fs::create_dir_all(&source).unwrap();
+        let destination = fixture.0.join("packed");
+        copy_sdk_packages(&source, &destination).unwrap();
+        assert!(!destination.join("sdk_packages.yaml").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn declared_sdk_packages_reject_symlink_escape_and_directory_cycles() {
+        for child in [false, true] {
+            let fixture = Fixture::new();
+            let source = fixture.sdk("version: 1\nsdk: dart\npackages:\n  - name: one\n    path: vendor/one\n");
+            let outside = fixture.0.join("outside");
+            std::fs::create_dir_all(&outside).unwrap();
+            std::fs::write(outside.join("secret"), "outside SDK").unwrap();
+            std::fs::create_dir_all(source.join("vendor")).unwrap();
+            if child {
+                fixture.package(&source, "vendor/one", "one");
+                std::os::unix::fs::symlink(&outside, source.join("vendor/one/escape")).unwrap();
+            } else {
+                std::os::unix::fs::symlink(&outside, source.join("vendor/one")).unwrap();
+            }
+            assert!(copy_sdk_packages(&source, &fixture.0.join("packed")).unwrap_err().contains("escapes the selected SDK"));
+        }
+        let fixture = Fixture::new();
+        let source = fixture.sdk("version: 1\nsdk: dart\npackages:\n  - name: one\n    path: vendor/one\n");
+        fixture.package(&source, "vendor/one", "one");
+        std::os::unix::fs::symlink(source.join("vendor/one"), source.join("vendor/one/cycle")).unwrap();
+        assert!(copy_sdk_packages(&source, &fixture.0.join("packed")).unwrap_err().contains("cyclic SDK package"));
+    }
 }

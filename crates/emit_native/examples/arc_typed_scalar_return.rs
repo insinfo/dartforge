@@ -1,5 +1,8 @@
 //! AOT proof of the three scalar representations with a borrowed heap context.
 //! The certificate registers the body; the caller promotes and releases its context.
+#[path = "support/arc_symbols.rs"]
+mod arc_symbols;
+
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
@@ -59,9 +62,10 @@ fn main() -> Result<(), String> {
     let mut m = module(ty, value, abi)?; m.arc_memory = arc; if !arc { m.arc_aot_ports = None; }
     let mut ir = LlvmEmitter::new(&m).emit_all();
     if let Some(c) = control {
-        let target = "  call void @dartforge_arc_release(i64 %v2)\n";
-        if c != "no-context-release" || ir.matches(target).count() != 2 { return Err("control without a single target on both exits".into()); }
-        ir = ir.replace(target, "");
+        let source_release = arc_symbols::source_symbol(&ir, "release");
+        let target = format!("  call void @{source_release}(i64 %v2)\n");
+        if c != "no-context-release" || ir.matches(&target).count() != 2 { return Err("control without a single target on both exits".into()); }
+        ir = ir.replace(&target, "");
     }
     ir.push_str("declare void @dartforge_print_handle(i64)\ndefine void @prova() {\n");
     if !arc { ir.push_str(&format!("  %pc = ptrtoint ptr @corpo to i64\n  %versao = call i64 @dartforge_arc_register_typed_v1(i64 %pc, i64 {abi})\n")); }

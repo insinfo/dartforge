@@ -3,6 +3,9 @@
 //! Negative controls remove retention or release only after verification.
 //! `--grow` forces growth and decompaction with a collection during the call.
 
+#[path = "support/arc_symbols.rs"]
+mod arc_symbols;
+
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, fmt::Write, path::PathBuf};
 
@@ -182,7 +185,8 @@ fn main() -> Result<(), String> {
     match control.as_deref() {
         None => {}
         Some("no-retain") => {
-            let call = format!("  call void @dartforge_arc_retain(i64 %v{borrowed})\n");
+            let source_retain = arc_symbols::source_symbol(&ir, "retain");
+            let call = format!("  call void @{source_retain}(i64 %v{borrowed})\n");
             if ir.matches(&call).count() != 1 {
                 return Err("retention not located uniquely".into());
             }

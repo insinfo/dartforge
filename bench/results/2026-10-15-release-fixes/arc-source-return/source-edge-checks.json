@@ -1,0 +1,53 @@
+{
+  "checked_edges": 8,
+  "checks": [
+    {
+      "mode": "arc",
+      "level": 0,
+      "control": "no-retain",
+      "removed": "call void @df.arc_retain_ref(i64 %v0)"
+    },
+    {
+      "mode": "arc",
+      "level": 0,
+      "control": "no-intermediate-drop",
+      "removed": "call void @df.arc_release_ref(i64 %v4)"
+    },
+    {
+      "mode": "arc",
+      "level": 2,
+      "control": "no-retain",
+      "removed": "call void @df.arc_retain_ref(i64 %v0)"
+    },
+    {
+      "mode": "arc",
+      "level": 2,
+      "control": "no-intermediate-drop",
+      "removed": "call void @df.arc_release_ref(i64 %v4)"
+    },
+    {
+      "mode": "tracing",
+      "level": 0,
+      "control": "no-retain",
+      "removed": "call void @dartforge_arc_retain(i64 %v0)"
+    },
+    {
+      "mode": "tracing",
+      "level": 0,
+      "control": "no-intermediate-drop",
+      "removed": "call void @dartforge_arc_release(i64 %v4)"
+    },
+    {
+      "mode": "tracing",
+      "level": 2,
+      "control": "no-retain",
+      "removed": "call void @dartforge_arc_retain(i64 %v0)"
+    },
+    {
+      "mode": "tracing",
+      "level": 2,
+      "control": "no-intermediate-drop",
+      "removed": "call void @dartforge_arc_release(i64 %v4)"
+    }
+  ]
+}

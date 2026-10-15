@@ -1,0 +1,76 @@
+{
+  "source_example_sha256": "b139df89ad0fba0541d7a848bf5e8a7b58517abdf407dcf10ae6dc813b42e822",
+  "matrix_result": "success",
+  "runs": 16,
+  "positive_runs": 4,
+  "negative_runs": 12,
+  "independent_source_edge_ir_checks": [
+    {
+      "mode": "arc",
+      "level": 0,
+      "control": "no-retain",
+      "source_function": "identidade",
+      "removed_exactly_one": "call void @df.arc_retain_ref(i64 %v0)",
+      "all_other_function_instructions_unchanged": true
+    },
+    {
+      "mode": "arc",
+      "level": 0,
+      "control": "no-intermediate-drop",
+      "source_function": "repassar",
+      "removed_exactly_one": "call void @df.arc_release_ref(i64 %v4)",
+      "all_other_function_instructions_unchanged": true
+    },
+    {
+      "mode": "arc",
+      "level": 2,
+      "control": "no-retain",
+      "source_function": "identidade",
+      "removed_exactly_one": "call void @df.arc_retain_ref(i64 %v0)",
+      "all_other_function_instructions_unchanged": true
+    },
+    {
+      "mode": "arc",
+      "level": 2,
+      "control": "no-intermediate-drop",
+      "source_function": "repassar",
+      "removed_exactly_one": "call void @df.arc_release_ref(i64 %v4)",
+      "all_other_function_instructions_unchanged": true
+    },
+    {
+      "mode": "tracing",
+      "level": 0,
+      "control": "no-retain",
+      "source_function": "identidade",
+      "removed_exactly_one": "call void @dartforge_arc_retain(i64 %v0)",
+      "all_other_function_instructions_unchanged": true
+    },
+    {
+      "mode": "tracing",
+      "level": 0,
+      "control": "no-intermediate-drop",
+      "source_function": "repassar",
+      "removed_exactly_one": "call void @dartforge_arc_release(i64 %v4)",
+      "all_other_function_instructions_unchanged": true
+    },
+    {
+      "mode": "tracing",
+      "level": 2,
+      "control": "no-retain",
+      "source_function": "identidade",
+      "removed_exactly_one": "call void @dartforge_arc_retain(i64 %v0)",
+      "all_other_function_instructions_unchanged": true
+    },
+    {
+      "mode": "tracing",
+      "level": 2,
+      "control": "no-intermediate-drop",
+      "source_function": "repassar",
+      "removed_exactly_one": "call void @dartforge_arc_release(i64 %v4)",
+      "all_other_function_instructions_unchanged": true
+    }
+  ],
+  "raw_artifacts": "target/proof-source-return",
+  "failed_linux_artifacts": "target/release-ci-audit/proof-source-return-Linux",
+  "scope": "Real AOT normal execution and intentional negative traps across ARC/tracing and O0/O2; no performance claim."
+}

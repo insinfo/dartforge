@@ -10,6 +10,9 @@
 //! Tracing runs the same body with explicit tokens, without changing its default
 //! flow. Does not prove source lowering, suspension, reload or unwinding.
 
+#[path = "support/arc_symbols.rs"]
+mod arc_symbols;
+
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
@@ -203,14 +206,15 @@ passou:
 "#
         .replace("__ERRO__", if error { "true" } else { "false" }),
     );
-    let call = "  call void @dartforge_arc_retain(i64 %v6)\n";
-    if ir.matches(call).count() != 1 {
+    let source_retain = arc_symbols::source_symbol(&ir, "retain");
+    let call = format!("  call void @{source_retain}(i64 %v6)\n");
+    if ir.matches(&call).count() != 1 {
         return Err("copy on the normal edge missing in the IR".into());
     }
     match control.as_deref() {
         None => {}
         Some("no-retain") if !error => {
-            ir = ir.replace(call, "");
+            ir = ir.replace(&call, "");
         }
         Some("no-release") if !error => {
             ir = ir.replace("  call void @dartforge_arc_release(i64 %retorno)\n", "");

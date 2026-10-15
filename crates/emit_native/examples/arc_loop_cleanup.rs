@@ -7,6 +7,9 @@
 //! during the function. The error uses a real preloaded pending state, not a throw from the hook.
 //! Does not certify source lowering, Finalizable, suspension or unwinding.
 
+#[path = "support/arc_symbols.rs"]
+mod arc_symbols;
+
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
@@ -196,18 +199,20 @@ fn main() -> Result<(), String> {
     match control.as_deref() {
         None => {}
         Some("no-normal-drop") if !error => {
-            let excerpt = "b7:\n  call void @dartforge_arc_release(i64 %v2)\n";
-            if ir.matches(excerpt).count() != 1 {
+            let source_release = arc_symbols::source_symbol(&ir, "release");
+            let excerpt = format!("b7:\n  call void @{source_release}(i64 %v2)\n");
+            if ir.matches(&excerpt).count() != 1 {
                 return Err("normal cleanup missing in the IR".into());
             }
-            ir = ir.replace(excerpt, "b7:\n");
+            ir = ir.replace(&excerpt, "b7:\n");
         }
         Some("no-error-drop") if error => {
-            let excerpt = "b5:\n  call void @dartforge_arc_release(i64 %v2)\n";
-            if ir.matches(excerpt).count() != 1 {
+            let source_release = arc_symbols::source_symbol(&ir, "release");
+            let excerpt = format!("b5:\n  call void @{source_release}(i64 %v2)\n");
+            if ir.matches(&excerpt).count() != 1 {
                 return Err("error cleanup missing in the IR".into());
             }
-            ir = ir.replace(excerpt, "b5:\n");
+            ir = ir.replace(&excerpt, "b5:\n");
         }
         Some(other) => return Err(format!("incompatible control/path: {other}")),
     }

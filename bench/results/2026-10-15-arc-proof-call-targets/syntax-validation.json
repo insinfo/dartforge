@@ -1,0 +1,24 @@
+{
+  "command": [
+    "rustfmt",
+    "--edition",
+    "2024",
+    "--emit",
+    "stdout",
+    "--config",
+    "skip_children=true",
+    "target/arc-source-symbol-fix/arc_keepalive_pending.rs",
+    "target/arc-source-symbol-fix/arc_field_allocation.rs",
+    "target/arc-source-symbol-fix/arc_field_keepalive.rs",
+    "target/arc-source-symbol-fix/arc_list_storage.rs",
+    "target/arc-source-symbol-fix/arc_local_fields.rs",
+    "target/arc-source-symbol-fix/arc_typed_scalar_return.rs",
+    "target/arc-source-symbol-fix/arc_loop_cleanup.rs",
+    "target/arc-source-symbol-fix/arc_foreign_unwind.rs",
+    "target/arc-source-symbol-fix/arc_symbols.rs"
+  ],
+  "exit_code": 0,
+  "stderr": "",
+  "scope": "Parse validation only; formatted output discarded, candidate/source files not changed. No Cargo build/test.",
+  "patch_sha256": "3f7b85b604693351706ef86b3862a4bc2074e8c0a769190d0dd7df65a558e3c9"
+}

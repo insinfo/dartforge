@@ -1,0 +1,16 @@
+arc_source_return: arc-O0-normal: passed
+arc_source_return: arc-O0-normal-no-retain: trap
+arc_source_return: arc-O0-normal-no-return-drop: trap
+arc_source_return: arc-O0-normal-no-intermediate-drop: trap
+arc_source_return: tracing-O0-normal: passed
+arc_source_return: tracing-O0-normal-no-retain: trap
+arc_source_return: tracing-O0-normal-no-return-drop: trap
+arc_source_return: tracing-O0-normal-no-intermediate-drop: trap
+arc_source_return: arc-O2-normal: passed
+arc_source_return: arc-O2-normal-no-retain: trap
+arc_source_return: arc-O2-normal-no-return-drop: trap
+arc_source_return: arc-O2-normal-no-intermediate-drop: trap
+arc_source_return: tracing-O2-normal: passed
+arc_source_return: tracing-O2-normal-no-retain: trap
+arc_source_return: tracing-O2-normal-no-return-drop: trap
+arc_source_return: tracing-O2-normal-no-intermediate-drop: trap

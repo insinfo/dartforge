@@ -181,8 +181,20 @@ passou:
     ir.push_str("  call void @prova_retorno_da_fonte()\n  ret void\n}\n");
     ir.push_str("define i64 @dartforge_dispatch_toString(i64 %obj) {\n  ret i64 0\n}\n");
     if let Some(control) = args.next() {
+        // Target the physical calls emitted for this module, including the
+        // guarded ARC path and its explicit disabled-guard/tracing variants.
+        let source_retain = if ir.contains("define internal void @df.arc_retain_ref(") {
+            "df.arc_retain_ref"
+        } else {
+            "dartforge_arc_retain"
+        };
+        let source_release = if ir.contains("define internal void @df.arc_release_ref(") {
+            "df.arc_release_ref"
+        } else {
+            "dartforge_arc_release"
+        };
         let target = match control.as_str() {
-            "no-retain" => "  call void @dartforge_arc_retain(i64 %v0)\n".to_string(),
+            "no-retain" => format!("  call void @{source_retain}(i64 %v0)\n"),
             "no-return-drop" => "  call void @dartforge_arc_release(i64 %retorno)\n".to_string(),
             "no-intermediate-drop" => {
                 let body = m.functions.iter().find(|f| f.name == "repassar").unwrap();
@@ -204,7 +216,7 @@ passou:
                 if drops.len() != 1 {
                     return Err("intermediate cleanup without a single target".into());
                 }
-                format!("  call void @dartforge_arc_release(i64 %v{})\n", drops[0].0)
+                format!("  call void @{source_release}(i64 %v{})\n", drops[0].0)
             }
             _ => return Err(format!("unknown control: {control}")),
         };

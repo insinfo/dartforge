@@ -1,0 +1,10 @@
+{
+  "crates/emit_native/examples/arc_keepalive_pending.rs": "3b9200651b27daca5d4bd47a8248a12334a4ff0ae9c4789ba644be64bf606396",
+  "crates/emit_native/examples/arc_field_allocation.rs": "a3c78682db3fff1a26599ad38c70570a35f2aea2ecf6e087642aa013553f6780",
+  "crates/emit_native/examples/arc_field_keepalive.rs": "559ca04625ab1821a54b814cf0967ca7d397f28ca96934d8304b94e4c6713600",
+  "crates/emit_native/examples/arc_list_storage.rs": "a5d17e6edae6f45ba0f795b9369f1f854c459d9a3fd363300fa72ef93155ed3b",
+  "crates/emit_native/examples/arc_local_fields.rs": "a0cbf53b9b161afc7cdaf2123beea35795c02037ba80dd215c6b7bc189031b51",
+  "crates/emit_native/examples/arc_typed_scalar_return.rs": "24950acefc566add0d2e88942f6d0078102601a4cfd9350342aad777ec6b5cce",
+  "crates/emit_native/examples/arc_loop_cleanup.rs": "1fb790b306333a58498fd578433e63e9b9f2a92c60e728fbe4c78be194e4bcc4",
+  "crates/emit_native/examples/arc_foreign_unwind.rs": "f0d5d9b9c9aa8425384597444f0db1474065c4bf9257e46c7e461c1eb8e77f47"
+}

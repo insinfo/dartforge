@@ -1,0 +1,274 @@
+{
+  "stages": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_keepalive_pending",
+        "--example",
+        "arc_field_allocation",
+        "--example",
+        "arc_field_keepalive",
+        "--example",
+        "arc_list_storage",
+        "--example",
+        "arc_local_fields",
+        "--example",
+        "arc_typed_scalar_return",
+        "--example",
+        "arc_loop_cleanup",
+        "--example",
+        "arc_foreign_unwind",
+        "--",
+        "--include-ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "log": "example-units.log",
+      "exit_code": 0,
+      "log_sha256": "fc894029eaf033812ea04fffddf6f0180fc008c4849a78f9d215094193939e33"
+    },
+    {
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/prove-arc-aot.py",
+        "arc_keepalive_pending",
+        "--features",
+        "embedded-llvm"
+      ],
+      "log": "arc_keepalive_pending.log",
+      "exit_code": 0,
+      "log_sha256": "073757a46e275c6436571dccac48beb5e0dc06bd2d0243e9ab6b724bcfa93995",
+      "proof_runs": 20,
+      "positive_runs": 8,
+      "negative_ownership_traps": 12
+    },
+    {
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/prove-arc-aot.py",
+        "arc_field_allocation",
+        "--features",
+        "embedded-llvm"
+      ],
+      "log": "arc_field_allocation.log",
+      "exit_code": 0,
+      "log_sha256": "b457217bf4e02b505e6fe43ef16b903a2d66f8f06c98452d8e8a26978f4e62cb",
+      "proof_runs": 52,
+      "positive_runs": 16,
+      "negative_ownership_traps": 36
+    },
+    {
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/prove-arc-aot.py",
+        "arc_field_keepalive",
+        "--features",
+        "embedded-llvm"
+      ],
+      "log": "arc_field_keepalive.log",
+      "exit_code": 0,
+      "log_sha256": "e7de2ca837549217365a7148d62ec7f75f27d4611a1b493d1cbef3d37e4400de",
+      "proof_runs": 132,
+      "positive_runs": 44,
+      "negative_ownership_traps": 88
+    },
+    {
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/prove-arc-aot.py",
+        "arc_list_storage",
+        "--features",
+        "embedded-llvm"
+      ],
+      "log": "arc_list_storage.log",
+      "exit_code": 0,
+      "log_sha256": "41f24befe432abd3fded73ca76d68d3639f3be3f2f59388765323bd54e01ace1",
+      "proof_runs": 24,
+      "positive_runs": 8,
+      "negative_ownership_traps": 16
+    },
+    {
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/prove-arc-aot.py",
+        "arc_local_fields",
+        "--features",
+        "embedded-llvm"
+      ],
+      "log": "arc_local_fields.log",
+      "exit_code": 0,
+      "log_sha256": "9ca3798697bef52e434c7879ab1d656a452aba0e8ad19804104be1fc18ef389b",
+      "proof_runs": 16,
+      "positive_runs": 4,
+      "negative_ownership_traps": 12
+    },
+    {
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/prove-arc-aot.py",
+        "arc_typed_scalar_return",
+        "--features",
+        "embedded-llvm"
+      ],
+      "log": "arc_typed_scalar_return.log",
+      "exit_code": 0,
+      "log_sha256": "f8ef265f3faba849d6b7177164a442688029549d2972ddf7b1e1e66b5c867d3d",
+      "proof_runs": 24,
+      "positive_runs": 12,
+      "negative_ownership_traps": 12
+    },
+    {
+      "command": [
+        "/Library/Developer/CommandLineTools/usr/bin/python3",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/prove-arc-aot.py",
+        "arc_loop_cleanup",
+        "--features",
+        "embedded-llvm"
+      ],
+      "log": "arc_loop_cleanup.log",
+      "exit_code": 0,
+      "log_sha256": "cae4a702be009319c8c33abe36387a616adf16dc712288b96d174f85f86c1d96",
+      "proof_runs": 16,
+      "positive_runs": 8,
+      "negative_ownership_traps": 8
+    },
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_foreign_unwind",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-foreign-unwind/proof-simple-O0",
+        "0",
+        "simple"
+      ],
+      "log": "proof-simple-O0.build.log",
+      "exit_code": 0,
+      "log_sha256": "9b6c713bc5c583723475678ff238dd62851763f1f7d6d5b9b3430f05ecc86fec"
+    },
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_foreign_unwind",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-foreign-unwind/proof-simple-O2",
+        "2",
+        "simple"
+      ],
+      "log": "proof-simple-O2.build.log",
+      "exit_code": 0,
+      "log_sha256": "5747b4694272de7238de0196bed87e17688e907f4f4ffcef8765366b7fd699d9"
+    },
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_foreign_unwind",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-foreign-unwind/proof-frames-O0",
+        "0",
+        "frames"
+      ],
+      "log": "proof-frames-O0.build.log",
+      "exit_code": 0,
+      "log_sha256": "ab1ac07c3334f3547a25ce0fbca535a511bf9eca58d2f6fe6614da0f8936fc6e"
+    },
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_foreign_unwind",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-foreign-unwind/proof-frames-O2",
+        "2",
+        "frames"
+      ],
+      "log": "proof-frames-O2.build.log",
+      "exit_code": 0,
+      "log_sha256": "ae7422441e91bec8fbcad04576c8380945406ace97d939acf9e6117905f89d62"
+    },
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_foreign_unwind",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-foreign-unwind/proof-resume-O0",
+        "0",
+        "resume"
+      ],
+      "log": "proof-resume-O0.build.log",
+      "exit_code": 0,
+      "log_sha256": "85b3c7f986325c964de5848b1a605388d46bbbd967f0732671f7b39717ad2124"
+    },
+    {
+      "command": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_foreign_unwind",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-foreign-unwind/proof-resume-O2",
+        "2",
+        "resume"
+      ],
+      "log": "proof-resume-O2.build.log",
+      "exit_code": 0,
+      "log_sha256": "3365e13ffd4ed2dde9585eb782593a3b65d600bd8635870faf0e6a5c945d4ed8"
+    }
+  ],
+  "scope": "Existing proof script ARC/tracing O0/O2 matrices, plus exact CI foreign-unwind profile/level/mode/path loops. No benchmark/timing claim.",
+  "foreign_runs": 36,
+  "result": "success",
+  "sources_unchanged": true
+}

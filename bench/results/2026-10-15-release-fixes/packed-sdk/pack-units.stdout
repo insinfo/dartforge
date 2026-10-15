@@ -1,0 +1,10 @@
+
+running 5 tests
+test pack::tests::sdk_without_declared_packages_keeps_optional_metadata_absent ... ok
+test pack::tests::declared_sdk_packages_reject_missing_duplicate_and_malformed_declarations ... ok
+test pack::tests::declared_sdk_packages_reject_nonrelative_and_traversing_paths ... ok
+test pack::tests::declared_sdk_packages_reject_symlink_escape_and_directory_cycles ... ok
+test pack::tests::declared_sdk_packages_keep_metadata_and_arbitrary_paths_after_relocation ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 30 filtered out; finished in 0.01s
+

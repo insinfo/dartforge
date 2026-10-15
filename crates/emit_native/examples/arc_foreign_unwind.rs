@@ -3,6 +3,10 @@
 //! The hook keeps the Borrow signature, consumes no tokens nor creates a Dart pending state.
 //! The symbol swap is explicit in the IR; this is a fault-injection proof.
 
+#[cfg(all(test, unix))]
+#[path = "support/arc_symbols.rs"]
+mod arc_symbols;
+
 #[cfg(unix)]
 use dartforge_emit_native::llvm::LlvmEmitter;
 #[cfg(any(unix, test))]
@@ -310,7 +314,8 @@ mod tests {
         {
             let ir = LlvmEmitter::new(&m).emit_all();
             assert!(ir.contains("lpad1.estrangeira:"));
-            assert!(ir.contains("call void @dartforge_arc_release(i64 %v0)"));
+            let source_release = arc_symbols::source_symbol(&ir, "release");
+            assert!(ir.contains(&format!("call void @{source_release}(i64 %v0)")));
         }
     }
 }

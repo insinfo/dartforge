@@ -1,0 +1,16 @@
+arc_local_fields: arc-O0-normal: passed
+arc_local_fields: arc-O0-normal-no-retain: trap
+arc_local_fields: arc-O0-normal-no-object-drop: trap
+arc_local_fields: arc-O0-normal-no-return-drop: trap
+arc_local_fields: tracing-O0-normal: passed
+arc_local_fields: tracing-O0-normal-no-retain: trap
+arc_local_fields: tracing-O0-normal-no-object-drop: trap
+arc_local_fields: tracing-O0-normal-no-return-drop: trap
+arc_local_fields: arc-O2-normal: passed
+arc_local_fields: arc-O2-normal-no-retain: trap
+arc_local_fields: arc-O2-normal-no-object-drop: trap
+arc_local_fields: arc-O2-normal-no-return-drop: trap
+arc_local_fields: tracing-O2-normal: passed
+arc_local_fields: tracing-O2-normal-no-retain: trap
+arc_local_fields: tracing-O2-normal-no-object-drop: trap
+arc_local_fields: tracing-O2-normal-no-return-drop: trap

@@ -7,6 +7,9 @@
 //! The negative controls `no-retain` and `no-release` change only the final IR
 //! of the harness, after the check; the execution must fail.
 
+#[path = "support/arc_symbols.rs"]
+mod arc_symbols;
+
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
@@ -415,7 +418,8 @@ passou:
                         if *v == ValueId(if neighbor { 2 } else { 1 }) => Some(of.0),
                     _ => None,
                 }).ok_or("return copy not found")?;
-            let call = format!("  call void @dartforge_arc_retain(i64 %v{borrowed})\n");
+            let source_retain = arc_symbols::source_symbol(&ir, "retain");
+            let call = format!("  call void @{source_retain}(i64 %v{borrowed})\n");
             if ir.matches(&call).count() != 1 {
                 return Err("produced retention was not located uniquely in the IR".into());
             }
@@ -540,7 +544,7 @@ mod tests {
         ));
         let ir = LlvmEmitter::new(&m).emit_all();
         assert!(
-            ir.find("call void @dartforge_arc_retain").unwrap()
+            ir.find(&format!("call void @{}(", arc_symbols::source_symbol(&ir, "retain"))).unwrap()
                 < ir.find("call void @dartforge_arc_write_field_ref_checked_v1")
                     .unwrap()
         );
@@ -556,7 +560,7 @@ mod capture_tests {
         let m = module(Scenario::Capture).unwrap();
         let ir = LlvmEmitter::new(&m).emit_all();
         let read = ir.find("call i64 @dartforge_arc_env_ref_v1").unwrap();
-        let retain = ir.find("call void @dartforge_arc_retain").unwrap();
+        let retain = ir.find(&format!("call void @{}(", arc_symbols::source_symbol(&ir, "retain"))).unwrap();
         let store = ir.find("call void @dartforge_arc_write_field_ref_checked_v1").unwrap();
         assert!(read < retain && retain < store);
     }

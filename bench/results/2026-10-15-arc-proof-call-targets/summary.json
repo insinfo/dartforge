@@ -1,0 +1,16 @@
+{
+  "result": "success",
+  "sources_unchanged": true,
+  "example_units_passed": 17,
+  "actual_AOT_script_runs": 284,
+  "positive_script_runs": 100,
+  "required_ownership_traps": 184,
+  "actual_CI_foreign_unwind_runs": 36,
+  "total_actual_AOT_executions": 320,
+  "failed": 0,
+  "source_scope": "8 emitter-managed proof example ABI targets plus shared helper; exact counts and handwritten harness raw calls preserved. Rea source-return16run validation separate.",
+  "artifact_policy": "Per-case artifacts moved without byte changes to ignored target/arc-proof-call-targets-raw; JSON manifests, commands/results, unit/matrix logs, source hashes/patch and provenance retained in bench.",
+  "relocation_manifest": "artifact-relocations.json",
+  "no_binaries_published": true,
+  "matrix_source": "Existing scripts/prove-arc-aot.py unchanged; foreign profile/level/mode/path loop matches .github/workflows/ci.yml."
+}

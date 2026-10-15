@@ -1,0 +1,17 @@
+{
+  "head": "2e54bdc0e833ec241ac3cebb0933213ee0b77903",
+  "source_return_matrix_prerequisite": "Rea42402 terminal0; all16 ARC/tracing O0/O2 proofcontrols validated before source edits.",
+  "source_sha256_after": {
+    "crates/emit_native/examples/arc_keepalive_pending.rs": "398e11c006db05f1e660e3cec3d2ca447afd5cfbb60a0c916de2e134f3fd95b3",
+    "crates/emit_native/examples/arc_field_allocation.rs": "d6c4ed8dc3220806eb2141427b35def3ac16cf56d1225270c2b351fa4120ec3a",
+    "crates/emit_native/examples/arc_field_keepalive.rs": "e49f27b4811ad01456cf7817838b570d3e4e9346f6b8f215efb540425ea0c208",
+    "crates/emit_native/examples/arc_list_storage.rs": "e5559ef923e47f377d7315655bfd1cc8fcd239183a420bd2a21ac723cac51431",
+    "crates/emit_native/examples/arc_local_fields.rs": "4d9ec6b4481a65903b9a7c1d9a245544bc240f35abed8bfa24b5296dd0c6a68e",
+    "crates/emit_native/examples/arc_typed_scalar_return.rs": "1d8ee3004e7e4c041b61eb701e8a59b657d0ebc499c95bd18b00db8981206445",
+    "crates/emit_native/examples/arc_loop_cleanup.rs": "fff29be71d15cf99edd1d6fb823aa01e9f14ec9fe7b50773cabb3e21c1bf8b18",
+    "crates/emit_native/examples/arc_foreign_unwind.rs": "26b0baa5f4b85adc9773949e3f1cb1b6478f0a015b0d0c909a0486b21f8dca2c",
+    "crates/emit_native/examples/support/arc_symbols.rs": "c0e82e7a0c90a24427b0cc1b876754b16a68ef0b465797c1120fa58ac70c3e0a"
+  },
+  "scope": "8 example-only stale emitted ARC retain/release targets +shared symbol helper. Exact controlcounts, SSA operands and handwritten harness raw runtime calls preserved. No production compiler/runtime/CLI source changes.",
+  "status": "Applied and frozen for CLIpackpub build and proof/example gates; no compilation claim from parse-only validation."
+}

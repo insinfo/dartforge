@@ -3,6 +3,9 @@
 //! Tracing uses explicit tokens only in the comparison harness.
 //! Does not certify Dart source lowering, getter guards or reload.
 
+#[path = "support/arc_symbols.rs"]
+mod arc_symbols;
+
 use dartforge_emit_native::{driver, hir::*, llvm::LlvmEmitter, optimize::arc::*};
 use std::{collections::HashMap, path::PathBuf};
 
@@ -205,16 +208,20 @@ fn main() -> Result<(), String> {
     let cid = if frame { dartforge_emit_native::lower::async_sm::ASYNC_FRAME_ID } else { 123 };
     let owned = format!("call i64 @dartforge_arc_object_owned_v1(i64 {cid}, i64 40)");
     let without_owner = format!("call i64 @dartforge_object_new(i64 {cid}, i64 40)");
+    let source_retain = arc_symbols::source_symbol(&ir, "retain");
+    let source_release = arc_symbols::source_symbol(&ir, "release");
+    let child_drop = format!("  call void @{source_release}(i64 %v0)\n");
+    let context_release = format!("  call void @{source_release}(i64 %v2)\n");
     let retain_read = m.functions.iter().find(|f| f.symbol == "ler_quadro")
         .and_then(|f| f.blocks.iter().flat_map(|b| &b.instructions).find_map(|(_, i, _)|
             if let Instruction::ArcCopy { value: Operand::Val(v) } = i {
-                Some(format!("  call void @dartforge_arc_retain(i64 %v{})\n", v.0))
+                Some(format!("  call void @{source_retain}(i64 %v{})\n", v.0))
             } else { None })).unwrap_or_default();
     if let Some(control) = control {
         let (before, after) = match control.as_str() {
-            "no-child-drop" => ("  call void @dartforge_arc_release(i64 %v0)\n", ""),
+            "no-child-drop" => (child_drop.as_str(), ""),
             "no-read-retain" if frame => (retain_read.as_str(), ""),
-            "no-context-release" if typed => ("  call void @dartforge_arc_release(i64 %v2)\n", ""),
+            "no-context-release" if typed => (context_release.as_str(), ""),
             "no-object-owner" => (
                 owned.as_str(),
                 without_owner.as_str(),

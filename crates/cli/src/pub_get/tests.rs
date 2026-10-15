@@ -717,3 +717,15 @@ fn sdk_package_versions_are_constraints_not_hosted_fallbacks_and_selected_mappin
         manifest::Source::Sdk("dart".into())
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn sdk_vendor_package_symlink_cannot_resolve_outside_the_selected_sdk() {
+    let fixture = Fixture::new();
+    let root = declared_sdk(&fixture);
+    let outside = fixture.package("outside", "name: vendor_one\nversion: 1.2.3\nenvironment:\n  sdk: ^3.4.0\n");
+    std::fs::remove_dir_all(root.join("declared/one")).unwrap();
+    std::os::unix::fs::symlink(outside, root.join("declared/one")).unwrap();
+    let error = sdk::candidate(Some(&root), "dart", "vendor_one", &constraints::parse_version("3.6.2").unwrap(), "https://pub.dev").unwrap_err();
+    assert!(error.contains("escapes the selected SDK"));
+}

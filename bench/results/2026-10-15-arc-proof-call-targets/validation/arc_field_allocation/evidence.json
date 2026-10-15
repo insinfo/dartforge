@@ -1,0 +1,2744 @@
+{
+  "source": "2e54bdc0e833ec241ac3cebb0933213ee0b77903",
+  "example": "arc_field_allocation",
+  "example_sha256": "d6c4ed8dc3220806eb2141427b35def3ac16cf56d1225270c2b351fa4120ec3a",
+  "script_sha256": "9e5c9777dd5def675719dc15844ab0f29e2db8b00c55f98632e04040f7fe275a",
+  "source_git_status": "M crates/emit_native/examples/arc_field_allocation.rs\n M crates/emit_native/examples/arc_field_keepalive.rs\n M crates/emit_native/examples/arc_foreign_unwind.rs\n M crates/emit_native/examples/arc_keepalive_pending.rs\n M crates/emit_native/examples/arc_list_storage.rs\n M crates/emit_native/examples/arc_local_fields.rs\n M crates/emit_native/examples/arc_loop_cleanup.rs\n M crates/emit_native/examples/arc_source_return.rs\n M crates/emit_native/examples/arc_typed_scalar_return.rs\n?? crates/emit_native/examples/support/",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "environment": {
+    "DARTFORGE_ARC_CHECK": "1",
+    "DARTFORGE_ARC_NURSERY": "0",
+    "DARTFORGE_GC_STRESS": "1"
+  },
+  "runs": [
+    {
+      "mode": "arc",
+      "level": 0,
+      "path": "normal",
+      "control": null,
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O0-normal",
+        "--memory=arc",
+        "0"
+      ],
+      "files": [
+        {
+          "name": "arc-O0-normal.build.log",
+          "bytes": 139589,
+          "sha256": "42d7f8d07e351de11d14faadb0d54b53433f229197295e12cc0284a6ae9849c3"
+        },
+        {
+          "name": "arc-O0-normal.ll",
+          "bytes": 42609,
+          "sha256": "970a4b63f3f4f66031d7e55f4b08e2b6ac23b45a0772c48731d7dfb02fe68c67"
+        },
+        {
+          "name": "arc-O0-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "name": "arc-O0-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": 0
+    },
+    {
+      "mode": "arc",
+      "level": 0,
+      "path": "normal",
+      "control": "no-child-drop",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O0-normal-no-child-drop",
+        "--memory=arc",
+        "0",
+        "no-child-drop"
+      ],
+      "files": [
+        {
+          "name": "arc-O0-normal-no-child-drop.build.log",
+          "bytes": 139510,
+          "sha256": "aa29670077497a5746827a84e279916304f9ac273c8464c5b2de841c01d61097"
+        },
+        {
+          "name": "arc-O0-normal-no-child-drop.ll",
+          "bytes": 42568,
+          "sha256": "ca19e19a1d2b7e334d463241d8e9becb59d839a58bb407c9fcde3290d8dc7a08"
+        },
+        {
+          "name": "arc-O0-normal-no-child-drop.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0-normal-no-child-drop.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0-normal-no-child-drop.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "arc",
+      "level": 0,
+      "path": "normal",
+      "control": "no-object-owner",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O0-normal-no-object-owner",
+        "--memory=arc",
+        "0",
+        "no-object-owner"
+      ],
+      "files": [
+        {
+          "name": "arc-O0-normal-no-object-owner.build.log",
+          "bytes": 139514,
+          "sha256": "0efaec2b9d66807dee59bc154b5ade16ec3701ccea01aea13e30ad1b3b563a03"
+        },
+        {
+          "name": "arc-O0-normal-no-object-owner.ll",
+          "bytes": 42600,
+          "sha256": "c575906abe960d832cfd3d8ea2d4acfd9e634e455ffb0729cfbb113726b32acf"
+        },
+        {
+          "name": "arc-O0-normal-no-object-owner.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0-normal-no-object-owner.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0-normal-no-object-owner.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "arc",
+      "level": 0,
+      "path": "--frame",
+      "control": null,
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O0---frame",
+        "--memory=arc",
+        "0",
+        "--frame"
+      ],
+      "files": [
+        {
+          "name": "arc-O0---frame.build.log",
+          "bytes": 139491,
+          "sha256": "a81cebec9582b47c5712d3b4507692139f91edd2153c764604aeb4e33bd9fade"
+        },
+        {
+          "name": "arc-O0---frame.ll",
+          "bytes": 43759,
+          "sha256": "a03e79375b6836c87221c53c32f985b28c15583798e0cd4400b4d2381d9a421c"
+        },
+        {
+          "name": "arc-O0---frame.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "name": "arc-O0---frame.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0---frame.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": 0
+    },
+    {
+      "mode": "arc",
+      "level": 0,
+      "path": "--frame",
+      "control": "no-child-drop",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O0---frame-no-child-drop",
+        "--memory=arc",
+        "0",
+        "--frame",
+        "no-child-drop"
+      ],
+      "files": [
+        {
+          "name": "arc-O0---frame-no-child-drop.build.log",
+          "bytes": 139519,
+          "sha256": "42ca2e0ccafdcf0993e9eb430cd300e4bd474db56daaad963ea379da3574829a"
+        },
+        {
+          "name": "arc-O0---frame-no-child-drop.ll",
+          "bytes": 43718,
+          "sha256": "788417b4b4681a2f9ef814222df591f06ce262bbc51dd96b131f09021fb02cfd"
+        },
+        {
+          "name": "arc-O0---frame-no-child-drop.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0---frame-no-child-drop.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0---frame-no-child-drop.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "arc",
+      "level": 0,
+      "path": "--frame",
+      "control": "no-object-owner",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O0---frame-no-object-owner",
+        "--memory=arc",
+        "0",
+        "--frame",
+        "no-object-owner"
+      ],
+      "files": [
+        {
+          "name": "arc-O0---frame-no-object-owner.build.log",
+          "bytes": 139523,
+          "sha256": "26eb0a460feb600b3b65350fa59f68dc6f49d3248a420399255b9fcd3adfe452"
+        },
+        {
+          "name": "arc-O0---frame-no-object-owner.ll",
+          "bytes": 43750,
+          "sha256": "d4749c61eadb19f402f09b15e34b4989d46c6bce7e8139edc79408ada421fea6"
+        },
+        {
+          "name": "arc-O0---frame-no-object-owner.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0---frame-no-object-owner.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0---frame-no-object-owner.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "arc",
+      "level": 0,
+      "path": "--frame",
+      "control": "no-read-retain",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O0---frame-no-read-retain",
+        "--memory=arc",
+        "0",
+        "--frame",
+        "no-read-retain"
+      ],
+      "files": [
+        {
+          "name": "arc-O0---frame-no-read-retain.build.log",
+          "bytes": 139521,
+          "sha256": "2eff47b95d4edc715cd5edb91473d04549a9bb04115587a80a0c44154b2fbda1"
+        },
+        {
+          "name": "arc-O0---frame-no-read-retain.ll",
+          "bytes": 43719,
+          "sha256": "69e90f5f73a5ec4706ceffc897916fd2c9a9e32377ec59e8b4b8b26330ee0d7d"
+        },
+        {
+          "name": "arc-O0---frame-no-read-retain.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0---frame-no-read-retain.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0---frame-no-read-retain.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "arc",
+      "level": 0,
+      "path": "--typed",
+      "control": null,
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O0---typed",
+        "--memory=arc",
+        "0",
+        "--typed"
+      ],
+      "files": [
+        {
+          "name": "arc-O0---typed.build.log",
+          "bytes": 139491,
+          "sha256": "78c494556aae731953c666d86f4fea3213663f733327619a0bf58c17fa49cff9"
+        },
+        {
+          "name": "arc-O0---typed.ll",
+          "bytes": 47296,
+          "sha256": "8066854120be56dbc20f569ae05ecfa7fdb51fb2dcae67e8d46a861a081fc427"
+        },
+        {
+          "name": "arc-O0---typed.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "name": "arc-O0---typed.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0---typed.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": 0
+    },
+    {
+      "mode": "arc",
+      "level": 0,
+      "path": "--typed",
+      "control": "no-child-drop",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O0---typed-no-child-drop",
+        "--memory=arc",
+        "0",
+        "--typed",
+        "no-child-drop"
+      ],
+      "files": [
+        {
+          "name": "arc-O0---typed-no-child-drop.build.log",
+          "bytes": 139519,
+          "sha256": "fe43f8d06cc7b1bfe018a1f0ec34dd7e2a49f0a95a5dce8be087b2b9eca001ed"
+        },
+        {
+          "name": "arc-O0---typed-no-child-drop.ll",
+          "bytes": 47255,
+          "sha256": "898a476a2709a210eb88a740564cf53365f38ec4435a9750a5dfd39261518865"
+        },
+        {
+          "name": "arc-O0---typed-no-child-drop.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0---typed-no-child-drop.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0---typed-no-child-drop.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "arc",
+      "level": 0,
+      "path": "--typed",
+      "control": "no-object-owner",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O0---typed-no-object-owner",
+        "--memory=arc",
+        "0",
+        "--typed",
+        "no-object-owner"
+      ],
+      "files": [
+        {
+          "name": "arc-O0---typed-no-object-owner.build.log",
+          "bytes": 139523,
+          "sha256": "7e1aa19d41bdb3a54603caf8b2a820d18a1eb72fc5f3089e033576b57be219c4"
+        },
+        {
+          "name": "arc-O0---typed-no-object-owner.ll",
+          "bytes": 47287,
+          "sha256": "8953c450e5e9f751d4a1fbc30748176e06a6aaee966e76aa996e2d4e5605ce14"
+        },
+        {
+          "name": "arc-O0---typed-no-object-owner.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0---typed-no-object-owner.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0---typed-no-object-owner.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "arc",
+      "level": 0,
+      "path": "--typed",
+      "control": "no-context-release",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O0---typed-no-context-release",
+        "--memory=arc",
+        "0",
+        "--typed",
+        "no-context-release"
+      ],
+      "files": [
+        {
+          "name": "arc-O0---typed-no-context-release.build.log",
+          "bytes": 139529,
+          "sha256": "7bb1a9d27f743a1f6375a871cde9c9041a3de432584d88899166a1befdacd9ff"
+        },
+        {
+          "name": "arc-O0---typed-no-context-release.ll",
+          "bytes": 47214,
+          "sha256": "b59bf6d1e26048dec16bb17e43341be94f1dbf7d690e3895debd7240e6aa5a35"
+        },
+        {
+          "name": "arc-O0---typed-no-context-release.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0---typed-no-context-release.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0---typed-no-context-release.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "arc",
+      "level": 0,
+      "path": "--typed-error",
+      "control": null,
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O0---typed-error",
+        "--memory=arc",
+        "0",
+        "--typed-error"
+      ],
+      "files": [
+        {
+          "name": "arc-O0---typed-error.build.log",
+          "bytes": 139503,
+          "sha256": "85774aa3122c1e9e9ad596e843c53290de0db96f868d7d2748336e5ed147a894"
+        },
+        {
+          "name": "arc-O0---typed-error.ll",
+          "bytes": 46161,
+          "sha256": "596d7a48f6f105ebddc48f295d9f358528b1209b3ad7c207af668ad179628010"
+        },
+        {
+          "name": "arc-O0---typed-error.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "name": "arc-O0---typed-error.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0---typed-error.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": 0
+    },
+    {
+      "mode": "arc",
+      "level": 0,
+      "path": "--typed-error",
+      "control": "no-context-release",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O0---typed-error-no-context-release",
+        "--memory=arc",
+        "0",
+        "--typed-error",
+        "no-context-release"
+      ],
+      "files": [
+        {
+          "name": "arc-O0---typed-error-no-context-release.build.log",
+          "bytes": 139541,
+          "sha256": "aface436303717b4442f79195fcf6297238921bd953be3337972236047205595"
+        },
+        {
+          "name": "arc-O0---typed-error-no-context-release.ll",
+          "bytes": 46079,
+          "sha256": "5f23bfe36d0f8dea114ee48f6a65f5bc02b3284797638a90f1db6b3a4945ac8e"
+        },
+        {
+          "name": "arc-O0---typed-error-no-context-release.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0---typed-error-no-context-release.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O0---typed-error-no-context-release.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 0,
+      "path": "normal",
+      "control": null,
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O0-normal",
+        "--memory=tracing",
+        "0"
+      ],
+      "files": [
+        {
+          "name": "tracing-O0-normal.build.log",
+          "bytes": 139490,
+          "sha256": "487944a36d0b95478c35910e40eb42c6442c2aea3a905a56ff0eef78ef56733d"
+        },
+        {
+          "name": "tracing-O0-normal.ll",
+          "bytes": 41635,
+          "sha256": "67abb54e2b04a04f786a5e2551fe11a4a317e923bf977199a0b36d7adb936256"
+        },
+        {
+          "name": "tracing-O0-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "name": "tracing-O0-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": 0
+    },
+    {
+      "mode": "tracing",
+      "level": 0,
+      "path": "normal",
+      "control": "no-child-drop",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O0-normal-no-child-drop",
+        "--memory=tracing",
+        "0",
+        "no-child-drop"
+      ],
+      "files": [
+        {
+          "name": "tracing-O0-normal-no-child-drop.build.log",
+          "bytes": 139518,
+          "sha256": "b9f87daeecacb7fc4248cfb0ddc24cb4aa7948f088bc18ce691b7ef99ba80a11"
+        },
+        {
+          "name": "tracing-O0-normal-no-child-drop.ll",
+          "bytes": 41591,
+          "sha256": "3df7efdf596d497b872beaecdfb8cb41be8f9044fce9d413d5a635bd6d397da9"
+        },
+        {
+          "name": "tracing-O0-normal-no-child-drop.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0-normal-no-child-drop.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0-normal-no-child-drop.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 0,
+      "path": "normal",
+      "control": "no-object-owner",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O0-normal-no-object-owner",
+        "--memory=tracing",
+        "0",
+        "no-object-owner"
+      ],
+      "files": [
+        {
+          "name": "tracing-O0-normal-no-object-owner.build.log",
+          "bytes": 139522,
+          "sha256": "70bb6b83fbbaea58b7d3d14265ec03908c32698e124ba6e18ae98fa7b9ec75f1"
+        },
+        {
+          "name": "tracing-O0-normal-no-object-owner.ll",
+          "bytes": 41626,
+          "sha256": "c14b372894be73c23f25ca14fe44e49ab26ff8b77cca7a13cf8aa8eff2db559c"
+        },
+        {
+          "name": "tracing-O0-normal-no-object-owner.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0-normal-no-object-owner.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0-normal-no-object-owner.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 0,
+      "path": "--frame",
+      "control": null,
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O0---frame",
+        "--memory=tracing",
+        "0",
+        "--frame"
+      ],
+      "files": [
+        {
+          "name": "tracing-O0---frame.build.log",
+          "bytes": 139499,
+          "sha256": "5f155daceb778760e7865cbf68899ed7efa6f253ddfd94f4523ca281253eeccb"
+        },
+        {
+          "name": "tracing-O0---frame.ll",
+          "bytes": 42788,
+          "sha256": "9b1abad7dda0ea72f8c061689bb7e35d6ed78e0a4a1c5d4bfda7fc32b0cc9f22"
+        },
+        {
+          "name": "tracing-O0---frame.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "name": "tracing-O0---frame.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0---frame.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": 0
+    },
+    {
+      "mode": "tracing",
+      "level": 0,
+      "path": "--frame",
+      "control": "no-child-drop",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O0---frame-no-child-drop",
+        "--memory=tracing",
+        "0",
+        "--frame",
+        "no-child-drop"
+      ],
+      "files": [
+        {
+          "name": "tracing-O0---frame-no-child-drop.build.log",
+          "bytes": 139527,
+          "sha256": "6a8807956086ee40f45492ac28b8f2e6914983abddcac9ceb7804c84f6a36cf1"
+        },
+        {
+          "name": "tracing-O0---frame-no-child-drop.ll",
+          "bytes": 42744,
+          "sha256": "d36dae72aa914896160d835dfa68c7eb9c6995b7e3a8241a12ae29105589c8ba"
+        },
+        {
+          "name": "tracing-O0---frame-no-child-drop.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0---frame-no-child-drop.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0---frame-no-child-drop.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 0,
+      "path": "--frame",
+      "control": "no-object-owner",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O0---frame-no-object-owner",
+        "--memory=tracing",
+        "0",
+        "--frame",
+        "no-object-owner"
+      ],
+      "files": [
+        {
+          "name": "tracing-O0---frame-no-object-owner.build.log",
+          "bytes": 139531,
+          "sha256": "289b18b7913dadf9875ac1943b897b1a804455f224c87cdf40366b8d2230401a"
+        },
+        {
+          "name": "tracing-O0---frame-no-object-owner.ll",
+          "bytes": 42779,
+          "sha256": "1a55f8826b4cb031ded36e469e2d9e138abb0abc681673c8c8133921dabcab8c"
+        },
+        {
+          "name": "tracing-O0---frame-no-object-owner.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0---frame-no-object-owner.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0---frame-no-object-owner.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 0,
+      "path": "--frame",
+      "control": "no-read-retain",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O0---frame-no-read-retain",
+        "--memory=tracing",
+        "0",
+        "--frame",
+        "no-read-retain"
+      ],
+      "files": [
+        {
+          "name": "tracing-O0---frame-no-read-retain.build.log",
+          "bytes": 139529,
+          "sha256": "dd534d6e6c2fdd057a12f80b213a952ec2a8bbc950d1b603147c9edb11f0c352"
+        },
+        {
+          "name": "tracing-O0---frame-no-read-retain.ll",
+          "bytes": 42745,
+          "sha256": "92bf749cbcc8aca1e9226c5cc4b0db613738f47962c929b4eaea0e8427e2bcd4"
+        },
+        {
+          "name": "tracing-O0---frame-no-read-retain.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0---frame-no-read-retain.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0---frame-no-read-retain.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 0,
+      "path": "--typed",
+      "control": null,
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O0---typed",
+        "--memory=tracing",
+        "0",
+        "--typed"
+      ],
+      "files": [
+        {
+          "name": "tracing-O0---typed.build.log",
+          "bytes": 139499,
+          "sha256": "f14583f6a745baaa7f60793fe100e44c2fee5ff3d7b2a65ebe8e3dab56f13d60"
+        },
+        {
+          "name": "tracing-O0---typed.ll",
+          "bytes": 46241,
+          "sha256": "69b48569c54bd19bcb3109c3a746d416400ab78db2e14f2866ed6d34996a7642"
+        },
+        {
+          "name": "tracing-O0---typed.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "name": "tracing-O0---typed.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0---typed.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": 0
+    },
+    {
+      "mode": "tracing",
+      "level": 0,
+      "path": "--typed",
+      "control": "no-child-drop",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O0---typed-no-child-drop",
+        "--memory=tracing",
+        "0",
+        "--typed",
+        "no-child-drop"
+      ],
+      "files": [
+        {
+          "name": "tracing-O0---typed-no-child-drop.build.log",
+          "bytes": 139527,
+          "sha256": "339c699ec0bd3cb6f0ab26256be21a7e5f5dc5db67f65b844178857a6baf6b9c"
+        },
+        {
+          "name": "tracing-O0---typed-no-child-drop.ll",
+          "bytes": 46197,
+          "sha256": "445e1721d4be9f9d487def7fd8d0734a53afa3ebe85461b933c332b5b8767cf5"
+        },
+        {
+          "name": "tracing-O0---typed-no-child-drop.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0---typed-no-child-drop.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0---typed-no-child-drop.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 0,
+      "path": "--typed",
+      "control": "no-object-owner",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O0---typed-no-object-owner",
+        "--memory=tracing",
+        "0",
+        "--typed",
+        "no-object-owner"
+      ],
+      "files": [
+        {
+          "name": "tracing-O0---typed-no-object-owner.build.log",
+          "bytes": 139531,
+          "sha256": "8f7fbc1e390464f2ea0ef284ba83fd7ad401ada7e9f7c42b51c93182ee084cd2"
+        },
+        {
+          "name": "tracing-O0---typed-no-object-owner.ll",
+          "bytes": 46232,
+          "sha256": "d4a99397e4499a31a8d343bc982b595e662d1c720cff28ec0148de5cf2d14036"
+        },
+        {
+          "name": "tracing-O0---typed-no-object-owner.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0---typed-no-object-owner.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0---typed-no-object-owner.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 0,
+      "path": "--typed",
+      "control": "no-context-release",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O0---typed-no-context-release",
+        "--memory=tracing",
+        "0",
+        "--typed",
+        "no-context-release"
+      ],
+      "files": [
+        {
+          "name": "tracing-O0---typed-no-context-release.build.log",
+          "bytes": 139537,
+          "sha256": "114100e1b314368184f05a784df0c7cdb8e10a0d0bc901034c79ed34680566d7"
+        },
+        {
+          "name": "tracing-O0---typed-no-context-release.ll",
+          "bytes": 46153,
+          "sha256": "38d2687f6583c4c53090f3c40dfd3c2a59fda971c6ae0a168b64a8479652a811"
+        },
+        {
+          "name": "tracing-O0---typed-no-context-release.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0---typed-no-context-release.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0---typed-no-context-release.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 0,
+      "path": "--typed-error",
+      "control": null,
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O0---typed-error",
+        "--memory=tracing",
+        "0",
+        "--typed-error"
+      ],
+      "files": [
+        {
+          "name": "tracing-O0---typed-error.build.log",
+          "bytes": 139511,
+          "sha256": "d95aafe1e27f5288b0a06e83e1e3f99a81a0e8b74f132478294b65054608f38d"
+        },
+        {
+          "name": "tracing-O0---typed-error.ll",
+          "bytes": 45106,
+          "sha256": "9af10d30c0a40ac4ff3eb2659e3dd83ccd6bea3641d2a8648d3d2e841e2049ca"
+        },
+        {
+          "name": "tracing-O0---typed-error.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "name": "tracing-O0---typed-error.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0---typed-error.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": 0
+    },
+    {
+      "mode": "tracing",
+      "level": 0,
+      "path": "--typed-error",
+      "control": "no-context-release",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O0---typed-error-no-context-release",
+        "--memory=tracing",
+        "0",
+        "--typed-error",
+        "no-context-release"
+      ],
+      "files": [
+        {
+          "name": "tracing-O0---typed-error-no-context-release.build.log",
+          "bytes": 139549,
+          "sha256": "d256463e55b84f81aa871159cf931bac47d90c274715515170a558ce7ee56d32"
+        },
+        {
+          "name": "tracing-O0---typed-error-no-context-release.ll",
+          "bytes": 45018,
+          "sha256": "dd70c1e5cafd08a11262f4200dc2a5d34dd363f81928e4dd207b835a81bc82c0"
+        },
+        {
+          "name": "tracing-O0---typed-error-no-context-release.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0---typed-error-no-context-release.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O0---typed-error-no-context-release.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "arc",
+      "level": 2,
+      "path": "normal",
+      "control": null,
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O2-normal",
+        "--memory=arc",
+        "2"
+      ],
+      "files": [
+        {
+          "name": "arc-O2-normal.build.log",
+          "bytes": 139482,
+          "sha256": "52c82f7343f566c918332bcc16a53bfa2234a8ef3d7b010523f9957eb3ee3c6e"
+        },
+        {
+          "name": "arc-O2-normal.ll",
+          "bytes": 42609,
+          "sha256": "970a4b63f3f4f66031d7e55f4b08e2b6ac23b45a0772c48731d7dfb02fe68c67"
+        },
+        {
+          "name": "arc-O2-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "name": "arc-O2-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": 0
+    },
+    {
+      "mode": "arc",
+      "level": 2,
+      "path": "normal",
+      "control": "no-child-drop",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O2-normal-no-child-drop",
+        "--memory=arc",
+        "2",
+        "no-child-drop"
+      ],
+      "files": [
+        {
+          "name": "arc-O2-normal-no-child-drop.build.log",
+          "bytes": 139510,
+          "sha256": "f3745fbe892b50fd3f361da7ca3fe5d25feb445bd7ec5eadfae292a092568a9f"
+        },
+        {
+          "name": "arc-O2-normal-no-child-drop.ll",
+          "bytes": 42568,
+          "sha256": "ca19e19a1d2b7e334d463241d8e9becb59d839a58bb407c9fcde3290d8dc7a08"
+        },
+        {
+          "name": "arc-O2-normal-no-child-drop.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2-normal-no-child-drop.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2-normal-no-child-drop.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "arc",
+      "level": 2,
+      "path": "normal",
+      "control": "no-object-owner",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O2-normal-no-object-owner",
+        "--memory=arc",
+        "2",
+        "no-object-owner"
+      ],
+      "files": [
+        {
+          "name": "arc-O2-normal-no-object-owner.build.log",
+          "bytes": 139514,
+          "sha256": "e5a301cc0d34406e41f93189ff43ddb07ff14404176c12b9523c000f756dadca"
+        },
+        {
+          "name": "arc-O2-normal-no-object-owner.ll",
+          "bytes": 42600,
+          "sha256": "c575906abe960d832cfd3d8ea2d4acfd9e634e455ffb0729cfbb113726b32acf"
+        },
+        {
+          "name": "arc-O2-normal-no-object-owner.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2-normal-no-object-owner.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2-normal-no-object-owner.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "arc",
+      "level": 2,
+      "path": "--frame",
+      "control": null,
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O2---frame",
+        "--memory=arc",
+        "2",
+        "--frame"
+      ],
+      "files": [
+        {
+          "name": "arc-O2---frame.build.log",
+          "bytes": 139491,
+          "sha256": "b893f24b278e9124435951c7452cc4c559f229e4f05f58e6d3c4985cdb6dc9f9"
+        },
+        {
+          "name": "arc-O2---frame.ll",
+          "bytes": 43759,
+          "sha256": "a03e79375b6836c87221c53c32f985b28c15583798e0cd4400b4d2381d9a421c"
+        },
+        {
+          "name": "arc-O2---frame.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "name": "arc-O2---frame.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2---frame.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": 0
+    },
+    {
+      "mode": "arc",
+      "level": 2,
+      "path": "--frame",
+      "control": "no-child-drop",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O2---frame-no-child-drop",
+        "--memory=arc",
+        "2",
+        "--frame",
+        "no-child-drop"
+      ],
+      "files": [
+        {
+          "name": "arc-O2---frame-no-child-drop.build.log",
+          "bytes": 139519,
+          "sha256": "9c55374719b179018339de6c5bd69baaf88af2ecf922174fafa91839d228596e"
+        },
+        {
+          "name": "arc-O2---frame-no-child-drop.ll",
+          "bytes": 43718,
+          "sha256": "788417b4b4681a2f9ef814222df591f06ce262bbc51dd96b131f09021fb02cfd"
+        },
+        {
+          "name": "arc-O2---frame-no-child-drop.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2---frame-no-child-drop.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2---frame-no-child-drop.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "arc",
+      "level": 2,
+      "path": "--frame",
+      "control": "no-object-owner",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O2---frame-no-object-owner",
+        "--memory=arc",
+        "2",
+        "--frame",
+        "no-object-owner"
+      ],
+      "files": [
+        {
+          "name": "arc-O2---frame-no-object-owner.build.log",
+          "bytes": 139523,
+          "sha256": "98a40942a0b4de23e7a24b5bcb2258f75e6b1ef09570ac4fc909f11273f25f24"
+        },
+        {
+          "name": "arc-O2---frame-no-object-owner.ll",
+          "bytes": 43750,
+          "sha256": "d4749c61eadb19f402f09b15e34b4989d46c6bce7e8139edc79408ada421fea6"
+        },
+        {
+          "name": "arc-O2---frame-no-object-owner.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2---frame-no-object-owner.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2---frame-no-object-owner.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "arc",
+      "level": 2,
+      "path": "--frame",
+      "control": "no-read-retain",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O2---frame-no-read-retain",
+        "--memory=arc",
+        "2",
+        "--frame",
+        "no-read-retain"
+      ],
+      "files": [
+        {
+          "name": "arc-O2---frame-no-read-retain.build.log",
+          "bytes": 139521,
+          "sha256": "77c9a5690e98033029a53825e3bbc85d100d9ee0b13e79602093fb48b3b73fd5"
+        },
+        {
+          "name": "arc-O2---frame-no-read-retain.ll",
+          "bytes": 43719,
+          "sha256": "69e90f5f73a5ec4706ceffc897916fd2c9a9e32377ec59e8b4b8b26330ee0d7d"
+        },
+        {
+          "name": "arc-O2---frame-no-read-retain.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2---frame-no-read-retain.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2---frame-no-read-retain.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "arc",
+      "level": 2,
+      "path": "--typed",
+      "control": null,
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O2---typed",
+        "--memory=arc",
+        "2",
+        "--typed"
+      ],
+      "files": [
+        {
+          "name": "arc-O2---typed.build.log",
+          "bytes": 139491,
+          "sha256": "da3aac60544b841de7e5230bb79ea815d65fcb0ec1ae79e43e1fb104377720e6"
+        },
+        {
+          "name": "arc-O2---typed.ll",
+          "bytes": 47296,
+          "sha256": "8066854120be56dbc20f569ae05ecfa7fdb51fb2dcae67e8d46a861a081fc427"
+        },
+        {
+          "name": "arc-O2---typed.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "name": "arc-O2---typed.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2---typed.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": 0
+    },
+    {
+      "mode": "arc",
+      "level": 2,
+      "path": "--typed",
+      "control": "no-child-drop",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O2---typed-no-child-drop",
+        "--memory=arc",
+        "2",
+        "--typed",
+        "no-child-drop"
+      ],
+      "files": [
+        {
+          "name": "arc-O2---typed-no-child-drop.build.log",
+          "bytes": 139519,
+          "sha256": "ef92093479a8fd776f2125ec583d73f2572f75bd69766d4b3b094aa3bf89be99"
+        },
+        {
+          "name": "arc-O2---typed-no-child-drop.ll",
+          "bytes": 47255,
+          "sha256": "898a476a2709a210eb88a740564cf53365f38ec4435a9750a5dfd39261518865"
+        },
+        {
+          "name": "arc-O2---typed-no-child-drop.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2---typed-no-child-drop.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2---typed-no-child-drop.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "arc",
+      "level": 2,
+      "path": "--typed",
+      "control": "no-object-owner",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O2---typed-no-object-owner",
+        "--memory=arc",
+        "2",
+        "--typed",
+        "no-object-owner"
+      ],
+      "files": [
+        {
+          "name": "arc-O2---typed-no-object-owner.build.log",
+          "bytes": 139523,
+          "sha256": "d44d07f91859205145c145ecf28b2850e58608afb97636dcc9b4ddc3dcdee4de"
+        },
+        {
+          "name": "arc-O2---typed-no-object-owner.ll",
+          "bytes": 47287,
+          "sha256": "8953c450e5e9f751d4a1fbc30748176e06a6aaee966e76aa996e2d4e5605ce14"
+        },
+        {
+          "name": "arc-O2---typed-no-object-owner.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2---typed-no-object-owner.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2---typed-no-object-owner.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "arc",
+      "level": 2,
+      "path": "--typed",
+      "control": "no-context-release",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O2---typed-no-context-release",
+        "--memory=arc",
+        "2",
+        "--typed",
+        "no-context-release"
+      ],
+      "files": [
+        {
+          "name": "arc-O2---typed-no-context-release.build.log",
+          "bytes": 139529,
+          "sha256": "6d81e85e963a392c24ba4c695ed1dedb33b44fb462e2daf48af6036508e2bca5"
+        },
+        {
+          "name": "arc-O2---typed-no-context-release.ll",
+          "bytes": 47214,
+          "sha256": "b59bf6d1e26048dec16bb17e43341be94f1dbf7d690e3895debd7240e6aa5a35"
+        },
+        {
+          "name": "arc-O2---typed-no-context-release.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2---typed-no-context-release.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2---typed-no-context-release.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "arc",
+      "level": 2,
+      "path": "--typed-error",
+      "control": null,
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O2---typed-error",
+        "--memory=arc",
+        "2",
+        "--typed-error"
+      ],
+      "files": [
+        {
+          "name": "arc-O2---typed-error.build.log",
+          "bytes": 139503,
+          "sha256": "3f9261f815458b1c403105275bbcf50172b01091c5fedc0671cd58d4ff7b109a"
+        },
+        {
+          "name": "arc-O2---typed-error.ll",
+          "bytes": 46161,
+          "sha256": "596d7a48f6f105ebddc48f295d9f358528b1209b3ad7c207af668ad179628010"
+        },
+        {
+          "name": "arc-O2---typed-error.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "name": "arc-O2---typed-error.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2---typed-error.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": 0
+    },
+    {
+      "mode": "arc",
+      "level": 2,
+      "path": "--typed-error",
+      "control": "no-context-release",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/arc-O2---typed-error-no-context-release",
+        "--memory=arc",
+        "2",
+        "--typed-error",
+        "no-context-release"
+      ],
+      "files": [
+        {
+          "name": "arc-O2---typed-error-no-context-release.build.log",
+          "bytes": 139541,
+          "sha256": "10172f59ec49b0a7559f851ec60aef880e62ae6d093e04e1e4f02b3f3ba36d96"
+        },
+        {
+          "name": "arc-O2---typed-error-no-context-release.ll",
+          "bytes": 46079,
+          "sha256": "5f23bfe36d0f8dea114ee48f6a65f5bc02b3284797638a90f1db6b3a4945ac8e"
+        },
+        {
+          "name": "arc-O2---typed-error-no-context-release.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2---typed-error-no-context-release.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "arc-O2---typed-error-no-context-release.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 2,
+      "path": "normal",
+      "control": null,
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O2-normal",
+        "--memory=tracing",
+        "2"
+      ],
+      "files": [
+        {
+          "name": "tracing-O2-normal.build.log",
+          "bytes": 139490,
+          "sha256": "36230b16f9af4985daca2b8fc8bbb7c7d6822adc8d2e392e8b239f89af20cad5"
+        },
+        {
+          "name": "tracing-O2-normal.ll",
+          "bytes": 41635,
+          "sha256": "67abb54e2b04a04f786a5e2551fe11a4a317e923bf977199a0b36d7adb936256"
+        },
+        {
+          "name": "tracing-O2-normal.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "name": "tracing-O2-normal.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2-normal.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": 0
+    },
+    {
+      "mode": "tracing",
+      "level": 2,
+      "path": "normal",
+      "control": "no-child-drop",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O2-normal-no-child-drop",
+        "--memory=tracing",
+        "2",
+        "no-child-drop"
+      ],
+      "files": [
+        {
+          "name": "tracing-O2-normal-no-child-drop.build.log",
+          "bytes": 139518,
+          "sha256": "2518bb17246b114809609a8d9b62f8d51a2b131144283779670aff0386f3fec4"
+        },
+        {
+          "name": "tracing-O2-normal-no-child-drop.ll",
+          "bytes": 41591,
+          "sha256": "3df7efdf596d497b872beaecdfb8cb41be8f9044fce9d413d5a635bd6d397da9"
+        },
+        {
+          "name": "tracing-O2-normal-no-child-drop.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2-normal-no-child-drop.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2-normal-no-child-drop.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 2,
+      "path": "normal",
+      "control": "no-object-owner",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O2-normal-no-object-owner",
+        "--memory=tracing",
+        "2",
+        "no-object-owner"
+      ],
+      "files": [
+        {
+          "name": "tracing-O2-normal-no-object-owner.build.log",
+          "bytes": 139522,
+          "sha256": "857db0437cccf3301a2c99fc9e31d9656dfa69ea209d9f5492ed074a4b3734cd"
+        },
+        {
+          "name": "tracing-O2-normal-no-object-owner.ll",
+          "bytes": 41626,
+          "sha256": "c14b372894be73c23f25ca14fe44e49ab26ff8b77cca7a13cf8aa8eff2db559c"
+        },
+        {
+          "name": "tracing-O2-normal-no-object-owner.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2-normal-no-object-owner.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2-normal-no-object-owner.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 2,
+      "path": "--frame",
+      "control": null,
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O2---frame",
+        "--memory=tracing",
+        "2",
+        "--frame"
+      ],
+      "files": [
+        {
+          "name": "tracing-O2---frame.build.log",
+          "bytes": 139499,
+          "sha256": "6c41d059e5386d26fd8ecd3bf8f09546915895b21a05f495c136b75906a97bdc"
+        },
+        {
+          "name": "tracing-O2---frame.ll",
+          "bytes": 42788,
+          "sha256": "9b1abad7dda0ea72f8c061689bb7e35d6ed78e0a4a1c5d4bfda7fc32b0cc9f22"
+        },
+        {
+          "name": "tracing-O2---frame.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "name": "tracing-O2---frame.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2---frame.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": 0
+    },
+    {
+      "mode": "tracing",
+      "level": 2,
+      "path": "--frame",
+      "control": "no-child-drop",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O2---frame-no-child-drop",
+        "--memory=tracing",
+        "2",
+        "--frame",
+        "no-child-drop"
+      ],
+      "files": [
+        {
+          "name": "tracing-O2---frame-no-child-drop.build.log",
+          "bytes": 139527,
+          "sha256": "939fbfd7917a298165b93adb02fecf1d3c49c36e200db788983ceae71d89821a"
+        },
+        {
+          "name": "tracing-O2---frame-no-child-drop.ll",
+          "bytes": 42744,
+          "sha256": "d36dae72aa914896160d835dfa68c7eb9c6995b7e3a8241a12ae29105589c8ba"
+        },
+        {
+          "name": "tracing-O2---frame-no-child-drop.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2---frame-no-child-drop.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2---frame-no-child-drop.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 2,
+      "path": "--frame",
+      "control": "no-object-owner",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O2---frame-no-object-owner",
+        "--memory=tracing",
+        "2",
+        "--frame",
+        "no-object-owner"
+      ],
+      "files": [
+        {
+          "name": "tracing-O2---frame-no-object-owner.build.log",
+          "bytes": 139531,
+          "sha256": "c76a9b0af547a5d39dd8a06d9669d4e98e1252eef1abc457b255b7389c867b13"
+        },
+        {
+          "name": "tracing-O2---frame-no-object-owner.ll",
+          "bytes": 42779,
+          "sha256": "1a55f8826b4cb031ded36e469e2d9e138abb0abc681673c8c8133921dabcab8c"
+        },
+        {
+          "name": "tracing-O2---frame-no-object-owner.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2---frame-no-object-owner.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2---frame-no-object-owner.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 2,
+      "path": "--frame",
+      "control": "no-read-retain",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O2---frame-no-read-retain",
+        "--memory=tracing",
+        "2",
+        "--frame",
+        "no-read-retain"
+      ],
+      "files": [
+        {
+          "name": "tracing-O2---frame-no-read-retain.build.log",
+          "bytes": 139529,
+          "sha256": "9cf1748f81fdb6d745d3efbebf65927fea98a5e2fa7272dcc9e2c3ccebfe53b7"
+        },
+        {
+          "name": "tracing-O2---frame-no-read-retain.ll",
+          "bytes": 42745,
+          "sha256": "92bf749cbcc8aca1e9226c5cc4b0db613738f47962c929b4eaea0e8427e2bcd4"
+        },
+        {
+          "name": "tracing-O2---frame-no-read-retain.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2---frame-no-read-retain.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2---frame-no-read-retain.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 2,
+      "path": "--typed",
+      "control": null,
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O2---typed",
+        "--memory=tracing",
+        "2",
+        "--typed"
+      ],
+      "files": [
+        {
+          "name": "tracing-O2---typed.build.log",
+          "bytes": 139499,
+          "sha256": "65d5e0a2ce9362189fd7e2e0fe25d44bf8170095b7f74563da2f9b4965ea7e23"
+        },
+        {
+          "name": "tracing-O2---typed.ll",
+          "bytes": 46241,
+          "sha256": "69b48569c54bd19bcb3109c3a746d416400ab78db2e14f2866ed6d34996a7642"
+        },
+        {
+          "name": "tracing-O2---typed.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "name": "tracing-O2---typed.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2---typed.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": 0
+    },
+    {
+      "mode": "tracing",
+      "level": 2,
+      "path": "--typed",
+      "control": "no-child-drop",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O2---typed-no-child-drop",
+        "--memory=tracing",
+        "2",
+        "--typed",
+        "no-child-drop"
+      ],
+      "files": [
+        {
+          "name": "tracing-O2---typed-no-child-drop.build.log",
+          "bytes": 139527,
+          "sha256": "bedd43ed68d302d3f8dac2ec7162a2c7859d30fa2d507474dcd0433943860791"
+        },
+        {
+          "name": "tracing-O2---typed-no-child-drop.ll",
+          "bytes": 46197,
+          "sha256": "445e1721d4be9f9d487def7fd8d0734a53afa3ebe85461b933c332b5b8767cf5"
+        },
+        {
+          "name": "tracing-O2---typed-no-child-drop.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2---typed-no-child-drop.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2---typed-no-child-drop.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 2,
+      "path": "--typed",
+      "control": "no-object-owner",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O2---typed-no-object-owner",
+        "--memory=tracing",
+        "2",
+        "--typed",
+        "no-object-owner"
+      ],
+      "files": [
+        {
+          "name": "tracing-O2---typed-no-object-owner.build.log",
+          "bytes": 139531,
+          "sha256": "1cbe3df5e7fbf2847e5e75270ae7c4acd37e89cd06426c8e828a2c4c10be8f70"
+        },
+        {
+          "name": "tracing-O2---typed-no-object-owner.ll",
+          "bytes": 46232,
+          "sha256": "d4a99397e4499a31a8d343bc982b595e662d1c720cff28ec0148de5cf2d14036"
+        },
+        {
+          "name": "tracing-O2---typed-no-object-owner.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2---typed-no-object-owner.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2---typed-no-object-owner.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 2,
+      "path": "--typed",
+      "control": "no-context-release",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O2---typed-no-context-release",
+        "--memory=tracing",
+        "2",
+        "--typed",
+        "no-context-release"
+      ],
+      "files": [
+        {
+          "name": "tracing-O2---typed-no-context-release.build.log",
+          "bytes": 139537,
+          "sha256": "5fb8ed366eab5f65eae3630edaba86862b55903c8024e66bd3ffcfcb0c5ffe57"
+        },
+        {
+          "name": "tracing-O2---typed-no-context-release.ll",
+          "bytes": 46153,
+          "sha256": "38d2687f6583c4c53090f3c40dfd3c2a59fda971c6ae0a168b64a8479652a811"
+        },
+        {
+          "name": "tracing-O2---typed-no-context-release.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2---typed-no-context-release.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2---typed-no-context-release.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    },
+    {
+      "mode": "tracing",
+      "level": 2,
+      "path": "--typed-error",
+      "control": null,
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O2---typed-error",
+        "--memory=tracing",
+        "2",
+        "--typed-error"
+      ],
+      "files": [
+        {
+          "name": "tracing-O2---typed-error.build.log",
+          "bytes": 139511,
+          "sha256": "a5c160881ba545d1b4dd8a0cf694cbc9be8f08aff317708385eb1ee2ff9950c0"
+        },
+        {
+          "name": "tracing-O2---typed-error.ll",
+          "bytes": 45106,
+          "sha256": "9af10d30c0a40ac4ff3eb2659e3dd83ccd6bea3641d2a8648d3d2e841e2049ca"
+        },
+        {
+          "name": "tracing-O2---typed-error.stdout",
+          "bytes": 2,
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "name": "tracing-O2---typed-error.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2---typed-error.exit",
+          "bytes": 2,
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": 0
+    },
+    {
+      "mode": "tracing",
+      "level": 2,
+      "path": "--typed-error",
+      "control": "no-context-release",
+      "generation": [
+        "cargo",
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        "dartforge-emit-native",
+        "--features",
+        "embedded-llvm",
+        "--example",
+        "arc_field_allocation",
+        "--",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/proof-field-allocation/tracing-O2---typed-error-no-context-release",
+        "--memory=tracing",
+        "2",
+        "--typed-error",
+        "no-context-release"
+      ],
+      "files": [
+        {
+          "name": "tracing-O2---typed-error-no-context-release.build.log",
+          "bytes": 139549,
+          "sha256": "eb611703884200a69a4a1f50ce776651530774bbc16a98b8fe4222cccefe2860"
+        },
+        {
+          "name": "tracing-O2---typed-error-no-context-release.ll",
+          "bytes": 45018,
+          "sha256": "dd70c1e5cafd08a11262f4200dc2a5d34dd363f81928e4dd207b835a81bc82c0"
+        },
+        {
+          "name": "tracing-O2---typed-error-no-context-release.stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2---typed-error-no-context-release.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "name": "tracing-O2---typed-error-no-context-release.exit",
+          "bytes": 3,
+          "sha256": "0b2f06dddfa807ee574a78468d3a05904873b97f44377eb93481e091c257b800"
+        }
+      ],
+      "generation_exit": 0,
+      "exit": -5
+    }
+  ],
+  "result": "success"
+}
