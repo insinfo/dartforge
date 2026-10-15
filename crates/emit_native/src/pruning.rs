@@ -20,10 +20,11 @@ use std::path::{Path, PathBuf};
 
 pub(crate) mod receiver_provenance;
 mod class_reachability;
+pub(crate) mod allocation_inventory;
 pub(crate) mod arc_ports;
 
 /// First line of a summary; the number changes with the format.
-const HEADER: &str = "dartforge-poda\t6";
+const HEADER: &str = "dartforge-poda\t7";
 
 /// Selectors that live in every live class, without a call in the IR (§3.6):
 /// `c:call` the runtime looks up by text (`dartforge_closure_entry`, the
@@ -294,11 +295,30 @@ impl DeclaredFieldAccess {
     }
 }
 
+/// Allocation coverage for one emitted definition, independent of its return type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AllocationState {
+    /// Every allocation performed directly by this definition has an audited CID.
+    /// Transitive callee/selector coverage remains a separate fixed-point obligation.
+    Known(Vec<u32>),
+    /// Missing or unproved allocation paths must preserve wide class reachability.
+    Unknown,
+}
+
+/// Compiler-owned allocation audit tied to a definition in the summary names table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AllocationRecord {
+    pub definition: u32,
+    pub state: AllocationState,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Summary {
     pub module: String,
     pub names: Vec<String>,
     pub definitions: Vec<Definition>,
+    /// Explicit complete/unknown direct allocation facts. Absence is unknown.
+    pub allocation_inventory: Vec<AllocationRecord>,
     pub tables: Vec<SummarizedTable>,
     /// The texts of the selectors (for the report).
     pub selectors: Vec<(i64, String)>,
@@ -346,6 +366,13 @@ impl Summary {
         i
     }
 
+    pub(crate) fn audited_allocations(&self, definition: u32) -> Option<&[u32]> {
+        let mut records = self.allocation_inventory.iter().filter(|record| record.definition == definition);
+        let record = records.next()?;
+        if records.next().is_some() { return None; }
+        match &record.state { AllocationState::Known(classes) => Some(classes), AllocationState::Unknown => None }
+    }
+
     /// The text of the summary (the format of §3.3).
     pub fn to_text(&self) -> String {
         let mut s = format!("{HEADER}\t{}\n", self.module);
@@ -362,6 +389,21 @@ impl Summary {
                 join(&mut d.calls.iter().map(i64::to_string))
             )
             .unwrap();
+        }
+        // Only an actual producer audit writes known facts. An absent audit is
+        // unknown to the consumer, including a definition with no Ref return.
+        let mut audits: Vec<_> = self.allocation_inventory.iter().collect();
+        audits.sort_by_key(|record| record.definition);
+        for record in audits {
+            match &record.state {
+                AllocationState::Known(classes) => {
+                    writeln!(s, "A\t{}\tknown\t{}", record.definition,
+                        join(&mut classes.iter().map(u32::to_string))).unwrap();
+                }
+                AllocationState::Unknown => {
+                    writeln!(s, "A\t{}\tunknown\t", record.definition).unwrap();
+                }
+            }
         }
         for t in &self.tables {
             writeln!(s, "T\t{}\t{}\t{}", t.node, t.cid, join(&mut t.pairs.iter().map(|(h, f)| format!("{h}:{f}")))).unwrap();
@@ -447,6 +489,22 @@ impl Summary {
                         .collect::<Result<_, _>>()?;
                     r.definitions.push(Definition { name, refs, calls });
                 }
+                Some("A") => {
+                    let definition = c.next().and_then(|v| v.parse().ok()).ok_or_else(|| bad(l))?;
+                    let state = c.next().ok_or_else(|| bad(l))?;
+                    let payload = c.next().ok_or_else(|| bad(l))?;
+                    if c.next().is_some() { return Err(bad(l)); }
+                    let state = match state {
+                        "unknown" if payload.is_empty() => AllocationState::Unknown,
+                        "known" => {
+                            let classes = numbers(Some(payload))?;
+                            if classes.iter().copied().collect::<HashSet<_>>().len() != classes.len() { return Err(bad(l)); }
+                            AllocationState::Known(classes)
+                        }
+                        _ => return Err(bad(l)),
+                    };
+                    r.allocation_inventory.push(AllocationRecord { definition, state });
+                }
                 Some("T") => {
                     let node = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
                     let cid = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
@@ -526,6 +584,12 @@ impl Summary {
                 _ if l.is_empty() => {}
                 _ => return Err(bad(l)),
             }
+        }
+        let mut allocation_nodes = HashSet::new();
+        if r.allocation_inventory.iter().any(|record|
+            !r.definitions.iter().any(|definition| definition.name == record.definition)
+                || !allocation_nodes.insert(record.definition)) {
+            return Err("pruning summary with duplicate or non-definition allocation audit".to_string());
         }
         let n = r.names.len() as u32;
         let outside = r.definitions.iter().any(|d| d.name >= n || d.refs.iter().any(|&x| x >= n))
@@ -2261,7 +2325,7 @@ mod declared_field_summary_tests {
     #[test]
     fn persistent_field_facts_refuse_corruption_and_old_schema() {
         let summary = hir_summary(&module()).to_text();
-        assert!(Summary::from_string(&summary.replace("dartforge-poda\t6", "dartforge-poda\t5")).is_err());
+        assert!(Summary::from_string(&summary.replace("dartforge-poda\t7", "dartforge-poda\t6")).is_err());
         assert!(Summary::from_string(&summary.replace("\"storage\":\"ref\"", "\"storage\":\"ptr\"")).is_err());
         let record = summary.lines().find(|line| line.starts_with("F\t")).unwrap();
         assert!(Summary::from_string(&format!("{summary}{record}\n")).is_err());

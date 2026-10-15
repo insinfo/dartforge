@@ -1,0 +1,35 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unreachable pattern
+   --> crates/emit_native/src/pruning.rs:564:17
+    |
+492 |                 Some("A") => {
+    |                 --------- matches all the relevant values
+...
+564 |                 Some("A") => r.ambiguous_classes.push(c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?),
+    |                 ^^^^^^^^^ no value can reach this
+    |
+    = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 2 warnings (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.71s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 5 tests
+test pruning::allocation_inventory::tests::all_possible_emitted_definitions_must_agree_on_coverage ... ok
+test pruning::allocation_inventory::tests::memory_globals_pointer_conversion_and_unterminated_bodies_are_unknown ... ok
+test pruning::allocation_inventory::tests::actual_scalar_leaf_gets_empty_audit_but_allocating_scalar_return_stays_unknown ... ok
+test pruning::allocation_inventory::transport_tests::explicit_known_empty_and_cid_union_roundtrip_distinct_from_absent_or_unknown ... ok
+test pruning::allocation_inventory::transport_tests::malformed_duplicate_old_and_nondefinition_audits_are_rejected ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 736 filtered out; finished in 0.01s
+

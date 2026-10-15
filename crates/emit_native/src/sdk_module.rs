@@ -728,7 +728,8 @@ pub fn compiled_sdk_in_profile(lib_dir: &Path, clang: &Path, profile: SdkProfile
         }
         // The pruning summary: from the IR that becomes the bitcode (production) or the object
         // of the DLL (development).
-        let pruning = crate::pruning::summarize(&lib.ir, &lib.uri, &lib.tables);
+        let mut pruning = crate::pruning::summarize(&lib.ir, &lib.uri, &lib.tables);
+        crate::pruning::allocation_inventory::audit_emitted(&lib.ir, &mut pruning);
         std::fs::write(tmp.join(format!("{b}.poda")), pruning.to_text()).map_err(|e| e.to_string())?;
     }
     std::fs::write(tmp.join("recusados.tsv"), summary).map_err(|e| e.to_string())?;
