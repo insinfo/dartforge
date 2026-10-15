@@ -3160,10 +3160,10 @@ void main() {{
                     .replace("!= 10", "!= 14")
             } else { code };
             std::fs::write(&source, &code).unwrap();
-            let sdk = std::env::var_os("DARTFORGE_TEST_SDK_LIB").map(PathBuf::from).expect("DARTFORGE_TEST_SDK_LIB");
+            let sdk = std::env::var_os("DARTFORGE_TEST_SDK_LIB").map(PathBuf::from);
             let options = dartforge_emit_native::CompileOptions {
                 contracts: dartforge_emit_native::contracts::ContractMode::Verify,
-                sdk: Some(&sdk), packages: None, timings: false, optimize: false,
+                sdk: sdk.as_deref(), packages: None, timings: false, optimize: false,
                 language_version: None, experiments: Vec::new(), debug: false,
                 generator: None, cpu: None,
             };

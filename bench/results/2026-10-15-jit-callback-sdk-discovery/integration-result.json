@@ -1,0 +1,18 @@
+{
+  "exit": 0,
+  "passed": 2,
+  "failed": 0,
+  "ignored": 0,
+  "test_sdk_override_unset": true,
+  "selected_sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+  "sources_unchanged": true,
+  "source_after_sha256": {
+    "crates/jit/src/ffi.rs": "bf74d82572d35ec601d4ef10432fe95d15e5e4db6949d0f679f527cba1fae96c",
+    "crates/jit/tests/plain_sdk_residency.rs": "f00c89b3e08b19ba9a91187db28a4a8571070b506fe43af814a2f717fb846ad2",
+    "crates/jit/tests/async_frame_reload.rs": "8f355b0f41836878cab29abee40b9ba221fb8489296602bb32e2e745e76838ec"
+  },
+  "binaries_sha256": {
+    "target/jit-readiness-build/release/deps/async_frame_reload-c2df09535dc5d0bb": "3fac4e15102d3ebe976c067db3a4ee8ab94967a8b448e69c6c13e5d690d64366",
+    "target/jit-readiness-build/release/deps/plain_sdk_residency-435197f141017279": "b3d1b0af1fbd87c62962d784bbb97f931904b33162ec45457e3a95382cb8e868"
+  }
+}

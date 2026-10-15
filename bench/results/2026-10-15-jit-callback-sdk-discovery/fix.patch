@@ -1,0 +1,59 @@
+diff --git a/crates/jit/src/ffi.rs b/crates/jit/src/ffi.rs
+index 2b05265b..9fe4ff2e 100644
+--- a/crates/jit/src/ffi.rs
++++ b/crates/jit/src/ffi.rs
+@@ -3160,10 +3160,10 @@ void main() {{
+                     .replace("!= 10", "!= 14")
+             } else { code };
+             std::fs::write(&source, &code).unwrap();
+-            let sdk = std::env::var_os("DARTFORGE_TEST_SDK_LIB").map(PathBuf::from).expect("DARTFORGE_TEST_SDK_LIB");
++            let sdk = std::env::var_os("DARTFORGE_TEST_SDK_LIB").map(PathBuf::from);
+             let options = dartforge_emit_native::CompileOptions {
+                 contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+-                sdk: Some(&sdk), packages: None, timings: false, optimize: false,
++                sdk: sdk.as_deref(), packages: None, timings: false, optimize: false,
+                 language_version: None, experiments: Vec::new(), debug: false,
+                 generator: None, cpu: None,
+             };
+diff --git a/crates/jit/tests/async_frame_reload.rs b/crates/jit/tests/async_frame_reload.rs
+index 8d4d9bdb..40e3fc7d 100644
+--- a/crates/jit/tests/async_frame_reload.rs
++++ b/crates/jit/tests/async_frame_reload.rs
+@@ -5,7 +5,7 @@ use std::path::PathBuf;
+ use std::time::{Duration, Instant};
+ 
+ #[test]
+-#[ignore = "requires LLVM and DARTFORGE_TEST_SDK_LIB with the matching source SDK"]
++#[ignore = "requires LLVM and the matching source-built Dart SDK"]
+ fn suspended_frame_resumes_old_body_after_frame_size_changes() {
+     std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+         let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+@@ -17,9 +17,9 @@ fn suspended_frame_resumes_old_body_after_frame_size_changes() {
+         let release = directory.join("release");
+         for path in [&signal, &output, &release] { let _ = std::fs::remove_file(path); }
+         let source = directory.join("main.dart");
+-        let sdk = PathBuf::from(std::env::var_os("DARTFORGE_TEST_SDK_LIB").expect("DARTFORGE_TEST_SDK_LIB"));
++        let sdk = std::env::var_os("DARTFORGE_TEST_SDK_LIB").map(PathBuf::from);
+         let options = CompileOptions {
+-            contracts: ContractMode::Verify, sdk: Some(&sdk), packages: None,
++            contracts: ContractMode::Verify, sdk: sdk.as_deref(), packages: None,
+             timings: false, optimize: false, language_version: None,
+             experiments: Vec::new(), debug: false, generator: None, cpu: None,
+         };
+diff --git a/crates/jit/tests/plain_sdk_residency.rs b/crates/jit/tests/plain_sdk_residency.rs
+index 078fc942..26db5428 100644
+--- a/crates/jit/tests/plain_sdk_residency.rs
++++ b/crates/jit/tests/plain_sdk_residency.rs
+@@ -19,10 +19,10 @@ fn ordinary_dart_with_full_sdk_reclaims_metadata_only_generations() {
+             let source = directory.join("main.dart");
+             let original = "int counter = 0; void main() { counter += 1; if (counter != 1) throw StateError('plain before'); print('plain:1'); }";
+             std::fs::write(&source, original).unwrap();
+-            let sdk = PathBuf::from(std::env::var_os("DARTFORGE_TEST_SDK_LIB").expect("DARTFORGE_TEST_SDK_LIB"));
++            let sdk = std::env::var_os("DARTFORGE_TEST_SDK_LIB").map(PathBuf::from);
+             let options = CompileOptions {
+                 contracts: ContractMode::Verify,
+-                sdk: Some(&sdk), packages: None, timings: false, optimize: false,
++                sdk: sdk.as_deref(), packages: None, timings: false, optimize: false,
+                 language_version: None, experiments: Vec::new(), debug: false,
+                 generator: None, cpu: None,
+             };

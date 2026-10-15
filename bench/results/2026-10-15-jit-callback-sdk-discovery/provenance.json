@@ -1,0 +1,16 @@
+{
+  "head": "5987600871c27cd30606bc284040f861102bc817",
+  "source_files": [
+    "crates/jit/src/ffi.rs",
+    "crates/jit/tests/plain_sdk_residency.rs",
+    "crates/jit/tests/async_frame_reload.rs"
+  ],
+  "initial_ci_job": "https://github.com/insinfo/dartforge/actions/runs/38680183400/job/116242732909",
+  "change": "Optional test-only SDK override consistently delegates to standard selected SDK discovery when absent; assertions and callback lifetime mutex retained",
+  "validation": {
+    "focused_callback_tests": 2,
+    "full_parallel_lib_tests": 45,
+    "integration_tests": 2
+  },
+  "compiler_flags_env_script": "bench/results/2026-10-14-jit-private-field-identity/env.zsh"
+}

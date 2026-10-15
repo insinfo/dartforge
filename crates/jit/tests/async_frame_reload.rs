@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 #[test]
-#[ignore = "requires LLVM and DARTFORGE_TEST_SDK_LIB with the matching source SDK"]
+#[ignore = "requires LLVM and the matching source-built Dart SDK"]
 fn suspended_frame_resumes_old_body_after_frame_size_changes() {
     std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
         let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -17,9 +17,9 @@ fn suspended_frame_resumes_old_body_after_frame_size_changes() {
         let release = directory.join("release");
         for path in [&signal, &output, &release] { let _ = std::fs::remove_file(path); }
         let source = directory.join("main.dart");
-        let sdk = PathBuf::from(std::env::var_os("DARTFORGE_TEST_SDK_LIB").expect("DARTFORGE_TEST_SDK_LIB"));
+        let sdk = std::env::var_os("DARTFORGE_TEST_SDK_LIB").map(PathBuf::from);
         let options = CompileOptions {
-            contracts: ContractMode::Verify, sdk: Some(&sdk), packages: None,
+            contracts: ContractMode::Verify, sdk: sdk.as_deref(), packages: None,
             timings: false, optimize: false, language_version: None,
             experiments: Vec::new(), debug: false, generator: None, cpu: None,
         };

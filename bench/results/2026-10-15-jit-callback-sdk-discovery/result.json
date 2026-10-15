@@ -1,0 +1,15 @@
+{
+  "command": [
+    "target/jit-readiness-build/release/deps/dartforge_jit-e650df7b69e1d90e",
+    "--include-ignored",
+    "--nocapture"
+  ],
+  "binary_sha256": "8cd4566cfc7df1442148e38a93a94c976261fb63d85a8e0655cc41613928fc12",
+  "exit": 0,
+  "test_sdk_override_unset": true,
+  "selected_sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+  "source_unchanged": true,
+  "source_after": {
+    "crates/jit/src/ffi.rs": "bf74d82572d35ec601d4ef10432fe95d15e5e4db6949d0f679f527cba1fae96c"
+  }
+}

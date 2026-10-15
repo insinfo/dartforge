@@ -19,10 +19,10 @@ fn ordinary_dart_with_full_sdk_reclaims_metadata_only_generations() {
             let source = directory.join("main.dart");
             let original = "int counter = 0; void main() { counter += 1; if (counter != 1) throw StateError('plain before'); print('plain:1'); }";
             std::fs::write(&source, original).unwrap();
-            let sdk = PathBuf::from(std::env::var_os("DARTFORGE_TEST_SDK_LIB").expect("DARTFORGE_TEST_SDK_LIB"));
+            let sdk = std::env::var_os("DARTFORGE_TEST_SDK_LIB").map(PathBuf::from);
             let options = CompileOptions {
                 contracts: ContractMode::Verify,
-                sdk: Some(&sdk), packages: None, timings: false, optimize: false,
+                sdk: sdk.as_deref(), packages: None, timings: false, optimize: false,
                 language_version: None, experiments: Vec::new(), debug: false,
                 generator: None, cpu: None,
             };
