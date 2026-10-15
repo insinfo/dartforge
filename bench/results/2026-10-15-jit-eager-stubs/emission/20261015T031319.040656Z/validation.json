@@ -1,0 +1,104 @@
+{
+  "status": "passed",
+  "producer_manifest": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-15-jit-eager-stubs/producer/20261015T031126.028682Z/validation.json",
+  "producer_manifest_sha256": "b58e334ce5457b19ebd34451309096b139064e73f5b2ce885b685269051fa521",
+  "inputs": {
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart": "4941d4ae056e5cf93a8683b92129ab7bf97cdbdc3c8e4f492005f555418bee61",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json": "c5c1c22ad085905aa6341ddf11b3999b001cb6ac128a61f117a1fb8d532ec934",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-eager-stubs-producer/20261015T031126.028682Z/probe": "fd1a15228e1ef136b6f60ffb7c3af46bf788fc2d11cd903ee95242460c921d79",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-eager-stubs-producer/20261015T031126.028682Z/emit-probe": "8ddc7fe8a95c210a302b459b7eee39a1bbac934a0e95de999445935272636901"
+  },
+  "processes": [
+    {
+      "label": "small-0",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-eager-stubs-producer/20261015T031126.028682Z/probe",
+        "small"
+      ],
+      "exit": 0,
+      "stdout_sha256": "6530ae4edd707b0b553745a2ad5eb06e6a45b0ab51013780b3e45ccdd1db7c0a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result": {
+        "add_module_ms": 0.024416,
+        "contract_ms": 0.002791,
+        "eager_stubs": "0",
+        "entries": 2,
+        "ir_bytes": 150,
+        "link_ms": 6.310375,
+        "new_entries": 2,
+        "parse_ir_ms": 1.5492920000000001,
+        "phase": "link",
+        "publish_ms": 0.0025830000000000002,
+        "retire_ms": 0.015708,
+        "saved_ir": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-eager-stubs-ir/20261015T031319.040656Z/jit-eager-small-27346.ll",
+        "scope": "Identical saved IR; application main is never executed.",
+        "sdk_dll": null,
+        "session_ms": 2.453625,
+        "stubs_ms": 0.109292,
+        "synthetic_result": 10,
+        "total_ms": 8.092167000000002
+      }
+    },
+    {
+      "label": "small-1",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-eager-stubs-producer/20261015T031126.028682Z/probe",
+        "small"
+      ],
+      "exit": 0,
+      "stdout_sha256": "767b22dae91ad1e002f28451775f5e76a4c93f1b3b83b17ab621c8a285cd20e2",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result": {
+        "add_module_ms": 0.005875,
+        "contract_ms": 0.003083,
+        "eager_stubs": "1",
+        "entries": 2,
+        "ir_bytes": 150,
+        "link_ms": 0.24891600000000003,
+        "new_entries": 2,
+        "parse_ir_ms": 0.22629200000000002,
+        "phase": "link",
+        "publish_ms": 0.002542,
+        "retire_ms": 0.002042,
+        "saved_ir": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-eager-stubs-ir/20261015T031319.040656Z/jit-eager-small-27347.ll",
+        "scope": "Identical saved IR; application main is never executed.",
+        "sdk_dll": null,
+        "session_ms": 0.61175,
+        "stubs_ms": 1.121708,
+        "synthetic_result": 10,
+        "total_ms": 1.618167
+      }
+    },
+    {
+      "label": "emit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-eager-stubs-producer/20261015T031126.028682Z/emit-probe",
+        "emit",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-eager-stubs-ir/20261015T031319.040656Z/file-explorer.ll"
+      ],
+      "exit": 0,
+      "stdout_sha256": "c3583d8473fe0d7b50554b82b4a57e0b82a192b62332b77de8ca7b03a78c76f2",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result": {
+        "emission_ms": 18697.369,
+        "entry": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "ir_bytes": 613304308,
+        "packages": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "phase": "emit",
+        "saved_ir": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-eager-stubs-ir/20261015T031319.040656Z/file-explorer.ll",
+        "scope": "IR emission only; no JIT linking or application execution.",
+        "sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "sdk_dll": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/native_cache/sdk/555b2112c1b45d3f658961c6033612de/libdfsdk_555b2112c1b45d3f.dylib"
+      }
+    }
+  ],
+  "scope": "Small actual synthetic execution OFF/ON, then pristine ordinary File Explorer IR emission only. No large linking timings or application main execution.",
+  "saved_ir": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-eager-stubs-ir/20261015T031319.040656Z/file-explorer.ll",
+  "saved_ir_sha256": "656dc6159ca67d48a3c2315913e6f46c97ef5b128cc375a05d0798f135c0606d",
+  "sdk_dll": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/native_cache/sdk/555b2112c1b45d3f658961c6033612de/libdfsdk_555b2112c1b45d3f.dylib",
+  "sdk_dll_sha256": "b4ffb67ae0dd8afeed14998534a5ce69cd3c48fe2ce24e0dc0af97023efda5fe",
+  "inputs_unchanged": true
+}

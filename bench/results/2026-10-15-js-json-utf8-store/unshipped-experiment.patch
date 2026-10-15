@@ -1,0 +1,661 @@
+diff --git a/crates/emit_js/src/expr.rs b/crates/emit_js/src/expr.rs
+index d538849b..bb6d6b05 100644
+--- a/crates/emit_js/src/expr.rs
++++ b/crates/emit_js/src/expr.rs
+@@ -3162,7 +3162,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
+                     (rjs, rty)
+                 };
+                 let (ijs, _) = self.emit_expr(*index, None);
+-                let js = self.emit_index_set(&recv_js, &recv_ty, &ijs, v);
++                let js = self.emit_json_utf8_store(target, &recv_js, &recv_ty, &ijs, v)
++                    .unwrap_or_else(|| self.emit_index_set(&recv_js, &recv_ty, &ijs, v));
+                 (self.wrap_guards(js, guards), vty.clone())
+             }
+             ExprKind::Parenthesized(inner) => self.emit_assign_to(*inner, v, vty),
+diff --git a/crates/emit_js/src/fresh_list_append.rs b/crates/emit_js/src/fresh_list_append.rs
+index c117ff5c..5708a982 100644
+--- a/crates/emit_js/src/fresh_list_append.rs
++++ b/crates/emit_js/src/fresh_list_append.rs
+@@ -59,7 +59,7 @@ fn canonical_source_digest(relative: &str, selected: &str, expected: &str) -> bo
+         .is_some_and(|source| format!("{:x}", Sha256::digest(source.as_bytes())) == expected)
+ }
+ 
+-fn certified_source(ctx: &Ctx) -> bool {
++pub(crate) fn canonical_selected_sdk(ctx: &Ctx) -> bool {
+     let mut seen = std::collections::HashSet::new();
+     for unit in &ctx.program.units {
+         let library = ctx.program.library(unit.library);
+@@ -123,6 +123,21 @@ fn certified_source(ctx: &Ctx) -> bool {
+     {
+         return reject("selected SDK or foreign-code premise rejected");
+     }
++    true
++}
++
++// This stronger form deliberately refuses compiler overlays on a proof's
++// lifecycle-owning unit, even if another feature recognizes that overlay.
++pub(crate) fn raw_canonical_unit(relative: &str, selected: &str) -> bool {
++    sdk_sources::SOURCES.iter().any(|(path, digest, _)| {
++        *path == relative && format!("{:x}", Sha256::digest(selected.as_bytes())) == *digest
++    })
++}
++
++fn certified_source(ctx: &Ctx) -> bool {
++    if !canonical_selected_sdk(ctx) {
++        return false;
++    }
+     let Some(array) = ctx.js_array else {
+         return reject("selected SDK or foreign-code premise rejected");
+     };
+diff --git a/crates/emit_js/src/lib.rs b/crates/emit_js/src/lib.rs
+index 26c296e4..3d6d5975 100644
+--- a/crates/emit_js/src/lib.rs
++++ b/crates/emit_js/src/lib.rs
+@@ -11,6 +11,7 @@ mod typed_read_guards;
+ mod counter_loops;
+ mod fresh_list_append;
+ mod closed_list_window;
++mod json_utf8_store;
+ pub mod ctx;
+ pub mod expr;
+ pub mod filter;
+diff --git a/crates/emit_js/src/own_sdk.rs b/crates/emit_js/src/own_sdk.rs
+index a7503af3..d8524384 100644
+--- a/crates/emit_js/src/own_sdk.rs
++++ b/crates/emit_js/src/own_sdk.rs
+@@ -94,6 +94,8 @@ pub struct SdkMode {
+     pub repeated_names: std::cell::OnceCell<HashSet<dartforge_intern::SymbolId>>,
+     /// Complete SDK source certificate for confined fresh-list appends.
+     pub fresh_list_append_certified: std::cell::OnceCell<bool>,
++    /// Exact private JSON UTF8 buffer-store sites; no class-wide typed erasure.
++    pub(crate) json_utf8_store: std::cell::OnceCell<Option<crate::json_utf8_store::Certificate>>,
+     /// Complete canonical Number modulo certificate, independent of emit order.
+     pub number_modulo_certified: std::cell::OnceCell<bool>,
+ }
+@@ -241,6 +243,7 @@ impl SdkMode {
+             virtuality: std::cell::OnceCell::new(),
+             repeated_names: std::cell::OnceCell::new(),
+             fresh_list_append_certified: std::cell::OnceCell::new(),
++            json_utf8_store: std::cell::OnceCell::new(),
+             number_modulo_certified: std::cell::OnceCell::new(),
+         };
+         // Intrinsics, by (library, name).
+diff --git a/crates/emit_js/src/json_utf8_store.rs b/crates/emit_js/src/json_utf8_store.rs
+new file mode 100644
+index 00000000..b8922132
+--- /dev/null
++++ b/crates/emit_js/src/json_utf8_store.rs
+@@ -0,0 +1,228 @@
++//! Experimental checked native store at the SDK JSON UTF8 writer's private site.
++//!
++//! The selected SDK source closure is byte-certified, including the unmodified
++//! lifecycle owner and native typed-array implementation. The writer and its
++//! only pretty-print subclass never publish `this`. `buffer` is assigned only a
++//! fresh Uint8List in construction, after a full-chunk callback, and at terminal
++//! flush. Callbacks can retain/detach old chunks, but the next store uses a fresh
++//! allocation made after that callback returns. Reentrant encoding has a separate
++//! writer. No source/foreign-code escape means the live buffer stays exact native
++//! Uint8 storage. This proves its physical access, not bounds: the canonical
++//! bounds/error function and original evaluation order remain at every store.
++
++use crate::{
++    body::FnEmitter,
++    ctx::Ctx,
++    js::{Js, P_COMMA},
++    ty::Ty,
++};
++use dartforge_elements::model::{ClassId, Element, FunctionElementId, FunctionRef, UnitId};
++use dartforge_frontend::ast::{AssignOp, ExprId, ExprKind, FunctionBody, StmtKind, UnaryOp};
++
++pub(crate) struct Certificate {
++    unit: UnitId,
++    class: ClassId,
++    target: ExprId,
++    buffer_type: Ty,
++    check: FunctionElementId,
++}
++
++fn enabled(ctx: &Ctx) -> bool {
++    ctx.production()
++        && ctx.sdk.is_some()
++        && std::env::var("DARTFORGE_JSPROD_JSON_UTF8_STORE").is_ok_and(|v| v == "1")
++}
++
++fn certify(ctx: &Ctx) -> Option<Certificate> {
++    if !crate::fresh_list_append::canonical_selected_sdk(ctx) {
++        return None;
++    }
++    // A future compiler patch on either lifecycle unit needs its own audit;
++    // reverse-normalization alone is deliberately insufficient here.
++    for relative in [
++        "convert/json.dart",
++        "_internal/js_dev_runtime/private/native_typed_data.dart",
++    ] {
++        let selected = ctx
++            .program
++            .units
++            .iter()
++            .filter(|u| {
++                u.path.as_ref().is_some_and(|p| {
++                    p.to_string_lossy()
++                        .replace('\\', "/")
++                        .ends_with(&format!("/{relative}"))
++                })
++            })
++            .collect::<Vec<_>>();
++        if selected.len() != 1
++            || !crate::fresh_list_append::raw_canonical_unit(relative, &selected[0].source)
++        {
++            return None;
++        }
++    }
++    let classes = ctx
++        .program
++        .classes
++        .iter()
++        .enumerate()
++        .filter(|(_, c)| {
++            ctx.program.library(c.library).uri == "dart:convert"
++                && ctx.name(c.name) == "_JsonUtf8Stringifier"
++        })
++        .collect::<Vec<_>>();
++    let [(id, c)] = classes.as_slice() else {
++        return None;
++    };
++    let class = ClassId(*id as u32);
++    if ctx.program.class_with_homonym(class) || ctx.program.augmentations.contains_key(&class) {
++        return None;
++    }
++    let fid = *c.instance_members.get(&ctx.sym("writeByte")?)?;
++    let f = ctx.program.function(fid);
++    if f.class != Some(class)
++        || f.external
++        || f.patched_by.is_some()
++        || ctx.fn_state(fid) != crate::filter::State::Live
++    {
++        return None;
++    }
++    let FunctionRef::Function { unit, function } = f.node else {
++        return None;
++    };
++    let source = ctx.program.unit(unit);
++    let FunctionBody::Block(body) = source.ast.function(function).body else {
++        return None;
++    };
++    let StmtKind::Block(statements) = &source.ast.stmt(body).kind else {
++        return None;
++    };
++    let StmtKind::Expression(store) = source.ast.stmt(*statements.last()?).kind else {
++        return None;
++    };
++    let ExprKind::Assign {
++        op: AssignOp::Assign,
++        target,
++        value,
++    } = source.ast.expr(store).kind
++    else {
++        return None;
++    };
++    let ExprKind::Index {
++        target: receiver,
++        index,
++        null_aware: false,
++    } = source.ast.expr(target).kind
++    else {
++        return None;
++    };
++    let ExprKind::Unary {
++        op: UnaryOp::PostfixInc,
++        operand,
++    } = source.ast.expr(index).kind
++    else {
++        return None;
++    };
++    let named = |e, expected| matches!(source.ast.expr(e).kind, ExprKind::Identifier(n) if ctx.name(n.sym)==expected);
++    if !named(receiver, "buffer") || !named(operand, "index") || !named(value, "byte") {
++        return None;
++    }
++    // The actual AST target must still be the audited source expression.
++    let span = source.ast.expr(store).span;
++    if &source.source[span.start..span.end] != "buffer[index++] = byte" {
++        return None;
++    }
++    let variables = ctx
++        .program
++        .variables
++        .iter()
++        .enumerate()
++        .filter(|(_, v)| v.class == Some(class) && ctx.name(v.name) == "buffer")
++        .collect::<Vec<_>>();
++    let [(variable, _)] = variables.as_slice() else {
++        return None;
++    };
++    let buffer_type = ctx.var_ty(dartforge_elements::model::VariableId(*variable as u32));
++    let Ty::Iface {
++        class: buffer_class,
++        args,
++        nullable: false,
++    } = &buffer_type
++    else {
++        return None;
++    };
++    if !args.is_empty()
++        || ctx.name(ctx.program.class(*buffer_class).name) != "Uint8List"
++        || ctx
++            .program
++            .library(ctx.program.class(*buffer_class).library)
++            .uri
++            != "dart:typed_data"
++    {
++        return None;
++    }
++    let checks = ctx
++        .program
++        .functions
++        .iter()
++        .enumerate()
++        .filter(|(_, f)| {
++            f.class.is_none()
++                && ctx.name(f.name) == "_checkValidIndex"
++                && ctx.program.library(f.library).uri == "dart:_native_typed_data"
++        })
++        .collect::<Vec<_>>();
++    let [(id, check)] = checks.as_slice() else {
++        return None;
++    };
++    let check_id = FunctionElementId(*id as u32);
++    if check.external
++        || check.patched_by.is_some()
++        || ctx.fn_state(check_id) != crate::filter::State::Live
++    {
++        return None;
++    }
++    Some(Certificate {
++        unit,
++        class,
++        target,
++        buffer_type,
++        check: check_id,
++    })
++}
++
++impl FnEmitter<'_, '_> {
++    pub(crate) fn emit_json_utf8_store(
++        &mut self,
++        target: ExprId,
++        receiver: &Js,
++        receiver_type: &Ty,
++        index: &Js,
++        value: &Js,
++    ) -> Option<Js> {
++        if !enabled(self.ctx) {
++            return None;
++        }
++        let certificate = self
++            .ctx
++            .sdk
++            .as_ref()?
++            .json_utf8_store
++            .get_or_init(|| certify(self.ctx))
++            .as_ref()?;
++        if self.unit != certificate.unit
++            || self.class != Some(certificate.class)
++            || target != certificate.target
++            || receiver_type != &certificate.buffer_type
++        {
++            return None;
++        }
++        let check = self.element_ref(Element::Function(certificate.check))?.0;
++        let list = self.temp();
++        let idx = self.temp();
++        let byte = self.temp();
++        // The receiver is captured before index++, which is captured before
++        // the RHS; an exception keeps those effects and prevents the store.
++        Some(Js::new(format!("/* certified JSON UTF8 store */ {list} = {}, {idx} = {}, {byte} = {}, {check}({idx}, {list}, {list}.length), {list}[{idx}] = {byte}, {byte}",receiver.code,index.code,value.code),P_COMMA).paren())
++    }
++}
+diff --git a/crates/emit_js/tests/programs/json_utf8_error_semantics.dart b/crates/emit_js/tests/programs/json_utf8_error_semantics.dart
+new file mode 100644
+index 00000000..b5231d48
+--- /dev/null
++++ b/crates/emit_js/tests/programs/json_utf8_error_semantics.dart
+@@ -0,0 +1,15 @@
++// Diagnostic public error classifications; runtimeType spelling is separate.
++import 'dart:convert';
++import 'dart:typed_data';
++void report(String name, void Function() operation) {
++  try { operation(); print('$name:ok'); }
++  catch (error) {
++    print('$name:${error is RangeError}:${error is ArgumentError}:${error is Error}:${error is IndexError}');
++  }
++}
++void main() {
++  report('uint8-negative', () { Uint8List(-1); });
++  report('json-negative', () { JsonUtf8Encoder(null, null, -1).convert({'x': 1}); });
++  report('json-zero', () { JsonUtf8Encoder(null, null, 0).convert({'x': 1}); });
++  print(JsonUtf8Encoder(null, null, 1).convert({'x': 'é🙂'}).join(','));
++}
+diff --git a/crates/emit_js/tests/programs/json_utf8_store.dart b/crates/emit_js/tests/programs/json_utf8_store.dart
+new file mode 100644
+index 00000000..3d03c65f
+--- /dev/null
++++ b/crates/emit_js/tests/programs/json_utf8_store.dart
+@@ -0,0 +1,77 @@
++// Exercise actual JSON private buffer replacement, error and callback paths.
++import 'dart:collection';
++import 'dart:convert';
++
++final document = <String, Object?>{
++  'ascii': 'abcdefghijklmnopqrstuvwxyz',
++  'unicode': 'é Ω 漢字 🙂 \ud800 end',
++  'escape': 'quote" back\\ controls\n\u0001',
++  'values': [null, true, false, -1, 0, 255, 65536, 1.25],
++};
++
++String outcome(void Function() operation) {
++  try { operation(); return 'ok'; } catch (error) { return error.runtimeType.toString(); }
++}
++
++class ProbeSink extends ByteConversionSink {
++  final List<int> result = [];
++  final List<List<int>> retained = [];
++  int calls = 0;
++  bool closed = false;
++  final bool throwChunk;
++  ProbeSink({this.throwChunk = false});
++  void add(List<int> bytes) => addSlice(bytes, 0, bytes.length, false);
++  void addSlice(List<int> bytes, int start, int end, bool isLast) {
++    calls++;
++    if (throwChunk && calls == 2) throw StateError('chunk callback');
++    result.addAll(bytes.sublist(start, end));
++    final nested = JsonUtf8Encoder(null, null, 2).convert({'nested': calls});
++    if (utf8.decode(nested) != '{"nested":$calls}') throw StateError('nested');
++    // User callbacks may retain and mutate old buffers. Subsequent outer
++    // stores must use the fresh replacement allocated after this returns.
++    for (final old in retained) { old.fillRange(0, old.length, 99); }
++    retained.add(bytes);
++    bytes.fillRange(0, bytes.length, 0);
++    if (isLast) close();
++  }
++  void close() { closed = true; }
++}
++
++class ObservedList extends ListBase<int> {
++  int reads = 0;
++  int get length => 3;
++  set length(int value) { throw UnsupportedError('fixed'); }
++  int operator [](int index) {
++    reads++;
++    JsonUtf8Encoder(null, null, 1).convert({'index': index});
++    return index + 1;
++  }
++  void operator []=(int index, int value) { throw UnsupportedError('read only'); }
++}
++
++void main() {
++  for (final size in [1, 2, 3, 7, 256]) {
++    for (final indent in <String?>[null, '  ', 'é']) {
++      final encoder = JsonUtf8Encoder(indent, null, size);
++      final bytes = encoder.convert(document);
++      print('$size:$indent:${bytes.join(',')}');
++      final sink = ProbeSink();
++      final input = encoder.startChunkedConversion(sink);
++      input.add(document);
++      input.close();
++      print('chunks:${sink.calls}:${sink.closed}:${sink.result.join(',')}');
++    }
++  }
++  for (final size in [-1, 0]) {
++    print('size:$size:${outcome(() { JsonUtf8Encoder(null, null, size).convert(document); })}');
++  }
++  final cycle = <Object?>[]; cycle.add(cycle);
++  for (final value in <Object?>[double.nan, double.infinity, cycle, {1: 'bad'}, Object()]) {
++    print('error:${outcome(() { JsonUtf8Encoder().convert(value); })}');
++  }
++  print('toEncodable:${outcome(() { JsonUtf8Encoder(null, (_) => throw StateError('convert'), 1).convert(Object()); })}');
++  final failing = ProbeSink(throwChunk: true);
++  print('callback:${outcome(() { JsonUtf8Encoder(null, null, 1).startChunkedConversion(failing).add(document); })}:${failing.calls}');
++  final observed = ObservedList();
++  print('custom:${JsonUtf8Encoder(null, null, 1).convert(observed).join(',')}:${observed.reads}');
++}
+diff --git a/crates/emit_js/tests/programs/json_utf8_store_foreign.dart b/crates/emit_js/tests/programs/json_utf8_store_foreign.dart
+new file mode 100644
+index 00000000..3717058f
+--- /dev/null
++++ b/crates/emit_js/tests/programs/json_utf8_store_foreign.dart
+@@ -0,0 +1,6 @@
++import 'dart:convert';
++import 'dart:_foreign_helper' show JS;
++void main() {
++  final value = JS<int>('!', '1');
++  print(JsonUtf8Encoder(null, null, 1).convert({'x': value}).join(','));
++}
+diff --git a/crates/emit_js_production/tests/json_utf8_store.rs b/crates/emit_js_production/tests/json_utf8_store.rs
+new file mode 100644
+index 00000000..ed5a5f4e
+--- /dev/null
++++ b/crates/emit_js_production/tests/json_utf8_store.rs
+@@ -0,0 +1,223 @@
++//! Actual SDK JSON UTF8 byte stores, replacement callbacks and refusal paths.
++use std::{
++    io::Write,
++    path::{Path, PathBuf},
++    process::{Command, Stdio},
++};
++
++fn node(js: &str, suffix: &str) -> String {
++    let mut process = Command::new("node")
++        .stdin(Stdio::piped())
++        .stdout(Stdio::piped())
++        .stderr(Stdio::piped())
++        .spawn()
++        .unwrap();
++    process
++        .stdin
++        .take()
++        .unwrap()
++        .write_all(
++            format!("globalThis.self=globalThis;globalThis.window=globalThis;\n{js}\n{suffix}")
++                .as_bytes(),
++        )
++        .unwrap();
++    let result = process.wait_with_output().unwrap();
++    assert!(
++        result.status.success(),
++        "{}",
++        String::from_utf8_lossy(&result.stderr)
++    );
++    assert!(
++        result.stderr.is_empty(),
++        "{}",
++        String::from_utf8_lossy(&result.stderr)
++    );
++    String::from_utf8(result.stdout)
++        .unwrap()
++        .replace("\r\n", "\n")
++}
++
++#[test]
++#[ignore = "requires Dart3.6.2 and Node; isolated experimental flags"]
++fn json_utf8_store_differential() {
++    for enabled in ["0", "1"] {
++        for minify in ["0", "1"] {
++            let result = Command::new(std::env::current_exe().unwrap())
++                .args([
++                    "--ignored",
++                    "--exact",
++                    "json_utf8_store_worker",
++                    "--nocapture",
++                ])
++                .env("DARTFORGE_JSON_UTF8_STORE_WORKER", minify)
++                .env("DARTFORGE_JSPROD_JSON_UTF8_STORE", enabled)
++                .env("DARTFORGE_JSPROD_FRESH_LIST_APPEND", "0")
++                .env("DARTFORGE_JSPROD_FRESH_LIST_APPEND_CLOSED", "0")
++                .output()
++                .unwrap();
++            assert!(
++                result.status.success(),
++                "enabled={enabled} minify={minify}\n{}\n{}",
++                String::from_utf8_lossy(&result.stdout),
++                String::from_utf8_lossy(&result.stderr)
++            );
++        }
++    }
++}
++
++#[test]
++#[ignore = "invoked by isolated JSON UTF8 differential parent"]
++fn json_utf8_store_worker() {
++    let Ok(minify) = std::env::var("DARTFORGE_JSON_UTF8_STORE_WORKER") else {
++        return;
++    };
++    let minify = minify == "1";
++    let enabled = std::env::var("DARTFORGE_JSPROD_JSON_UTF8_STORE").unwrap() == "1";
++    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
++        .join("../emit_js/tests/programs/json_utf8_store.dart");
++    let oracle = Command::new("dart")
++        .arg("run")
++        .arg(&source)
++        .output()
++        .unwrap();
++    assert!(
++        oracle.status.success(),
++        "{}",
++        String::from_utf8_lossy(&oracle.stderr)
++    );
++    let expected = String::from_utf8(oracle.stdout)
++        .unwrap()
++        .replace("\r\n", "\n");
++    let compiled = compile(&source, None, minify);
++    if !minify {
++        assert_eq!(
++            compiled.matches("/* certified JSON UTF8 store */").count(),
++            usize::from(enabled),
++            "actual SDK store must execute the experiment"
++        );
++    }
++    assert_eq!(
++        node(&compiled, ""),
++        expected,
++        "enabled={enabled} minify={minify}"
++    );
++    if enabled && !minify {
++        let foreign = compile(
++            &source.with_file_name("json_utf8_store_foreign.dart"),
++            None,
++            false,
++        );
++        assert!(!foreign.contains("/* certified JSON UTF8 store */"));
++        assert_eq!(node(&foreign, ""), "123,34,120,34,58,49,125\n");
++        #[cfg(unix)]
++        modified_sdk(&source, &expected);
++    }
++}
++
++fn compile(source: &Path, sdk: Option<&Path>, minify: bool) -> String {
++    dartforge_emit_js_production::compile_own_sdk(
++        source,
++        sdk,
++        None,
++        dartforge_emit_js_production::Options {
++            minify,
++            ..Default::default()
++        },
++        &Default::default(),
++    )
++    .expect("JSON UTF8 compilation")
++    .js
++}
++
++#[cfg(unix)]
++fn modified_sdk(source: &Path, expected: &str) {
++    let sdk = PathBuf::from(std::env::var_os("DARTFORGE_SDK_LIB").unwrap());
++    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/js-json-utf8-sdk");
++    std::fs::create_dir_all(&directory).unwrap();
++    for (label, changed) in [
++        ("lifecycle", Path::new("convert/json.dart")),
++        (
++            "native",
++            Path::new("_internal/js_dev_runtime/private/native_typed_data.dart"),
++        ),
++    ] {
++        let root = directory.join(format!(
++            "{label}-{}-{}",
++            std::process::id(),
++            std::time::SystemTime::now()
++                .duration_since(std::time::UNIX_EPOCH)
++                .unwrap()
++                .as_nanos()
++        ));
++        fn copy(from: &Path, to: &Path, relative: &Path, changed: &Path) {
++            if relative == changed {
++                let text = std::fs::read_to_string(from).unwrap();
++                let changed_text = if relative == Path::new("convert/json.dart") {
++                    text.replacen(
++                        "buffer[index++] = byte;",
++                        "buffer[index++] = byte; // changed lifecycle owner",
++                        1,
++                    )
++                } else {
++                    text.replacen("void operator []=(int index, int value) {","void operator []=(int index, int value) {\n    JS('void', r'globalThis.__jsonByteStores = (globalThis.__jsonByteStores || 0) + 1');",1)
++                };
++                assert_ne!(text, changed_text);
++                std::fs::write(to, changed_text).unwrap();
++            } else if relative == Path::new("convert/convert.dart") {
++                std::fs::copy(from, to).unwrap();
++            } else if changed.starts_with(relative)
++                || Path::new("convert/convert.dart").starts_with(relative)
++            {
++                std::fs::create_dir(to).unwrap();
++                for entry in std::fs::read_dir(from).unwrap() {
++                    let entry = entry.unwrap();
++                    copy(
++                        &entry.path(),
++                        &to.join(entry.file_name()),
++                        &relative.join(entry.file_name()),
++                        changed,
++                    );
++                }
++            } else {
++                std::os::unix::fs::symlink(from, to).unwrap();
++            }
++        }
++        copy(&sdk, &root, Path::new(""), changed);
++        let compiled = compile(source, Some(&root), false);
++        std::fs::remove_dir_all(&root).unwrap();
++        assert!(
++            !compiled.contains("/* certified JSON UTF8 store */"),
++            "modified {label} must retain actual checked dispatch"
++        );
++        let suffix = if label == "native" {
++            "if (!(globalThis.__jsonByteStores > 0)) throw Error('modified SDK setter did not execute');"
++        } else {
++            ""
++        };
++        assert_eq!(node(&compiled, suffix), expected, "modified {label}");
++    }
++}
++
++// Diagnostic only: preserve public error evidence independently of the failing
++// original VM/runtimeType comparison. The driver compares backend results.
++#[test]
++#[ignore = "invoked explicitly by the backend error-classification driver"]
++fn json_utf8_error_semantics_diagnostic() {
++    let Ok(directory) = std::env::var("DARTFORGE_JSON_UTF8_CLASSIFICATION_DIR") else {
++        return;
++    };
++    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
++        .join("../emit_js/tests/programs/json_utf8_error_semantics.dart");
++    let compiled = compile(&source, None, false);
++    let enabled = std::env::var("DARTFORGE_JSPROD_JSON_UTF8_STORE").is_ok_and(|v| v == "1");
++    assert_eq!(
++        compiled.matches("/* certified JSON UTF8 store */").count(),
++        usize::from(enabled),
++        "actual diagnostic store must exercise the experiment"
++    );
++    std::fs::create_dir_all(&directory).unwrap();
++    std::fs::write(Path::new(&directory).join("program.js"), &compiled).unwrap();
++    let output = node(&compiled, "");
++    std::fs::write(Path::new(&directory).join("program.stdout"), &output).unwrap();
++    print!("{output}");
++}

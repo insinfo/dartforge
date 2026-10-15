@@ -1,0 +1,7 @@
+{
+  "probe": "target/jit-eager-stubs-producer/20261015T031126.028682Z/probe",
+  "sha256": "fd1a15228e1ef136b6f60ffb7c3af46bf788fc2d11cd903ee95242460c921d79",
+  "eager_environment_key_present": true,
+  "eager_materialization_error_present": true,
+  "scope": "Actual linked native executable, plus OFF/ON small execution evidence in emission gate; this is not an inference from an unrelated stale rlib."
+}

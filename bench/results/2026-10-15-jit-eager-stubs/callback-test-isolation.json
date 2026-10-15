@@ -1,0 +1,17 @@
+{
+  "initial_parallel_gate": "gates/20261015T030151.812894Z/validation.json",
+  "first_failure": "ffi::callback_lifetime_tests::captured_closure_survives_replacement_before_callback_publication",
+  "assertion": "retained_generations expected 1 actual 2 before callback publication by this test",
+  "runtime_contract": "ffi_callback_code_owners.rs CallbackCodeRegistry::publish leases all active process owners because a managed closure can belong to a different session than the selected adapter",
+  "interference": "The sibling callback-lifetime test concurrently publishes a real callback. Its required conservative process-wide lease invalidates metadata-only assertions in the other test.",
+  "isolated_same_binary_gate": "gates/20261015T030726.325124Z/validation.json",
+  "fix": "Shared test-only mutex inside run_callback_lifetime; preserves runtime and exact assertions.",
+  "parallel_retry_gate": "gates/20261015T030746.466849Z/validation.json",
+  "retry_result": "45 passed, 0 failed with default parallel test runner; normal release lib build passed",
+  "eager_option": "Default OFF; opt-in DARTFORGE_JIT_EAGER_STUBS=1. Initial full-suite failure had option unset.",
+  "source_sha256": {
+    "crates/jit/src/ffi.rs": "29c576dc01f88898d323d20bc6493177a4d706f831c4446534ef840331c02132",
+    "crates/jit/src/reload.rs": "3313cedb35500c5a9373f2cbe3f64c6f41d9b974992e7ddf2b1fdcd4a93df35a",
+    "crates/runtime/src/ffi_callback_code_owners.rs": "f9d4be6b6efae375a20a5dfb02146a414d3520c219dce25d70c708e864a0dd5e"
+  }
+}

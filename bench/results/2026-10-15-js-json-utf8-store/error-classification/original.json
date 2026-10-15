@@ -1,0 +1,137 @@
+{
+  "source_sha256": "51dc0c7fc0148a550d128fcf8174a85f4c8ae758b4e1f82e50dab8625374ef17",
+  "profiles": [
+    {
+      "profile": "O2",
+      "compile": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "js",
+        "-O2",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/json_utf8_store.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-json-error-classification/original-O2.js"
+      ],
+      "run": [
+        "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1]);",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-json-error-classification/original-O2.js"
+      ],
+      "artifact_sha256": "3e88114db531d30801ef9fd2b8f75115c846ddf1732c908b209486566394fe44",
+      "differences_to_VM": [
+        {
+          "line": 31,
+          "actual": "size:-1:minified:E",
+          "VM": "size:-1:RangeError"
+        },
+        {
+          "line": 32,
+          "actual": "size:0:minified:aH",
+          "VM": "size:0:IndexError"
+        },
+        {
+          "line": 33,
+          "actual": "error:minified:a9",
+          "VM": "error:JsonUnsupportedObjectError"
+        },
+        {
+          "line": 34,
+          "actual": "error:minified:a9",
+          "VM": "error:JsonUnsupportedObjectError"
+        },
+        {
+          "line": 35,
+          "actual": "error:minified:aO",
+          "VM": "error:JsonCyclicError"
+        },
+        {
+          "line": 36,
+          "actual": "error:minified:a9",
+          "VM": "error:JsonUnsupportedObjectError"
+        },
+        {
+          "line": 37,
+          "actual": "error:minified:a9",
+          "VM": "error:JsonUnsupportedObjectError"
+        },
+        {
+          "line": 38,
+          "actual": "toEncodable:minified:a9",
+          "VM": "toEncodable:JsonUnsupportedObjectError"
+        },
+        {
+          "line": 39,
+          "actual": "callback:minified:aV:2",
+          "VM": "callback:StateError:2"
+        }
+      ]
+    },
+    {
+      "profile": "O4",
+      "compile": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "js",
+        "-O4",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/json_utf8_store.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-json-error-classification/original-O4.js"
+      ],
+      "run": [
+        "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1]);",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-json-error-classification/original-O4.js"
+      ],
+      "artifact_sha256": "f961247dc94875eb3b4cb3be503a892b4dec58e56adb9dc9e3b3819ab33e99dc",
+      "differences_to_VM": [
+        {
+          "line": 31,
+          "actual": "size:-1:minified:y",
+          "VM": "size:-1:RangeError"
+        },
+        {
+          "line": 32,
+          "actual": "size:0:ok",
+          "VM": "size:0:IndexError"
+        },
+        {
+          "line": 33,
+          "actual": "error:minified:Z",
+          "VM": "error:JsonUnsupportedObjectError"
+        },
+        {
+          "line": 34,
+          "actual": "error:minified:Z",
+          "VM": "error:JsonUnsupportedObjectError"
+        },
+        {
+          "line": 35,
+          "actual": "error:minified:aC",
+          "VM": "error:JsonCyclicError"
+        },
+        {
+          "line": 36,
+          "actual": "error:minified:Z",
+          "VM": "error:JsonUnsupportedObjectError"
+        },
+        {
+          "line": 37,
+          "actual": "error:minified:Z",
+          "VM": "error:JsonUnsupportedObjectError"
+        },
+        {
+          "line": 38,
+          "actual": "toEncodable:minified:Z",
+          "VM": "toEncodable:JsonUnsupportedObjectError"
+        },
+        {
+          "line": 39,
+          "actual": "callback:minified:aM:2",
+          "VM": "callback:StateError:2"
+        }
+      ]
+    }
+  ]
+}

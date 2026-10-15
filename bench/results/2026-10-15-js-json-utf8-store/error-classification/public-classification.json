@@ -1,0 +1,107 @@
+{
+  "scope": "Diagnostic error-classification, not a passing original VM comparison. Original failure preserved.",
+  "source_sha256": "86039d7ce0b4d457bcf730a414cbee4444b996c3fe0819d18f01ded96290a307",
+  "runtime_sha256": "28dc6b642e1b3736dda5a7c46f5cbfab056f5b3560f31f802ef7ef94744218ea",
+  "records": [
+    {
+      "profile": "forge-0",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "dartforge-emit-js-production",
+        "--test",
+        "json_utf8_store",
+        "json_utf8_error_semantics_diagnostic",
+        "--",
+        "--include-ignored",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0
+    },
+    {
+      "profile": "forge-1",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "dartforge-emit-js-production",
+        "--test",
+        "json_utf8_store",
+        "json_utf8_error_semantics_diagnostic",
+        "--",
+        "--include-ignored",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0
+    },
+    {
+      "profile": "VM",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "run",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/json_utf8_error_semantics.dart"
+      ],
+      "run": null,
+      "exit_code": 0
+    },
+    {
+      "profile": "O2",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "js",
+        "-O2",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/json_utf8_error_semantics.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-json-error-classification/classification-O2.js"
+      ],
+      "run": [
+        "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1]);",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-json-error-classification/classification-O2.js"
+      ],
+      "exit_code": 0
+    },
+    {
+      "profile": "O4",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "js",
+        "-O4",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js/tests/programs/json_utf8_error_semantics.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-json-error-classification/classification-O4.js"
+      ],
+      "run": [
+        "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1]);",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-json-error-classification/classification-O4.js"
+      ],
+      "exit_code": 0
+    },
+    {
+      "profile": "DDC",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/snapshots/dartdevc.dart.snapshot",
+        "--modules=es6",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-json-error-classification/classification-DDC.js",
+        "json_utf8_error_semantics.dart"
+      ],
+      "run": [
+        "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-json-error-classification/classification-DDC.mjs"
+      ],
+      "exit_code": 0
+    }
+  ]
+}

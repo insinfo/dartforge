@@ -1,0 +1,12 @@
+{
+  "emit_js_library": 4,
+  "production_library": 68,
+  "production_integrations": 20,
+  "total_passed": 92,
+  "failed": 0,
+  "ignored": 0,
+  "test_commands_exit_zero": true,
+  "sources_unchanged": true,
+  "js_source_diff_after_gate": "",
+  "release_status": "JSON experiment source rolled back. Committed fresh-list V2 preserved. Only evidence/archive files remain from this task; no new JSON production feature or performance claim."
+}

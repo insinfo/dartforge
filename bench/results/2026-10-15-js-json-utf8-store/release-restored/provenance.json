@@ -1,0 +1,11 @@
+{
+  "head": "80803d8987001d7e137067fd42c337b3269abcb7",
+  "node": "v24.21.0",
+  "env": {
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_TARGET_DIR": "target/p4",
+    "TMPDIR": "/Volumes/ssd_dock/tmp/dartforge-js-fresh-list",
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_JSPROD_JSON_UTF8_STORE": "0"
+  }
+}

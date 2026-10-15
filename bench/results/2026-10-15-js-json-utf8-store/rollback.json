@@ -1,0 +1,37 @@
+{
+  "decision": "Uncommitted JSON UTF8 experiment removed for release; committed V2 remains unchanged. No JSON optimization performance claim or default enable. Original VM/runtimeType failing probe and upstream JS public-classification diagnostics remain evidence, not normalized passes.",
+  "head": "80803d8987001d7e137067fd42c337b3269abcb7",
+  "restored_tracked_paths": [
+    "crates/emit_js/src/expr.rs",
+    "crates/emit_js/src/fresh_list_append.rs",
+    "crates/emit_js/src/lib.rs",
+    "crates/emit_js/src/own_sdk.rs"
+  ],
+  "removed_new_source_paths": [
+    "crates/emit_js/src/json_utf8_store.rs",
+    "crates/emit_js/tests/programs/json_utf8_error_semantics.dart",
+    "crates/emit_js/tests/programs/json_utf8_store.dart",
+    "crates/emit_js/tests/programs/json_utf8_store_foreign.dart",
+    "crates/emit_js_production/tests/json_utf8_store.rs"
+  ],
+  "source_sha256_before_rollback": {
+    "crates/emit_js/src/expr.rs": "b80d70017f9fa9e50eed29d181a427ac47bb488acd8d6879d25e3d911b454306",
+    "crates/emit_js/src/fresh_list_append.rs": "180b601036ed028cc1cdffb236951b7b1d4b0f83810b64455ab43e9b5c3687da",
+    "crates/emit_js/src/lib.rs": "d8a11eda94edfdfca2ee63f0e8d250bd8e28db1a9f1bb5057c85b3b5acdff7df",
+    "crates/emit_js/src/own_sdk.rs": "f3f814f9e6a433a675bffc426ed8048354d4fc75861b440198f034aac2c1767c",
+    "crates/emit_js/src/json_utf8_store.rs": "1dac8ca630946e6165cce8242ca6eaa95ce4d680af4bef0e5fa13b412cae9d57",
+    "crates/emit_js/tests/programs/json_utf8_error_semantics.dart": "86039d7ce0b4d457bcf730a414cbee4444b996c3fe0819d18f01ded96290a307",
+    "crates/emit_js/tests/programs/json_utf8_store.dart": "51dc0c7fc0148a550d128fcf8174a85f4c8ae758b4e1f82e50dab8625374ef17",
+    "crates/emit_js/tests/programs/json_utf8_store_foreign.dart": "6232ef5d03c5f2bbf9437db2e82247e3af316ca6d519f6a474e974489184949b",
+    "crates/emit_js_production/tests/json_utf8_store.rs": "62759b4c0f5e5bb42551f3383bf048369f8b7db7f2dca28cccb29fcc04e05694"
+  },
+  "restored_exact_HEAD": {
+    "crates/emit_js/src/expr.rs": true,
+    "crates/emit_js/src/fresh_list_append.rs": true,
+    "crates/emit_js/src/lib.rs": true,
+    "crates/emit_js/src/own_sdk.rs": true
+  },
+  "new_source_removed": true,
+  "patch_sha256": "0b9cc6220456d4280722d9315c7d7c1d518a556339d4f41720bc5dd082ffec34",
+  "scope": "Only agent-owned uncommitted JS JSON experiment reverted; CLI/JIT/native and committed fresh-list V2 untouched."
+}

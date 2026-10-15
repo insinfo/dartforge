@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Release (pre-release if the tag has a hyphen)
+      - name: Prepare a draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -39,7 +39,7 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then exit 0; fi
           pre=()
           case "$TAG" in *-*) pre=(--prerelease) ;; esac
-          gh release create "$TAG" "${pre[@]}" --verify-tag --title "DartForge $TAG" --notes-file - <<'EOF'
+          gh release create "$TAG" "${pre[@]}" --draft --verify-tag --title "DartForge $TAG" --notes-file - <<'EOF'
           Experimental build of DartForge, a Dart → JavaScript and native (LLVM) compiler written in Rust.
 
           Each archive is a self-contained distribution: `bin/dartforge` plus the runtime, the Dart SDK
@@ -136,3 +136,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" "$ARCHIVE" --clobber
+
+  publish:
+    name: publish the validated release
+    needs: [create, package]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish after all platform packages pass
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release edit "$TAG" --draft=false

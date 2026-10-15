@@ -1,0 +1,18 @@
+{
+  "scope": "Diagnostic only, unshipped experiment. Preserve original failing probe; do not classify it as passing VM parity.",
+  "current_Forge_OFF_ON_DDC_O2_public_error_output_exact": true,
+  "negative_length_public_error": "ForgeOFF/ON, official DDC and dart2jsO2/O4: RangeError false, ArgumentError true, Error true. VM: RangeError true as well.",
+  "zero_buffer_public_error": "ForgeOFF/ON/DDC/O2: IndexError and RangeError/ArgumentError/Error true; O4 unchecked returns ok.",
+  "original_fixture": "Original 40-line VM/ForgeOFF fixture failed only line31 runtimeType name JSRangeError versus RangeError; all30 byte/chunk output lines and remaining9 output lines exact. Original upstream O2/O4 runtimeType names are minified and O4 omits zero-size bounds error.",
+  "source_cause": "Both selected DDC and dart2js native typed-data _checkLength verify int but not nonnegative length; JS native RangeError adapter implements ArgumentError. Backend behavior differs from VM.",
+  "new_optimization_positive": "Targeted ON AST store actually emitted1site and public error diagnostic output exactlyOFF; this is not full correctness/performance validation.",
+  "release_decision": "Experiment rolled back from production source; exact patch and sources archived. Committed V2 fresh-list remains unchanged.",
+  "stdout_sha256": {
+    "forge-0": "ec496aa089715e614dade69fac45579c8baf49ff140f99b24126638a11eba917",
+    "forge-1": "ec496aa089715e614dade69fac45579c8baf49ff140f99b24126638a11eba917",
+    "VM": "8bce195f3ee9417e954d30e6caefb0eeb926e2804abe86cf9c97220d0171820a",
+    "O2": "ec496aa089715e614dade69fac45579c8baf49ff140f99b24126638a11eba917",
+    "O4": "65bd808f436559d19182d8a78652c3ead253d975b4386c686f640932f1559746",
+    "DDC": "ec496aa089715e614dade69fac45579c8baf49ff140f99b24126638a11eba917"
+  }
+}

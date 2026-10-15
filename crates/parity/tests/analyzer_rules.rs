@@ -852,10 +852,9 @@ fn internal_is_the_meta_getter() {
     std::fs::create_dir_all(root.join("lib/src")).unwrap();
     std::fs::create_dir_all(root.join(".dart_tool")).unwrap();
     std::fs::write(root.join("pubspec.yaml"), "name: interno\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
-    let meta = std::fs::canonicalize(repo.join("corpus/diagnostics/pacotes/meta")).unwrap();
     let cfg = serde_json::json!({ "configVersion": 2, "packages": [
         { "name": "interno", "rootUri": "../", "packageUri": "lib/", "languageVersion": "3.6" },
-        { "name": "meta", "rootUri": format!("file://{}", meta.display()), "packageUri": "lib/", "languageVersion": "2.12" },
+        { "name": "meta", "rootUri": "../../../../corpus/diagnostics/pacotes/meta/", "packageUri": "lib/", "languageVersion": "2.12" },
     ]});
     std::fs::write(root.join(".dart_tool/package_config.json"), cfg.to_string()).unwrap();
     std::fs::write(root.join("lib/src/i.dart"), "class _I { const _I(); }\nconst internal = _I();\n").unwrap();
@@ -890,10 +889,9 @@ fn literal_constructor_in_a_constant_context() {
     std::fs::create_dir_all(root.join("lib")).unwrap();
     std::fs::create_dir_all(root.join(".dart_tool")).unwrap();
     std::fs::write(root.join("pubspec.yaml"), "name: literal\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
-    let meta = std::fs::canonicalize(repo.join("corpus/diagnostics/pacotes/meta")).unwrap();
     let cfg = serde_json::json!({ "configVersion": 2, "packages": [
         { "name": "literal", "rootUri": "../", "packageUri": "lib/", "languageVersion": "3.6" },
-        { "name": "meta", "rootUri": format!("file://{}", meta.display()), "packageUri": "lib/", "languageVersion": "2.12" },
+        { "name": "meta", "rootUri": "../../../../corpus/diagnostics/pacotes/meta/", "packageUri": "lib/", "languageVersion": "2.12" },
     ]});
     std::fs::write(root.join(".dart_tool/package_config.json"), cfg.to_string()).unwrap();
     std::fs::write(

@@ -1,0 +1,17 @@
+{
+  "release_scope": "Only validated JIT compiler changes are shipped; eager stubs remain opt-in and default OFF.",
+  "tested": [
+    "targeted eager rollback regression passed",
+    "45 parallel JIT library tests passed",
+    "actual split link probe OFF/ON returned 10",
+    "original File Explorer IR emitted without executing main"
+  ],
+  "not_measured": [
+    "large saved-IR OFF/ON linking benchmark was cancelled before start for release closeout"
+  ],
+  "unexecuted_harness": {
+    "path": "measure.py",
+    "status": "syntax-checked only; not release acceptance or performance evidence",
+    "sha256": "160de7572dfee53c59051b3caca43ae74b54ef2a8dd80a4135665f315728c8ad"
+  }
+}

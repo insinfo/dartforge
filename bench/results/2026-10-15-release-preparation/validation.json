@@ -1,0 +1,11 @@
+{
+  "scope": "Portable package_config URI fixtures; all original analyzer assertions preserved. Windows CI still requires remote confirmation.",
+  "source": "crates/parity/tests/analyzer_rules.rs",
+  "source_sha256": "894604b785093d9532b2fd7384005cf58e854ccde11c08564020a1f3da133301",
+  "test_target": "dartforge-parity analyzer_rules",
+  "passed": 4,
+  "failed": 0,
+  "prior_failure_run": "https://github.com/insinfo/dartforge/actions/runs/38446773944",
+  "log_sha256": "6530e835d5b69d5d774c20220348cb3827871bf97fa64319feed8888975ca318",
+  "release_workflow_validation": "Ruby YAML parse passed; final publish needs create and all platform package jobs; draft until then."
+}
