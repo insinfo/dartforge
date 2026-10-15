@@ -1,0 +1,19 @@
+   Compiling bitflags v2.13.2
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-runtime` (build script) generated 1 warning
+   Compiling security-framework v3.7.0
+   Compiling rustls-native-certs v0.8.4
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+warning: `dartforge-runtime` (test "dart_ports") generated 1 warning (1 duplicate)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 19.40s
+     Running tests/dart_ports.rs (target/jit-readiness-build/debug/deps/dart_ports-e916a49dc5434281)
+
+running 2 tests
+test the_list_has_no_dead_entry ... ok
+test every_fn_transmute_outside_ports_is_listed ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

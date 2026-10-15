@@ -1,0 +1,15 @@
+{
+  "exit": 0,
+  "passed": 2,
+  "failed": 0,
+  "ignored": 0,
+  "source_unchanged": true,
+  "source_after_sha256": {
+    "crates/runtime/tests/dart_ports.rs": "4aee0a1124b90efb87ea94b9322b172d036912fa9a162f18bc20e48b92101503",
+    "crates/runtime/src/isolates.rs": "af6f791596ef9d0614592ef9d5cffd70c7880cc1fe85fec9e3f8c5192df086a8",
+    "crates/runtime/src/events.rs": "1be26c16dfef9a024bbc6380ae7c16174694c65c69405f3753f10a71957b0490"
+  },
+  "head": "47f413caa6178963182cf9fc9845d65c56342541",
+  "change": "Remove only the obsolete isolates.rs transmute allowlist entry after typed IsolateEntrypoints registration replaced the conversion; both exhaustive checks retained",
+  "test_binary_sha256": "36bfdbc47dc6a4cc6a3480af553a11a6865fff527173dbc0dde6af0748eed5e7"
+}

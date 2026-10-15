@@ -1,0 +1,28 @@
+2026-10-15T04:36:15.3436678Z 
+2026-10-15T04:36:15.3438614Z test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-10-15T04:36:15.3439041Z 
+2026-10-15T04:36:15.3455650Z [1m[92m     Running[0m tests\dart_ports.rs (target\debug\deps\dart_ports-9b97388765a82a32.exe)
+2026-10-15T04:36:15.3611363Z 
+2026-10-15T04:36:15.3611674Z running 2 tests
+2026-10-15T04:36:15.3628498Z test the_list_has_no_dead_entry ... FAILED
+2026-10-15T04:36:15.3672655Z test every_fn_transmute_outside_ports_is_listed ... ok
+2026-10-15T04:36:15.3673060Z 
+2026-10-15T04:36:15.3673570Z failures:
+2026-10-15T04:36:15.3673701Z 
+2026-10-15T04:36:15.3673877Z ---- the_list_has_no_dead_entry stdout ----
+2026-10-15T04:36:15.3674103Z 
+2026-10-15T04:36:15.3674740Z thread 'the_list_has_no_dead_entry' (6764) panicked at crates\runtime\tests\dart_ports.rs:63:9:
+2026-10-15T04:36:15.3676437Z isolates.rs: the entry (the address goes on to the event loop, which calls through the port (`dart_r1`)) no longer matches anything: remove it from the list
+2026-10-15T04:36:15.3677831Z note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+2026-10-15T04:36:15.3678377Z 
+2026-10-15T04:36:15.3678399Z 
+2026-10-15T04:36:15.3678550Z failures:
+2026-10-15T04:36:15.3678933Z     the_list_has_no_dead_entry
+2026-10-15T04:36:15.3679245Z 
+2026-10-15T04:36:15.3679865Z test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+2026-10-15T04:36:15.3681366Z 
+2026-10-15T04:36:15.3732419Z [1m[91merror[0m: test failed, to rerun pass `-p dartforge-runtime --test dart_ports`
+2026-10-15T04:36:15.3733589Z [1m[92m     Running[0m tests\ownership.rs (target\debug\deps\ownership-35761c55dde5b18f.exe)
+2026-10-15T04:36:15.3904853Z 
+2026-10-15T04:36:15.3905202Z running 7 tests
+2026-10-15T04:36:15.3922127Z test callback_code_owners_use_native_metadata_without_managed_ownership ... ok
