@@ -453,7 +453,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         (self.js_null_check(Js::prim(format!("{}{access}({})", recv.at(P_PRIMARY), args.join(", "))), &m.kind), ret)
                     }
                     MemberKind::Method(_) => {
+                        let fresh = if !is_super && name == "add" { self.fresh_append_fact(node, recv_ty, arguments) } else { None };
                         let (args, ret, targs) = self.emit_args_for(&mty, arguments, expected);
+                        if let Some(fact) = fresh.filter(|_| args.len() == 1 && targs.is_empty()) {
+                            let helper = crate::fresh_list_append::helper_name(self.ctx);
+                            let list = self.temp();
+                            if fact.closed_window {
+                                let callee = self.temp();
+                                return (Js::prim(format!("({list} = {}, {callee} = {list}{access}, {helper}.appendClosed({}, {list}, {callee}, {}))", recv.at(P_PRIMARY), fact.token, args[0])), ret);
+                            }
+                            let before = self.temp();
+                            let callee = self.temp();
+                            return (Js::prim(format!("({list} = {}, {before} = {helper}.ready({}, {list}), {callee} = {list}{access}, {helper}.append({}, {list}, {callee}, {before}, {}))", recv.at(P_PRIMARY), fact.token, fact.token, args[0])), ret);
+                        }
                         let mut all = targs;
                         all.extend(args);
                         if is_super && self.async_kind != AsyncKind::None {

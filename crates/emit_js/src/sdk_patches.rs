@@ -147,24 +147,60 @@ pub fn apply(sdk: &mut SdkLayout, dir: &Path) {
         if sdk.replacements.contains_key(&original) {
             continue;
         }
-        let Ok(mut text) = std::fs::read_to_string(&original) else { continue };
-        let mut changed = false;
-        for (old, new) in edits {
-            // CRLF checkouts of the SDK: the patch is written with `\n`.
-            let crlf = text.contains("\r\n");
-            let (old, new) = if crlf { (old.replace('\n', "\r\n"), new.replace('\n', "\r\n")) } else { (old.to_string(), new.to_string()) };
-            if text.matches(&old).count() == 1 {
-                text = text.replacen(&old, &new, 1);
-                changed = true;
-            }
-        }
-        if !changed {
+        let Ok(text) = std::fs::read_to_string(&original) else {
             continue;
-        }
+        };
+        let Some(text) = apply_edits(&text, &edits) else {
+            continue;
+        };
         if let Some(path) = write_by_content(dir, file, &text) {
             sdk.replacements.insert(original, path);
         }
     }
+}
+
+/// Recover the canonical source only for a byte-exact current compiler overlay.
+/// The caller must still verify the recovered canonical source's identity.
+pub(crate) fn original_if_current_patch(file: &str, selected: &str) -> Option<String> {
+    if std::env::var("DARTFORGE_JSPROD_SDK_PATCHES").is_ok_and(|v| v == "0") {
+        return None;
+    }
+    let edits: Vec<_> = PATCHES
+        .iter()
+        .filter(|(switch, path, _, _)| {
+            *path == file && !switch.is_some_and(|v| std::env::var(v).is_ok_and(|v| v == "0"))
+        })
+        .map(|(_, _, old, new)| (*old, *new))
+        .collect();
+    reverse_and_roundtrip(selected, &edits)
+}
+
+fn reverse_and_roundtrip(selected: &str, edits: &[(&str, &str)]) -> Option<String> {
+    let mut canonical = selected.to_owned();
+    for &(old, new) in edits.iter().rev() {
+        if canonical.matches(new).count() == 1 {
+            canonical = canonical.replacen(new, old, 1);
+        }
+    }
+    (apply_edits(&canonical, edits)?.as_str() == selected).then_some(canonical)
+}
+
+fn apply_edits(source: &str, edits: &[(&str, &str)]) -> Option<String> {
+    let mut text = source.to_owned();
+    let mut changed = false;
+    for &(old, new) in edits {
+        let crlf = text.contains("\r\n");
+        let (old, new) = if crlf {
+            (old.replace('\n', "\r\n"), new.replace('\n', "\r\n"))
+        } else {
+            (old.to_owned(), new.to_owned())
+        };
+        if text.matches(&old).count() == 1 {
+            text = text.replacen(&old, &new, 1);
+            changed = true;
+        }
+    }
+    changed.then_some(text)
 }
 
 /// Resolves `.` and `..` lexically, like the key of the overlay
@@ -206,6 +242,28 @@ fn write_by_content(dir: &Path, file: &str, text: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::PATCHES;
+
+    #[test]
+    fn inverse_requires_complete_exact_roundtrip() {
+        let edits = [
+            ("first-original", "first-patched"),
+            ("second-original", "second-patched"),
+        ];
+        let original = "first-original; second-original";
+        let selected = super::apply_edits(original, &edits).unwrap();
+        assert_eq!(
+            super::reverse_and_roundtrip(&selected, &edits).as_deref(),
+            Some(original)
+        );
+        assert!(super::reverse_and_roundtrip("first-patched; second-original", &edits).is_none());
+        assert!(super::reverse_and_roundtrip("first-original; second-patched", &edits).is_none());
+        assert!(super::reverse_and_roundtrip(original, &edits).is_none());
+        let mutated = format!("{selected}; unexpected-mutation");
+        assert_ne!(
+            super::reverse_and_roundtrip(&mutated, &edits).as_deref(),
+            Some(original)
+        );
+    }
 
     #[test]
     fn every_patch_changes_its_text() {

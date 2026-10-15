@@ -1,0 +1,18 @@
+{
+  "Cargo.lock": "23fbdedda87138cab7ac45511adceef5669968ff882a32b4c702d6792cce18fa",
+  "crates/emit_js/Cargo.toml": "c76997555929d80b8ec27286ccbc31196bb5f7bf33d48a9b7cfdfba703ced012",
+  "crates/emit_js/src/body.rs": "00a9c8a8f7ce884a5d7976da8a572913afde39a32de9117a54a34c5866f056e4",
+  "crates/emit_js/src/call.rs": "2f809716116da8202d6b746773c1b23e394b7a6ab25dbe4f36dbf0e7e49fd3f4",
+  "crates/emit_js/src/expr.rs": "5ab4ee3b0412545cdfa6cffe2a97fa94e39d000ce1726f8928774503b8d76cc9",
+  "crates/emit_js/src/lib.rs": "6911fc85bd15bfb9860154af77130c143fa5d77d7638f9ed9b15afa0d852e0f0",
+  "crates/emit_js/src/module.rs": "f6f8e24523a9e9a80db214c2a1005f0f144f9b893a6545b61ecf84aa51aceef9",
+  "crates/emit_js/src/own_sdk.rs": "c6e93a3bd4c006b8a6c3e9d7f1990cb9b66e8155dcf5cbda05b89bf4ce6cdf9c",
+  "crates/emit_js/src/fresh_list_append.rs": "5200c9c0770bc7033b96c16c9dff0f0266851e262eb9c94798d5f8afce89f63e",
+  "crates/emit_js/src/fresh_list_sdk_sources.rs": "37b537ee103a58930e63f1f9a480fcc57351fb288f6ee7b6e8c10eeed204e314",
+  "crates/emit_js/tests/programs/fresh_list_append.dart": "fc7f096446d7c70a975d322e8aef067757062342bc85b831183fb4230ef42ca7",
+  "crates/emit_js/tests/programs/fresh_list_append_foreign.dart": "e5fc4a9b14e6f395a01a8a900d002bc95e9caff0234081763dcb8fdad51221a8",
+  "crates/emit_js_production/tests/fresh_list_append.rs": "8105d40a0b1159d0359d8bf219b37a3e2d14998350cdd730c9d889452f82c5fe",
+  "crates/emit_js/src/sdk_patches.rs": "fb151c7ce3e2d32c803ac97cb2d206b6d94fa7162d4b836bfba4ef45f7d893c3",
+  "crates/emit_js/src/closed_list_window.rs": "2b5858e90316f70eb17ccd2256208c2d3deb50628098f990b8c46c21004dc3c3",
+  "crates/emit_js/tests/programs/fresh_list_append_closed.dart": "fbdb2d85328f56f657fe9318dc686e49385e89c8e7611acd4a92777eeeadbe25"
+}

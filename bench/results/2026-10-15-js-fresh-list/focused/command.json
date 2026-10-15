@@ -1,0 +1,19 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "dartforge-emit-js-production",
+    "--test",
+    "fresh_list_append",
+    "--no-run"
+  ],
+  "env": {
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_TARGET_DIR": "target/p4",
+    "TMPDIR": "/Volumes/ssd_dock/tmp/dartforge-js-fresh-list",
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "PUB_CACHE": "/Volumes/ssd_dock/tools/pub-cache"
+  }
+}

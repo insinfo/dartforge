@@ -1,0 +1,38 @@
+{
+  "profiles": {
+    "forge_off": {
+      "bytes": 48938,
+      "gzip9_bytes": 17053,
+      "median_us": 75820,
+      "min_us": 73402,
+      "max_us": 88905,
+      "compile_wall_sample_seconds": 0.16867100000000013
+    },
+    "forge_on": {
+      "bytes": 49644,
+      "gzip9_bytes": 17408,
+      "median_us": 276007,
+      "min_us": 262705,
+      "max_us": 306931,
+      "compile_wall_sample_seconds": 0.19404
+    },
+    "O2": {
+      "bytes": 35301,
+      "gzip9_bytes": 11750,
+      "median_us": 44567,
+      "min_us": 39582,
+      "max_us": 51806,
+      "compile_wall_sample_seconds": 0.975012083
+    },
+    "O4": {
+      "bytes": 33352,
+      "gzip9_bytes": 11004,
+      "median_us": 37022,
+      "min_us": 35365,
+      "max_us": 40930,
+      "compile_wall_sample_seconds": 0.6969353749999998
+    }
+  },
+  "decision": "Do not enable the per-append-descriptor experiment;3.6403x runtime regression on the measured fresh-object List workload.",
+  "measurement_scope": "11separate Node processes per profile,rotated profile order,exact normalized VM/raw/min/O2/O4 checksum4813794. This is not a whole-application or compile-time benchmark."
+}

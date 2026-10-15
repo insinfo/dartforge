@@ -9,6 +9,8 @@ pub mod type_check;
 mod typed_loops;
 mod typed_read_guards;
 mod counter_loops;
+mod fresh_list_append;
+mod closed_list_window;
 pub mod ctx;
 pub mod expr;
 pub mod filter;

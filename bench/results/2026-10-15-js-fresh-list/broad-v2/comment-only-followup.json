@@ -1,0 +1,12 @@
+{
+  "crates/emit_js/src/body.rs": {
+    "tested_sha256": "00a9c8a8f7ce884a5d7976da8a572913afde39a32de9117a54a34c5866f056e4",
+    "committed_sha256": "0b6581d481193f3172d0ad25d8a63e1fe3a5c1cfad07b6bf90f0b0c3027af791",
+    "only_change": "Correct field documentation association; executable Rust tokens unchanged."
+  },
+  "crates/emit_js/src/own_sdk.rs": {
+    "tested_sha256": "c6e93a3bd4c006b8a6c3e9d7f1990cb9b66e8155dcf5cbda05b89bf4ce6cdf9c",
+    "committed_sha256": "d56634d24df7dbf54dfa5367242cf3f063f3783611d9c95f390726380332d0d1",
+    "only_change": "Correct field documentation association; executable Rust tokens unchanged."
+  }
+}

@@ -1,0 +1,254 @@
+{
+  "samples": {
+    "forge_off": [
+      {
+        "kernel_microseconds": 74386,
+        "process_wall_seconds": 0.118070583
+      },
+      {
+        "kernel_microseconds": 68593,
+        "process_wall_seconds": 0.09916274999999997
+      },
+      {
+        "kernel_microseconds": 69534,
+        "process_wall_seconds": 0.10027741700000004
+      },
+      {
+        "kernel_microseconds": 69744,
+        "process_wall_seconds": 0.102852583
+      },
+      {
+        "kernel_microseconds": 70030,
+        "process_wall_seconds": 0.10021033300000015
+      },
+      {
+        "kernel_microseconds": 68601,
+        "process_wall_seconds": 0.11351754199999986
+      },
+      {
+        "kernel_microseconds": 68135,
+        "process_wall_seconds": 0.10029149999999998
+      },
+      {
+        "kernel_microseconds": 69956,
+        "process_wall_seconds": 0.10059237500000018
+      },
+      {
+        "kernel_microseconds": 68349,
+        "process_wall_seconds": 0.09903687499999991
+      },
+      {
+        "kernel_microseconds": 68511,
+        "process_wall_seconds": 0.0993296250000002
+      },
+      {
+        "kernel_microseconds": 69760,
+        "process_wall_seconds": 0.10078366699999997
+      }
+    ],
+    "forge_on": [
+      {
+        "kernel_microseconds": 30212,
+        "process_wall_seconds": 0.059946834000000004
+      },
+      {
+        "kernel_microseconds": 29092,
+        "process_wall_seconds": 0.05900529200000004
+      },
+      {
+        "kernel_microseconds": 29850,
+        "process_wall_seconds": 0.060444874999999954
+      },
+      {
+        "kernel_microseconds": 29323,
+        "process_wall_seconds": 0.06085583299999997
+      },
+      {
+        "kernel_microseconds": 28918,
+        "process_wall_seconds": 0.05927912499999999
+      },
+      {
+        "kernel_microseconds": 29509,
+        "process_wall_seconds": 0.058677917000000024
+      },
+      {
+        "kernel_microseconds": 29962,
+        "process_wall_seconds": 0.05928983299999979
+      },
+      {
+        "kernel_microseconds": 29898,
+        "process_wall_seconds": 0.05854191600000025
+      },
+      {
+        "kernel_microseconds": 30175,
+        "process_wall_seconds": 0.059660958000000264
+      },
+      {
+        "kernel_microseconds": 30003,
+        "process_wall_seconds": 0.061300416999999996
+      },
+      {
+        "kernel_microseconds": 29182,
+        "process_wall_seconds": 0.05907383399999988
+      }
+    ],
+    "O2": [
+      {
+        "kernel_microseconds": 40332,
+        "process_wall_seconds": 0.07001670799999998
+      },
+      {
+        "kernel_microseconds": 41924,
+        "process_wall_seconds": 0.07783762500000002
+      },
+      {
+        "kernel_microseconds": 40526,
+        "process_wall_seconds": 0.07085112500000001
+      },
+      {
+        "kernel_microseconds": 39447,
+        "process_wall_seconds": 0.069487458
+      },
+      {
+        "kernel_microseconds": 40549,
+        "process_wall_seconds": 0.071639542
+      },
+      {
+        "kernel_microseconds": 40201,
+        "process_wall_seconds": 0.06973529199999984
+      },
+      {
+        "kernel_microseconds": 40075,
+        "process_wall_seconds": 0.06962316700000004
+      },
+      {
+        "kernel_microseconds": 41166,
+        "process_wall_seconds": 0.07131808400000006
+      },
+      {
+        "kernel_microseconds": 38053,
+        "process_wall_seconds": 0.06803520799999996
+      },
+      {
+        "kernel_microseconds": 40238,
+        "process_wall_seconds": 0.07161291699999994
+      },
+      {
+        "kernel_microseconds": 41115,
+        "process_wall_seconds": 0.07060099999999991
+      }
+    ],
+    "O4": [
+      {
+        "kernel_microseconds": 31566,
+        "process_wall_seconds": 0.060993874999999975
+      },
+      {
+        "kernel_microseconds": 33275,
+        "process_wall_seconds": 0.06375841699999996
+      },
+      {
+        "kernel_microseconds": 31320,
+        "process_wall_seconds": 0.05989862499999998
+      },
+      {
+        "kernel_microseconds": 32166,
+        "process_wall_seconds": 0.06168600000000013
+      },
+      {
+        "kernel_microseconds": 32403,
+        "process_wall_seconds": 0.061565042000000014
+      },
+      {
+        "kernel_microseconds": 31773,
+        "process_wall_seconds": 0.06046870900000001
+      },
+      {
+        "kernel_microseconds": 32622,
+        "process_wall_seconds": 0.061280124999999686
+      },
+      {
+        "kernel_microseconds": 32052,
+        "process_wall_seconds": 0.06062058400000003
+      },
+      {
+        "kernel_microseconds": 33234,
+        "process_wall_seconds": 0.06477441600000011
+      },
+      {
+        "kernel_microseconds": 33376,
+        "process_wall_seconds": 0.06402412499999999
+      },
+      {
+        "kernel_microseconds": 32662,
+        "process_wall_seconds": 0.061800415999999636
+      }
+    ]
+  },
+  "medians_us": {
+    "forge_off": 69534,
+    "forge_on": 29850,
+    "O2": 40332,
+    "O4": 32403
+  },
+  "stdout_sha256": {
+    "forge_off": [
+      "9f15b22c8c18528c60846ed64c60929bc4c418666c72a6db3345c916a21436f8",
+      "5f9a1af6ff8d71eb515af35cb5061d83a4917d2cea23a068a4f591891bcf7021",
+      "64421627e71de24bf3be6c853e0121d0f1ef39965976ec88a8a0c756acd543ec",
+      "26eb96fda1b4ce100fa602bf34f6b27b44d005ae7ed83d1e74bb82735b8accae",
+      "bec01687f97ab6bfc104306ea777cd5cf4736355b6573c9c0aa7e075d04a4584",
+      "189567793e00f074fbb89757c516722bb7165bd815a7d0cfe9f282fdf964c20a",
+      "6b88d772ce14a1ddb5319715d558dfddd65f1d5e6c52565c5d35278237fc6d5e",
+      "aa6cc4f3e1ad27ad87bcca8343f4c52afa510f634d8543485b39a2f0a631a9d8",
+      "76eb84cbe0a5e4d93a5b8d31beb6db0e34f551a416ee085e6f6aafecfdfb02ea",
+      "91a272be424b5c386c977a179eb83d2009d3102bec33947df1cd2957ca9118eb",
+      "7f76a08f9779cab73fc78bbd21ef943bd5806fa6a408db4702b990aa5c564fa2"
+    ],
+    "forge_on": [
+      "d39e30168698c4a982807b42bc2b39481c5096d8e3d75fba15143850088d192c",
+      "d506cc0234180dd1d14796c1eb303a3c957a9eeeb5a2f758bb0eabf69400a701",
+      "8cb0f8a5e845d5aee4908217825a6ff14faabea49ee0e450d8b0d8df2e93be1b",
+      "77c3342aee523a34a2ec50516c75ec1be348cbe261da5882cf2dd2dcff27c849",
+      "52e324880aba53352ee1430b8901054b99100b526711dab88ec75a74acbc6db1",
+      "ecb7d7e4db5fcad77363327d254b1fb1159a995c4e0cd1bdec0f914c31c67893",
+      "2762b48a966ae4756c368ca99e6f319a2ae9782dd862342a9942551067978227",
+      "d7a24362c1525a77b70c5b68e3a1dea13077ad43df0bad8653b2dee811a3e21c",
+      "895ec77134f4ccdfbf50467018ce8a81884aecd5923d1c50cd3e9e7ed0debe16",
+      "929d146b1f65517a78a6a448aed45626ab09359247e183b565a8b1b19b2be43b",
+      "1dd6ece3d6b07415b0b9757506befa279efde6447b56d5a621177cd8c6d3ec3f"
+    ],
+    "O2": [
+      "893a8f5a8fdb680b05dc90834a078afd60645fb83dff2bcbb2eb46afa2141cd6",
+      "7aa80efa5133d9b0c3121c169448f69c65ea18f344b56e65c1ed6f2e9a84a2e9",
+      "b094bf00439c6eb04c2d852b8b117889bf88ce1201390277a394ee0432885356",
+      "e5e05cce31aae76bf6e405332334e92042be8d55178f539c471b78a592a317e6",
+      "de65e85508feb6a6635db85f8b56fa7df16eed3a412b72b47d1187382b8d64ef",
+      "013810cb488e0839403ddb3310c5523ca4a41ed34ddedd6bb003e97ed9612567",
+      "71eb1146b3ad6f15a749772a6d44e883e9bb493db8ff9dac6aafe02253b241e2",
+      "78e70f624673c77a7ccc387693b755cc39217f9e9100be5f6eb092becc5b952b",
+      "f9894dbc6c3ea051fd77382f24a10f6a440e6e1e49ef7fedeef1adaf09e0bc9a",
+      "7aae715c368ec08177675c849e45028ef61e3dec75b127cf44e7d367f816a642",
+      "d787a824b0e29ebebf67b7efde8b5da9fc20f6d5911ffeb8a250945ce5bdeaf7"
+    ],
+    "O4": [
+      "5f4f5d411e1820428484da8202930a20bad49443fd77006b989091d938c5a164",
+      "b941caccff44d1a123252231eeae543286b0a188c23c1924a9ec8c475538db90",
+      "e47668593e05c5127034cae2c34d0878cc2484729a07472cfa5abddb5df93759",
+      "e2cedb27ec2f38520f77b26bda7f2bb47c687d98b824be24ee63c4137f47e297",
+      "1f5bccf174e0d415a2b4a9ccf304b0bc2cb1deb0f0501e9573fb17a76b793326",
+      "f3219f639441d866f7fe45b9977b6fa2e2be19a689d0e623d3f27fd4d3f97d3c",
+      "b296f7503f743a2a7d93b3e130988687b4ba51941d3ba0a41ca74507275dd5dd",
+      "bbae3d14c5a71357191a237c19b774dfc128867ba70ce83726302ac45864c2f3",
+      "fa888120fa4070f3de94e51546a19474d067ea79945d54469cdcd5603c931781",
+      "012b1f5a42255101caa519c414f8fe9d96e73f222af04ccf727c257e1b79d333",
+      "f709db16c6c3acd2eb41a258a3e2d6adc96dc1b263fdc0b686cbeebc9117fe4b"
+    ]
+  },
+  "forge_on_over_off": 0.4292863922685305,
+  "forge_on_over_O2": 0.7401071109788754,
+  "forge_on_over_O4": 0.9212109989815758,
+  "expected_checksum": 4813794,
+  "timer_contract": "Uniform self/window prelude exposes performance.now to both SDK ticker implementations; fresh Node process per profile/sample.",
+  "scope": "Identical pure input workload; O4 separately omits checks/trusts types. Kernel times exclude compiler/startup; process wall includes startup and warmup. No inference about arbitrary programs or compile-time performance."
+}

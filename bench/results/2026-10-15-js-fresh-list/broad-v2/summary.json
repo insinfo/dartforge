@@ -1,0 +1,10 @@
+{
+  "emit_js_library_passed": 4,
+  "production_library_passed": 68,
+  "production_integration_passed": 20,
+  "total_passed": 92,
+  "failed": 0,
+  "ignored": 0,
+  "node_integration_tests_included": true,
+  "sources_unchanged": true
+}

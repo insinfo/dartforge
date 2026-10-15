@@ -1,0 +1,77 @@
+[
+  {
+    "file": "emitted/fresh-off.js",
+    "sha256": "644378b29e9c879364de08d23353dc18e0ee1ff4f34fbcd2d9b60204f9b4c892",
+    "source_js_sha256": "31636bd58d1fad41490a88013fe91262fca8ba6beadc502fa1c65e50366d0fce"
+  },
+  {
+    "file": "emitted/subtype-off.js",
+    "sha256": "46483dd81bc665e24bea132a3ef26a58ef6a3837a4c88e82bbecb7322a8129a7",
+    "source_js_sha256": "31636bd58d1fad41490a88013fe91262fca8ba6beadc502fa1c65e50366d0fce"
+  },
+  {
+    "file": "emitted/unknownFactory-off.js",
+    "sha256": "1cd02395494ae57d61df8c5e1122407b466da8aae0b682bb95fac0c0134b36a3",
+    "source_js_sha256": "31636bd58d1fad41490a88013fe91262fca8ba6beadc502fa1c65e50366d0fce"
+  },
+  {
+    "file": "emitted/escaped-off.js",
+    "sha256": "5302103eedaead9698023038c4538782f976c7ac4b75b27f7bc8f6aef6d31866",
+    "source_js_sha256": "31636bd58d1fad41490a88013fe91262fca8ba6beadc502fa1c65e50366d0fce"
+  },
+  {
+    "file": "emitted/covariant-off.js",
+    "sha256": "0276c530773d347057cc2f61f826680a11f83b0045f8877cc51aa9c0de9fb676",
+    "source_js_sha256": "31636bd58d1fad41490a88013fe91262fca8ba6beadc502fa1c65e50366d0fce"
+  },
+  {
+    "file": "emitted/fixed-off.js",
+    "sha256": "b83e7a4e25a66a1827fdc9c78a586a8b62708b479f34d905ce4381955da7e00b",
+    "source_js_sha256": "31636bd58d1fad41490a88013fe91262fca8ba6beadc502fa1c65e50366d0fce"
+  },
+  {
+    "file": "emitted/custom-off.js",
+    "sha256": "0973b4b4bd4e058038218d66c2392407e394252d80b6cf8bc36b1f7f19391fc3",
+    "source_js_sha256": "31636bd58d1fad41490a88013fe91262fca8ba6beadc502fa1c65e50366d0fce"
+  },
+  {
+    "file": "emitted/fresh-on.js",
+    "sha256": "6f5de102e0f04135dbe4c891aca2796dc799919708621cf61cc877a3cc75b8a5",
+    "source_js_sha256": "fe48116c29f1404eaf16ebdcec5cdcd21280e9014efc096d7aaed89560a77883"
+  },
+  {
+    "file": "emitted/subtype-on.js",
+    "sha256": "c32456ea55ea58b7b5ba84c852aad09f95c28c745f9b02399ecee92f04763f93",
+    "source_js_sha256": "fe48116c29f1404eaf16ebdcec5cdcd21280e9014efc096d7aaed89560a77883"
+  },
+  {
+    "file": "emitted/unknownFactory-on.js",
+    "sha256": "de8e288ce2a28181e36ab9519c3de81fb4f88145716b0fa6ffc8b368e56876a3",
+    "source_js_sha256": "fe48116c29f1404eaf16ebdcec5cdcd21280e9014efc096d7aaed89560a77883"
+  },
+  {
+    "file": "emitted/escaped-on.js",
+    "sha256": "5302103eedaead9698023038c4538782f976c7ac4b75b27f7bc8f6aef6d31866",
+    "source_js_sha256": "fe48116c29f1404eaf16ebdcec5cdcd21280e9014efc096d7aaed89560a77883"
+  },
+  {
+    "file": "emitted/covariant-on.js",
+    "sha256": "b36416958b819a1ded9199498f0f2d56efc8ef5b1bcdeb7db83bbee01809ac4c",
+    "source_js_sha256": "fe48116c29f1404eaf16ebdcec5cdcd21280e9014efc096d7aaed89560a77883"
+  },
+  {
+    "file": "emitted/fixed-on.js",
+    "sha256": "b83e7a4e25a66a1827fdc9c78a586a8b62708b479f34d905ce4381955da7e00b",
+    "source_js_sha256": "fe48116c29f1404eaf16ebdcec5cdcd21280e9014efc096d7aaed89560a77883"
+  },
+  {
+    "file": "emitted/custom-on.js",
+    "sha256": "0973b4b4bd4e058038218d66c2392407e394252d80b6cf8bc36b1f7f19391fc3",
+    "source_js_sha256": "fe48116c29f1404eaf16ebdcec5cdcd21280e9014efc096d7aaed89560a77883"
+  },
+  {
+    "file": "emitted/runtime-guard.js",
+    "sha256": "46b270c6734e5cc5e54a544f5cc8a9c411c14de9bd02eeca5ee9e58bdad9a668",
+    "source_js_sha256": "fe48116c29f1404eaf16ebdcec5cdcd21280e9014efc096d7aaed89560a77883"
+  }
+]

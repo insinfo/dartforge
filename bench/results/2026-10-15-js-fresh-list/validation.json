@@ -1,0 +1,35 @@
+{
+  "scope": "Correctness only; experimental fresh-list optimization remains disabled by default. No speed/size claim.",
+  "focused_v6": {
+    "exit_code": 0,
+    "sources_unchanged": true
+  },
+  "broader_lib_include_ignored": {
+    "exit_codes": [
+      0,
+      0
+    ],
+    "sources_unchanged": true
+  },
+  "broader_counts": {
+    "emit_js_lib": 4,
+    "emit_js_production_lib": 68
+  },
+  "existing_sdk_regressions": {
+    "exit_code": 0,
+    "sources_unchanged": true
+  },
+  "existing_sdk_summaries": [
+    "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.38s",
+    "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.82s",
+    "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.03s"
+  ],
+  "raw_failures_preserved": [
+    "focused/tests.log",
+    "focused-v2/tests.log",
+    "focused-v3/tests.log",
+    "focused-v4/tests.log",
+    "focused-v5/tests.log"
+  ],
+  "benchmark_preparation": "Source/scripts prepared and syntax-checked; no release producer build or benchmark execution."
+}

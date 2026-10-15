@@ -1,0 +1,24 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "dartforge-emit-js-production",
+    "--test",
+    "fresh_list_append",
+    "--",
+    "--include-ignored",
+    "--nocapture"
+  ],
+  "node": "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node",
+  "node_sha256": "07be551af5db7e5a5516afcf4163c11eabca799ec680328b064fac0a00eb5e3e",
+  "node_version": "v24.21.0",
+  "env": {
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_TARGET_DIR": "target/p4",
+    "TMPDIR": "/Volumes/ssd_dock/tmp/dartforge-js-fresh-list",
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "PATH": "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin:/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin:/Volumes/ssd_dock/tools/rust/cargo/bin:/Volumes/ssd_dock/tools/dart/pub-cache/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Library/Apple/usr/bin:/Users/isaque/.codex/tmp/arg0/codex-arg0iiGgup:/Users/isaque/.vscode/extensions/openai.chatgpt-26.1007.21434-darwin-arm64/bin/macos-aarch64"
+  }
+}

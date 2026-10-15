@@ -647,7 +647,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             ExprKind::List { const_, type_args, elements } => {
                 let common = if type_args.is_empty() { self.common_type(e) } else { None };
-                self.emit_list_literal(*const_, type_args, elements, expected, common.as_ref())
+                self.emit_list_literal(*const_, type_args, elements, expected, common.as_ref(), e)
             }
             ExprKind::SetOrMap { const_, type_args, elements } => {
                 let common = if type_args.is_empty() { self.common_type(e) } else { None };
@@ -899,19 +899,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// literal without written type arguments: the element type comes from it
     /// (with the context and the upper bound of the specification); without
     /// it, from the context and the elements by the emitter's own deduction.
-    fn emit_list_literal(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, common: Option<&Ty>) -> (Js, Ty) {
+    fn emit_list_literal(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, common: Option<&Ty>, node: ExprId) -> (Js, Ty) {
         let const_ = const_ || self.in_const;
         let saved_const = self.in_const;
         if const_ {
             self.in_const = true;
         }
         let common = common.filter(|t| t.is_class(self.ctx.list_)).and_then(|t| t.args().first().cloned());
-        let r = self.emit_list_literal_inner(const_, type_args, elements, expected, common);
+        let r = self.emit_list_literal_inner(const_, type_args, elements, expected, common, node);
         self.in_const = saved_const;
         r
     }
 
-    fn emit_list_literal_inner(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, common: Option<Ty>) -> (Js, Ty) {
+    fn emit_list_literal_inner(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, common: Option<Ty>, node: ExprId) -> (Js, Ty) {
         let elem_ty = if let Some(t) = type_args.first() {
             self.resolve_type(*t)
         } else if let Some(t) = common {
@@ -941,6 +941,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let jsarr = self.ctx.js_array.map(|c| Ty::iface_args(c, vec![elem_ty.clone()])).unwrap_or(list_ty.clone());
             let rti = self.rti(&jsarr);
             self.m.use_sdk("_interceptors");
+            if let Some(fact) = self.fresh_list_append.get(&node).cloned().filter(|f| f.initializer == node && f.element == elem_ty && items.is_empty()) {
+                let helper = crate::fresh_list_append::helper_name(self.ctx);
+                let owner = self.temp();
+                let factory = self.temp();
+                return (Js::prim(format!("({owner} = _interceptors.JSArray, {factory} = {owner}.of, {} = {helper}.create({factory}, {owner}, {rti}, []), {}.list)", fact.token, fact.token)), list_ty);
+            }
             return (Js::prim(format!("_interceptors.JSArray.of({rti}, [{}])", items.join(", "))), list_ty);
         }
         // General form: an IIFE that builds the list.

@@ -1,0 +1,12 @@
+   Compiling dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.36s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_js-b690f0a8d4c7d199)
+
+running 4 tests
+test module::const_record_cache_tests::derived_and_reused_fragments_preserve_per_library_const_record_uses ... ok
+test module::typed_read_guard_cache_tests::captured_guard_uses_survive_fragment_merge_and_reuse ... ok
+test sdk_patches::tests::every_patch_changes_its_text ... ok
+test sdk_patches::tests::inverse_requires_complete_exact_roundtrip ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

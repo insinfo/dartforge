@@ -1,0 +1,4 @@
+{
+  "compiler_sha256": "11c1c71b53ea2e95df158f7aaf486aa8e9f963d39ca80a92f340d7b9c078bf7b",
+  "scope": "V1 targeted ordinary Dart reserved $ti field/getter probe, exact user class and interface element cases. VM/OFF/ON identical; actual ON helper site confirmed. No confirmed mismatch within nongeneric restriction. V2 separately rejects $ member names."
+}

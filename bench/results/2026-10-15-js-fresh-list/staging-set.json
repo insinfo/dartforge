@@ -1,0 +1,28 @@
+{
+  "tracked_source": [
+    "Cargo.lock",
+    "crates/emit_js/Cargo.toml",
+    "crates/emit_js/src/body.rs",
+    "crates/emit_js/src/call.rs",
+    "crates/emit_js/src/expr.rs",
+    "crates/emit_js/src/lib.rs",
+    "crates/emit_js/src/module.rs",
+    "crates/emit_js/src/own_sdk.rs",
+    "crates/emit_js/src/sdk_patches.rs"
+  ],
+  "new_source_and_kernel": [
+    "crates/emit_js/src/closed_list_window.rs",
+    "crates/emit_js/src/fresh_list_append.rs",
+    "crates/emit_js/src/fresh_list_sdk_sources.rs",
+    "crates/emit_js/tests/programs/fresh_list_append.dart",
+    "crates/emit_js/tests/programs/fresh_list_append_closed.dart",
+    "crates/emit_js/tests/programs/fresh_list_append_foreign.dart",
+    "crates/emit_js_production/tests/fresh_list_append.rs",
+    "bench/performance/fresh_list_append.dart"
+  ],
+  "evidence_directory": "bench/results/2026-10-15-js-fresh-list",
+  "exclude": "All target/ outputs, binaries, caches, and unrelated CLI/JIT/native changes belong outside this JS staging set. Evidence directory contains text JSON/log/script/source snippets only (~1.4MB).",
+  "review": "Reviewed complete tracked diff plus new proof/helper/SDK manifest/tests. No known correctness issue. Two existing field comments were displaced by adjacent new fields in body.rs and own_sdk.rs; optional comment-only correction should be coordinated after freeze. No source edits made during broad validation.",
+  "compiler_sha256": "bf9ee1801b889d8cabdd281cfff2a13715d40baba826cee3ad098b83309b2c83",
+  "validation": "92 tests passed (4 emit_js library +68 production library +20 integrations), zero failures/ignored; current JS source closure exactly matches frozen V2 producer."
+}

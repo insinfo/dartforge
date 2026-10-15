@@ -1,0 +1,19 @@
+{
+  "command": [
+    "cargo",
+    "build",
+    "--locked",
+    "--release",
+    "-p",
+    "dartforge-emit-js-production",
+    "--bin",
+    "dartforge-jsprod"
+  ],
+  "exit_code": 0,
+  "sources_unchanged": true,
+  "changed_inputs": [],
+  "git_head_end": "a7d44d3c0c9d19e912285643d3e57df22e56fd11",
+  "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-producer-v2/dartforge-jsprod",
+  "binary_sha256": "bf9ee1801b889d8cabdd281cfff2a13715d40baba826cee3ad098b83309b2c83",
+  "binary_bytes": 11293264
+}

@@ -2037,6 +2037,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // SDK mode: `_installIdentityEquals`, `definePrimitiveHashCode`, `registerExtension`.
     if ctx.sdk.is_some() {
         w.push_raw(&crate::own_sdk::class_epilogue(ctx, c, &cref));
+        w.push_raw(&crate::fresh_list_append::emit_helper(ctx, m, c, &cref));
     }
     // Static fields and enum constants (lazy).
     let mut lazy: Vec<String> = Vec::new();

@@ -1,0 +1,9 @@
+function createRows(count) {
+let t$0, t$1, t$2, t$3, t$4;
+let rows = (t$1 = _interceptors.JSArray, t$2 = t$1.of, t$0 = _interceptors.t$freshListAppend469.create(t$2, t$1, t$R("|F<|Ra>"), []), t$0.list);
+for (let i = 0; i < count; (i = i + 1)) {
+  {
+    (t$3 = rows, t$4 = t$3[$add], _interceptors.t$freshListAppend469.appendClosed(t$0, t$3, t$4, new L$fresh_list_append.Row.new(i, (i & 255) >>> 0)));
+  }
+}
+return rows;

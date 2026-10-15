@@ -1,0 +1,27 @@
+[
+  [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "dartforge-emit-js",
+    "--lib",
+    "--",
+    "--include-ignored",
+    "--nocapture",
+    "--test-threads=1"
+  ],
+  [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "dartforge-emit-js-production",
+    "--lib",
+    "--tests",
+    "--",
+    "--include-ignored",
+    "--nocapture",
+    "--test-threads=1"
+  ]
+]

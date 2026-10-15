@@ -32,6 +32,7 @@ pub enum AsyncKind {
 
 /// State saved on entering a nested function body.
 pub struct SavedFn {
+    fresh_lists: HashMap<ExprId, crate::fresh_list_append::FreshList>,
     temps: Vec<String>,
     temp_counter: u32,
     async_kind: AsyncKind,
@@ -122,6 +123,8 @@ pub struct FnEmitter<'m, 'a> {
     pub(crate) typed_loop_raw: HashMap<ExprId, Ty>,
     /// Certified SDK modulo-result comparison; no class-wide numeric assumptions.
     pub(crate) sdk_number_comparison: Option<ExprId>,
+    /// Confined fresh-list append sites certified in this function body.
+    pub(crate) fresh_list_append: HashMap<ExprId, crate::fresh_list_append::FreshList>,
     /// Modulo nodes certified in the current unescaped nonnegative counter.
     pub(crate) counter_modulo: HashSet<ExprId>,
 }
@@ -198,6 +201,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             in_foreign_js: false,
             typed_loop_raw: HashMap::new(),
             sdk_number_comparison: None,
+            fresh_list_append: HashMap::new(),
             counter_modulo: HashSet::new(),
         }
     }
@@ -327,6 +331,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Enters a nested function body; returns the state to restore.
     pub fn enter_fn(&mut self, async_kind: AsyncKind, ret_ty: Ty, is_static: bool) -> SavedFn {
         let saved = SavedFn {
+            fresh_lists: std::mem::take(&mut self.fresh_list_append),
             temps: std::mem::take(&mut self.temps),
             temp_counter: self.temp_counter,
             async_kind: self.async_kind,
@@ -361,6 +366,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.fn_type_params = saved.fn_type_params;
         self.is_static = saved.is_static;
         self.switch_labels = saved.switch_labels;
+        self.fresh_list_append = saved.fresh_lists;
         (body, returns)
     }
 
@@ -1071,6 +1077,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     // still the same function body.
                     self.push_scope();
                     self.hoist_locals(stmts);
+                    self.fresh_list_append = self.fresh_lists(stmts);
                     for &st in stmts.iter() {
                         self.emit_stmt(st);
                     }

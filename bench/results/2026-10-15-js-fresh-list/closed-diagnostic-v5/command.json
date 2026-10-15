@@ -1,0 +1,14 @@
+[
+  "cargo",
+  "test",
+  "--locked",
+  "-p",
+  "dartforge-emit-js-production",
+  "--test",
+  "fresh_list_append",
+  "--",
+  "--ignored",
+  "--exact",
+  "fresh_list_append_closed_worker",
+  "--nocapture"
+]

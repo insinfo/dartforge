@@ -1,0 +1,14 @@
+{
+  "git_head": "45cdf701c2eb0fabeccd48e0b80ea83d90a75d02",
+  "producer_closure_still_exact": true,
+  "env": {
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_TARGET_DIR": "target/p4",
+    "TMPDIR": "/Volumes/ssd_dock/tmp/dartforge-js-fresh-list",
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_JSPROD_FRESH_LIST_APPEND": "0",
+    "DARTFORGE_JSPROD_FRESH_LIST_APPEND_CLOSED": "0"
+  },
+  "node_version": "v24.21.0",
+  "dart_version": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\""
+}

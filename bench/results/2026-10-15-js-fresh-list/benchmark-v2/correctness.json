@@ -1,0 +1,104 @@
+{
+  "runs": [
+    {
+      "profile": "VM",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "run",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/fresh_list_append.dart"
+      ],
+      "exit_code": 0,
+      "artifact_sha256": null,
+      "stdout_sha256": "f8cf2c178540cbefe7360d5815062aca6c443b8c345d68513f06de97b902e8dd",
+      "normalized_output": "checksum=4813794\nelapsed_us=<measured>\n",
+      "exact": true
+    },
+    {
+      "profile": "forge_off",
+      "command": [
+        "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1]);",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-benchmark-v2/forge_off/program.js"
+      ],
+      "exit_code": 0,
+      "artifact_sha256": "6105c492f36469c1b5a4f0552026177e289d8315c5cd412b0abe6c713d5a82a1",
+      "stdout_sha256": "f5037d0024208100efb0277fd3c6541660cdfa33f4d1a635ac5db0a6fde96db3",
+      "normalized_output": "checksum=4813794\nelapsed_us=<measured>\n",
+      "exact": true
+    },
+    {
+      "profile": "forge_off_raw",
+      "command": [
+        "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1]);",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-benchmark-v2/forge_off/raw.js"
+      ],
+      "exit_code": 0,
+      "artifact_sha256": "0ddcf36574126573255c0df0ddde6d6da1fc1a5b67c2ab20eef56d8e53b1bde7",
+      "stdout_sha256": "48ffd06f69055a6e9bdc45de3ac3c904a7d2cbbfc0aeaaa5a8bbe5a7983f87f6",
+      "normalized_output": "checksum=4813794\nelapsed_us=<measured>\n",
+      "exact": true
+    },
+    {
+      "profile": "forge_on",
+      "command": [
+        "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1]);",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-benchmark-v2/forge_on/program.js"
+      ],
+      "exit_code": 0,
+      "artifact_sha256": "ba5b9f0fca2df220fe7524629292958edfaefa6f6d5151cc69f5ace350c46e03",
+      "stdout_sha256": "baf311c19e5b895599582f043d4c8ce05b734ac80c8db4c812e6df481a7eea18",
+      "normalized_output": "checksum=4813794\nelapsed_us=<measured>\n",
+      "exact": true
+    },
+    {
+      "profile": "forge_on_raw",
+      "command": [
+        "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1]);",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-benchmark-v2/forge_on/raw.js"
+      ],
+      "exit_code": 0,
+      "artifact_sha256": "d3a84ae1e2a36cdbd9a0d02aebf26d47912e177f55052289e9360dc09f77ff7a",
+      "stdout_sha256": "a399fe12741c5ac7d277fe6dd1fa32623ab1c5a82b8c8d3ea76db3af83fdf3e6",
+      "normalized_output": "checksum=4813794\nelapsed_us=<measured>\n",
+      "exact": true
+    },
+    {
+      "profile": "O2",
+      "command": [
+        "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1]);",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-benchmark-v2/O2/program.js"
+      ],
+      "exit_code": 0,
+      "artifact_sha256": "8a0671fc82dd11265b87a4b3777980487e5bb49ec56a0ea28b3d02d2407ffad3",
+      "stdout_sha256": "bc46eeb7e390b8ad9e9683262fa83cccbcb4e9dde7a9b72aa04db9494112ca1c",
+      "normalized_output": "checksum=4813794\nelapsed_us=<measured>\n",
+      "exact": true
+    },
+    {
+      "profile": "O4",
+      "command": [
+        "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+        "-e",
+        "globalThis.self=globalThis;globalThis.window=globalThis;require(process.argv[1]);",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-benchmark-v2/O4/program.js"
+      ],
+      "exit_code": 0,
+      "artifact_sha256": "8a5e8ad089196771dbfa81e65c5d09f32f114d510a521fa2a389c5a8777ad076",
+      "stdout_sha256": "fd851a353be35ad63df8c3fe470d794c80d98cc2d3e14bcc4a53441b30bea10b",
+      "normalized_output": "checksum=4813794\nelapsed_us=<measured>\n",
+      "exact": true
+    }
+  ],
+  "all_exact": true,
+  "expected_normalized_output": "checksum=4813794\nelapsed_us=<measured>\n",
+  "scope": "Elapsed fields validated but not summarized as performance. VM/raw/min/O2/O4 share identical source and checksum; only one explicit clock field is normalized. O4 retains its distinct omit-check policy."
+}

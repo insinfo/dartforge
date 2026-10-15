@@ -92,6 +92,8 @@ pub struct SdkMode {
     pub virtuality: std::cell::OnceCell<(HashMap<ClassId, HashSet<dartforge_intern::SymbolId>>, HashSet<ClassId>)>,
     /// Simple class names that repeat in the program ([`needs_library_uri`]).
     pub repeated_names: std::cell::OnceCell<HashSet<dartforge_intern::SymbolId>>,
+    /// Complete SDK source certificate for confined fresh-list appends.
+    pub fresh_list_append_certified: std::cell::OnceCell<bool>,
     /// Complete canonical Number modulo certificate, independent of emit order.
     pub number_modulo_certified: std::cell::OnceCell<bool>,
 }
@@ -238,6 +240,7 @@ impl SdkMode {
             patches: HashMap::new(),
             virtuality: std::cell::OnceCell::new(),
             repeated_names: std::cell::OnceCell::new(),
+            fresh_list_append_certified: std::cell::OnceCell::new(),
             number_modulo_certified: std::cell::OnceCell::new(),
         };
         // Intrinsics, by (library, name).

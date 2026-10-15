@@ -1,0 +1,74 @@
+{
+  "scope": "Closed-window fresh exact growable list append experiment, default OFF. Correctness and isolated fresh-process runtime results; narrow workload only.",
+  "focused": {
+    "exit_code": 0,
+    "sources_unchanged": true
+  },
+  "producer": {
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--release",
+      "-p",
+      "dartforge-emit-js-production",
+      "--bin",
+      "dartforge-jsprod"
+    ],
+    "exit_code": 0,
+    "sources_unchanged": true,
+    "changed_inputs": [],
+    "git_head_end": "a7d44d3c0c9d19e912285643d3e57df22e56fd11",
+    "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-producer-v2/dartforge-jsprod",
+    "binary_sha256": "bf9ee1801b889d8cabdd281cfff2a13715d40baba826cee3ad098b83309b2c83",
+    "binary_bytes": 11293264
+  },
+  "all_kernel_profiles_exact": true,
+  "proof": "Full selected SDK source/owner identity and foreign-code denial plus original list confinement; synchronous window allows primitive locals and plain fresh primitive field-formal objects only; denies duplicate binding names including parameters, user getters/operators/calls/initializers/ctor bodies, aliases, global exposure and reserved metadata members. Original factory/callee/argument evaluation and growthcheck retained. Runtime identity guards hoisted to allocation, original checked captured callee used on fallback.",
+  "profiles": "Same frozen V2 producer OFF/closed-ON plus official Dart 3.6.2 dart2js O2 and O4. O4 separately omits checks; no equivalence in optimization policy claimed.",
+  "failed_diagnostics_preserved": [
+    "closed-focused-v1",
+    "closed-focused-v2",
+    "closed-diagnostic-v3",
+    "closed-diagnostic-v4",
+    "closed-diagnostic-v5",
+    "closed-diagnostic-v6"
+  ],
+  "source_files": [
+    "crates/emit_js/src/closed_list_window.rs",
+    "crates/emit_js/src/fresh_list_append.rs",
+    "crates/emit_js/src/call.rs",
+    "crates/emit_js/tests/programs/fresh_list_append_closed.dart",
+    "crates/emit_js_production/tests/fresh_list_append.rs"
+  ],
+  "throughput": {
+    "medians_us": {
+      "forge_off": 69534,
+      "forge_on": 29850,
+      "O2": 40332,
+      "O4": 32403
+    },
+    "forge_on_over_off": 0.4292863922685305,
+    "forge_on_over_O2": 0.7401071109788754,
+    "forge_on_over_O4": 0.9212109989815758,
+    "expected_checksum": 4813794,
+    "timer_contract": "Uniform self/window prelude exposes performance.now to both SDK ticker implementations; fresh Node process per profile/sample.",
+    "scope": "Identical pure input workload; O4 separately omits checks/trusts types. Kernel times exclude compiler/startup; process wall includes startup and warmup. No inference about arbitrary programs or compile-time performance.",
+    "samples_per_profile": 11,
+    "quiet_window": "Root explicitly released after native correctness and GUI QA terminal; root held heavy builds until timing terminal.",
+    "source_or_artifact_changes_during_timing": false
+  },
+  "scope_limit": "This result is for one pure fresh DTO List kernel on Node24.21.0 and Dart3.6.2; O4 is separately unchecked. No whole-application JS or compile-time claim; V1 experimental per-append guards were slower and remain recorded.",
+  "broader_correctness": {
+    "emit_js_library_passed": 4,
+    "production_library_passed": 68,
+    "production_integration_passed": 20,
+    "total_passed": 92,
+    "failed": 0,
+    "ignored": 0,
+    "node_integration_tests_included": true,
+    "sources_unchanged": true,
+    "evidence": "broad-v2"
+  },
+  "independent_review": "mixed_numeric_comparison read-only review found no concrete callback/escape gap in the bounded source certificate; original callee capture, fallback and growth check retained."
+}

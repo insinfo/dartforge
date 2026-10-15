@@ -1,0 +1,16 @@
+[
+  "cargo",
+  "test",
+  "--locked",
+  "-p",
+  "dartforge-emit-js-production",
+  "--test",
+  "native_number_ranges",
+  "--test",
+  "positive_counter_modulo",
+  "--test",
+  "inline_argument_order",
+  "--",
+  "--include-ignored",
+  "--nocapture"
+]

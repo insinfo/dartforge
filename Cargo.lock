@@ -401,6 +401,7 @@ dependencies = [
  "dartforge-intern",
  "dartforge-macros-host",
  "dartforge-types",
+ "sha2",
  "tempfile",
 ]
 

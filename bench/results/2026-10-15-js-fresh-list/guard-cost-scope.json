@@ -1,0 +1,27 @@
+{
+  "measurement": "No performance or quiet compile-time comparison has been executed.",
+  "default_off": [
+    "No SDK hashing or emitted helper.",
+    "A flag check and empty local proof map are added at function-body emission."
+  ],
+  "enabled_compilation": {
+    "cache": "SDK/foreign-code certificate is cached once per Ctx, not per function.",
+    "canonical_DDC_maximum_units": 220,
+    "canonical_DDC_maximum_source_bytes": 5133759,
+    "selected_units": "Actual loaded dart: units only; not yet instrumented as a count.",
+    "source_lookup": "Linear lookup among426 path/digest/owner records per loaded SDK unit; current suffix match allocates a temporary formatted suffix.",
+    "source_validation": "SHA256 of actual selected source; patched files additionally reverse known overlay and byte-exact roundtrip before canonical SHA256.",
+    "app_proof": "Whole-body AST census only for initial empty explicit typed local list candidates."
+  },
+  "fast_append_runtime_static_cost": {
+    "ready_invocations": 2,
+    "Object_getPrototypeOf_calls": 2,
+    "Object_getOwnPropertyDescriptor_calls": 5,
+    "captured_Reflect_apply_hasOwn_calls": 3,
+    "original_add_lookup": 1,
+    "retained_growth_and_push_calls": 2,
+    "scope": "Counts along successful guarded branch; excludes ordinary receiver/argument construction. Descriptor allocations can outweigh removed RTI eval/as work."
+  },
+  "allocation_runtime_cost": "One private token object and canonical factory/array/RTI identity certification per candidate list allocation.",
+  "conclusion": "DefaultOFF remains required. No application speedup or size benefit has been established."
+}

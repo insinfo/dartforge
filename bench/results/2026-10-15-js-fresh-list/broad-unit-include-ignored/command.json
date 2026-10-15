@@ -1,0 +1,22 @@
+[
+  [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "dartforge-emit-js",
+    "--lib",
+    "--",
+    "--include-ignored"
+  ],
+  [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "dartforge-emit-js-production",
+    "--lib",
+    "--",
+    "--include-ignored"
+  ]
+]

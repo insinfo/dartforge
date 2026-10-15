@@ -16,6 +16,8 @@ dartforge-elements = { path = "../elements" }
 dartforge-types = { path = "../types" }
 dartforge-macros-host = { path = "../macros_host" }
 
+sha2 = "0.10"
+
 [dev-dependencies]
 tempfile = "3"
 dartforge-instrument = { path = "../instrument" }

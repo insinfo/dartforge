@@ -1,0 +1,51 @@
+{
+  "compiler_sha256": "11c1c71b53ea2e95df158f7aaf486aa8e9f963d39ca80a92f340d7b9c078bf7b",
+  "cases": {
+    "field": {
+      "VM": {
+        "exit_code": 0,
+        "stdout": "length=2\n",
+        "stderr": ""
+      },
+      "off": {
+        "compile_exit": 0,
+        "guarded_append_sites": 0,
+        "exit_code": 0,
+        "stdout": "length=2\n",
+        "stderr": "",
+        "artifact_sha256": "92e0e85248531583376dbab011112bae9d57134f30796a72f1be174da9325aea"
+      },
+      "on": {
+        "compile_exit": 0,
+        "guarded_append_sites": 1,
+        "exit_code": 0,
+        "stdout": "length=2\n",
+        "stderr": "",
+        "artifact_sha256": "88d6ee60a5dcb52d1ffafd398c19f20769e908c3e57c9807418dded6d1c5454c"
+      }
+    },
+    "getter": {
+      "VM": {
+        "exit_code": 0,
+        "stdout": "length=2\nreads=0\n",
+        "stderr": ""
+      },
+      "off": {
+        "compile_exit": 0,
+        "guarded_append_sites": 0,
+        "exit_code": 0,
+        "stdout": "length=2\nreads=0\n",
+        "stderr": "",
+        "artifact_sha256": "be8f7ae7e74822b6c4109102dbb769514106df006657c4795d6572a9997730c9"
+      },
+      "on": {
+        "compile_exit": 0,
+        "guarded_append_sites": 1,
+        "exit_code": 0,
+        "stdout": "length=2\nreads=0\n",
+        "stderr": "",
+        "artifact_sha256": "694a74a4208cd0643893b4ca8df58c039ef87134092443962c2e0de3d9ef3c0b"
+      }
+    }
+  }
+}

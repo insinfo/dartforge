@@ -1,0 +1,51 @@
+{
+  "compiler_sha256": "11c1c71b53ea2e95df158f7aaf486aa8e9f963d39ca80a92f340d7b9c078bf7b",
+  "cases": {
+    "field_interface": {
+      "VM": {
+        "exit_code": 0,
+        "stdout": "length=2\n",
+        "stderr": ""
+      },
+      "off": {
+        "compile_exit": 0,
+        "guarded_append_sites": 0,
+        "exit_code": 0,
+        "stdout": "length=2\n",
+        "stderr": "",
+        "artifact_sha256": "d652756f7de6a1f5942dd7011825d141a59268a1eb6ae34457f62ad4f9d3a838"
+      },
+      "on": {
+        "compile_exit": 0,
+        "guarded_append_sites": 1,
+        "exit_code": 0,
+        "stdout": "length=2\n",
+        "stderr": "",
+        "artifact_sha256": "0008c30286bb1a8023bb91c88dca87a173f87d09e6a4a957ccab76ff7e4f527c"
+      }
+    },
+    "getter_interface": {
+      "VM": {
+        "exit_code": 0,
+        "stdout": "length=2\nreads=0\n",
+        "stderr": ""
+      },
+      "off": {
+        "compile_exit": 0,
+        "guarded_append_sites": 0,
+        "exit_code": 0,
+        "stdout": "length=2\nreads=0\n",
+        "stderr": "",
+        "artifact_sha256": "72c02d5cbc62c14fc6d1db36cd5a3123ffecb06f81f6e0b37bd077e995b85548"
+      },
+      "on": {
+        "compile_exit": 0,
+        "guarded_append_sites": 1,
+        "exit_code": 0,
+        "stdout": "length=2\nreads=0\n",
+        "stderr": "",
+        "artifact_sha256": "a2812eef321fbf1d496890e2cc6e0543a42b2db77cdbe4478e5884b555cfc1cc"
+      }
+    }
+  }
+}

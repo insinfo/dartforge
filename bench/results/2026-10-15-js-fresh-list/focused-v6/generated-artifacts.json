@@ -1,0 +1,122 @@
+[
+  {
+    "path": "target/js-fresh-list-proposal/generated-v6/enabled-false-minify-false.js",
+    "sha256": "31636bd58d1fad41490a88013fe91262fca8ba6beadc502fa1c65e50366d0fce",
+    "bytes": 195154,
+    "fresh": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 0,
+      "checked_add_calls": 1
+    },
+    "subtype": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 0,
+      "checked_add_calls": 1
+    },
+    "unknownFactory": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 0,
+      "checked_add_calls": 1
+    },
+    "escaped": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 0,
+      "checked_add_calls": 1
+    },
+    "aliased": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 0,
+      "checked_add_calls": 1
+    },
+    "captured": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 0,
+      "checked_add_calls": 1
+    },
+    "rebound": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 0,
+      "checked_add_calls": 1
+    },
+    "covariant": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 0,
+      "checked_add_calls": 1
+    },
+    "fixed": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 0,
+      "checked_add_calls": 1
+    },
+    "custom": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 0,
+      "checked_add_calls": 0
+    }
+  },
+  {
+    "path": "target/js-fresh-list-proposal/generated-v6/enabled-false-minify-true.js",
+    "sha256": "6c586a4c8b84d799e0bb0ad5b06bc5cde76ec7496a17a4db60d2b1aac9054828",
+    "bytes": 57317
+  },
+  {
+    "path": "target/js-fresh-list-proposal/generated-v6/enabled-true-minify-false.js",
+    "sha256": "fe48116c29f1404eaf16ebdcec5cdcd21280e9014efc096d7aaed89560a77883",
+    "bytes": 197427,
+    "fresh": {
+      "guarded_append_calls": 1,
+      "allocation_tokens": 1,
+      "checked_add_calls": 0
+    },
+    "subtype": {
+      "guarded_append_calls": 1,
+      "allocation_tokens": 1,
+      "checked_add_calls": 0
+    },
+    "unknownFactory": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 1,
+      "checked_add_calls": 1
+    },
+    "escaped": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 0,
+      "checked_add_calls": 1
+    },
+    "aliased": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 0,
+      "checked_add_calls": 1
+    },
+    "captured": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 0,
+      "checked_add_calls": 1
+    },
+    "rebound": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 0,
+      "checked_add_calls": 1
+    },
+    "covariant": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 1,
+      "checked_add_calls": 1
+    },
+    "fixed": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 0,
+      "checked_add_calls": 1
+    },
+    "custom": {
+      "guarded_append_calls": 0,
+      "allocation_tokens": 0,
+      "checked_add_calls": 0
+    }
+  },
+  {
+    "path": "target/js-fresh-list-proposal/generated-v6/enabled-true-minify-true.js",
+    "sha256": "b4e88159f6594cb784fc7f7ac0b396fd011a77dc65ef450ce36a5faddee1b541",
+    "bytes": 58164
+  }
+]

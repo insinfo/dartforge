@@ -1,0 +1,124 @@
+{
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-producer/dartforge-jsprod",
+  "compiler_sha256": "11c1c71b53ea2e95df158f7aaf486aa8e9f963d39ca80a92f340d7b9c078bf7b",
+  "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/fresh_list_append.dart",
+  "source_sha256": "07be7aa476885a0c023060137c5de0c15515b78dfa35780f50aac4e252e09791",
+  "node": "/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin/node",
+  "node_sha256": "e4b5a3af0e05c75de2eae013904145f40fe7fc2a6e6f17510128bf45cca4e79b",
+  "node_version": "v24.21.0",
+  "dart": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+  "dart_sha256": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+  "profiles": {
+    "forge_off": {
+      "compile": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-producer/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/fresh_list_append.dart",
+          "--own-sdk",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-benchmark-v1/forge_off/program.js"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 0.16867100000000013
+      },
+      "raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-producer/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/fresh_list_append.dart",
+          "--own-sdk",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-benchmark-v1/forge_off/raw.js",
+          "--no-minify"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 0.606820875,
+        "builder_guarded_append_sites": 0
+      },
+      "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-benchmark-v1/forge_off/program.js",
+      "sha256": "6105c492f36469c1b5a4f0552026177e289d8315c5cd412b0abe6c713d5a82a1",
+      "bytes": 48938,
+      "gzip9_bytes": 17053
+    },
+    "forge_on": {
+      "compile": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-producer/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/fresh_list_append.dart",
+          "--own-sdk",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-benchmark-v1/forge_on/program.js"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 0.19404
+      },
+      "raw": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-producer/dartforge-jsprod",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/fresh_list_append.dart",
+          "--own-sdk",
+          "--sdk",
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-benchmark-v1/forge_on/raw.js",
+          "--no-minify"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 0.1610331249999999,
+        "builder_guarded_append_sites": 1
+      },
+      "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-benchmark-v1/forge_on/program.js",
+      "sha256": "d55adf14181376b9406c6713a01e1ee9706693b23b6c82f83391e0de74565027",
+      "bytes": 49644,
+      "gzip9_bytes": 17408
+    },
+    "O2": {
+      "compile": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "js",
+          "-O2",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/fresh_list_append.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-benchmark-v1/O2/program.js"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 0.975012083
+      },
+      "raw": null,
+      "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-benchmark-v1/O2/program.js",
+      "sha256": "8a0671fc82dd11265b87a4b3777980487e5bb49ec56a0ea28b3d02d2407ffad3",
+      "bytes": 35301,
+      "gzip9_bytes": 11750
+    },
+    "O4": {
+      "compile": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "js",
+          "-O4",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/fresh_list_append.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-benchmark-v1/O4/program.js"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 0.6969353749999998
+      },
+      "raw": null,
+      "artifact": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-benchmark-v1/O4/program.js",
+      "sha256": "8a5e8ad089196771dbfa81e65c5d09f32f114d510a521fa2a389c5a8777ad076",
+      "bytes": 33352,
+      "gzip9_bytes": 11004
+    }
+  },
+  "expected_checksum": 4813794,
+  "scope": "Compile wall samples include process and SDK/cache work; not a quiet compile-time benchmark. Runtime measurement requires separate isolated process execution.",
+  "inputs_stable": true
+}

@@ -1,0 +1,3 @@
+/Volumes/ssd_dock/MyRustProjects/dartforge/bench/performance/fresh_list_append.dart -> /Volumes/ssd_dock/MyRustProjects/dartforge/target/js-fresh-list-benchmark-v1/forge_on/program.js (48 KB; 1 modules; user 2 KB; runtime 181 -> 181 KB, 0/0 live units)
+compaction: 170 -> 48 KB
+world: classes 1/1 instantiated + 0 type only; functions 6/6; 249 selectors; 5 round(s); world 3 ms, emission 68 ms, verifier 13 ms
