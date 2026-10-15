@@ -1,0 +1,17 @@
+
+running 1 test
+
+thread 'sdk_module::selected_source_cache_tests::external_replacement_and_logical_parts_change_sdk_key' (2283996) panicked at crates/emit_native/src/sdk_module.rs:1509:9:
+assertion `left == right` failed
+  left: "e6f546d93ad663cac5d2fa2247bf3294"
+ right: "56ddd99ff110f1f2fcdd610c8a65db39"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test sdk_module::selected_source_cache_tests::external_replacement_and_logical_parts_change_sdk_key ... FAILED
+
+failures:
+
+failures:
+    sdk_module::selected_source_cache_tests::external_replacement_and_logical_parts_change_sdk_key
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 757 filtered out; finished in 0.04s
+

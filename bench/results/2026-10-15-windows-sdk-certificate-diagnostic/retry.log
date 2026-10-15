@@ -1,0 +1,206 @@
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-runtime` (build script) generated 1 warning
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libblake3-f832dcd72f9cea51.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-emit-native` (build script) generated 1 warning
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libblake3-f832dcd72f9cea51.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-deflate.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-adler32.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-crc32.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-inflate.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-inffast.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-inftrees.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-trees.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-zutil.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(25ac62e5b3c53843-curve25519.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(0bbbd18bda93c05b-aes_nohw.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(00c879ee3285a50d-montgomery.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(00c879ee3285a50d-montgomery_inv.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a0330e891e733f4e-gfp_p384.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a0330e891e733f4e-ecp_nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(aaa1ba3e455ee2e1-limbs.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a4019cc0736b0423-mem.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(d5a9841f3dc6e253-poly1305.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a0330e891e733f4e-p256-nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-chacha-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-chacha20_poly1305_armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-aesv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-aesv8-gcm-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-ghash-neon-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-ghashv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-vpaes-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-armv8-mont-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-p256-armv8-asm-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-sha512-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-sha256-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-emit-native` (lib test) generated 2 warnings (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.94s
+     Running unittests src/lib.rs (target/jit-readiness-build/debug/deps/dartforge_emit_native-92da05dbd739f878)
+
+running 5 tests
+test lower::double_identity::tests::actual_format_widened_booleans_preserve_all_eight_checked_return_rewrites ... ok
+test lower::double_identity::tests::canonical_selected_sdk_certifies_and_modified_identity_hash_fails_closed ... ok
+test lower::double_identity::tests::copied_sdk_and_cold_warm_parts_have_same_reviewed_identity ... ok
+test lower::double_identity::tests::dump_selected_sdk_baseline_for_review ... ignored, Writes a reviewable selected SDK baseline manifest to an explicit SSD output
+test lower::double_identity::tests::inherited_and_ambient_sdk_observers_fail_closed ... ok
+
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 754 filtered out; finished in 5.74s
+
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-runtime` (build script) generated 1 warning
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libblake3-f832dcd72f9cea51.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-emit-native` (build script) generated 1 warning
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libblake3-f832dcd72f9cea51.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-deflate.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-adler32.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-crc32.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-inflate.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-inffast.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-inftrees.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-trees.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-zutil.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(25ac62e5b3c53843-curve25519.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(0bbbd18bda93c05b-aes_nohw.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(00c879ee3285a50d-montgomery.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(00c879ee3285a50d-montgomery_inv.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a0330e891e733f4e-gfp_p384.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a0330e891e733f4e-ecp_nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(aaa1ba3e455ee2e1-limbs.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a4019cc0736b0423-mem.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(d5a9841f3dc6e253-poly1305.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a0330e891e733f4e-p256-nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-chacha-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-chacha20_poly1305_armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-aesv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-aesv8-gcm-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-ghash-neon-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-ghashv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-vpaes-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-armv8-mont-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-p256-armv8-asm-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-sha512-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-sha256-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-emit-native` (lib test) generated 2 warnings (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running unittests src/lib.rs (target/jit-readiness-build/debug/deps/dartforge_emit_native-92da05dbd739f878)
+
+running 2 tests
+test lower::primitive_multiply::tests::experimental_color_arithmetic_keeps_checked_return_box_reuse ... ok
+test lower::primitive_multiply::tests::selected_sdk_multiply_proof_and_runtime_guards_are_real ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 757 filtered out; finished in 2.91s
+
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-runtime` (build script) generated 1 warning
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libblake3-f832dcd72f9cea51.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-emit-native` (build script) generated 1 warning
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: linker stderr: ld64.lld: directory not found for option -L/usr/local/lib
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libblake3-f832dcd72f9cea51.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-deflate.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-adler32.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-crc32.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-inflate.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-inffast.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-inftrees.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-trees.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/liblibz_sys-abd58af206c2bc3d.rlib(f0389296f42960e9-zutil.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(25ac62e5b3c53843-curve25519.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(0bbbd18bda93c05b-aes_nohw.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(00c879ee3285a50d-montgomery.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(00c879ee3285a50d-montgomery_inv.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a0330e891e733f4e-gfp_p384.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a0330e891e733f4e-ecp_nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(aaa1ba3e455ee2e1-limbs.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a4019cc0736b0423-mem.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(d5a9841f3dc6e253-poly1305.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(a0330e891e733f4e-p256-nistz.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-chacha-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-chacha20_poly1305_armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-aesv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-aesv8-gcm-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-ghash-neon-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-ghashv8-armx-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-vpaes-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-armv8-mont-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-p256-armv8-asm-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-sha512-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/debug/deps/libring-0ead6cb26b0dcd61.rlib(c322a0bcc369f531-sha256-armv8-ios64.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-emit-native` (lib test) generated 2 warnings (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running unittests src/lib.rs (target/jit-readiness-build/debug/deps/dartforge_emit_native-92da05dbd739f878)
+
+running 2 tests
+test lower::primitive_clamp::tests::actual_literal_clamp_uses_selected_sources_and_preserves_fallback_checks ... ok
+test lower::primitive_clamp::tests::changed_sdk_clamp_comparison_and_program_native_alias_deny_the_premise ... clamp source fingerprint/native hash binding rejected
+clamp source fingerprint/native hash binding rejected
+clamp source fingerprint/native hash binding rejected
+clamp source fingerprint/native hash binding rejected
+clamp foreign runtime-native alias exposure: Double_getIsNegative
+clamp foreign runtime-native alias exposure: Ffi_dl_processLibrary
+clamp foreign runtime-native alias exposure: Ffi_dl_processLibrary
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 757 filtered out; finished in 3.49s
+
