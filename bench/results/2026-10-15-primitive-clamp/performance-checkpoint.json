@@ -1,0 +1,81 @@
+{
+  "producer_sha256": "2ae87eaecb64da6398da7fd32fc879e6f7cb7ae6f01ebf977be5c593c81080ce",
+  "scope": "Consumed color conversion kernel only; no HTTP/JSON or whole File Explorer claim. Five alternating fresh processes per profile, first of five samples discarded.",
+  "repeat_reason": "One initial clamp-only process outlier; original three-process window preserved in performance/measurement.json.",
+  "evidence": "performance-v2/measurement.json",
+  "medians": {
+    "official": {
+      "kernel_microseconds": 5521.5,
+      "process_kernel_medians_microseconds": [
+        5778.0,
+        5521.5,
+        5750.0,
+        5363.0,
+        5249.5
+      ],
+      "wall_ms": 39.343458,
+      "max_rss_bytes": 16515072
+    },
+    "off": {
+      "kernel_microseconds": 75697.5,
+      "process_kernel_medians_microseconds": [
+        75784.0,
+        75430.5,
+        75730.0,
+        76295.5,
+        75537.0
+      ],
+      "wall_ms": 386.564,
+      "max_rss_bytes": 11059200
+    },
+    "constants": {
+      "kernel_microseconds": 73864.0,
+      "process_kernel_medians_microseconds": [
+        73033.5,
+        73907.0,
+        74085.5,
+        72131.0,
+        73949.5
+      ],
+      "wall_ms": 377.102541,
+      "max_rss_bytes": 10911744
+    },
+    "clamp": {
+      "kernel_microseconds": 45843.0,
+      "process_kernel_medians_microseconds": [
+        45882.5,
+        45836.5,
+        45517.0,
+        45305.0,
+        46038.0
+      ],
+      "wall_ms": 236.331959,
+      "max_rss_bytes": 10944512
+    },
+    "combined": {
+      "kernel_microseconds": 41223.0,
+      "process_kernel_medians_microseconds": [
+        41164.0,
+        41249.5,
+        41481.0,
+        41363.5,
+        41094.5
+      ],
+      "wall_ms": 214.262416,
+      "max_rss_bytes": 10829824
+    }
+  },
+  "binary_bytes": {
+    "official": 5329888,
+    "off": 3268880,
+    "constants": 3235808,
+    "clamp": 3268880,
+    "combined": 3235808
+  },
+  "combined_over_off_time": 0.5445754483305261,
+  "combined_time_reduction_percent": 45.54245516694739,
+  "combined_over_official_time": 7.4659060038033145,
+  "saved_bytes": 33072,
+  "combined_differential": "native-combined/validation.json",
+  "policy": "Both experiments remain default OFF pending broader adoption gates."
+}

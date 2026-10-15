@@ -1,0 +1,291 @@
+{
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-producer/dartforge": "2ae87eaecb64da6398da7fd32fc879e6f7cb7ae6f01ebf977be5c593c81080ce",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json": "c5c1c22ad085905aa6341ddf11b3999b001cb6ac128a61f117a1fb8d532ec934",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/primitive_clamp.dart": "33dd337e0c8c916e2e9c3bd992ac9f23f6df6bd415cf3009c9f6d1ee179afe98",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart": "d1dd06b17ec373922dbda23dbb4b5a4667f2a2e1c225e387b73d6b7deab87cd3"
+  },
+  "cases": {
+    "clamp": {
+      "profiles": {
+        "off": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-producer/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/primitive_clamp.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-native-combined/clamp/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3301936,
+            "sha256": "bb77028b5acb69f7014c5d67602e5181eb5bd61b913e506aa7183c5b242bda21"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-native-combined/clamp/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "d08bbaf99f48a165b3d752195f8b9e2764228c450dbe2bd6ae6f2c9aa721f3db",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-native-combined/clamp/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "d08bbaf99f48a165b3d752195f8b9e2764228c450dbe2bd6ae6f2c9aa721f3db",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "bytes": 799174,
+              "sha256": "dc97985bf878db8012303c292e6c4bedac57a63d9dad13bd1793077fe1955833"
+            }
+          }
+        },
+        "on": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-producer/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/primitive_clamp.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-native-combined/clamp/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3301936,
+            "sha256": "c6799a36e9a0af07e2a8b2196abc8f540a7d0270eb3630b20555d586841f7b11"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-native-combined/clamp/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "d08bbaf99f48a165b3d752195f8b9e2764228c450dbe2bd6ae6f2c9aa721f3db",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-native-combined/clamp/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "d08bbaf99f48a165b3d752195f8b9e2764228c450dbe2bd6ae6f2c9aa721f3db",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "bytes": 805072,
+              "sha256": "abb3dabc8bb4287c0c642605088faf4dd5d97576f18b6c471c27b0be1a87a473"
+            }
+          }
+        }
+      },
+      "vm": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/primitive_clamp.dart"
+        ],
+        "exit": 0,
+        "stdout_sha256": "d08bbaf99f48a165b3d752195f8b9e2764228c450dbe2bd6ae6f2c9aa721f3db",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official_compile": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "exe",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/primitive_clamp.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-native-combined/clamp/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "b758afede6a003461f95fa4bdaa643325cffb4a5e5642519e6c370dcde54ce23",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-native-combined/clamp/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "d08bbaf99f48a165b3d752195f8b9e2764228c450dbe2bd6ae6f2c9aa721f3db",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "exact": true
+      }
+    },
+    "color": {
+      "profiles": {
+        "off": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-producer/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-native-combined/color/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3335008,
+            "sha256": "a39e8014c072169b6451c1640cb706812005c157f52b485256ae6641476b0cff"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-native-combined/color/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-native-combined/color/off/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "bytes": 1145129,
+              "sha256": "74de898e7b4122bcb3a3e9c5fc0087984005f279dae8db5d7434e3145545a14f"
+            }
+          }
+        },
+        "on": {
+          "compile": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-producer/dartforge",
+              "compile-native",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart",
+              "--sdk",
+              "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+              "--packages",
+              "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+              "--optimize",
+              "--memory=tracing",
+              "--exceptions=check",
+              "--roots=shadow",
+              "--stack-trace=none",
+              "-o",
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-native-combined/color/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "artifact": {
+            "bytes": 3335008,
+            "sha256": "2e3a6360d7208d90036020ca9cdcb3c025aa7ca0cc97c00790ab50d441604aee"
+          },
+          "normal": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-native-combined/color/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "stress": {
+            "command": [
+              "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-native-combined/color/on/program"
+            ],
+            "exit": 0,
+            "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "exact": true
+          },
+          "ir": {
+            ".df_tmp/program.ll": {
+              "bytes": 1170224,
+              "sha256": "5ae23022bb255b690fa57c256ae7753ba6f71718635245d271e55e9a0fee8b78"
+            }
+          }
+        }
+      },
+      "vm": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart"
+        ],
+        "exit": 0,
+        "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official_compile": {
+        "command": [
+          "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+          "compile",
+          "exe",
+          "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric.dart",
+          "-o",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-native-combined/color/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "478f4e452b9dea32a461e6f25ffcbc7bedf0e124b5520970cfd448b6ef9be76e",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "official": {
+        "command": [
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-native-combined/color/official"
+        ],
+        "exit": 0,
+        "stdout_sha256": "916e1a31bf838556d8a7caa79c89bb514fc7c1112f9180e8933e126ec306faba",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "exact": true
+      }
+    }
+  },
+  "scope": "One frozen producer, tracing/check/shadow; primitive clamp plus constant specialization OFF/ON only. Consumed output and GC stress comparison, no performance claim.",
+  "inputs_unchanged": true
+}

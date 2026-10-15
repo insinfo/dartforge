@@ -1,0 +1,1087 @@
+{
+  "complete": true,
+  "iterations": 1000000,
+  "orders": [
+    [
+      "off",
+      "constants",
+      "clamp",
+      "combined",
+      "official"
+    ],
+    [
+      "official",
+      "combined",
+      "clamp",
+      "constants",
+      "off"
+    ],
+    [
+      "constants",
+      "clamp",
+      "combined",
+      "official",
+      "off"
+    ],
+    [
+      "combined",
+      "official",
+      "off",
+      "clamp",
+      "constants"
+    ],
+    [
+      "clamp",
+      "combined",
+      "official",
+      "off",
+      "constants"
+    ]
+  ],
+  "rows": [
+    {
+      "round": 0,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/off/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 387.519875,
+      "stdout_sha256": "d52b65376a40fe38e21af37add7775e7149ee5769cf529c4e6ed43c29d9cb71b",
+      "stderr_sha256": "011f11fa97a1bc812d275357268b086cf8ec1b17cae99287662002ae85647fc5",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        76636,
+        75833,
+        75735,
+        76004,
+        75658
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 11059200,
+      "retained_kernel_median_microseconds": 75784.0
+    },
+    {
+      "round": 0,
+      "profile": "constants",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/constants/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 374.503958,
+      "stdout_sha256": "971763ac304084d257c8b12e9aa0435a7cd1e6c8194e629fec0563e92f19f9ac",
+      "stderr_sha256": "5f7113e3b36047a6dabf32fa535fb2e82e1191921746cb0923273525517ee0e2",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        73704,
+        73247,
+        72820,
+        72647,
+        74569
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10911744,
+      "retained_kernel_median_microseconds": 73033.5
+    },
+    {
+      "round": 0,
+      "profile": "clamp",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/clamp/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 237.489625,
+      "stdout_sha256": "de2012dee88091fd0680692c06aacf4acec90cbbfa236c7d163b40d1dff325ab",
+      "stderr_sha256": "ebfb54025fca362bfcad07fc5c2f3d1216e28fe1374e5ac7817cf538970e82f7",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        46683,
+        45969,
+        45896,
+        45845,
+        45869
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10944512,
+      "retained_kernel_median_microseconds": 45882.5
+    },
+    {
+      "round": 0,
+      "profile": "combined",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/combined/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 213.561166,
+      "stdout_sha256": "e2a289dfaa94e4f3760581ed99b8ce13822c1208e87f7d928326b9288ff23f96",
+      "stderr_sha256": "e345c3598369c1b2e271bf94422760734db96c50d9e478b5003883f6b7b34368",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        41596,
+        41169,
+        41039,
+        41305,
+        41159
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10829824,
+      "retained_kernel_median_microseconds": 41164.0
+    },
+    {
+      "round": 0,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/official/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 40.451792,
+      "stdout_sha256": "ca85dc87ba4558ad16446e0de191d38db30d8e0a9676a5f0cdf2da00554d9099",
+      "stderr_sha256": "cd1db8c04ad09716cdfca31014bb0607b16fa830d2fc2717cee07d8527a33151",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        5694,
+        5758,
+        5797,
+        5791,
+        5765
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 16547840,
+      "retained_kernel_median_microseconds": 5778.0
+    },
+    {
+      "round": 1,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/official/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 39.343458,
+      "stdout_sha256": "f94d1c7d25a533cfea5f53abfa5cc8e55883bace07dab7f8c663bb3695225d28",
+      "stderr_sha256": "b7b5852e69b8d8ffceeaf6f13a6f0e58ac68a1d68c2e6a14b4363fcf3f831b57",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        5502,
+        5516,
+        5527,
+        5538,
+        5476
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 16564224,
+      "retained_kernel_median_microseconds": 5521.5
+    },
+    {
+      "round": 1,
+      "profile": "combined",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/combined/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 214.262416,
+      "stdout_sha256": "007cef790fae3c2dbc26c495ac82e69946299b3929e9bc60589b8d0d83cf9524",
+      "stderr_sha256": "eee56999b7ce6619225d203aa6339a10214128464453c7fbf05805a38c0dc4b8",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        41195,
+        41170,
+        40693,
+        42586,
+        41329
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10862592,
+      "retained_kernel_median_microseconds": 41249.5
+    },
+    {
+      "round": 1,
+      "profile": "clamp",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/clamp/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 236.155125,
+      "stdout_sha256": "6c226c235f603bdac4eaaea105a23d08ef0f1c3d2d27807acdd33b4e60006ae9",
+      "stderr_sha256": "844b5713358837dfd1bd9c1911af6b84c6403001d1363200e025d7ceaf76bef6",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        45887,
+        45841,
+        45832,
+        45864,
+        45708
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10977280,
+      "retained_kernel_median_microseconds": 45836.5
+    },
+    {
+      "round": 1,
+      "profile": "constants",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/constants/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 377.102541,
+      "stdout_sha256": "bc4f7cea56e9761c9f39faf0b1ee1e786bc3853318d25339d90053c8bec4aa44",
+      "stderr_sha256": "e4d90202ea016fbeeb59db03e8ae3fee9bd27173e7030a99073f5d63af9a5428",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        74422,
+        73030,
+        72788,
+        74793,
+        74784
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10911744,
+      "retained_kernel_median_microseconds": 73907.0
+    },
+    {
+      "round": 1,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/off/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 386.55775,
+      "stdout_sha256": "966ecfbab40f5557f3c43354971dd6872cc0ec66f624eea685f47e21abcd42c9",
+      "stderr_sha256": "16afc75264379143d85997ab0e06361cb70648b3f349de4e790f953251b3dcf6",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        76794,
+        75522,
+        75488,
+        75373,
+        75269
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 11026432,
+      "retained_kernel_median_microseconds": 75430.5
+    },
+    {
+      "round": 2,
+      "profile": "constants",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/constants/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 378.911625,
+      "stdout_sha256": "ff81c5bdc317ac1015665a4ba5b2fd48615532d7e609f5c5adb468c83a4bf280",
+      "stderr_sha256": "733707a2c96a1455dd0d871e0f51e54ad20cd38a26d212bc527ca37fbdb6e434",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        73948,
+        74034,
+        73996,
+        74137,
+        75264
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10911744,
+      "retained_kernel_median_microseconds": 74085.5
+    },
+    {
+      "round": 2,
+      "profile": "clamp",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/clamp/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 236.331959,
+      "stdout_sha256": "5daeade647d49e8e0828615db1f1d3a109a534619e304848c49d57042f0faef5",
+      "stderr_sha256": "7f5df166b8613788b74fa6c91746c9e7b072f9101a869ce69cdc08f880e98bfd",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        46880,
+        45350,
+        45361,
+        45849,
+        45673
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10944512,
+      "retained_kernel_median_microseconds": 45517.0
+    },
+    {
+      "round": 2,
+      "profile": "combined",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/combined/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 217.234625,
+      "stdout_sha256": "21b03f620a7f3842831b699d539aa6bae0eb7f2553933dfc3b6ae7d740e9d05c",
+      "stderr_sha256": "b570b07b5c5aea84b9e0f27c42932fa6bed576441217b81d375af2e757063cf8",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        41371,
+        41291,
+        44458,
+        41671,
+        41251
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10829824,
+      "retained_kernel_median_microseconds": 41481.0
+    },
+    {
+      "round": 2,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/official/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 39.985083,
+      "stdout_sha256": "0f9eec56a59aab4cbadc4249befb75728fa07c66b5f0f47f0a826d7fde508408",
+      "stderr_sha256": "055c748cfa3d0096c22e0a9ac2930f51f0900a3a81353e515a3856aa1a75e88a",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        5519,
+        5721,
+        5779,
+        5781,
+        5705
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 16449536,
+      "retained_kernel_median_microseconds": 5750.0
+    },
+    {
+      "round": 2,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/off/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 386.285875,
+      "stdout_sha256": "06a5000f1b49509cce2bac4aad90eb548ea3147efc99c171b20249b8c6c5451a",
+      "stderr_sha256": "777057f7892549fb969271f484f0acc403a41fd8aee281ea2bc6be8f4f936123",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        75921,
+        76001,
+        75800,
+        75659,
+        75660
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 11059200,
+      "retained_kernel_median_microseconds": 75730.0
+    },
+    {
+      "round": 3,
+      "profile": "combined",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/combined/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 215.228417,
+      "stdout_sha256": "f52da556f68b556ab685248f4c29cda15107e7447769d65c12705baa9467ff92",
+      "stderr_sha256": "3b05b1eb1e5879fc6570b17a5bce2876574b026f30f791abc0df425b24c04120",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        41966,
+        41081,
+        42071,
+        41416,
+        41311
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10862592,
+      "retained_kernel_median_microseconds": 41363.5
+    },
+    {
+      "round": 3,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/official/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 38.530625,
+      "stdout_sha256": "4f336eae3e0445f94f526148ae7fbaceedc78449145bf7e7c0aa315a1f0c8361",
+      "stderr_sha256": "c754c73baebfe6e810f45b67122d52fc0173f82937e51fae56f7346f6d19178d",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        5520,
+        5358,
+        5368,
+        5355,
+        5368
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 16449536,
+      "retained_kernel_median_microseconds": 5363.0
+    },
+    {
+      "round": 3,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/off/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 389.02875,
+      "stdout_sha256": "7307eb716ebe068d458d6791dd96f7b8e032fa80dfa855f859678222fa966db0",
+      "stderr_sha256": "e8d43c17baf8239eaf011efd12d13064e677ed535d0f9be51b97639eee7dbc73",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        76637,
+        76337,
+        76254,
+        76628,
+        76209
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 11059200,
+      "retained_kernel_median_microseconds": 76295.5
+    },
+    {
+      "round": 3,
+      "profile": "clamp",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/clamp/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 234.182959,
+      "stdout_sha256": "c1d4897e3fe16299f4db174edef52c32871873dd3c346b0fca06a6d7d7011788",
+      "stderr_sha256": "5d1ebb79b4b5670d11a43d5ea0dd0b7e591c42888050316726b2d8b1f8e9b2cb",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        45643,
+        45259,
+        45189,
+        45472,
+        45351
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10944512,
+      "retained_kernel_median_microseconds": 45305.0
+    },
+    {
+      "round": 3,
+      "profile": "constants",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/constants/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 369.638834,
+      "stdout_sha256": "e38da7a368c7473208eacdc1eec0562f7fbca5f758efdd409632777874c2b0ac",
+      "stderr_sha256": "90ac577c48c97802354f39198b5812aa3e16c01a3ec1c54b3f166987c87b7ad7",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        72959,
+        72742,
+        72087,
+        72117,
+        72145
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10944512,
+      "retained_kernel_median_microseconds": 72131.0
+    },
+    {
+      "round": 4,
+      "profile": "clamp",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/clamp/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 239.322833,
+      "stdout_sha256": "f45436d2b44a3e2fd07f1dae2606feb8cfac1991593c2c8583cbb7d4fa0416b5",
+      "stderr_sha256": "26e67a8029428c34d0a69643598e033475c9b5229800b663dbab313168cd20a6",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        47028,
+        46444,
+        46020,
+        46036,
+        46040
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10944512,
+      "retained_kernel_median_microseconds": 46038.0
+    },
+    {
+      "round": 4,
+      "profile": "combined",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/combined/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 213.591041,
+      "stdout_sha256": "975da68c66dd9b9c08cbca50c8a1cfe554c4b159e38419b418b651f3aa4988b1",
+      "stderr_sha256": "0d6f3776269d162dddf039147b4f24360c977b4c345eeebb4788ab429c2d6ef1",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        41968,
+        41084,
+        41018,
+        41195,
+        41105
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10829824,
+      "retained_kernel_median_microseconds": 41094.5
+    },
+    {
+      "round": 4,
+      "profile": "official",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/official/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 38.046958,
+      "stdout_sha256": "ca96c759a1589ee2d8394666fcca508127ed9c27480d8bebbb4e15c9f26532e6",
+      "stderr_sha256": "9e5a84c1987330ce1e247803bdddf46c252c191fb5e0f92c85052403f6282cb0",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        5320,
+        5232,
+        5254,
+        5245,
+        5263
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 16515072,
+      "retained_kernel_median_microseconds": 5249.5
+    },
+    {
+      "round": 4,
+      "profile": "off",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/off/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 386.564,
+      "stdout_sha256": "dbeec8550b5319299eac29c129bfdd0830db5c495a34d6a5765a70bfd4ded807",
+      "stderr_sha256": "cfbd5a74644d0f9270e4217581c7c29e4d06091e8c80a78fb5deb331649d80ef",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        76682,
+        75515,
+        75416,
+        75559,
+        75838
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 11059200,
+      "retained_kernel_median_microseconds": 75537.0
+    },
+    {
+      "round": 4,
+      "profile": "constants",
+      "command": [
+        "/usr/bin/time",
+        "-l",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/constants/program",
+        "1000000"
+      ],
+      "exit_code": 0,
+      "wall_ms": 378.877917,
+      "stdout_sha256": "a67d71d51a5e1eb6c4ef45f8d05b32be1d7712fdba4cc6cc6bb752cc0c9e7021",
+      "stderr_sha256": "87a1dbfd420f676158a494de71e1f0e167a74150d2938d1ee0912a82c5eef65c",
+      "checksums": [
+        126625349,
+        126625349,
+        126625349,
+        126625349,
+        126625349
+      ],
+      "kernel_microseconds": [
+        75196,
+        74218,
+        73922,
+        73977,
+        73806
+      ],
+      "discarded_first_sample": true,
+      "consumed_checksum_exact": true,
+      "max_rss_bytes": 10944512,
+      "retained_kernel_median_microseconds": 73949.5
+    }
+  ],
+  "prepared_sha256": "fea27dbd0dc37330a6905c127a5ac63d4c632641b76738c8b73167fddab88708",
+  "artifacts": {
+    "official": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/official/program",
+      "sha256": "5000f4afa15e64928f64968b3ed04c75709bec303ec6314d5e74127355c05ad1",
+      "bytes": 5329888
+    },
+    "off": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/off/program",
+      "sha256": "2f1fd0ca67d96f3a2be8d96b1daf90fe1542f74bb04263eea7c45e5525ce0b95",
+      "bytes": 3268880,
+      "ir": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/off/.df_tmp/program.ll",
+        "sha256": "2e1e4a9f36efafbd83e4c8897480108ca36fe5e3ae423b0ac050532948ea0192",
+        "bytes": 1020619,
+        "all_defined_bodies": {
+          "selector_calls": 98,
+          "indirect_selector_calls": 97,
+          "runtime_dynamic_operator_calls": 0,
+          "primitive_class_guards": 69,
+          "box_int_calls": 224,
+          "box_double_calls": 3,
+          "exception_clear_calls": 93,
+          "conditional_branches": 960
+        },
+        "focused_functions": {
+          "define i64 @df.color_numeric_performance$2edart..convertPixels(i64 %v0, i64 %v3) noinline nounwind {": {
+            "selector_calls": 3,
+            "indirect_selector_calls": 3,
+            "runtime_dynamic_operator_calls": 0,
+            "primitive_class_guards": 1,
+            "box_int_calls": 3,
+            "box_double_calls": 1,
+            "exception_clear_calls": 1,
+            "conditional_branches": 18
+          },
+          "define i64 @df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue(i64 %v0, i64 %v3, i64 %v6) nounwind {": {
+            "selector_calls": 88,
+            "indirect_selector_calls": 88,
+            "runtime_dynamic_operator_calls": 0,
+            "primitive_class_guards": 65,
+            "box_int_calls": 218,
+            "box_double_calls": 0,
+            "exception_clear_calls": 92,
+            "conditional_branches": 778
+          }
+        },
+        "scope": "Pre-LTO static IR sites, including guarded slow branches; these are not executed call counts."
+      }
+    },
+    "constants": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/constants/program",
+      "sha256": "82cacadd59d17a2b9f040bd322055732bb7ad16bb60f233c82f801510653a6a8",
+      "bytes": 3235808,
+      "ir": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/constants/.df_tmp/program.ll",
+        "sha256": "2b792a0c4f5f0216bf76c99ff035e08aaa63477252ca67e45883d6394a4ea611",
+        "bytes": 662764,
+        "all_defined_bodies": {
+          "selector_calls": 14,
+          "indirect_selector_calls": 13,
+          "runtime_dynamic_operator_calls": 0,
+          "primitive_class_guards": 6,
+          "box_int_calls": 15,
+          "box_double_calls": 3,
+          "exception_clear_calls": 3,
+          "conditional_branches": 152
+        },
+        "focused_functions": {
+          "define i64 @df.color_numeric_performance$2edart..convertPixels(i64 %v0, i64 %v3) noinline nounwind {": {
+            "selector_calls": 3,
+            "indirect_selector_calls": 3,
+            "runtime_dynamic_operator_calls": 0,
+            "primitive_class_guards": 1,
+            "box_int_calls": 3,
+            "box_double_calls": 1,
+            "exception_clear_calls": 1,
+            "conditional_branches": 18
+          }
+        },
+        "scope": "Pre-LTO static IR sites, including guarded slow branches; these are not executed call counts."
+      }
+    },
+    "clamp": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/clamp/program",
+      "sha256": "2401079209c7cbb39f9abafaf6781c880c72382da3b900519e0ae0983838d222",
+      "bytes": 3268880,
+      "ir": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/clamp/.df_tmp/program.ll",
+        "sha256": "164c1a18652696e33896177a2a4a0fa9d7c20ce62f75101a032e8afc0d62f567",
+        "bytes": 1045714,
+        "all_defined_bodies": {
+          "selector_calls": 98,
+          "indirect_selector_calls": 97,
+          "runtime_dynamic_operator_calls": 0,
+          "primitive_class_guards": 84,
+          "box_int_calls": 224,
+          "box_double_calls": 3,
+          "exception_clear_calls": 93,
+          "conditional_branches": 1050
+        },
+        "focused_functions": {
+          "define i64 @df.color_numeric_performance$2edart..convertPixels(i64 %v0, i64 %v3) noinline nounwind {": {
+            "selector_calls": 3,
+            "indirect_selector_calls": 3,
+            "runtime_dynamic_operator_calls": 0,
+            "primitive_class_guards": 1,
+            "box_int_calls": 3,
+            "box_double_calls": 1,
+            "exception_clear_calls": 1,
+            "conditional_branches": 18
+          },
+          "define i64 @df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue(i64 %v0, i64 %v3, i64 %v6) nounwind {": {
+            "selector_calls": 88,
+            "indirect_selector_calls": 88,
+            "runtime_dynamic_operator_calls": 0,
+            "primitive_class_guards": 80,
+            "box_int_calls": 218,
+            "box_double_calls": 0,
+            "exception_clear_calls": 92,
+            "conditional_branches": 868
+          }
+        },
+        "scope": "Pre-LTO static IR sites, including guarded slow branches; these are not executed call counts."
+      }
+    },
+    "combined": {
+      "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/combined/program",
+      "sha256": "909e5b4005dd5ac0b2c16400fc78725f30eee2f9762db28ab1e19fac79549e67",
+      "bytes": 3235808,
+      "ir": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/combined/.df_tmp/program.ll",
+        "sha256": "744a7e9d291ecda148e8813d8bcf7ff26cc5fbda31a6058ed91abf772adc8b89",
+        "bytes": 667723,
+        "all_defined_bodies": {
+          "selector_calls": 14,
+          "indirect_selector_calls": 13,
+          "runtime_dynamic_operator_calls": 0,
+          "primitive_class_guards": 9,
+          "box_int_calls": 15,
+          "box_double_calls": 3,
+          "exception_clear_calls": 3,
+          "conditional_branches": 170
+        },
+        "focused_functions": {
+          "define i64 @df.color_numeric_performance$2edart..convertPixels(i64 %v0, i64 %v3) noinline nounwind {": {
+            "selector_calls": 3,
+            "indirect_selector_calls": 3,
+            "runtime_dynamic_operator_calls": 0,
+            "primitive_class_guards": 1,
+            "box_int_calls": 3,
+            "box_double_calls": 1,
+            "exception_clear_calls": 1,
+            "conditional_branches": 18
+          }
+        },
+        "scope": "Pre-LTO static IR sites, including guarded slow branches; these are not executed call counts."
+      }
+    }
+  },
+  "scope": "Five alternating fresh processes per profile. First of five kernel samples discarded; process wall/RSS includes all five. No other builds or timing workloads should run during this command.",
+  "oracle": {
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric_performance.dart",
+      "1000000"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "f4e9237e8a2376ff2dc2ed0f5030841c681a950ff4d59ccf731a489a6a5d52cd",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "expected_checksum": 126625349,
+  "medians": {
+    "official": {
+      "kernel_microseconds": 5521.5,
+      "process_kernel_medians_microseconds": [
+        5778.0,
+        5521.5,
+        5750.0,
+        5363.0,
+        5249.5
+      ],
+      "wall_ms": 39.343458,
+      "max_rss_bytes": 16515072
+    },
+    "off": {
+      "kernel_microseconds": 75697.5,
+      "process_kernel_medians_microseconds": [
+        75784.0,
+        75430.5,
+        75730.0,
+        76295.5,
+        75537.0
+      ],
+      "wall_ms": 386.564,
+      "max_rss_bytes": 11059200
+    },
+    "constants": {
+      "kernel_microseconds": 73864.0,
+      "process_kernel_medians_microseconds": [
+        73033.5,
+        73907.0,
+        74085.5,
+        72131.0,
+        73949.5
+      ],
+      "wall_ms": 377.102541,
+      "max_rss_bytes": 10911744
+    },
+    "clamp": {
+      "kernel_microseconds": 45843.0,
+      "process_kernel_medians_microseconds": [
+        45882.5,
+        45836.5,
+        45517.0,
+        45305.0,
+        46038.0
+      ],
+      "wall_ms": 236.331959,
+      "max_rss_bytes": 10944512
+    },
+    "combined": {
+      "kernel_microseconds": 41223.0,
+      "process_kernel_medians_microseconds": [
+        41164.0,
+        41249.5,
+        41481.0,
+        41363.5,
+        41094.5
+      ],
+      "wall_ms": 214.262416,
+      "max_rss_bytes": 10829824
+    }
+  },
+  "paired_combined_over_off_kernel_ratios": [
+    0.543175340441254,
+    0.5468543891396717,
+    0.5477485804832959,
+    0.542148619512291,
+    0.544031401829567
+  ],
+  "inputs_unchanged": true,
+  "artifacts_unchanged": true
+}

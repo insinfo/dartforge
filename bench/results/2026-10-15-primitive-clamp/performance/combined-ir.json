@@ -1,0 +1,28 @@
+{
+  "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-performance-2ae87eaecb64/combined/.df_tmp/program.ll",
+  "sha256": "744a7e9d291ecda148e8813d8bcf7ff26cc5fbda31a6058ed91abf772adc8b89",
+  "bytes": 667723,
+  "all_defined_bodies": {
+    "selector_calls": 14,
+    "indirect_selector_calls": 13,
+    "runtime_dynamic_operator_calls": 0,
+    "primitive_class_guards": 9,
+    "box_int_calls": 15,
+    "box_double_calls": 3,
+    "exception_clear_calls": 3,
+    "conditional_branches": 170
+  },
+  "focused_functions": {
+    "define i64 @df.color_numeric_performance$2edart..convertPixels(i64 %v0, i64 %v3) noinline nounwind {": {
+      "selector_calls": 3,
+      "indirect_selector_calls": 3,
+      "runtime_dynamic_operator_calls": 0,
+      "primitive_class_guards": 1,
+      "box_int_calls": 3,
+      "box_double_calls": 1,
+      "exception_clear_calls": 1,
+      "conditional_branches": 18
+    }
+  },
+  "scope": "Pre-LTO static IR sites, including guarded slow branches; these are not executed call counts."
+}
