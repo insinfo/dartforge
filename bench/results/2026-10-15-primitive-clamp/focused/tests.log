@@ -1,0 +1,38 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+error[E0603]: function `rewrite` is private
+   --> crates/emit_native/src/lower/primitive_clamp/tests.rs:55:54
+    |
+ 55 |         assert_eq!(crate::optimize::primitive_clamp::rewrite(&mut module),0,"unpruned FFI exposure is never exempted by name");
+    |                                                      ^^^^^^^ private function
+    |
+note: the function `rewrite` is defined here
+   --> crates/emit_native/src/optimize/primitive_clamp.rs:232:1
+    |
+232 | pub(super) fn rewrite(module: &mut Module) -> usize {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: function `rewrite` is private
+   --> crates/emit_native/src/lower/primitive_clamp/tests.rs:60:51
+    |
+ 60 |         assert!(crate::optimize::primitive_clamp::rewrite(&mut module)>0);
+    |                                                   ^^^^^^^ private function
+    |
+note: the function `rewrite` is defined here
+   --> crates/emit_native/src/optimize/primitive_clamp.rs:232:1
+    |
+232 | pub(super) fn rewrite(module: &mut Module) -> usize {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+For more information about this error, try `rustc --explain E0603`.
+warning: `dartforge-emit-native` (lib test) generated 1 warning
+error: could not compile `dartforge-emit-native` (lib test) due to 2 previous errors; 1 warning emitted

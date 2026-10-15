@@ -1,0 +1,81 @@
+{
+  "status": "Initial strict experimental refinement; default OFF. Four focused tests passed. No ordinary imported-SDK/FFI size benefit established.",
+  "flag": "DARTFORGE_CLOSED_CLASS_REACHABILITY=1",
+  "covered": [
+    "Fully lowered fixed tracing image with no imported SDK summaries/records, unique nominal class/table/function identities and closed registry",
+    "Direct constant-CID object creation with exact field count and available table",
+    "Allocation edges activate a class table and its owned toString/vtable implementation bodies; inherited body allocations participate in the same fixed point",
+    "Known in-module direct calls; selector graph remains conservative for unknown receiver cones",
+    "Unreachable foreign bodies are not mistaken for reachable exposure"
+  ],
+  "open_boundaries": [
+    "Imported SDK allocation completeness is not yet exported; imports retain original wide behavior",
+    "Native and indirect closure/reflection calls, unknown runtime factories and dynamic allocation CIDs retain wide behavior",
+    "Tearoff/closure/list/record/environment/cell allocation coverage is not yet certified by this inventory",
+    "External Ref entry parameters, FFI callbacks/compounds, ambiguous identities, ARC and reload are excluded"
+  ],
+  "emitter_consistency": [
+    "Same proved class set gates program eager table registration and legacy direct toString dispatch",
+    "Class/RTI/name/ancestry metadata remain available; active inherited implementation bodies stay rooted",
+    "Class proof is image-local. Clearing metadata cannot revive already pruned functions. New module joins, registration mutation or new unknown allocation require rebuilding from fresh fully lowered input. No post-prune merge behavior has been certified."
+  ],
+  "ordinary_file_explorer": "Remains conservative due imported SDK and active FFI. This is an explicit first coverage boundary, not a permanent all-FFI policy or a claim that every C call creates Dart objects.",
+  "native_audit": {
+    "arbitrary_or_registered_class_ids": [
+      {
+        "api": "dartforge_object_new",
+        "file": "crates/runtime/src/core.rs",
+        "line": 428,
+        "why": "Uses caller supplied class_id and field_count."
+      },
+      {
+        "api": "dartforge_object_new_t",
+        "file": "crates/runtime/src/selectors.rs",
+        "line": 244,
+        "why": "Caller supplied CID plus supplied method table registration."
+      },
+      {
+        "api": "dartforge_ffi_compound / ffi_compound_of_type / ffi_compound_new / ffi_compound_copy",
+        "file": "crates/runtime/src/ffi.rs",
+        "line": 725,
+        "why": "Allocates class ID selected from registered FfiCompound layout keyed by RTI; seed exact registered compound classes or remain unknown."
+      }
+    ],
+    "exposure_routes": [
+      {
+        "api": "dartforge_native_Ffi_dl_processLibrary / dl_executableLibrary / dl_lookup",
+        "file": "crates/runtime/src/ffi.rs",
+        "line": 589,
+        "why": "May expose runtime allocation or registry symbol addresses. The resolved name/target must be certified, not inferred neutral from pointer return ABI."
+      },
+      {
+        "api": "dartforge_ffi_native_symbol",
+        "file": "crates/runtime/src/ffi.rs",
+        "line": 770,
+        "why": "Reserved runtime catalog resolver can provide address of allocation or registration API."
+      },
+      {
+        "api": "dartforge_ffi_handle_object",
+        "file": "crates/runtime/src/ffi.rs",
+        "line": 968,
+        "why": "Returned Handle is validated against a live current-isolate cell. This is reference provenance, not a blanket arbitrary-class allocator; callbacks/runtime API access still require coverage."
+      }
+    ],
+    "neutral_call_obligation": "Numeric/pointer-only native ABI does not by itself prove absence of callbacks, dynamic runtime symbol lookup or registry/class allocation side effects inside foreign code. Prefer exact runtime-source/transitive callee summaries and certified callback targets; keep genuinely unknown foreign targets conservative."
+  },
+  "next_required_summary": [
+    "Export per-definition allocation class sets and an explicit unknown-allocation bit in SDK pruning summaries. Include allocations inside functions, not only the class of returned values.",
+    "Bind runtime primitive allocation kinds and configured runtime CIDs to the exact compiler/runtime/SDK artifacts. Exception/stacktrace/closure/list/record and FFI compound classes must be covered even when construction has no source NewInstance.",
+    "Reconcile imported allocation facts with class/table identity, registered ancestry and live callable/callback targets. Only live unknown allocation/exposure widens the candidate universe.",
+    "Add non-allocating/native-existing-reference contracts proved from exact bodies/transitive calls; distinguish ordinary numeric/pointer FFI from Handle/callback/registry/dynamic symbol exposure without backend or platform name filtering."
+  ],
+  "source_sha256": {
+    "crates/emit_native/src/pruning/class_reachability.rs": "03d6bad291f1787b7ed628089d38a3ff810947a46fc90ef747424d52ae9644c9",
+    "crates/emit_native/src/pruning.rs": "53ca962743ba72ccac5ed12cec19bd01c5c97cec1bd8c8207b782d5753472fd9",
+    "crates/emit_native/src/llvm/selectors.rs": "36321ca3f4c1cbf0dd2548f5cf7fefbb9d3a8abd5d37ffa176bc3794416e5c3e",
+    "crates/emit_native/src/llvm/mod.rs": "784b25114ec1d0c85d451b33beb5771e114be8ed6543580807886bef0a65cfb3",
+    "crates/runtime/src/core.rs": "7c6ee3170fc204c13ebb7c231759315d6d90dad64a2c153991666fd0c12df899",
+    "crates/runtime/src/ffi.rs": "0c8f5ae8d3a532d4cf6fd0331f52458bd54dc9f4d1a3079096da2fddea773ed6",
+    "crates/runtime/src/selectors.rs": "555bcadaeb415d80e49dd3ec366a45a08b4d7d23258b0ad0cfea911ac3b31bf8"
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "status": "passed",
+  "terminal_handle": 50614,
+  "terminal_exit": 0,
+  "producer_sha256": "2ae87eaecb64da6398da7fd32fc879e6f7cb7ae6f01ebf977be5c593c81080ce",
+  "verifier_sha256": "006e4b9060cf1a0676d5e00fd53224836e77c60c58e3b18bcbfd3e78b9b2af7b",
+  "ledger": "runs/20261015T005437.791594Z/validation.json",
+  "fresh_cache_graph_packages_including_root": 51,
+  "independent_graph_and_origins_exact": true,
+  "online_and_offline_pub_commands": 4,
+  "test_cli_commands": 8,
+  "native_execution_cases": [
+    "pass",
+    "assertion_failure",
+    "unawaited_error_failure",
+    "offline_pass"
+  ],
+  "official_VM_execution_cases": [
+    "pass",
+    "assertion_failure",
+    "unawaited_error_failure",
+    "offline_pass"
+  ],
+  "failure_cases_require_exact_exit1_and_intended_marker": true,
+  "SDK_source": "Declared selectedSDK _macros0.3.3 resolved generally, without package-specific special casing or copied official config.",
+  "CLI_pub_and_runner_sources_match_combined_producer": true,
+  "input_sources_and_binary_unchanged": true,
+  "initial_failed_evidence_preserved": "runs/20261015T003407.895256Z/validation.json",
+  "scope": "Current combined producer actual own fresh Pub -> own native test integration. No timings or complete Pub/test platform/configuration equivalence.",
+  "artifacts": {
+    "native-pubspec.lock": {
+      "sha256": "d16b95447b107f90018331e8340101c062d12f46d13468916d2b5f7225b8d256",
+      "bytes": 11704
+    },
+    "native-package_config.json": {
+      "sha256": "6c80af7b6fc9fc96be361b27ac1bd945eae1e5b4046a6bf25efba50aee800ddd",
+      "bytes": 14235
+    },
+    "official-pubspec.lock": {
+      "sha256": "bd9da50b3e4667b87040c5628e9cf72668109eb0918cf58415f0c502093ffd82",
+      "bytes": 11502
+    },
+    "official-package_config.json": {
+      "sha256": "e74a7de761133a880ba8b9a0bd9f683b1cca857ebb4d4c6761ca4f08c4456536",
+      "bytes": 14348
+    },
+    "native-test-pass.completion.json": {
+      "sha256": "4f1052e0398bf67184d7c5f61cdff75c1e965faa61ed5c4beec419f849f53cd3",
+      "bytes": 110
+    },
+    "native-test-pass.compile.stdout": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "native-test-pass.compile.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "native-test-assertion.completion.json": {
+      "sha256": "97db9510ba0b9da83133b88f7dd9b43349b3b9fafc25997d2121ff49f9678533",
+      "bytes": 111
+    },
+    "native-test-assertion.compile.stdout": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "native-test-assertion.compile.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "native-test-async.completion.json": {
+      "sha256": "46642f33e3b6e15efdc31a55a4c5693d081d982201bc726094f71fa35c40f23a",
+      "bytes": 111
+    },
+    "native-test-async.compile.stdout": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "native-test-async.compile.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "native-test-offline-pass.completion.json": {
+      "sha256": "2cf6ff02d4068a1df7e5b26bfd7624cfff0194a89b6203bfbf19087f8d50eed2",
+      "bytes": 110
+    },
+    "native-test-offline-pass.compile.stdout": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "native-test-offline-pass.compile.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  },
+  "ledger_sha256": "a7b1f75c2d89f93869ef1b52e269cb280c9e56e52e0ec4e10e506204585214d0"
+}

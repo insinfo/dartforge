@@ -1155,6 +1155,14 @@ pub struct Module {
     pub arc_fixed_ancestry: bool,
     /// Selected canonical SDK double identity/hash overlays were independently verified.
     pub checked_double_identity: bool,
+    /// Experimental selected-source/ABI premise for primitive clamp. Consumers
+    /// must separately prove fixed registration and absence of native exposure.
+    pub(crate) primitive_clamp_certificate: bool,
+    /// Actual resolved canonical clamp body symbols, never inferred by spelling.
+    pub(crate) primitive_clamp_targets: std::collections::HashSet<String>,
+    /// Proven allocated class tables for experimental closed reachability.
+    /// None preserves the original eager registration; metadata stays separate.
+    pub(crate) closed_class_tables: Option<std::collections::HashSet<u32>>,
     /// Registration facts from the same compiled SDK summaries used at link time.
     pub arc_external_ancestry: ArcExternalAncestry,
     /// Artifact-bound allocation return facts from the exact selected linked SDK.

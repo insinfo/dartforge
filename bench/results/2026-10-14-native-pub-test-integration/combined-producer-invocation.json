@@ -1,0 +1,18 @@
+{
+  "status": "awaiting_root_native_gate_terminal",
+  "producer": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-producer/dartforge",
+  "producer_sha256": "2ae87eaecb64da6398da7fd32fc879e6f7cb7ae6f01ebf977be5c593c81080ce",
+  "script_sha256": "006e4b9060cf1a0676d5e00fd53224836e77c60c58e3b18bcbfd3e78b9b2af7b",
+  "command": [
+    "python3",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-native-pub-test-integration/verify.py",
+    "--producer",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-producer/dartforge",
+    "--producer-sha256",
+    "2ae87eaecb64da6398da7fd32fc879e6f7cb7ae6f01ebf977be5c593c81080ce",
+    "--sdk",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk"
+  ],
+  "sdk_selection": "Explicit SDK/lib passed to both own Pub and native test; upstream VM uses SDK/bin/dart from same root.",
+  "not_executed": true
+}

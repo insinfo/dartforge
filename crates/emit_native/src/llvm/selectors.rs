@@ -250,7 +250,8 @@ impl LlvmEmitter<'_> {
         for (cid, symbol, _) in &module.method_tables {
             let runtime_trace = module.sdk_library && module.classes.iter()
                 .any(|cls| cls.id == *cid && cls.name == "_StackTrace");
-            if !module.sdk_library || runtime_trace {
+            let class_active = module.closed_class_tables.as_ref().is_none_or(|classes| classes.contains(cid));
+            if (!module.sdk_library || runtime_trace) && class_active {
                 writeln!(body, "  call void @dartforge_register_table(i64 {cid}, ptr @{symbol})").unwrap();
                 if self.tables_at_link {
                     self.annotate_external(symbol, Type::Ptr, &[]);

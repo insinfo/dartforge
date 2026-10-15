@@ -1,0 +1,21 @@
+{
+  "head": "b3ac55ccd8182d910bfec91dec92510d6873c582",
+  "command": [
+    "cargo",
+    "build",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-cli",
+    "--release",
+    "--features",
+    "native"
+  ],
+  "exit": 0,
+  "source_scope": "Cargo manifests and Rust/Dart/C/header/JSON sources under crates and native_sdk, including tests.",
+  "source_stable": true,
+  "changed_during_build": [],
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/primitive-clamp-producer/dartforge",
+  "compiler_sha256": "2ae87eaecb64da6398da7fd32fc879e6f7cb7ae6f01ebf977be5c593c81080ce",
+  "compiler_bytes": 25710640
+}

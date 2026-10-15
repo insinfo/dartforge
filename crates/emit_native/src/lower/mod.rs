@@ -17,6 +17,7 @@ pub mod constants;
 mod environment;
 mod double_identity;
 mod primitive_multiply;
+mod primitive_clamp;
 mod platform;
 mod native_pump;
 mod sync_native_callable;
@@ -207,7 +208,14 @@ pub fn lower_program(ctx: &Context) -> Module {
     module.sdk_mode = true;
     module.sdk_library = ctx.sdk_library;
     module.dwarf = ctx.dwarf;
-    lower_classes_and_functions(ctx, module)
+    let mut module = lower_classes_and_functions(ctx, module);
+    // Body chunks and adapters start uncertified. Publish the premise only
+    // after joining every body from this complete selected source context.
+    module.primitive_clamp_certificate = primitive_clamp::enabled_certificate(ctx);
+    if module.primitive_clamp_certificate {
+        module.primitive_clamp_targets = primitive_clamp::targets(ctx);
+    }
+    module
 }
 
 /// The `dart:async` fields that the symbolic stack trace walks to find who
@@ -531,6 +539,9 @@ fn with_source_body<'c>(ctx: &'c Context) -> &'c std::collections::HashSet<Strin
 /// them changes the ARC convention of the function silently — the Ref return without
 /// `dart_ref_returns` was no longer Owned.
 pub(crate) fn join_arc_facts(dest: &mut Module, origin: &mut Module) {
+    dest.primitive_clamp_certificate &= origin.primitive_clamp_certificate
+        && dest.primitive_clamp_targets == origin.primitive_clamp_targets;
+    if !dest.primitive_clamp_certificate { dest.primitive_clamp_targets.clear(); }
     dest.pruning_this_receivers.extend(std::mem::take(&mut origin.pruning_this_receivers));
     dest.pruning_class_ids.extend(std::mem::take(&mut origin.pruning_class_ids));
     dest.pruning_ambiguous_class_ids.extend(std::mem::take(&mut origin.pruning_ambiguous_class_ids));

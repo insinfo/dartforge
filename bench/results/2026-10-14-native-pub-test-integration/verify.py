@@ -25,20 +25,61 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def package_versions(config):
-    """Package configs supply name/paths/language; read actual package manifests."""
-    value = json.loads(config.read_text())
-    result = {}
+def package_versions(config, sdk):
+    """Compare actual manifests, lock source identities and selected SDK mappings.
+
+    PyYAML parses the artifacts themselves; no configuration or lockfile is
+    copied between independent resolution paths.
+    """
+    import yaml
     from urllib.parse import urljoin, urlparse, unquote
+    value = json.loads(config.read_text())
+    project = config.parent.parent.resolve()
+    lock = yaml.safe_load((project / 'pubspec.lock').read_text())['packages']
+    sdk_config = yaml.safe_load((sdk / 'sdk_packages.yaml').read_text())
+    assert sdk_config['version'] == 1 and sdk_config['sdk'] == 'dart'
+    declared = {}
+    for row in sdk_config['packages']:
+        assert row['name'] not in declared, 'duplicate selected SDK declaration'
+        declared[row['name']] = row['path']
+    result = {}
     for entry in value['packages']:
-        uri = urljoin(config.as_uri(), entry['rootUri'])
-        parsed = urlparse(uri)
+        name = entry['name']
+        assert name not in result, 'duplicate package configuration identity'
+        parsed = urlparse(urljoin(config.as_uri(), entry['rootUri']))
         if parsed.scheme != 'file':
             raise AssertionError('package root must be a file URI')
-        root = Path(unquote(parsed.path))
-        result[entry['name']] = {'languageVersion': entry.get('languageVersion'),
-                                  'pubspec_sha256': sha(root / 'pubspec.yaml'),
-                                  'root': str(root)}
+        root = Path(unquote(parsed.path)).resolve()
+        pubspec = root / 'pubspec.yaml'
+        manifest = yaml.safe_load(pubspec.read_text())
+        assert manifest['name'] == name, 'configuration package identity differs from actual manifest'
+        version = str(manifest.get('version', '0.0.0'))
+        if root == project:
+            origin = {'source': 'root'}
+        else:
+            record = lock[name]
+            assert str(record['version']) == version, 'lock version differs from actual package manifest'
+            source = record['source']
+            if source == 'sdk':
+                assert record['description'] == 'dart'
+                path = declared[name]
+                assert root == (sdk / path).resolve(), 'SDK package configuration bypasses selected declaration'
+                origin = {'source': 'sdk', 'sdk': 'dart', 'selected_mapping_path': path}
+            elif source == 'hosted':
+                description = record['description']
+                assert description['name'] == name
+                origin = {'source': 'hosted', 'registry': description['url'],
+                          'archive_sha256': description['sha256']}
+            elif source == 'path':
+                description = record['description']
+                declared_root = (project / description['path']).resolve()
+                assert root == declared_root, 'path package configuration differs from lock description'
+                origin = {'source': 'path', 'relative_to_project': os.path.relpath(root, project)}
+            else:
+                raise AssertionError('unsupported integration lock source: ' + str(source))
+        result[name] = {'version': version, 'languageVersion': entry.get('languageVersion'),
+                        'pubspec_sha256': sha(pubspec), 'origin': origin, 'root': str(root)}
+    assert set(lock) == set(result) - {yaml.safe_load((project / 'pubspec.yaml').read_text())['name']}
     return result
 
 
@@ -71,7 +112,7 @@ def main():
                        LLVM_SYS_221_PREFIX='/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64')
     report = {'schema': 1, 'status': 'running', 'producer': str(cli),
               'producer_sha256': sha(cli), 'SDK': str(sdk), 'SDK_binary_sha256': sha(sdk / 'bin/dart'),
-              'fixtures': fixtures, 'work': str(work), 'initial_pub_caches_empty': True,
+              'fixtures': fixtures, 'verifier_sha256': sha(Path(__file__).resolve()), 'work': str(work), 'initial_pub_caches_empty': True,
               'commands': [], 'checks': {}, 'scope': 'Own fresh Pub resolution followed by own native test; independent official Pub/VM oracle. No timings or broad toolchain parity claim.'}
 
     def save():
@@ -135,7 +176,7 @@ def main():
                 continue
             project = work / mode / 'project'
             config = project / '.dart_tool/package_config.json'
-            packages = package_versions(config)
+            packages = package_versions(config, sdk)
             assert all(name in packages for name in ['test', 'test_api', 'test_core'])
             # Dependencies may be hosted cache entries or selected SDK packages; never a reused global Pub cache.
             cache = work / mode / 'pub-cache'
@@ -169,13 +210,13 @@ def main():
             project = work / mode / 'project'
             files = [project / 'pubspec.lock', project / '.dart_tool/package_config.json']
             before = {str(path.relative_to(project)): sha(path) for path in files}
-            package_graph_before = package_versions(project / '.dart_tool/package_config.json')
+            package_graph_before = package_versions(project / '.dart_tool/package_config.json', sdk)
             command = [cli, 'pub', 'get', '--offline', '--sdk', sdk / 'lib'] if mode == 'native' else [sdk / 'bin/dart', 'pub', 'get', '--offline']
             result = run(mode + '-pub-offline', command, mode)
             assert result.returncode == 0
             after = {str(path.relative_to(project)): sha(path) for path in files}
             assert before['pubspec.lock'] == after['pubspec.lock']
-            assert package_graph_before == package_versions(project / '.dart_tool/package_config.json')
+            assert package_graph_before == package_versions(project / '.dart_tool/package_config.json', sdk)
             if mode == 'native':
                 assert before == after
             report['checks'][mode + '_offline_artifacts'] = {

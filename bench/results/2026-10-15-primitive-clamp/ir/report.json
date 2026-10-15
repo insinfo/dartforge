@@ -1,0 +1,205 @@
+{
+  "producer_sha256": "2ae87eaecb64da6398da7fd32fc879e6f7cb7ae6f01ebf977be5c593c81080ce",
+  "native_validation_sha256": "c2d17ee532944fdb8ceb5b6bb75c7f9596b1ec4f9770cc5b85ff5c6ea7fd672f",
+  "scope": "Existing app LLVM after HIR optimization, before Clang optimization. Selected bodies only; this establishes exercised guarded clamp paths and retained fallback/check code, not runtime speed or universal equivalence.",
+  "functions": {
+    "clamp": {
+      "unitClamp": {
+        "off": {
+          "symbol": "df.primitive_clamp$2edart..unitClamp",
+          "body_sha256": "d91fcea97ed81ccbcb114a16287fa441d90e35819200fd27a87df3049c441eb8",
+          "bytes": 2197,
+          "nan_bit_guards": 0,
+          "negative_zero_bit_guards": 0,
+          "double_to_bits": 0,
+          "pending_loads": 1,
+          "integer_boxes": 2,
+          "double_boxes": 0,
+          "canonical_static_fallbacks": [],
+          "selector_fallbacks": 1,
+          "extracted": "bench/results/2026-10-15-primitive-clamp/ir/clamp/off/unitClamp.ll"
+        },
+        "on": {
+          "symbol": "df.primitive_clamp$2edart..unitClamp",
+          "body_sha256": "88fa776992686c6afcb75976b5e00aa67fe8988b7ef2adb4784e56219b33b6a2",
+          "bytes": 3668,
+          "nan_bit_guards": 1,
+          "negative_zero_bit_guards": 1,
+          "double_to_bits": 1,
+          "pending_loads": 1,
+          "integer_boxes": 2,
+          "double_boxes": 0,
+          "canonical_static_fallbacks": [],
+          "selector_fallbacks": 1,
+          "extracted": "bench/results/2026-10-15-primitive-clamp/ir/clamp/on/unitClamp.ll"
+        }
+      },
+      "typedUnitClamp": {
+        "off": {
+          "symbol": "df.primitive_clamp$2edart..typedUnitClamp",
+          "body_sha256": "a16c65fc9d566c6a158b2b17119d06909a312489ec19f48edbe6bd898b68c06a",
+          "bytes": 3370,
+          "nan_bit_guards": 0,
+          "negative_zero_bit_guards": 0,
+          "double_to_bits": 0,
+          "pending_loads": 3,
+          "integer_boxes": 6,
+          "double_boxes": 0,
+          "canonical_static_fallbacks": [
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp"
+          ],
+          "selector_fallbacks": 1,
+          "extracted": "bench/results/2026-10-15-primitive-clamp/ir/clamp/off/typedUnitClamp.ll"
+        },
+        "on": {
+          "symbol": "df.primitive_clamp$2edart..typedUnitClamp",
+          "body_sha256": "d4d07d99bb256e97274c64f1cff479e4efafc8ce1529cf2324fc9bcaf993e4a1",
+          "bytes": 7797,
+          "nan_bit_guards": 3,
+          "negative_zero_bit_guards": 3,
+          "double_to_bits": 3,
+          "pending_loads": 3,
+          "integer_boxes": 6,
+          "double_boxes": 0,
+          "canonical_static_fallbacks": [
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp"
+          ],
+          "selector_fallbacks": 1,
+          "extracted": "bench/results/2026-10-15-primitive-clamp/ir/clamp/on/typedUnitClamp.ll"
+        }
+      },
+      "genericClamp": {
+        "off": {
+          "symbol": "df.primitive_clamp$2edart..genericClamp",
+          "body_sha256": "7146a20bfda213c0ad0c4453892c123fbb084f137e1c704c49832e23bfc6c111",
+          "bytes": 2119,
+          "nan_bit_guards": 0,
+          "negative_zero_bit_guards": 0,
+          "double_to_bits": 0,
+          "pending_loads": 1,
+          "integer_boxes": 0,
+          "double_boxes": 0,
+          "canonical_static_fallbacks": [],
+          "selector_fallbacks": 1,
+          "extracted": "bench/results/2026-10-15-primitive-clamp/ir/clamp/off/genericClamp.ll"
+        },
+        "on": {
+          "symbol": "df.primitive_clamp$2edart..genericClamp",
+          "body_sha256": "7146a20bfda213c0ad0c4453892c123fbb084f137e1c704c49832e23bfc6c111",
+          "bytes": 2119,
+          "nan_bit_guards": 0,
+          "negative_zero_bit_guards": 0,
+          "double_to_bits": 0,
+          "pending_loads": 1,
+          "integer_boxes": 0,
+          "double_boxes": 0,
+          "canonical_static_fallbacks": [],
+          "selector_fallbacks": 1,
+          "extracted": "bench/results/2026-10-15-primitive-clamp/ir/clamp/on/genericClamp.ll"
+        }
+      }
+    },
+    "color": {
+      "convertFormatValue": {
+        "off": {
+          "symbol": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue",
+          "body_sha256": "63f4eab51ea310381889270e0ac72bb985c2bfda09074f4dce4cff694efdd220",
+          "bytes": 327114,
+          "nan_bit_guards": 0,
+          "negative_zero_bit_guards": 0,
+          "double_to_bits": 0,
+          "pending_loads": 495,
+          "integer_boxes": 218,
+          "double_boxes": 0,
+          "canonical_static_fallbacks": [
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp"
+          ],
+          "selector_fallbacks": 88,
+          "extracted": "bench/results/2026-10-15-primitive-clamp/ir/color/off/convertFormatValue.ll"
+        },
+        "on": {
+          "symbol": "df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue",
+          "body_sha256": "497febf657c3c784a93de0d6c0163f31ca64f085a6cfa83e122b641a1e7b7d62",
+          "bytes": 352209,
+          "nan_bit_guards": 15,
+          "negative_zero_bit_guards": 15,
+          "double_to_bits": 15,
+          "pending_loads": 495,
+          "integer_boxes": 218,
+          "double_boxes": 0,
+          "canonical_static_fallbacks": [
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp",
+            "df.dart$3acore._Double.clamp",
+            "df.dart$3acore._IntegerImplementation.clamp"
+          ],
+          "selector_fallbacks": 88,
+          "extracted": "bench/results/2026-10-15-primitive-clamp/ir/color/on/convertFormatValue.ll"
+        }
+      }
+    }
+  },
+  "files": {
+    "target/primitive-clamp-native/clamp/off/.df_tmp/program.ll": {
+      "sha256": "dc97985bf878db8012303c292e6c4bedac57a63d9dad13bd1793077fe1955833",
+      "bytes": 799174
+    },
+    "target/primitive-clamp-native/clamp/on/.df_tmp/program.ll": {
+      "sha256": "abb3dabc8bb4287c0c642605088faf4dd5d97576f18b6c471c27b0be1a87a473",
+      "bytes": 805072
+    },
+    "target/primitive-clamp-native/color/off/.df_tmp/program.ll": {
+      "sha256": "74de898e7b4122bcb3a3e9c5fc0087984005f279dae8db5d7434e3145545a14f",
+      "bytes": 1145129
+    },
+    "target/primitive-clamp-native/color/on/.df_tmp/program.ll": {
+      "sha256": "5ae23022bb255b690fa57c256ae7753ba6f71718635245d271e55e9a0fee8b78",
+      "bytes": 1170224
+    }
+  },
+  "identity_evidence": {
+    "unitClamp_on": "The emitted i64 result Phi selects the original receiver or original boxed int bounds on fast paths, and the original selector result on fallback. The original context pending load/check remains after this join.",
+    "semantics_oracle": "373 clamp fixture lines and 2736 color lines match the official VM and official AOT in both OFF/ON and normal/GC-stress runs; see bound validation."
+  }
+}

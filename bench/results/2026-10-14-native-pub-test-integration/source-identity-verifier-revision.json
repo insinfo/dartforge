@@ -1,0 +1,10 @@
+{
+  "status": "prepared_not_executed",
+  "revision": "Exact lock source/versions, hosted registry/archive hash, actual pubspec names/bytes and selected SDK declared mapping paths. Only independent absolute cache/project roots are omitted from comparison.",
+  "script_sha256": "006e4b9060cf1a0676d5e00fd53224836e77c60c58e3b18bcbfd3e78b9b2af7b",
+  "old_script_sha256": "a508c5a871d27d595c3eefa8dfa7bcd9bc3baba471726aea130f238dcd3011fe",
+  "unchanged_failed_evidence": "runs/20261015T003407.895256Z/validation.json",
+  "python_syntax_checked_without_execution": true,
+  "requires_python_package": "PyYAML (same dependency used by previous Pub comparison scripts)",
+  "next_run_records_current_script_sha256": true
+}

@@ -1,0 +1,8 @@
+{"name":"ordinary sync","type":"testStart"}
+{"name":"awaited future","type":"testStart"}
+{"name":"unawaited timer error","type":"testStart"}
+{"name":"ordinary sync","result":"success","type":"testDone"}
+{"name":"awaited future","result":"success","type":"testDone"}
+{"name":"unawaited timer error","result":"success","type":"testDone"}
+{"failed":0,"passed":3,"schemaVersion":1,"skipped":0,"success":true,"token":"1792025744665497000-0","total":3,"type":"suiteDone"}
+{"success":true,"total":3,"type":"done"}

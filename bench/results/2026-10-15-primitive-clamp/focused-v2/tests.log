@@ -1,0 +1,53 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `closed_class_tables` is never read
+    --> crates/emit_native/src/hir.rs:1165:16
+     |
+1095 | pub struct Module {
+     |            ------ field in this struct
+...
+1165 |     pub(crate) closed_class_tables: Option<std::collections::HashSet<u32>>,
+     |                ^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `Module` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib test) generated 2 warnings (run `cargo fix --lib -p dartforge-emit-native --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.39s
+     Running unittests src/lib.rs (target/p4/debug/deps/dartforge_emit_native-b1bdf8742fc0f881)
+
+running 6 tests
+test lower::primitive_clamp::tests::actual_literal_clamp_uses_selected_sources_and_preserves_fallback_checks ... FAILED
+test optimize::primitive_clamp::tests::guards_preserve_original_bound_refs_fallback_pending_checks_and_successor_phis ... ok
+test optimize::primitive_clamp::tests::joins_never_create_or_revive_a_source_certificate ... ok
+test optimize::primitive_clamp::tests::only_resolved_static_targets_and_exact_non_generic_typed_selectors_are_candidates ... ok
+test optimize::primitive_clamp::tests::unsupported_images_exposure_collisions_types_and_invalid_ssa_are_unchanged ... ok
+test lower::primitive_clamp::tests::changed_sdk_clamp_comparison_and_program_native_alias_deny_the_premise ... ok
+
+failures:
+
+---- lower::primitive_clamp::tests::actual_literal_clamp_uses_selected_sources_and_preserves_fallback_checks stdout ----
+
+thread '<unnamed>' (1964250) panicked at crates/emit_native/src/lower/primitive_clamp/tests.rs:52:9:
+selected SDK must certify the actual clamp/compareTo closures
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'lower::primitive_clamp::tests::actual_literal_clamp_uses_selected_sources_and_preserves_fallback_checks' (1964247) panicked at crates/emit_native/src/lower/primitive_clamp/tests.rs:69:25:
+called `Result::unwrap()` on an `Err` value: Any { .. }
+
+
+failures:
+    lower::primitive_clamp::tests::actual_literal_clamp_uses_selected_sources_and_preserves_fallback_checks
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 726 filtered out; finished in 2.34s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

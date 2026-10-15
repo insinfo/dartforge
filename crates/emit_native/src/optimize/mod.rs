@@ -35,6 +35,7 @@ mod pre_prune_tests;
 mod physical_devirtualize;
 mod checked_double_roundtrip;
 mod constant_specialize;
+pub(crate) mod primitive_clamp;
 pub(crate) mod enum_constants;
 mod scalar_coalesce;
 
@@ -57,7 +58,8 @@ pub(crate) fn specialize_constants(module: &mut Module, requested_table_exceptio
     if disabled() || requested_table_exceptions {
         return 0;
     }
-    constant_specialize::rewrite(module)
+    let specialized = constant_specialize::rewrite(module);
+    specialized + primitive_clamp::rewrite(module)
 }
 
 

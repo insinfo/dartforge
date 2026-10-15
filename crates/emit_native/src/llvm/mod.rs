@@ -2821,6 +2821,9 @@ impl<'a> LlvmEmitter<'a> {
 
         let mut cases = Vec::new();
         for class in &self.module.classes {
+            if self.module.closed_class_tables.as_ref().is_some_and(|classes| !classes.contains(&class.id)) {
+                continue;
+            }
             if let Some(sym) = &class.to_string_symbol {
                 cases.push((class.id, sym.clone()));
             }

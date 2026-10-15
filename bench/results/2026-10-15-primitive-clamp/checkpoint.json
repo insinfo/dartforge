@@ -1,0 +1,32 @@
+{
+  "producer_sha256": "2ae87eaecb64da6398da7fd32fc879e6f7cb7ae6f01ebf977be5c593c81080ce",
+  "full_native_library_tests": {
+    "passed": 736,
+    "failed": 0,
+    "evidence": "full-lib-gate/validation.json",
+    "source_unchanged": true
+  },
+  "clamp_focused_tests": 6,
+  "class_reachability_focused_tests": 4,
+  "native_differential": {
+    "cases": [
+      "clamp",
+      "color"
+    ],
+    "native_executions": 8,
+    "profiles": "clamp OFF/ON, normal and GC stress",
+    "exact_vm_and_official_aot": true,
+    "evidence": "native/validation.json"
+  },
+  "fresh_pub_to_native_test": {
+    "status": "passed",
+    "package_records": 51,
+    "evidence": "../2026-10-14-native-pub-test-integration/validation.json"
+  },
+  "policy": "Both optimization experiments default OFF; no performance gain measured in this checkpoint.",
+  "class_reachability_scope": "Initial complete fixed-image inventory only; ordinary imported-SDK/FFI File Explorer retains original wide behavior.",
+  "next_work": [
+    "Measure primitive clamp and combined constant specialization on consumed color kernel in a quiet window.",
+    "Extend complete allocation coverage across SDK summaries and exact native exposure contracts for real File Explorer."
+  ]
+}

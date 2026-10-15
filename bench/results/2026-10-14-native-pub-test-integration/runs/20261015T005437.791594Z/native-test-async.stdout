@@ -1,0 +1,9 @@
+{"name":"ordinary sync","type":"testStart"}
+{"name":"awaited future","type":"testStart"}
+{"name":"unawaited timer error","type":"testStart"}
+{"error":"Bad state: ASYNC_INTEGRATION","name":"unawaited timer error","stackTrace":"dart:native  main\n","type":"error"}
+{"name":"ordinary sync","result":"success","type":"testDone"}
+{"name":"awaited future","result":"success","type":"testDone"}
+{"name":"unawaited timer error","result":"error","type":"testDone"}
+{"failed":1,"passed":2,"schemaVersion":1,"skipped":0,"success":false,"token":"1792025736277230000-0","total":3,"type":"suiteDone"}
+{"success":false,"total":3,"type":"done"}

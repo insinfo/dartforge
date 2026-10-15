@@ -116,6 +116,8 @@ pub struct Context<'a> {
     pub(crate) primitive_multiply_certificate: std::sync::OnceLock<bool>,
     /// Experimental guarded multiplication; disabled unless explicitly requested.
     pub(crate) primitive_multiply_enabled: bool,
+    /// Explicit opt-in; selected source and immutable registration are separate proofs.
+    pub(crate) primitive_clamp_enabled: bool,
 }
 
 /// The name of the variable of a `:x`/`:var x`/`:x?`/`:x as T` pattern.
@@ -328,6 +330,7 @@ impl<'a> Context<'a> {
             implementations_by_class_memo: Default::default(),
             primitive_multiply_certificate: Default::default(),
             primitive_multiply_enabled: std::env::var("DARTFORGE_PRIMITIVE_MULTIPLY").as_deref() == Ok("1"),
+            primitive_clamp_enabled: std::env::var("DARTFORGE_PRIMITIVE_CLAMP").as_deref() == Ok("1"),
             te: crate::erasure::ExtensionTypes::default(),
             previous_ids: None,
             debug_info: None,

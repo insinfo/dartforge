@@ -19,6 +19,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 pub(crate) mod receiver_provenance;
+mod class_reachability;
 pub(crate) mod arc_ports;
 
 /// First line of a summary; the number changes with the format.
@@ -1486,6 +1487,9 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
                 match inst {
                     // The RTI recipes with a function type (§3.14).
                     Instruction::Const(Constant::String(t)) if t.contains("F<") => recipes.push(t.clone()),
+                    Instruction::AllocObject { class_id, .. } if m.closed_class_tables.is_some() => {
+                        if let Some(table) = m.table_functions.get(class_id) { names.push(table); }
+                    }
                     Instruction::CallStatic { symbol, .. } => names.push(symbol),
                     Instruction::AllocClosure { code_symbol, .. } | Instruction::TearOff { code_symbol } => names.push(code_symbol),
                     Instruction::AllocClosureTyped { code_symbol, typed, .. } => {
@@ -1543,7 +1547,14 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
                 (h, r.id(&f))
             })
             .collect();
-        r.definitions.push(Definition { name: function, refs: vec![node], calls: Vec::new() });
+        let mut refs = vec![node];
+        if m.closed_class_tables.is_some()
+            && let Some(class) = m.classes.iter().find(|class| class.id == *cid)
+        {
+            refs.extend(class.to_string_symbol.iter().map(|symbol| r.id(symbol)));
+            refs.extend(class.vtable.iter().map(|(_, symbol)| r.id(symbol)));
+        }
+        r.definitions.push(Definition { name: function, refs, calls: Vec::new() });
         r.tables.push(SummarizedTable { node, cid: i64::from(*cid), pairs });
     }
     // The entry: what the emitter cites without an HIR instruction.
@@ -1553,9 +1564,11 @@ fn hir_summary_with(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>)
     roots.extend(m.record.iter().cloned());
     roots.extend(m.start_rti.iter().cloned());
     roots.extend(m.call_dart.iter().cloned());
-    roots.extend(m.method_tables.iter().map(|(_, s, _)| s.clone()));
-    roots.extend(m.table_functions.values().cloned());
-    for c in &m.classes {
+    let eager_class = |cid: u32| m.closed_class_tables.as_ref().is_none_or(|classes|
+        classes.contains(&cid) || m.runtime_cids.contains(&i64::from(cid)));
+    roots.extend(m.method_tables.iter().filter(|(cid, _, _)| eager_class(*cid)).map(|(_, s, _)| s.clone()));
+    roots.extend(m.table_functions.iter().filter(|(cid, _)| eager_class(**cid)).map(|(_, s)|s.clone()));
+    for c in m.classes.iter().filter(|_| m.closed_class_tables.is_none()) {
         roots.extend(c.to_string_symbol.iter().cloned());
         roots.extend(c.vtable.iter().map(|(_, s)| s.clone()));
     }
@@ -1597,7 +1610,7 @@ pub fn prune_hir(m: &mut crate::hir::Module, sdk: &[&Summary]) -> HirPruning {
     let composites: HashSet<i64> = m.ffi_composites.iter().map(|c| c.rti).collect();
     let prune_ffi = !m.ffi_trampolines.is_empty() && !std::env::var("DARTFORGE_NO_FFI_PRUNING").is_ok_and(|v| v == "1");
     let mut live_ffis: HashSet<String> = HashSet::new();
-    let (program, reachability) = loop {
+    let (program, mut reachability) = loop {
         let program = hir_summary_with(m, prune_ffi.then_some(&live_ffis));
         let mut all: Vec<&Summary> = sdk.to_vec();
         all.push(&program);
@@ -1623,6 +1636,7 @@ pub fn prune_hir(m: &mut crate::hir::Module, sdk: &[&Summary]) -> HirPruning {
         m.ffi_trampolines.retain(|(k, _)| live_ffis.contains(k));
         m.ffi_callbacks.retain(|c| live_ffis.contains(&c.key));
     }
+    if let Some(narrowed) = class_reachability::narrow(m, sdk) { reachability = narrowed; }
     let index: HashMap<&str, u32> = reachability.names.iter().enumerate().map(|(i, n)| (n.as_str(), i as u32)).collect();
     let live = |n: &str| index.get(n).is_none_or(|&i| reachability.live(i));
     let mut e = HirPruning { functions: m.functions.len(), ffi: (live_ffis.len(), prune_ffi), ..Default::default() };

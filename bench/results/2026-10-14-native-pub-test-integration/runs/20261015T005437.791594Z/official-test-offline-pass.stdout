@@ -1,0 +1,13 @@
+{"protocolVersion":"0.1.1","runnerVersion":"1.25.7","pid":97500,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"test/integration_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading test/integration_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":0}
+{"count":1,"time":4,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":190}
+{"group":{"id":2,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":3,"line":null,"column":null,"url":null},"type":"group","time":191}
+{"test":{"id":3,"name":"ordinary sync","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":6,"column":3,"url":"file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-pub-test-integration/20261015T005437.791594Z/official/project/test/integration_test.dart"},"type":"testStart","time":192}
+{"testID":3,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":199}
+{"test":{"id":4,"name":"awaited future","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":10,"column":3,"url":"file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-pub-test-integration/20261015T005437.791594Z/official/project/test/integration_test.dart"},"type":"testStart","time":199}
+{"testID":4,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":200}
+{"test":{"id":5,"name":"unawaited timer error","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":14,"column":3,"url":"file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/native-pub-test-integration/20261015T005437.791594Z/official/project/test/integration_test.dart"},"type":"testStart","time":200}
+{"testID":5,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":202}
+{"success":true,"type":"done","time":205}

@@ -1,0 +1,9 @@
+{"name":"ordinary sync","type":"testStart"}
+{"error":"Expected: <9>\n  Actual: <7>\nASSERTION_INTEGRATION\n","name":"ordinary sync","stackTrace":"dart:native  main\n","type":"error"}
+{"name":"awaited future","type":"testStart"}
+{"name":"unawaited timer error","type":"testStart"}
+{"name":"awaited future","result":"success","type":"testDone"}
+{"name":"unawaited timer error","result":"success","type":"testDone"}
+{"name":"ordinary sync","result":"failure","type":"testDone"}
+{"failed":1,"passed":2,"schemaVersion":1,"skipped":0,"success":false,"token":"1792025728108117000-0","total":3,"type":"suiteDone"}
+{"success":false,"total":3,"type":"done"}
