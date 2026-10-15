@@ -48,7 +48,9 @@ jobs:
   windows:
     name: test (Windows)
     runs-on: windows-latest
-    timeout-minutes: 90
+    # Cold native-builder corpus runs exceeded 90 minutes while still making
+    # progress. Keep the full suite and allow compilation plus both test passes.
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: The performance meter preserves failures and samples
@@ -323,10 +325,16 @@ jobs:
           - os: ubuntu-latest
             name: Linux, shared libLLVM
             timeout_minutes: 90
+            build_jobs: 2
           - os: macos-latest
             name: macOS arm64
             timeout_minutes: 150
+            build_jobs: 1
     env:
+      # Static LLVM links for multiple test/example executables competed for
+      # the small macOS runner before any tests could start. Serialize those
+      # builds; all targets and behavioral checks remain enabled.
+      CARGO_BUILD_JOBS: ${{ matrix.build_jobs }}
       CARGO_PROFILE_RELEASE_LTO: 'false'
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
       # The C that `cc` compiles (ring, zlib, blake3) comes out with the

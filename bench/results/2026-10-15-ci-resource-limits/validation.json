@@ -1,0 +1,28 @@
+{
+  "source_commit": "feb3c1c32f89b138685adb02e1f3bfa02b676f23",
+  "ci_run": 38688605371,
+  "no_toolchain_run": 38688612123,
+  "linux_ci": "success",
+  "no_toolchain_windows_macos": "success",
+  "windows": "cancelled at 90 minute job limit; final ignored suite incomplete",
+  "windows_native_builder_corpus_seconds": 816.16,
+  "macos": "manually cancelled for diagnosis while linking test/example executables; this step had not started tests",
+  "macos_orphan_linkers_at_cleanup": 2,
+  "changes": {
+    "windows_job_timeout_minutes": 180,
+    "native_macos_cargo_build_jobs": 1,
+    "native_linux_cargo_build_jobs": 2
+  },
+  "behavioral_tests_removed_or_skipped": false,
+  "validation": "Workflow parsed as YAML; actual CI validation remains pending",
+  "logs": {
+    "feb-windows-timeout.log": {
+      "path": "target/release-ci-audit/feb-windows-timeout.log",
+      "sha256": "c10bc1679f9b19a3bb9ae13ded0cc6ceee9263049f7b55892c956912682454d2"
+    },
+    "feb-macos-cancelled.log": {
+      "path": "target/release-ci-audit/feb-macos-cancelled.log",
+      "sha256": "8c176d2865774b5551498230a6d6cdfc36587ae5cc98684e4f2ca19ce22f1835"
+    }
+  }
+}

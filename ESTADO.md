@@ -1,4 +1,236 @@
-# Estado do DartForge — 2026-10-13
+# Estado do DartForge — 2026-10-15
+
+## Consolidação de 13–15/10/2026: últimas 48 horas
+
+Esta seção atualiza o retrato geral. As seções anteriores permanecem como
+histórico de seus produtores, datas e limites; seus números não são medições
+novas do `main`. Os registros abaixo identificam os checkpoints realmente
+compilados e testados. Não há declaração de paridade completa com o SDK Dart.
+
+### AOT, HTTP/JSON e tamanho
+
+- O File Explorer Dart comum passou a compilar e executar em AOT, com
+  renderização, navegação, retorno entre pastas e fechamento normal verificados
+  em macOS. A validação usa o caminho de UI com host; não comprova AppKit direto
+  na thread principal em todos os modos. O programa original foi preservado;
+  sondas e navegação usam cópias/fixtures controlados.
+- Entraram propagação explícita do SDK escolhido, especialização de flags de
+  plataforma, poda de CFG morto, preservação de constantes/records/interpolações
+  UTF-16, devirtualização com prova do receptor físico e igualdade de padrões
+  enum somente com identidade/implementação certificadas.
+- Leitura direta de armazenamento de listas, fechamento de arrays JSON sem
+  buffer intermediário e cópia Latin-1 conferida reduziram trabalho em caminhos
+  específicos. Isso não estabeleceu melhoria do servidor HTTP: a medição de
+  reserva de listas registrou **54 ms de CPU/1.000 requisições JSON** antes e
+  depois, contra **34 ms** no AOT oficial; texto foi 52→50 contra 34 ms.
+  Uma conexão keep-alive e cliente local: não é capacidade máxima nem p95.
+- Certificados do SDK e guardas de observadores permitem experimentos de
+  eliminação de boxing, multiplicação/clamp primitivos e especialização de
+  contextos constantes. A prova continua recusando fontes alteradas, aliases
+  nativos ou observadores incompatíveis. Experimentos não são garantias gerais
+  para `dynamic`, mapas heterogêneos ou FFI.
+- No kernel consumido de cor, uma rodada pareada registrou **75.322,5→72.195 µs**,
+  contra **5.472,5 µs** no upstream. Houve melhora localizada, mas o DartForge
+  permaneceu muito mais lento. Não extrapolar para todo o dart_ui/HTTP/JSON.
+- REA **6.5.0**, Node, JDK e Ghidra foram instalados no SSD e usados localmente
+  nos executáveis reais, incluindo o snapshot ELF anexado ao launcher Mach-O
+  upstream. A atribuição por intervalos disjuntos evita somar aliases ou comparar
+  apenas o launcher oficial com todo o nosso código.
+- Na base inicial comparável, o File Explorer ocupava **28.475.840 bytes** contra
+  **11.682.880** no upstream. Em outro checkpoint congelado, especialização
+  constante OFF/ON produziu **28.293.424/28.293.776 bytes**: +352 bytes, sem ganho
+  de desempenho comprovado no aplicativo. Não é uma série longitudinal isolada.
+  O problema de tamanho/desempenho do AOT permanece aberto.
+- O inventário de alocações do SDK agora é separado dos registros ambíguos de
+  classes, ligado a artefatos/ABI/fontes exatos e conservador em memória bruta e
+  chamadas desconhecidas. A validação independente encontrou **429 corpos
+  comprovadamente vazios e 32.295 desconhecidos**. Ainda não existe consumidor
+  que use esse inventário para podar classes: nenhum ganho de tamanho é atribuído
+  a esse trabalho.
+
+Evidências e plano: `docs/PLANO-NATIVO-TAMANHO-PERFORMANCE.md`,
+`bench/results/2026-10-14-rea-native-investigation/`,
+`2026-10-14-rea-size-followup/`, `2026-10-14-native-list-reserve-http/`,
+`2026-10-14-native-latin1-char-codes/`,
+`2026-10-14-primitive-sdk-production/performance-v3/`,
+`2026-10-14-constant-specialization/file-explorer/` e
+`2026-10-15-complete-allocation-summary/` (diretórios sob `bench/results/`).
+
+### JIT, hot reload e File Explorer
+
+- Corrigidas identidades de campos privados por biblioteca/classe declaradora,
+  comparação semântica dos tipos antes da publicação e preservação da ABI dos
+  frames async por corpo/geração, inclusive após inlining.
+- Argumentos do programa e configuração de pacotes chegam ao runtime. Recursos
+  do pacote, fontes e ícones voltaram a resolver corretamente. Na ausência de
+  `package_config.json`, APIs de URI seguem o comportamento nullable da VM,
+  preservando URIs comuns sem configuração artificial.
+- O File Explorer JIT teve ícones/fontes, navegação raiz↔filha, reload de corpo,
+  recusa de edição inválida mantendo callbacks anteriores, nova edição válida e
+  fechamento por Cmd+W verificados. `pthread_main_np()` foi **0** nesse JIT:
+  trata-se da integração com host, não de execução AppKit na thread 0.
+- Adaptadores/metadados de callback não equivalem a publicação de endereço.
+  Gerações sem código escapado podem ser recuperadas; callbacks realmente
+  publicados mantêm seus donos de código, inclusive tombstones após `close()` e
+  descarte da sessão. Capturas anteriores à publicação e callbacks entre sessões
+  têm regressões específicas. A retenção conservadora ainda pode crescer com
+  callbacks/reloads; não há certificação de uso prolongado de memória.
+- Stubs eager do JIT são experimento **desligado por padrão**. Rollback e reuso
+  de slots órfãos foram testados; a medição grande de partida foi cancelada no
+  fechamento. Não há ganho de startup publicado para esse experimento.
+- Após corrigir descoberta do SDK, **45 testes paralelos do JIT e duas
+  integrações passaram localmente** sem a variável de override de testes. A
+  preparação do driver C usa SDK macOS explícito; caminhos Windows nos fixtures
+  async são literais raw. Estes resultados não certificam todo programa Dart.
+
+Evidências: `bench/results/2026-10-14-jit-private-field-identity/`,
+`2026-10-14-jit-field-type-identity/`, `2026-10-14-jit-file-explorer/`,
+`2026-10-15-jit-package-config/` e
+`2026-10-15-jit-callback-sdk-discovery/`.
+O índice antigo `2026-10-14-jit-arc/index.json` conserva o diagnóstico histórico
+anterior à distinção entre metadados e publicação; não deve substituir os testes
+posteriores de recuperação de gerações.
+
+### ARC e integração com dart_ui
+
+- ARC ganhou provas/refinamentos de origens físicas de campos, tratamento de
+  Phi/ownership em caminhos excepcionais, eliminação de RC para null/inteiros
+  tagged comprovados e correções das fronteiras dinâmicas. Frames, loops,
+  keepalive, campos, unwind estrangeiro e retornos mantêm verificações positivas
+  e contraprovas que devem falhar.
+- Candidatos de ciclos mortos usam backlinks conferidos por geração; consulta
+  redundante de metadados foi removida. A medição pareada posterior não mostrou
+  ganho material de CPU: árvores/JSON variaram cerca de 1 ms e ARC preparado
+  continuou mais caro. Não declarar ARC competitivo com tracing/upstream.
+- As provas AOT foram corrigidas para chamar o helper ARC realmente emitido,
+  preservando chamadas cruas do harness e contagens exatas. A rodada local
+  consolidou **336 execuções AOT** e **17 testes dos exemplos**; traps esperados
+  foram contados como contraprovas, nunca como programas válidos.
+- `package:dartforge` unifica SIMD, anotações, bomba nativa, callbacks, GC,
+  recursos, bibliotecas e memória mapeada. `packages/dartforge_simd` foi integrado
+  e removido. Imports e código continuam Dart comum, com capacidades/fallbacks.
+- `PreferRegion`, `PreferAcyclic`, `NoEscape` e `Realtime` expressam preferências
+  ou obrigações verificáveis, não fatos assumidos. Preferências sem prova mantêm
+  a política geral; contratos sem prova são recusados no modo de verificação.
+- Há sondas de callback de thread estrangeira e retenção de código, mas não
+  validação de hardware de áudio nem certificação realtime. Reentrância modal,
+  progresso seguro de callbacks síncronos e as demais obrigações de P1–P17
+  continuam com os limites registrados no relatório e na especificação ARC.
+
+Evidências: `bench/results/2026-10-14-arc-candidate-cpu/`,
+`2026-10-15-arc-proof-call-targets/` e
+`2026-10-15-release-fixes/arc-source-return/`;
+`docs/ARC-IMPLEMENTACAO.md`, `docs/ARC-CICLOS-ESPECIFICACAO.md` e
+`RELATORIO-DARTFORGE-PARA-DART-UI.md`.
+
+### JavaScript de desenvolvimento e produção
+
+- Corrigidos ordem de avaliação de atribuições indexadas/compostas, receivers,
+  argumentos eager em inlining e resultados de atribuição por extensão.
+  Laços tipados exigem guardas que não invoquem getters públicos substituíveis.
+- Em Node, a rodada de desenvolvimento mediu razão DartForge/DDC de **0,95–0,95**
+  nos dois kernels tipados, **0,93** em shapes, **1,13** em closures e **1,08**
+  em fib. São kernels, não paridade geral de aplicação nem tempo de compilação.
+- Produção checked ainda ficou **1,22–1,75×** mais lenta em kernels JSON e
+  **3,59×** em UTF-8; coleções de objetos ficaram **1,75–3,10×** mais lentas que
+  dart2js O2. Há kernels próximos ou melhores, sem compensar automaticamente
+  essas regressões.
+- Tamanho: `limitless_ui` **3.535.556 bytes** (gzip9 **1.020.032**) contra O2
+  **3.870.230** (**1.020.812**); `new_sali` **7.625.133** (**2.078.667**) contra
+  **8.022.590** (**2.110.700**). O hello continua maior: **46.212/16.046** contra
+  **33.595/11.106**. O4 tem contrato menos verificado e é listado separadamente
+  nos registros; não é substituto silencioso de O2.
+- O primeiro protótipo de append com consulta por escrita regrediu **3,64×** e
+  foi rejeitado. A versão de janela fechada, opt-in, mediu **69.534→29.850 µs**,
+  contra **40.332 µs O2/32.403 µs O4**, com +794 bytes/+387 gzip no kernel.
+  Continua **desligada por padrão**; não é ganho de JSON/HTTP.
+- O experimento adicional de store UTF-8/JSON não foi concluído e foi retirado
+  integralmente do compilador. Patch/evidências ficam arquivados; a gate JS
+  após a retirada passou em **92 testes**.
+- O fixture de getters captura o contador antes do console I/O. Um controle
+  explícito simula console tocando `byteLength`, reproduz a contaminação antiga
+  e conserva comparações estritas entre VM, dart2js e modos DartForge.
+
+Evidências: `bench/results/2026-10-14-current-js-status/summary.json`,
+`2026-10-15-js-fresh-list/benchmark-v2/`,
+`2026-10-15-js-json-utf8-store/` e os testes de `typed_public_accessors`.
+
+### Analyze, LSP e format
+
+- No placar de 14/10, **23.001/23.012** diagnósticos acertaram código/posição;
+  **22.996** também acertaram mensagem; **11 ausências, cinco mensagens
+  divergentes**, sem extras/posições erradas. São oráculos registrados com fontes
+  conferidas, não 9.440 novas execuções do analyzer oficial naquele dia.
+- A rodada expôs `invalid_assignment` suprimido por padrão; a publicação desse
+  erro no analyze/LSP foi corrigida depois. Também entraram correções de patterns,
+  alvos de rename/navigation, contextos condicionais e escritas em locais final.
+- Quatorze casos novos de projeto tiveram 13 resultados exatos no modo padrão
+  anterior à correção, 14 com fallback completo. File Explorer válido de 43
+  arquivos teve saída diagnóstica exata. Não transformar isso em paridade total.
+- LSP comparou **17 respostas normalizadas exatas** em quatro arquivos. Em três
+  sessões pareadas, referências custaram **48,78 ms** contra **10,84 ms** no
+  servidor oficial; definition/rename/formatting foram mais rápidas nesse recorte.
+  Não há certificação de grandes projetos/sessões longas.
+- Format comparou **10.474 arquivos aceitos por ambos**, sem diferença UTF-8;
+  duas entradas foram aceitas apenas pelo DartForge. Rejeições são contadas
+  separadamente. Modificadores/seletores de construtor passaram a respeitar a
+  versão de linguagem.
+- Nas medições de processos novos com cache de disco não controlado, analyze
+  do File Explorer válido teve mediana **0,465 s vs 0,682 s**; format dos 426
+  arquivos do SDK, **0,417 s vs 1,552 s**. Não são startup de disco frio nem
+  throughput de servidor persistente.
+
+Evidências: `bench/results/2026-10-14-current-tools-status/` e regressões de
+análise/LSP/format registradas nos commits de 14/10.
+
+### Pub, runner de testes, distribuição e ambiente
+
+- Agora existe **`dartforge pub get` nativo**, sem subprocesso Dart/Pub, para o
+  subconjunto implementado: fontes path/hosted, busca com backtracking,
+  preferências de lock, cache/offline, overrides da raiz e sidecar de overrides.
+  Pacotes `sdk: dart` vêm do manifesto do SDK selecionado. Fontes/opções fora
+  do subconjunto são recusadas; não é equivalência integral ao Pub.
+- Agora existe **`dartforge test`**, compilando suites comuns de `package:test`
+  para executáveis nativos e usando seu Engine. Descoberta, filtros, JSON,
+  falhas reais/async e política de saída foram validados em 11 casos integrados
+  e 20 execuções VM/nativo. Execução é serial; browser, coverage, watch,
+  `dart_test.yaml` e anotações de biblioteca ainda são recusados. Não é runner
+  próprio completo nem substituição universal do `dart test`.
+- `pack` inclui `sdk_packages.yaml` e árvores vendorizadas declaradas, conserva
+  metadados e recusa caminhos/symlinks que escapem do SDK. Pub offline foi
+  executado contra o SDK realmente relocado, cache isolado e `_macros` real.
+- Cache do SDK exclui a entrada sintética por identidade da biblioteca, evitando
+  caminhos temporários aleatórios após canonicalização; chave passou para v6.
+  URIs de fixtures Windows usam `url::Url`, sem montar `file://D:\...` à mão.
+  Manifesto revisado do SDK foi atualizado para a correção real de `dart:isolate`,
+  mantendo rejeição de qualquer fonte não revisada.
+- O fechamento corrigiu drivers C sem sysroot macOS, caminhos raw Windows,
+  descoberta do SDK nos testes JIT, catálogo obsoleto de transmutes e provas ARC
+  com nomes anteriores do ABI. Os checks comportamentais foram preservados.
+- Toolchains Dart/Rust, caches, REA e builds permanecem no SSD; `~/tools` é o link
+  de compatibilidade. A migração anterior liberou **6,26 GB** internos. Não é
+  uma nova medição de espaço livre. Artefatos grandes/observações privadas de UI
+  ficam fora do Git; evidências publicadas usam somente fixtures controlados.
+
+### Fechamento verificável
+
+O código de `feb3c1c3` passou no CI Linux e na validação **sem toolchain do
+sistema em Windows/macOS**. [CI](https://github.com/insinfo/dartforge/actions/runs/38688605371)
+e [sem toolchain](https://github.com/insinfo/dartforge/actions/runs/38688612123).
+O Windows atingiu o limite antigo de 90 minutos ainda executando testes;
+nenhuma asserção falhou no log obtido, mas a suíte final não terminou. O macOS
+foi interrompido para diagnóstico após a linkedição de testes/exemplos ficar
+mais de uma hora em andamento; os testes dessa etapa ainda não haviam iniciado.
+Isso **não é CI verde**. O novo orçamento Windows é 180 minutos; builds Cargo
+macOS são serializados para evitar múltiplos links LLVM estáticos simultâneos.
+Todos os alvos, testes e contraprovas continuam habilitados.
+
+A versão planejada é `v0.1.0-alpha.2`, para Windows x64, Linux x64 e macOS
+arm64. Ainda não foi publicada neste registro. O workflow cria draft, testa
+cada pacote e só publica após sucesso de todas as plataformas. O fechamento
+aguarda a nova rodada completa. O trabalho geral de desempenho/tamanho e de
+compatibilidade Dart continua aberto.
+
 
 ## Continuação: callbacks fechados, SSA e janela AppKit (2026-10-13)
 
