@@ -1,0 +1,14 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+    "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-package-symlink/20261015T014819.687139Z/project/.dart_tool/package_config.json",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli/tests/fixtures/jit_package_resource.dart"
+  ],
+  "exit": 0,
+  "selected": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-package-symlink/20261015T014819.687139Z/project/.dart_tool/package_config.json",
+  "symlink_target": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-package-symlink/20261015T014819.687139Z/shared/config.json",
+  "selected_parent": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-package-symlink/20261015T014819.687139Z/project/.dart_tool",
+  "stdout": "selected package resource\n",
+  "stderr": "",
+  "source_sha256": "429ca02c0115bfe73807b7a7811f196965533fdd238f6f0e792b8e84f9165574"
+}

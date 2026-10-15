@@ -75,6 +75,8 @@ pub struct FnBuilder<'a, 'c> {
     pub active_catch_stack: Vec<(Operand, u8)>,
     pub terminated_blocks: std::collections::HashSet<BlockId>,
     pub extra_functions: Vec<Function>,
+    /// Per-body frame ABI, transported with separately lowered functions.
+    pub async_frame_layouts: Vec<(String, ValueId, String, usize)>,
     pub inline_policies: std::collections::HashMap<String, crate::hir::InlinePolicy>,
     pub labeled_break_targets: HashMap<SymbolId, BlockId>,
     pub labeled_continue_targets: HashMap<SymbolId, BlockId>,
@@ -343,6 +345,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             active_catch_stack: Vec::new(),
             terminated_blocks: std::collections::HashSet::new(),
             extra_functions: Vec::new(),
+            async_frame_layouts: Vec::new(),
             inline_policies: std::collections::HashMap::new(),
             labeled_break_targets: HashMap::new(),
             labeled_continue_targets: HashMap::new(),
@@ -573,6 +576,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         module.arc_shared_functions.extend(self.arc_shared_functions);
         module.arc_direct_local_functions.extend(self.arc_direct_local_functions);
         module.inline_policies.extend(self.inline_policies);
+        module.async_frame_layouts.extend(self.async_frame_layouts);
         module.functions.push(self.func);
         module.functions.extend(self.extra_functions);
     }

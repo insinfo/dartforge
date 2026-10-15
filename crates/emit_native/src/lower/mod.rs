@@ -539,6 +539,7 @@ fn with_source_body<'c>(ctx: &'c Context) -> &'c std::collections::HashSet<Strin
 /// them changes the ARC convention of the function silently — the Ref return without
 /// `dart_ref_returns` was no longer Owned.
 pub(crate) fn join_arc_facts(dest: &mut Module, origin: &mut Module) {
+    dest.async_frame_layouts.append(&mut origin.async_frame_layouts);
     dest.primitive_clamp_certificate &= origin.primitive_clamp_certificate
         && dest.primitive_clamp_targets == origin.primitive_clamp_targets;
     if !dest.primitive_clamp_certificate { dest.primitive_clamp_targets.clear(); }

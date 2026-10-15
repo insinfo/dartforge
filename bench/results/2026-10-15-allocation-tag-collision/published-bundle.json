@@ -1,0 +1,281 @@
+{
+  "directory": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/native_cache/sdk/ec56edf3cb71e2dfaf5afadc4d1fd950",
+  "marker": {
+    "allocation_proof": "70abd572f75117eca7140e85712c195f705e121dea3e9c80363e2ae961b2f1a0",
+    "cache_key": "ec56edf3cb71e2dfaf5afadc4d1fd950"
+  },
+  "marker_sha256": "d3513a5350515bac1e28011d411ea83329cc8fe0c3fbd44498cb5f9c829a7216",
+  "summaries": {
+    "_compact_hash.poda": {
+      "sha256": "f4459c7bc4528505320a37770b4e5baef54fcb2d783121f540e9c92fbd8b2de0",
+      "bytes": 173325,
+      "module": "dart:_compact_hash",
+      "definition_nodes": 1025,
+      "audit_records": 1025,
+      "known_empty": 4,
+      "known_nonempty": 0,
+      "explicit_unknown": 1021,
+      "missing_unknown": 0,
+      "known_empty_examples": [
+        "df.dart$3a_compact_hash._HashBase._hashPattern",
+        "df.dart$3a_compact_hash._HashBase._firstProbe",
+        "df.dart$3a_compact_hash._HashBase._nextProbe",
+        "df.dart$3a_compact_hash.._roundUpToPowerOfTwo"
+      ],
+      "all_definitions_have_explicit_record": true
+    },
+    "_http.poda": {
+      "sha256": "8c2912ea7d0e697f6118ac1a5325095b67e4126ff321cd95a66c4cc7bf42bb69",
+      "bytes": 881741,
+      "module": "dart:_http",
+      "definition_nodes": 6519,
+      "audit_records": 6519,
+      "known_empty": 26,
+      "known_nonempty": 0,
+      "explicit_unknown": 6493,
+      "missing_unknown": 0,
+      "known_empty_examples": [
+        "df.dart$3a_http._CryptoUtils.new",
+        "df.dart$3a_http._HashBase._add32",
+        "df.dart$3a_http._HashBase._roundUp",
+        "df.dart$3a_http._HashBase._rotl32",
+        "df.dart$3a_http.HttpDate.new"
+      ],
+      "all_definitions_have_explicit_record": true
+    },
+    "_internal.poda": {
+      "sha256": "cded5f386f11a4c6383797a3b8be9dcb813cf1b0a4da94f3d86adf8e06a3ce75",
+      "bytes": 486577,
+      "module": "dart:_internal",
+      "definition_nodes": 3307,
+      "audit_records": 3307,
+      "known_empty": 44,
+      "known_nonempty": 0,
+      "explicit_unknown": 3263,
+      "missing_unknown": 0,
+      "known_empty_examples": [
+        "df.dart$3a_internal.SystemHash.combine",
+        "df.dart$3a_internal.SystemHash.finish",
+        "df.dart$3a_internal.SystemHash.hash2",
+        "df.dart$3a_internal.SystemHash.hash3",
+        "df.dart$3a_internal.SystemHash.hash4"
+      ],
+      "all_definitions_have_explicit_record": true
+    },
+    "async.poda": {
+      "sha256": "402dc90448fe69ed1dfa0c07c285c7ab00706775583464bdc8b13151f9407412",
+      "bytes": 667721,
+      "module": "dart:async",
+      "definition_nodes": 4709,
+      "audit_records": 4709,
+      "known_empty": 45,
+      "known_nonempty": 0,
+      "explicit_unknown": 4664,
+      "missing_unknown": 0,
+      "known_empty_examples": [
+        "df.dart$3aasync._BroadcastStream.isBroadcast",
+        "df.dart$3aasync._BroadcastSubscription._onPause",
+        "df.dart$3aasync._BroadcastSubscription._onResume",
+        "df.dart$3aasync._BroadcastStreamController.isPaused",
+        "df.dart$3aasync._BroadcastStreamController._recordPause"
+      ],
+      "all_definitions_have_explicit_record": true
+    },
+    "collection.poda": {
+      "sha256": "22af794f7afe054734b77db9dbab9282e7700c50071bfdee57be4b99d8cd54f7",
+      "bytes": 455428,
+      "module": "dart:collection",
+      "definition_nodes": 3131,
+      "audit_records": 3131,
+      "known_empty": 8,
+      "known_nonempty": 0,
+      "explicit_unknown": 3123,
+      "missing_unknown": 0,
+      "known_empty_examples": [
+        "df.dart$3acollection.ListBase.new",
+        "df.dart$3acollection.MapBase.new",
+        "df.dart$3acollection.MapBase._id",
+        "df.dart$3acollection._DoubleLinkedQueueElement._asNonSentinelEntry",
+        "df.dart$3acollection._DoubleLinkedQueueSentinel._asNonSentinelEntry"
+      ],
+      "all_definitions_have_explicit_record": true
+    },
+    "convert.poda": {
+      "sha256": "0d33241ec9c7d45d057ef22f8f5812ecdb7b90a9e072b59db3e27725fc7b61f0",
+      "bytes": 481451,
+      "module": "dart:convert",
+      "definition_nodes": 3330,
+      "audit_records": 3330,
+      "known_empty": 23,
+      "known_nonempty": 0,
+      "explicit_unknown": 3307,
+      "missing_unknown": 0,
+      "known_empty_examples": [
+        "df.dart$3aconvert._Base64Encoder._stateBits",
+        "df.dart$3aconvert._Base64Encoder._stateCount",
+        "df.dart$3aconvert.Base64Decoder.new",
+        "df.dart$3aconvert._Base64Decoder._hasSeenPadding",
+        "df.dart$3aconvert.ByteConversionSink.new"
+      ],
+      "all_definitions_have_explicit_record": true
+    },
+    "core.poda": {
+      "sha256": "1e523997ae13adbb1624fe5b9c641bf79f044279184cc81fbc9888ccc052a509",
+      "bytes": 886024,
+      "module": "dart:core",
+      "definition_nodes": 6407,
+      "audit_records": 6407,
+      "known_empty": 49,
+      "known_nonempty": 0,
+      "explicit_unknown": 6358,
+      "missing_unknown": 0,
+      "known_empty_examples": [
+        "df.dart$3acore._Override.new",
+        "df.dart$3acore.Error.new",
+        "df.dart$3acore.TypeError.new",
+        "df.dart$3acore.IndexError.start",
+        "df.dart$3acore.OutOfMemoryError.new"
+      ],
+      "all_definitions_have_explicit_record": true
+    },
+    "developer.poda": {
+      "sha256": "b54eb776c434995e7644a8394dd53c1fedb296a9ce93a721758e45db687117c4",
+      "bytes": 56461,
+      "module": "dart:developer",
+      "definition_nodes": 527,
+      "audit_records": 527,
+      "known_empty": 2,
+      "known_nonempty": 0,
+      "explicit_unknown": 525,
+      "missing_unknown": 0,
+      "known_empty_examples": [
+        "df.dart$3adeveloper.Service.new",
+        "df.dart$3adeveloper.._runExtension$clo2$e537d0129"
+      ],
+      "all_definitions_have_explicit_record": true
+    },
+    "ffi.poda": {
+      "sha256": "105f43b4653ec8f6748dc924998a90dd1d87d887faf79f76f3a48bd7d6e6451c",
+      "bytes": 165360,
+      "module": "dart:ffi",
+      "definition_nodes": 1272,
+      "audit_records": 1272,
+      "known_empty": 30,
+      "known_nonempty": 0,
+      "explicit_unknown": 1242,
+      "missing_unknown": 0,
+      "known_empty_examples": [
+        "df.dart$3affi.Dart_CObject.new",
+        "df.dart$3affi.AbiSpecificInteger.new",
+        "df.dart$3affi.Int8.new",
+        "df.dart$3affi.Int16.new",
+        "df.dart$3affi.Int32.new"
+      ],
+      "all_definitions_have_explicit_record": true
+    },
+    "io.poda": {
+      "sha256": "9d7c9a0a07ed7d5638026f8a58db133cb44517df7aa553761d8f0b2779e775a1",
+      "bytes": 1228373,
+      "module": "dart:io",
+      "definition_nodes": 8891,
+      "audit_records": 8891,
+      "known_empty": 24,
+      "known_nonempty": 0,
+      "explicit_unknown": 8867,
+      "missing_unknown": 0,
+      "known_empty_examples": [
+        "df.dart$3aio._IOCrypto.new",
+        "df.dart$3aio._BufferSink.close",
+        "df.dart$3aio._EventHandler.new",
+        "df.dart$3aio._File._delete$clo0$ecda86d79",
+        "df.dart$3aio._File.writeAsBytes$clo0$eaa50edc8$clo0$ec02fb41e$clo0$ecda86d79"
+      ],
+      "all_definitions_have_explicit_record": true
+    },
+    "isolate.poda": {
+      "sha256": "46a3da300f8f14b4750e59ad6683952795f2daf56dd577a5a7eba522e0e3342e",
+      "bytes": 87346,
+      "module": "dart:isolate",
+      "definition_nodes": 672,
+      "audit_records": 672,
+      "known_empty": 1,
+      "known_nonempty": 0,
+      "explicit_unknown": 671,
+      "missing_unknown": 0,
+      "known_empty_examples": [
+        "df.dart$3aisolate.Isolate.run$clo1$e54b2961b"
+      ],
+      "all_definitions_have_explicit_record": true
+    },
+    "math.poda": {
+      "sha256": "e6c5789182838d12978d880673ebb0cfefecb94b79935b722989042c7e642e13",
+      "bytes": 54171,
+      "module": "dart:math",
+      "definition_nodes": 435,
+      "audit_records": 435,
+      "known_empty": 2,
+      "known_nonempty": 0,
+      "explicit_unknown": 433,
+      "missing_unknown": 0,
+      "known_empty_examples": [
+        "df.dart$3amath._RectangleBase.new",
+        "df.dart$3amath._Random._setupSeed"
+      ],
+      "all_definitions_have_explicit_record": true
+    },
+    "mirrors.poda": {
+      "sha256": "63f182f45722eaff4b3dcd9a91ddc81fd50d29a3a848c7eeb127ec3399be087c",
+      "bytes": 39333,
+      "module": "dart:mirrors",
+      "definition_nodes": 377,
+      "audit_records": 377,
+      "known_empty": 6,
+      "known_nonempty": 0,
+      "explicit_unknown": 371,
+      "missing_unknown": 0,
+      "known_empty_examples": [
+        "df.dart$3amirrors._LibraryMirrorDf.owner",
+        "df.dart$3amirrors._LibraryMirrorDf.isPrivate",
+        "df.dart$3amirrors._LibraryMirrorDf.isTopLevel",
+        "df.dart$3amirrors._ClassMirrorDf.isTopLevel",
+        "df.dart$3amirrors._ClassMirrorDf.hasReflectedType"
+      ],
+      "all_definitions_have_explicit_record": true
+    },
+    "nativewrappers.poda": {
+      "sha256": "aa86d250b2350937c8398cc9e15360050ace5a07fbbd9295629134c2aea64dda",
+      "bytes": 8966,
+      "module": "dart:nativewrappers",
+      "definition_nodes": 75,
+      "audit_records": 75,
+      "known_empty": 0,
+      "known_nonempty": 0,
+      "explicit_unknown": 75,
+      "missing_unknown": 0,
+      "known_empty_examples": [],
+      "all_definitions_have_explicit_record": true
+    },
+    "typed_data.poda": {
+      "sha256": "88ec72cdcdb120fdee65ca022742d98798dddb9d2f52bc52c4b3ac64c0822998",
+      "bytes": 1095183,
+      "module": "dart:typed_data",
+      "definition_nodes": 5938,
+      "audit_records": 5938,
+      "known_empty": 74,
+      "known_nonempty": 0,
+      "explicit_unknown": 5864,
+      "missing_unknown": 0,
+      "known_empty_examples": [
+        "df.dart$3atyped_data._TypedListBase._containsUnsignedBytes",
+        "df.dart$3atyped_data._TypedList.offsetInBytes",
+        "df.dart$3atyped_data._TypedList._typedData",
+        "df.dart$3atyped_data._Int8List.elementSizeInBytes",
+        "df.dart$3atyped_data._Uint8List.elementSizeInBytes"
+      ],
+      "all_definitions_have_explicit_record": true
+    }
+  },
+  "total_known_empty": 338,
+  "total_unknown": 46277,
+  "scope": "Transport syntax and actual artifact hashes only. Known-empty means directly audited scalar leaf; transitive/runtime/native completeness and import acceptance are not certified here."
+}

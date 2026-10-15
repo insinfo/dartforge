@@ -1,0 +1,20 @@
+{
+  "scope": "CLI parser/watch unit source with actual existing elements dependency artifact. Full frozen JIT argument differential gate separately covers run/reload/restart.",
+  "command": [
+    "rustc",
+    "--edition=2024",
+    "--test",
+    "crates/cli/src/jit.rs",
+    "-L",
+    "dependency=/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/debug/deps",
+    "--extern",
+    "dartforge_elements=/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/debug/deps/libdartforge_elements-964f7098804fd00b.rlib",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-cli-units-v2/tests"
+  ],
+  "compile_exit": 0,
+  "source_sha256": "29c6567546680d955e7a331990da8efeabb94ca9d4f665a641560680060dd078",
+  "dependency_sha256": "ed5c8c6bd12e7fecd92cee2efd4d3b3a66f9efa54426a791f954d571eb014748",
+  "test_exit": 0,
+  "source_unchanged": true
+}

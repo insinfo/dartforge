@@ -1,0 +1,95 @@
+   Compiling anyhow v1.0.104
+   Compiling semver v1.0.28
+   Compiling regex-lite v0.1.9
+   Compiling lazy_static v1.5.0
+   Compiling dartforge-llvm v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm)
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+   Compiling llvm-sys v221.1.0
+error: failed to run custom build command for `dartforge-llvm v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm)`
+
+Caused by:
+  process didn't exit successfully: `/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/release/build/dartforge-llvm-ae6a680c4d47194f/build-script-build` (exit status: 101)
+  --- stdout
+  cargo::rerun-if-changed=build.rs
+  cargo::rerun-if-env-changed=DARTFORGE_LLVM_DIR
+  cargo::rerun-if-env-changed=DARTFORGE_LLVM_ZSTD_LIBRARY
+  cargo::rerun-if-env-changed=LLVM_SYS_221_PREFIX
+  cargo::rustc-link-search=native=/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/lib
+  cargo::rerun-if-env-changed=DARTFORGE_LLVM_LINK
+  cargo::rustc-link-lib=static=LLVMAArch64Disassembler
+  cargo::rustc-link-lib=static=LLVMMCDisassembler
+  cargo::rustc-link-lib=static=LLVMAArch64AsmParser
+  cargo::rustc-link-lib=static=LLVMAArch64CodeGen
+  cargo::rustc-link-lib=static=LLVMAsmPrinter
+  cargo::rustc-link-lib=static=LLVMAArch64Desc
+  cargo::rustc-link-lib=static=LLVMAArch64Utils
+  cargo::rustc-link-lib=static=LLVMAArch64Info
+  cargo::rustc-link-lib=static=LLVMOrcJIT
+  cargo::rustc-link-lib=static=LLVMPasses
+  cargo::rustc-link-lib=static=LLVMIRPrinter
+  cargo::rustc-link-lib=static=LLVMHipStdPar
+  cargo::rustc-link-lib=static=LLVMCoroutines
+  cargo::rustc-link-lib=static=LLVMipo
+  cargo::rustc-link-lib=static=LLVMInstrumentation
+  cargo::rustc-link-lib=static=LLVMVectorize
+  cargo::rustc-link-lib=static=LLVMSandboxIR
+  cargo::rustc-link-lib=static=LLVMLinker
+  cargo::rustc-link-lib=static=LLVMFrontendOpenMP
+  cargo::rustc-link-lib=static=LLVMFrontendDirective
+  cargo::rustc-link-lib=static=LLVMFrontendAtomic
+  cargo::rustc-link-lib=static=LLVMFrontendOffloading
+  cargo::rustc-link-lib=static=LLVMObjectYAML
+  cargo::rustc-link-lib=static=LLVMGlobalISel
+  cargo::rustc-link-lib=static=LLVMSelectionDAG
+  cargo::rustc-link-lib=static=LLVMCodeGen
+  cargo::rustc-link-lib=static=LLVMScalarOpts
+  cargo::rustc-link-lib=static=LLVMInstCombine
+  cargo::rustc-link-lib=static=LLVMObjCARCOpts
+  cargo::rustc-link-lib=static=LLVMCodeGenTypes
+  cargo::rustc-link-lib=static=LLVMCGData
+  cargo::rustc-link-lib=static=LLVMBitWriter
+  cargo::rustc-link-lib=static=LLVMCFGuard
+  cargo::rustc-link-lib=static=LLVMAggressiveInstCombine
+  cargo::rustc-link-lib=static=LLVMTransformUtils
+  cargo::rustc-link-lib=static=LLVMWindowsDriver
+  cargo::rustc-link-lib=static=LLVMJITLink
+  cargo::rustc-link-lib=static=LLVMOption
+  cargo::rustc-link-lib=static=LLVMExecutionEngine
+  cargo::rustc-link-lib=static=LLVMTarget
+  cargo::rustc-link-lib=static=LLVMAnalysis
+  cargo::rustc-link-lib=static=LLVMProfileData
+  cargo::rustc-link-lib=static=LLVMSymbolize
+  cargo::rustc-link-lib=static=LLVMDebugInfoBTF
+  cargo::rustc-link-lib=static=LLVMDebugInfoPDB
+  cargo::rustc-link-lib=static=LLVMDebugInfoMSF
+  cargo::rustc-link-lib=static=LLVMDebugInfoCodeView
+  cargo::rustc-link-lib=static=LLVMDebugInfoGSYM
+  cargo::rustc-link-lib=static=LLVMDebugInfoDWARF
+  cargo::rustc-link-lib=static=LLVMFrontendHLSL
+  cargo::rustc-link-lib=static=LLVMRuntimeDyld
+  cargo::rustc-link-lib=static=LLVMOrcTargetProcess
+  cargo::rustc-link-lib=static=LLVMOrcShared
+  cargo::rustc-link-lib=static=LLVMObject
+  cargo::rustc-link-lib=static=LLVMTextAPI
+  cargo::rustc-link-lib=static=LLVMMCParser
+  cargo::rustc-link-lib=static=LLVMIRReader
+  cargo::rustc-link-lib=static=LLVMAsmParser
+  cargo::rustc-link-lib=static=LLVMBitReader
+  cargo::rustc-link-lib=static=LLVMMC
+  cargo::rustc-link-lib=static=LLVMDebugInfoDWARFLowLevel
+  cargo::rustc-link-lib=static=LLVMCore
+  cargo::rustc-link-lib=static=LLVMRemarks
+  cargo::rustc-link-lib=static=LLVMBitstreamReader
+  cargo::rustc-link-lib=static=LLVMBinaryFormat
+  cargo::rustc-link-lib=static=LLVMTargetParser
+  cargo::rustc-link-lib=static=LLVMSupport
+  cargo::rustc-link-lib=static=LLVMDemangle
+  cargo::rustc-link-lib=dylib=m
+  cargo::rustc-link-lib=dylib=z
+
+  --- stderr
+
+  thread 'main' (2001832) panicked at crates/llvm/build.rs:77:17:
+  the LLVM at /Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64 offers neither shared linking (/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/llvm-config ["--link-shared", "--libfiles", "orcjit", "native", "irreader", "passes", "bitwriter"]: llvm-config: error: libLLVM-22.dylib is missing) nor static linking (required LLVM system library /opt/homebrew/lib/libzstd.a is missing; set DARTFORGE_LLVM_ZSTD_LIBRARY to an existing libzstd.a, libzstd.dylib or libzstd.so)
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+warning: build failed, waiting for other jobs to finish...

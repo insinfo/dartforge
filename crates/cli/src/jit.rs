@@ -14,6 +14,50 @@ use std::path::{Path, PathBuf};
 
 type Outcome = Result<(), Box<dyn std::error::Error>>;
 
+/// Keep explicit application options outside the CLI option parser.
+#[cfg(any(feature = "jit", test))]
+fn split_program_arguments(args: &[std::ffi::OsString]) -> (&[std::ffi::OsString], Vec<String>) {
+    match args.iter().position(|argument| argument == "--") {
+        Some(separator) => (
+            &args[..separator],
+            args[separator + 1..].iter()
+                .map(|argument| argument.to_string_lossy().into_owned()).collect(),
+        ),
+        None => (args, Vec::new()),
+    }
+}
+
+/// Watch sibling source directories belonging to the entry's own package.
+#[cfg(any(feature = "jit", test))]
+fn reload_source_root(input: &Path) -> &Path {
+    let directory = input.parent().filter(|path| !path.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    directory.ancestors().find(|path| path.join("pubspec.yaml").is_file()).unwrap_or(directory)
+}
+
+/// Use the loader's selection for runtime `package:` resource resolution too.
+#[cfg(any(feature = "jit", test))]
+fn runtime_package_config(input: &Path, packages: Option<&Path>) -> Result<Option<PathBuf>, std::io::Error> {
+    packages.map(Path::to_path_buf)
+        .or_else(|| dartforge_elements::config::PackageConfig::discover(input))
+        .map(|path| {
+            if !std::fs::metadata(&path)?.is_file() {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "The package configuration must be a file"));
+            }
+            // Match PackageConfig::load: relative rootUri values use the
+            // canonical selected parent, not a symlinked file's target parent.
+            let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+            let parent = dartforge_elements::config::without_verbatim(parent.canonicalize()?);
+            Ok(parent.join(path.file_name().expect("a file has a basename")))
+        }).transpose()
+}
+
+#[cfg(feature = "jit")]
+fn publish_package_config(input: &Path, packages: Option<&Path>) -> Result<(), std::io::Error> {
+    let selected = runtime_package_config(input, packages)?;
+    dartforge_jit::set_package_config(selected.as_deref());
+    Ok(())
+}
+
 #[cfg(not(feature = "jit"))]
 fn disabled(command: &str) -> Outcome {
     Err(format!(
@@ -108,7 +152,7 @@ fn sdk_library(ir: &str) -> Result<Option<PathBuf>, String> {
 #[cfg(feature = "jit")]
 pub fn run(args: &[std::ffi::OsString]) -> Outcome {
     crate::native::set_memory_policy("tracing")?;
-    let usage = "usage: dartforge run [--sdk <lib>] [--packages <package_config.json>] [--timings] [--memory=tracing|arc] <input.dart> [<main arguments>…]\n       dartforge run --ir <program.ll> [--timings] [<main arguments>…]";
+    let usage = "usage: dartforge run [--sdk <lib>] [--packages <package_config.json>] [--timings] [--memory=tracing|arc] <input.dart> [--] [<main arguments>…]\n       dartforge run --ir <program.ll> [--timings] [--] [<main arguments>…]";
     let mut input: Option<PathBuf> = None;
     let mut ready_ir: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
@@ -117,7 +161,8 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
     // As in `dart run`: the options before the program belong to dartforge;
     // what comes after it belongs to `main(List<String> args)`.
     let mut program_args: Vec<String> = Vec::new();
-    let mut it = args.iter();
+    let (cli_args, explicit_args) = split_program_arguments(args);
+    let mut it = cli_args.iter();
     while let Some(a) = it.next() {
         if input.is_some() || ready_ir.is_some() {
             match a.to_str() {
@@ -140,6 +185,10 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
             }
             _ => input = Some(PathBuf::from(a)),
         }
+    }
+    program_args.extend(explicit_args);
+    if let Some(input) = &input {
+        publish_package_config(input, packages.as_deref())?;
     }
     dartforge_jit::set_arguments(program_args);
     if let Some(input) = &input {
@@ -192,9 +241,10 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
 ///
 /// It is deliberately simple: R0 recompiles the whole program on every
 /// change, so knowing **which** file changed is of no use yet. The root is
-/// the input's directory; `.dart_tool`, `build` and hidden directories are
+/// the entry's nearest package root (or its directory without a pubspec);
+/// `.dart_tool`, `build` and hidden directories are
 /// left out of the source scan. `package_config.json` is watched separately.
-#[cfg(feature = "jit")]
+#[cfg(any(feature = "jit", test))]
 fn stamp(root: &Path, packages: Option<&Path>) -> (u64, usize) {
     use std::hash::{Hash, Hasher};
 
@@ -277,7 +327,7 @@ impl Drop for GenerationsDir {
 #[cfg(feature = "jit")]
 pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
     crate::native::set_memory_policy("tracing")?;
-    let usage = "usage: dartforge reload <input.dart> [--sdk <lib>] [--packages <package_config.json>] [--interval <ms>] [--once] [--timings] [--restart] [--memory=tracing|arc]";
+    let usage = "usage: dartforge reload <input.dart> [--sdk <lib>] [--packages <package_config.json>] [--interval <ms>] [--once] [--timings] [--restart] [--memory=tracing|arc] [-- <main arguments>…]";
     let mut input: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
@@ -287,7 +337,8 @@ pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
     let mut restart = false;
     let mut child = false;
     let mut supervisor: Option<u16> = None;
-    let mut it = args.iter();
+    let (cli_args, program_args) = split_program_arguments(args);
+    let mut it = cli_args.iter();
     while let Some(a) = it.next() {
         match a.to_str() {
             Some("--sdk") => sdk = Some(PathBuf::from(it.next().ok_or(usage)?)),
@@ -321,7 +372,9 @@ pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
         }
     }
     let input = input.ok_or(usage)?;
+    publish_package_config(&input, packages.as_deref())?;
     dartforge_jit::set_script(&input);
+    dartforge_jit::set_arguments(program_args.clone());
     if !restart {
         if child {
             if let Some(port) = supervisor {
@@ -329,12 +382,9 @@ pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
             }
             return live_reload(&input, sdk.as_deref(), packages.as_deref(), interval_ms, once, timings);
         }
-        return supervise(args);
+        return supervise(cli_args, &program_args);
     }
-    let root = input
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+    let root = reload_source_root(&input).to_path_buf();
     let own_exe = std::env::current_exe()?;
     let temp = GenerationsDir(std::env::temp_dir().join(format!("dartforge-reload-{}", std::process::id())));
     std::fs::create_dir_all(&temp.0)?;
@@ -385,6 +435,10 @@ pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
                         );
                     }
                     let mut command = std::process::Command::new(&own_exe);
+                    match runtime_package_config(&input, packages.as_deref())? {
+                        Some(path) => { command.env("DARTFORGE_PACKAGE_CONFIG", path); }
+                        None => { command.env_remove("DARTFORGE_PACKAGE_CONFIG"); }
+                    }
                     // The child also starts from tracing; it carries over the
                     // explicit selection to keep the same SDK variant in the cache.
                     command.arg("run")
@@ -393,6 +447,7 @@ pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
                     if timings {
                         command.arg("--timings");
                     }
+                    command.arg("--").args(&program_args);
                     child = Some(command.spawn()?);
                     end_reported = false;
                 }
@@ -432,7 +487,7 @@ const RESTART_CODE: i32 = 75;
 /// connection closes: killing the supervisor (Ctrl+C, an IDE's `kill`) does
 /// not leave the program running orphaned.
 #[cfg(feature = "jit")]
-fn supervise(args: &[std::ffi::OsString]) -> Outcome {
+fn supervise(args: &[std::ffi::OsString], program_args: &[String]) -> Outcome {
     let own_exe = std::env::current_exe()?;
     let watcher = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
     let port = watcher.local_addr()?.port();
@@ -444,6 +499,8 @@ fn supervise(args: &[std::ffi::OsString]) -> Outcome {
             .arg("--child")
             .arg("--supervisor")
             .arg(port.to_string())
+            .arg("--")
+            .args(program_args)
             .spawn()?;
         // The child's connection stays open while the supervisor lives.
         let mut _connection = None;
@@ -507,7 +564,7 @@ fn live_reload(
     once: bool,
     timings: bool,
 ) -> Outcome {
-    let root = input.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let root = reload_source_root(input);
     let interval = std::time::Duration::from_millis(interval_ms);
     // The first generation: the session depends on the IR (the embedded
     // runtime or the source-built SDK library). A first compilation that
@@ -630,4 +687,87 @@ fn live_reload(
         std::process::exit(code);
     }
     Ok(())
+}
+
+
+#[cfg(test)]
+mod argument_tests {
+    use super::{reload_source_root, runtime_package_config, split_program_arguments, stamp};
+    use std::ffi::OsString;
+
+    #[test]
+    fn explicit_program_options_empty_arguments_and_separator_are_not_cli_options() {
+        let args: Vec<OsString> = [
+            "app.dart", "--sdk", "selected/lib", "--", "--timings", "--child", "", "é folder", "--",
+        ].into_iter().map(OsString::from).collect();
+        let (cli, program) = split_program_arguments(&args);
+        assert_eq!(cli, &args[..3]);
+        assert_eq!(program, ["--timings", "--child", "", "é folder", "--"]);
+        let (cli, program) = split_program_arguments(&args[..3]);
+        assert_eq!(cli, &args[..3]);
+        assert!(program.is_empty());
+    }
+
+    #[test]
+    fn reload_watches_nearest_package_siblings_instead_of_entry_bin_only() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("dartforge-reload-source-root-{unique}"));
+        std::fs::create_dir_all(root.join("example/bin")).unwrap();
+        std::fs::write(root.join("pubspec.yaml"), "name: outer\n").unwrap();
+        std::fs::write(root.join("example/pubspec.yaml"), "name: example\n").unwrap();
+        let input = root.join("example/bin/main.dart");
+        std::fs::write(&input, "void main() {}\n").unwrap();
+        std::fs::create_dir_all(root.join("example/lib")).unwrap();
+        let library = root.join("example/lib/view.dart");
+        std::fs::write(&library, "int value() => 1;\n").unwrap();
+        assert_eq!(reload_source_root(&input), root.join("example"));
+        let before = stamp(reload_source_root(&input), None);
+        std::fs::write(&library, "int value() => 123456;\n").unwrap();
+        assert_ne!(before, stamp(reload_source_root(&input), None), "ordinary bin entry must notice sibling lib edits");
+        std::fs::remove_file(root.join("example/pubspec.yaml")).unwrap();
+        assert_eq!(reload_source_root(&input), root);
+        std::fs::remove_file(root.join("pubspec.yaml")).unwrap();
+        assert_eq!(reload_source_root(&input), root.join("example/bin"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn runtime_package_selection_matches_explicit_and_nearest_loader_config() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("dartforge-runtime-packages-{unique}"));
+        std::fs::create_dir_all(root.join("project/bin")).unwrap();
+        std::fs::create_dir_all(root.join("project/.dart_tool")).unwrap();
+        let input = root.join("project/bin/main.dart");
+        std::fs::write(&input, "void main() {}\n").unwrap();
+        assert!(runtime_package_config(&input, None).unwrap().is_none());
+        let discovered = root.join("project/.dart_tool/package_config.json");
+        std::fs::write(&discovered, "{\"configVersion\":2,\"packages\":[]}\n").unwrap();
+        assert_eq!(runtime_package_config(&input, None).unwrap(), Some(dartforge_elements::config::without_verbatim(discovered.canonicalize().unwrap())));
+        let explicit = root.join("explicit.json");
+        std::fs::write(&explicit, "{\"configVersion\":2,\"packages\":[]}\n").unwrap();
+        assert_eq!(runtime_package_config(&input, Some(&explicit)).unwrap(), Some(dartforge_elements::config::without_verbatim(explicit.canonicalize().unwrap())));
+        assert!(runtime_package_config(&input, Some(&root.join("missing.json"))).is_err());
+        assert!(runtime_package_config(&input, Some(&root)).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runtime_package_config_preserves_symlink_selected_relative_uri_base() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("dartforge-runtime-package-symlink-{unique}"));
+        std::fs::create_dir_all(root.join("project/.dart_tool")).unwrap();
+        std::fs::create_dir_all(root.join("shared")).unwrap();
+        std::fs::create_dir_all(root.join("dependency/lib")).unwrap();
+        let target = root.join("shared/config.json");
+        std::fs::write(&target, r#"{"configVersion":2,"packages":[{"name":"resource_package","rootUri":"../../dependency/","packageUri":"lib/"}]}"#).unwrap();
+        let selected = root.join("project/.dart_tool/package_config.json");
+        std::os::unix::fs::symlink(&target, &selected).unwrap();
+        let published = runtime_package_config(&root.join("project/main.dart"), Some(&selected)).unwrap().unwrap();
+        assert_eq!(published, selected.parent().unwrap().canonicalize().unwrap().join("package_config.json"));
+        assert_ne!(published, selected.canonicalize().unwrap());
+        let packages = dartforge_elements::config::PackageConfig::load(&published).unwrap();
+        assert_eq!(packages.packages["resource_package"].package_uri.to_file_path().unwrap(), root.join("dependency/lib").canonicalize().unwrap());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

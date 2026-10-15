@@ -160,6 +160,7 @@ pub(crate) struct Reloadable {
     pub(crate) entries: BTreeMap<String, Entry>,
     /// Nominal layout of the classes of the live version: `(class_id, fields)`.
     layouts: Vec<(i64, i64)>,
+    async_frames: crate::frame_layouts::BodyLayouts,
     /// Names of the classes registered by the live version: `(class_id, name_str)`.
     class_names: Vec<(i64, String)>,
     /// The fields of each class of the live version, by name (J03).
@@ -535,9 +536,15 @@ impl JitSession {
                 None => (std::borrow::Cow::Borrowed(ir), Vec::new(), HashMap::new()),
             };
         let phase = Instant::now();
+        let prior_frames = self.reloadables.iter().find(|module| module.name == name)
+            .map(|module| &module.async_frames)
+            .or_else(|| self.modules.iter().find(|module| !module.removed && module.name == name).map(|module| &module.async_frames))
+            .cloned().unwrap_or_default();
         let parsed = ffi::parse_module(name, &generation_ir)
             .map_err(|detail| JitError::new("parse-ir", "invalid IR", detail))?;
         self.check_target(&parsed)?;
+        let (mut layouts, mut async_frames) = parsed.frame_contract(ir, &prior_frames)
+            .map_err(|message| JitError { stage: "contract", message })?;
         let callback_registration = parsed.callback_registration_plan(self.lljit.supports_callback_owners());
         let parse_ir = phase.elapsed();
 
@@ -587,7 +594,6 @@ impl JitSession {
             }
             renamed = renames;
         }
-        let mut layouts = parsed.class_layouts();
         // The allocations of the kept functions are not in the module; their text
         // is the live generation's, so the layout they allocate is the registered one.
         if !kept_fns.is_empty()
@@ -647,6 +653,13 @@ impl JitSession {
             (None, Some(index)) => &self.modules[index].layouts,
             (None, None) => &[],
         };
+        let previous_frames = &prior_frames;
+        crate::frame_layouts::check_domains(previous_layouts, previous_frames, &layouts, &async_frames)
+            .map_err(|message| JitError { stage: "contract", message })?;
+        crate::frame_layouts::check(previous_frames, &async_frames)
+            .map_err(|message| JitError { stage: "contract", message })?;
+        // Old suspended frames can still reach entries from earlier generations.
+        for (body, fields) in previous_frames { async_frames.insert(body.clone(), *fields); }
         let previous_names: &[(i64, String)] = match (existing, plain) {
             (Some(index), _) => &self.reloadables[index].class_names,
             (None, Some(index)) => &self.modules[index].class_names,
@@ -1028,6 +1041,7 @@ impl JitSession {
         }
         module.generation = generation;
         module.layouts = layouts;
+        module.async_frames = async_frames;
         module.class_names = class_names;
         module.fields = fields;
         module.aliases.extend(new_aliases);
@@ -1097,6 +1111,7 @@ impl JitSession {
             generation: 0,
             entries: BTreeMap::new(),
             layouts: Vec::new(),
+            async_frames: crate::frame_layouts::BodyLayouts::new(),
             class_names: Vec::new(),
             fields: Vec::new(),
             aliases: BTreeMap::new(),
@@ -1473,6 +1488,7 @@ mod tests {
             generation: 1,
             entries,
             layouts: Vec::new(),
+            async_frames: crate::frame_layouts::BodyLayouts::new(),
             class_names: Vec::new(),
             fields: Vec::new(),
             aliases: BTreeMap::new(),

@@ -1,0 +1,15 @@
+{
+  "files": {
+    "crates/emit_native/src/hir.rs": "f071fddee933cda08de4bb02525a76c6b2935c390f860ade7ef744a74ac5d67e",
+    "crates/emit_native/src/llvm/mod.rs": "a8d449887ed1f0f09c0169ab7334de6d8a67de2877cc86118ea8b4aeaf637a2d",
+    "crates/emit_native/src/lower/async_sm.rs": "b8aeef1fae06fe59cdb3f36609e341e009956367c41a3f3f3fa979053ae66037",
+    "crates/emit_native/src/lower/closures.rs": "d8b6a15bbfeddeaa59cd3f94dc3a1f31c423e12f06da4bf20752132787eef41a",
+    "crates/emit_native/src/lower/fn_builder.rs": "f367fb55153404bef908d227e02f1b015f8a30fb54a240eff35d0b927e6fb27c",
+    "crates/emit_native/src/lower/mod.rs": "a68e5a3793170773b2e8a1d2b20f5233d20455dbaed7a3b006a2e694528dfb52",
+    "crates/jit/src/ffi.rs": "b124e9fbf70abc95040aa8260c0c9ad1b3aced6487edd246d57fad8a57e79f8f",
+    "crates/jit/src/lib.rs": "e051fa16d9223f14717ec4b9d594f501e7d2a33f800feba1bd73a5682c2e8b0f",
+    "crates/jit/src/reload.rs": "f4f1ed1e8827aeaa1f5b4474d8e32d926c237fe0261e7412a889ae45067b72fd",
+    "crates/jit/src/frame_layouts.rs": "8b5a468485ff3cdc064b3d0e446c41fce2348c560407833a13b18b08e3f6eca1",
+    "crates/jit/tests/async_frame_reload.rs": "2988f32e05971035ab5ca2d28916f9b4de51786761bebe00b7ba24fafda5460e"
+  }
+}

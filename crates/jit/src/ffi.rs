@@ -144,7 +144,7 @@ impl Drop for ThreadSafeModule {
 ///
 /// It exists to give an inspection and rewrite point between parsing the IR and
 /// entering the `LLJIT`: this is where hot reload reads the contract
-/// fingerprint ([`ParsedModule::signatures`], [`ParsedModule::class_layouts`]) and
+/// fingerprint ([`ParsedModule::signatures`], [`ParsedModule::frame_contract`]) and
 /// versions the implementations ([`ParsedModule::version_definitions`]) before
 /// any effect on the running code.
 ///
@@ -722,31 +722,19 @@ impl ParsedModule {
         }
     }
 
-    /// Nominal layout of the classes the module constructs: `(class_id, fields)`.
-    ///
-    /// It comes from the calls to `@dartforge_object_new(i64 class_id, i64 field_count)`
-    /// with both arguments constant, which is the form the native emitter emits
-    /// in constructors. Two generations that disagree on the number of fields of the
-    /// same class have incompatible layouts: the objects already alive in the managed
-    /// heap would keep the old layout, and the new code would read fields
-    /// that do not exist. That is why this divergence refuses the reload instead of
-    /// silently corrupting the heap.
-    ///
-    /// Classes the new module does not construct do not appear, and therefore are not
-    /// checked — a limit declared in `docs/JIT.md`.
-    pub(crate) fn class_layouts(&self) -> Vec<(i64, i64)> {
+    /// Keeps each allocation's owning definition when verifying frame metadata.
+    pub(crate) fn allocation_layouts(&self) -> Vec<(String, String, i64, i64)> {
         let mut layouts = Vec::new();
         for function in self.definitions() {
-            // SAFETY: traversal of the module structure through LLVM's own API.
-            // Each returned pointer is valid while the module exists, and the
-            // loop ends at the first null, as `llvm-c/Core.h` requires.
+            // SAFETY: traversal only reads this live LLVM module.
             unsafe {
+                let name = value_name(function);
                 let mut block = LLVMGetFirstBasicBlock(function);
                 while !block.is_null() {
                     let mut instruction = LLVMGetFirstInstruction(block);
                     while !instruction.is_null() {
-                        if let Some(layout) = object_new_layout(instruction) {
-                            layouts.push(layout);
+                        if let Some((cid, fields)) = object_new_layout(instruction) {
+                            layouts.push((name.clone(), value_name(instruction), cid, fields));
                         }
                         instruction = LLVMGetNextInstruction(instruction);
                     }
@@ -754,9 +742,14 @@ impl ParsedModule {
                 }
             }
         }
-        layouts.sort_unstable();
-        layouts.dedup();
         layouts
+    }
+
+    /// Only definitions or a previously certified, delta-kept resume entry can
+    /// justify an asynchronous frame ABI. An imported declaration alone cannot.
+    pub(crate) fn frame_contract(&self, ir: &str, previous: &crate::frame_layouts::BodyLayouts) -> Result<(Vec<(i64, i64)>, crate::frame_layouts::BodyLayouts), String> {
+        let definitions: Vec<_> = self.signatures().into_iter().map(|signature| signature.name).collect();
+        crate::frame_layouts::classify(ir, &self.allocation_layouts(), &definitions, previous)
     }
 
     /// The names of the classes the module registers: `(class_id, name)`, from the
@@ -769,7 +762,7 @@ impl ParsedModule {
     pub(crate) fn class_names(&self) -> Vec<(i64, String)> {
         let mut names = Vec::new();
         for function in self.definitions() {
-            // SAFETY: the same traversal as `class_layouts`.
+            // SAFETY: the same traversal as `allocation_layouts`.
             unsafe {
                 let mut block = LLVMGetFirstBasicBlock(function);
                 while !block.is_null() {
@@ -1861,6 +1854,26 @@ pub(crate) fn set_script_in_library(dll: &std::path::Path, file_path: &[u8]) -> 
     Ok(())
 }
 
+/// Publishes the explicit source-loader config to the SDK runtime instance.
+pub(crate) fn set_package_config_in_library(dll: &std::path::Path, config: Option<&str>) -> Result<(), String> {
+    let module = load_library(dll);
+    if module.is_null() {
+        return Err(format!("could not load the SDK library {}", dll.display()));
+    }
+    let address = address_in_library(module, c"dartforge_set_program_package_config");
+    if address.is_null() {
+        return Err("the SDK library runtime does not support explicit package configuration; rebuild the SDK cache".into());
+    }
+    let bytes = config.unwrap_or("").as_bytes();
+    // SAFETY: this exported runtime setter has the declared signature and
+    // copies the borrowed byte slice during the call, including empty absence.
+    unsafe {
+        let setter: unsafe extern "C" fn(*const u8, usize) = std::mem::transmute(address);
+        setter(bytes.as_ptr(), bytes.len());
+    }
+    Ok(())
+}
+
 // ─── Live reload ───────────────────────────────────────────────────────────
 //
 // The program runs on its own thread while the watcher compiles the
@@ -2433,6 +2446,7 @@ pub(crate) struct ObjectParts {
     pub(crate) declarations: Vec<String>,
     pub(crate) signatures: Vec<FunctionSignature>,
     pub(crate) layouts: Vec<(i64, i64)>,
+    pub(crate) async_frames: crate::frame_layouts::BodyLayouts,
     pub(crate) globals: Vec<MutableGlobal>,
     pub(crate) target: (String, String),
     pub(crate) callback_registration: CallbackRegistrationPlan,
@@ -2454,7 +2468,7 @@ pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String
     let globals = parsed.prepare_mutable_globals()?;
     let declarations = parsed.declarations();
     let signatures = parsed.signatures();
-    let layouts = parsed.class_layouts();
+    let (layouts, async_frames) = parsed.frame_contract(ir, &crate::frame_layouts::BodyLayouts::new())?;
     let machine = target_machine()?;
     // Map-based roots: the cached object goes through the same pass the
     // session runs on modules (`transform_ir`).
@@ -2499,7 +2513,7 @@ pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String
         result
     }?;
     let target = parsed.target();
-    Ok(ObjectParts { object, declarations, signatures, layouts, globals, target, callback_registration })
+    Ok(ObjectParts { object, declarations, signatures, layouts, async_frames, globals, target, callback_registration })
 }
 
 

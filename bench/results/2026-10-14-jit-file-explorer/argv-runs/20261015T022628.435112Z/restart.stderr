@@ -1,0 +1,2 @@
+[reload] generation 1: hot restart — state is NOT preserved (the program starts over from main; stateful hot reload does not exist yet)
+[reload] generation 1 ended with code 0

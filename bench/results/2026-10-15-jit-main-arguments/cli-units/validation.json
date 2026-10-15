@@ -1,0 +1,14 @@
+{
+  "scope": "Standalone std-only CLI parser/watch unit source; actual JIT run/reload argv is separately validated with full frozen producer.",
+  "command": [
+    "rustc",
+    "--edition=2024",
+    "--test",
+    "crates/cli/src/jit.rs",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-cli-units/tests"
+  ],
+  "compile_exit": 1,
+  "source_sha256": "29c6567546680d955e7a331990da8efeabb94ca9d4f665a641560680060dd078",
+  "source_unchanged": true
+}

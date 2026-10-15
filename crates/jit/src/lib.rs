@@ -54,6 +54,7 @@
 mod delta;
 mod ffi;
 mod migration;
+mod frame_layouts;
 mod reload;
 mod live;
 
@@ -248,6 +249,7 @@ struct Module {
     signatures: Vec<ffi::FunctionSignature>,
     /// Nominal layout of the classes it builds: `(class_id, fields)`.
     layouts: Vec<(i64, i64)>,
+    async_frames: frame_layouts::BodyLayouts,
     /// Names of the classes it registers: `(class_id, name)`.
     class_names: Vec<(i64, String)>,
     /// The fields of each class, by name (`; df.fields`, J03).
@@ -345,6 +347,10 @@ impl JitSession {
         if let Some(script) = program_script().lock().unwrap_or_else(|e| e.into_inner()).as_deref() {
             ffi::set_script_in_library(dll, script)
                 .map_err(|detail| JitError::new("sdk", "could not hand the script to the SDK DLL", detail))?;
+        }
+        if let Some(config) = program_package_config().lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            ffi::set_package_config_in_library(dll, config.as_deref())
+                .map_err(|detail| JitError::new("sdk", "could not hand the package configuration to the SDK DLL", detail))?;
         }
         static NEXT_ID: AtomicU64 = AtomicU64::new(1_000_000);
         Ok(Self {
@@ -525,7 +531,8 @@ impl JitSession {
         // because it is what allows a future reload to compare the new version with
         // this one — including when this module came in through the simple path.
         let callback_registration = parsed.callback_registration_plan(self.lljit.supports_callback_owners());
-        let layouts = parsed.class_layouts();
+        let (layouts, async_frames) = parsed.frame_contract(ir, &frame_layouts::BodyLayouts::new())
+            .map_err(|message| JitError { stage: "contract", message })?;
         let class_names = parsed.class_names();
         let globals = parsed
             .prepare_mutable_globals()
@@ -546,6 +553,7 @@ impl JitSession {
             removed: false,
             signatures,
             layouts,
+            async_frames,
             class_names,
             fields: migration::ir_layouts(ir),
             globals,
@@ -605,6 +613,7 @@ impl JitSession {
             removed: false,
             signatures: parts.signatures.clone(),
             layouts: parts.layouts.clone(),
+            async_frames: parts.async_frames.clone(),
             // The compiled object does not keep the names: comparison by name
             // starts at the first reload.
             class_names: Vec::new(),
@@ -841,6 +850,22 @@ pub fn set_script(file_path: &std::path::Path) {
     let bytes = absolute_path.as_os_str().as_encoded_bytes().to_vec();
     *program_script().lock().unwrap_or_else(|e| e.into_inner()) = Some(bytes.clone());
     dartforge_runtime::abi::set_program_script(bytes);
+}
+
+/// Selects the source loader's package config for runtime resource resolution.
+/// `None` explicitly disables inherited configuration; callers of raw IR that
+/// do not call this setter retain the builder environment fallback.
+pub fn set_package_config(file_path: Option<&std::path::Path>) {
+    let selected = file_path.map(|path| {
+        std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()).to_string_lossy().into_owned()
+    });
+    *program_package_config().lock().unwrap_or_else(|e| e.into_inner()) = Some(selected.clone());
+    dartforge_runtime::abi::set_program_package_config(selected);
+}
+
+fn program_package_config() -> &'static std::sync::Mutex<Option<Option<String>>> {
+    static CONFIG: std::sync::Mutex<Option<Option<String>>> = std::sync::Mutex::new(None);
+    &CONFIG
 }
 
 /// The script of [`set_script`], which a session with the source SDK passes on

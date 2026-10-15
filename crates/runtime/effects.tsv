@@ -819,6 +819,7 @@ dartforge_safepoint	1	1	1
 dartforge_selector	1	1	0
 dartforge_set_main_arguments	1	1	0
 dartforge_set_migration	1	1	0
+dartforge_set_program_package_config	1	1	0
 dartforge_set_program_script	1	1	0
 dartforge_stack_overflow	1	1	1
 dartforge_stack_overflow_error_new	1	1	1

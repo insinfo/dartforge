@@ -1,0 +1,22 @@
+{
+  "external_zstd": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-arc-readiness/zstd/libzstd.a",
+    "sha256": "f40384d5165be0d13e6c4645f2290da37b7d0d56d0c572004bb66e1cdce1a00b"
+  },
+  "head": "8b800eeb2de56e666affb0694f574cde202b8aca",
+  "command": [
+    "cargo",
+    "build",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-cli",
+    "--release",
+    "--features",
+    "jit"
+  ],
+  "exit": 101,
+  "source_scope": "Cargo manifests and Rust/Dart/C/header/JSON sources under crates and native_sdk, including tests.",
+  "source_stable": true,
+  "changed_during_build": []
+}

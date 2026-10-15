@@ -1,0 +1,20 @@
+{
+  "scope": "Standalone CLI argument/loader selection/source watcher units with actual elements dependency; actual JIT/package/font gates remain separate.",
+  "command": [
+    "rustc",
+    "--edition=2024",
+    "--test",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli/src/jit.rs",
+    "-L",
+    "dependency=/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/debug/deps",
+    "--extern",
+    "dartforge_elements=/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/debug/deps/libdartforge_elements-964f7098804fd00b.rlib",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-cli-units-v4/tests"
+  ],
+  "compile_exit": 0,
+  "source_sha256": "39da8557023f9420ec080896b3c1be437d9f5ff8ab0065a47cfce599c8d84bc4",
+  "dependency_sha256": "ed5c8c6bd12e7fecd92cee2efd4d3b3a66f9efa54426a791f954d571eb014748",
+  "test_exit": 0,
+  "source_unchanged": true
+}

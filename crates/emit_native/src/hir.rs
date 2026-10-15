@@ -1263,6 +1263,9 @@ pub struct Module {
     /// declared ones — those of enums —, fields)`, written in the IR as
     /// `; df.fields …`.
     pub program_fields: Vec<(u32, usize, Vec<LayoutField>)>,
+    /// Generated frame allocations: allocator symbol and SSA site, fingerprinted
+    /// resume entry, and field count. A shared async CID does not imply a shared field layout.
+    pub(crate) async_frame_layouts: Vec<(String, ValueId, String, usize)>,
     /// Program with the source SDK: the class ids of the values that the
     /// runtime represents (`Null`, `_Smi`, `_Mint`, `_Double`, `bool`,
     /// `_OneByteString`, `_TwoByteString`, `_GrowableList`, `_List`,

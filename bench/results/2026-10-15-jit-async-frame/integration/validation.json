@@ -1,0 +1,22 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-jit",
+    "--test",
+    "async_frame_reload",
+    "--",
+    "--include-ignored",
+    "--test-threads=1"
+  ],
+  "exit_code": 101,
+  "passed": 0,
+  "failed": 1,
+  "source_unchanged": true,
+  "failure": "nominal/generated metadata transition refused actual delta",
+  "recovery": "Sample proved observer joining after captured panic while program waited release; wrote only fixture release file for PID16097, process then terminal101.",
+  "log_sha256": "ba566fff3a94438add260f86f896ea5370fad9c8455492cc0db94fbde84a910d"
+}

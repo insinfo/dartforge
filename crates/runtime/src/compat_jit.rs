@@ -74,12 +74,41 @@ pub extern "C" fn dartforge_native_DartForge_mirrors_name(ty: i64) -> i64 {
     }
 }
 
-/// `DartForge_package_config`: the path of the process's `package_config.json`
-/// (`DARTFORGE_PACKAGE_CONFIG`), or `null`.
+fn program_package_config() -> &'static std::sync::Mutex<Option<Option<String>>> {
+    static CONFIG: std::sync::Mutex<Option<Option<String>>> = std::sync::Mutex::new(None);
+    &CONFIG
+}
+
+/// Selects the program's config without mutating the host process environment.
+/// Explicit absence suppresses a stale inherited environment selection.
+pub fn set_program_package_config(path: Option<String>) {
+    *program_package_config().lock().unwrap_or_else(|error| error.into_inner()) = Some(path);
+}
+
+/// Sets the SDK library runtime's selected package config before main.
+/// A zero-length payload explicitly selects no package configuration.
+///
+/// # Safety
+/// `data` points to `size` readable UTF-8 bytes, or `size` is zero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_set_program_package_config(data: *const u8, size: usize) {
+    let path = if size == 0 {
+        None
+    } else {
+        // SAFETY: the host keeps these bytes readable throughout this call.
+        Some(String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(data, size) }).into_owned())
+    };
+    set_program_package_config(path);
+}
+
+/// `DartForge_package_config`: the explicitly selected program configuration,
+/// otherwise the raw-IR/builder host's `DARTFORGE_PACKAGE_CONFIG`, or `null`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_package_config() -> i64 {
-    match std::env::var("DARTFORGE_PACKAGE_CONFIG") {
-        Ok(c) if !c.is_empty() => HEAP.with(|h| h.borrow_mut().allocate_str(&c)),
+    let selected = program_package_config().lock().unwrap_or_else(|error| error.into_inner()).clone();
+    let path = selected.unwrap_or_else(|| std::env::var("DARTFORGE_PACKAGE_CONFIG").ok());
+    match path {
+        Some(c) if !c.is_empty() => HEAP.with(|h| h.borrow_mut().allocate_str(&c)),
         _ => 0,
     }
 }

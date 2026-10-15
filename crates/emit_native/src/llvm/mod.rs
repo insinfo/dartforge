@@ -724,6 +724,19 @@ impl<'a> LlvmEmitter<'a> {
         for (id, lib, class) in &self.module.program_ids {
             writeln!(self.out, "; df.class {id} {} {}", crate::context::escape_str(lib), crate::context::escape_str(class)).unwrap();
         }
+        let mut frames: Vec<_> = self.module.async_frame_layouts.iter().filter(|(owner, site, _, count)| {
+            self.module.functions.iter().find(|f| &f.symbol == owner).is_some_and(|f| {
+                f.blocks.iter().flat_map(|b| &b.instructions).any(|(id, instruction, _)| {
+                    id == site && matches!(instruction, Instruction::AllocObject { class_id, fields }
+                        if *class_id == crate::lower::async_sm::ASYNC_FRAME_ID && fields.len() == *count)
+                })
+            })
+        }).collect();
+        frames.sort_unstable_by(|left, right| left.0.cmp(&right.0)
+            .then(left.1.0.cmp(&right.1.0)).then(left.2.cmp(&right.2)).then(left.3.cmp(&right.3)));
+        for (owner, site, body, fields) in frames {
+            writeln!(self.out, "; df.async-frame {owner} v{} {body} {fields}", site.0).unwrap();
+        }
         // The layout of the objects, to migrate the live instances (J03):
         // `name:flags:ty:owner:type_identity`, with `a` nullable and `l` late. The
         // declaring owner distinguishes inherited fields with equal spellings.

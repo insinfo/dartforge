@@ -1,0 +1,118 @@
+{
+  "status": "passed",
+  "producer": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-package-config-producer-v2/dartforge",
+  "producer_sha256": "83877f7379f98349b4601b6afe40a24e56017fc6de101179443553f942078a35",
+  "source_sha256": "429ca02c0115bfe73807b7a7811f196965533fdd238f6f0e792b8e84f9165574",
+  "config_sha256": "922012f42d64af5da29ef0f7e51b0b3bbb4e8cc7d674321929970a1d1edc9594",
+  "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer-package-gate/20261015T022445.305219Z/project",
+  "commands": [
+    {
+      "label": "vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "bin/main.dart"
+      ],
+      "exit": 0,
+      "exact_resource": true,
+      "stdout_sha256": "d0d6da3e0159e419b0ad428c196a525ef1e98cbbdaf73e5da45ec4d775a0e696",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "run-discovered",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-package-config-producer-v2/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "bin/main.dart"
+      ],
+      "exit": 0,
+      "exact_resource": true,
+      "stdout_sha256": "d0d6da3e0159e419b0ad428c196a525ef1e98cbbdaf73e5da45ec4d775a0e696",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "reload-discovered",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-package-config-producer-v2/dartforge",
+        "reload",
+        "bin/main.dart",
+        "--once",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+      ],
+      "exit": 0,
+      "exact_resource": true,
+      "stdout_sha256": "d0d6da3e0159e419b0ad428c196a525ef1e98cbbdaf73e5da45ec4d775a0e696",
+      "stderr_sha256": "8f769dd9dab03c6a652b012ec13bf375292f53286d84b4e9730b93ff3d0125b5"
+    },
+    {
+      "label": "restart-discovered",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-package-config-producer-v2/dartforge",
+        "reload",
+        "bin/main.dart",
+        "--once",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--restart"
+      ],
+      "exit": 0,
+      "exact_resource": true,
+      "stdout_sha256": "d0d6da3e0159e419b0ad428c196a525ef1e98cbbdaf73e5da45ec4d775a0e696",
+      "stderr_sha256": "e65479223d6faf71d0749d68fb4c164ff52ef43721073a45afe0edd938b3a4e4"
+    },
+    {
+      "label": "run-explicit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-package-config-producer-v2/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        ".dart_tool/package_config.json",
+        "bin/main.dart"
+      ],
+      "exit": 0,
+      "exact_resource": true,
+      "stdout_sha256": "d0d6da3e0159e419b0ad428c196a525ef1e98cbbdaf73e5da45ec4d775a0e696",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "reload-explicit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-package-config-producer-v2/dartforge",
+        "reload",
+        "bin/main.dart",
+        "--once",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        ".dart_tool/package_config.json"
+      ],
+      "exit": 0,
+      "exact_resource": true,
+      "stdout_sha256": "d0d6da3e0159e419b0ad428c196a525ef1e98cbbdaf73e5da45ec4d775a0e696",
+      "stderr_sha256": "8f769dd9dab03c6a652b012ec13bf375292f53286d84b4e9730b93ff3d0125b5"
+    },
+    {
+      "label": "restart-explicit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-package-config-producer-v2/dartforge",
+        "reload",
+        "bin/main.dart",
+        "--once",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        ".dart_tool/package_config.json",
+        "--restart"
+      ],
+      "exit": 0,
+      "exact_resource": true,
+      "stdout_sha256": "d0d6da3e0159e419b0ad428c196a525ef1e98cbbdaf73e5da45ec4d775a0e696",
+      "stderr_sha256": "e65479223d6faf71d0749d68fb4c164ff52ef43721073a45afe0edd938b3a4e4"
+    }
+  ],
+  "inputs_stable": true
+}

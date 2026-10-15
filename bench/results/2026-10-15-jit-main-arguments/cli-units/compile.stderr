@@ -1,0 +1,11 @@
+error[E0433]: cannot find module or crate `dartforge_elements` in this scope
+   --> crates/cli/src/jit.rs:253:21
+    |
+253 |         .or_else(|| dartforge_elements::config::PackageConfig::discover(root));
+    |                     ^^^^^^^^^^^^^^^^^^ use of unresolved module or unlinked crate `dartforge_elements`
+    |
+    = help: you might be missing a crate named `dartforge_elements`
+
+error: aborting due to 1 previous error
+
+For more information about this error, try `rustc --explain E0433`.

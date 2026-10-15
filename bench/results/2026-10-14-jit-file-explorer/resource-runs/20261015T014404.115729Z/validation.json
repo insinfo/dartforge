@@ -1,0 +1,90 @@
+{
+  "producer_sha256": "42329768656a6cb8bf5fff7b1efc21fc97e750dba631ce2b31aa64f8eb89a750",
+  "source_sha256": "3a90d83df657716db78115bce9b10422c94706e4700425d3adacaedbfa6ac051",
+  "config_sha256": "9f063a970d9752fd929694330609ba093324de077d078e19d3f86fe0de9912ef",
+  "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T013103.009012Z/example",
+  "diagnostic_env_comparison": true,
+  "commands": [
+    {
+      "label": "vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "--packages=/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T013103.009012Z/example/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-jit-file-explorer/resource_probe.dart"
+      ],
+      "exit": 0,
+      "runtime_config": null,
+      "stdout_sha256": "5aa8b0a18e8867d148fdb07699a9b1091d8d7332bffb37c48afee92ac0d44dc7",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result": {
+        "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T013103.009012Z/example",
+        "packageConfig": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T013103.009012Z/example/.dart_tool/package_config.json",
+        "library": "file:///Volumes/ssd_dock/MyProjectsDart/dart_ui/lib/dart_ui.dart",
+        "resolutionError": null,
+        "fontDirectory": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/assets/fonts",
+        "uiFontLoaded": true,
+        "iconFontLoaded": true,
+        "phosphorIconFontLoaded": true,
+        "fluentIconFontLoaded": true
+      }
+    },
+    {
+      "label": "jit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-main-arguments-producer-v3/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T013103.009012Z/example/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-jit-file-explorer/resource_probe.dart"
+      ],
+      "exit": 0,
+      "runtime_config": null,
+      "stdout_sha256": "d4899b1a070855b761c7abaa86dbf733587bc7e5228a6638b2ff8b8c6f399577",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result": {
+        "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T013103.009012Z/example",
+        "packageConfig": null,
+        "library": null,
+        "resolutionError": "Unsupported operation: Isolate.packageConfig",
+        "fontDirectory": null,
+        "uiFontLoaded": false,
+        "iconFontLoaded": false,
+        "phosphorIconFontLoaded": false,
+        "fluentIconFontLoaded": false
+      }
+    },
+    {
+      "label": "jit-explicit-runtime-config",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-main-arguments-producer-v3/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T013103.009012Z/example/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-jit-file-explorer/resource_probe.dart"
+      ],
+      "exit": 0,
+      "runtime_config": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T013103.009012Z/example/.dart_tool/package_config.json",
+      "stdout_sha256": "5aa8b0a18e8867d148fdb07699a9b1091d8d7332bffb37c48afee92ac0d44dc7",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result": {
+        "cwd": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T013103.009012Z/example",
+        "packageConfig": "file:///Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-file-explorer/20261015T013103.009012Z/example/.dart_tool/package_config.json",
+        "library": "file:///Volumes/ssd_dock/MyProjectsDart/dart_ui/lib/dart_ui.dart",
+        "resolutionError": null,
+        "fontDirectory": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/assets/fonts",
+        "uiFontLoaded": true,
+        "iconFontLoaded": true,
+        "phosphorIconFontLoaded": true,
+        "fluentIconFontLoaded": true
+      }
+    }
+  ],
+  "status": "diagnosis-confirmed",
+  "native_equals_vm": false,
+  "diagnostic_equals_vm": true,
+  "inputs_stable": true
+}

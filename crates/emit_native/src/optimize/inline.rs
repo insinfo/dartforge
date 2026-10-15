@@ -82,6 +82,18 @@ pub(super) fn inlining_with_origins(
     sources: &HashMap<String, HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>>,
     sites: &mut HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>,
 ) -> bool {
+    inlining_with_metadata(func, copies, sources, sites, &HashMap::new(), &mut HashMap::new())
+}
+
+/// Remaps frame-site certificates with exactly the SSA substitution used by
+/// the copied allocation. Caller ownership alone is insufficient after inlining.
+pub(super) fn inlining_with_metadata(
+    func: &mut Function, copies: &HashMap<String, (Function, bool)>,
+    sources: &HashMap<String, HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>>,
+    sites: &mut HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>,
+    frame_sources: &HashMap<String, HashMap<ValueId, (String, usize)>>,
+    frames: &mut HashMap<ValueId, (String, usize)>,
+) -> bool {
     let mut changed = false;
     let mut budget = 64;
     while budget > 0 && size(func) < CALLER_LIMIT {
@@ -108,7 +120,7 @@ pub(super) fn inlining_with_origins(
             })
         });
         let Some((bi, ii)) = found else { break };
-        copy(func, bi, ii, copies, sources, sites);
+        copy(func, bi, ii, copies, sources, sites, frame_sources, frames);
         changed = true;
         budget -= 1;
     }
@@ -118,6 +130,8 @@ pub(super) fn inlining_with_origins(
 fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Function, bool)>,
     sources: &HashMap<String, HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>>,
     sites: &mut HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>,
+    frame_sources: &HashMap<String, HashMap<ValueId, (String, usize)>>,
+    frames: &mut HashMap<ValueId, (String, usize)>,
 ) {
     let (mut next_v, mut next_b) = largest_ids(func);
     let (call, args, ty) = match &func.blocks[bi].instructions[ii] {
@@ -148,6 +162,14 @@ fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Fun
             }
         }
     }
+    if let Some(original) = frame_sources.get(&sym_name) {
+        for (site, layout) in original {
+            if let Some(Operand::Val(new)) = values.get(site) {
+                frames.insert(*new, layout.clone());
+            }
+        }
+    }
+    frames.remove(&call);
     sites.remove(&call);
     let mut blocks: HashMap<BlockId, BlockId> = HashMap::new();
     for b in &target.blocks {
@@ -314,5 +336,45 @@ mod policy_tests {
         recursive.blocks[0].instructions.pop();
         recursive.blocks[0].instructions.push((ValueId(2), Instruction::Alloca(Type::I64), Type::Ptr));
         assert!(!copyable_with_policy(&recursive, Some(InlinePolicy::Prefer)));
+    }
+}
+
+
+#[cfg(test)]
+mod frame_site_tests {
+    use super::*;
+    #[test]
+    fn copied_frame_certificates_follow_ssa_sites_not_just_caller_or_size() {
+        let body = "resume$q01234567$ent".to_string();
+        let allocation = || Instruction::AllocObject {
+            class_id: crate::lower::async_sm::ASYNC_FRAME_ID,
+            fields: vec![Operand::Constant(Constant::Null); 6],
+        };
+        let target = Function {
+            symbol: "start".into(), name: "start".into(), params: vec![], return_ty: Type::Ref, debug_info: None,
+            blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![(ValueId(0), allocation(), Type::Ref)],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }],
+        };
+        let mut caller = Function {
+            symbol: "caller".into(), name: "caller".into(), params: vec![], return_ty: Type::Ref, debug_info: None,
+            blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
+                (ValueId(0), allocation(), Type::Ref),
+                (ValueId(1), Instruction::CallStatic {symbol: "start".into(), args: vec![], ret_ty: Type::Ref}, Type::Ref),
+                (ValueId(2), Instruction::CallStatic {symbol: "start".into(), args: vec![], ret_ty: Type::Ref}, Type::Ref),
+            ], terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))) }],
+        };
+        let copies = HashMap::from([("start".into(), (target, true))]);
+        let sources = HashMap::from([("start".into(), HashMap::from([(ValueId(0), (body.clone(), 6))]))]);
+        let mut frames = HashMap::new();
+        assert!(inlining_with_metadata(&mut caller, &copies, &HashMap::new(), &mut HashMap::new(), &sources, &mut frames));
+        assert_eq!(frames.len(), 2);
+        assert!(!frames.contains_key(&ValueId(0)), "same CID and size do not certify the unrelated allocation");
+        let allocations: Vec<_> = caller.blocks.iter().flat_map(|b| &b.instructions)
+            .filter_map(|(id, inst, _)| matches!(inst, Instruction::AllocObject {..}).then_some(*id)).collect();
+        assert_eq!(allocations.len(), 3);
+        for (site, layout) in frames {
+            assert!(allocations.contains(&site));
+            assert_eq!(layout, (body.clone(), 6));
+        }
     }
 }

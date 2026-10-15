@@ -1,0 +1,32 @@
+{
+  "build_environment": {
+    "RUSTFLAGS": "-C link-arg=-fuse-ld=lld -C link-arg=-isysroot -C link-arg=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+    "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+    "CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "CARGO_TARGET_DIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build",
+    "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64"
+  },
+  "external_zstd": {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-arc-readiness/zstd/libzstd.a",
+    "sha256": "f40384d5165be0d13e6c4645f2290da37b7d0d56d0c572004bb66e1cdce1a00b"
+  },
+  "head": "df3d6a9aac3ddbbb2ee525f1665dc44fd65084ff",
+  "command": [
+    "cargo",
+    "build",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-cli",
+    "--release",
+    "--features",
+    "jit"
+  ],
+  "exit": 0,
+  "source_scope": "Cargo manifests and Rust/Dart/C/header/JSON sources under crates and native_sdk, including tests.",
+  "source_stable": true,
+  "changed_during_build": [],
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-package-config-producer-v2/dartforge",
+  "compiler_sha256": "83877f7379f98349b4601b6afe40a24e56017fc6de101179443553f942078a35",
+  "compiler_bytes": 78019008
+}

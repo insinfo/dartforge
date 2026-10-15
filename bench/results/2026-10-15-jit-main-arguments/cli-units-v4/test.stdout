@@ -1,0 +1,9 @@
+
+running 4 tests
+test argument_tests::explicit_program_options_empty_arguments_and_separator_are_not_cli_options ... ok
+test argument_tests::runtime_package_config_preserves_symlink_selected_relative_uri_base ... ok
+test argument_tests::runtime_package_selection_matches_explicit_and_nearest_loader_config ... ok
+test argument_tests::reload_watches_nearest_package_siblings_instead_of_entry_bin_only ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

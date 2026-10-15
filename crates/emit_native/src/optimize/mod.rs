@@ -212,20 +212,37 @@ pub fn optimize(module: &mut Module) {
             .filter(|f| f.debug_info.is_none() && inline::copyable_with_policy(f, module.inline_policies.get(&f.symbol).copied()))
             .map(|f| (f.symbol.clone(), (f.clone(), !do_not_throw.contains(&f.symbol))))
             .collect();
+        // Cleanup may remove an allocation and a later copy may reuse its ID.
+        // Only certificates still bound to the original allocation survive.
+        module.async_frame_layouts.retain(|(owner, site, _, size)| {
+            module.functions.iter().find(|f| &f.symbol == owner).is_some_and(|f| f.blocks.iter()
+                .flat_map(|b| &b.instructions).any(|(id, inst, _)| id == site && matches!(inst,
+                    Instruction::AllocObject {class_id, fields}
+                    if *class_id == crate::lower::async_sm::ASYNC_FRAME_ID && fields.len() == *size)))
+        });
+        let mut frame_sources: HashMap<String, HashMap<ValueId, (String, usize)>> = HashMap::new();
+        for (owner, site, body, size) in &module.async_frame_layouts {
+            frame_sources.entry(owner.clone()).or_default().insert(*site, (body.clone(), *size));
+        }
+        let updated_frames = std::sync::Mutex::new(HashMap::new());
         let origins = &module.arc_sites;
         let updated = std::sync::Mutex::new(HashMap::new());
         let arc_memory = module.arc_memory;
         let changed = in_parallel(&mut module.functions, &|f| {
-            let changed = if arc_memory {
-                let mut sites = origins.get(&f.symbol).cloned().unwrap_or_default();
-                let changed = inline::inlining_with_origins(f, &copies, origins, &mut sites);
-                if !sites.is_empty() {
-                    updated.lock().unwrap().insert(f.symbol.clone(), sites);
-                }
-                changed
+            let mut sites = origins.get(&f.symbol).cloned().unwrap_or_default();
+            let mut frames = frame_sources.get(&f.symbol).cloned().unwrap_or_default();
+            let changed = if frame_sources.is_empty() {
+                if arc_memory { inline::inlining_with_origins(f, &copies, origins, &mut sites) }
+                else { inline::inlining(f, &copies) }
             } else {
-                inline::inlining(f, &copies)
+                inline::inlining_with_metadata(f, &copies, origins, &mut sites, &frame_sources, &mut frames)
             };
+            if arc_memory && !sites.is_empty() {
+                updated.lock().unwrap().insert(f.symbol.clone(), sites);
+            }
+            if !frames.is_empty() {
+                updated_frames.lock().unwrap().insert(f.symbol.clone(), frames);
+            }
             // The inlined body of a direct local function leaves the local that
             // it received by address with only `Load`/`Store`: promotable.
             if changed {
@@ -235,6 +252,8 @@ pub fn optimize(module: &mut Module) {
             changed
         });
         if arc_memory { module.arc_sites.extend(updated.into_inner().unwrap()); }
+        module.async_frame_layouts = updated_frames.into_inner().unwrap().into_iter()
+            .flat_map(|(owner, frames)| frames.into_iter().map(move |(site, (body, size))| (owner.clone(), site, body, size))).collect();
         if !changed {
             break;
         }

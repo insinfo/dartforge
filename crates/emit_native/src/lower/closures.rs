@@ -584,6 +584,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.arc_rti_caches.extend(b.arc_rti_caches);
         self.arc_shared_functions.extend(b.arc_shared_functions);
         self.arc_direct_local_functions.extend(b.arc_direct_local_functions);
+        self.async_frame_layouts.extend(b.async_frame_layouts);
         self.extra_functions.push(b.func);
         self.extra_functions.extend(b.extra_functions);
     }

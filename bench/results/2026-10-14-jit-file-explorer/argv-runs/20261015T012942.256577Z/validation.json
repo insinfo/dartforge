@@ -1,0 +1,72 @@
+{
+  "producer_sha256": "42329768656a6cb8bf5fff7b1efc21fc97e750dba631ce2b31aa64f8eb89a750",
+  "source_sha256": "05e52bae3d16a6e1699c5974e1654fb9a4079141071e857b80418990a02ea876",
+  "commands": [
+    {
+      "mode": "run",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-main-arguments-producer-v3/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli/tests/fixtures/jit_main_arguments.dart",
+        "--",
+        "--timings",
+        "--child",
+        "",
+        "\u00e9 folder",
+        "--"
+      ],
+      "exit": 0,
+      "exact_stdout": true,
+      "stdout_sha256": "4135ea68fbba1bf4bfb3b2d7d1afcaeac936a02fe2f1041300ceb817f50cb1fb",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "mode": "reload",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-main-arguments-producer-v3/dartforge",
+        "reload",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli/tests/fixtures/jit_main_arguments.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--once",
+        "--",
+        "--timings",
+        "--child",
+        "",
+        "\u00e9 folder",
+        "--"
+      ],
+      "exit": 0,
+      "exact_stdout": true,
+      "stdout_sha256": "4135ea68fbba1bf4bfb3b2d7d1afcaeac936a02fe2f1041300ceb817f50cb1fb",
+      "stderr_sha256": "8f769dd9dab03c6a652b012ec13bf375292f53286d84b4e9730b93ff3d0125b5"
+    },
+    {
+      "mode": "restart",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-main-arguments-producer-v3/dartforge",
+        "reload",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli/tests/fixtures/jit_main_arguments.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--once",
+        "--restart",
+        "--",
+        "--timings",
+        "--child",
+        "",
+        "\u00e9 folder",
+        "--"
+      ],
+      "exit": 0,
+      "exact_stdout": true,
+      "stdout_sha256": "4135ea68fbba1bf4bfb3b2d7d1afcaeac936a02fe2f1041300ceb817f50cb1fb",
+      "stderr_sha256": "e65479223d6faf71d0749d68fb4c164ff52ef43721073a45afe0edd938b3a4e4"
+    }
+  ],
+  "scope": "Actual ordinary Dart main argument semantics and CLI supervisor/restart separator handling. No timings.",
+  "status": "passed",
+  "inputs_stable": true
+}

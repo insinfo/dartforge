@@ -1,0 +1,30 @@
+{
+  "scope": "Diagnostic for a source program with no discovered package configuration",
+  "source": "import 'dart:isolate';\nvoid main() { print(Isolate.packageConfigSync); }\n",
+  "source_sha256": "206d5eef17b5b9b84f3e26cf2013b7bfd825839402fa9ea74b43c01be82579d7",
+  "commands": [
+    {
+      "label": "vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-no-packages-probe/main.dart"
+      ],
+      "exit": 0,
+      "stdout": "null\n",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "jit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-package-config-producer-v2/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-no-packages-probe/main.dart"
+      ],
+      "exit": 255,
+      "stdout": "",
+      "stderr_sha256": "3c6510cf952a378503990576ca5c0659019a4f749d090f2c38e1b507ea125f51"
+    }
+  ]
+}

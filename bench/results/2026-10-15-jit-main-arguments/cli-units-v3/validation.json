@@ -1,0 +1,20 @@
+{
+  "scope": "Standalone CLI selection/parser/watch units with actual elements dependency; functional JIT gate remains separate.",
+  "command": [
+    "rustc",
+    "--edition=2024",
+    "--test",
+    "crates/cli/src/jit.rs",
+    "-L",
+    "dependency=/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/debug/deps",
+    "--extern",
+    "dartforge_elements=/Volumes/ssd_dock/MyRustProjects/dartforge/target/p4/debug/deps/libdartforge_elements-964f7098804fd00b.rlib",
+    "-o",
+    "target/jit-cli-units-v3/tests"
+  ],
+  "compile_exit": 0,
+  "test_exit": 0,
+  "source_sha256": "02ca6ff8935d90da36633b7a70fe3ab9cf42ba8c7026f4185d577e28573c99f4",
+  "source_unchanged": true,
+  "dependency_sha256": "ed5c8c6bd12e7fecd92cee2efd4d3b3a66f9efa54426a791f954d571eb014748"
+}

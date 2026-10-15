@@ -1,0 +1,22 @@
+{
+  "source_directory": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-async-frame-reload-17855",
+  "files": {
+    "before.ll": {
+      "bytes": 299626,
+      "sha256": "8a5b93ac30b0619ab25252b187a5b438d8a0c7a9a7759926770d1636ee5749b4"
+    },
+    "after.ll": {
+      "bytes": 305287,
+      "sha256": "e3cf5daa2ce84927de956720bddd2e5bffc719a8d516e12da21092a4c6300e63"
+    },
+    "main.dart": {
+      "bytes": 702,
+      "sha256": "5ff46cd282f586415a7ba0a7e00e2a8fcd21a876df79faa3fe9a059d3294e678"
+    },
+    "result": {
+      "bytes": 19,
+      "sha256": "b199aa7fb1485ff5fd4f9213152403ae2310cfe2e618a2f88d67c870117ffe4f"
+    }
+  },
+  "exact_result": "old:37\nnew:37:true\n"
+}

@@ -1,0 +1,15 @@
+{
+  "scope": "Standalone frame classifier tests; no LLVM/runtime integration implied",
+  "compile_command": [
+    "rustc",
+    "--edition=2024",
+    "--test",
+    "crates/jit/src/frame_layouts.rs",
+    "-o",
+    "target/jit-frame-site-units/tests"
+  ],
+  "exit_code": 0,
+  "source_sha256": "1b06850e5415d03a12a8ead9e5f1e29ff8bb1c1de12f67f15d6aed0d4c01195b",
+  "test_binary_sha256": "b0d9dccef11ed65c15945ced130f53bbfeae59cedbd07c2fb279e3bf655ca3ce",
+  "test_log_sha256": "bf50e2cd9da9e77a2bf9d9db0ef5eab1fe56a9e4009ebf37fd26880ceb502b1f"
+}

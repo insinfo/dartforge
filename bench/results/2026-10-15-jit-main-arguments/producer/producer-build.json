@@ -1,0 +1,18 @@
+{
+  "head": "8b800eeb2de56e666affb0694f574cde202b8aca",
+  "command": [
+    "cargo",
+    "build",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-cli",
+    "--release",
+    "--features",
+    "jit"
+  ],
+  "exit": 101,
+  "source_scope": "Cargo manifests and Rust/Dart/C/header/JSON sources under crates and native_sdk, including tests.",
+  "source_stable": true,
+  "changed_during_build": []
+}

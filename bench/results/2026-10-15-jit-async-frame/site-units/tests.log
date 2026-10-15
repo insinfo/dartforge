@@ -1,0 +1,11 @@
+
+running 6 tests
+test tests::nominal_and_generated_reserved_cid_cannot_change_domains ... ok
+test tests::duplicate_and_malformed_markers_fail_closed ... ok
+test tests::same_owner_and_size_do_not_certify_a_different_allocation_site ... ok
+test tests::heterogeneous_generated_frames_are_not_nominal_class_layouts ... ok
+test tests::declared_resume_requires_the_exact_previously_certified_abi ... ok
+test tests::unmarked_or_mismatched_reserved_cid_stays_nominal ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

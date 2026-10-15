@@ -519,6 +519,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Ref,
         );
+        if let Operand::Val(site) = frame_s {
+            self.async_frame_layouts.push((self.func.symbol.clone(), site, symbol_ent.clone(), size));
+        }
         // The `T` of the `Completer<T>`, of the `Iterable<T>` or of the `Stream<T>`: for
         // `async`, the value type of the declared `Future` (specification §9
         // "future value type": `Future<T>`/`FutureOr<T>` give `T`); for the
@@ -648,6 +651,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 },
                 Type::Ref,
             );
+            if let Operand::Val(site) = frame {
+                e.async_frame_layouts.push((e.func.symbol.clone(), site, body_symbol_ent.to_string(), size));
+            }
             let env_q = e.emit(Instruction::AllocEnv { values: vec![frame] }, Type::Ref);
             let fn_body = e.emit(
                 Instruction::AllocClosure {
@@ -1750,4 +1756,49 @@ fn save_live(
         }
     }
     save.len()
+}
+
+#[cfg(test)]
+mod frame_abi_tests {
+    use super::*;
+
+    #[test]
+    fn actual_async_and_generator_allocators_publish_per_resume_body_layouts() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let directory = tempfile::tempdir().unwrap();
+            let entry = directory.path().join("main.dart");
+            std::fs::write(&entry, r#"
+import 'dart:async';
+Future<int> one(int x) async { final saved = x + 1; await Future<void>.value(); return saved; }
+Iterable<int> two(int x) sync* { yield x; yield x + 1; }
+Stream<int> three(int x) async* { yield x; await Future<void>.value(); yield x + 1; }
+void main() { one(1); two(2).toList(); three(3).listen(print); }
+"#).unwrap();
+            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
+            let mut interner = dartforge_intern::Interner::new();
+            let (program, diagnostics) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+            let mut table = dartforge_types::TypeTable::new();
+            let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
+            let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+            let libraries: Vec<_> = program.libraries.iter().enumerate().filter(|(_, l)| !l.is_sdk)
+                .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32)).collect();
+            let (bodies, _) = dartforge_types::infer_library_bodies_with_locals(&program, &interner, &mut table, &core, &mut outline, &libraries);
+            let context = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies).with_source_sdk();
+            let module = crate::lower::lower_program(&context);
+            assert!(module.errors.is_empty(), "{:?}", module.errors);
+            assert_eq!(module.async_frame_layouts.len(), 4, "async, async*, sync* template and iterator clone");
+            for (owner, site, body, count) in &module.async_frame_layouts {
+                let allocator = module.functions.iter().find(|f| &f.symbol == owner).expect("defined allocator");
+                assert!(module.functions.iter().any(|f| &f.symbol == body), "defined resume entry {body}");
+                assert!(allocator.blocks.iter().flat_map(|b| &b.instructions).any(|(id, instruction, _)| {
+                    id == site && matches!(instruction, Instruction::AllocObject {class_id, fields} if *class_id == ASYNC_FRAME_ID && fields.len() == *count)
+                }), "actual allocator {owner}");
+            }
+            let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
+            for (owner, site, body, count) in &module.async_frame_layouts {
+                assert!(ir.contains(&format!("; df.async-frame {owner} v{} {body} {count}\n", site.0)));
+            }
+        }).unwrap().join().unwrap();
+    }
 }

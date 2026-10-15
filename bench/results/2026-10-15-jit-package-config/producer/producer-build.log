@@ -1,0 +1,46 @@
+warning: linker stderr: ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build/release/deps/libblake3-0cc8729bfb9b4560.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 11.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-emit-native` (build script) generated 1 warning
+   Compiling dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `identity` is never used
+   --> crates/emit_native/src/hir.rs:256:19
+    |
+254 | impl FieldDeclaration {
+    | --------------------- method in this implementation
+255 |     /// Semantic identity excludes flags and layout premises, which a proof must reconcile.
+256 |     pub(crate) fn identity(&self) -> (&str, &str, &str) {
+    |                   ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling dartforge-dev v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dev)
+   Compiling dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)
+warning: `dartforge-emit-native` (lib) generated 2 warnings (run `cargo fix --lib -p dartforge-emit-native` to apply 1 suggestion)
+   Compiling dartforge-cli v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli)
+error: usage of an `unsafe` block
+  --> crates/cli/src/jit.rs:61:5
+   |
+61 | /     unsafe {
+62 | |         match selected {
+63 | |             Some(path) => std::env::set_var("DARTFORGE_PACKAGE_CONFIG", path),
+64 | |             None => std::env::remove_var("DARTFORGE_PACKAGE_CONFIG"),
+65 | |         }
+66 | |     }
+   | |_____^
+   |
+   = note: requested on the command line with `-D unsafe-code`
+
+error: could not compile `dartforge-cli` (bin "dartforge") due to 1 previous error

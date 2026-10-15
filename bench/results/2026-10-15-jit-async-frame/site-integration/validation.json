@@ -1,0 +1,70 @@
+{
+  "started": 1792030434.606176,
+  "environment": {
+    "CARGO_TARGET_DIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-readiness-build",
+    "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-arc-readiness",
+    "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+    "DARTFORGE_TEST_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "RUSTFLAGS": "-C link-arg=-fuse-ld=lld -C link-arg=-isysroot -C link-arg=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"
+  },
+  "steps": [
+    {
+      "label": "native-frames",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-j2",
+        "-p",
+        "dartforge-emit-native",
+        "--lib",
+        "frame_",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit_code": 0,
+      "seconds": 93.93076372146606,
+      "source_unchanged": true,
+      "log_sha256": "a01a8044553ac89aa97e01834c28af7821f07c2b11b6306a553e7a79b9b84f24"
+    },
+    {
+      "label": "jit-unit",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-j2",
+        "-p",
+        "dartforge-jit",
+        "--lib",
+        "--",
+        "--include-ignored",
+        "--test-threads=2"
+      ],
+      "exit_code": 0,
+      "seconds": 127.26966667175293,
+      "source_unchanged": true,
+      "log_sha256": "11309915db4acf0cef5440a7b302b34a8cafae903b3ec4d047cf86630a944872"
+    },
+    {
+      "label": "suspended-frame",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-j2",
+        "-p",
+        "dartforge-jit",
+        "--test",
+        "async_frame_reload",
+        "--",
+        "--include-ignored",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "seconds": 115.97648000717163,
+      "source_unchanged": true,
+      "log_sha256": "7d72c3a461ac8c905ad54e5c80b46ff8d73298fef4a41b0ed5934f48dccd7912"
+    }
+  ]
+}

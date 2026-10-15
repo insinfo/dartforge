@@ -1,0 +1,19 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-jit",
+    "--lib",
+    "frame_layouts",
+    "--",
+    "--test-threads=2"
+  ],
+  "exit_code": 0,
+  "passed": 4,
+  "failed": 0,
+  "source_unchanged": true,
+  "log_sha256": "65a3398810c3428535e156dccd3ab966ac7643a4962327eabe267b3cc949e40c"
+}

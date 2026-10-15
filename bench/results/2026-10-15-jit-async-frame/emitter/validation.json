@@ -1,0 +1,18 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-emit-native",
+    "--lib",
+    "frame_abi_tests",
+    "--",
+    "--test-threads=2"
+  ],
+  "exit_code": 0,
+  "passed": 1,
+  "failed": 0,
+  "source_unchanged": true
+}
