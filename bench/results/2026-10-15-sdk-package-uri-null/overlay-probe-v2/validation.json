@@ -1,0 +1,35 @@
+{
+  "scope": "Frozen compiler with isolated candidate SDK overlay; repository SDK unchanged",
+  "compiler_sha256": "83877f7379f98349b4601b6afe40a24e56017fc6de101179443553f942078a35",
+  "overlay_patch_sha256": "dbc2f3fc07d3f4d05e77165bc2c30eefeefef761ae3f85d80434746001bd10cd",
+  "repository_patch_sha256": "09912a504220d5f0c6aeeec18a86d24ca823d492817faf45e8fd47049febe9aa",
+  "source_sha256": "e14cd6b53beabf69843edce44d270344f96f9fd582c4f6dceca69903d78641d7",
+  "overlay": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-package-uri-null/native_sdk-v2",
+  "commands": [
+    {
+      "name": "vm",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-package-uri-null/probe.dart"
+      ],
+      "exit_code": 0,
+      "stdout": "config:null\npackage:missing/value.dart:null\npackage:invalid:null\nfile:///tmp/item:file:///tmp/item\nhttps://example.com/item:https://example.com/item\nrelative/item:relative/item\nasyncConfig:null\nasyncUnknown:null\n",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "jit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/jit-package-config-producer-v2/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-package-uri-null/probe.dart"
+      ],
+      "exit_code": 0,
+      "stdout": "config:null\npackage:missing/value.dart:null\npackage:invalid:null\nfile:///tmp/item:file:///tmp/item\nhttps://example.com/item:https://example.com/item\nrelative/item:relative/item\nasyncConfig:null\nasyncUnknown:null\n",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "exact": true,
+  "repository_unchanged": true
+}

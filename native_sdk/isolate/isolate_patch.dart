@@ -352,8 +352,7 @@ final class Isolate {
       // Without the VM's `builtin`: the process's package config
       // (`DARTFORGE_PACKAGE_CONFIG`), like the VM's `--packages`.
       final pathArg = _processPackageConfig();
-      if (pathArg != null) return Uri.file(pathArg);
-      throw new UnsupportedError("Isolate.packageConfig");
+      return pathArg == null ? null : Uri.file(pathArg);
     }
     return hook();
   }
@@ -367,11 +366,9 @@ final class Isolate {
   static Uri? resolvePackageUriSync(Uri packageUri) {
     var hook = VMLibraryHooks.resolvePackageUriSync;
     if (hook == null) {
+      if (!packageUri.isScheme("package")) return packageUri;
       final map = _processPackages();
-      if (map == null) {
-        throw new UnsupportedError("Isolate.resolvePackageUriSync");
-      }
-      return _resolvePackage(map, packageUri);
+      return map == null ? null : _resolvePackage(map, packageUri);
     }
     return hook(packageUri);
   }

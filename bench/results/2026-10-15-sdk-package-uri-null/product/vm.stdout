@@ -1,0 +1,8 @@
+config:null
+package:missing/value.dart:null
+package:invalid:null
+file:///tmp/item:file:///tmp/item
+https://example.com/item:https://example.com/item
+relative/item:relative/item
+asyncConfig:null
+asyncUnknown:null

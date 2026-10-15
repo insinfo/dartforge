@@ -1,0 +1,22 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-j2",
+    "-p",
+    "dartforge-cli",
+    "--features",
+    "jit",
+    "--test",
+    "jit_program",
+    "absent_package_configuration_matches_vm_despite_inherited_selection",
+    "--",
+    "--include-ignored",
+    "--test-threads=1"
+  ],
+  "exit_code": 0,
+  "seconds": 309.2120180130005,
+  "source_unchanged": true,
+  "log_sha256": "767a861c7176d6e9fefc6ab48cd999580a81ffebb90c4e2d896ac8e8654e83b3"
+}

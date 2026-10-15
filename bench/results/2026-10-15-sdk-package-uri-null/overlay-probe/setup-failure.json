@@ -1,0 +1,6 @@
+{
+  "stage": "SDK overlay copy setup",
+  "result": "failed before compiler execution",
+  "error": "shutil.copytree raised EPERM copying source metadata; retry used byte-only copies in a new directory",
+  "compiler_executed": false
+}
