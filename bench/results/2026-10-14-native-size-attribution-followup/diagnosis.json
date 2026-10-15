@@ -1,0 +1,223 @@
+{
+  "current_file_explorer": {
+    "off": {
+      "binary_sha256": "a6561c983c57dee9f6e1b925ee6eaa4c840d263926ad95c360f00c87312f8866",
+      "binary_bytes": 28293424,
+      "map_sha256": "927fcc6a08692dab3f53952f0c5a628645e2225085a8112720f0b682503d43f3",
+      "text_bytes": 25088964,
+      "categories": {
+        "package:dart_ui": 14993052,
+        "package:j2k": 1644520,
+        "llvm-machine-outlines": 1442144,
+        "runtime-and-native-support": 1199488,
+        "generated-support": 1154440,
+        "package:file_explorer": 784748,
+        "generated-constant-getters": 784632,
+        "sdk:core": 615948,
+        "sdk:async": 454688,
+        "sdk:io": 436236,
+        "sdk:typed_data": 415012,
+        "sdk:_internal": 297992,
+        "sdk:convert": 296100,
+        "sdk:collection": 272624,
+        "sdk:_compact_hash": 160708,
+        "sdk:ffi": 72604,
+        "sdk:isolate": 49540,
+        "sdk:math": 8936,
+        "sdk:developer": 5432,
+        "sdk:nativewrappers": 120,
+        "unattributed-padding": 0
+      },
+      "largest_libraries": {
+        "llvm-machine-outlines": 1442144,
+        "runtime-and-native-support": 1199488,
+        "generated-support": 1154440,
+        "generated-constant-getters": 784632,
+        "dart:core": 615948,
+        "dart:async": 454688,
+        "dart:io": 436236,
+        "dart:typed_data": 415012,
+        "package:j2k/src/j2k/codestream/reader/bitstream_reader_agent.dart": 359324,
+        "package:dart_ui/src/app/application.dart": 314092,
+        "dart:_internal": 297992,
+        "dart:convert": 296100,
+        "dart:collection": 272624,
+        "package:dart_ui/src/widgets/text_field.dart": 251852,
+        "package:dart_ui/src/widgets/element.dart": 237704,
+        "package:j2k/src/j2k/codestream/reader/header_decoder.dart": 207332,
+        "package:dart_ui/src/rendering/gpu/d3d11/d3d11_backend.dart": 207160,
+        "package:dart_ui/src/text/paragraph.dart": 205420,
+        "package:dart_ui/src/backends/wayland/wayland_connection.dart": 197012,
+        "package:dart_ui/src/widgets/data_grid.dart": 196900,
+        "package:dart_ui/src/rendering/gpu/gl/gl_backend.dart": 179312,
+        "package:j2k/src/j2k/entropy/decoder/std_entropy_decoder.dart": 175720,
+        "package:dart_ui/src/rendering/gpu/vulkan/vulkan_backend.dart": 164280,
+        "dart:_compact_hash": 160708,
+        "package:dart_ui/src/graphics/image/codecs/formats/webp/vp8.dart": 156172,
+        "package:dart_ui/src/text/gpos.dart": 151148,
+        "package:dart_ui/src/text/cff.dart": 144644,
+        "package:dart_ui/src/widgets/menu_anchor.dart": 143472,
+        "package:file_explorer/src/ui/explorer_window.dart": 140328,
+        "package:dart_ui/src/text/bidi.dart": 137936,
+        "package:dart_ui/src/backends/x11/x11_connection.dart": 137732,
+        "package:dart_ui/src/text/layout_common.dart": 136160,
+        "package:dart_ui/src/backends/win32/d3d12/d3d12_device.dart": 134044,
+        "package:dart_ui/src/text/gsub.dart": 122236,
+        "package:dart_ui/src/backends/win32/win32_window.dart": 120776,
+        "package:file_explorer/src/engine/explorer_model.dart": 111632,
+        "package:dart_ui/src/rendering/gpu/d3d11/d3d11_mesh_pipeline.dart": 108588,
+        "package:dart_ui/src/rendering/gpu/vulkan/vulkan_mesh_pipeline.dart": 107876,
+        "package:dart_ui/src/graphics/image/codecs/formats/webp/vp8_filter.dart": 107796,
+        "package:dart_ui/src/backends/win32/d2d/d2d_raster_sink.dart": 103784
+      }
+    },
+    "on": {
+      "binary_sha256": "eec28c1e790db044169900cafaa0c642bdabe0c2adb6d259c7f3bafe57a31588",
+      "binary_bytes": 28293776,
+      "map_sha256": "709d7627d612874d4d1df99b350747e7eed42c8ff737904e588c1859b137680f",
+      "text_bytes": 25101184,
+      "categories": {
+        "package:dart_ui": 14989844,
+        "package:j2k": 1627888,
+        "llvm-machine-outlines": 1446676,
+        "runtime-and-native-support": 1199440,
+        "generated-support": 1182076,
+        "package:file_explorer": 784696,
+        "generated-constant-getters": 784624,
+        "sdk:core": 615948,
+        "sdk:async": 454688,
+        "sdk:io": 436236,
+        "sdk:typed_data": 415012,
+        "sdk:_internal": 297992,
+        "sdk:convert": 296100,
+        "sdk:collection": 272624,
+        "sdk:_compact_hash": 160708,
+        "sdk:ffi": 72604,
+        "sdk:isolate": 49540,
+        "sdk:math": 8936,
+        "sdk:developer": 5432,
+        "sdk:nativewrappers": 120,
+        "unattributed-padding": 0
+      },
+      "largest_libraries": {
+        "llvm-machine-outlines": 1446676,
+        "runtime-and-native-support": 1199440,
+        "generated-support": 1182076,
+        "generated-constant-getters": 784624,
+        "dart:core": 615948,
+        "dart:async": 454688,
+        "dart:io": 436236,
+        "dart:typed_data": 415012,
+        "package:j2k/src/j2k/codestream/reader/bitstream_reader_agent.dart": 359276,
+        "package:dart_ui/src/app/application.dart": 314848,
+        "dart:_internal": 297992,
+        "dart:convert": 296100,
+        "dart:collection": 272624,
+        "package:dart_ui/src/widgets/text_field.dart": 251864,
+        "package:dart_ui/src/widgets/element.dart": 237568,
+        "package:dart_ui/src/rendering/gpu/d3d11/d3d11_backend.dart": 207208,
+        "package:dart_ui/src/text/paragraph.dart": 205492,
+        "package:dart_ui/src/backends/wayland/wayland_connection.dart": 197040,
+        "package:dart_ui/src/widgets/data_grid.dart": 196896,
+        "package:j2k/src/j2k/codestream/reader/header_decoder.dart": 194836,
+        "package:dart_ui/src/rendering/gpu/gl/gl_backend.dart": 179312,
+        "package:j2k/src/j2k/entropy/decoder/std_entropy_decoder.dart": 175748,
+        "package:dart_ui/src/rendering/gpu/vulkan/vulkan_backend.dart": 164200,
+        "dart:_compact_hash": 160708,
+        "package:dart_ui/src/graphics/image/codecs/formats/webp/vp8.dart": 156068,
+        "package:dart_ui/src/text/gpos.dart": 151068,
+        "package:dart_ui/src/text/cff.dart": 144620,
+        "package:dart_ui/src/widgets/menu_anchor.dart": 143344,
+        "package:file_explorer/src/ui/explorer_window.dart": 140336,
+        "package:dart_ui/src/text/bidi.dart": 137944,
+        "package:dart_ui/src/backends/x11/x11_connection.dart": 137748,
+        "package:dart_ui/src/text/layout_common.dart": 136152,
+        "package:dart_ui/src/backends/win32/d3d12/d3d12_device.dart": 134028,
+        "package:dart_ui/src/text/gsub.dart": 122268,
+        "package:dart_ui/src/backends/win32/win32_window.dart": 120772,
+        "package:file_explorer/src/engine/explorer_model.dart": 111640,
+        "package:dart_ui/src/rendering/gpu/d3d11/d3d11_mesh_pipeline.dart": 108588,
+        "package:dart_ui/src/graphics/image/codecs/formats/webp/vp8_filter.dart": 108068,
+        "package:dart_ui/src/rendering/gpu/vulkan/vulkan_mesh_pipeline.dart": 107856,
+        "package:dart_ui/src/backends/win32/d2d/d2d_raster_sink.dart": 103768
+      }
+    }
+  },
+  "historical_hello": {
+    "manifest": "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/results/2026-10-14-current-native-status/prepared.json",
+    "manifest_sha256": "7402111cf6f4c4857d14570c6b47c40828307204c254cacb138d3bd1d8fd700e",
+    "compiler_sha256": "50c1a7a7ff7cc1b4e79ab0181c479f03c897d553913723cfdb1109d9589edfc4",
+    "artifacts": {
+      "tracing/hello": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/tracing/hello",
+        "sha256": "72491dde9511353b5b7f43e116bf23b8afd52eb2b36dd26db316dbfbd1b42cdc",
+        "bytes": 3169616
+      },
+      "legacy-arc/hello": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/legacy-arc/hello",
+        "sha256": "c3910272521b5318f1361471fc3bc01fc7f180420b9974d34ed6da18274e8ff0",
+        "bytes": 3037264
+      },
+      "prepared-arc/hello": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/prepared-arc/hello",
+        "sha256": "05a64ce5661db92df01dbe73652c90b4c369b98be9f5e60b54baba7e00263d22",
+        "bytes": 3583008
+      },
+      "official/hello": {
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-native-status/official/hello",
+        "sha256": "b4d44a8515097458edcfdf4625188141d8735fa51a41e978182bfe4dcadb4d28",
+        "bytes": 5329888
+      }
+    },
+    "limitation": "Existing hello artifacts use the earlier 50c1a7a7 compiler; no hello compilation was performed with current c363 producer."
+  },
+  "attribution_correction": "The older runtime-and-native-support bucket included canonical Dart getters and LLVM machine outlines. Current corrected OFF counts separate 784632B of canonical getters and 1442144B of machine outlines, leaving a residual support bucket of1199488B. This residual is not guaranteed pure Rust; original source ownership of outlines requires further debug/link provenance.",
+  "source_hashes": {
+    "crates/emit_native/src/pruning.rs": "e1c425995b323a4046c7d632a60604926aed4492566f35a3c0f23d2b851156ff",
+    "crates/emit_native/src/llvm/selectors.rs": "9acb0e1d1e34a4304e287c973eea87b2052d4558b588101ecc0713fe025109eb",
+    "crates/emit_native/src/pruning/receiver_provenance/registry.rs": "00a401434ea3cc8db15a6fe0466f7a675c0fe541c82ea1e9cefbc1957d0130ce",
+    "crates/emit_native/src/pruning/receiver_provenance.rs": "01735107c05761ec5f5fa49789f0f12ccfaa3bf8e89b6e16ec93c143b906ae95"
+  },
+  "retention_chain": [
+    "hir_summary creates dartforge_entry refs to every method table, every table function, every class toString symbol and vtable entry. This is unconditional class activation, not an allocation RTA.",
+    "The emitter also registers every program method table at initialization, so simply deleting pruning roots without changing emitted registrations would be inconsistent.",
+    "Graph roots Object/call protocol selectors for all reached tables. Globally called unrestricted selectors then retain corresponding pairs in every reached table; receiver cones/exact class facts can narrow individual calls, but cannot make the unconditional table roots disappear.",
+    "Known constant-CID object_new calls already create table-reference edges. They provide a starting mechanism for allocation-based class activation, but runtime/foreign allocation paths require an independent completeness proof.",
+    "Class/library bytes establish linked retention, not unreachability or executed cost. Image decoder support may be reachable through actual preview operations; do not assume all decoder code is dead."
+  ],
+  "next_general_size_step": {
+    "target": "Conservative allocated-class plus selector reachability for fixed tracing AOT images, coordinated HIR summary and emitter registration.",
+    "initial_implementation": "Build a closed allocation inventory from actual constant-CID object creation and table references in reachable bodies, SDK summary/certified foreign return allocations and explicit runtime-created classes. Couple class activation to the function/selector fixed point. Keep every class when completeness is unknown; remove unconditional registration only for independently proven unallocated tables.",
+    "preserve": [
+      "RTI/ancestry and class names needed by type operations even when instance method tables are absent",
+      "inherited method implementations of every activated class",
+      "callback, entry-point, helper and tearoff bodies and their reachable allocations",
+      "runtime-created exception, stacktrace, closure, collection and FFI compound classes",
+      "actual canonical constants whose initialization can allocate instances"
+    ],
+    "deny_or_widen": [
+      "JIT/reload and non-fixed images",
+      "class registry mutation or ambiguous/missing ancestry",
+      "reflection, dynamic constructor invocation or dynamic symbol resolution with unknown targets",
+      "native Handle/Ref returns, callbacks or aliases with unproved class creation/exposure",
+      "unknown class IDs passed to allocation helpers and uncertified foreign allocation paths"
+    ],
+    "existing_gates": [
+      "DARTFORGE_FACTORY_RECEIVER_PROVENANCE default on: physical allocation/factory return facts, not a complete allocation-universe proof",
+      "registry::closed detects explicit mutation names and resolvable native aliases; it does not alone certify arbitrary NativeCall behavior",
+      "imported allocation certificates reconcile artifact/class/source identities; unknown records remain conservative",
+      "ROOT_SELECTORS remain protocol roots only for activated tables; do not remove protocol support globally"
+    ],
+    "minimal_tests": [
+      "unused class table and all its protocol methods disappear while allocated class remains",
+      "same selector on two unrelated classes retains only allocated receiver class",
+      "allocation in an inherited method activates the returned class transitively",
+      "tearoff/callback/entry-point/global lazy initialization keeps its body and allocation table",
+      "runtime-created classes and imported SDK allocation return tables stay live",
+      "unknown native/reflection/class-ID paths disable narrowing rather than producing missing dispatch",
+      "GUI navigation/back/close and image previews exercise preserved class tables",
+      "compare unchanged native output and full gate before any size claim"
+    ],
+    "limitation": "This is a design proposal, not implemented or a quantified saving. Imported/runtime allocation completeness is the major proof obligation."
+  }
+}

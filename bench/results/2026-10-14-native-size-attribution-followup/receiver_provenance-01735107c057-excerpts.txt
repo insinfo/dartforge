@@ -1,0 +1,56 @@
+18: use std::collections::{BTreeSet, HashMap, HashSet};
+19: 
+20: /// Physical class IDs, including Null when a normal path returns null.
+21: pub(crate) type Classes = BTreeSet<u32>;
+22: 
+23: /// Compilation-only ablation; this does not change runtime execution policies.
+24: pub(crate) fn enabled() -> bool {
+25:     std::env::var("DARTFORGE_FACTORY_RECEIVER_PROVENANCE").as_deref() != Ok("0")
+26: }
+27: 
+28: /// Facts derived from the exact bodies supplied to this analysis.
+29: #[derive(Default, Debug)]
+30: pub(crate) struct Provenance<'a> {
+
+130:                 result.returns.insert(symbol.clone(), classes);
+131:             }
+132:         }
+133:     }
+134:     // SCCs are emitted after their dependencies. Recursive components have no
+135:     // body-return summary, even if a particular recursive path happens to throw.
+136:     // Their local allocations and calls to independently proved factories still
+137:     // have physical class facts; intra-component calls remain unknown.
+138:     for component in crate::optimize::scc::components(&edges) {
+139:         let recursive = component.len() != 1 || edges[component[0]].contains(&component[0]);
+140:         for index in component {
+141:             let symbol = &symbols[index];
+142:             if duplicates.contains(symbol) {
+143:                 continue;
+144:             }
+145:             let f = functions[symbol];
+146:             let Some(shape) = shapes.get(symbol) else {
+147:                 continue;
+148:             };
+149:             let values = value_classes(f, shape, &functions, &result.returns, &getters, &imported);
+150:             if !recursive && f.return_ty == Type::Ref {
+151:                 let mut classes = Classes::new();
+152:                 let mut normal_returns = 0;
+153:                 let mut known = true;
+154:                 for &b in &shape.reachable {
+155:                     if let Terminator::Return(value) = &f.blocks[b].terminator {
+156:                         normal_returns += 1;
+157:                         match value.as_ref().and_then(|v| operand_classes(v, &values)) {
+158:                             Some(c) => classes.extend(c),
+159:                             None => {
+160:                                 known = false;
+161:                                 break;
+162:                             }
+163:                         }
+164:                     }
+165:                 }
+166:                 // Throw-only bodies are not allocation factories.
+167:                 if known && normal_returns > 0 && !classes.is_empty() {
+168:                     result.returns.insert(symbol.clone(), classes);
+169:                 }
+170:             }
+171:             result.values.insert(symbol.clone(), values);

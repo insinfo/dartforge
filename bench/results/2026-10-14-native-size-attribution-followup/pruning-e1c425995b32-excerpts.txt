@@ -1,0 +1,75 @@
+27: /// Selectors that live in every live class, without a call in the IR (§3.6):
+28: /// `c:call` the runtime looks up by text (`dartforge_closure_entry`, the
+29: /// callable class and `Function.apply`); the others are the protocol of
+30: /// `Object` that the runtime reaches through SDK helpers — cheap, because
+31: /// almost every live class already has them live.
+32: pub const ROOT_SELECTORS: &[&str] = &["c:call", "c:toString", "c:==", "g:hashCode", "c:noSuchMethod", "g:runtimeType"];
+33: 
+34: /// Runtime functions that look up in the table by a name that only exists
+35: /// at run time (§3.7). Cited by a live function, every live table entry
+36: /// stays. Empty: no current mechanism does that (the native
+37: /// `dart:mirrors` does not invoke by name); the next one goes here.
+38: pub const CALL_BY_NAME: &[&str] = &[];
+
+1496:                         names.push(name);
+1497:                         // The allocation cites the method table of the class
+1498:                         // (`dartforge_object_new_t`, `llvm/mod.rs`).
+1499:                         if name.starts_with("dartforge_object_new")
+1500:                             && let Some((Operand::Constant(Constant::Int(cid)), _)) = args.first()
+1501:                             && let Some(t) = m.table_functions.get(&(*cid as u32))
+1502:                         {
+1503:                             names.push(t);
+1504:                         }
+1505:                     }
+
+1533:     // The method tables of the program (`df.mt.X` returns `df.mt.X$d`).
+1534:     for (cid, sym_name, methods) in &m.method_tables {
+1535:         let function = r.id(sym_name);
+1536:         let node = r.id(&format!("{sym_name}$d"));
+1537:         let pairs: Vec<(i64, u32)> = table_pairs(*cid, methods)
+1538:             .into_iter()
+1539:             .map(|(h, s, f)| {
+1540:                 if seen_selectors.insert(h) {
+1541:                     r.selectors.push((h, s));
+1542:                 }
+1543:                 (h, r.id(&f))
+1544:             })
+1545:             .collect();
+1546:         r.definitions.push(Definition { name: function, refs: vec![node], calls: Vec::new() });
+1547:         r.tables.push(SummarizedTable { node, cid: i64::from(*cid), pairs });
+1548:     }
+1549:     // The entry: what the emitter cites without an HIR instruction.
+1550:     let mut roots: Vec<String> = Vec::new();
+1551:     roots.extend(m.entry_symbol.iter().cloned());
+1552:     roots.extend(m.sdk_records.iter().cloned());
+1553:     roots.extend(m.record.iter().cloned());
+1554:     roots.extend(m.start_rti.iter().cloned());
+1555:     roots.extend(m.call_dart.iter().cloned());
+1556:     roots.extend(m.method_tables.iter().map(|(_, s, _)| s.clone()));
+1557:     roots.extend(m.table_functions.values().cloned());
+1558:     for c in &m.classes {
+1559:         roots.extend(c.to_string_symbol.iter().cloned());
+1560:         roots.extend(c.vtable.iter().map(|(_, s)| s.clone()));
+1561:     }
+1562:     let live_ffi = |k: &str| live_ffis.is_none_or(|v| v.contains(k));
+1563:     roots.extend(m.ffi_trampolines.iter().filter(|(k, _)| live_ffi(k)).map(|(_, s)| s.clone()));
+1564:     roots.extend(m.ffi_callbacks.iter().filter(|c| live_ffi(&c.key)).map(|c| c.body.clone()));
+1565:     roots.extend(m.helpers.iter().map(|(_, s)| s.clone()));
+
+1644:     m.arc_sites.retain(|sym_name, _| !removed_set.contains(sym_name));
+1645:     m.arc_shared_functions.retain(|sym_name| !removed_set.contains(sym_name));
+1646:     // The table pair whose selector nobody calls goes away, and so does that of the function that left
+1647:     // (the entry of a live pair is always reached).
+1648:     for (_, table, pairs) in &mut m.method_tables {
+1649:         e.pairs += pairs.len();
+1650:         let node = index.get(format!("{table}$d").as_str()).copied();
+1651:         pairs.retain(|(s, f)| node.is_none_or(|n| reachability.live_table_pair(n, selector_hash(s)))
+1652:             && !removed_set.contains(f));
+1653:         e.live_pairs += pairs.len();
+1654:     }
+1655:     e
+1656: }
+1657: 
+1658: #[cfg(test)]
+1659: mod tests {
+1660:     use super::*;

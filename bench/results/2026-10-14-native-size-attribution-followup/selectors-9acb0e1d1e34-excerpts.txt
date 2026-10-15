@@ -1,0 +1,40 @@
+207:     pub(super) fn emit_registration(&mut self, record: &str) {
+208:         let module = self.module;
+209:         let mut body = String::new();
+210:         if module.arc_aot_ports.is_some() {
+211:             writeln!(body, "  call void @{}()", self.arc_ports_registration_symbol()).unwrap();
+212:         }
+213:         for class in &module.classes {
+214:             let idx = self.string_const_index(class.name.as_bytes()).unwrap_or(0);
+215:             writeln!(
+216:                 body,
+217:                 "  call void @dartforge_register_class_name(i64 {}, ptr @.str.{idx}, i64 {})",
+218:                 class.id,
+219:                 class.name.len()
+220:             )
+221:             .unwrap();
+222:         }
+223:         for (sub, sup) in &module.subtyping_edges {
+224:             writeln!(body, "  call void @dartforge_register_subclass(i64 {sub}, i64 {sup})").unwrap();
+225:         }
+226:         body.push_str(&self.emit_method_tables());
+
+242:         if let Some(c) = self.trace_registration_call() {
+243:             body.push_str(&c);
+244:             body.push_str(&self.trace_field_registration_calls());
+245:         }
+246:         // The program classes (and the record shapes) register their table
+247:         // at startup. The SDK's `_StackTrace` needs it too: the runtime creates the
+248:         // first trace directly, without going through `object_new_t`, which is the
+249:         // lazy registration point of the other SDK classes.
+250:         for (cid, symbol, _) in &module.method_tables {
+251:             let runtime_trace = module.sdk_library && module.classes.iter()
+252:                 .any(|cls| cls.id == *cid && cls.name == "_StackTrace");
+253:             if !module.sdk_library || runtime_trace {
+254:                 writeln!(body, "  call void @dartforge_register_table(i64 {cid}, ptr @{symbol})").unwrap();
+255:                 if self.tables_at_link {
+256:                     self.annotate_external(symbol, Type::Ptr, &[]);
+257:                 }
+258:             }
+259:         }
+260:         for (k, (name, symbol)) in module.helpers.iter().enumerate() {

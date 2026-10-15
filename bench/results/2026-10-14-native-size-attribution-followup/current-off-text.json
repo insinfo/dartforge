@@ -1,0 +1,353 @@
+{
+  "map": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/constant-specialization-file-explorer-off/program.map",
+  "sha256": "927fcc6a08692dab3f53952f0c5a628645e2225085a8112720f0b682503d43f3",
+  "text_bytes": 25088964,
+  "category_bytes": {
+    "package:dart_ui": 14993052,
+    "package:j2k": 1644520,
+    "llvm-machine-outlines": 1442144,
+    "runtime-and-native-support": 1199488,
+    "generated-support": 1154440,
+    "package:file_explorer": 784748,
+    "generated-constant-getters": 784632,
+    "sdk:core": 615948,
+    "sdk:async": 454688,
+    "sdk:io": 436236,
+    "sdk:typed_data": 415012,
+    "sdk:_internal": 297992,
+    "sdk:convert": 296100,
+    "sdk:collection": 272624,
+    "sdk:_compact_hash": 160708,
+    "sdk:ffi": 72604,
+    "sdk:isolate": 49540,
+    "sdk:math": 8936,
+    "sdk:developer": 5432,
+    "sdk:nativewrappers": 120,
+    "unattributed-padding": 0
+  },
+  "largest_libraries": {
+    "llvm-machine-outlines": 1442144,
+    "runtime-and-native-support": 1199488,
+    "generated-support": 1154440,
+    "generated-constant-getters": 784632,
+    "dart:core": 615948,
+    "dart:async": 454688,
+    "dart:io": 436236,
+    "dart:typed_data": 415012,
+    "package:j2k/src/j2k/codestream/reader/bitstream_reader_agent.dart": 359324,
+    "package:dart_ui/src/app/application.dart": 314092,
+    "dart:_internal": 297992,
+    "dart:convert": 296100,
+    "dart:collection": 272624,
+    "package:dart_ui/src/widgets/text_field.dart": 251852,
+    "package:dart_ui/src/widgets/element.dart": 237704,
+    "package:j2k/src/j2k/codestream/reader/header_decoder.dart": 207332,
+    "package:dart_ui/src/rendering/gpu/d3d11/d3d11_backend.dart": 207160,
+    "package:dart_ui/src/text/paragraph.dart": 205420,
+    "package:dart_ui/src/backends/wayland/wayland_connection.dart": 197012,
+    "package:dart_ui/src/widgets/data_grid.dart": 196900,
+    "package:dart_ui/src/rendering/gpu/gl/gl_backend.dart": 179312,
+    "package:j2k/src/j2k/entropy/decoder/std_entropy_decoder.dart": 175720,
+    "package:dart_ui/src/rendering/gpu/vulkan/vulkan_backend.dart": 164280,
+    "dart:_compact_hash": 160708,
+    "package:dart_ui/src/graphics/image/codecs/formats/webp/vp8.dart": 156172,
+    "package:dart_ui/src/text/gpos.dart": 151148,
+    "package:dart_ui/src/text/cff.dart": 144644,
+    "package:dart_ui/src/widgets/menu_anchor.dart": 143472,
+    "package:file_explorer/src/ui/explorer_window.dart": 140328,
+    "package:dart_ui/src/text/bidi.dart": 137936,
+    "package:dart_ui/src/backends/x11/x11_connection.dart": 137732,
+    "package:dart_ui/src/text/layout_common.dart": 136160,
+    "package:dart_ui/src/backends/win32/d3d12/d3d12_device.dart": 134044,
+    "package:dart_ui/src/text/gsub.dart": 122236,
+    "package:dart_ui/src/backends/win32/win32_window.dart": 120776,
+    "package:file_explorer/src/engine/explorer_model.dart": 111632,
+    "package:dart_ui/src/rendering/gpu/d3d11/d3d11_mesh_pipeline.dart": 108588,
+    "package:dart_ui/src/rendering/gpu/vulkan/vulkan_mesh_pipeline.dart": 107876,
+    "package:dart_ui/src/graphics/image/codecs/formats/webp/vp8_filter.dart": 107796,
+    "package:dart_ui/src/backends/win32/d2d/d2d_raster_sink.dart": 103784
+  },
+  "largest_symbols": [
+    {
+      "address": 4316261816,
+      "bytes": 199832,
+      "name": "_df.register.program",
+      "category": "generated-support",
+      "library": "generated-support"
+    },
+    {
+      "address": 4313957728,
+      "bytes": 75096,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fdraw$2fdraw_pixel$2edart..drawPixel",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/graphics/image/codecs/draw/draw_pixel.dart"
+    },
+    {
+      "address": 4311808872,
+      "bytes": 47240,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.PktDecoder.readPktHead",
+      "category": "package:j2k",
+      "library": "package:j2k/src/j2k/codestream/reader/bitstream_reader_agent.dart"
+    },
+    {
+      "address": 4316966444,
+      "bytes": 43340,
+      "name": "_df.dart$3acore.Object.hash",
+      "category": "sdk:core",
+      "library": "dart:core"
+    },
+    {
+      "address": 4299296264,
+      "bytes": 39336,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fbidi$2edart._BidiResolver._resolveSequence",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/text/bidi.dart"
+    },
+    {
+      "address": 4313446416,
+      "bytes": 36344,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fentropy$2fdecoder$2fstd_entropy_decoder$2edart.StdEntropyDecoder._cleanupPass",
+      "category": "package:j2k",
+      "library": "package:j2k/src/j2k/entropy/decoder/std_entropy_decoder.dart"
+    },
+    {
+      "address": 4313353372,
+      "bytes": 35476,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fentropy$2fdecoder$2fstd_entropy_decoder$2edart.StdEntropyDecoder._sigProgPass",
+      "category": "package:j2k",
+      "library": "package:j2k/src/j2k/entropy/decoder/std_entropy_decoder.dart"
+    },
+    {
+      "address": 4316710228,
+      "bytes": 35460,
+      "name": "_df.dart$3a_internal.Sort._dualPivotQuicksortIntWith",
+      "category": "sdk:_internal",
+      "library": "dart:_internal"
+    },
+    {
+      "address": 4313144912,
+      "bytes": 34460,
+      "name": "_df.package$3aj2k$2fsrc$2ficc$2ficc_profiler$2edart.ICCProfiler.getCompData",
+      "category": "package:j2k",
+      "library": "package:j2k/src/icc/icc_profiler.dart"
+    },
+    {
+      "address": 4311651672,
+      "bytes": 33936,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.FileBitstreamReaderAgent.getCodeBlock",
+      "category": "package:j2k",
+      "library": "package:j2k/src/j2k/codestream/reader/bitstream_reader_agent.dart"
+    },
+    {
+      "address": 4296485044,
+      "bytes": 33480,
+      "name": "_df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.openWindow$async$q239a9391",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/app/application.dart"
+    },
+    {
+      "address": 4310727300,
+      "bytes": 31572,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fheader_decoder$2edart.HeaderDecoder.parsePocMarker",
+      "category": "package:j2k",
+      "library": "package:j2k/src/j2k/codestream/reader/header_decoder.dart"
+    },
+    {
+      "address": 4315773344,
+      "bytes": 31120,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fexif$2fexif_tag$2edart..exifImageTags",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/graphics/image/codecs/exif/exif_tag.dart"
+    },
+    {
+      "address": 4299736076,
+      "bytes": 30964,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fcff$2edart._Type2Interpreter._escaped",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/text/cff.dart"
+    },
+    {
+      "address": 4315078776,
+      "bytes": 29280,
+      "name": "_df.package$3aj2k$2fsrc$2ficc$2flut$2fmatrix_based_transform_to_srgb$2edart.MatrixBasedTransformTosRGB.applyFloat",
+      "category": "package:j2k",
+      "library": "package:j2k/src/icc/lut/matrix_based_transform_to_srgb.dart"
+    },
+    {
+      "address": 4316645768,
+      "bytes": 29020,
+      "name": "_df.dart$3a_internal.Sort._dualPivotQuicksort",
+      "category": "sdk:_internal",
+      "library": "dart:_internal"
+    },
+    {
+      "address": 4316678092,
+      "bytes": 28324,
+      "name": "_df.dart$3a_internal.Sort._dualPivotQuicksortInt",
+      "category": "sdk:_internal",
+      "library": "dart:_internal"
+    },
+    {
+      "address": 4315971912,
+      "bytes": 28256,
+      "name": "_df.$record.equals",
+      "category": "generated-support",
+      "library": "generated-support"
+    },
+    {
+      "address": 4309289872,
+      "bytes": 28020,
+      "name": "_df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fwin32_window$2edart.Win32Window.handleMessage",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/backends/win32/win32_window.dart"
+    },
+    {
+      "address": 4309900372,
+      "bytes": 27996,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fexif$2fexif_data$2edart.ExifData.write",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/graphics/image/codecs/exif/exif_data.dart"
+    },
+    {
+      "address": 4313882504,
+      "bytes": 26788,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fformats$2fjpeg$2f_jpeg_quantize_io$2edart..getImageFromJpeg",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/graphics/image/codecs/formats/jpeg/_jpeg_quantize_io.dart"
+    },
+    {
+      "address": 4310025448,
+      "bytes": 26660,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fimage$2fimage$2edart.Image.convert",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/graphics/image/codecs/image/image.dart"
+    },
+    {
+      "address": 4300168616,
+      "bytes": 26368,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fshaper$2edart.OpenTypeShaper.shape",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/text/shaper.dart"
+    },
+    {
+      "address": 4312916240,
+      "bytes": 25320,
+      "name": "_df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fuia$2fcom_server$2edart.ComServerClass._buildVtable",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/backends/win32/uia/com_server.dart"
+    },
+    {
+      "address": 4299954948,
+      "bytes": 25316,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fline_break$2edart._LineBreakScanner._decide",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/text/line_break.dart"
+    },
+    {
+      "address": 4299337204,
+      "bytes": 25044,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fbidi$2edart._BidiResolver._resolveBrackets",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/text/bidi.dart"
+    },
+    {
+      "address": 4313401956,
+      "bytes": 24208,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fentropy$2fdecoder$2fstd_entropy_decoder$2edart.StdEntropyDecoder._rawSigProgPass",
+      "category": "package:j2k",
+      "library": "package:j2k/src/j2k/entropy/decoder/std_entropy_decoder.dart"
+    },
+    {
+      "address": 4311907244,
+      "bytes": 24196,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fbitstream_reader_agent$2edart.PktDecoder._populateHlPrecinct",
+      "category": "package:j2k",
+      "library": "package:j2k/src/j2k/codestream/reader/bitstream_reader_agent.dart"
+    },
+    {
+      "address": 4300109724,
+      "bytes": 23988,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fparagraph$2edart._ParagraphBuilder._buildLine",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/text/paragraph.dart"
+    },
+    {
+      "address": 4312844020,
+      "bytes": 23892,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fimage$2fimage_data_uint8$2edart.ImageDataUint8.clear",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/graphics/image/codecs/image/image_data_uint8.dart"
+    },
+    {
+      "address": 4295413460,
+      "bytes": 23680,
+      "name": "__RNvMsc_NtCskXXCE4dHgWW_17dartforge_runtime4heapNtB5_4Heap9drain_arc",
+      "category": "runtime-and-native-support",
+      "library": "runtime-and-native-support"
+    },
+    {
+      "address": 4312156872,
+      "bytes": 23044,
+      "name": "_df.package$3adart_ui$2fsrc$2fgraphics$2fimage$2fcodecs$2fcolor$2fformat$2edart..convertFormatValue",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/graphics/image/codecs/color/format.dart"
+    },
+    {
+      "address": 4315055700,
+      "bytes": 22544,
+      "name": "_df.package$3aj2k$2fsrc$2ficc$2flut$2fmatrix_based_transform_to_srgb$2edart.MatrixBasedTransformTosRGB.applyInt",
+      "category": "package:j2k",
+      "library": "package:j2k/src/icc/lut/matrix_based_transform_to_srgb.dart"
+    },
+    {
+      "address": 4299706704,
+      "bytes": 22264,
+      "name": "_df.package$3adart_ui$2fsrc$2ftext$2fcff$2edart._Type2Interpreter._execute",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/text/cff.dart"
+    },
+    {
+      "address": 4310485284,
+      "bytes": 22200,
+      "name": "_df.package$3adart_ui$2fsrc$2frendering$2fgpu$2fvulkan$2fvulkan_sparse_strips$2edart..buildVulkanSparseFragmentShader",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/rendering/gpu/vulkan/vulkan_sparse_strips.dart"
+    },
+    {
+      "address": 4301327092,
+      "bytes": 22160,
+      "name": "_df.package$3adart_ui$2fsrc$2fwidgets$2felement$2edart.RenderObjectElement.performRebuild",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/widgets/element.dart"
+    },
+    {
+      "address": 4296635188,
+      "bytes": 21716,
+      "name": "_df.package$3adart_ui$2fsrc$2fapp$2fapplication$2edart.Application.run$async$qddef470f",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/app/application.dart"
+    },
+    {
+      "address": 4310652828,
+      "bytes": 21664,
+      "name": "_df.package$3aj2k$2fsrc$2fj2k$2fcodestream$2freader$2fheader_decoder$2edart.HeaderDecoder.parseCodMarker",
+      "category": "package:j2k",
+      "library": "package:j2k/src/j2k/codestream/reader/header_decoder.dart"
+    },
+    {
+      "address": 4302815952,
+      "bytes": 21656,
+      "name": "_df.package$3adart_ui$2fsrc$2frendering$2fgpu$2fd3d11$2fd3d11_mesh_pipeline$2edart.D3d11MeshRenderer.drawInto",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/rendering/gpu/d3d11/d3d11_mesh_pipeline.dart"
+    },
+    {
+      "address": 4312883612,
+      "bytes": 21584,
+      "name": "_df.package$3adart_ui$2fsrc$2fbackends$2fwin32$2fuia$2fuia_events$2edart.UiaEventTranslator.translate",
+      "category": "package:dart_ui",
+      "library": "package:dart_ui/src/backends/win32/uia/uia_events.dart"
+    }
+  ],
+  "limitations": "Symbol provenance attributes linked bytes, not reachability or execution cost. Canonical Dart getters and LLVM machine outlines are separate categories. Outline original source provenance is not inferable from symbol names; the remaining runtime bucket still includes unidentified non-Dart symbol spellings. Cross-category aliases remain mixed."
+}

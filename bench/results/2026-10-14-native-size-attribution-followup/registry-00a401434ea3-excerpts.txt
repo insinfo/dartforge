@@ -1,0 +1,70 @@
+1: //! Detect explicit runtime registry mutation through lowered native aliases.
+2: use super::*;
+3: 
+4: fn mutates_registry(name: &str) -> bool {
+5:     matches!(
+6:         name,
+7:         "dartforge_register_methods"
+8:             | "dartforge_register_table"
+9:             | "dartforge_register_cids"
+10:             | "dartforge_register_subclass"
+11:             | "dartforge_set_migration"
+12:     )
+13: }
+14: 
+15: pub(crate) fn closed(modules: &[&Module]) -> bool {
+16:     for function in modules.iter().flat_map(|m| &m.functions) {
+17:         if mutates_registry(&function.symbol) {
+18:             return false;
+19:         }
+20:         let arrays: HashMap<_, _> = function
+21:             .blocks
+22:             .iter()
+23:             .flat_map(|b| &b.instructions)
+24:             .filter_map(|(value, instruction, _)| match instruction {
+25:                 I::ConstArray(words) => Some((
+26:                     *value,
+27:                     words
+28:                         .iter()
+29:                         .flat_map(|word| word.to_le_bytes())
+30:                         .collect::<Vec<_>>(),
+31:                 )),
+32:                 _ => None,
+33:             })
+34:             .collect();
+35:         for (_, instruction, _) in function.blocks.iter().flat_map(|b| &b.instructions) {
+36:             match instruction {
+37:                 I::CallRuntime { name, .. } | I::CallStatic { symbol: name, .. }
+38:                     if mutates_registry(name) =>
+39:                 {
+40:                     return false;
+41:                 }
+42:                 I::Const(Constant::String(name)) if mutates_registry(name) => return false,
+43:                 I::CallRuntime { name, args, .. } if name == "dartforge_ffi_native_symbol" => {
+44:                     let [
+45:                         (Operand::Val(pointer), Type::Ptr),
+46:                         (Operand::Constant(Constant::Int(length)), Type::I64),
+47:                     ] = args.as_slice()
+48:                     else {
+49:                         return false;
+50:                     };
+51:                     let Some(bytes) = arrays.get(pointer) else {
+52:                         return false;
+53:                     };
+54:                     let Some(length) = usize::try_from(*length).ok().filter(|n| *n <= bytes.len())
+55:                     else {
+56:                         return false;
+57:                     };
+58:                     let Ok(symbol) = std::str::from_utf8(&bytes[..length]) else {
+59:                         return false;
+60:                     };
+61:                     if mutates_registry(symbol) {
+62:                         return false;
+63:                     }
+64:                 }
+65:                 _ => {}
+66:             }
+67:         }
+68:     }
+69:     true
+70: }
