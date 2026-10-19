@@ -388,6 +388,9 @@ fn actual_color_context_reports_post_prune_specialization_eligibility() {
             let mut reduced = target.clone();
             let folded = inventory.fold_identity_comparisons(&mut reduced, &formals);
             cleanup(&mut reduced);
+            let guarded = super::enum_dispatch::guard_switches(&mut reduced, &formals, &target.symbol);
+            cleanup(&mut reduced);
+            assert!(guarded >= 2, "from/to index reads need runtime guards");
             eprintln!("color candidate target={} branches={} size_limit={} folded={} reduced={} branches={} growth_limit={} ratio_pass={} ABI={:?} ret={:?}",size(target),branches(target),MAX_INPUT_BODY,folded,size(&reduced),branches(&reduced),MAX_GROWTH,size(&reduced)*4<=size(target)*3,target.params,target.return_ty);
             let generic_symbol = target.symbol.clone();
             drop(inventory);
@@ -401,6 +404,14 @@ fn actual_color_context_reports_post_prune_specialization_eligibility() {
             let clone = module.functions.iter().find(|f| &f.symbol == specialized).unwrap();
             assert_eq!(clone.name, "convertFormatValue");
             assert!(size(clone) <= MAX_GROWTH);
+            let original = module.functions.iter().find(|f| f.symbol == generic_symbol).unwrap();
+            assert_eq!(clone.params, original.params, "specialization keeps the physical ABI");
+            assert_eq!(clone.return_ty, original.return_ty);
+            assert!(clone.blocks.iter().any(|block| matches!(block.instructions.as_slice(),
+                [(_, Instruction::CallStatic { symbol, args, ret_ty }, _)]
+                    if symbol == &generic_symbol && *ret_ty == clone.return_ty
+                        && args == &clone.params.iter().map(|(value, _, _)| Operand::Val(*value)).collect::<Vec<_>>())),
+                "a failed observed-index guard must forward real arguments to the original body");
             assert!(module.functions.iter().any(|f| f.symbol == generic_symbol));
         });
     }).unwrap().join().unwrap();

@@ -1,0 +1,205 @@
+{
+  "inputs": {
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/color-guard-producer/dartforge": "7bdd58a3c449082ad82f59a9e82c42a964b1cada7e967d127d6c9de81a7df8b5",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart": "625a8965ea02ff6a6a766f1d4e927f04ba07b80c87af24f645ab8d7de164cdfa",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json": "c5c1c22ad085905aa6341ddf11b3999b001cb6ac128a61f117a1fb8d532ec934",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric_performance.dart": "810bdadb990483a801b34835f8782f3ff60b55fd1608bd77b7a0805cf1dc738c"
+  },
+  "builds": [
+    {
+      "policy": "off",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/color-guard-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric_performance.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/color-guard-performance/off/program"
+      ],
+      "exit": 0,
+      "sha256": "f2f0f3285229a3e35283b0856208a481d94913360655f1afc59c4645cc9f6626",
+      "bytes": 3096624
+    },
+    {
+      "policy": "on",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/color-guard-producer/dartforge",
+        "compile-native",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric_performance.dart",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--optimize",
+        "--memory=tracing",
+        "--exceptions=check",
+        "--roots=shadow",
+        "--stack-trace=none",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/color-guard-performance/on/program"
+      ],
+      "exit": 0,
+      "sha256": "eac31267df20328ad0c7fe99caed05d0f5513b307d91bd337ce7b190f03d05f6",
+      "bytes": 3096624
+    },
+    {
+      "policy": "official",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "compile",
+        "exe",
+        "--packages=/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/bench/comparison/color_numeric_performance.dart",
+        "-o",
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/color-guard-performance/official/program"
+      ],
+      "exit": 0,
+      "sha256": "5000f4afa15e64928f64968b3ed04c75709bec303ec6314d5e74127355c05ad1",
+      "bytes": 5329888
+    }
+  ],
+  "runs": [
+    {
+      "round": 0,
+      "policy": "off",
+      "exit": 0,
+      "checksum": 126625349,
+      "microseconds": [
+        36110,
+        33631,
+        32656,
+        32041,
+        32708
+      ],
+      "warm_median_us": 32682.0
+    },
+    {
+      "round": 0,
+      "policy": "on",
+      "exit": 0,
+      "checksum": 126625349,
+      "microseconds": [
+        32638,
+        30071,
+        30259,
+        30548,
+        30603
+      ],
+      "warm_median_us": 30403.5
+    },
+    {
+      "round": 0,
+      "policy": "official",
+      "exit": 0,
+      "checksum": 126625349,
+      "microseconds": [
+        6072,
+        5534,
+        5579,
+        5565,
+        5523
+      ],
+      "warm_median_us": 5549.5
+    },
+    {
+      "round": 1,
+      "policy": "on",
+      "exit": 0,
+      "checksum": 126625349,
+      "microseconds": [
+        31971,
+        31218,
+        31484,
+        30110,
+        30888
+      ],
+      "warm_median_us": 31053.0
+    },
+    {
+      "round": 1,
+      "policy": "official",
+      "exit": 0,
+      "checksum": 126625349,
+      "microseconds": [
+        6433,
+        6284,
+        6221,
+        6274,
+        6060
+      ],
+      "warm_median_us": 6247.5
+    },
+    {
+      "round": 1,
+      "policy": "off",
+      "exit": 0,
+      "checksum": 126625349,
+      "microseconds": [
+        33479,
+        32240,
+        32300,
+        33083,
+        32834
+      ],
+      "warm_median_us": 32567.0
+    },
+    {
+      "round": 2,
+      "policy": "official",
+      "exit": 0,
+      "checksum": 126625349,
+      "microseconds": [
+        6020,
+        5834,
+        5665,
+        5792,
+        5546
+      ],
+      "warm_median_us": 5728.5
+    },
+    {
+      "round": 2,
+      "policy": "off",
+      "exit": 0,
+      "checksum": 126625349,
+      "microseconds": [
+        34340,
+        33486,
+        31881,
+        31922,
+        32805
+      ],
+      "warm_median_us": 32363.5
+    },
+    {
+      "round": 2,
+      "policy": "on",
+      "exit": 0,
+      "checksum": 126625349,
+      "microseconds": [
+        31101,
+        29947,
+        29660,
+        29900,
+        30433
+      ],
+      "warm_median_us": 29923.5
+    }
+  ],
+  "iterations": 1000000,
+  "scope": "One producer; constant specialization OFF/ON only; official AOT is contextual. Three rotated process orders; first in-process sample excluded.",
+  "median_process_warm_us": {
+    "off": 32567.0,
+    "on": 30403.5,
+    "official": 5728.5
+  },
+  "inputs_unchanged": true
+}

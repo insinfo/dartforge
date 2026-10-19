@@ -32,6 +32,15 @@
   ARC_CHECK; código de produção ARC e fixture Dart permaneceram intactos.
   Detalhes: `RELATORIO-ARC-NOTIFIER.md`.
 
+- A especialização de contextos de cor agora protege os índices observados dos
+  enums e encaminha falhas da guarda ao corpo genérico, mantendo ABI e exceções.
+  Reexecução só é admitida em prefixo único sem efeitos; limites de análise e
+  crescimento permanecem explícitos. Suíte nativa: 777 passaram, zero falhas,
+  nove ignorados; 15 testes dirigidos passaram. Na rodada pareada de um milhão
+  de conversões, OFF/ON registraram 32.373/30.338,5 µs (cerca de 6,3% menos tempo),
+  contra 5.743 µs no AOT oficial. É um resultado localizado, com opção ainda
+  desligada por padrão. Detalhes: `RELATORIO-COR-GUARDADA.md`.
+
 ## Consolidação de 13–15/10/2026: últimas 48 horas
 
 Esta seção atualiza o retrato geral. As seções anteriores permanecem como

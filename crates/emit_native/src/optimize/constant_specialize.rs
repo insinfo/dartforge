@@ -3,6 +3,8 @@ use super::{mem2reg, operands::*, representation_constants, scc, simplify};
 use crate::hir::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+mod enum_dispatch;
+
 const MAX_CLONES: usize = 32;
 const MAX_PER_TARGET: usize = 4;
 const MAX_GROWTH: usize = 2048;
@@ -407,6 +409,8 @@ fn rewrite_enabled(module: &mut Module) -> usize {
             terminator_operands_mut(&mut block.terminator, &mut replace);
         }
         inventory.fold_identity_comparisons(&mut clone, &enum_formals);
+        cleanup(&mut clone);
+        enum_dispatch::guard_switches(&mut clone, &enum_formals, &target.symbol);
         cleanup(&mut clone);
         if branches(&clone) >= branches(target)
             || size(&clone) * 4 > size(target) * 3

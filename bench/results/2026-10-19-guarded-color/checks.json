@@ -1,0 +1,35 @@
+{
+  "native_suite": {
+    "passed": 777,
+    "failed": 0,
+    "ignored": 9
+  },
+  "focused": {
+    "passed": 15,
+    "failed": 0,
+    "native_guard_miss_and_pending_exception": true
+  },
+  "hir_color": {
+    "input_size": 3652,
+    "input_branches": 518,
+    "guarded_size": 94,
+    "guarded_branches": 14,
+    "max_growth_unchanged": 2048,
+    "admitted_clones": 1
+  },
+  "analysis_limits": {
+    "guards": 32,
+    "prefix_blocks": 32,
+    "prefix_instructions": 256
+  },
+  "workspace": {
+    "fmt_exit": 1,
+    "clippy_exit": 101,
+    "tests_exit": 101,
+    "docs_exit": 0,
+    "scope": "Existing formatting/lints; default Apple LLVM21 linker versus LLVM22 bitcode; docs build with warnings"
+  },
+  "repeated_performance_artifacts_identical": true,
+  "performance_reduction_percent": 6.2845581194205025,
+  "producer_inputs_unchanged": true
+}

@@ -1,0 +1,18 @@
+[
+  {
+    "policy": "off",
+    "file_bytes": 3096624,
+    "text_section_bytes": 2619600
+  },
+  {
+    "policy": "on",
+    "file_bytes": 3096624,
+    "text_section_bytes": 2620968
+  },
+  {
+    "policy": "official",
+    "file_bytes": 5329888,
+    "launcher_text_section_bytes": 2759900,
+    "text_scope": "Mach-O launcher only; excludes appended Dart AOT snapshot; not comparable with DartForge native __text."
+  }
+]
