@@ -1,0 +1,34 @@
+[
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "-p",
+      "dartforge-emit-native",
+      "--all-targets",
+      "--no-deps",
+      "--target-dir",
+      "target/impl-a",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "stored_log": "native-clippy-after.log"
+  },
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "stored_log": "workspace-clippy.log"
+  }
+]

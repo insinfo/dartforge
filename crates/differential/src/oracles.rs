@@ -708,39 +708,6 @@ pub fn dartforge_production(env: &Environment, program: &Program, dir: &Path) ->
     run("node", &["output.js".into()], dir, env.timeout)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn exported() {
-        assert_eq!(exported_name("var a = 1;\nexport { $01_print };\n").as_deref(), Some("$01_print"));
-        assert_eq!(exported_name("export { hello as target__hello };").as_deref(), Some("target__hello"));
-        assert_eq!(exported_name("export { main, util };").as_deref(), Some("main"));
-        assert_eq!(exported_name("nothing"), None);
-    }
-
-    #[test]
-    fn url() {
-        assert_eq!(file_url(Path::new(r"D:\x\dart_sdk.js")), "file:///D:/x/dart_sdk.js");
-        assert_eq!(file_url(Path::new("/tmp/dart_sdk.js")), "file:///tmp/dart_sdk.js");
-    }
-
-    #[test]
-    fn error_lines() {
-        let vm = Output { stdout: String::new(), stderr: "x.dart:7:9: Error: Undefined name '_'.\n  print(_);\n".into(), code: 254 };
-        assert_eq!(cfe_error_line(&vm), Some(7));
-        let ddc = Output { stdout: "org-dartlang-app:/x.dart:12:3: Error: y\n".into(), stderr: String::new(), code: 1 };
-        assert_eq!(cfe_error_line(&ddc), Some(12));
-        assert_eq!(cfe_error_line(&Output { stdout: "nothing".into(), stderr: String::new(), code: 1 }), None);
-        let source = "a\nbb\nccc\n";
-        assert_eq!(forge_error_line("error: C:\\x.dart:5: z at bytes 5..6\n", source), Some(3));
-        assert_eq!(forge_error_line("error: z at bytes 0..1", source), Some(1));
-        assert_eq!(rejection(Some(3)).stdout, "compile error at line 3
-");
-    }
-}
-
 // ---------------------------------------------------------------- JIT
 
 /// Extra time the JIT process gets, on top of `native_timeout`, for loading
@@ -896,4 +863,37 @@ fn split_executor_timings(output: &mut Output) -> Option<Duration> {
     let value = line.split("\"execute_ns\":").nth(1)?;
     let digits: String = value.chars().take_while(|c| c.is_ascii_digit()).collect();
     digits.parse::<u64>().ok().map(Duration::from_nanos)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exported() {
+        assert_eq!(exported_name("var a = 1;\nexport { $01_print };\n").as_deref(), Some("$01_print"));
+        assert_eq!(exported_name("export { hello as target__hello };").as_deref(), Some("target__hello"));
+        assert_eq!(exported_name("export { main, util };").as_deref(), Some("main"));
+        assert_eq!(exported_name("nothing"), None);
+    }
+
+    #[test]
+    fn url() {
+        assert_eq!(file_url(Path::new(r"D:\x\dart_sdk.js")), "file:///D:/x/dart_sdk.js");
+        assert_eq!(file_url(Path::new("/tmp/dart_sdk.js")), "file:///tmp/dart_sdk.js");
+    }
+
+    #[test]
+    fn error_lines() {
+        let vm = Output { stdout: String::new(), stderr: "x.dart:7:9: Error: Undefined name '_'.\n  print(_);\n".into(), code: 254 };
+        assert_eq!(cfe_error_line(&vm), Some(7));
+        let ddc = Output { stdout: "org-dartlang-app:/x.dart:12:3: Error: y\n".into(), stderr: String::new(), code: 1 };
+        assert_eq!(cfe_error_line(&ddc), Some(12));
+        assert_eq!(cfe_error_line(&Output { stdout: "nothing".into(), stderr: String::new(), code: 1 }), None);
+        let source = "a\nbb\nccc\n";
+        assert_eq!(forge_error_line("error: C:\\x.dart:5: z at bytes 5..6\n", source), Some(3));
+        assert_eq!(forge_error_line("error: z at bytes 0..1", source), Some(1));
+        assert_eq!(rejection(Some(3)).stdout, "compile error at line 3
+");
+    }
 }

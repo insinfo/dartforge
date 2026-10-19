@@ -40,8 +40,7 @@ mod tests {
     #[test]
     fn invalid_layout_does_not_publish_module_and_tracing_does_not_apply_facts() {
         for case in 0..5 {
-            let mut m = Module::default();
-            m.arc_memory = true;
+            let mut m = Module { arc_memory: true, ..Module::default() };
             m.classes.push(ClassDef {
                 id: 7,
                 name: "C".into(),

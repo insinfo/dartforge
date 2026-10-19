@@ -481,8 +481,7 @@ fn unused_results_still_validate_shapes_and_exceptional_token_consumption() {
     let mut broken = f.clone();
     broken.blocks[0].instructions.pop();
     assert!(liveness_with_exits(&broken, &classes, &tables, &pending).is_err());
-    let mut plan = super::super::TokenPlan::default();
-    plan.pendings = pending;
+    let mut plan = super::super::TokenPlan { pendings: pending, ..Default::default() };
     plan.instructions.insert(
         ValueId(1),
         super::super::TokenEffect {

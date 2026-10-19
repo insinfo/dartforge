@@ -262,7 +262,7 @@ pub fn analyze_with(
     // The collection points, with what is live at the entry of each one:
     // (the instruction, or `None` at the end of the block; the block; the live values).
     let mut points: Vec<(Option<ValueId>, usize, Set)> = Vec::new();
-    for b in 0..nb {
+    for (b, definitions) in phi_defs.iter().enumerate() {
         let exit = live_at_exit_set(b, &entry);
         let e = walk_block(b, exit, &mut |inst, who, d, after, before| {
             let collection = inst.is_none_or(may_collect);
@@ -286,10 +286,10 @@ pub fn analyze_with(
         });
         // The `phi`s of the block: defined together at its start.
         let mut live_set = e;
-        for &d in &phi_defs[b] {
+        for &d in definitions {
             live_set.by(d);
         }
-        for &d in &phi_defs[b] {
+        for &d in definitions {
             mark(d, &live_set, &mut interfere);
         }
     }

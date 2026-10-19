@@ -1040,7 +1040,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.ctx.local_type(self.unit_id, var.name.span.start) != Some(int) {
             return None;
         }
-        let Some(cond) = condition else { return None };
+        let cond = condition?;
         let ExprKind::Binary { op, left, right } = &ast.expr(cond).kind else { return None };
         let e_i = |e: ExprId| matches!(&ast.expr(e).kind, ExprKind::Identifier(n) if n.sym == i);
         // `i < L` or `L > i` (and the others): the direction in which `i` moves and whether the

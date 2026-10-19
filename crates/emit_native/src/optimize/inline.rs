@@ -180,19 +180,20 @@ pub(super) fn inlining_with_metadata(
             })
         });
         let Some((bi, ii)) = found else { break };
-        copy(func, bi, ii, copies, sources, sites, frame_sources, frames);
+        copy(func, (bi, ii), copies, sources, sites, frame_sources, frames);
         changed = true;
         copied += 1;
     }
     changed
 }
 
-fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Function, bool)>,
+fn copy(func: &mut Function, position: (usize, usize), copies: &HashMap<String, (Function, bool)>,
     sources: &HashMap<String, HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>>,
     sites: &mut HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>,
     frame_sources: &HashMap<String, HashMap<ValueId, (String, usize)>>,
     frames: &mut HashMap<ValueId, (String, usize)>,
 ) {
+    let (bi, ii) = position;
     let (mut next_v, mut next_b) = largest_ids(func);
     let (call, args, ty) = match &func.blocks[bi].instructions[ii] {
         (v, Instruction::CallStatic { symbol, args, .. }, ty) => (*v, (symbol.clone(), args.clone()), *ty),

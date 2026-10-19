@@ -1,0 +1,20 @@
+{
+  "base": "71b35f1d",
+  "platform": "macOS ARM64",
+  "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+  "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+  "tests": {
+    "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+    "DARTFORGE_TEST_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "CARGO_BUILD_JOBS": "2",
+    "RUST_TEST_THREADS": "2",
+    "PATH_prefix": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin"
+    ]
+  },
+  "workspace_doc": {
+    "RUSTDOCFLAGS": "-D warnings"
+  }
+}

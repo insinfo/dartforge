@@ -291,7 +291,7 @@ fn copy(
         return Ok(0);
     }
     let mut value = super::edges::next_val(f, p);
-    let mut next_block = f
+    let first_block = f
         .blocks
         .iter()
         .map(|b| b.id.0)
@@ -309,10 +309,9 @@ fn copy(
         Ok(ValueId(id))
     };
     let mut copies = 0;
-    for ((pred, block), entries) in edges {
+    for (((pred, block), entries), next_block) in edges.into_iter().zip(first_block..) {
         let (pred, block) = (BlockId(pred), BlockId(block));
         let edge = BlockId(u32::try_from(next_block).map_err(|_| "block IDs exhausted while copying Phi entries")?);
-        next_block += 1;
         let mut instructions = Vec::new();
         let mut swaps = HashMap::new();
         for (phi, op) in entries {

@@ -14,6 +14,14 @@ pub(super) struct AllocationExport<'a> {
     pub(super) closure: Vec<&'a Function>,
 }
 
+/// Shared immutable evidence for the recursive allocation-export audit.
+struct AuditGraph<'a, 'g> {
+    proof: &'g Provenance<'a>,
+    bodies: &'g HashMap<&'a str, &'a Function>,
+    duplicates: &'g HashSet<&'a str>,
+    rti: &'g rti::Inventory,
+}
+
 pub(super) fn candidates<'a>(
     modules: &[&'a Module],
     proof: &Provenance<'a>,
@@ -31,6 +39,7 @@ pub(super) fn candidates<'a>(
         }
     }
     let rti = rti::Inventory::new(modules);
+    let graph = AuditGraph { proof, bodies: &bodies, duplicates: &duplicates, rti: &rti };
     let mut exports = Vec::new();
     for (&symbol, &body) in &bodies {
         let Some(classes) = proof.returns.get(symbol) else {
@@ -47,13 +56,10 @@ pub(super) fn candidates<'a>(
         let mut closure = Vec::new();
         if audit(
             body,
-            proof,
-            &bodies,
-            &duplicates,
+            &graph,
             &mut visiting,
             &mut completed,
             &mut closure,
-            &rti,
         ) {
             exports.push(AllocationExport {
                 symbol,
@@ -69,14 +75,12 @@ pub(super) fn candidates<'a>(
 
 fn audit<'a>(
     body: &'a Function,
-    proof: &Provenance<'a>,
-    bodies: &HashMap<&'a str, &'a Function>,
-    duplicates: &HashSet<&'a str>,
+    graph: &AuditGraph<'a, '_>,
     visiting: &mut HashSet<&'a str>,
     completed: &mut HashSet<&'a str>,
     closure: &mut Vec<&'a Function>,
-    rti: &rti::Inventory,
 ) -> bool {
+    let AuditGraph { proof, bodies, duplicates, rti } = *graph;
     let symbol = body.symbol.as_str();
     if duplicates.contains(symbol) || symbol.starts_with("dfc.") || proof.values_for(body).is_none()
     {
@@ -120,7 +124,7 @@ fn audit<'a>(
                         .zip(args)
                         .all(|((_, _, ty), arg)| shape.operand_type(arg) == Some(*ty))
                     || !audit(
-                        callee, proof, bodies, duplicates, visiting, completed, closure, rti,
+                        callee, graph, visiting, completed, closure,
                     )
                 {
                     return false;

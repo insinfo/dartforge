@@ -41,6 +41,12 @@ mod arc_null_literals;
 use crate::hir::*;
 use std::fmt::Write;
 
+/// Audited layout premises used to omit redundant field/map stores.
+struct FieldWriteFacts {
+    known_map: Option<u32>,
+    fresh: bool,
+}
+
 pub struct LlvmEmitter<'a> {
     module: &'a Module,
     /// The functions of the module by symbol (the first with each name, like the
@@ -1539,7 +1545,7 @@ impl<'a> LlvmEmitter<'a> {
                             // E1: `is_ref` by the representation of the value.
                             let is_ref = u8::from(self.type_of(field) == Type::Ref).to_string();
                             let sf = self.coerce(field, Type::I64);
-                            self.emit_field_write(v, &format!(".{idx}"), idx, &sf, &is_ref, map, !self.module.arc_memory);
+                            self.emit_field_write(v, &format!(".{idx}"), idx, &sf, &is_ref, FieldWriteFacts { known_map: map, fresh: !self.module.arc_memory });
                         }
                         // Under ARC, the fields written inline count.
                         if fields.iter().any(|f| self.type_of(f) == Type::Ref) {
@@ -1574,7 +1580,7 @@ impl<'a> LlvmEmitter<'a> {
                         let known = self.fresh_map(object);
                         let direct = self.direct_body(object);
                         self.emit_field_addresses_of(v, &only, direct);
-                        self.emit_field_write(v, "", *index, &sv, &is_ref.to_string(), known, fresh);
+                        self.emit_field_write(v, "", *index, &sv, &is_ref.to_string(), FieldWriteFacts { known_map: known, fresh });
                         if self.inline_barrier(inst) {
                             if fresh {
                                 self.emit_barrier_label(v);
@@ -1655,7 +1661,7 @@ impl<'a> LlvmEmitter<'a> {
                         let known = self.fresh_map(&args[0].0);
                         let direct = self.direct_body(&args[0].0);
                         self.emit_field_addresses_of(v, &only, direct);
-                        self.emit_field_write(v, "", *i as usize, &sv, &is_ref, known, fresh);
+                        self.emit_field_write(v, "", *i as usize, &sv, &is_ref, FieldWriteFacts { known_map: known, fresh });
                         if self.inline_barrier(inst) {
                             if fresh {
                                 self.emit_barrier_label(v);
@@ -3964,7 +3970,8 @@ impl<'a> LlvmEmitter<'a> {
     /// ([`Self::fresh`]), so its fields are still the zeros of the handout
     /// (contract E8, `Heap::take_from_region`; the runtime allocations too):
     /// the store of the constant `0` (null, `0`, `false`) is not emitted.
-    fn emit_field_write(&mut self, v: u32, suffix: &str, idx: usize, sv: &str, is_ref: &str, known: Option<u32>, fresh: bool) {
+    fn emit_field_write(&mut self, v: u32, suffix: &str, idx: usize, sv: &str, is_ref: &str, facts: FieldWriteFacts) {
+        let FieldWriteFacts { known_map: known, fresh } = facts;
         let o = &mut self.out;
         let t = format!("{v}{suffix}");
         if !(fresh && sv == "0") {

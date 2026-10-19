@@ -681,8 +681,7 @@ mod tests {
             .unwrap();
             assert_eq!(classes.len(), 4);
             assert!(classes.values().all(|c| *c == Ownership::Trivial));
-            let mut module = Module::default();
-            module.arc_memory = true;
+            let mut module = Module { arc_memory: true, ..Module::default() };
             module.functions.push(f);
             let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
             assert!(ir.contains(&format!("load {}, ptr %v0", ty.llvm_ir())));
@@ -702,8 +701,7 @@ mod tests {
                 },
                 Type::Ref,
             ));
-            let mut module = Module::default();
-            module.arc_memory = arc;
+            let mut module = Module { arc_memory: arc, ..Module::default() };
             module.functions.push(f);
             let mut plans = HashMap::from([("local".into(), DartFunctionPlan::default())]);
             let before = format!("{module:?}/{plans:?}");

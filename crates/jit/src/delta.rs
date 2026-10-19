@@ -449,8 +449,7 @@ b0:
     fn changed_callee_signature_recompiles_caller() {
         let live_list = published_list(V1);
         let v2 = V1
-            .replace("define linkonce_odr i64 @\"g\"(i64 %v0)", "define linkonce_odr i64 @\"g\"(i64 %v0, i64 %v1)")
-            .replace("call i64 @g(i64 %r)", "call i64 @g(i64 %r)");
+            .replace("define linkonce_odr i64 @\"g\"(i64 %v0)", "define linkonce_odr i64 @\"g\"(i64 %v0, i64 %v1)");
         let d = delta(&v2, &live_list, &[]).unwrap();
         assert!(d.kept_fns.is_empty(), "{:?}", d.kept_fns);
     }

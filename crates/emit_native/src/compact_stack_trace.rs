@@ -724,6 +724,6 @@ mod tests {
         let before = o.clone();
         assert_eq!(convert_coff(&mut o), Ok(false));
         assert_eq!(o, before);
-        assert_eq!(convert_elf(&mut vec![0u8; 8]), Ok(false));
+        assert_eq!(convert_elf(&mut [0u8; 8]), Ok(false));
     }
 }

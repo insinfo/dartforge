@@ -2772,8 +2772,7 @@ mod tests {
             assert_eq!(classes[&id], Ownership::Trivial);
             assert_eq!(plan.instructions[&id], TokenEffect::default());
         }
-        let mut module = Module::default();
-        module.arc_memory = true;
+        let mut module = Module { arc_memory: true, ..Module::default() };
         module.functions.push(f.clone());
         let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
         assert!(ir.contains("bitcast double %v0 to i64"));
@@ -3042,8 +3041,7 @@ mod tests {
         assert_eq!(classes.len(), 5);
         assert!(classes.values().all(|c| *c == Ownership::Trivial));
         assert!(plan.pendings.is_empty());
-        let mut module = Module::default();
-        module.arc_memory = true;
+        let mut module = Module { arc_memory: true, ..Module::default() };
         module.functions.push(f);
         let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
         assert!(ir.contains("zext i1 true to i8"));

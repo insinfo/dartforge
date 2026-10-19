@@ -94,10 +94,10 @@ pub fn failure_key(s: &Output) -> String {
     // `thread '<unnamed>' (11220) panicked at <path>:346:14:`, which only
     // names the runtime cache file. Grouping by it puts 89 programs in a
     // single group and hides which defect it is.
-    if first.starts_with("thread '") && first.contains("panicked at") {
-        if let Some(msg) = lines.next() {
-            return format!("runtime panic: {}", stabilize_key(msg));
-        }
+    if first.starts_with("thread '") && first.contains("panicked at")
+        && let Some(msg) = lines.next()
+    {
+        return format!("runtime panic: {}", stabilize_key(msg));
     }
     stabilize_key(first)
 }
@@ -283,7 +283,7 @@ pub fn side_by_side(columns: &[(&str, &str)], focus: usize) -> String {
 pub fn format_report(results: &[ProgramResult]) -> String {
     let mut out = String::new();
     let with_forge = results.iter().any(|r| r.forge.is_some());
-    let native = results.first().map_or(false, |r| r.native);
+    let native = results.first().is_some_and(|r| r.native);
     let mut ok = 0usize;
     let mut ddc_warnings = 0usize;
     let mut ok_prod = 0usize;

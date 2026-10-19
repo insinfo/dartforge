@@ -2591,7 +2591,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         _ => Operand::Constant(Constant::Int(i as i64)),
                     };
                     let x = self.call_by_selector(v.clone(), "c:[]".to_string(), &[(None, idx)]);
-                    self.match_pattern(ast, *sp, x, failure, linkage, linked, origin);
+                    self.match_pattern(ast, *sp, (x, origin), failure, linkage, linked);
                 }
                 (ListPatternElement::Rest(Some(sp)), _) => {
                     let after = (elements.len() - i - 1) as i64;
@@ -2601,7 +2601,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         "c:sublist".to_string(),
                         &[(None, Operand::Constant(Constant::Int(i as i64))), (None, end)],
                     );
-                    self.match_pattern(ast, *sp, sub, failure, linkage, linked, origin);
+                    self.match_pattern(ast, *sp, (sub, origin), failure, linkage, linked);
                 }
                 (ListPatternElement::Rest(None), _) => {}
             }
@@ -2630,7 +2630,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let has = self.coerce(has, Type::I1);
             self.require_source(has, failure);
             let x = self.call_by_selector(v.clone(), "c:[]".to_string(), &[(None, k)]);
-            self.match_pattern(ast, en.value, x, failure, linkage, linked, origin);
+            self.match_pattern(ast, en.value, (x, origin), failure, linkage, linked);
         }
     }
 }

@@ -2,6 +2,19 @@
 
 ## Atualização de 19/10/2026
 
+- **Clippy estrito do workspace passa com todos os alvos**, sem novas supressões,
+  na seleção padrão de features do macOS. Foram agrupadas as premissas de escrita
+  de campos, opções ARC e evidências da auditoria; operandos/pontos de cópia têm
+  seus dados associados. A enumeração de arestas preserva IDs e verificações de
+  esgotamento. Fixtures e expressões do harness/JIT foram simplificadas, sem
+  alterar expectativas nem inclusão de testes. Passaram 822 testes unitários
+  nativos com `--include-ignored`, 122 doctests, 45 testes de biblioteca do JIT
+  e 20 do diferencial. Docs do workspace passam sem avisos; fmt ainda reprova.
+  Não certifica todas as features, novos testes nas VMs ou redução do binário.
+  A suíte global de `81e6762b` passou pelo corpus completo de builders nativos
+  sem filtro (2410,20 s) e continua nos testes Angular, sem resultado final.
+  Evidências: `bench/results/2026-10-19-workspace-clippy/README.md`.
+
 - Tipos de metadados nativos agora têm nomes: caches de despacho, tabelas de
   métodos, visitantes de raízes, locais/arestas async, Phis Ref e protocolos ARC.
   As representações e os algoritmos permanecem iguais. O helper de metadados

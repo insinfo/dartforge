@@ -48,7 +48,7 @@ pub(super) fn prepare(
         let mut plans: Vec<_> = plans.into_iter().collect();
         plans.sort_unstable_by_key(|((a, b), _)| (a.0, b.0));
         let mut value = next_val(f, p);
-        let mut block = f
+        let first_block = f
             .blocks
             .iter()
             .map(|b| b.id.0)
@@ -60,12 +60,11 @@ pub(super) fn prepare(
             .chain(p.scopes.edges.keys().flat_map(|(a, b)| [a.0, b.0]))
             .max()
             .map_or(0, |b| u64::from(b) + 1);
-        for ((origin, dest), dead_set) in plans {
+        for (((origin, dest), dead_set), block) in plans.into_iter().zip(first_block..) {
             let new = BlockId(
                 u32::try_from(block)
                     .map_err(|_| "block IDs exhausted while preparing ARC edges")?,
             );
-            block += 1;
             let mut instructions = Vec::new();
             for dead in dead_set {
                 let v = ValueId(

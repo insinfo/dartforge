@@ -1707,10 +1707,10 @@ fn save_live(
         }
         b.instructions = new_ones;
     }
-    let mut next_block = func.blocks.iter().map(|b| b.id.0).max().map_or(0, |m| m + 1);
-    for (origin, success, writes) in on_edges {
+    let next_block = func.blocks.iter().map(|b| b.id.0).max().map_or(0, |m| m + 1);
+    // Advance IDs only for existing edges, including at the u32 boundary.
+    for ((origin, success, writes), next_block) in on_edges.into_iter().zip(next_block..) {
         let edge = BlockId(next_block);
-        next_block += 1;
         for b in &mut func.blocks {
             if b.id == origin
                 && let Terminator::CondBranch { else_block, .. } = &mut b.terminator

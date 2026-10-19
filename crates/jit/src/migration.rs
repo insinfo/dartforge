@@ -242,7 +242,7 @@ mod tests_mod {
         let second = owned("child.dart:Base");
         let old = Layout { class: 5, base: 0, fields: vec![first.clone(), second.clone()] };
         let reordered = Layout { class: 5, base: 0, fields: vec![second.clone(), first] };
-        assert_eq!(plan_fn(&[old.clone()], &[reordered], &|_| "C".into()).unwrap()[0].origin, vec![1, 0]);
+        assert_eq!(plan_fn(std::slice::from_ref(&old), &[reordered], &|_| "C".into()).unwrap()[0].origin, vec![1, 0]);
         let removed = Layout { class: 5, base: 0, fields: vec![second] };
         assert_eq!(plan_fn(&[old], &[removed], &|_| "C".into()).unwrap()[0].origin, vec![1]);
         let parsed = ir_layouts("; df.fields 5 0 _value::int:base$2edart$3aBase\n");
@@ -254,8 +254,8 @@ mod tests_mod {
         let bare = field("_value", false, false, "int");
         let old = Layout { class: 5, base: 0, fields: vec![bare.clone(), bare.clone()] };
         let new = Layout { class: 5, base: 0, fields: vec![bare.clone()] };
-        assert!(plan_fn(&[old.clone()], &[new.clone()], &|_| "C".into()).unwrap_err().contains("ambiguous"));
-        assert!(plan_fn(&[old.clone()], &[old], &|_| "C".into()).unwrap().is_empty());
+        assert!(plan_fn(std::slice::from_ref(&old), std::slice::from_ref(&new), &|_| "C".into()).unwrap_err().contains("ambiguous"));
+        assert!(plan_fn(std::slice::from_ref(&old), std::slice::from_ref(&old), &|_| "C".into()).unwrap().is_empty());
         let mut owned = bare;
         owned.owner = Some("main.dart:C".into());
         let annotated = Layout { class: 5, base: 0, fields: vec![owned] };
@@ -284,7 +284,7 @@ mod tests_mod {
             let mut changed = first.clone();
             changed.type_identity = Some(identity.into());
             let new = Layout { class: 5, base: 0, fields: vec![changed] };
-            let error = plan_fn(&[old.clone()], &[new], &|_| "Box".into()).unwrap_err();
+            let error = plan_fn(std::slice::from_ref(&old), &[new], &|_| "Box".into()).unwrap_err();
             assert!(error.contains("changed its type") && error.contains("structural type identity differs"), "{error}");
         }
         let mut alias = first;

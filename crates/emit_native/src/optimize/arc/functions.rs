@@ -78,7 +78,7 @@ pub fn insert_arc_dart_functions(
     functions: &mut [Function],
     plans: &mut HashMap<String, DartFunctionPlan>,
 ) -> Result<(usize, usize), String> {
-    insert(functions, plans, false, None, None, &HashMap::new(), &HashMap::new(), &HashSet::new(), true, false)
+    insert(functions, plans, InsertionOptions { prepare_calls: false, layouts: None, ancestry: None, variants: &HashMap::new(), receivers: &HashMap::new(), preserve_fields: &HashSet::new(), by_tables: true, externals: false })
 }
 
 /// Prepares missing invokes and inserts ARC into a closed set of Dart functions.
@@ -145,7 +145,7 @@ pub(super) fn prepare_functions(
     plans: &mut HashMap<String, DartFunctionPlan>,
     externals: bool,
 ) -> Result<(usize, usize), String> {
-    insert(functions, plans, true, None, None, &HashMap::new(), &HashMap::new(), &HashSet::new(), true, externals)
+    insert(functions, plans, InsertionOptions { prepare_calls: true, layouts: None, ancestry: None, variants: &HashMap::new(), receivers: &HashMap::new(), preserve_fields: &HashSet::new(), by_tables: true, externals })
 }
 
 /// Atomically prepares the lowering facts and the closed set of an ARC module.
@@ -265,14 +265,11 @@ pub(super) fn prepare_with_variants(
     let total = insert(
         &mut prepared_set,
         &mut new_set,
-        true,
-        Some(&layouts),
-        Some(&ancestry),
-        &variants,
-        &receivers,
-        &preserve_fields,
-        work.table_exceptions,
-        work.arc_external_callees,
+        InsertionOptions {
+            prepare_calls: true, layouts: Some(&layouts), ancestry: Some(&ancestry),
+            variants: &variants, receivers: &receivers, preserve_fields: &preserve_fields,
+            by_tables: work.table_exceptions, externals: work.arc_external_callees,
+        },
     )?;
     slots.functions = prepared_set.clone();
     super::verify_cfg_ref_slot_lives(&origin, &slots)?;
@@ -292,18 +289,24 @@ pub(super) fn prepare_with_variants(
     Ok(total)
 }
 
+/// Immutable premises and preparation policy for a closed function set.
+struct InsertionOptions<'a> {
+    prepare_calls: bool,
+    layouts: Option<&'a HashMap<u32, Vec<Type>>>,
+    ancestry: Option<&'a super::fields::PhysicalAncestry>,
+    variants: &'a HashMap<String, Vec<String>>,
+    receivers: &'a HashMap<String, HashMap<ValueId, u32>>,
+    preserve_fields: &'a HashSet<String>,
+    by_tables: bool,
+    externals: bool,
+}
+
 fn insert(
     functions: &mut [Function],
     plans: &mut HashMap<String, DartFunctionPlan>,
-    prepare_calls: bool,
-    layouts: Option<&HashMap<u32, Vec<Type>>>,
-    ancestry: Option<&super::fields::PhysicalAncestry>,
-    variants: &HashMap<String, Vec<String>>,
-    receivers: &HashMap<String, HashMap<ValueId, u32>>,
-    preserve_fields: &HashSet<String>,
-    by_tables: bool,
-    externals: bool,
+    options: InsertionOptions<'_>,
 ) -> Result<(usize, usize), String> {
+    let InsertionOptions { prepare_calls, layouts, ancestry, variants, receivers, preserve_fields, by_tables, externals } = options;
     let mut symbols = HashSet::new();
     for f in functions.iter() {
         if !symbols.insert(f.symbol.clone()) {

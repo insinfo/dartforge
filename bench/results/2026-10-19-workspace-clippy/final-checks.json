@@ -1,0 +1,48 @@
+[
+  {
+    "name": "final-fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "exit": 1,
+    "bytes": 15750005,
+    "sha256": "db1ceff66f181d901f3c54b28a1146cfde34c89981ba938d24af1c1c28f5cbd3",
+    "tail": [
+      "-        let same = (0..a.program.functions.len()).all(|i| m.is_live_function(FunctionElementId(i as u32)) == m2.is_live_function(FunctionElementId(i as u32)))",
+      "-            && (0..a.program.classes.len()).all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));",
+      "+        let same = (0..a.program.functions.len()).all(|i| {",
+      "+            m.is_live_function(FunctionElementId(i as u32))",
+      "+                == m2.is_live_function(FunctionElementId(i as u32))",
+      "+        }) && (0..a.program.classes.len())",
+      "+            .all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));",
+      "         check(same, \"determinism\");",
+      "         Ok(errors)",
+      "     })"
+    ]
+  },
+  {
+    "name": "final-doc",
+    "command": [
+      "cargo",
+      "doc",
+      "--locked",
+      "--workspace",
+      "--no-deps",
+      "--document-private-items"
+    ],
+    "exit": 0,
+    "bytes": 472,
+    "sha256": "820f9c26daf097824c72765ad7204c96d1d82d8ad4f03cdc9175c805638570bf",
+    "tail": [
+      " Documenting dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)",
+      "    Checking dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)",
+      " Documenting dartforge-differential v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/differential)",
+      "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.66s",
+      "   Generated /Volumes/ssd_dock/MyRustProjects/dartforge/target/doc/dartforge_abi/index.html and 29 other files"
+    ]
+  }
+]

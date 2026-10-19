@@ -1,0 +1,50 @@
+{
+  "native-clippy-before.log": {
+    "raw_bytes": 16560,
+    "raw_sha256": "e99765a4d3c87b8738be2213926cccf0c4c80ce15854a5f3591101e7ae6d4ba8",
+    "stored_bytes": 16560,
+    "stored_sha256": "e99765a4d3c87b8738be2213926cccf0c4c80ce15854a5f3591101e7ae6d4ba8"
+  },
+  "native-clippy-after.log": {
+    "raw_bytes": 178,
+    "raw_sha256": "fca353ebe55a62c09e13a4ab833300a596590a71d8efd15067cdf566e20e41ad",
+    "stored_bytes": 178,
+    "stored_sha256": "fca353ebe55a62c09e13a4ab833300a596590a71d8efd15067cdf566e20e41ad"
+  },
+  "workspace-clippy.log": {
+    "raw_bytes": 376,
+    "raw_sha256": "5992aae632ec9195c39d8befda04dfe165b9846ee2327d6ae9660583dbcd493b",
+    "stored_bytes": 376,
+    "stored_sha256": "5992aae632ec9195c39d8befda04dfe165b9846ee2327d6ae9660583dbcd493b"
+  },
+  "native-unit.log": {
+    "raw_bytes": 84212,
+    "raw_sha256": "b871cc4745074487f6222d3c1a3be511a5a1678ee8a593eecada133a64b83160",
+    "stored_bytes": 84211,
+    "stored_sha256": "84544eb4ad99d768b06ae0b7d68d8e907f713c3413875e8b59997e80cdcbe48a"
+  },
+  "native-doc.log": {
+    "raw_bytes": 14379,
+    "raw_sha256": "a74622637ae5064c98d182985c729db31801440c3caa5047dbed12c0f0ab97f4",
+    "stored_bytes": 14379,
+    "stored_sha256": "a74622637ae5064c98d182985c729db31801440c3caa5047dbed12c0f0ab97f4"
+  },
+  "jit-tests.log": {
+    "raw_bytes": 159530,
+    "raw_sha256": "2db1d632c3074565fea8245ddc194c22fb641f98b5c6e8230e5a9c43e14916f9",
+    "stored_bytes": 159529,
+    "stored_sha256": "d760efdf70177bbe0cc08b665132e84e37046918ce9706520e3ea3efbabe12d6"
+  },
+  "differential-tests.log": {
+    "raw_bytes": 1385,
+    "raw_sha256": "2712e4f0707d8e735cbaf9b193a922924989c7bdae55026e87042c7463537969",
+    "stored_bytes": 1384,
+    "stored_sha256": "3ab58a7c28107b867c4040770a5014063a5541af926eecb8449da751d2b4ddf0"
+  },
+  "workspace-doc.log": {
+    "raw_bytes": 472,
+    "raw_sha256": "820f9c26daf097824c72765ad7204c96d1d82d8ad4f03cdc9175c805638570bf",
+    "stored_bytes": 472,
+    "stored_sha256": "820f9c26daf097824c72765ad7204c96d1d82d8ad4f03cdc9175c805638570bf"
+  }
+}

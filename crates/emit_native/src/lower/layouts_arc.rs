@@ -302,8 +302,7 @@ void main() { Base().exercitar(Object()); }
                             .only_the_library(dartforge_elements::model::LibraryId(i as u32));
                     sdk_ctx.te = std::mem::take(&mut ctx.te);
                     sdk_ctx.arc_memory = true;
-                    let mut m = Module::default();
-                    m.arc_memory = true;
+                    let mut m = Module { arc_memory: true, ..Module::default() };
                     m.classes.push(ClassDef {
                         id: 0,
                         name: "Object".into(),

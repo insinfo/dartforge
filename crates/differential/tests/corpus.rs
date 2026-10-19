@@ -48,7 +48,7 @@ fn ddc_matches_dart_run() {
             _ => {}
         }
     }
-    let declared: Vec<&str> = results.iter().filter_map(|r| r.program.diverge_ddc.as_ref().map(|m| m.as_str())).collect();
+    let declared: Vec<&str> = results.iter().filter_map(|r| r.program.diverge_ddc.as_deref()).collect();
     println!("{} programs; {} with a declared divergence: {:?}", results.len(), declared.len(), declared);
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }

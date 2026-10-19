@@ -1285,7 +1285,7 @@ mod tests {
                 *by_code.entry(key).or_default() += 1;
             }
             let mut v: Vec<_> = by_code.into_iter().collect();
-            v.sort_by(|a, b| b.1.cmp(&a.1));
+            v.sort_by_key(|entry| std::cmp::Reverse(entry.1));
             for (c, n) in v.iter().take(8) {
                 println!("    {n:>5}  {c}");
             }
@@ -1320,7 +1320,7 @@ mod tests {
         }
         println!("rejected: {total}");
         let mut v: Vec<_> = reasons.into_iter().collect();
-        v.sort_by(|a, b| b.1.cmp(&a.1));
+        v.sort_by_key(|entry| std::cmp::Reverse(entry.1));
         for (m, n) in v.iter().take(60) {
             println!("{n:>5}  {m}");
         }
@@ -1500,7 +1500,7 @@ mod tests {
             println!("{l:<20} membros {n:>5}  baixados {ok:>5}");
         }
         let mut v: Vec<_> = by_construct.into_iter().collect();
-        v.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+        v.sort_by_key(|entry| std::cmp::Reverse(entry.1.0));
         for (c, (members, occ)) in v.iter().take(80) {
             println!("{members:>5} {occ:>6}  {c}");
         }

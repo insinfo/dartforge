@@ -1,0 +1,135 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+   Doc-tests dartforge_emit_native
+
+running 121 tests
+test crates/emit_native/src/contracts.rs - contracts::ContractMode::from_name (line 37) ... ok
+test crates/emit_native/src/contracts.rs - contracts::manifest_path (line 13) ... ok
+test crates/emit_native/src/contracts/ssa.rs - contracts::ssa::validate (line 55) ... ok
+test crates/emit_native/src/contracts/no_escape.rs - contracts::no_escape::verify_parameter (line 77) ... ok
+test crates/emit_native/src/hir.rs - hir::DartEntryVector (line 1077) ... ok
+test crates/emit_native/src/cross.rs - cross::select_bundle (line 11) ... ok
+test crates/emit_native/src/hir.rs - hir::Instruction::ArcCopy (line 296) ... ok
+test crates/emit_native/src/hir.rs - hir::Instruction::ArcDrop (line 305) ... ok
+test crates/emit_native/src/hir.rs - hir::Instruction::ArcMove (line 314) ... ok
+test crates/emit_native/src/hir.rs - hir::Instruction::ArcLoadStrong (line 323) ... ok
+test crates/emit_native/src/hir.rs - hir::Instruction::ArcStoreStrong (line 332) ... ok
+test crates/emit_native/src/hir.rs - hir::MethodTable (line 11) ... ok
+test crates/emit_native/src/hir.rs - hir::StrongSlot (line 214) ... ok
+test crates/emit_native/src/hir.rs - hir::StrongSlot::Global (line 226) ... ok
+test crates/emit_native/src/hir.rs - hir::StrongStoreMode (line 236) ... ok
+test crates/emit_native/src/linker_macos.rs - linker_macos::tbd (line 813) ... ok
+test crates/emit_native/src/linker_windows.rs - linker_windows::Subsystem::from_environment (line 882) ... ok
+test crates/emit_native/src/linker_windows.rs - linker_windows::Subsystem::from_name (line 864) ... ok
+test crates/emit_native/src/linker_windows.rs - linker_windows::import_library (line 682) ... ok
+test crates/emit_native/src/llvm/mod.rs - llvm::LlvmEmitter<'a>::emit_all (line 559) ... ok
+test crates/emit_native/src/optimize/arc/analysis/escape.rs - optimize::arc::analysis::escape::EscapeCause (line 11) ... ok
+test crates/emit_native/src/optimize/arc/analysis/escape.rs - optimize::arc::analysis::escape::EscapeResult (line 33) ... ok
+test crates/emit_native/src/optimize/arc/analysis/escape.rs - optimize::arc::analysis::escape::compute (line 55) ... ok
+test crates/emit_native/src/optimize/arc/analysis/escape.rs - optimize::arc::analysis::escape::compute_in_module (line 85) ... ok
+test crates/emit_native/src/optimize/arc/analysis/graph.rs - optimize::arc::analysis::graph::ArcHeapGraph (line 13) ... ok
+test crates/emit_native/src/optimize/arc/analysis/graph.rs - optimize::arc::analysis::graph::ArcHeapGraph::check_in_module (line 37) ... ok
+test crates/emit_native/src/optimize/arc/analysis/graph.rs - optimize::arc::analysis::graph::ArcHeapGraph::components (line 86) ... ok
+test crates/emit_native/src/optimize/arc/analysis/graph.rs - optimize::arc::analysis::graph::ArcHeapGraph::edges (line 53) ... ok
+test crates/emit_native/src/optimize/arc/analysis/graph.rs - optimize::arc::analysis::graph::ArcHeapGraph::opaque (line 69) ... ok
+test crates/emit_native/src/optimize/arc/analysis/graph.rs - optimize::arc::analysis::graph::build_local_in_module (line 109) ... ok
+test crates/emit_native/src/optimize/arc/analysis/hir.rs - optimize::arc::analysis::hir::HirAnalysis (line 113) ... ok
+test crates/emit_native/src/optimize/arc/analysis/hir.rs - optimize::arc::analysis::hir::HirAnalysis::points (line 145) ... ok
+test crates/emit_native/src/optimize/arc/analysis/hir.rs - optimize::arc::analysis::hir::HirAnalysis::unknown_set (line 160) ... ok
+test crates/emit_native/src/optimize/arc/analysis/hir.rs - optimize::arc::analysis::hir::HirAnalysis::value (line 183) ... ok
+test crates/emit_native/src/optimize/arc/analysis/hir.rs - optimize::arc::analysis::hir::HirFacts (line 32) ... ok
+test crates/emit_native/src/optimize/arc/analysis/hir.rs - optimize::arc::analysis::hir::ObjectOrigin (line 13) ... ok
+test crates/emit_native/src/optimize/arc/analysis/hir.rs - optimize::arc::analysis::hir::analyze (line 208) ... ok
+test crates/emit_native/src/optimize/arc/analysis/model.rs - optimize::arc::analysis::model::AbstractNode (line 30) ... ok
+test crates/emit_native/src/optimize/arc/analysis/model.rs - optimize::arc::analysis::model::ArcSite (line 10) ... ok
+test crates/emit_native/src/optimize/arc/analysis/model.rs - optimize::arc::analysis::model::PointSet (line 79) ... ok
+test crates/emit_native/src/optimize/arc/analysis/model.rs - optimize::arc::analysis::model::PointSet::empty (line 100) ... ok
+test crates/emit_native/src/optimize/arc/analysis/model.rs - optimize::arc::analysis::model::PointSet::include (line 141) ... ok
+test crates/emit_native/src/optimize/arc/analysis/model.rs - optimize::arc::analysis::model::PointSet::join_set (line 166) ... ok
+test crates/emit_native/src/optimize/arc/analysis/model.rs - optimize::arc::analysis::model::PointSet::nodes (line 127) ... ok
+test crates/emit_native/src/optimize/arc/analysis/model.rs - optimize::arc::analysis::model::PointSet::unknown (line 113) ... ok
+test crates/emit_native/src/optimize/arc/analysis/module.rs - optimize::arc::analysis::module::analyze_in_module (line 31) ... ok
+test crates/emit_native/src/optimize/arc/analysis/points_to.rs - optimize::arc::analysis::points_to::ArcField (line 12) ... ok
+test crates/emit_native/src/optimize/arc/analysis/points_to.rs - optimize::arc::analysis::points_to::Constraint (line 29) ... ok
+test crates/emit_native/src/optimize/arc/analysis/points_to.rs - optimize::arc::analysis::points_to::PointsToResult (line 83) ... ok
+test crates/emit_native/src/optimize/arc/analysis/points_to.rs - optimize::arc::analysis::points_to::PointsToResult::field (line 112) ... ok
+test crates/emit_native/src/optimize/arc/analysis/points_to.rs - optimize::arc::analysis::points_to::PointsToResult::variable (line 99) ... ok
+test crates/emit_native/src/optimize/arc/analysis/points_to.rs - optimize::arc::analysis::points_to::solve (line 138) ... ok
+test crates/emit_native/src/optimize/arc/analysis/points_to.rs - optimize::arc::analysis::points_to::verify (line 411) ... ok
+test crates/emit_native/src/optimize/arc/analysis/summaries.rs - optimize::arc::analysis::summaries::ArcHeapFields (line 33) ... ok
+test crates/emit_native/src/optimize/arc/analysis/summaries.rs - optimize::arc::analysis::summaries::ArcHeapPublications (line 48) ... ok
+test crates/emit_native/src/optimize/arc/analysis/summaries.rs - optimize::arc::analysis::summaries::ArcHeapReturn (line 13) ... ok
+test crates/emit_native/src/optimize/arc/analysis/summaries.rs - optimize::arc::analysis::summaries::ArcHeapSummary (line 66) ... ok
+test crates/emit_native/src/optimize/arc/analysis/summaries.rs - optimize::arc::analysis::summaries::ArcHeapSummary::check (line 147) ... ok
+test crates/emit_native/src/optimize/arc/analysis/summaries.rs - optimize::arc::analysis::summaries::ArcHeapSummary::fields (line 105) ... ok
+test crates/emit_native/src/optimize/arc/analysis/summaries.rs - optimize::arc::analysis::summaries::ArcHeapSummary::instantiate (line 171) ... ok
+test crates/emit_native/src/optimize/arc/analysis/summaries.rs - optimize::arc::analysis::summaries::ArcHeapSummary::ret (line 130) ... ok
+test crates/emit_native/src/optimize/arc/analysis/summaries.rs - optimize::arc::analysis::summaries::ArcHeapSummary::publications (line 90) ... ok
+test crates/emit_native/src/optimize/arc/analysis/summaries.rs - optimize::arc::analysis::summaries::extract (line 210) ... ok
+test crates/emit_native/src/optimize/arc/calls.rs - optimize::arc::calls::DartFunctionContract (line 17) ... ok
+test crates/emit_native/src/optimize/arc/calls.rs - optimize::arc::calls::produce_dart_calls (line 224) ... ok
+test crates/emit_native/src/optimize/arc/calls.rs - optimize::arc::calls::verify_dart_function_contract (line 125) ... ok
+test crates/emit_native/src/optimize/arc/classification.rs - optimize::arc::classification::OwnerOrigin (line 12) ... ok
+test crates/emit_native/src/optimize/arc/classification.rs - optimize::arc::classification::Ownership (line 31) ... ok
+test crates/emit_native/src/optimize/arc/classification.rs - optimize::arc::classification::classified_liveness_with_exceptions (line 233) ... ok
+test crates/emit_native/src/optimize/arc/classification.rs - optimize::arc::classification::classified_liveness (line 70) ... ok
+test crates/emit_native/src/optimize/arc/contracts.rs - optimize::arc::contracts::contract (line 59) ... ok
+test crates/emit_native/src/optimize/arc/contracts.rs - optimize::arc::contracts::RuntimeCallContract (line 1298) ... ok
+test crates/emit_native/src/optimize/arc/contracts.rs - optimize::arc::contracts::insert_dart_return_retention (line 203) ... ok
+test crates/emit_native/src/optimize/arc/contracts.rs - optimize::arc::contracts::insert_arc_dart_exits (line 239) ... ok
+test crates/emit_native/src/optimize/arc/contracts.rs - optimize::arc::contracts::produce_and_verify_dart_tokens (line 377) ... ok
+test crates/emit_native/src/optimize/arc/contracts.rs - optimize::arc::contracts::produce_and_verify_tokens (line 433) ... ok
+test crates/emit_native/src/optimize/arc/contracts.rs - optimize::arc::contracts::produce_arc_contracts (line 540) ... ok
+test crates/emit_native/src/optimize/arc/contracts.rs - optimize::arc::contracts::produce_dart_ref_parameters (line 146) ... ok
+test crates/emit_native/src/optimize/arc/contracts.rs - optimize::arc::contracts::runtime_call_contract (line 1331) ... ok
+test crates/emit_native/src/optimize/arc/contracts.rs - optimize::arc::contracts::produce_runtime_contracts (line 481) ... ok
+test crates/emit_native/src/optimize/arc/functions.rs - optimize::arc::functions::DartFunctionPlan (line 13) ... ok
+test crates/emit_native/src/optimize/arc/foreign_cleanup.rs - optimize::arc::foreign_cleanup::ForeignCleanup (line 12) ... ok
+test crates/emit_native/src/optimize/arc/functions.rs - optimize::arc::functions::prepare_arc_dart_functions (line 116) ... ok
+test crates/emit_native/src/optimize/arc/functions.rs - optimize::arc::functions::insert_arc_dart_functions (line 64) ... ok
+test crates/emit_native/src/optimize/arc/mod.rs - optimize::arc::BorrowError (line 215) ... ok
+test crates/emit_native/src/optimize/arc/functions.rs - optimize::arc::functions::prepare_arc_dart_module (line 185) ... ok
+test crates/emit_native/src/optimize/arc/mod.rs - optimize::arc::Liveness (line 92) ... ok
+test crates/emit_native/src/optimize/arc/mod.rs - optimize::arc::liveness (line 189) ... ok
+test crates/emit_native/src/optimize/arc/mod.rs - optimize::arc::liveness_with_borrows (line 258) ... ok
+test crates/emit_native/src/optimize/arc/modules.rs - optimize::arc::modules::prepare_arc_dart_modules (line 65) ... ok
+test crates/emit_native/src/optimize/arc/parameters.rs - optimize::arc::parameters::produce_lowering_rti_parameters (line 49) ... ok
+test crates/emit_native/src/optimize/arc/parameters.rs - optimize::arc::parameters::produce_lowering_scalar_parameters (line 17) ... ok
+test crates/emit_native/src/optimize/arc/plans.rs - optimize::arc::plans::prepare_arc_tabled_module (line 18) ... ok
+test crates/emit_native/src/optimize/arc/plans.rs - optimize::arc::plans::produce_module_arc_tables (line 58) ... ok
+test crates/emit_native/src/optimize/arc/ports.rs - optimize::arc::ports::ArcAotPorts (line 10) ... ok
+test crates/emit_native/src/optimize/arc/ports.rs - optimize::arc::ports::certify_arc_aot_ports (line 252) ... ok
+test crates/emit_native/src/optimize/arc/scopes.rs - optimize::arc::scopes::ScopeChange (line 14) ... ok
+test crates/emit_native/src/optimize/arc/returns.rs - optimize::arc::returns::produce_lowering_ref_returns (line 20) ... ok
+test crates/emit_native/src/optimize/arc/scopes.rs - optimize::arc::scopes::ScopePlan (line 33) ... ok
+test crates/emit_native/src/optimize/arc/scopes.rs - optimize::arc::scopes::verify_scopes (line 128) ... ok
+test crates/emit_native/src/optimize/arc/shared_slots.rs - optimize::arc::shared_slots::ArcRefSlotsDraft (line 296) ... ok
+test crates/emit_native/src/optimize/arc/shared_slots.rs - optimize::arc::shared_slots::audit_shared_ref_slots (line 24) ... ok
+test crates/emit_native/src/optimize/arc/shared_slots.rs - optimize::arc::shared_slots::lower_shared_ref_slots (line 337) ... ok
+test crates/emit_native/src/optimize/arc/slot_lives.rs - optimize::arc::slot_lives::verify_cfg_ref_slot_lives (line 24) ... ok
+test crates/emit_native/src/optimize/arc/slot_plans.rs - optimize::arc::slot_plans::SharedFramesCfgContract (line 25) ... ok
+test crates/emit_native/src/optimize/arc/slot_plans.rs - optimize::arc::slot_plans::produce_cfg_ref_slot_plans (line 236) ... ok
+test crates/emit_native/src/optimize/arc/tokens.rs - optimize::arc::tokens::TokenEffect (line 19) ... ok
+test crates/emit_native/src/optimize/arc/tokens.rs - optimize::arc::tokens::TokenPlan (line 59) ... ok
+test crates/emit_native/src/optimize/arc/tokens.rs - optimize::arc::tokens::TokenReturn (line 38) ... ok
+test crates/emit_native/src/optimize/arc/tokens.rs - optimize::arc::tokens::tokens_at_landing_pad_entry (line 340) ... ok
+test crates/emit_native/src/optimize/arc/tokens.rs - optimize::arc::tokens::verify_tokens (line 281) ... ok
+test crates/emit_native/src/pruning.rs - pruning::summarize (line 628) ... ok
+test crates/emit_native/src/pruning.rs - pruning::table_line (line 77) ... ok
+test crates/emit_native/src/sdk_module.rs - sdk_module::context_in_tsd (line 1162) ... ok
+test crates/emit_native/src/sdk_module.rs - sdk_module::sdk_generation (line 635) ... ok
+test crates/emit_native/src/sdk_module.rs - sdk_module::with_context_in_tls (line 1087) ... ok
+test crates/emit_native/src/sdk_module.rs - sdk_module::with_nounwind (line 1052) ... ok
+test crates/emit_native/src/sdk_module.rs - sdk_module::with_optsize (line 1021) ... ok
+test crates/emit_native/src/target.rs - target::NativeTarget (line 25) ... ok
+test crates/emit_native/src/target.rs - target::shared_name (line 431) ... ok
+test crates/emit_native/src/target.rs - target::target_os (line 124) ... ok
+
+test result: ok. 121 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+
+running 1 test
+test crates/emit_native/src/optimize/arc/analysis/hir.rs - optimize::arc::analysis::hir::HirAnalysis::unknown_set (line 169) - compile fail ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+all doctests ran in 2.21s; merged doctests compilation took 1.50s

@@ -152,8 +152,7 @@ fn module() -> Result<Module, String> {
         Instruction::ICmp(ICmpOp::Eq, val(22), int(1)),
         Type::I1,
     ));
-    let mut success = Vec::new();
-    success.push((
+    let success = vec![(
         ValueId(28),
         Instruction::SetField {
             object: val(1),
@@ -161,7 +160,7 @@ fn module() -> Result<Module, String> {
             value: Operand::Constant(Constant::Null),
         },
         Type::Void,
-    ));
+    )];
     m.functions.push(Function {
         symbol: "ler_objeto_local".into(),
         name: "ler_objeto_local".into(),

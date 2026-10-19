@@ -1014,8 +1014,7 @@ fn catch_in_cleanup_profile_checks_selector_and_remaps_landing_pad_phi() {
         id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None),
     }]);
     let mut functions = vec![f, failure];
-    let mut plan = crate::optimize::arc::DartFunctionPlan::default();
-    plan.tables = t;
+    let plan = crate::optimize::arc::DartFunctionPlan { tables: t, ..Default::default() };
     let mut leaf = crate::optimize::arc::DartFunctionPlan::default();
     leaf.tables.checks_stack = true;
     let mut plans = std::collections::HashMap::from([("misto".into(), plan), ("falha".into(), leaf)]);

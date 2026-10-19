@@ -1,0 +1,19 @@
+{
+  "observed_utc": "2026-10-19T17:42:30.968601+00:00",
+  "run": {
+    "revision": "81e6762b16d755a0f94290eeaca31b83464630f1",
+    "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+    "compiler_sha256": "f3284c9d610665e9325899ec0036ddfeb058adb9bc375ee741905c376b8f30f8",
+    "started_utc": "2026-10-19T16:47:45.344077+00:00",
+    "pid": 73529,
+    "case_filter": null,
+    "build_jobs": 2,
+    "test_threads": 2
+  },
+  "compiler_hash_verified": "f3284c9d610665e9325899ec0036ddfeb058adb9bc375ee741905c376b8f30f8",
+  "process_probe_exit": 0,
+  "process": "73529 54:45 Ss",
+  "terminal_exit_file_exists": false,
+  "native_builder_test": "passed, 2410.20 seconds",
+  "workspace_test": "still active, no final result"
+}

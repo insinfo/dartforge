@@ -179,18 +179,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.coerce(r, Type::Ref)
     }
 
-    /// Matches `value` against pattern `p`; on failure branches to `failure`. `origin`
-    /// is the expression of the matched value (for SDK members by name).
+    /// Matches an operand and its source expression against pattern `p`; on failure
+    /// branches to `failure`. The expression supplies SDK member resolution by name.
     pub fn match_pattern(
         &mut self,
         ast: &ast::Ast,
         p: PatternId,
-        val_ref: Operand,
+        value: (Operand, ExprId),
         failure: BlockId,
         linkage: Linkage,
         linked: &mut HashSet<SymbolId>,
-        origin: ExprId,
     ) {
+        let (val_ref, origin) = value;
         let pat = ast.pattern(p);
         let span = pat.span;
         // `<int>[…]`/`<K, V>{…}`: the value must be a `List<int>`/`Map<K, V>`
@@ -303,18 +303,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             PatternKind::Or(a, b) => {
                 let try_b = self.new_block();
                 let end = self.new_block();
-                self.match_pattern(ast, *a, val_ref.clone(), try_b, linkage, linked, origin);
+                self.match_pattern(ast, *a, (val_ref.clone(), origin), try_b, linkage, linked);
                 self.terminate(Terminator::Branch(end));
                 self.set_block(try_b);
-                self.match_pattern(ast, *b, val_ref, failure, linkage, linked, origin);
+                self.match_pattern(ast, *b, (val_ref, origin), failure, linkage, linked);
                 self.terminate(Terminator::Branch(end));
                 self.set_block(end);
             }
             PatternKind::And(a, b) => {
-                self.match_pattern(ast, *a, val_ref.clone(), failure, linkage, linked, origin);
-                self.match_pattern(ast, *b, val_ref, failure, linkage, linked, origin);
+                self.match_pattern(ast, *a, (val_ref.clone(), origin), failure, linkage, linked);
+                self.match_pattern(ast, *b, (val_ref, origin), failure, linkage, linked);
             }
-            PatternKind::Parenthesized(x) => self.match_pattern(ast, *x, val_ref, failure, linkage, linked, origin),
+            PatternKind::Parenthesized(x) => self.match_pattern(ast, *x, (val_ref, origin), failure, linkage, linked),
             PatternKind::NullCheck(x) => {
                 if self.operand_type(&val_ref) == Type::Ref {
                     let nn = self.emit(
@@ -323,7 +323,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     );
                     self.require(nn, failure);
                 }
-                self.match_pattern(ast, *x, val_ref, failure, linkage, linked, origin);
+                self.match_pattern(ast, *x, (val_ref, origin), failure, linkage, linked);
             }
             PatternKind::NullAssert(x) => {
                 if self.operand_type(&val_ref) == Type::Ref {
@@ -343,12 +343,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.emit_throw_op(e);
                     self.set_block(b_ok);
                 }
-                self.match_pattern(ast, *x, val_ref, failure, linkage, linked, origin);
+                self.match_pattern(ast, *x, (val_ref, origin), failure, linkage, linked);
             }
             PatternKind::Cast { pattern, ty } => {
                 let v = self.coerce(val_ref.clone(), Type::Ref);
                 self.check_type_or_throw(ast.ty(*ty), v, super::rti::CastContext::How);
-                self.match_pattern(ast, *pattern, val_ref, failure, linkage, linked, origin);
+                self.match_pattern(ast, *pattern, (val_ref, origin), failure, linkage, linked);
             }
             // Lists and maps are the classes of the SDK source: through the members
             // (`length`, `[]`, `containsKey`…) of the dynamic class.
@@ -412,7 +412,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     if implicit {
                         self.refutable_pattern = false;
                     }
-                    self.match_pattern(ast, sp, x, failure, linkage, linked, origin);
+                    self.match_pattern(ast, sp, (x, origin), failure, linkage, linked);
                     self.refutable_pattern = saved;
                 }
             }
@@ -456,7 +456,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         },
                         Type::Ref,
                     );
-                    self.match_pattern(ast, f.pattern, x, failure, linkage, linked, origin);
+                    self.match_pattern(ast, f.pattern, (x, origin), failure, linkage, linked);
                 }
             }
             PatternKind::Object { ty, fields } => {
@@ -487,7 +487,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     if f.name.is_none() {
                         self.refutable_pattern = false;
                     }
-                    self.match_pattern(ast, f.pattern, x, failure, linkage, linked, origin);
+                    self.match_pattern(ast, f.pattern, (x, origin), failure, linkage, linked);
                     self.refutable_pattern = saved;
                 }
                 self.pattern_tuple_te = saved_tuple;
@@ -577,7 +577,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let mut linked = HashSet::new();
                 if let Some(p) = c.pattern {
                     let saved = std::mem::replace(&mut self.refutable_pattern, true);
-                    self.match_pattern(ast, p, v.clone(), next_item, Linkage::Declare, &mut linked, value);
+                    self.match_pattern(ast, p, (v.clone(), value), next_item, Linkage::Declare, &mut linked);
                     self.refutable_pattern = saved;
                 }
                 if let Some(g) = c.guard {
@@ -736,7 +736,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.open_scope();
             let mut linked = HashSet::new();
             let saved = std::mem::replace(&mut self.refutable_pattern, true);
-            self.match_pattern(ast, c.pattern, v.clone(), next_item, Linkage::Declare, &mut linked, value);
+            self.match_pattern(ast, c.pattern, (v.clone(), value), next_item, Linkage::Declare, &mut linked);
             self.refutable_pattern = saved;
             if let Some(g) = c.guard {
                 let ok = self.lower_expr(ast, g);
@@ -787,7 +787,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.open_scope();
         let mut linked = HashSet::new();
         let saved = std::mem::replace(&mut self.refutable_pattern, true);
-        self.match_pattern(ast, pattern, v, b_else, Linkage::Declare, &mut linked, condition);
+        self.match_pattern(ast, pattern, (v, condition), b_else, Linkage::Declare, &mut linked);
         self.refutable_pattern = saved;
         if let Some(g) = guard {
             let ok = self.lower_expr(ast, g);
@@ -818,7 +818,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let failure = self.new_block();
         let mut linked = HashSet::new();
         let saved = std::mem::replace(&mut self.refutable_pattern, false);
-        self.match_pattern(ast, p, val_ref, failure, linkage, &mut linked, origin);
+        self.match_pattern(ast, p, (val_ref, origin), failure, linkage, &mut linked);
         self.refutable_pattern = saved;
         let follows = self.current_block;
         self.set_block(failure);

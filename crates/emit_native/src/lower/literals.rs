@@ -583,7 +583,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(p) = case_pattern {
                     let mut linked = std::collections::HashSet::new();
                     let saved = std::mem::replace(&mut self.refutable_pattern, true);
-                    self.match_pattern(ast, *p, c, b_else, super::patterns::Linkage::Declare, &mut linked, *condition);
+                    self.match_pattern(ast, *p, (c, *condition), b_else, super::patterns::Linkage::Declare, &mut linked);
                     self.refutable_pattern = saved;
                     if let Some(g) = guard {
                         let ok = self.lower_expr(ast, *g);

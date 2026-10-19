@@ -1,0 +1,27 @@
+   Compiling dartforge-differential v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/differential)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.25s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_differential-74b53cfaaf456d82)
+
+running 20 tests
+test contract::tests::strips ... ok
+test corpus::tests::diverge_header ... ok
+test corpus::tests::shard_argument ... ok
+test corpus::tests::themes ... ok
+test corpus::tests::version_negative_and_experiment_headers ... ok
+test corpus::tests::shards_partition_the_corpus ... ok
+test matrix::tests::the_four_states ... ok
+test oracles::tests::error_lines ... ok
+test oracles::tests::exported ... ok
+test oracles::tests::url ... ok
+test report::tests::compares ... ok
+test report::tests::constructs_described_in_order_with_count ... ok
+test report::tests::ir_differences_lists_all ... ok
+test report::tests::constructs_section_counts_all_and_those_blocked_by_one ... ok
+test report::tests::ir_report_format ... ok
+test report::tests::late_names_are_omitted_only_in_late_messages ... ok
+test report::tests::native_report_lists_the_failure_constructs ... ok
+test report::tests::report_groups ... ok
+test tests::limiter_respects_the_maximum ... ok
+test tests::in_parallel_preserves_order ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s

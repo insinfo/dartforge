@@ -893,15 +893,15 @@ mod tests {
         for mask in 0..512 {
             let mut rs = Vec::new();
             let mut reachability = [[false; 3]; 3];
-            for v in 0..3 {
-                reachability[v][v] = true;
+            for (v, row) in reachability.iter_mut().enumerate() {
+                row[v] = true;
                 rs.push(Constraint::Seed {
                     dest: v,
                     node: node(&v.to_string()),
                 });
-                for w in 0..3 {
+                for (w, reachable) in row.iter_mut().enumerate() {
                     if mask & (1 << (3 * v + w)) != 0 {
-                        reachability[v][w] = true;
+                        *reachable = true;
                         rs.push(Constraint::Copy {
                             origin: v,
                             dest: w,
@@ -918,7 +918,7 @@ mod tests {
             }
             for limit in 1..=3 {
                 let r = solve(3, limit, &rs).unwrap();
-                for w in 0..3 {
+                for (w, _) in reachability[0].iter().enumerate() {
                     let expected: BTreeSet<_> = (0..3)
                         .filter(|&v| reachability[v][w])
                         .map(|v| node(&v.to_string()))
