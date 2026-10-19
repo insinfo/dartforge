@@ -1,0 +1,91 @@
+{
+  "recorded_at": "2026-10-19T06:23:38.113679-03:00",
+  "base_revision": "e0fd5848763cca16e78995b02d06c6d21f7c1474",
+  "platform": "macOS ARM64",
+  "rust_toolchain": "1.98.1",
+  "source_sha256": {
+    "Cargo.lock": "210aee79d07da10b91abaf3c2f847eb09add3896a8d1889d865e824c66f2fbea",
+    "crates/elements/src/load.rs": "665fa0ad852c41eaedc4e74ee1fb55b71214b3c2ce4b4858aa4b8b53c471a9bf",
+    "crates/formatter/Cargo.toml": "58e30d640b01f8fc7d9967fa739ea2fbc382e42c870a7d0c977d2561d5f07910",
+    "crates/formatter/src/short/arena.rs": "d81f0e5d2019e5fbb44064bde8939ea21e298c98e20adffd6e9fd7c97506c531",
+    "crates/formatter/src/short/splitter.rs": "cdceb7005b55411ec147f26b5b4d8b3bf0699a6b0cc466d5f055b5ef02c29caf",
+    "crates/formatter/src/short/visitor.rs": "590dcdf7a0158e6d1e7137b021beaf8c072456bfb7d3eac7dcb3ceed811f0b1e",
+    "crates/formatter/src/syntax/parser/mod.rs": "31a470a28d12202d993af278222d17a14094ddeebda1c2a06ee3b23bb209025c",
+    "crates/formatter/src/syntax/tree.rs": "983df4ee25ae7349c240ade3f27045fec80f238c895f91078d1e28a88509c5b5",
+    "crates/formatter/tests/cases.rs": "180885c45468cb31efac615f05ed79875da046d689e41ce8043129735bf08484",
+    "crates/formatter/tests/parser_sweep.rs": "eea7447f063aa2a89d265d28f1b1d272dcd2930a734b0e7587a58f9c083b4880"
+  },
+  "api_change": "Formatter Tree node insertion was renamed from new to push. Both parser call sites were migrated. The new node index is checked before the tree is mutated.",
+  "focused_clippy": {
+    "command": "cargo clippy --locked -p dartforge-elements -p dartforge-formatter --all-targets -- -D warnings",
+    "exit_code": 0,
+    "resolved_diagnostics": 6
+  },
+  "tests": {
+    "command": "cargo test --locked -p dartforge-elements -p dartforge-formatter -- --include-ignored --nocapture",
+    "environment": {
+      "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+    },
+    "exit_code": 0,
+    "passed": 73,
+    "failed": 0,
+    "ignored": 0,
+    "includes_doctests": true
+  },
+  "sdk_sweep": {
+    "accepted": 426,
+    "rejected": 0,
+    "coverage_failures": 0
+  },
+  "repository_sweep": {
+    "accepted": 10154,
+    "rejected": 2714,
+    "coverage_failures": 0,
+    "scope": "Token coverage of accepted files only. Repository rejections are not asserted to be official Dart rejections."
+  },
+  "negative_sdk": {
+    "command": "cargo test --locked -p dartforge-formatter --test parser_sweep sweep_of_repository_and_sdk -- --ignored --nocapture",
+    "environment": {
+      "DARTFORGE_SDK_LIB": "/tmp/dartforge-formatter-intentionally-missing-sdk"
+    },
+    "exit_code": 101,
+    "expected_failure": true,
+    "error_kind": "NotFound"
+  },
+  "sdk_format_oracle": {
+    "command": "cargo run --locked -p dartforge-formatter --example oracle -- --dart /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart --cache target/formatter-quality-oracle --diffs target/formatter-quality-diffs-final --list /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "exit_code": 0,
+    "dart_version": "3.6.2",
+    "accepted_by_dart": 426,
+    "identical": 426,
+    "different": 0,
+    "rejected_by_native": 0,
+    "unexpected_output": 0,
+    "panics": 0,
+    "official_rejections": 0,
+    "cache": "426 references freshly collected for this run, then reused by the final-source replay. See fresh-reference-oracle.txt and sdk-reference-cache.json. No rejection entries were present."
+  },
+  "required_workspace_checks": {
+    "format": {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 1,
+      "result": "Existing workspace formatting differences remain."
+    },
+    "clippy": {
+      "command": "cargo clippy --locked --workspace --all-targets -- -D warnings",
+      "exit_code": 101,
+      "result": "Remaining diagnostics in types, macros-host and ng-generator; later crates may have more."
+    },
+    "tests": {
+      "command": "cargo test --locked --workspace -- --include-ignored",
+      "exit_code": 101,
+      "result": "Apple LLVM 21 linker rejects LLVM 22 bitcode while linking LLVM/JIT test targets."
+    },
+    "docs": {
+      "command": "cargo doc --locked --workspace --no-deps --document-private-items",
+      "exit_code": 0,
+      "result": "Documentation built with existing warnings."
+    }
+  },
+  "performance_claim": null
+}

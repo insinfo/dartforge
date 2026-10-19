@@ -1,0 +1,20 @@
+   Compiling dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running tests/parser_sweep.rs (target/debug/deps/parser_sweep-e9b6fbf13dfeb877)
+
+running 1 test
+repository: 10154 accepted, 2714 rejected, 0 coverage failures
+
+thread 'sweep_of_repository_and_sdk' (1099448) panicked at crates/formatter/tests/parser_sweep.rs:109:21:
+called `Result::unwrap()` on an `Err` value: Custom { kind: NotFound, error: "/tmp/dartforge-formatter-intentionally-missing-sdk: No such file or directory (os error 2)" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test sweep_of_repository_and_sdk ... FAILED
+
+failures:
+
+failures:
+    sweep_of_repository_and_sdk
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 1.75s
+
+error: test failed, to rerun pass `-p dartforge-formatter --test parser_sweep`

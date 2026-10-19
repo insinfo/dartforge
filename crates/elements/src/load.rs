@@ -1036,7 +1036,7 @@ fn load_unit(
     program.times.files_read += 1;
     program.times.bytes_read += source.len();
     // A single `stat` per file read, so the session knows when it changes.
-    if let Some(cache) = units.as_deref_mut() {
+    if let Some(cache) = units {
         cache.annotate_marker(path);
     }
 
@@ -1194,10 +1194,10 @@ fn resolve_directive_target(
             // `dart:io` without the VM layout) is a compile error.
             Err(format!("the Dart library 'dart:{sdk_name}' is not available on this platform"))
         }
-    } else if uri_str.starts_with("package:") {
+    } else if let Some(package_path) = uri_str.strip_prefix("package:") {
         // Only validates the package; the path is computed once, when the library
         // leaves the queue (`library_path`), not per directive.
-        let name_ = uri_str["package:".len()..].split('/').next().unwrap_or("");
+        let name_ = package_path.split('/').next().unwrap_or("");
         if package_config.packages.contains_key(name_) {
             Ok((uri_str.to_string(), None))
         } else {

@@ -86,14 +86,27 @@ impl Tree {
     }
 
     /// Appends a node (without a parent yet) and returns its index.
-    pub fn new(&mut self, node: Node, start: Tk, end: Tk) -> NodeId {
+    ///
+    /// ```
+    /// use dartforge_formatter::syntax::tree::{Node, NodeId, Tree};
+    /// let mut tree = Tree::default();
+    /// let id = tree.push(Node::SimpleIdentifier { token: 0 }, 0, 0);
+    /// assert_eq!(id, NodeId(0));
+    /// assert_eq!(tree.start(id), 0);
+    /// assert_eq!(tree.parent(id), None);
+    /// ```
+    ///
+    /// # Panics
+    /// If the new node's index cannot be represented by [`NodeId`].
+    pub fn push(&mut self, node: Node, start: Tk, end: Tk) -> NodeId {
+        let id = NodeId(u32::try_from(self.nodes.len()).expect("syntax tree exceeds NodeId capacity"));
         self.nodes.push(NodeData {
             node,
             parent: None,
             start,
             end,
         });
-        NodeId(self.nodes.len() as u32 - 1)
+        id
     }
 
     /// Fills in every node's parent from each node's children.

@@ -90,10 +90,10 @@ impl RuleValues {
                         } else {
                             on_split(other);
                         }
-                    } else if let Some(c) = constraint {
-                        if !self.try_bind(a, other, c, on_split) {
-                            return false;
-                        }
+                    } else if let Some(c) = constraint
+                        && !self.try_bind(a, other, c, on_split)
+                    {
+                        return false;
                     }
                 }
                 Some(ov) => {

@@ -1,0 +1,151 @@
+   Compiling dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.23s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_elements-8dda9e2aa2620821)
+
+running 8 tests
+test generated::tests::error_aborts_generation ... ok
+test generated::tests::key_is_lexical ... ok
+test sdk::tests::reads_dartdevc_section_of_local_sdk ... ok
+test sdk::tests::vm_section_follows_include ... ok
+test load::conditional_import_context_tests::compiler_profile_support_remains_unchanged ... ok
+test load::conditional_import_context_tests::absent_analyzer_variables_never_equal_false ... ok
+test load::conditional_import_context_tests::sdk_cache_keys_separate_context_and_ignore_map_insertion_order ... ok
+test sdk::tests::native_overlay_swaps_patches_and_loads ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+
+     Running tests/sdk.rs (target/debug/deps/sdk-c44c710cb8bcd920)
+
+running 4 tests
+[test_sdk_core_load_and_patch] Rejected by the parser: 0, rejected by elements: 0
+int.parse checked successfully (patched_by=None, external=false)
+test test_sdk_core_load_and_patch ... ok
+[sdk_supertypes_resolve] Supertypes with extends: 269, resolved to ClassId: 269
+test sdk_namespaces_without_ambiguity_in_use ... ok
+test sdk_supertypes_resolve ... ok
+[every_dart_x_loads] Libraries loaded: 36, units: 179, classes: 1524, functions: 19871
+[every_dart_x_loads] Rejected by the parser: 0, rejected by elements: 0
+test every_dart_x_loads ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.67s
+
+     Running tests/sdk_cache.rs (target/debug/deps/sdk_cache-868c961a80205393)
+
+running 2 tests
+test invalid_cache_is_ignored ... ok
+minimum of 5: files 225.4ms; open+load through the cache 50.6ms (22%); build cache 778.4ms; units 146 / libraries 21 / classes 570 / functions 7469 / variables 1993
+test sdk_cache_reproduces_the_program_and_is_faster ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.50s
+
+     Running tests/unit_tests.rs (target/debug/deps/unit_tests-1bda51481b95817d)
+
+running 12 tests
+test test_inheritance_cycle_detection ... ok
+test part_of_itself_does_not_reload ... ok
+test test_part_and_part_of ... ok
+test test_cyclic_reexports ... ok
+test test_ambiguous_imports ... ok
+test test_local_shadowing ... ok
+test test_prefixes ... ok
+test part_by_package_uri ... ok
+test build_runner_output_outside_lib ... ok
+test test_supertype_resolution ... ok
+test test_show_hide_sequence ... ok
+test import_scope_per_unit ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/versions.rs (target/debug/deps/versions-ecf1117a67568704)
+
+running 5 tests
+test part_with_different_version_is_error ... ok
+test no_marker_and_no_package_uses_current ... ok
+test feature_disabled_by_version_is_parser_diagnostic ... ok
+test marker_out_of_range_is_error ... ok
+test marker_wins_over_package ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/dartforge_formatter-d7b697fb2f11289b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cases.rs (target/debug/deps/cases-88aac23ab9efecb3)
+
+running 3 tests
+test syntax_error_is_rejected ... ok
+test configurable_line_length ... ok
+test cases_match_dart_format ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/parser.rs (target/debug/deps/parser-429123e7fec271b5)
+
+running 28 tests
+test assert_as_expression ... ok
+test composed_greater_operators ... ok
+test declaration_start_and_end_ignore_comments ... ok
+test directives_ ... ok
+test async_and_generators ... ok
+test errors_the_analyzer_does_not_treat_as_syntactic ... ok
+test collections_and_elements ... ok
+test annotations ... ok
+test formal_parameters_ ... ok
+test cascades ... ok
+test index_with_question ... ok
+test function_references_and_relationals ... ok
+test function_expression_invocations ... ok
+test declarations_ ... ok
+test language_version ... ok
+test instance_creation ... ok
+test functions ... ok
+test records_and_parentheses ... ok
+test language_version_constructor_new_and_null_safety_modifiers ... ok
+test method_invocations ... ok
+test symbols_and_merged_operator_names ... ok
+test string_literals ... ok
+test syntax_errors ... ok
+test prefixed_identifiers_and_accesses ... ok
+test types_ ... ok
+test patterns_ ... ok
+test statements_ ... ok
+test large_file_performance ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/parser_sweep.rs (target/debug/deps/parser_sweep-3e74a096644eab59)
+
+running 3 tests
+test missing_empty_and_unreadable_corpora_cannot_pass ... ok
+test rejected_sources_are_counted_and_accepted_sources_are_checked ... ok
+repository: 10154 accepted, 2714 rejected, 0 coverage failures
+sdk: 426 accepted, 0 rejected, 0 coverage failures
+test sweep_of_repository_and_sdk ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.56s
+
+   Doc-tests dartforge_elements
+
+running 2 tests
+test crates/elements/src/sdk.rs - sdk::SdkLayout::load (line 119) - compile ... ok
+test crates/elements/src/config.rs - config::PackageConfig::generated_in_place_of (line 106) ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.55s; merged doctests compilation took 0.34s
+   Doc-tests dartforge_formatter
+
+running 6 tests
+test crates/formatter/src/syntax/tree.rs - syntax::tree::Tree::push (line 90) ... ok
+test crates/formatter/src/edits.rs - edits::minimal_edits (line 77) ... ok
+test crates/formatter/src/syntax/parser/mod.rs - syntax::parser::parse (line 123) ... ok
+test crates/formatter/src/syntax/token.rs - syntax::token::Tokens::read (line 99) ... ok
+test crates/formatter/src/syntax/parser/mod.rs - syntax::parser::parse_with (line 139) ... ok
+test crates/formatter/src/lib.rs - (line 11) ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.42s; merged doctests compilation took 0.23s

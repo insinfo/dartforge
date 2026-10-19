@@ -2,6 +2,18 @@
 
 ## Atualização de 19/10/2026
 
+- Elements e formatter passam no Clippy com todos os alvos, sem supressões.
+  A inserção mutável de nós foi renomeada de `Tree::new` para `Tree::push`, com
+  exemplo executável e índice verificado antes de modificar a árvore. A
+  varredura do formatador agora exige SDK e corpus não vazios, aceita
+  `DARTFORGE_SDK_LIB` e propaga erros de leitura; o leitor de casos também não
+  descarta entradas com erro. Suíte dos dois pacotes: 73 testes passaram,
+  incluindo ignorados e doctests. SDK 3.6.2: 426 arquivos aceitos, zero falhas
+  de cobertura de tokens e 426/426 saídas idênticas ao `dart format`, usando
+  referências novas e uma reprise após a última alteração. SDK inexistente
+  falhou como esperado, sem fallback. Restam diagnósticos globais em types,
+  macros-host e ng-generator, a formatação geral e o link padrão Apple/LLVM 22.
+  Evidências: `bench/results/2026-10-19-formatter-loader/checks.json`.
 - Sass moderno usa a gramática de valores de declaração nas regras `@`
   desconhecidas: comentários `//` deixam de vazar para o CSS, delimitadores
   balanceados são respeitados e valores da sintaxe indentada podem continuar

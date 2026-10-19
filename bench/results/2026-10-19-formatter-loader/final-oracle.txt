@@ -1,0 +1,4 @@
+   Compiling dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.97s
+     Running `target/debug/examples/oracle --dart /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart --cache target/formatter-quality-oracle --diffs target/formatter-quality-diffs-final --list /Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib`
+selected: 426/426 identical (100.0%) — different 0, rejected 0, unexpected output 0, panics 0; dart rejects 0 (we do too: 0)

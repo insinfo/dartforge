@@ -12,7 +12,7 @@ fn cases_match_dart_format() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases");
     let mut names: Vec<_> = std::fs::read_dir(&dir)
         .expect("tests/cases")
-        .filter_map(|e| e.ok().map(|e| e.path()))
+        .map(|entry| entry.expect("case directory entry").path())
         .filter(|p| p.extension().is_some_and(|e| e == "dart"))
         .collect();
     names.sort();

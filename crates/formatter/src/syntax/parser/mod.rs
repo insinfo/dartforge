@@ -639,11 +639,11 @@ impl<'f> Parser<'f> {
     /// Creates the node `node` from `start_` up to the last consumed token.
     fn node(&mut self, node: Node, start_: usize) -> NodeId {
         let end = self.pos.saturating_sub(1).max(start_);
-        self.tree_.new(node, start_ as Tk, end as Tk)
+        self.tree_.push(node, start_ as Tk, end as Tk)
     }
 
     fn node_between(&mut self, node: Node, start_: usize, end: usize) -> NodeId {
-        self.tree_.new(node, start_ as Tk, end as Tk)
+        self.tree_.push(node, start_ as Tk, end as Tk)
     }
 
     fn start_(&self, id: NodeId) -> usize {

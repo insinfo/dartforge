@@ -444,13 +444,7 @@ impl Arenas {
                 match value {
                     1 => combinators_.contains(&chunk),
                     2 => combinator_node(0),
-                    3 => {
-                        if names.len() == 2 {
-                            combinator_node(1)
-                        } else {
-                            true
-                        }
-                    }
+                    3 if names.len() == 2 => combinator_node(1),
                     _ => true,
                 }
             }

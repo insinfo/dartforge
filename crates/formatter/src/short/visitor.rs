@@ -552,10 +552,8 @@ impl<'f> SourceVisitor<'f> {
                     left_bracket,
                     right_bracket,
                     ..
-                } => {
-                    if self.can_split(elements, *right_bracket) {
-                        return Some(*left_bracket);
-                    }
+                } if self.can_split(elements, *right_bracket) => {
+                    return Some(*left_bracket);
                 }
                 _ => {}
             }
