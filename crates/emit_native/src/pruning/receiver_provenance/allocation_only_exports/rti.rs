@@ -81,9 +81,8 @@ impl Inventory {
             };
             let mut recipes = 0;
             let allowed = function.blocks.iter().all(|block| {
-                if let Terminator::Return(value) = &block.terminator {
-                    if value.as_ref().and_then(|value| shape.operand_type(value)) != Some(Type::I64) { return false; }
-                }
+                if let Terminator::Return(value) = &block.terminator
+                    && value.as_ref().and_then(|value| shape.operand_type(value)) != Some(Type::I64) { return false; }
                 block.instructions.iter().all(|(_, instruction, _)| match instruction {
                     I::Const(Constant::String(_) | Constant::StringWtf8(_)) | I::ICmp(..) | I::Phi { .. } => true,
                     I::CallRuntime { name, args, ret_ty: Type::I64 } if name == "dartforge_rti_recipe" => {

@@ -26,71 +26,6 @@ fn c(n: i64) -> Operand {
     Operand::Constant(Constant::Int(n))
 }
 
-#[cfg(test)]
-mod arc_tests {
-    use super::*;
-    use crate::context::Context;
-    use dartforge_intern::Interner;
-    use dartforge_types::table::{CoreTypes, TypeTable};
-
-    #[test]
-    fn source_scalar_add_carries_ref_in_arc_and_address_in_tracing() {
-        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
-            let dir = tempfile::tempdir().unwrap();
-            let entry = dir.path().join("main.dart");
-            std::fs::write(&entry,
-                "void inteiros(List<int> l, int v) { l.add(v); } void reais(List<double> l, double v) { l.add(v); } void booleanos(List<bool> l, bool v) { l.add(v); } void main() { inteiros(<int>[], 1); reais(<double>[], -0.0); booleanos(<bool>[], true); }\n").unwrap();
-            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
-            let mut interner = Interner::new();
-            let (program, diags) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
-            assert!(diags.is_empty(), "{diags:?}");
-            let mut table = TypeTable::new();
-            let core = CoreTypes::init(&mut table, &program, &interner);
-            let (mut outline, diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-            let (bodies, body_diags) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
-            for d in diags.iter().chain(&body_diags) {
-                assert!(!dartforge_types::codes::is_compile_error(&d.message), "{d:?}");
-            }
-            let te = crate::erasure::compute(&program, &outline, &mut table);
-            let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
-            ctx.te = te;
-            for arc in [false, true] {
-                ctx.arc_memory = arc;
-                let m = crate::lower::lower_program(&ctx);
-                assert!(m.errors.is_empty(), "{:?}", m.errors);
-                for name_str in ["inteiros", "reais", "booleanos"] {
-                    let f = m.functions.iter().find(|f| f.name == name_str).unwrap();
-                    let insts: Vec<_> = f.blocks.iter().flat_map(|b| &b.instructions).collect();
-                    let storage = insts.iter().find(|(_, i, _)| matches!(i,
-                        Instruction::CallRuntime { name, .. } if name == if arc {
-                            "dartforge_arc_list_storage_ref_v1"
-                        } else { "df.list_storage" })).unwrap();
-                    assert_eq!(storage.2, if arc { Type::Ref } else { Type::I64 });
-                    if arc {
-                        assert!(!insts.iter().any(|(_, i, _)| matches!(i, Instruction::NativeWrite { .. })));
-                        let write = insts.iter().find(|(_, i, _)| matches!(i,
-                            Instruction::CallRuntime { name, .. } if name == "dartforge_arc_list_write_bits_v1")).unwrap();
-                        let Instruction::CallRuntime { args, .. } = &write.1 else { unreachable!() };
-                        assert_eq!(args[0], (Operand::Val(storage.0), Type::Ref));
-                        assert_eq!(args[2].1, Type::I64);
-                        assert_eq!(args[3], (Operand::Constant(Constant::Int(match name_str {
-                            "inteiros" => 0x22, "reais" => 0x42, _ => 0x62,
-                        })), Type::I64));
-                        if name_str == "reais" {
-                            assert!(insts.iter().any(|(v, i, _)| args[2].0 == Operand::Val(*v)
-                                && matches!(i, Instruction::Bitcast { to: Type::I64, .. })));
-                        }
-                    } else {
-                        assert!(insts.iter().any(|(_, i, _)| matches!(i, Instruction::NativeWrite { .. })));
-                        assert!(!insts.iter().any(|(_, i, _)| matches!(i,
-                            Instruction::CallRuntime { name, .. } if name.starts_with("dartforge_arc_list_"))));
-                    }
-                }
-            }
-        }).unwrap().join().unwrap();
-    }
-}
-
 /// The `FORMAT`/`ELEMENT` bits (`@df.list_shape`) of general storage.
 const SHAPE_GENERAL: i64 = flags::REFS as i64;
 
@@ -327,5 +262,70 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.list_helper("df.list_write_len", vec![(list, Type::Ref), (new, Type::I64)], Type::Void);
         let done = self.current_block;
         (done, full)
+    }
+}
+
+#[cfg(test)]
+mod arc_tests {
+    use super::*;
+    use crate::context::Context;
+    use dartforge_intern::Interner;
+    use dartforge_types::table::{CoreTypes, TypeTable};
+
+    #[test]
+    fn source_scalar_add_carries_ref_in_arc_and_address_in_tracing() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let entry = dir.path().join("main.dart");
+            std::fs::write(&entry,
+                "void inteiros(List<int> l, int v) { l.add(v); } void reais(List<double> l, double v) { l.add(v); } void booleanos(List<bool> l, bool v) { l.add(v); } void main() { inteiros(<int>[], 1); reais(<double>[], -0.0); booleanos(<bool>[], true); }\n").unwrap();
+            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
+            let mut interner = Interner::new();
+            let (program, diags) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
+            assert!(diags.is_empty(), "{diags:?}");
+            let mut table = TypeTable::new();
+            let core = CoreTypes::init(&mut table, &program, &interner);
+            let (mut outline, diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+            let (bodies, body_diags) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+            for d in diags.iter().chain(&body_diags) {
+                assert!(!dartforge_types::codes::is_compile_error(&d.message), "{d:?}");
+            }
+            let te = crate::erasure::compute(&program, &outline, &mut table);
+            let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
+            ctx.te = te;
+            for arc in [false, true] {
+                ctx.arc_memory = arc;
+                let m = crate::lower::lower_program(&ctx);
+                assert!(m.errors.is_empty(), "{:?}", m.errors);
+                for name_str in ["inteiros", "reais", "booleanos"] {
+                    let f = m.functions.iter().find(|f| f.name == name_str).unwrap();
+                    let insts: Vec<_> = f.blocks.iter().flat_map(|b| &b.instructions).collect();
+                    let storage = insts.iter().find(|(_, i, _)| matches!(i,
+                        Instruction::CallRuntime { name, .. } if name == if arc {
+                            "dartforge_arc_list_storage_ref_v1"
+                        } else { "df.list_storage" })).unwrap();
+                    assert_eq!(storage.2, if arc { Type::Ref } else { Type::I64 });
+                    if arc {
+                        assert!(!insts.iter().any(|(_, i, _)| matches!(i, Instruction::NativeWrite { .. })));
+                        let write = insts.iter().find(|(_, i, _)| matches!(i,
+                            Instruction::CallRuntime { name, .. } if name == "dartforge_arc_list_write_bits_v1")).unwrap();
+                        let Instruction::CallRuntime { args, .. } = &write.1 else { unreachable!() };
+                        assert_eq!(args[0], (Operand::Val(storage.0), Type::Ref));
+                        assert_eq!(args[2].1, Type::I64);
+                        assert_eq!(args[3], (Operand::Constant(Constant::Int(match name_str {
+                            "inteiros" => 0x22, "reais" => 0x42, _ => 0x62,
+                        })), Type::I64));
+                        if name_str == "reais" {
+                            assert!(insts.iter().any(|(v, i, _)| args[2].0 == Operand::Val(*v)
+                                && matches!(i, Instruction::Bitcast { to: Type::I64, .. })));
+                        }
+                    } else {
+                        assert!(insts.iter().any(|(_, i, _)| matches!(i, Instruction::NativeWrite { .. })));
+                        assert!(!insts.iter().any(|(_, i, _)| matches!(i,
+                            Instruction::CallRuntime { name, .. } if name.starts_with("dartforge_arc_list_"))));
+                    }
+                }
+            }
+        }).unwrap().join().unwrap();
     }
 }

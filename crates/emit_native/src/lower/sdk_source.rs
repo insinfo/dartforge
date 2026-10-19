@@ -784,8 +784,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `toString()` of a value through the selector (interpolation with the source
     /// SDK): the text of null is `"null"` (the `toString` of `Null`).
     pub fn string_by_selector(&mut self, op: Operand) -> Operand {
-        let r = self.call_by_selector(op, "c:toString".to_string(), &[]);
-        r
+
+        self.call_by_selector(op, "c:toString".to_string(), &[])
     }
 
     /// Hook of `call_direct`: the call to an `external` of the source SDK.
@@ -1639,7 +1639,7 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
                         Type::I64,
                     );
                     let index = b.emit(Instruction::Add(npos, n_named), Type::I64);
-                    b.armed_tuple = Some(b.emit(Instruction::LoadIndexed { base: args.clone(), index: index }, Type::I64));
+                    b.armed_tuple = Some(b.emit(Instruction::LoadIndexed { base: args.clone(), index }, Type::I64));
                 }
                 b.call_direct(fid, Some(recv), vals)
             }
@@ -2328,9 +2328,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         return;
                     }
                 }
-                let ty = self.local_repr_of(name.span.start as usize);
+                let ty = self.local_repr_of(name.span.start);
                 let x = self.coerce(x, ty);
-                self.declare_variable(name.sym, name.span.start as usize, ty, x);
+                self.declare_variable(name.sym, name.span.start, ty, x);
             }
             ForInTarget::Expression(e) => {
                 if let ExprKind::Identifier(id) = &ast.expr(*e).kind {

@@ -435,7 +435,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             self.absorb(g);
             self.emit_call_with_check(
-                Instruction::CallStatic { symbol: symbol, args: vec![target.clone()], ret_ty: Type::Ref },
+                Instruction::CallStatic { symbol, args: vec![target.clone()], ret_ty: Type::Ref },
                 Type::Ref,
             );
         }
@@ -627,12 +627,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 match init {
                     Some(ForInit::Variables(list)) => {
                         for var in list.variables.iter() {
-                            let ty = self.local_repr_of(var.name.span.start as usize);
+                            let ty = self.local_repr_of(var.name.span.start);
                             let v = match var.initializer {
                                 Some(i) => self.lower_expr(ast, i),
                                 None => Self::zero_value(ty),
                             };
-                            self.declare_variable(var.name.sym, var.name.span.start as usize, ty, v);
+                            self.declare_variable(var.name.sym, var.name.span.start, ty, v);
                         }
                     }
                     Some(ForInit::Expression(e)) => {

@@ -113,7 +113,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(name) = f.name else { return };
         // The name, visible in the scope (the call finds it by offset); the value
         // is never read.
-        self.declare_variable(name.sym, name.span.start as usize, Type::Ref, Operand::Constant(Constant::Null));
+        self.declare_variable(name.sym, name.span.start, Type::Ref, Operand::Constant(Constant::Null));
 
         // The captures: the free variables visible here, and those of the direct
         // functions the body calls (forwarded).
@@ -123,7 +123,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         for s in free_set {
             let Some(l) = self.lookup_local(s) else { continue };
             if let Some(o) = l.offset
-                && (self.direct_functions.contains_key(&o) || o == name.span.start as usize)
+                && (self.direct_functions.contains_key(&o) || o == name.span.start)
             {
                 calls.push((s, o));
                 continue;
@@ -167,7 +167,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let symbol = format!("{symbol}$d{:08x}", (super::closures::hash_name(&shape) as u64) as u32);
         let direct = Direct { symbol: symbol.clone(), with_this, with_tuple, captures, reprs, ret };
-        self.direct_functions.insert(name.span.start as usize, direct.clone());
+        self.direct_functions.insert(name.span.start, direct.clone());
 
         // --- corpo ---------------------------------------------------------
         let readable = self.ctx.symbol_name(name.sym).to_string();
@@ -241,7 +241,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let name_p = p.name.map_or_else(|| "arg".to_string(), |n| self.ctx.symbol_name(n.sym).to_string());
             let v = b.add_param_dart(name_p, direct.reprs[i]);
             if let Some(n) = p.name {
-                b.declare_variable(n.sym, n.span.start as usize, direct.reprs[i], Operand::Val(v));
+                b.declare_variable(n.sym, n.span.start, direct.reprs[i], Operand::Val(v));
             }
         }
         match &f.body {

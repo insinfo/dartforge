@@ -240,7 +240,7 @@ mod tests {
                     (ValueId(2), read(1, 0), Type::I64),
                     (ValueId(3), read(1, 1), Type::I64),
                     (ValueId(4), Instruction::Add(val(2), val(3)), Type::I64),
-                    (ValueId(5), Instruction::LoadIndexed { base: val(tuple_base), index: index }, Type::I64),
+                    (ValueId(5), Instruction::LoadIndexed { base: val(tuple_base), index }, Type::I64),
                 ], terminator: Terminator::Return(Some(val(5))) }] });
             m.dart_vector_parameters.insert("generica".into(), HashMap::from([
                 (ValueId(0), DartEntryVector::Arguments), (ValueId(1), DartEntryVector::Descriptor)]));

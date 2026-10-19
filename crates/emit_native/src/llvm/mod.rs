@@ -1566,7 +1566,7 @@ impl<'a> LlvmEmitter<'a> {
                         }
                     }
                     // Under ARC the store goes to the runtime (`dartforge_object_set`), which counts the swap.
-                    Instruction::SetField { object, index, value } if (*index as usize) < INLINE_FIELDS && !self.module.arc_memory => {
+                    Instruction::SetField { object, index, value } if *index < INLINE_FIELDS && !self.module.arc_memory => {
                         let is_ref = u8::from(self.type_of(value) == Type::Ref);
                         let only = self.coerce(object, Type::I64);
                         let sv = self.coerce(value, Type::I64);
@@ -3152,7 +3152,7 @@ impl<'a> LlvmEmitter<'a> {
         // Registra classes
         for class in &self.module.classes {
             let idx = self.string_const_index(class.name.as_bytes()).unwrap_or(0);
-            let len = class.name.as_bytes().len();
+            let len = class.name.len();
             writeln!(
                 self.out,
                 "  call void @dartforge_register_class_name(i64 {}, ptr @.str.{}, i64 {})",
@@ -4337,9 +4337,9 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::Unbox { to, .. } if to.is_vector() => false,
             // Inline (load/store in the field vector), without a conversion that
             // allocates: a `Ref` is already an `i64`, a `double` is a `bitcast`.
-            Instruction::GetField { index, .. } => (*index as usize) >= INLINE_FIELDS,
+            Instruction::GetField { index, .. } => *index >= INLINE_FIELDS,
             Instruction::SetField { index, value, .. } => {
-                (*index as usize) >= INLINE_FIELDS
+                *index >= INLINE_FIELDS
                     || matches!(value, Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)))
             }
             Instruction::Store { ptr, val } => {

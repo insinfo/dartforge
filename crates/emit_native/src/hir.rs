@@ -1327,7 +1327,7 @@ impl Instruction {
                 if declaration.storage_type != Type::Void
                     && declaration.storage_type != Type::Ptr
                     && !declaration.storage_type.is_vector()
-                    && args.get(0).is_some_and(|(_, ty)| *ty == Type::Ref)
+                    && args.first().is_some_and(|(_, ty)| *ty == Type::Ref)
                     && args.get(1).is_some_and(|(index, ty)| *ty == Type::I64
                         && matches!(index, Operand::Constant(Constant::Int(i))
                             if usize::try_from(*i).ok() == Some(declaration.layout_index)))

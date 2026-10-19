@@ -189,7 +189,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Switch {
             val: cls,
             default: b_default,
-            cases: cases,
+            cases,
         });
         let mut entries = Vec::new();
         for (b, i) in blocks {
@@ -330,7 +330,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Switch {
             val: ca.clone(),
             default: b_runtime,
-            cases: cases,
+            cases,
         });
         for (bl, k, n) in blocks {
             self.set_block(bl);

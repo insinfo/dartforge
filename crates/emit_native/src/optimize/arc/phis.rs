@@ -344,7 +344,7 @@ fn copy(
                 }
             }
         }
-        f.blocks.push(BasicBlock { id: edge, instructions: instructions, terminator: Terminator::Branch(block) });
+        f.blocks.push(BasicBlock { id: edge, instructions, terminator: Terminator::Branch(block) });
     }
     Ok(copies)
 }

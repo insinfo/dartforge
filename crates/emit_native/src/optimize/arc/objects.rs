@@ -447,11 +447,10 @@ mod tests {
                 m.functions[2].blocks[0].terminator = Terminator::Return(Some(
                     Operand::Constant(Constant::Double(7.0))));
             }
-            if case == 13 {
-                if let Instruction::AllocClosureTyped { abi, .. } = &mut m.functions[0].blocks[0].instructions[2].1 {
+            if case == 13
+                && let Instruction::AllocClosureTyped { abi, .. } = &mut m.functions[0].blocks[0].instructions[2].1 {
                     *abi = 8;
                 }
-            }
             if case == 9 { m.functions.reverse(); }
             m.dart_ref_returns.extend(["capturar".into(), "entrada".into()]);
             if case != 6 { m.dart_scalar_parameters.insert("capturar".into(), HashSet::from([ValueId(1)])); }

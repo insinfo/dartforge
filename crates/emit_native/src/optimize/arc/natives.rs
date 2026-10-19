@@ -646,7 +646,7 @@ mod tests {
                 Terminator::CondBranch { cond: Operand::Val(ValueId(4)), then_block: BlockId(1), else_block: BlockId(2) } };
             m.functions.push(Function { symbol: "cb".into(), name: "cb".into(), debug_info: None,
                 params: vec![(ValueId(0), "ctx".into(), Type::I64)], return_ty: Type::Ref,
-                blocks: vec![BasicBlock { id: BlockId(0), instructions: insts, terminator: terminator },
+                blocks: vec![BasicBlock { id: BlockId(0), instructions: insts, terminator },
                     BasicBlock { id: BlockId(1), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) },
                     BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }] });
             m.dart_ref_returns.insert("cb".into());

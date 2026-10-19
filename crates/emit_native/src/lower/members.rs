@@ -1690,14 +1690,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // The `core.Symbol` factory redirects to the concrete class of the
         // internal library. The target is unambiguous and prevents the resolution
         // of the factory from going back to the abstract declaration itself.
-        if Some(cid) == self.ctx.sdk_class("core", "Symbol") {
-            if let Some(concrete) = self.ctx.sdk_class("_internal", "Symbol")
+        if Some(cid) == self.ctx.sdk_class("core", "Symbol")
+            && let Some(concrete) = self.ctx.sdk_class("_internal", "Symbol")
                 && let Some(empty) = self.ctx.interner.lookup("")
                 && let Some(&constructor) = self.ctx.program.classes[concrete.0 as usize].constructors.get(&empty)
             {
                 return self.instantiate_evaluated_with_rti(constructor, evaluated, span, explicit_rti, explicit_tuple);
             }
-        }
         if !super::user_function(self.ctx, fid) {
             if let Some(op) = self.runtime_error_constructor(fid, evaluated) {
                 return op;

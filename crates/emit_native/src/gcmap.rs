@@ -104,16 +104,25 @@ type Roots = Vec<(u8, i32)>;
 /// if dynamic —, records by return offset).
 type Function = (u32, u64, Vec<(u32, Roots)>);
 
+/// Read a fixed-width integer without overflowing the requested byte range.
+fn integer_bytes<const N: usize>(data: &[u8], start: usize) -> Result<[u8; N], String> {
+    start
+        .checked_add(N)
+        .and_then(|end| data.get(start..end))
+        .and_then(|bytes| bytes.try_into().ok())
+        .ok_or_else(|| "truncated binary object".to_string())
+}
+
 pub(crate) fn u16_at(d: &[u8], p: usize) -> Result<u16, String> {
-    d.get(p..p + 2).map(|b| u16::from_le_bytes([b[0], b[1]])).ok_or_else(|| "truncated COFF object".to_string())
+    Ok(u16::from_le_bytes(integer_bytes(d, p)?))
 }
 
 pub(crate) fn u32_at(d: &[u8], p: usize) -> Result<u32, String> {
-    d.get(p..p + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).ok_or_else(|| "truncated COFF object".to_string())
+    Ok(u32::from_le_bytes(integer_bytes(d, p)?))
 }
 
 pub(crate) fn u64_at(d: &[u8], p: usize) -> Result<u64, String> {
-    Ok(u64::from(u32_at(d, p)?) | (u64::from(u32_at(d, p + 4)?) << 32))
+    Ok(u64::from_le_bytes(integer_bytes(d, p)?))
 }
 
 pub(crate) fn varint(exit: &mut Vec<u8>, mut n: u64) {
@@ -129,20 +138,23 @@ pub(crate) fn varint(exit: &mut Vec<u8>, mut n: u64) {
     }
 }
 
+/// Read at most ten LEB128 bytes; the last byte may carry only bit 63.
 pub(crate) fn read_varint(d: &[u8], p: &mut usize) -> Result<u64, String> {
-    let mut r = 0u64;
-    let mut s = 0u32;
-    loop {
-        let b = *d.get(*p).ok_or_else(|| "truncated DFGM map".to_string())?;
+    let mut value = 0u64;
+    for shift in (0..64).step_by(7) {
+        let byte = *d
+            .get(*p)
+            .ok_or_else(|| "truncated compact map".to_string())?;
         *p += 1;
-        if s < 64 {
-            r |= u64::from(b & 0x7f) << s;
+        if shift == 63 && byte > 1 {
+            return Err("compact map varint exceeds u64".to_string());
         }
-        s += 7;
-        if b & 0x80 == 0 {
-            return Ok(r);
+        value |= u64::from(byte & 0x7f) << shift;
+        if byte & 0x80 == 0 {
+            return Ok(value);
         }
     }
+    Err("compact map varint exceeds u64".to_string())
 }
 
 fn zigzag(v: i64) -> u64 {
@@ -157,7 +169,13 @@ fn without_zigzag(u: u64) -> i64 {
 /// offset of each `StkSizeRecord`, its relocation (the symbol in
 /// COFF, the index of the relocation in ELF); `sp` and `fp` are the DWARF registers
 /// of the target and `preserved`, the mask of those that survive the call.
-fn decode_v3(sec: &[u8], symbol_in: &std::collections::HashMap<u32, u32>, sp: u16, fp: u16, preserved: u32) -> Result<Vec<Function>, String> {
+fn decode_v3(
+    sec: &[u8],
+    symbol_in: &std::collections::HashMap<u32, u32>,
+    sp: u16,
+    fp: u16,
+    preserved: u32,
+) -> Result<Vec<Function>, String> {
     let mut functions = Vec::new();
     let mut p = 0usize;
     while p + 16 <= sec.len() {
@@ -166,18 +184,35 @@ fn decode_v3(sec: &[u8], symbol_in: &std::collections::HashMap<u32, u32>, sp: u1
             continue;
         }
         if sec[p] != 3 {
-            return Err(format!("`.llvm_stackmaps` at version {} (the converter reads 3)", sec[p]));
+            return Err(format!(
+                "`.llvm_stackmaps` at version {} (the converter reads 3)",
+                sec[p]
+            ));
         }
         let n_functions = u32_at(sec, p + 4)? as usize;
         let n_constants = u32_at(sec, p + 8)? as usize;
         let n_records = u32_at(sec, p + 12)? as usize;
         let table = p + 16;
+        if n_functions > (sec.len() - table) / 24 {
+            return Err("truncated LLVM stack map function table".to_string());
+        }
         let constants = table + 24 * n_functions;
+        if n_constants > (sec.len() - constants) / 8 {
+            return Err("truncated LLVM stack map constant table".to_string());
+        }
         let mut r = constants + 8 * n_constants;
         let mut total = 0usize;
         for i in 0..n_functions {
             let frame = u64_at(sec, table + 24 * i + 8)?;
-            let function_records = u64_at(sec, table + 24 * i + 16)? as usize;
+            let function_records = usize::try_from(u64_at(sec, table + 24 * i + 16)?)
+                .map_err(|_| "LLVM stack map record count exceeds usize")?;
+            // Bound allocations by both the section and the declared total before
+            // reserving memory. Even a record without locations needs 16 bytes.
+            if function_records > n_records.saturating_sub(total)
+                || function_records > sec.len().saturating_sub(r) / 16
+            {
+                return Err("LLVM stack map record count exceeds the section".to_string());
+            }
             let symbol = *symbol_in
                 .get(&((table + 24 * i) as u32))
                 .ok_or_else(|| "stack map function without a relocation".to_string())?;
@@ -189,23 +224,40 @@ fn decode_v3(sec: &[u8], symbol_in: &std::collections::HashMap<u32, u32>, sp: u1
                 // (kind, size, register, offset or constant)
                 let local = |j: usize| -> Result<(u8, u16, u16, i32), String> {
                     let l = locals + 12 * j;
-                    let ty = *sec.get(l).ok_or_else(|| "truncated stack map".to_string())?;
-                    Ok((ty, u16_at(sec, l + 2)?, u16_at(sec, l + 4)?, u32_at(sec, l + 8)? as i32))
+                    let ty = *sec
+                        .get(l)
+                        .ok_or_else(|| "truncated stack map".to_string())?;
+                    Ok((
+                        ty,
+                        u16_at(sec, l + 2)?,
+                        u16_at(sec, l + 4)?,
+                        u32_at(sec, l + 8)? as i32,
+                    ))
                 };
                 if n_locals < 3 || local(0)?.0 != 4 || local(1)?.0 != 4 || local(2)?.0 != 4 {
-                    return Err("statepoint record without the three initial constant locations".to_string());
+                    return Err(
+                        "statepoint record without the three initial constant locations"
+                            .to_string(),
+                    );
                 }
-                let n_deopt = local(2)?.3.max(0) as usize;
-                if (n_locals - 3).saturating_sub(n_deopt) % 2 != 0 {
-                    return Err("statepoint record with incomplete (base, derived) pairs".to_string());
+                let n_deopt = usize::try_from(local(2)?.3)
+                    .map_err(|_| "negative deopt location count in the stack map")?;
+                if !(n_locals - 3).saturating_sub(n_deopt).is_multiple_of(2) {
+                    return Err(
+                        "statepoint record with incomplete (base, derived) pairs".to_string()
+                    );
                 }
                 if 3 + n_deopt > n_locals {
-                    return Err("statepoint record with more `deopt` locations than locations".to_string());
+                    return Err(
+                        "statepoint record with more `deopt` locations than locations".to_string(),
+                    );
                 }
                 let mut roots: Roots = Vec::new();
                 // The roots: each location of the `"deopt"` (the shape of §14.12) and the
                 // base of each (base, derived) pair of the `"gc-live"`.
-                for j in (3..3 + n_deopt).chain((3 + n_deopt..n_locals.saturating_sub(1)).step_by(2)) {
+                for j in
+                    (3..3 + n_deopt).chain((3 + n_deopt..n_locals.saturating_sub(1)).step_by(2))
+                {
                     let (ty, size, register, d) = local(j)?;
                     // Constant: null or a `Smi` (odd), or the `undef` the
                     // optimizer left in an operand (0xFEFEFEFE); not a
@@ -215,21 +267,33 @@ fn decode_v3(sec: &[u8], symbol_in: &std::collections::HashMap<u32, u32>, sp: u1
                         let c = if ty == 4 {
                             i64::from(d)
                         } else {
-                            u64_at(sec, constants + 8 * usize::try_from(d).map_err(|_| "negative `ConstIndex` in the stack map".to_string())?)? as i64
+                            u64_at(
+                                sec,
+                                constants
+                                    + 8 * usize::try_from(d).map_err(|_| {
+                                        "negative `ConstIndex` in the stack map".to_string()
+                                    })?,
+                            )? as i64
                         };
                         if c != 0 && c & 1 == 0 && c != UNDEFINED {
-                            return Err(format!("non-null even constant ({c:#x}) as a root in the stack map: a raw value treated as a reference"));
+                            return Err(format!(
+                                "non-null even constant ({c:#x}) as a root in the stack map: a raw value treated as a reference"
+                            ));
                         }
                         continue;
                     }
-                    let in_register = ty == 1 && size == 8 && register < 32 && preserved & (1 << register) != 0;
-                    if !in_register && (ty != 3 || size != 8 || (register != sp && register != fp)) {
+                    let in_register =
+                        ty == 1 && size == 8 && register < 32 && preserved & (1 << register) != 0;
+                    if !in_register && (ty != 3 || size != 8 || (register != sp && register != fp))
+                    {
                         return Err(format!(
                             "location rejected in the stack map: type {ty}, size {size}, register {register} (only 8-byte `Indirect [SP|FP + d]` or a preserved `Register`)"
                         ));
                     }
                     if !in_register && d % 8 != 0 {
-                        return Err(format!("root slot not a multiple of 8 in the stack map: {d}"));
+                        return Err(format!(
+                            "root slot not a multiple of 8 in the stack map: {d}"
+                        ));
                     }
                     let root = if in_register {
                         (IN_REGISTER, i32::from(register))
@@ -291,14 +355,17 @@ fn encode(functions: &[Function], flags: u16, target: u8) -> (Vec<u8>, Vec<u32>)
                     continue;
                 }
                 let slot = i64::from(d) / 8;
-                varint(&mut flow, (zigzag(slot - previous_slot) << 1) | u64::from(ty == NO_FP));
+                varint(
+                    &mut flow,
+                    (zigzag(slot - previous_slot) << 1) | u64::from(ty == NO_FP),
+                );
                 previous_slot = slot;
             }
             varint(&mut flow, mask);
             previous = Some(roots);
         }
     }
-    while flow.len() % 4 != 0 {
+    while !flow.len().is_multiple_of(4) {
         flow.push(0);
     }
     let header = 16 + 8 * functions.len();
@@ -318,52 +385,100 @@ fn encode(functions: &[Function], flags: u16, target: u8) -> (Vec<u8>, Vec<u32>)
     (blob, fields)
 }
 
-/// Decodes a DFGM v2 blob: per function, (frame size in bytes,
-/// records). It is the reference reader (the runtime's uses the same algorithm).
-fn decode(blob: &[u8]) -> Result<Vec<(u64, Vec<(u32, Roots)>)>, String> {
+/// Decoded frame size and return-address root sets for one function.
+type DecodedFunction = (u64, Vec<(u32, Roots)>);
+
+/// Decodes a DFGM v2 blob and rejects inconsistent sizes and integer overflows.
+/// Streams are bounded by the next function so a truncated record cannot borrow
+/// bytes from another function. This is the converter's round-trip reader;
+/// runtime readers are separate implementations.
+fn decode(blob: &[u8]) -> Result<Vec<DecodedFunction>, String> {
     if blob.len() < 16 || &blob[..4] != b"DFGM" || blob[4] != VERSION {
         return Err("DFGM blob without the version 2 header".to_string());
     }
     if u32_at(blob, 8)? as usize != blob.len() {
         return Err("DFGM blob with the wrong size in the header".to_string());
     }
-    if u16_at(blob, 6)? & !RELATIVE_FLAG != 0 {
-        return Err("DFGM blob with unknown flags".to_string());
+    if u16_at(blob, 6)? & !RELATIVE_FLAG != 0 || !matches!(blob[5], 1 | 2) {
+        return Err("DFGM blob with unknown flags or target".to_string());
     }
     let n_functions = u32_at(blob, 12)? as usize;
+    if n_functions > (blob.len() - 16) / 8 {
+        return Err("truncated DFGM function index".to_string());
+    }
     let base = 16 + 8 * n_functions;
-    let mut exit = Vec::with_capacity(n_functions);
+    let mut starts = Vec::with_capacity(n_functions);
     for i in 0..n_functions {
-        let mut p = base + u32_at(blob, 16 + 8 * i + 4)? as usize;
-        let n = read_varint(blob, &mut p)?;
-        let frame = read_varint(blob, &mut p)? * 8;
+        let offset = u32_at(blob, 20 + 8 * i)? as usize;
+        let start = base
+            .checked_add(offset)
+            .filter(|&p| p < blob.len())
+            .ok_or("DFGM function stream outside the blob")?;
+        if starts.last().is_some_and(|&previous| previous >= start) {
+            return Err("DFGM function streams out of order".to_string());
+        }
+        starts.push(start);
+    }
+    let mut output = Vec::with_capacity(n_functions);
+    for (i, &start) in starts.iter().enumerate() {
+        let end = starts.get(i + 1).copied().unwrap_or(blob.len());
+        let stream = &blob[start..end];
+        let mut p = 0;
+        let n = read_varint(stream, &mut p)?;
+        let frame = read_varint(stream, &mut p)?
+            .checked_mul(8)
+            .ok_or("DFGM frame size overflow")?;
+        if n > ((stream.len() - p) / 2) as u64 {
+            return Err("truncated DFGM records".to_string());
+        }
         let mut records = Vec::new();
         let mut ret = 0u32;
-        let mut previous: Roots = Vec::new();
+        let mut previous: Option<Roots> = None;
         for _ in 0..n {
-            ret += read_varint(blob, &mut p)? as u32;
-            let c = read_varint(blob, &mut p)?;
-            if c & 1 == 0 {
-                previous = Vec::new();
-                let mut slot = 0i64;
-                for _ in 0..(c >> 1) {
-                    let s = read_varint(blob, &mut p)?;
-                    slot += without_zigzag(s >> 1);
-                    previous.push((if s & 1 == 1 { NO_FP } else { NO_SP }, (slot * 8) as i32));
+            let delta = u32::try_from(read_varint(stream, &mut p)?)
+                .map_err(|_| "DFGM return offset exceeds u32")?;
+            ret = ret
+                .checked_add(delta)
+                .ok_or("DFGM return offset overflow")?;
+            let count = read_varint(stream, &mut p)?;
+            if count & 1 == 0 {
+                let slots = count >> 1;
+                if slots >= (stream.len() - p) as u64 {
+                    return Err("truncated DFGM roots".to_string());
                 }
-                let mask = read_varint(blob, &mut p)?;
-                for r in 0..64 {
-                    if mask & (1 << r) != 0 {
-                        previous.push((IN_REGISTER, r));
+                let mut roots = Vec::new();
+                let mut slot = 0i64;
+                for _ in 0..slots {
+                    let encoded = read_varint(stream, &mut p)?;
+                    slot = slot
+                        .checked_add(without_zigzag(encoded >> 1))
+                        .ok_or("DFGM root slot overflow")?;
+                    let offset = slot
+                        .checked_mul(8)
+                        .and_then(|v| i32::try_from(v).ok())
+                        .ok_or("DFGM root offset exceeds i32")?;
+                    roots.push((if encoded & 1 == 1 { NO_FP } else { NO_SP }, offset));
+                }
+                let mask = read_varint(stream, &mut p)?;
+                for register in 0..64 {
+                    if mask & (1 << register) != 0 {
+                        roots.push((IN_REGISTER, register));
                     }
                 }
-                previous.sort_unstable();
+                roots.sort_unstable();
+                previous = Some(roots);
             }
-            records.push((ret, previous.clone()));
+            records.push((
+                ret,
+                previous
+                    .as_ref()
+                    .ok_or("DFGM root reuse without a previous set")?
+                    .clone(),
+            ));
         }
-        exit.push((frame, records));
+        output.push((frame, records));
     }
-    Ok(exit)
+    Ok(output)
 }
 
 /// Converts, in place, the `.llvm_stackmaps` of the x86-64 COFF object `object` into
@@ -390,13 +505,21 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
     let strings = symbols + 18 * n_symbols;
     for s in 0..n_sections {
         let h = 20 + optional + 40 * s;
-        let name = object.get(h..h + 8).ok_or_else(|| "truncated COFF object".to_string())?;
+        let name = object
+            .get(h..h + 8)
+            .ok_or_else(|| "truncated COFF object".to_string())?;
         // The name has more than 8 bytes: `/<offset in the string table>`.
         let is_the_map = match name.strip_prefix(b"/") {
             Some(rest) => {
                 let end = rest.iter().position(|&b| b == 0).unwrap_or(rest.len());
-                let shift = std::str::from_utf8(&rest[..end]).ok().and_then(|t| t.parse::<usize>().ok());
-                shift.is_some_and(|d| object.get(strings + d..).is_some_and(|t| t.starts_with(b".llvm_stackmaps\0")))
+                let shift = std::str::from_utf8(&rest[..end])
+                    .ok()
+                    .and_then(|t| t.parse::<usize>().ok());
+                shift.is_some_and(|d| {
+                    object
+                        .get(strings + d..)
+                        .is_some_and(|t| t.starts_with(b".llvm_stackmaps\0"))
+                })
             }
             None => false,
         };
@@ -411,12 +534,17 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
         if features & SCN_NRELOC_OVFL != 0 {
             return Ok(false);
         }
-        let sec = object.get(data..data + size).ok_or_else(|| "truncated COFF object".to_string())?.to_vec();
+        let sec = object
+            .get(data..data + size)
+            .ok_or_else(|| "truncated COFF object".to_string())?
+            .to_vec();
         let mut symbol_in: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
         for k in 0..n_relocations {
             let e = relocations + 10 * k;
             if u16_at(object, e + 8)? != REL_ADDR64 {
-                return Err("unexpected relocation in `.llvm_stackmaps` (expected ADDR64)".to_string());
+                return Err(
+                    "unexpected relocation in `.llvm_stackmaps` (expected ADDR64)".to_string(),
+                );
             }
             symbol_in.insert(u32_at(object, e)?, u32_at(object, e + 4)?);
         }
@@ -425,7 +553,10 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
         // Round trip: what the runtime will read is what LLVM wrote.
         let back = decode(&blob)?;
         let equal = back.len() == functions.len()
-            && back.iter().zip(&functions).all(|((frame, records), (_, q, r))| *frame == (q / 8) * 8 && records == r);
+            && back
+                .iter()
+                .zip(&functions)
+                .all(|((frame, records), (_, q, r))| *frame == (q / 8) * 8 && records == r);
         if !equal {
             return Err("the compact stack map does not reproduce LLVM's (round trip)".to_string());
         }
@@ -470,9 +601,27 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
         return Err("ELF object with roots by maps that is not 64-bit little-endian".to_string());
     }
     let (target, sp, fp, preserved, absolute, relative) = match u16_at(object, 0x12)? {
-        ELF_X86_64 => (1u8, REG_SP, REG_FP, PRESERVED_SYSV, R_X86_64_64, R_X86_64_PC32),
-        ELF_AARCH64 => (2u8, REG_SP_AARCH64, REG_FP_AARCH64, PRESERVED_AARCH64, R_AARCH64_ABS64, R_AARCH64_PREL32),
-        another => return Err(format!("ELF object of machine {another}: roots by maps only exist on x86-64 and aarch64")),
+        ELF_X86_64 => (
+            1u8,
+            REG_SP,
+            REG_FP,
+            PRESERVED_SYSV,
+            R_X86_64_64,
+            R_X86_64_PC32,
+        ),
+        ELF_AARCH64 => (
+            2u8,
+            REG_SP_AARCH64,
+            REG_FP_AARCH64,
+            PRESERVED_AARCH64,
+            R_AARCH64_ABS64,
+            R_AARCH64_PREL32,
+        ),
+        another => {
+            return Err(format!(
+                "ELF object of machine {another}: roots by maps only exist on x86-64 and aarch64"
+            ));
+        }
     };
     let table = u64_at(object, 0x28)? as usize;
     let entry_size = u16_at(object, 0x3A)? as usize;
@@ -485,7 +634,9 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
     let names = u64_at(object, header(names_index) + 24)? as usize;
     let name_of = |o: &[u8], i: usize| -> Result<(usize, Vec<u8>), String> {
         let start = names + u32_at(o, header(i))? as usize;
-        let rest = o.get(start..).ok_or_else(|| "objeto ELF truncado".to_string())?;
+        let rest = o
+            .get(start..)
+            .ok_or_else(|| "objeto ELF truncado".to_string())?;
         let end = rest.iter().position(|&b| b == 0).unwrap_or(rest.len());
         Ok((start, rest[..end].to_vec()))
     };
@@ -502,7 +653,10 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
         let ty = u32_at(object, header(i) + 4)?;
         if (ty == 4 || ty == 9) && u32_at(object, header(i) + 44)? as usize == m {
             if ty == 9 {
-                return Err("`.llvm_stackmaps` with `SHT_REL` relocations (the converter reads `SHT_RELA`)".to_string());
+                return Err(
+                    "`.llvm_stackmaps` with `SHT_REL` relocations (the converter reads `SHT_RELA`)"
+                        .to_string(),
+                );
             }
             relocations = Some(i);
         }
@@ -512,10 +666,13 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
     };
     let data = u64_at(object, header(m) + 24)? as usize;
     let size = u64_at(object, header(m) + 32)? as usize;
-    let sec = object.get(data..data + size).ok_or_else(|| "objeto ELF truncado".to_string())?.to_vec();
+    let sec = object
+        .get(data..data + size)
+        .ok_or_else(|| "objeto ELF truncado".to_string())?
+        .to_vec();
     let rel_start = u64_at(object, header(r) + 24)? as usize;
     let rel_size = u64_at(object, header(r) + 32)? as usize;
-    if u64_at(object, header(r) + 56)? != 24 || rel_size % 24 != 0 {
+    if u64_at(object, header(r) + 56)? != 24 || !rel_size.is_multiple_of(24) {
         return Err("relocations of `.llvm_stackmaps` outside the `Elf64_Rela` format".to_string());
     }
     let n_relocations = rel_size / 24;
@@ -528,21 +685,32 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
         let place = u64_at(object, e)?;
         let info = u64_at(object, e + 8)?;
         if info as u32 != absolute {
-            return Err(format!("relocation {} in `.llvm_stackmaps` (expected the 64-bit absolute one)", info as u32));
+            return Err(format!(
+                "relocation {} in `.llvm_stackmaps` (expected the 64-bit absolute one)",
+                info as u32
+            ));
         }
-        symbol_in.insert(u32::try_from(place).map_err(|_| "`.llvm_stackmaps` grande demais".to_string())?, k as u32);
+        symbol_in.insert(
+            u32::try_from(place).map_err(|_| "`.llvm_stackmaps` grande demais".to_string())?,
+            k as u32,
+        );
         originals.push((info >> 32, u64_at(object, e + 16)?));
     }
     let functions = decode_v3(&sec, &symbol_in, sp, fp, preserved)?;
     let (blob, fields) = encode(&functions, RELATIVE_FLAG, target);
     let back = decode(&blob)?;
     let equal = back.len() == functions.len()
-        && back.iter().zip(&functions).all(|((frame, records), (_, q, r))| *frame == (q / 8) * 8 && records == r);
+        && back
+            .iter()
+            .zip(&functions)
+            .all(|((frame, records), (_, q, r))| *frame == (q / 8) * 8 && records == r);
     if !equal {
         return Err("the compact stack map does not reproduce LLVM's (round trip)".to_string());
     }
     if blob.len() > size || fields.len() != n_relocations {
-        return Err("the compact stack map does not fit in the place of `.llvm_stackmaps`".to_string());
+        return Err(
+            "the compact stack map does not fit in the place of `.llvm_stackmaps`".to_string(),
+        );
     }
     object[data..data + blob.len()].copy_from_slice(&blob);
     object[data + blob.len()..data + size].fill(0);
@@ -559,7 +727,8 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
         let (symbol, addendum) = originals[*ident as usize];
         let e = rel_start + 24 * k;
         object[e..e + 8].copy_from_slice(&u64::from(*field).to_le_bytes());
-        object[e + 8..e + 16].copy_from_slice(&((symbol << 32) | u64::from(relative)).to_le_bytes());
+        object[e + 8..e + 16]
+            .copy_from_slice(&((symbol << 32) | u64::from(relative)).to_le_bytes());
         object[e + 16..e + 24].copy_from_slice(&addendum.to_le_bytes());
     }
     Ok(true)
@@ -571,7 +740,9 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
 pub fn convert_here() -> bool {
     match crate::target::target_os() {
         crate::target::Os::Linux => true,
-        crate::target::Os::Windows => !std::env::var_os("DARTFORGE_NO_COMPACT_MAP").is_some_and(|v| !v.is_empty() && v != "0"),
+        crate::target::Os::Windows => {
+            !std::env::var_os("DARTFORGE_NO_COMPACT_MAP").is_some_and(|v| !v.is_empty() && v != "0")
+        }
         crate::target::Os::MacOs => false,
     }
 }
@@ -594,6 +765,90 @@ mod tests {
     use super::*;
 
     #[test]
+    fn binary_readers_reject_overflowing_offsets() {
+        assert!(u16_at(&[], usize::MAX).is_err());
+        assert!(u32_at(&[], usize::MAX).is_err());
+        assert!(u64_at(&[], usize::MAX).is_err());
+    }
+
+    #[test]
+    fn varints_reject_values_outside_u64() {
+        for bytes in [
+            vec![0xff; 10],
+            [vec![0xff; 9], vec![2]].concat(),
+            [vec![0x80; 10], vec![0]].concat(),
+        ] {
+            assert!(read_varint(&bytes, &mut 0).is_err(), "{bytes:?}");
+        }
+        let mut bytes = Vec::new();
+        varint(&mut bytes, u64::MAX);
+        assert_eq!(read_varint(&bytes, &mut 0), Ok(u64::MAX));
+        for end in 0..bytes.len() {
+            assert!(read_varint(&bytes[..end], &mut 0).is_err());
+        }
+    }
+
+    #[test]
+    fn compact_maps_reject_frame_and_return_overflow() {
+        let (mut blob, _) = encode(&[(0, 0, vec![])], 0, 1);
+        blob.truncate(24);
+        varint(&mut blob, 0);
+        varint(&mut blob, u64::MAX);
+        let size = blob.len() as u32;
+        blob[8..12].copy_from_slice(&size.to_le_bytes());
+        assert!(decode(&blob).is_err());
+        let (mut blob, _) = encode(&[(0, 0, vec![])], 0, 1);
+        blob.truncate(24);
+        for value in [2, 0, u32::MAX as u64, 0, 0, 1, 1] {
+            varint(&mut blob, value);
+        }
+        let size = blob.len() as u32;
+        blob[8..12].copy_from_slice(&size.to_le_bytes());
+        assert!(decode(&blob).is_err());
+    }
+
+    #[test]
+    fn compact_maps_bound_indexes_and_each_function_stream() {
+        let functions = vec![
+            (0, 16, vec![(4, vec![(NO_SP, 8)])]),
+            (1, 24, vec![(8, vec![])]),
+        ];
+        let (blob, _) = encode(&functions, 0, 1);
+        for end in 0..blob.len() {
+            assert!(decode(&blob[..end]).is_err(), "prefix {end}");
+        }
+        let mut huge_count = blob.clone();
+        huge_count[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(decode(&huge_count).is_err());
+        let mut duplicate_stream = blob.clone();
+        let first = u32_at(&blob, 20).unwrap();
+        duplicate_stream[28..32].copy_from_slice(&first.to_le_bytes());
+        assert!(decode(&duplicate_stream).is_err());
+        let mut cross_stream = blob;
+        // Three records cannot fit in the first function's stream; bytes from
+        // the next function must not make this declaration appear complete.
+        cross_stream[32] = 3;
+        assert!(decode(&cross_stream).is_err());
+    }
+
+    #[test]
+    fn llvm_stack_maps_bound_declared_counts_before_allocation() {
+        let mut section = vec![0u8; 40];
+        section[0] = 3;
+        section[4..8].copy_from_slice(&1u32.to_le_bytes());
+        section[12..16].copy_from_slice(&1u32.to_le_bytes());
+        section[32..40].copy_from_slice(&u64::MAX.to_le_bytes());
+        let symbols = std::collections::HashMap::from([(16, 0)]);
+        assert!(decode_v3(&section, &symbols, REG_SP, REG_FP, PRESERVED_SYSV).is_err());
+        for field in [4, 8] {
+            let mut section = vec![0u8; 16];
+            section[0] = 3;
+            section[field..field + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+            assert!(decode_v3(&section, &symbols, REG_SP, REG_FP, PRESERVED_SYSV).is_err());
+        }
+    }
+
+    #[test]
     fn varint_and_zigzag_round_trip() {
         for n in [0u64, 1, 127, 128, 300, 1 << 20, u64::MAX >> 1] {
             let mut b = Vec::new();
@@ -610,8 +865,31 @@ mod tests {
     #[test]
     fn blob_round_trips() {
         let functions: Vec<Function> = vec![
-            (0, 72, vec![(20, vec![(NO_SP, 32)]), (44, vec![(NO_SP, 32), (NO_SP, 40)]), (60, vec![(NO_SP, 32), (NO_SP, 40)])]),
-            (1, 0, vec![(48, vec![(NO_SP, 40), (NO_FP, -16), (IN_REGISTER, 3), (IN_REGISTER, 14)]), (52, vec![(IN_REGISTER, 5)])]),
+            (
+                0,
+                72,
+                vec![
+                    (20, vec![(NO_SP, 32)]),
+                    (44, vec![(NO_SP, 32), (NO_SP, 40)]),
+                    (60, vec![(NO_SP, 32), (NO_SP, 40)]),
+                ],
+            ),
+            (
+                1,
+                0,
+                vec![
+                    (
+                        48,
+                        vec![
+                            (NO_SP, 40),
+                            (NO_FP, -16),
+                            (IN_REGISTER, 3),
+                            (IN_REGISTER, 14),
+                        ],
+                    ),
+                    (52, vec![(IN_REGISTER, 5)]),
+                ],
+            ),
             (2, 40, Vec::new()),
         ];
         let (blob, fields) = encode(&functions, 0, 1);

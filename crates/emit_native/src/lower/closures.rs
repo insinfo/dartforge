@@ -366,7 +366,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let ty = reprs.as_ref().map_or(Type::Ref, |r| r[i]);
             let vid = b.add_param_dart(name, ty);
             if let Some(n) = p.name {
-                b.declare_variable(n.sym, n.span.start as usize, ty, Operand::Val(vid));
+                b.declare_variable(n.sym, n.span.start, ty, Operand::Val(vid));
             }
         }
         // The joined tuple (the outer one and the call's) reaches the body of the
@@ -510,7 +510,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let v = values.pop().expect("the value of the direct environment");
             self.coerce(v, Type::Ref)
         } else {
-            self.emit(Instruction::AllocEnv { values: values }, Type::Ref)
+            self.emit(Instruction::AllocEnv { values }, Type::Ref)
         };
         match abi {
             Some((_, _, code)) => self.emit(
@@ -599,7 +599,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         self.declare_variable(
             name.sym,
-            name.span.start as usize,
+            name.span.start,
             Type::Ref,
             Operand::Constant(Constant::Null),
         );
@@ -754,7 +754,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let v_yes = self.emit(
                 Instruction::LoadIndexed {
                     base: args.clone(),
-                    index: index,
+                    index,
                 },
                 Type::Ref,
             );
@@ -972,7 +972,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let npos = self.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(0)) }, Type::I64);
         let n_named = self.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(1)) }, Type::I64);
         let index = self.emit(Instruction::Add(npos, n_named), Type::I64);
-        self.emit(Instruction::LoadIndexed { base: args.clone(), index: index }, Type::I64)
+        self.emit(Instruction::LoadIndexed { base: args.clone(), index }, Type::I64)
     }
 
     /// The parameters of a program function, for the uniform entry.

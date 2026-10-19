@@ -353,9 +353,9 @@ pub(super) fn check_call(
         .flat_map(|b| &b.instructions).find(|(v, _, _)| *v == vector) else { return Err(error()); };
     if values.is_empty() || !values.len().is_multiple_of(2)
         || usize::try_from(pairs).ok() != Some(values.len() / 2)
-        || values.chunks_exact(2).any(|p| i32::try_from(p[0]).is_err() || p[0] < 0
+        || values.as_chunks::<2>().0.iter().any(|p| i32::try_from(p[0]).is_err() || p[0] < 0
             || u16::try_from(p[1]).is_err() || usize::try_from(p[1]).ok().is_none_or(|n| idx_value >= n))
-        || values.chunks_exact(2).map(|p| p[0]).collect::<Vec<_>>().windows(2).any(|p| p[0] >= p[1])
+        || values.as_chunks::<2>().0.iter().map(|p| p[0]).collect::<Vec<_>>().windows(2).any(|p| p[0] >= p[1])
     { return Err(error()); }
     if let Some(layouts) = layouts && *values != field_layouts(layouts, idx_value, repr) {
         return Err(format!("checked field in {}: stale/divergent layouts", f.symbol));

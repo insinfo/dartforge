@@ -297,7 +297,7 @@ fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Fun
             returns.push((id, r.clone().unwrap_or(Operand::Constant(Constant::Null))));
             term = Terminator::Branch(continuation);
         }
-        new_set.push(BasicBlock { id, instructions: instructions, terminator: term });
+        new_set.push(BasicBlock { id, instructions, terminator: term });
     }
 
     // The symbolic stack trace (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14):
@@ -355,7 +355,7 @@ fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Fun
         }
     };
     start.extend(after);
-    let cont = BasicBlock { id: continuation, instructions: start, terminator: terminator };
+    let cont = BasicBlock { id: continuation, instructions: start, terminator };
     let pos = bi + 1;
     let n = new_set.len();
     func.blocks.splice(pos..pos, new_set);

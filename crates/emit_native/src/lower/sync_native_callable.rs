@@ -151,9 +151,8 @@ mod tests {
             let support = module.functions.iter().find(|f| f.name == "_supportsSyncNativeCallableV1").unwrap();
             assert!(matches!(support.blocks[0].terminator, Terminator::Return(Some(Operand::Constant(Constant::Bool(true))))));
             let redirected: Vec<_> = module.functions.iter().flat_map(|f| &f.blocks).flat_map(|b| &b.instructions).filter_map(|(_, instruction, _)| {
-                if let Instruction::CallStatic { symbol, args, ret_ty } = instruction {
-                    if symbol.ends_with("._dartforgeCallableSync") { return Some((args, ret_ty)); }
-                }
+                if let Instruction::CallStatic { symbol, args, ret_ty } = instruction
+                    && symbol.ends_with("._dartforgeCallableSync") { return Some((args, ret_ty)); }
                 None
             }).collect();
             assert!(!redirected.is_empty(), "real generic package creation was not redirected");

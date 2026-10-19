@@ -274,7 +274,7 @@ mod tests {
             debug_info: None,
             params: vec![(ValueId(0), "l".into(), Type::Ref), (ValueId(1), "i".into(), Type::I64)],
             return_ty: Type::Void,
-            blocks: vec![BasicBlock { id: BlockId(0), instructions: instructions, terminator: Terminator::Return(None) }],
+            blocks: vec![BasicBlock { id: BlockId(0), instructions, terminator: Terminator::Return(None) }],
         }
     }
 

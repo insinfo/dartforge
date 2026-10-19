@@ -357,11 +357,11 @@ fn register_program_classes(ctx: &Context, module: &mut Module) {
             let mut slots = vec![None; base];
             slots.extend(fields.iter().enumerate().map(|(index, &field)|
                 members::declared_field_metadata(ctx, field, base + index)));
-            if module.declared_field_layouts.contains_key(&class_id) {
+            if let std::collections::hash_map::Entry::Vacant(e) = module.declared_field_layouts.entry(class_id) {
+                e.insert(slots);
+            } else {
                 module.declared_field_layouts.remove(&class_id);
                 module.pruning_ambiguous_class_ids.insert(class_id);
-            } else {
-                module.declared_field_layouts.insert(class_id, slots);
             }
         }
         module.classes.push(ClassDef {
@@ -1164,11 +1164,10 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
             };
             let sup_ts = module.classes.iter().find(|c| c.id == sup_class_id).and_then(|c| c.to_string_symbol.clone());
             if let Some(ts) = sup_ts {
-                if let Some(c_def) = module.classes.iter_mut().find(|c| c.id == class_id) {
-                    if c_def.to_string_symbol.is_none() {
+                if let Some(c_def) = module.classes.iter_mut().find(|c| c.id == class_id)
+                    && c_def.to_string_symbol.is_none() {
                         c_def.to_string_symbol = Some(ts);
                     }
-                }
                 break;
             }
             curr_cid = ctx.program.classes[sup.0 as usize].supertype_class;

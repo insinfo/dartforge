@@ -325,16 +325,14 @@ fn verify_instruction(c: &mut Context, inst: &Instruction, ty: Type) {
             if ty != result {
                 c.error(format!("ARC slot: result {ty:?}, expected {result:?}"));
             }
-            if let StrongSlot::Frame { frame, .. } = slot {
-                if c.ty(frame) != Type::I64 || !matches!(frame, Operand::Val(_)) {
+            if let StrongSlot::Frame { frame, .. } = slot
+                && (c.ty(frame) != Type::I64 || !matches!(frame, Operand::Val(_))) {
                     c.error(format!("ARC slot requires an SSA I64 frame ID: {frame:?}"));
                 }
-            }
-            if let Instruction::ArcStoreStrong { value, .. } = inst {
-                if c.ty(value) != Type::Ref || !matches!(value, Operand::Val(_) | Operand::Constant(Constant::Null)) {
+            if let Instruction::ArcStoreStrong { value, .. } = inst
+                && (c.ty(value) != Type::Ref || !matches!(value, Operand::Val(_) | Operand::Constant(Constant::Null))) {
                     c.error(format!("ARC store requires an already evaluated reference: {value:?}"));
                 }
-            }
         }
         Instruction::ArcCopy { value } | Instruction::ArcDrop { value } | Instruction::ArcMove { value } => {
             let result = if matches!(inst, Instruction::ArcDrop { .. }) { Type::Void } else { Type::Ref };

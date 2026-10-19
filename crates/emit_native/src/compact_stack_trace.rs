@@ -64,7 +64,8 @@ fn encode(entries: &[Entry], shape: u8, addendum_in_place: bool) -> (Vec<u8>, Ve
     // The functions in order of first appearance; the entries of each by
     // offset, stable (section order on ties).
     let mut functions: Vec<u32> = Vec::new();
-    let mut by_function: std::collections::HashMap<u32, Vec<&Entry>> = std::collections::HashMap::new();
+    let mut by_function: std::collections::HashMap<u32, Vec<&Entry>> =
+        std::collections::HashMap::new();
     for e in entries {
         if !by_function.contains_key(&e.function) {
             functions.push(e.function);
@@ -72,7 +73,8 @@ fn encode(entries: &[Entry], shape: u8, addendum_in_place: bool) -> (Vec<u8>, Ve
         by_function.entry(e.function).or_default().push(e);
     }
     let mut records: Vec<(u32, i64)> = Vec::new();
-    let mut record_index: std::collections::HashMap<(u32, i64), usize> = std::collections::HashMap::new();
+    let mut record_index: std::collections::HashMap<(u32, i64), usize> =
+        std::collections::HashMap::new();
     for e in entries {
         if let Some(r) = e.record
             && !record_index.contains_key(&r)
@@ -130,32 +132,78 @@ fn encode(entries: &[Entry], shape: u8, addendum_in_place: bool) -> (Vec<u8>, Ve
     (blob, relocations)
 }
 
-/// Decodes the stream of a blob (the round trip): per index function, the
-/// entries `(offset, record, kind, word)`.
-fn decode(blob: &[u8]) -> Result<Vec<Vec<(u64, usize, u32, u32)>>, String> {
-    if blob.get(..4) != Some(b"DFPC") || blob.get(4) != Some(&1) {
+/// A decoded offset, record index, kind and source word.
+type DecodedEntry = (u64, usize, u32, u32);
+
+/// Decodes bounded function streams, checking the index and integer ranges.
+/// This round-trip reader is separate from the runtime's reader.
+fn decode(blob: &[u8]) -> Result<Vec<Vec<DecodedEntry>>, String> {
+    if blob.len() < 20 || blob.get(..4) != Some(b"DFPC") || blob[4] != 1 {
         return Err("DFPC blob without the signature".to_string());
     }
+    if u32_at(blob, 8)? as usize != blob.len()
+        || u16_at(blob, 6)? != 0
+        || !matches!(blob[5], SHAPE_ELF | SHAPE_COFF)
+    {
+        return Err("DFPC blob with invalid size, flags or format".to_string());
+    }
     let nf = u32_at(blob, 12)? as usize;
-    let mut exit = Vec::with_capacity(nf);
+    let nr = u32_at(blob, 16)? as usize;
+    if nf > (blob.len() - 20) / 8 {
+        return Err("truncated DFPC function index".to_string());
+    }
+    let index_end = 20 + 8 * nf;
+    if nr > (blob.len() - index_end) / 4 {
+        return Err("truncated DFPC record index".to_string());
+    }
+    let base = index_end + 4 * nr;
+    let mut starts = Vec::with_capacity(nf);
     for k in 0..nf {
-        let mut p = u32_at(blob, 20 + 8 * k + 4)? as usize;
-        let n = read_varint(blob, &mut p)?;
+        let start = u32_at(blob, 24 + 8 * k)? as usize;
+        if start < base
+            || start >= blob.len()
+            || starts.last().is_some_and(|&previous| previous >= start)
+        {
+            return Err("DFPC function stream outside the blob or out of order".to_string());
+        }
+        starts.push(start);
+    }
+    let mut output = Vec::with_capacity(nf);
+    for (k, &start) in starts.iter().enumerate() {
+        let end = starts.get(k + 1).copied().unwrap_or(blob.len());
+        let stream = &blob[start..end];
+        let mut p = 0;
+        let n = read_varint(stream, &mut p)?;
+        if n > ((stream.len() - p) / 3) as u64 {
+            return Err("truncated DFPC entries".to_string());
+        }
         let mut list = Vec::new();
         let mut offset = 0u64;
         for _ in 0..n {
-            offset += read_varint(blob, &mut p)?;
-            let rk = read_varint(blob, &mut p)?;
-            let word = read_varint(blob, &mut p)? as u32;
-            list.push((offset, (rk >> 2) as usize, (rk & 3) as u32, word));
+            offset = offset
+                .checked_add(read_varint(stream, &mut p)?)
+                .ok_or("DFPC offset overflow")?;
+            let rk = read_varint(stream, &mut p)?;
+            let record = usize::try_from(rk >> 2).map_err(|_| "DFPC record index overflow")?;
+            let kind = (rk & 3) as u32;
+            if (kind != 3 && record >= nr) || (kind == 3 && record != 0) {
+                return Err("DFPC record index outside the table".to_string());
+            }
+            let word = u32::try_from(read_varint(stream, &mut p)?)
+                .map_err(|_| "DFPC source word exceeds u32")?;
+            list.push((offset, record, kind, word));
         }
-        exit.push(list);
+        output.push(list);
     }
-    Ok(exit)
+    Ok(output)
 }
 
 /// The round trip: what the runtime will read is what the section said.
-fn check_round_trip(blob: &[u8], entries: &[Entry], relocations: &[Relocation]) -> Result<(), String> {
+fn check_round_trip(
+    blob: &[u8],
+    entries: &[Entry],
+    relocations: &[Relocation],
+) -> Result<(), String> {
     let back = decode(blob)?;
     let nf = u32_at(blob, 12)? as usize;
     let mut counted = 0;
@@ -164,17 +212,25 @@ fn check_round_trip(blob: &[u8], entries: &[Entry], relocations: &[Relocation]) 
         let mut expected_set: Vec<&Entry> = entries.iter().filter(|e| e.function == f).collect();
         expected_set.sort_by_key(|e| e.offset);
         if expected_set.len() != list.len() {
-            return Err("the compact stack trace table does not reproduce the original (round trip)".to_string());
+            return Err(
+                "the compact stack trace table does not reproduce the original (round trip)"
+                    .to_string(),
+            );
         }
         for (e, &(d, r, kind, word)) in expected_set.iter().zip(list) {
             let record = e.record.map(|_| relocations[nf + r].1);
             let same_record = match (e.record, record) {
-                (Some((s, a)), Some(_)) => relocations.get(nf + r).is_some_and(|x| x.1 == s && x.2 == a),
+                (Some((s, a)), Some(_)) => relocations
+                    .get(nf + r)
+                    .is_some_and(|x| x.1 == s && x.2 == a),
                 (None, _) => kind == 3,
                 _ => false,
             };
             if e.offset != d || e.kind != kind || e.word != word || !same_record {
-                return Err("the compact stack trace table does not reproduce the original (round trip)".to_string());
+                return Err(
+                    "the compact stack trace table does not reproduce the original (round trip)"
+                        .to_string(),
+                );
             }
         }
         counted += list.len();
@@ -191,10 +247,14 @@ type FunctionSymbol = (u32, u64, u64);
 
 /// The function symbol that contains `(section, offset)`: the one with the largest value
 /// that does not go past it (and, with a size, that covers it).
-fn function_in(functions: &[(u32, FunctionSymbol)], section: u32, offset: u64) -> Option<(u32, u64)> {
+fn function_in(
+    functions: &[(u32, FunctionSymbol)],
+    section: u32,
+    offset: u64,
+) -> Option<(u32, u64)> {
     functions
         .iter()
-        .filter(|(_, (s, v, t))| *s == section && *v <= offset && (*t == 0 || offset < v + t || offset == *v))
+        .filter(|(_, (s, v, t))| *s == section && *v <= offset && (*t == 0 || offset - v < *t))
         .max_by_key(|(_, (_, v, _))| *v)
         .map(|(i, (_, v, _))| (*i, offset - v))
 }
@@ -223,7 +283,9 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
         let value = u64::from(u32_at(object, s + 8)?);
         let section = u16_at(object, s + 12)? as i16;
         let ty = u16_at(object, s + 14)?;
-        let aux = *object.get(s + 17).ok_or_else(|| "truncated COFF object".to_string())? as usize;
+        let aux = *object
+            .get(s + 17)
+            .ok_or_else(|| "truncated COFF object".to_string())? as usize;
         if section > 0 {
             value_of[i] = (section as u32, value);
             if ty == COFF_FUNCTION {
@@ -245,7 +307,10 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
         if features & SCN_NRELOC_OVFL != 0 || n_rel == 0 {
             return Ok(false);
         }
-        let sec = object.get(data..data + size).ok_or_else(|| "truncated COFF object".to_string())?.to_vec();
+        let sec = object
+            .get(data..data + size)
+            .ok_or_else(|| "truncated COFF object".to_string())?
+            .to_vec();
         if sec.starts_with(b"DFPC") {
             return Ok(false);
         }
@@ -254,14 +319,23 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
         for k in 0..n_rel {
             let e = rel_start + 10 * k;
             if u16_at(object, e + 8)? != COFF_REL32 {
-                return Err("unexpected relocation in the stack trace section (expected REL32)".to_string());
+                return Err(
+                    "unexpected relocation in the stack trace section (expected REL32)".to_string(),
+                );
             }
             rel.insert(u32_at(object, e)?, u32_at(object, e + 4)?);
         }
         let mut entries = Vec::new();
         let mut p = 0usize;
         while p + 12 <= sec.len() {
-            let field = |d: usize| i64::from(i32::from_le_bytes([sec[p + d], sec[p + d + 1], sec[p + d + 2], sec[p + d + 3]]));
+            let field = |d: usize| {
+                i64::from(i32::from_le_bytes([
+                    sec[p + d],
+                    sec[p + d + 1],
+                    sec[p + d + 2],
+                    sec[p + d + 3],
+                ]))
+            };
             let word = u32::from_le_bytes([sec[p + 8], sec[p + 9], sec[p + 10], sec[p + 11]]);
             let Some(&s0) = rel.get(&(p as u32)) else {
                 if field(0) != 0 || field(4) != 0 || word != 0 {
@@ -271,22 +345,34 @@ pub fn convert_coff(object: &mut [u8]) -> Result<bool, String> {
                 continue;
             };
             // `target − field` with the addend in place: the target is `S + A − 4`.
-            let (section, value) = *value_of.get(s0 as usize).ok_or_else(|| "symbol outside the table".to_string())?;
+            let (section, value) = *value_of
+                .get(s0 as usize)
+                .ok_or_else(|| "symbol outside the table".to_string())?;
             let label = (value as i64 + field(0) - 4) as u64;
             let Some((function, offset)) = function_in(&functions, section, label) else {
                 return Ok(false);
             };
             let (record, kind) = match rel.get(&((p + 4) as u32)) {
                 Some(&s1) => {
-                    let (_, v1) = *value_of.get(s1 as usize).ok_or_else(|| "symbol outside the table".to_string())?;
+                    let (_, v1) = *value_of
+                        .get(s1 as usize)
+                        .ok_or_else(|| "symbol outside the table".to_string())?;
                     let target = v1 as i64 + field(4) - 4;
                     let kind = (target & 3) as u32;
                     (Some((s1, field(4) - 4 - i64::from(kind))), kind)
                 }
                 None if field(4) == 3 => (None, 3),
-                None => return Err("stack trace entry without a relocation at the record".to_string()),
+                None => {
+                    return Err("stack trace entry without a relocation at the record".to_string());
+                }
             };
-            entries.push(Entry { function, offset, record, kind, word });
+            entries.push(Entry {
+                function,
+                offset,
+                record,
+                kind,
+                word,
+            });
             p += 12;
         }
         if entries.is_empty() {
@@ -337,7 +423,9 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
     let names = u64_at(object, header(names_index) + 24)? as usize;
     let name_of = |o: &[u8], i: usize| -> Result<Vec<u8>, String> {
         let start = names + u32_at(o, header(i))? as usize;
-        let rest = o.get(start..).ok_or_else(|| "objeto ELF truncado".to_string())?;
+        let rest = o
+            .get(start..)
+            .ok_or_else(|| "objeto ELF truncado".to_string())?;
         let end = rest.iter().position(|&b| b == 0).unwrap_or(rest.len());
         Ok(rest[..end].to_vec())
     };
@@ -349,7 +437,8 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
         // The `SHT_RELA` (4) of the section, and its symbol table.
         let mut relocations = None;
         for i in 0..n_sections {
-            if u32_at(object, header(i) + 4)? == 4 && u32_at(object, header(i) + 44)? as usize == m {
+            if u32_at(object, header(i) + 4)? == 4 && u32_at(object, header(i) + 44)? as usize == m
+            {
                 relocations = Some(i);
             }
         }
@@ -362,7 +451,9 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
         let mut functions: Vec<(u32, FunctionSymbol)> = Vec::new();
         for k in 0..n_yes {
             let s = yes_start + 24 * k;
-            let info = *object.get(s + 4).ok_or_else(|| "objeto ELF truncado".to_string())?;
+            let info = *object
+                .get(s + 4)
+                .ok_or_else(|| "objeto ELF truncado".to_string())?;
             let section = u32::from(u16_at(object, s + 6)?);
             let value = u64_at(object, s + 8)?;
             let size = u64_at(object, s + 16)?;
@@ -373,23 +464,35 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
         }
         let data = u64_at(object, header(m) + 24)? as usize;
         let size = u64_at(object, header(m) + 32)? as usize;
-        let sec = object.get(data..data + size).ok_or_else(|| "objeto ELF truncado".to_string())?.to_vec();
+        let sec = object
+            .get(data..data + size)
+            .ok_or_else(|| "objeto ELF truncado".to_string())?
+            .to_vec();
         if sec.starts_with(b"DFPC") {
             continue;
         }
         let rel_start = u64_at(object, header(r) + 24)? as usize;
         let rel_size = u64_at(object, header(r) + 32)? as usize;
-        if u64_at(object, header(r) + 56)? != 24 || rel_size % 24 != 0 {
-            return Err("relocations of the stack trace section outside the `Elf64_Rela` format".to_string());
+        if u64_at(object, header(r) + 56)? != 24 || !rel_size.is_multiple_of(24) {
+            return Err(
+                "relocations of the stack trace section outside the `Elf64_Rela` format"
+                    .to_string(),
+            );
         }
         let mut rel: std::collections::HashMap<u64, (u32, i64)> = std::collections::HashMap::new();
         for k in 0..rel_size / 24 {
             let e = rel_start + 24 * k;
             let info = u64_at(object, e + 8)?;
             if info as u32 != relative {
-                return Err(format!("relocation {} in the stack trace section (expected the 32-bit relative one)", info as u32));
+                return Err(format!(
+                    "relocation {} in the stack trace section (expected the 32-bit relative one)",
+                    info as u32
+                ));
             }
-            rel.insert(u64_at(object, e)?, ((info >> 32) as u32, u64_at(object, e + 16)? as i64));
+            rel.insert(
+                u64_at(object, e)?,
+                ((info >> 32) as u32, u64_at(object, e + 16)? as i64),
+            );
         }
         if rel.is_empty() {
             continue;
@@ -397,7 +500,14 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
         let mut entries = Vec::new();
         let mut p = 0usize;
         while p + 12 <= sec.len() {
-            let raw_str = |d: usize| i64::from(i32::from_le_bytes([sec[p + d], sec[p + d + 1], sec[p + d + 2], sec[p + d + 3]]));
+            let raw_str = |d: usize| {
+                i64::from(i32::from_le_bytes([
+                    sec[p + d],
+                    sec[p + d + 1],
+                    sec[p + d + 2],
+                    sec[p + d + 3],
+                ]))
+            };
             let word = u32::from_le_bytes([sec[p + 8], sec[p + 9], sec[p + 10], sec[p + 11]]);
             let Some(&(s0, a0)) = rel.get(&(p as u64)) else {
                 if raw_str(0) != 0 || raw_str(4) != 0 || word != 0 {
@@ -407,21 +517,33 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
                 continue;
             };
             // `S + A − P`: the target is `S + A`.
-            let (section, value) = *value_of.get(s0 as usize).ok_or_else(|| "symbol outside the table".to_string())?;
+            let (section, value) = *value_of
+                .get(s0 as usize)
+                .ok_or_else(|| "symbol outside the table".to_string())?;
             let label = (value as i64 + a0) as u64;
             let Some((function, offset)) = function_in(&functions, section, label) else {
                 return Err("stack trace label outside a function".to_string());
             };
             let (record, kind) = match rel.get(&((p + 4) as u64)) {
                 Some(&(s1, a1)) => {
-                    let (_, v1) = *value_of.get(s1 as usize).ok_or_else(|| "symbol outside the table".to_string())?;
+                    let (_, v1) = *value_of
+                        .get(s1 as usize)
+                        .ok_or_else(|| "symbol outside the table".to_string())?;
                     let kind = ((v1 as i64 + a1) & 3) as u32;
                     (Some((s1, a1 - i64::from(kind))), kind)
                 }
                 None if raw_str(4) == 3 => (None, 3),
-                None => return Err("stack trace entry without a relocation at the record".to_string()),
+                None => {
+                    return Err("stack trace entry without a relocation at the record".to_string());
+                }
             };
-            entries.push(Entry { function, offset, record, kind, word });
+            entries.push(Entry {
+                function,
+                offset,
+                record,
+                kind,
+                word,
+            });
             p += 12;
         }
         if entries.is_empty() {
@@ -439,7 +561,8 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
         for (k, (position, symbol, addendum)) in new_ones.iter().enumerate() {
             let e = rel_start + 24 * k;
             object[e..e + 8].copy_from_slice(&u64::from(*position).to_le_bytes());
-            object[e + 8..e + 16].copy_from_slice(&((u64::from(*symbol) << 32) | u64::from(relative)).to_le_bytes());
+            object[e + 8..e + 16]
+                .copy_from_slice(&((u64::from(*symbol) << 32) | u64::from(relative)).to_le_bytes());
             object[e + 16..e + 24].copy_from_slice(&addendum.to_le_bytes());
         }
         let hr = header(r);
@@ -453,7 +576,8 @@ pub fn convert_elf(object: &mut [u8]) -> Result<bool, String> {
 /// converter: in COFF and ELF, except for the `DARTFORGE_STACK_TRACE_RAW=1` measurement; in
 /// Mach-O never.
 pub fn convert_here() -> bool {
-    crate::target::target_os() != crate::target::Os::MacOs && !std::env::var_os("DARTFORGE_STACK_TRACE_RAW").is_some_and(|v| !v.is_empty() && v != "0")
+    crate::target::target_os() != crate::target::Os::MacOs
+        && !std::env::var_os("DARTFORGE_STACK_TRACE_RAW").is_some_and(|v| !v.is_empty() && v != "0")
 }
 
 /// The converter for the object format. Returns whether it converted.
@@ -461,7 +585,11 @@ pub fn convert_here() -> bool {
 /// # Errors
 /// Those of the converters.
 pub fn convert(object: &mut [u8]) -> Result<bool, String> {
-    if object.starts_with(b"\x7fELF") { convert_elf(object) } else { convert_coff(object) }
+    if object.starts_with(b"\x7fELF") {
+        convert_elf(object)
+    } else {
+        convert_coff(object)
+    }
 }
 
 #[cfg(test)]
@@ -469,7 +597,13 @@ mod tests {
     use super::*;
 
     fn e(function: u32, offset: u64, record: Option<(u32, i64)>, kind: u32, word: u32) -> Entry {
-        Entry { function, offset, record, kind, word }
+        Entry {
+            function,
+            offset,
+            record,
+            kind,
+            word,
+        }
     }
 
     #[test]
@@ -494,11 +628,84 @@ mod tests {
         assert!(check_round_trip(&blob, &entries, &relocations).is_ok());
         let back = decode(&blob).unwrap();
         // The order of ties is that of the section: 3:5 before 9:1.
-        assert_eq!(back[0].iter().map(|x| x.3).collect::<Vec<_>>(), vec![2 << 12, 3 << 12 | 5, 9 << 12 | 1]);
+        assert_eq!(
+            back[0].iter().map(|x| x.3).collect::<Vec<_>>(),
+            vec![2 << 12, 3 << 12 | 5, 9 << 12 | 1]
+        );
         // COFF carries the addend in place.
         let (coff, _) = encode(&entries, SHAPE_COFF, true);
         let first_record = 20 + 8 * 2;
-        assert_eq!(i32::from_le_bytes(coff[first_record..first_record + 4].try_into().unwrap()), 16);
+        assert_eq!(
+            i32::from_le_bytes(coff[first_record..first_record + 4].try_into().unwrap()),
+            16
+        );
+    }
+
+    #[test]
+    fn compact_trace_rejects_inconsistent_size_and_record_index() {
+        let entries = vec![Entry {
+            function: 1,
+            offset: 0,
+            record: Some((2, 0)),
+            kind: 0,
+            word: 1,
+        }];
+        let (mut blob, _) = encode(&entries, SHAPE_ELF, false);
+        blob[8..12].copy_from_slice(&0u32.to_le_bytes());
+        assert!(decode(&blob).is_err());
+        let (mut blob, _) = encode(&entries, SHAPE_ELF, false);
+        blob[16..20].copy_from_slice(&0u32.to_le_bytes());
+        assert!(decode(&blob).is_err());
+    }
+
+    #[test]
+    fn compact_trace_bounds_function_streams_and_integer_fields() {
+        let entries = vec![
+            Entry {
+                function: 1,
+                offset: 0,
+                record: Some((2, 0)),
+                kind: 0,
+                word: 1,
+            },
+            Entry {
+                function: 3,
+                offset: 0,
+                record: None,
+                kind: 3,
+                word: 0,
+            },
+        ];
+        let (blob, _) = encode(&entries, SHAPE_ELF, false);
+        for end in 0..blob.len() {
+            assert!(decode(&blob[..end]).is_err(), "prefix {end}");
+        }
+        let mut huge_count = blob.clone();
+        huge_count[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(decode(&huge_count).is_err());
+        let mut duplicate_stream = blob.clone();
+        let first = u32_at(&blob, 24).unwrap();
+        duplicate_stream[32..36].copy_from_slice(&first.to_le_bytes());
+        assert!(decode(&duplicate_stream).is_err());
+        let mut cross_stream = blob;
+        cross_stream[first as usize] = 2;
+        assert!(decode(&cross_stream).is_err());
+        for values in [
+            vec![2, u64::MAX, 0, 1, 1, 0, 1],
+            vec![1, 0, 0, u32::MAX as u64 + 1],
+        ] {
+            let (mut blob, _) = encode(&entries[..1], SHAPE_ELF, false);
+            let first = u32_at(&blob, 24).unwrap() as usize;
+            blob.truncate(first);
+            for value in values {
+                varint(&mut blob, value);
+            }
+            let size = blob.len() as u32;
+            blob[8..12].copy_from_slice(&size.to_le_bytes());
+            assert!(decode(&blob).is_err());
+        }
+        let functions = [(1, (2, u64::MAX - 4, 10))];
+        assert_eq!(function_in(&functions, 2, u64::MAX), Some((1, 4)));
     }
 
     #[test]

@@ -1,0 +1,17 @@
+
+running 13 tests
+test compact_stack_trace::tests::blob_round_trips ... ok
+test compact_stack_trace::tests::compact_trace_bounds_function_streams_and_integer_fields ... ok
+test compact_stack_trace::tests::compact_trace_rejects_inconsistent_size_and_record_index ... ok
+test compact_stack_trace::tests::label_function ... ok
+test compact_stack_trace::tests::object_without_section_stays_as_is ... ok
+test gcmap::tests::binary_readers_reject_overflowing_offsets ... ok
+test gcmap::tests::blob_round_trips ... ok
+test gcmap::tests::compact_maps_bound_indexes_and_each_function_stream ... ok
+test gcmap::tests::compact_maps_reject_frame_and_return_overflow ... ok
+test gcmap::tests::llvm_stack_maps_bound_declared_counts_before_allocation ... ok
+test gcmap::tests::object_without_map_stays_as_is ... ok
+test gcmap::tests::varint_and_zigzag_round_trip ... ok
+test gcmap::tests::varints_reject_values_outside_u64 ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

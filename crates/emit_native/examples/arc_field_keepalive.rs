@@ -163,7 +163,7 @@ fn module(scenario: Scenario) -> Result<Module, String> {
             f.blocks[2].instructions = vec![
                 (ValueId(109), Instruction::Trunc { op: Operand::Constant(Constant::Int(255)),
                     from: Type::I64, to: Type::I8 }, Type::I8),
-                (ValueId(108), Instruction::AllocObject { class_id: 123, fields: fields }, Type::Ref),
+                (ValueId(108), Instruction::AllocObject { class_id: 123, fields }, Type::Ref),
             ];
         }
     }

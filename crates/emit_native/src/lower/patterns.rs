@@ -90,8 +90,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             return;
         }
-        let ty = self.local_repr_of(name_str.span.start as usize);
-        self.declare_variable(name_str.sym, name_str.span.start as usize, ty, val_ref);
+        let ty = self.local_repr_of(name_str.span.start);
+        self.declare_variable(name_str.sym, name_str.span.start, ty, val_ref);
         linked.insert(name_str.sym);
     }
 
@@ -274,7 +274,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let e = match &ast.expr(*e).kind {
                     ExprKind::Record { positional, named, .. } if positional.len() == 1 && named.is_empty() => {
                         let s = ast.expr(*e).span;
-                        let text = &self.source()[s.start as usize..s.end as usize];
+                        let text = &self.source()[s.start..s.end];
                         if text.trim_end().trim_end_matches(')').trim_end().ends_with(',') {
                             e
                         } else {
@@ -505,7 +505,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // field is `None` only in that case when the pattern is a variable
                     // and the text starts with `:`.
                     let source = self.source();
-                    let ini = f.span.start as usize;
+                    let ini = f.span.start;
                     return source[ini..].trim_start().starts_with(':').then_some(name.sym);
                 }
                 PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Cast { pattern: x, .. } => {

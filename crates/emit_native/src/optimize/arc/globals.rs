@@ -159,6 +159,49 @@ pub(super) fn prepare(m: &mut Module) -> Result<(), String> {
     Ok(())
 }
 
+/// Classifies as Trivial the I64 reads of Dart globals of scalar type
+/// (`Module::dart_scalar_globals`): the Dart type guarantees that the content is
+/// an unboxed `int`. Their writes already require a Trivial value
+/// (`pure_set::check_origins`). Rejects a Ref declaration, a read of another
+/// width and a conflicting class; publishes nothing on error.
+pub(super) fn produce_scalars(
+    m: &Module,
+    plans: &mut HashMap<String, DartFunctionPlan>,
+) -> Result<(), String> {
+    if !m.arc_memory || m.dart_scalar_globals.is_empty() {
+        return Ok(());
+    }
+    let declarations: HashMap<&str, Type> = m.globals.iter().map(|(_, t, s)| (s.as_str(), *t)).collect();
+    for s in &m.dart_scalar_globals {
+        match declarations.get(s.as_str()) {
+            Some(Type::I64 | Type::F64 | Type::I1 | Type::I8) | None => {}
+            Some(t) => return Err(format!("global escalar {s} declarada {t:?}")),
+        }
+    }
+    let mut new_set = plans.clone();
+    for f in &m.functions {
+        for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
+            let Instruction::LoadGlobal { symbol, ty: read_done } = inst else { continue };
+            if !m.dart_scalar_globals.contains(symbol) || *read_done != Type::I64 {
+                continue;
+            }
+            if *ty != Type::I64 || declarations.get(symbol.as_str()).is_some_and(|d| *d != Type::I64) {
+                return Err(format!("scalar global {symbol} read in {} v{} with another width", f.symbol, v.0));
+            }
+            let Some(plan) = new_set.get_mut(&f.symbol) else { continue };
+            if plan.classes.get(v).is_some_and(|c| *c != Ownership::Trivial)
+                || plan.tokens.instructions.get(v).is_some_and(|e| *e != TokenEffect::default())
+            {
+                return Err(format!("scalar global {symbol} with a conflicting contract in {} v{}", f.symbol, v.0));
+            }
+            plan.classes.insert(*v, Ownership::Trivial);
+            plan.tokens.instructions.insert(*v, TokenEffect::default());
+        }
+    }
+    *plans = new_set;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,47 +365,4 @@ mod tests {
             crate::llvm::LlvmEmitter::new(m).emit_all();
         }
     }
-}
-
-/// Classifies as Trivial the I64 reads of Dart globals of scalar type
-/// (`Module::dart_scalar_globals`): the Dart type guarantees that the content is
-/// an unboxed `int`. Their writes already require a Trivial value
-/// (`pure_set::check_origins`). Rejects a Ref declaration, a read of another
-/// width and a conflicting class; publishes nothing on error.
-pub(super) fn produce_scalars(
-    m: &Module,
-    plans: &mut HashMap<String, DartFunctionPlan>,
-) -> Result<(), String> {
-    if !m.arc_memory || m.dart_scalar_globals.is_empty() {
-        return Ok(());
-    }
-    let declarations: HashMap<&str, Type> = m.globals.iter().map(|(_, t, s)| (s.as_str(), *t)).collect();
-    for s in &m.dart_scalar_globals {
-        match declarations.get(s.as_str()) {
-            Some(Type::I64 | Type::F64 | Type::I1 | Type::I8) | None => {}
-            Some(t) => return Err(format!("global escalar {s} declarada {t:?}")),
-        }
-    }
-    let mut new_set = plans.clone();
-    for f in &m.functions {
-        for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
-            let Instruction::LoadGlobal { symbol, ty: read_done } = inst else { continue };
-            if !m.dart_scalar_globals.contains(symbol) || *read_done != Type::I64 {
-                continue;
-            }
-            if *ty != Type::I64 || declarations.get(symbol.as_str()).is_some_and(|d| *d != Type::I64) {
-                return Err(format!("scalar global {symbol} read in {} v{} with another width", f.symbol, v.0));
-            }
-            let Some(plan) = new_set.get_mut(&f.symbol) else { continue };
-            if plan.classes.get(v).is_some_and(|c| *c != Ownership::Trivial)
-                || plan.tokens.instructions.get(v).is_some_and(|e| *e != TokenEffect::default())
-            {
-                return Err(format!("scalar global {symbol} with a conflicting contract in {} v{}", f.symbol, v.0));
-            }
-            plan.classes.insert(*v, Ownership::Trivial);
-            plan.tokens.instructions.insert(*v, TokenEffect::default());
-        }
-    }
-    *plans = new_set;
-    Ok(())
 }

@@ -39,7 +39,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let expr = ast.expr(e);
         match &expr.kind {
             ExprKind::Int(s) => {
-                let t = self.source()[s.start as usize..s.end as usize].replace('_', "");
+                let t = self.source()[s.start..s.end].replace('_', "");
                 let v: i64 = if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
                     u64::from_str_radix(h, 16).ok()? as i64
                 } else {
@@ -49,7 +49,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Some(format!("i:{v}"))
             }
             ExprKind::Double(s) => {
-                let t = self.source()[s.start as usize..s.end as usize].replace('_', "");
+                let t = self.source()[s.start..s.end].replace('_', "");
                 let v: f64 = t.parse().ok()?;
                 Some(format!("d:{}", v.to_bits()))
             }
@@ -108,8 +108,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 // String constants also need their scalar identity when a native
                 // environment query is used through an imported alias.
-                if var.const_ && self.ctx.get_type(self.unit_id, e) == Some(self.ctx.core.string) {
-                    if let Some(init) = self.variable_initializer_in(vid) {
+                if var.const_ && self.ctx.get_type(self.unit_id, e) == Some(self.ctx.core.string)
+                    && let Some(init) = self.variable_initializer_in(vid) {
                         let unit = match var.node {
                             dartforge_elements::model::VariableRef::Field { unit, .. }
                             | dartforge_elements::model::VariableRef::TopLevel { unit, .. } => Some(unit),
@@ -117,12 +117,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         };
                         if let Some(unit) = unit {
                             let other = FnBuilder::new(self.ctx, unit, String::new(), String::new(), Type::Ref);
-                            if let Some(key) = other.constant_key(&self.ctx.program.unit(unit).ast, init, true) {
-                                if key.starts_with("s:") { return Some(key); }
-                            }
+                            if let Some(key) = other.constant_key(&self.ctx.program.unit(unit).ast, init, true)
+                                && key.starts_with("s:") { return Some(key); }
                         }
                     }
-                }
                 let library = self.ctx.library_name(var.library);
                 let owner = if let Some(cid) = var.class {
                     format!(".{}", self.ctx.symbol_name(self.ctx.program.class(cid).name))

@@ -1,0 +1,11 @@
+{
+  "producer": "target/analysis-quality-producer/dartforge",
+  "producer_sha256": "fd803b145534b2662194787907125cb98512df844d6047c7303f2624965b788a",
+  "note": "Frozen earlier producer; this is not a fresh build of 3e1aa0e5. The existing production test was not weakened.",
+  "command": "DARTFORGE_SDK_LIB=/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib target/analysis-quality-producer/dartforge compile-native crates/emit_native/tests/fixtures/constant_args/main.dart --emit-ir --optimize -o /tmp/forge-platform-pruning-before.ll --timings",
+  "exit_code": 0,
+  "ir_sha256": "531d950d7b52d66606e7ce825c3f6ba3e4f2e537ba80de77ad73d0bb02f997ec",
+  "ir_bytes": 167333,
+  "foreign_constructors_present": false,
+  "foreign_getters_present": true
+}

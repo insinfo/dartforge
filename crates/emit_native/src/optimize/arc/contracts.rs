@@ -100,7 +100,7 @@ pub(super) const TEST_CONTRACTS: &[Contract] = &[Contract {
 const GENERIC_OWNED: [Contract; 4] = {
     const fn c(may_fail: bool, calls_dart: bool) -> Contract {
         Contract { name: "df.arc.owned.*", parameters: &[], result: ResultMode::Owned,
-            persistent_retention: true, invalidates_borrows: true, may_fail: may_fail, calls_dart: calls_dart }
+            persistent_retention: true, invalidates_borrows: true, may_fail, calls_dart }
     }
     [c(false, false), c(false, true), c(true, false), c(true, true)]
 };
@@ -183,7 +183,7 @@ pub fn produce_dart_ref_parameters(
         }
     }
     for v in produced {
-        classes.insert(v, expected.clone());
+        classes.insert(v, expected);
     }
     Ok(())
 }
@@ -743,7 +743,7 @@ fn produce_phi(
                                 if let Some((_, previous)) = &origin {
                                     previous == c
                                 } else {
-                                    origin = Some((*of, c.clone()));
+                                    origin = Some((*of, *c));
                                     true
                                 }
                             }
@@ -761,7 +761,7 @@ fn produce_phi(
                     _ => false,
                 });
             if compatible_ones && let Some((of, mut class)) = origin {
-                borrowed_set.insert(*v, class.clone());
+                borrowed_set.insert(*v, class);
                 // Local values do not declare Caller directly: they keep
                 // the dependency on the parameter that sustains that borrow.
                 if let Ownership::Borrowed {
@@ -869,11 +869,10 @@ fn produce_phi(
     // from audited entries, rejecting cycles without an external origin.
     let mut scalar_founded = HashSet::new();
     while let Some(v) = scalar_queue.pop_front() {
-        if scalar_founded.insert(v) {
-            if let Some(dependents) = scalar_parents.get(&v) {
+        if scalar_founded.insert(v)
+            && let Some(dependents) = scalar_parents.get(&v) {
                 scalar_queue.extend(dependents);
             }
-        }
     }
     for v in scalars {
         if !scalar_founded.contains(&v) {
@@ -936,11 +935,10 @@ fn produce_phi(
     }
     let mut founded = HashSet::new();
     while let Some(v) = queue.pop_front() {
-        if founded.insert(v) {
-            if let Some(dependents) = parents.get(&v) {
+        if founded.insert(v)
+            && let Some(dependents) = parents.get(&v) {
                 queue.extend(dependents);
             }
-        }
     }
     for v in order {
         if !founded.contains(&v) {
@@ -2507,7 +2505,8 @@ mod tests {
     #[test]
     fn fallible_query_produces_scalar_only_on_normal_exit() {
         // The record queries do not fail; the address of the closure does.
-        for name_str in ["dartforge_ffi_closure_address"] {
+        {
+            let name_str = "dartforge_ffi_closure_address";
             let mut f = Function {
                 symbol: "consulta_record".into(),
                 name: "consulta_record".into(),

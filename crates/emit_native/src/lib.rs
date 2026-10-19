@@ -868,7 +868,7 @@ void main() {
                 "bool.fromEnvironment(bool.hasEnvironment(1 == 1 ? 'dartforge.compiler' : 'missing') ? 'dartforge.compiler' : 'missing')",
             ] {
                 std::fs::write(&entry, format!("void main() {{ const result = {value}; print(result); }}\n")).unwrap();
-                let error = emit_ir(&entry, &options).err().expect("unsupported const name must reject IR emission");
+                let error = emit_ir(&entry, &options).expect_err("unsupported const name must reject IR emission");
                 assert!(error.contains("constant compilation environment name"), "{value}: {error}");
             }
         }).unwrap().join().unwrap();
@@ -894,14 +894,14 @@ void main() {
                 std::fs::write(&entry, format!("{prefix}{body}\n")).unwrap();
                 let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(sdk_tests()), packages: None, timings: false,
                     optimize: true, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
-                let error = emit_ir(&entry, &options).err().expect("invalid constant must reject IR emission");
+                let error = emit_ir(&entry, &options).expect_err("invalid constant must reject IR emission");
                 assert!(error.contains("const") || error.contains("constant"), "{body}: {error}");
             }
             std::fs::write(&entry,
                 "import 'dart:convert'; void main() { print(const JsonUtf8Encoder()); }\n").unwrap();
             let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(sdk_tests()), packages: None, timings: false,
                 optimize: true, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
-            let error = emit_ir(&entry, &options).err().expect("SDK non-const constructor must reject IR emission");
+            let error = emit_ir(&entry, &options).expect_err("SDK non-const constructor must reject IR emission");
             assert!(error.contains("isn't a const constructor"), "{error}");
             std::fs::write(dir.path().join("dependency.dart"), "class Token { Token(); Token.named(); }\n").unwrap();
             for body in ["print(const dep.Token());", "const value = dep.Token.named(); print(value);"] {

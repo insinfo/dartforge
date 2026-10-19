@@ -1177,7 +1177,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let execution = self.ctx.bodies.units.get(self.unit_id.0 as usize).and_then(|u| u.function_runtime_type(fid));
         execution.or_else(|| match expr {
             Some(e) => self.ctx.get_type(self.unit_id, e),
-            None => ast.function(fid).name.and_then(|n| self.ctx.local_type(self.unit_id, n.span.start as usize)),
+            None => ast.function(fid).name.and_then(|n| self.ctx.local_type(self.unit_id, n.span.start)),
         })
     }
 

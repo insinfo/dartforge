@@ -1205,7 +1205,7 @@ mod tests {
                 return_ty: Type::Void,
                 blocks: vec![BasicBlock {
                     id: BlockId(0),
-                    instructions: instructions,
+                    instructions,
                     terminator: Terminator::Return(None),
                 }],
             };

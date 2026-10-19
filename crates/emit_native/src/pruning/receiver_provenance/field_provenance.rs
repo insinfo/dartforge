@@ -224,11 +224,10 @@ impl<'a> Inventory<'a> {
                     {
                         match args.first() {
                             Some((Operand::Constant(Constant::Int(cid)), Type::I64)) => {
-                                if let Ok(cid) = u32::try_from(*cid) {
-                                    if !accepted_sites.contains(&(f.symbol.clone(), *v)) {
+                                if let Ok(cid) = u32::try_from(*cid)
+                                    && !accepted_sites.contains(&(f.symbol.clone(), *v)) {
                                         bad.insert(cid);
                                     }
-                                }
                             }
                             _ => bad.extend(result.layouts.keys().copied()),
                         }
@@ -520,9 +519,7 @@ fn initialization(
                 {
                     return None;
                 }
-                if values.get(call_value).is_none() {
-                    return None;
-                }
+                values.get(call_value)?;
                 guarded.insert(*call_value);
                 failures.insert(*shape.positions.get(fail)?);
                 bi = *shape.positions.get(success)?;

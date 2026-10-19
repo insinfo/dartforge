@@ -123,7 +123,7 @@ impl<'x, 'a> Walk<'x, 'a> {
 
     fn declare(&mut self, name: ast::Name) {
         let d = Decl {
-            offset: name.span.start as usize,
+            offset: name.span.start,
             prof: self.prof,
         };
         self.scopes
@@ -242,12 +242,12 @@ impl<'x, 'a> Walk<'x, 'a> {
             }
             self.declare(v.name);
             if list.late {
-                self.lates.insert(v.name.span.start as usize);
+                self.lates.insert(v.name.span.start);
             }
             // Even without an explicit write, the initialization mark of a
             // `late` without an initializer must be shared with the closure.
             if list.late && v.initializer.is_none() {
-                self.assigned.insert(v.name.span.start as usize);
+                self.assigned.insert(v.name.span.start);
             }
         }
     }
@@ -274,10 +274,10 @@ impl<'x, 'a> Walk<'x, 'a> {
                 let f = ast.function(*fid);
                 if let Some(n) = f.name {
                     self.declare(n);
-                    self.local_functions.insert(n.span.start as usize, *fid);
+                    self.local_functions.insert(n.span.start, *fid);
                     let direct = self.directs.as_ref().is_some_and(|s| s.contains(fid));
                     if self.prof == 0 && !direct {
-                        self.assigned.insert(n.span.start as usize);
+                        self.assigned.insert(n.span.start);
                     }
                 }
                 let params = f.parameters.as_deref().unwrap_or(&[]);

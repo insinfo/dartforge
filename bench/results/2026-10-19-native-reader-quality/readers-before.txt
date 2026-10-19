@@ -1,0 +1,45 @@
+
+running 5 tests
+test compact_stack_trace::reader_regressions::compact_trace_rejects_inconsistent_size_and_record_index ... FAILED
+test gcmap::reader_regressions::binary_readers_reject_overflowing_offsets ... FAILED
+test gcmap::reader_regressions::compact_maps_reject_frame_and_return_overflow ... FAILED
+test gcmap::reader_regressions::varints_reject_values_outside_u64 ... FAILED
+test gcmap::reader_regressions::llvm_stack_maps_bound_declared_counts_before_allocation ... FAILED
+
+failures:
+
+---- compact_stack_trace::reader_regressions::compact_trace_rejects_inconsistent_size_and_record_index stdout ----
+
+thread 'compact_stack_trace::reader_regressions::compact_trace_rejects_inconsistent_size_and_record_index' (1329185) panicked at /var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-reader-check-16dhba7_/compact_stack_trace.rs:538:9:
+assertion failed: decode(&blob).is_err()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- gcmap::reader_regressions::binary_readers_reject_overflowing_offsets stdout ----
+
+thread 'gcmap::reader_regressions::binary_readers_reject_overflowing_offsets' (1329186) panicked at /var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-reader-check-16dhba7_/gcmap.rs:108:14:
+attempt to add with overflow
+
+---- gcmap::reader_regressions::compact_maps_reject_frame_and_return_overflow stdout ----
+
+thread 'gcmap::reader_regressions::compact_maps_reject_frame_and_return_overflow' (1329187) panicked at /var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-reader-check-16dhba7_/gcmap.rs:339:21:
+attempt to multiply with overflow
+
+---- gcmap::reader_regressions::varints_reject_values_outside_u64 stdout ----
+
+thread 'gcmap::reader_regressions::varints_reject_values_outside_u64' (1329189) panicked at /var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-reader-check-16dhba7_/gcmap.rs:658:13:
+[255, 255, 255, 255, 255, 255, 255, 255, 255, 2]
+
+---- gcmap::reader_regressions::llvm_stack_maps_bound_declared_counts_before_allocation stdout ----
+
+thread 'gcmap::reader_regressions::llvm_stack_maps_bound_declared_counts_before_allocation' (1329188) panicked at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/alloc/src/raw_vec/mod.rs:28:5:
+capacity overflow
+
+
+failures:
+    compact_stack_trace::reader_regressions::compact_trace_rejects_inconsistent_size_and_record_index
+    gcmap::reader_regressions::binary_readers_reject_overflowing_offsets
+    gcmap::reader_regressions::compact_maps_reject_frame_and_return_overflow
+    gcmap::reader_regressions::llvm_stack_maps_bound_declared_counts_before_allocation
+    gcmap::reader_regressions::varints_reject_values_outside_u64
+
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s

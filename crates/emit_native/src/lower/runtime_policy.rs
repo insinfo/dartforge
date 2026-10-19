@@ -184,9 +184,8 @@ mod tests {
             for (_, name, _, _, _, native, abi, count) in declarations {
                 let function = module.functions.iter().find(|f| f.name == name).unwrap();
                 let calls: Vec<_> = function.blocks.iter().flat_map(|b| &b.instructions).filter_map(|(_, instruction, ty)| {
-                    if let Instruction::CallRuntime { name: called, args, ret_ty } = instruction {
-                        if called == &format!("dartforge_native_DartForge_{native}") { return Some((args, ret_ty, ty)); }
-                    }
+                    if let Instruction::CallRuntime { name: called, args, ret_ty } = instruction
+                        && called == &format!("dartforge_native_DartForge_{native}") { return Some((args, ret_ty, ty)); }
                     None
                 }).collect();
                 assert_eq!(calls.len(), 1, "{name}: {function:?}");

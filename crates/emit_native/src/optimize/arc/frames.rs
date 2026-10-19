@@ -142,11 +142,10 @@ pub(super) fn analyze_shared(
                                 .ok_or_else(|| error("borrowed frame without an index".into()))?;
                             par(q, &i.0)?;
                         }
-                        if name != "dartforge_arc_frame_close_v1" {
-                            if let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) {
+                        if name != "dartforge_arc_frame_close_v1"
+                            && let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) {
                                 index(q, *i)?;
                             }
-                        }
                         if name == "dartforge_arc_frame_close_v1" {
                             if active_set.last() != Some(&q) {
                                 return Err(error(format!("closing out of LIFO order of v{}", q.0)));

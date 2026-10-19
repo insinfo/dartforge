@@ -122,13 +122,11 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
             }
             if let Instruction::ArcLoadStrong { slot } | Instruction::ArcStoreStrong { slot, .. } =
                 inst
-            {
-                if let StrongSlot::Frame { frame, .. } = slot
+                && let StrongSlot::Frame { frame, .. } = slot
                     && !matches!(frame, Operand::Val(q) if types.get(q) == Some(&Type::I64))
                 {
                     return Err(error(format!("v{}: ARC frame requires SSA I64", v.0)));
                 }
-            }
             if let Instruction::Phi { incoming, ty, .. } = inst {
                 let mut entries = HashSet::new();
                 for (p, op) in incoming {

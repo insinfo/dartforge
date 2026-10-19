@@ -307,13 +307,12 @@ fn main() -> Result<(), String> {
     let mut body = Vec::new();
     let mut next_item = originals.iter().map(|(v, _, _)| v.0).max().unwrap_or(0) + 1;
     for mut instruction in originals {
-        if forced_error == Some(instruction.0) {
-            if let Instruction::CallRuntime { name, .. } = &mut instruction.1 {
+        if forced_error == Some(instruction.0)
+            && let Instruction::CallRuntime { name, .. } = &mut instruction.1 {
                 // Replaces the observation with an audited Ref throw. The next
                 // test selects the same prepared cleanup block.
                 *name = "dartforge_arc_throw_ref_v1".into();
             }
-        }
         let printed = match &instruction.1 {
             Instruction::CallRuntime { name, args, .. }
                 if name == "dartforge_print_handle" || name == "dartforge_arc_throw_ref_v1" =>

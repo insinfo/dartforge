@@ -85,7 +85,7 @@ fn ordinary_late_generic_notifier_dispatch_prepares_without_erasing_field_guards
             let (Operand::Val(vector), Type::Ptr) = &args[2] else { panic!("guard must carry the image layout vector"); };
             let fields = prepared.blocks.iter().flat_map(|b| &b.instructions).find_map(|(v, i, _)|
                 match i { Instruction::ConstArray(fields) if v == vector => Some(fields), _ => None }).unwrap();
-            assert!(fields.chunks_exact(2).any(|pair| pair == [i64::from(class_id), field_count as i64]),
+            assert!(fields.as_chunks::<2>().0.iter().any(|pair| *pair == [i64::from(class_id), field_count as i64]),
                 "the checked layout must admit the declared Derived representation");
             assert_eq!(args[3], (Operand::Constant(Constant::Int((fields.len() / 2) as i64)), Type::I64));
             assert_eq!(args[4], (Operand::Constant(Constant::Int(1)), Type::I64), "holds is an i64 scalar, never a Ref");

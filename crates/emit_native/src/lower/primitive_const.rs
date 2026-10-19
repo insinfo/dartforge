@@ -76,7 +76,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let expr = u.ast.expr(e);
         match &expr.kind {
             ExprKind::Int(s) => {
-                let t = u.source[s.start as usize..s.end as usize].replace('_', "");
+                let t = u.source[s.start..s.end].replace('_', "");
                 let v = if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
                     u64::from_str_radix(h, 16).ok()? as i64
                 } else {
@@ -85,7 +85,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Some(Primitive::Int(v))
             }
             ExprKind::Double(s) => {
-                let t = u.source[s.start as usize..s.end as usize].replace('_', "");
+                let t = u.source[s.start..s.end].replace('_', "");
                 Some(Primitive::Double(t.parse().ok()?))
             }
             ExprKind::Bool(b) => Some(Primitive::Bool(*b)),

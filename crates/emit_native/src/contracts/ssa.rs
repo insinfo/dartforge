@@ -336,15 +336,14 @@ impl Validator<'_> {
                             .instructions
                             .len();
                         self.use_at(operand, *predecessor, end, Some(*id))?;
-                        if let Some(previous) = repeated.insert(*predecessor, operand) {
-                            if !exact_operand(previous, operand) {
+                        if let Some(previous) = repeated.insert(*predecessor, operand)
+                            && !exact_operand(previous, operand) {
                                 return Err(malformed(
                                     Some(block.id),
                                     Some(*id),
                                     "duplicate Phi predecessor edges need the same operand",
                                 ));
                             }
-                        }
                     }
                 } else {
                     ordinary_seen = true;

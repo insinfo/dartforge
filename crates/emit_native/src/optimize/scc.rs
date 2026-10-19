@@ -104,7 +104,7 @@ pub(crate) fn check(edges: &[Vec<usize>], cs: &[Vec<usize>]) -> Result<(), Strin
             if w >= n {
                 return Err("SCC: edge outside the graph".into());
             }
-            if owners[v] != owners[w] && owners[v] <= owners[w] {
+            if owners[v] < owners[w] {
                 return Err("SCC: dependency out of order".into());
             }
             inverses[w].push(v);

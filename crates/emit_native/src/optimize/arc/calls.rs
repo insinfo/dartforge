@@ -739,7 +739,7 @@ mod tests {
             ret_ty: Type::Ref,
         };
         let mut classes = HashMap::new();
-        produce_dart_calls(&caller, &[summary.clone()], &mut classes, &mut plan).unwrap();
+        produce_dart_calls(&caller, std::slice::from_ref(&summary), &mut classes, &mut plan).unwrap();
         assert_eq!(classes[&ValueId(1)], Ownership::Owned);
         assert_eq!(
             insert_arc_dart_exits(

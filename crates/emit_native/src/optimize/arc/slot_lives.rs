@@ -280,11 +280,9 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                             allow(&args[0].0);
                             if let Operand::Val(q) = args[0].0
                                 && let Some(i) = pairs.get(&q)
-                            {
-                                if args.get(1).is_some_and(|a| a.0 == Operand::Val(*i)) {
+                                && args.get(1).is_some_and(|a| a.0 == Operand::Val(*i)) {
                                     allow(&args[1].0);
                                 }
-                            }
                             if name == "dartforge_arc_frame_move_v1" {
                                 allow(&args[2].0);
                             }

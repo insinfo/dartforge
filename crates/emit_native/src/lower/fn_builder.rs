@@ -536,7 +536,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if let Some(sym) = p.name {
                 match ast_params.get(i).and_then(|a| a.name) {
                     Some(n) => {
-                        self.declare_variable(sym, n.span.start as usize, p_ty, Operand::Val(vid))
+                        self.declare_variable(sym, n.span.start, p_ty, Operand::Val(vid))
                     }
                     None => self.declare_local_with_value(sym, p_ty, Operand::Val(vid)),
                 }
@@ -688,7 +688,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 )
             }
             (Type::Ref, Type::I64 | Type::F64 | Type::I1) => {
-                self.emit_call_with_check(Instruction::Unbox { op, to: to }, to)
+                self.emit_call_with_check(Instruction::Unbox { op, to }, to)
             }
             (Type::Ref, Type::I8) => {
                 let b =
@@ -713,7 +713,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Instruction::ZExt {
                     op,
                     from: Type::I1,
-                    to: to,
+                    to,
                 },
                 to,
             ),
@@ -877,7 +877,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let vid = ValueId(self.next_value);
         self.next_value += 1;
-        self.value_types.insert(vid, ty.clone());
+        self.value_types.insert(vid, ty);
         let idx = self
             .func
             .blocks

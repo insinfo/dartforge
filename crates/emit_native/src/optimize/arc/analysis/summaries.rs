@@ -399,7 +399,8 @@ fn value_coverage<'a>(
     call: impl Fn(&str) -> Option<(&'a Function, &'a ArcHeapSummary)>,
 ) -> bool {
     let exact = |o: &Operand, t: Type| exact_argument(o, t, types);
-    let covered_body = f.blocks.iter().all(|b| {
+
+    f.blocks.iter().all(|b| {
         let exit = match &b.terminator {
             Terminator::Return(Some(o)) => exact(o, f.return_ty),
             Terminator::Return(None) => f.return_ty == Type::Void,
@@ -431,8 +432,7 @@ fn value_coverage<'a>(
                 }),
                 i => super::hir::pure_scalar(i, *t, types),
             })
-    });
-    covered_body
+    })
 }
 
 // Composite coverage requires every callee already covered; lack of knowledge

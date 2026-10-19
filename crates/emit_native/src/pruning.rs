@@ -1898,7 +1898,7 @@ mod tests {
             debug_info: None,
             params: Vec::new(),
             return_ty: Type::Void,
-            blocks: vec![BasicBlock { id: BlockId(0), instructions: instructions, terminator: Terminator::Return(None) }],
+            blocks: vec![BasicBlock { id: BlockId(0), instructions, terminator: Terminator::Return(None) }],
         };
         let mut m = Module::new();
         m.functions.push(function(

@@ -192,15 +192,14 @@ fn first_invalid(
             if let Instruction::Phi { incoming, .. } = inst {
                 for (p, op) in incoming {
                     let pi = pos[p];
-                    if cfg.idom[pi] != usize::MAX {
-                        if let Some(error) = check(
+                    if cfg.idom[pi] != usize::MAX
+                        && let Some(error) = check(
                             op,
                             &exits[pi],
                             format!("b{} -> b{} Phi v{}", p.0, b.id.0, v.0),
                         ) {
                             return Ok(Some(error));
                         }
-                    }
                 }
             } else {
                 // A call that may reenter Dart cannot depend on

@@ -300,7 +300,7 @@ fn substitute(function: &mut Function, constants: &[(ValueId, Arg)]) {
     if !strings.is_empty() {
         // The entry block (id 0, the first) has no `phi`: the constants go first.
         let entry = &mut function.blocks[0].instructions;
-        strings.extend(entry.drain(..));
+        strings.append(entry);
         *entry = strings;
     }
     replace(function, &|v| swap.get(&v).cloned());

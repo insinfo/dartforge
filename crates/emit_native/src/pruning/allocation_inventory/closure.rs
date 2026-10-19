@@ -171,9 +171,8 @@ pub(crate) fn audit(modules: &[(&str, &str)]) -> Bundle {
             let abi = signature(header).map(|(_, abi, _)| abi);
             let mut body = Vec::new(); let mut text = format!("{header}\n"); let mut complete = false;
             let structural_header = header.split(';').next().unwrap_or_default();
-            if let Some((_, inline)) = structural_header.split_once('{') {
-                if let Some((inline, _)) = inline.rsplit_once('}') { body.push(inline); complete = true; }
-            }
+            if let Some((_, inline)) = structural_header.split_once('{')
+                && let Some((inline, _)) = inline.rsplit_once('}') { body.push(inline); complete = true; }
             if !complete {
                 for line in lines.by_ref() {
                     text.push_str(line); text.push('\n');

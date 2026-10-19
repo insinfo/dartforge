@@ -117,7 +117,7 @@ fn rewrite_function(f: &mut Function) -> usize {
         Operand::Constant(Constant::Int(_)) => true,
         Operand::Val(v) if types.get(v) == Some(&Some(Type::I64)) => definitions
             .get(v)
-            .map_or(true, |&(db, di)| dominates(db, bi) && (db != bi || di < ii)),
+            .is_none_or(|&(db, di)| dominates(db, bi) && (db != bi || di < ii)),
         _ => false,
     };
     let Some(mut fresh) = types.keys().map(|v| v.0).max().unwrap_or(0).checked_add(1) else {

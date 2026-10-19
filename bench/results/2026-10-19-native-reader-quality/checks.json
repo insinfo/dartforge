@@ -1,0 +1,100 @@
+{
+  "baseline": "3e1aa0e5",
+  "host": "macOS ARM64",
+  "source_sdk": "Dart 3.6.2",
+  "rustc": "1.98.1",
+  "llvm": "22.1.8",
+  "link_sdk": "MacOSX26.5.sdk",
+  "workspace_checks": [
+    {
+      "check": "format",
+      "exit_code": 1,
+      "log_bytes": 15742732,
+      "log_sha256": "c767142244df15b3f46efd39a88d1a49011eead8e6251e816c10f069e8b28030",
+      "excerpt": "workspace-format.txt"
+    },
+    {
+      "check": "clippy",
+      "exit_code": 101,
+      "log_bytes": 631407,
+      "log_sha256": "9200e2a41af6bcf3655e6453c6a753be1a7131b364fd6d3eb5037d8cd4031889",
+      "excerpt": "workspace-clippy.txt"
+    },
+    {
+      "check": "workspace-tests",
+      "exit_code": 101,
+      "log_bytes": 1101189,
+      "log_sha256": "53e78269714942a195be923d2ae057c8fccad590dedaaee52a9e05a6d0ff3704",
+      "excerpt": "workspace-workspace-tests.txt"
+    },
+    {
+      "check": "docs",
+      "exit_code": 0,
+      "log_bytes": 11507,
+      "log_sha256": "890cd51cb243e4498a5acd0c19920af37141170a2997e7b1d2ab3bbc392fc3cf",
+      "excerpt": "workspace-docs.txt"
+    }
+  ],
+  "native_clippy": {
+    "exit_code": 101,
+    "before": {
+      "library_errors": 154,
+      "test_errors": 192
+    },
+    "after": {
+      "library_errors": 33,
+      "test_errors": 47
+    },
+    "new_production_suppressions": false,
+    "before_workspace_log_sha256": "e0cfd22d46369df9567c11534786353e9d11f21ac1537380d4acdfd98aa74e46"
+  },
+  "standalone_readers": "reader-checks.json",
+  "full_crate_result": {
+    "exit_code": 101,
+    "passed": 820,
+    "failed": 1,
+    "ignored": 0,
+    "failure": "production_profile::platform_constant_prunes_the_other_backends",
+    "note": "Cargo stopped after this integration binary; sdk_selection and doctests run separately."
+  },
+  "doctests": {
+    "exit_code": 0,
+    "passed": 121,
+    "failed": 0,
+    "ignored": 0
+  },
+  "native-tests.txt": {
+    "original_sha256": "e335346fa93e91bea7a8e1f65cca4677af7d268ff11484f9668b2b64682cc90b",
+    "original_bytes": 94472
+  },
+  "native-doctests.txt": {
+    "original_sha256": "a3d18131222d7ab41639adcf10e7e061fb464bf04b0dd1c97542621e474a6a1c",
+    "original_bytes": 15322
+  },
+  "sdk_selection": {
+    "exit_code": 0,
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "original_sha256": "12f264f1e314af73ccc3d789e907aca15c21310a782709ccd15f401ce45156f5",
+    "original_bytes": 8201
+  },
+  "nonoverlapping_results": {
+    "passed": 942,
+    "failed": 1,
+    "ignored_reported": 0,
+    "note": "793 unit + 28 integration + 121 doctests passed; one production integration failed. Standalone reader reproductions and the earlier suite overlap and are not added."
+  },
+  "fresh_platform_ir": {
+    "producer": "target/impl-a/debug/dartforge",
+    "producer_sha256": "1f2d782a26f8d4eb3ca662e3a8a20f7553904abeaef2d21312c9164d407db832",
+    "build_exit_code": 0,
+    "emission_exit_code": 0,
+    "ir_sha256": "531d950d7b52d66606e7ce825c3f6ba3e4f2e537ba80de77ad73d0bb02f997ec",
+    "ir_bytes": 167333,
+    "byte_identical_to_frozen_producer": true,
+    "foreign_constructors_present": false,
+    "foreign_getters_present": true,
+    "command": "DARTFORGE_SDK_LIB=/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib target/impl-a/debug/dartforge compile-native crates/emit_native/tests/fixtures/constant_args/main.dart --emit-ir --optimize -o /tmp/forge-platform-pruning-current.ll --timings"
+  }
+}

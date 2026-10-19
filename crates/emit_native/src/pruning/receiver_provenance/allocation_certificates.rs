@@ -132,7 +132,7 @@ pub(crate) fn bind_final_ir(
                 } else {
                     arguments
                         .split(',')
-                        .map(|argument| argument.trim().split_whitespace().next())
+                        .map(|argument| argument.split_whitespace().next())
                         .collect::<Option<Vec<_>>>()?
                 };
                 if observed

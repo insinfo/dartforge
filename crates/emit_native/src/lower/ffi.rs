@@ -894,7 +894,7 @@ fn full_annotation(ctx: &Context, c: ClassId, name_str: &str) -> Option<i64> {
 /// The value of an integer literal (decimal or hexadecimal).
 fn integer_literal(source: &str, ast: &ast::Ast, e: ast::ExprId) -> Option<i64> {
     let ast::ExprKind::Int(span) = &ast.expr(e).kind else { return None };
-    let text = source.get(span.start as usize..span.end as usize)?.replace('_', "");
+    let text = source.get(span.start..span.end)?.replace('_', "");
     match text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
         Some(h) => i64::from_str_radix(h, 16).ok(),
         None => text.parse().ok(),

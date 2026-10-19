@@ -65,8 +65,8 @@ fn assert_canonical_certificate(ctx: &Context) {
         selected_sdk::trusted_sources(ctx),
         selected_sdk::canonical_hash_binding(ctx)
     );
-    if selected_sdk::core_fingerprint(ctx).as_deref() != manifest["core_fingerprint"].as_str() {
-        if let Some(core) = ctx.program.core {
+    if selected_sdk::core_fingerprint(ctx).as_deref() != manifest["core_fingerprint"].as_str()
+        && let Some(core) = ctx.program.core {
             let library = ctx.program.library(core);
             for (ordinal, id) in library.units.iter().enumerate() {
                 let unit = ctx.program.unit(*id);
@@ -79,7 +79,6 @@ fn assert_canonical_certificate(ctx: &Context) {
                 );
             }
         }
-    }
     let expected: std::collections::HashSet<_> = manifest["units"]
         .as_array()
         .unwrap()

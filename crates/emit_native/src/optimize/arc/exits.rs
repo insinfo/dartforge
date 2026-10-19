@@ -179,7 +179,7 @@ pub(super) fn split_shared_exits(f: &mut Function, plan: &mut DartFunctionPlan) 
                     }
                 }
             }
-            f.blocks.push(BasicBlock { id, instructions: instructions, terminator: terminator });
+            f.blocks.push(BasicBlock { id, instructions, terminator });
             if let Some(class) = plan.tables.exits.get(&target).cloned() {
                 plan.tables.exits.insert(id, class);
             }

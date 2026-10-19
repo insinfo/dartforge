@@ -1350,7 +1350,7 @@ mod tests {
             .spawn(move || {
 
                 let optimize = std::env::var("DARTFORGE_OPTIMIZE").is_ok_and(|v| v == "1");
-                let options = crate::CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(crate::sdk_tests()), packages: None, timings: true, optimize: optimize, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+                let options = crate::CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(crate::sdk_tests()), packages: None, timings: true, optimize, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
                 crate::compile(&entry, &exit, &options).map(|_| exit)
             })
             .unwrap()

@@ -2,6 +2,26 @@
 
 ## Atualização de 19/10/2026
 
+- Os leitores do conversor nativo agora rejeitam offsets/varints fora do limite,
+  estouros de frame/retorno/slots e índices inconsistentes nos mapas compactos
+  DFGM/DFPC. Cada função é lida dentro do próprio stream; contagens de tabelas e
+  registros LLVM são verificadas antes da alocação. A busca de função por endereço
+  evita somar tamanho a um endereço próximo de `u64::MAX`. Cinco regressões
+  falham no código anterior; os 13 testes isolados dos dois módulos passam em
+  debug e com otimização. São sete testes novos no crate. Passaram os 793 testes
+  unitários nativos com `--include-ignored`; um teste manual existente retorna
+  sem executar aplicação quando `DARTFORGE_PROGRAM` não está definido, como nesta
+  rodada. O restante da tentativa do crate teve 27 integrações passando e uma
+  falhando: `platform_constant_prunes_the_other_backends` ainda encontra getters
+  e tabelas dos outros sistemas, embora seus construtores já tenham saído.
+  Um produtor anterior também apresenta essas definições; o teste foi mantido.
+  A poda completa de tabelas com SDK importado continua pendente. Os 121 doctests
+  passaram em execução separada, assim como o teste de seleção de SDK. O Clippy de emit-native caiu de 154/192 erros (lib/test) para 33/47,
+  sem novas supressões; CLI e LSP também têm pendências. Formatação global e
+  link padrão Apple/LLVM 22 continuam falhando; docs geradas com avisos. Não se
+  trata de certificação de todo objeto malformado nem dos leitores independentes
+  do runtime. Evidências e reprodução:
+  `bench/results/2026-10-19-native-reader-quality/README.md`.
 - Parity agora compara tipo do diagnóstico, severidade, mensagem/correção e
   coordenadas, reservando correspondências exatas antes de parear diferenças
   com a mesma chave. Quatro regressões falharam antes e passam após a correção,

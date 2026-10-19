@@ -557,7 +557,7 @@ pub(crate) fn analyze_with_summaries(
                 rs.push(Constraint::ReadBySchema {
                     object: operand(object),
                     schemas: schemas_by_index.clone(),
-                    index: index,
+                    index,
                     dest,
                 });
             }
@@ -573,7 +573,7 @@ pub(crate) fn analyze_with_summaries(
                 rs.push(Constraint::WriteBySchema {
                     object: operand(object),
                     schemas: schemas_by_index.clone(),
-                    index: index,
+                    index,
                     value: operand(value),
                 });
                 write_inclusions.push((operand(object), operand(value)));

@@ -488,14 +488,12 @@ fn analyze_tokens(
                         },
                     ..
                 } = inst
-                {
-                    if classes[q] != Ownership::Trivial {
+                    && classes[q] != Ownership::Trivial {
                         return Err(meta_error(format!(
                             "v{}: frame ID must be Trivial",
                             v.0
                         )));
                     }
-                }
                 let class = if matches!(
                     inst,
                     Instruction::ArcDrop { .. } | Instruction::ArcStoreStrong { .. }
@@ -526,8 +524,8 @@ fn analyze_tokens(
                 .ok_or_else(|| meta_error(format!("v{} without a consumption contract", v.0)))?;
             let unbox_bool = super::contracts::unbox_bool_call(inst);
             let call = unbox_bool.as_ref().unwrap_or(inst);
-            if let Instruction::CallRuntime { name, .. } = call {
-                if super::contract(name).is_ok() {
+            if let Instruction::CallRuntime { name, .. } = call
+                && super::contract(name).is_ok() {
                     let c = super::runtime_call_contract(call).map_err(meta_error)?;
                     if classes[v] != c.result
                         || e.always != c.effect.always
@@ -541,7 +539,6 @@ fn analyze_tokens(
                         )));
                     }
                 }
-            }
             // An invoke of a callee that does not fail (the joint analysis knows more
             // than that of the module that put the landing pad) only leaves a dead landing pad.
             let invoke = tables.invocations.contains_key(v);

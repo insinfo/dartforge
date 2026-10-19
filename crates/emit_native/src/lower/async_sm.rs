@@ -515,7 +515,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let frame_s = self.emit(
             Instruction::AllocObject {
                 class_id: ASYNC_FRAME_ID,
-                fields: fields,
+                fields,
             },
             Type::Ref,
         );
@@ -647,7 +647,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let frame = e.emit(
                 Instruction::AllocObject {
                     class_id: ASYNC_FRAME_ID,
-                    fields: fields,
+                    fields,
                 },
                 Type::Ref,
             );
@@ -1085,7 +1085,7 @@ mod ref_restoration_tests {
         }, Type::Void));
         let f = Function { symbol: "restaurar".into(), name: "restaurar".into(), debug_info: None,
             params: vec![(ValueId(0), "quadro".into(), Type::Ref)], return_ty: Type::Ref,
-            blocks: vec![BasicBlock { id: BlockId(0), instructions: instructions,
+            blocks: vec![BasicBlock { id: BlockId(0), instructions,
                 terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }] };
         let mut m = Module::new();
         m.arc_memory = true;

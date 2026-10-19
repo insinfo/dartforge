@@ -1,0 +1,2 @@
+error: could not compile `dartforge-emit-native` (lib) due to 154 previous errors
+error: could not compile `dartforge-emit-native` (lib test) due to 192 previous errors

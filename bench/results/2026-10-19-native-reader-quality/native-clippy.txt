@@ -1,0 +1,1006 @@
+error: method `identity` is never used
+   --> crates/emit_native/src/hir.rs:256:19
+    |
+254 | impl FieldDeclaration {
+    | --------------------- method in this implementation
+255 |     /// Semantic identity excludes flags and layout premises, which a proof must reconcile.
+256 |     pub(crate) fn identity(&self) -> (&str, &str, &str) {
+    |                   ^^^^^^^^
+    |
+    = note: `-D dead-code` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[expect(dead_code)]` or `#[allow(dead_code)]`
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/context.rs:113:9
+    |
+113 | ...   std::sync::RwLock<std::collections::HashMap<(dartforge_elements::model::ClassId, SymbolId), std::sync::Arc<Vec<crate::lower::sdk_source::Implementation>>>>,
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+    = note: `-D clippy::type-complexity` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::type_complexity)]`
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/context.rs:119:40
+    |
+119 |       pub implementations_by_class_memo: std::sync::RwLock<
+    |  ________________________________________^
+120 | |         std::collections::HashMap<
+121 | |             (dartforge_elements::model::ClassId, SymbolId),
+122 | |             Option<std::sync::Arc<Vec<(i64, crate::lower::sdk_source::Implementation)>>>,
+123 | |         >,
+124 | |     >,
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: very complex type used. Consider factoring parts into `type` definitions
+    --> crates/emit_native/src/hir.rs:1238:24
+     |
+1238 |     pub method_tables: Vec<(u32, String, Vec<(String, String)>)>,
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: methods called `new` usually take no `self`
+  --> crates/emit_native/src/llvm/debug_info.rs:58:12
+   |
+58 |     fn new(&mut self, text: String) -> u32 {
+   |            ^^^^^^^^^
+   |
+   = help: consider choosing a less ambiguous name
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#wrong_self_convention
+   = note: `-D clippy::wrong-self-convention` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::wrong_self_convention)]`
+
+error: methods called `new` usually return `Self`
+  --> crates/emit_native/src/llvm/debug_info.rs:58:5
+   |
+58 | /     fn new(&mut self, text: String) -> u32 {
+59 | |         self.metadata.push(text);
+60 | |         (self.metadata.len() - 1) as u32
+61 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#new_ret_no_self
+   = note: `-D clippy::new-ret-no-self` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::new_ret_no_self)]`
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/llvm/roots.rs:195:26
+    |
+195 |                   visit: &mut dyn FnMut(Option<&Instruction>, Option<ValueId>, Option<usize>, &Set, &Set)|
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: the loop variable `b` is used to index `phi_defs`
+   --> crates/emit_native/src/llvm/roots.rs:262:14
+    |
+262 |     for b in 0..nb {
+    |              ^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#needless_range_loop
+    = note: `-D clippy::needless-range-loop` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::needless_range_loop)]`
+help: consider using an iterator and enumerate()
+    |
+262 -     for b in 0..nb {
+262 +     for (b, <item>) in phi_defs.iter().enumerate().take(nb) {
+    |
+
+error: this function has too many arguments (8/7)
+    --> crates/emit_native/src/llvm/mod.rs:3967:5
+     |
+3967 |     fn emit_field_write(&mut self, v: u32, suffix: &str, idx: usize, sv: &str, is_ref: &str, known: Option<u32>, fresh: bool) {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+     = note: `-D clippy::too-many-arguments` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::too_many_arguments)]`
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5054:5
+     |
+5054 | /// `@df.body(h, ctx)`: the start of the body of an object (the header; the
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+     = note: `-D clippy::doc-lazy-continuation` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::doc_lazy_continuation)]`
+help: indent this line
+     |
+5054 | ///   `@df.body(h, ctx)`: the start of the body of an object (the header; the
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5055:5
+     |
+5055 | /// fields 16 bytes later), the same computation as `emit_field_addresses`
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5055 | ///   fields 16 bytes later), the same computation as `emit_field_addresses`
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5056:5
+     |
+5056 | /// inline — a value that is not an object reads the reserve object of the context
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5056 | ///   inline — a value that is not an object reads the reserve object of the context
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5057:5
+     |
+5057 | /// (`ctx + 40`), and a body outside the block (attached, `flags & 1`) is followed through the
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5057 | ///   (`ctx + 40`), and a body outside the block (attached, `flags & 1`) is followed through the
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5058:5
+     |
+5058 | /// pointer at `+16`. `alwaysinline` when the emitter is inline (so that the
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5058 | ///   pointer at `+16`. `alwaysinline` when the emitter is inline (so that the
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5059:5
+     |
+5059 | /// optimizer sees the same); without the attribute in development, a call.
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5059 | ///   optimizer sees the same); without the attribute in development, a call.
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5060:5
+     |
+5060 | /// `without_outside`: no object has an outside body (`body_without_outside`,
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5060 | ///   `without_outside`: no object has an outside body (`body_without_outside`,
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5061:5
+     |
+5061 | /// see `emit_field_addresses`): the body is the first select.
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5061 | ///   see `emit_field_addresses`): the body is the first select.
+     |     ++
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/lower/async_sm.rs:203:30
+    |
+203 |     fn stub_locals(&self) -> (Vec<(SymbolId, Local)>, Vec<(SymbolId, Local)>) {
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: very complex type used. Consider factoring parts into `type` definitions
+    --> crates/emit_native/src/lower/async_sm.rs:1644:23
+     |
+1644 |     let mut on_edges: Vec<(BlockId, BlockId, Vec<(ValueId, Instruction, Type)>)> = Vec::new();
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: the variable `next_block` is used as a loop counter
+    --> crates/emit_native/src/lower/async_sm.rs:1706:5
+     |
+1706 |     for (origin, success, writes) in on_edges {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `for (next_block, (origin, success, writes)) in (func.blocks.iter().map(|b| b.id.0).max().map_or(0, |m| m + 1)..).zip(on_edges.into_iter())`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_counter_loop
+     = note: `-D clippy::explicit-counter-loop` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::explicit_counter_loop)]`
+
+error: this `let...else` may be rewritten with the `?` operator
+    --> crates/emit_native/src/lower/statements.rs:1043:9
+     |
+1043 |         let Some(cond) = condition else { return None };
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace it with: `let cond = condition?;`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#question_mark
+     = note: `-D clippy::question-mark` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::question_mark)]`
+
+error: this function has too many arguments (8/7)
+   --> crates/emit_native/src/lower/patterns.rs:184:5
+    |
+184 | /     pub fn match_pattern(
+185 | |         &mut self,
+186 | |         ast: &ast::Ast,
+187 | |         p: PatternId,
+...   |
+192 | |         origin: ExprId,
+193 | |     ) {
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+
+error: the variable `block` is used as a loop counter
+  --> crates/emit_native/src/optimize/arc/edges.rs:63:9
+   |
+63 |         for ((origin, dest), dead_set) in plans {
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_counter_loop
+help: consider using
+   |
+63 ~         for (block, ((origin, dest), dead_set)) in (f
+64 +             .blocks
+65 +             .iter()
+66 +             .map(|b| b.id.0)
+67 +             .chain(p.tables.exits.keys().map(|b| b.0))
+68 +             .chain(p.tables.landing_pads.iter().map(|b| b.0))
+69 +             .chain(p.tables.invocations.values().map(|b| b.0))
+70 +             .chain(p.tokens.pendings.values().map(|b| b.0))
+71 +             .chain(p.scopes.exits.keys().map(|b| b.0))
+72 +             .chain(p.scopes.edges.keys().flat_map(|(a, b)| [a.0, b.0]))
+73 +             .max()
+74 ~             .map_or(0, |b| u64::from(b) + 1)..).zip(plans.into_iter()) {
+   |
+
+error: very complex type used. Consider factoring parts into `type` definitions
+  --> crates/emit_native/src/optimize/arc/phis.rs:27:15
+   |
+27 |     let phis: HashMap<ValueId, (BlockId, &Vec<(BlockId, Operand)>)> = f
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: very complex type used. Consider factoring parts into `type` definitions
+  --> crates/emit_native/src/optimize/arc/phis.rs:66:15
+   |
+66 |     let phis: HashMap<ValueId, (BlockId, &Vec<(BlockId, Operand)>)> = f
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: the variable `next_block` is used as a loop counter
+   --> crates/emit_native/src/optimize/arc/phis.rs:309:5
+    |
+309 |     for ((pred, block), entries) in edges {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_counter_loop
+help: consider using
+    |
+309 ~     for (next_block, ((pred, block), entries)) in (f
+310 +         .blocks
+311 +         .iter()
+312 +         .map(|b| b.id.0)
+313 +         .chain(p.tables.exits.keys().map(|b| b.0))
+314 +         .chain(p.tables.landing_pads.iter().map(|b| b.0))
+315 +         .chain(p.tables.invocations.values().map(|b| b.0))
+316 +         .chain(p.tokens.pendings.values().map(|b| b.0))
+317 +         .chain(p.scopes.exits.keys().map(|b| b.0))
+318 +         .chain(p.scopes.edges.keys().flat_map(|(a, b)| [a.0, b.0]))
+319 +         .max()
+320 ~         .map_or(0, |b| u64::from(b) + 1)..).zip(edges.into_iter()) {
+    |
+
+error: this function has too many arguments (10/7)
+   --> crates/emit_native/src/optimize/arc/functions.rs:295:1
+    |
+295 | / fn insert(
+296 | |     functions: &mut [Function],
+297 | |     plans: &mut HashMap<String, DartFunctionPlan>,
+298 | |     prepare_calls: bool,
+...   |
+305 | |     externals: bool,
+306 | | ) -> Result<(usize, usize), String> {
+    | |___________________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/optimize/arc/modules.rs:381:6
+    |
+381 |   ) -> (
+    |  ______^
+382 | |     Type,
+383 | |     TokenReturn,
+384 | |     Vec<(Type, bool, bool, Option<DartEntryVector>)>,
+385 | | ) {
+    | |_^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: this function has too many arguments (8/7)
+   --> crates/emit_native/src/optimize/inline.rs:190:1
+    |
+190 | / fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Function, bool)>,
+191 | |     sources: &HashMap<String, HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>>,
+192 | |     sites: &mut HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>,
+193 | |     frame_sources: &HashMap<String, HashMap<ValueId, (String, usize)>>,
+194 | |     frames: &mut HashMap<ValueId, (String, usize)>,
+195 | | ) {
+    | |_^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> crates/emit_native/src/optimize/tables.rs:273:5
+    |
+273 |     t.checks_stack = f.blocks.iter().any(|b| b.instructions.iter().any(|(_, inst, _)| is_site(inst, nl, uniforms)));
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `hir::FunctionTables { checks_stack: f.blocks.iter().any(|b| b.instructions.iter().any(|(_, inst, _)| is_site(inst, nl, uniforms))), ..Default::default() }` and removing relevant reassignments
+   --> crates/emit_native/src/optimize/tables.rs:272:5
+    |
+272 |     let mut t = FunctionTables::default();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+    = note: `-D clippy::field-reassign-with-default` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::field_reassign_with_default)]`
+
+error: this function has too many arguments (8/7)
+  --> crates/emit_native/src/pruning/receiver_provenance/allocation_only_exports.rs:70:1
+   |
+70 | / fn audit<'a>(
+71 | |     body: &'a Function,
+72 | |     proof: &Provenance<'a>,
+73 | |     bodies: &HashMap<&'a str, &'a Function>,
+...  |
+78 | |     rti: &rti::Inventory,
+79 | | ) -> bool {
+   | |_________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/sdk_module.rs:219:18
+    |
+219 |     static MEMO: OnceLock<Mutex<std::collections::HashMap<(PathBuf, String), Arc<IdTable>>>> = OnceLock::new();
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: consider using `sort_by_key`
+   --> crates/emit_native/src/sdk_module.rs:928:5
+    |
+928 |     dirs.sort_by(|a, b| b.0.cmp(&a.0));
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_sort_by
+    = note: `-D clippy::unnecessary-sort-by` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unnecessary_sort_by)]`
+help: try
+    |
+928 -     dirs.sort_by(|a, b| b.0.cmp(&a.0));
+928 +     dirs.sort_by_key(|a| std::cmp::Reverse(a.0));
+    |
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/context.rs:113:9
+    |
+113 | ...   std::sync::RwLock<std::collections::HashMap<(dartforge_elements::model::ClassId, SymbolId), std::sync::Arc<Vec<crate::lower::sdk_source::Implementation>>>>,
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+    = note: `-D clippy::type-complexity` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::type_complexity)]`
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/context.rs:119:40
+    |
+119 |       pub implementations_by_class_memo: std::sync::RwLock<
+    |  ________________________________________^
+120 | |         std::collections::HashMap<
+121 | |             (dartforge_elements::model::ClassId, SymbolId),
+122 | |             Option<std::sync::Arc<Vec<(i64, crate::lower::sdk_source::Implementation)>>>,
+123 | |         >,
+124 | |     >,
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: very complex type used. Consider factoring parts into `type` definitions
+    --> crates/emit_native/src/hir.rs:1238:24
+     |
+1238 |     pub method_tables: Vec<(u32, String, Vec<(String, String)>)>,
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: methods called `new` usually take no `self`
+  --> crates/emit_native/src/llvm/debug_info.rs:58:12
+   |
+58 |     fn new(&mut self, text: String) -> u32 {
+   |            ^^^^^^^^^
+   |
+   = help: consider choosing a less ambiguous name
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#wrong_self_convention
+   = note: `-D clippy::wrong-self-convention` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::wrong_self_convention)]`
+
+error: methods called `new` usually return `Self`
+  --> crates/emit_native/src/llvm/debug_info.rs:58:5
+   |
+58 | /     fn new(&mut self, text: String) -> u32 {
+59 | |         self.metadata.push(text);
+60 | |         (self.metadata.len() - 1) as u32
+61 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#new_ret_no_self
+   = note: `-D clippy::new-ret-no-self` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::new_ret_no_self)]`
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/llvm/roots.rs:195:26
+    |
+195 |                   visit: &mut dyn FnMut(Option<&Instruction>, Option<ValueId>, Option<usize>, &Set, &Set)|
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: the loop variable `b` is used to index `phi_defs`
+   --> crates/emit_native/src/llvm/roots.rs:262:14
+    |
+262 |     for b in 0..nb {
+    |              ^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#needless_range_loop
+    = note: `-D clippy::needless-range-loop` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::needless_range_loop)]`
+help: consider using an iterator and enumerate()
+    |
+262 -     for b in 0..nb {
+262 +     for (b, <item>) in phi_defs.iter().enumerate().take(nb) {
+    |
+
+error: field assignment outside of initializer for an instance created with Default::default()
+    --> crates/emit_native/src/llvm/tests.rs:1018:5
+     |
+1018 |     plan.tables = t;
+     |     ^^^^^^^^^^^^^^^^
+     |
+note: consider initializing the variable with `optimize::arc::functions::DartFunctionPlan { tables: t, ..Default::default() }` and removing relevant reassignments
+    --> crates/emit_native/src/llvm/tests.rs:1017:5
+     |
+1017 |     let mut plan = crate::optimize::arc::DartFunctionPlan::default();
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+     = note: `-D clippy::field-reassign-with-default` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::field_reassign_with_default)]`
+
+error: this function has too many arguments (8/7)
+    --> crates/emit_native/src/llvm/mod.rs:3967:5
+     |
+3967 |     fn emit_field_write(&mut self, v: u32, suffix: &str, idx: usize, sv: &str, is_ref: &str, known: Option<u32>, fresh: bool) {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+     = note: `-D clippy::too-many-arguments` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::too_many_arguments)]`
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5054:5
+     |
+5054 | /// `@df.body(h, ctx)`: the start of the body of an object (the header; the
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+     = note: `-D clippy::doc-lazy-continuation` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::doc_lazy_continuation)]`
+help: indent this line
+     |
+5054 | ///   `@df.body(h, ctx)`: the start of the body of an object (the header; the
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5055:5
+     |
+5055 | /// fields 16 bytes later), the same computation as `emit_field_addresses`
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5055 | ///   fields 16 bytes later), the same computation as `emit_field_addresses`
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5056:5
+     |
+5056 | /// inline — a value that is not an object reads the reserve object of the context
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5056 | ///   inline — a value that is not an object reads the reserve object of the context
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5057:5
+     |
+5057 | /// (`ctx + 40`), and a body outside the block (attached, `flags & 1`) is followed through the
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5057 | ///   (`ctx + 40`), and a body outside the block (attached, `flags & 1`) is followed through the
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5058:5
+     |
+5058 | /// pointer at `+16`. `alwaysinline` when the emitter is inline (so that the
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5058 | ///   pointer at `+16`. `alwaysinline` when the emitter is inline (so that the
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5059:5
+     |
+5059 | /// optimizer sees the same); without the attribute in development, a call.
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5059 | ///   optimizer sees the same); without the attribute in development, a call.
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5060:5
+     |
+5060 | /// `without_outside`: no object has an outside body (`body_without_outside`,
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5060 | ///   `without_outside`: no object has an outside body (`body_without_outside`,
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5061:5
+     |
+5061 | /// see `emit_field_addresses`): the body is the first select.
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5061 | ///   see `emit_field_addresses`): the body is the first select.
+     |     ++
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/lower/async_sm.rs:203:30
+    |
+203 |     fn stub_locals(&self) -> (Vec<(SymbolId, Local)>, Vec<(SymbolId, Local)>) {
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: very complex type used. Consider factoring parts into `type` definitions
+    --> crates/emit_native/src/lower/async_sm.rs:1644:23
+     |
+1644 |     let mut on_edges: Vec<(BlockId, BlockId, Vec<(ValueId, Instruction, Type)>)> = Vec::new();
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: the variable `next_block` is used as a loop counter
+    --> crates/emit_native/src/lower/async_sm.rs:1706:5
+     |
+1706 |     for (origin, success, writes) in on_edges {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `for (next_block, (origin, success, writes)) in (func.blocks.iter().map(|b| b.id.0).max().map_or(0, |m| m + 1)..).zip(on_edges.into_iter())`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_counter_loop
+     = note: `-D clippy::explicit-counter-loop` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::explicit_counter_loop)]`
+
+error: this `let...else` may be rewritten with the `?` operator
+    --> crates/emit_native/src/lower/statements.rs:1043:9
+     |
+1043 |         let Some(cond) = condition else { return None };
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace it with: `let cond = condition?;`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#question_mark
+     = note: `-D clippy::question-mark` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::question_mark)]`
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> crates/emit_native/src/lower/layouts_arc.rs:306:21
+    |
+306 |                     m.arc_memory = true;
+    |                     ^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `hir::Module { arc_memory: true, ..Default::default() }` and removing relevant reassignments
+   --> crates/emit_native/src/lower/layouts_arc.rs:305:21
+    |
+305 |                     let mut m = Module::default();
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+
+error: this function has too many arguments (8/7)
+   --> crates/emit_native/src/lower/patterns.rs:184:5
+    |
+184 | /     pub fn match_pattern(
+185 | |         &mut self,
+186 | |         ast: &ast::Ast,
+187 | |         p: PatternId,
+...   |
+192 | |         origin: ExprId,
+193 | |     ) {
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> crates/emit_native/src/optimize/arc/classification/speed_tests.rs:485:5
+    |
+485 |     plan.pendings = pending;
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `optimize::arc::tokens::TokenPlan { pendings: pending, ..Default::default() }` and removing relevant reassignments
+   --> crates/emit_native/src/optimize/arc/classification/speed_tests.rs:484:5
+    |
+484 |     let mut plan = super::super::TokenPlan::default();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+
+error: the loop variable `v` is used to index `reachability`
+   --> crates/emit_native/src/optimize/arc/analysis/points_to.rs:896:22
+    |
+896 |             for v in 0..3 {
+    |                      ^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#needless_range_loop
+help: consider using an iterator and enumerate()
+    |
+896 -             for v in 0..3 {
+896 +             for (v, <item>) in reachability.iter_mut().enumerate() {
+    |
+
+error: the loop variable `w` is used to index `reachability`
+   --> crates/emit_native/src/optimize/arc/analysis/points_to.rs:902:26
+    |
+902 |                 for w in 0..3 {
+    |                          ^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#needless_range_loop
+help: consider using an iterator and enumerate()
+    |
+902 -                 for w in 0..3 {
+902 +                 for (w, <item>) in reachability.iter_mut().enumerate() {
+    |
+
+error: the loop variable `w` is used to index `reachability`
+   --> crates/emit_native/src/optimize/arc/analysis/points_to.rs:921:26
+    |
+921 |                 for w in 0..3 {
+    |                          ^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#needless_range_loop
+help: consider using an iterator and enumerate()
+    |
+921 -                 for w in 0..3 {
+921 +                 for (w, <item>) in reachability.iter().enumerate() {
+    |
+
+error: field assignment outside of initializer for an instance created with Default::default()
+    --> crates/emit_native/src/optimize/arc/contracts.rs:2776:9
+     |
+2776 |         module.arc_memory = true;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+note: consider initializing the variable with `hir::Module { arc_memory: true, ..Default::default() }` and removing relevant reassignments
+    --> crates/emit_native/src/optimize/arc/contracts.rs:2775:9
+     |
+2775 |         let mut module = Module::default();
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+
+error: field assignment outside of initializer for an instance created with Default::default()
+    --> crates/emit_native/src/optimize/arc/contracts.rs:3046:9
+     |
+3046 |         module.arc_memory = true;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+note: consider initializing the variable with `hir::Module { arc_memory: true, ..Default::default() }` and removing relevant reassignments
+    --> crates/emit_native/src/optimize/arc/contracts.rs:3045:9
+     |
+3045 |         let mut module = Module::default();
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> crates/emit_native/src/optimize/arc/locals.rs:685:13
+    |
+685 |             module.arc_memory = true;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `hir::Module { arc_memory: true, ..Default::default() }` and removing relevant reassignments
+   --> crates/emit_native/src/optimize/arc/locals.rs:684:13
+    |
+684 |             let mut module = Module::default();
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> crates/emit_native/src/optimize/arc/locals.rs:706:13
+    |
+706 |             module.arc_memory = arc;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `hir::Module { arc_memory: arc, ..Default::default() }` and removing relevant reassignments
+   --> crates/emit_native/src/optimize/arc/locals.rs:705:13
+    |
+705 |             let mut module = Module::default();
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+
+error: the variable `block` is used as a loop counter
+  --> crates/emit_native/src/optimize/arc/edges.rs:63:9
+   |
+63 |         for ((origin, dest), dead_set) in plans {
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_counter_loop
+help: consider using
+   |
+63 ~         for (block, ((origin, dest), dead_set)) in (f
+64 +             .blocks
+65 +             .iter()
+66 +             .map(|b| b.id.0)
+67 +             .chain(p.tables.exits.keys().map(|b| b.0))
+68 +             .chain(p.tables.landing_pads.iter().map(|b| b.0))
+69 +             .chain(p.tables.invocations.values().map(|b| b.0))
+70 +             .chain(p.tokens.pendings.values().map(|b| b.0))
+71 +             .chain(p.scopes.exits.keys().map(|b| b.0))
+72 +             .chain(p.scopes.edges.keys().flat_map(|(a, b)| [a.0, b.0]))
+73 +             .max()
+74 ~             .map_or(0, |b| u64::from(b) + 1)..).zip(plans.into_iter()) {
+   |
+
+error: very complex type used. Consider factoring parts into `type` definitions
+  --> crates/emit_native/src/optimize/arc/phis.rs:27:15
+   |
+27 |     let phis: HashMap<ValueId, (BlockId, &Vec<(BlockId, Operand)>)> = f
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: very complex type used. Consider factoring parts into `type` definitions
+  --> crates/emit_native/src/optimize/arc/phis.rs:66:15
+   |
+66 |     let phis: HashMap<ValueId, (BlockId, &Vec<(BlockId, Operand)>)> = f
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: the variable `next_block` is used as a loop counter
+   --> crates/emit_native/src/optimize/arc/phis.rs:309:5
+    |
+309 |     for ((pred, block), entries) in edges {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_counter_loop
+help: consider using
+    |
+309 ~     for (next_block, ((pred, block), entries)) in (f
+310 +         .blocks
+311 +         .iter()
+312 +         .map(|b| b.id.0)
+313 +         .chain(p.tables.exits.keys().map(|b| b.0))
+314 +         .chain(p.tables.landing_pads.iter().map(|b| b.0))
+315 +         .chain(p.tables.invocations.values().map(|b| b.0))
+316 +         .chain(p.tokens.pendings.values().map(|b| b.0))
+317 +         .chain(p.scopes.exits.keys().map(|b| b.0))
+318 +         .chain(p.scopes.edges.keys().flat_map(|(a, b)| [a.0, b.0]))
+319 +         .max()
+320 ~         .map_or(0, |b| u64::from(b) + 1)..).zip(edges.into_iter()) {
+    |
+
+error: field assignment outside of initializer for an instance created with Default::default()
+  --> crates/emit_native/src/optimize/arc/layouts.rs:44:13
+   |
+44 |             m.arc_memory = true;
+   |             ^^^^^^^^^^^^^^^^^^^^
+   |
+note: consider initializing the variable with `hir::Module { arc_memory: true, ..Default::default() }` and removing relevant reassignments
+  --> crates/emit_native/src/optimize/arc/layouts.rs:43:13
+   |
+43 |             let mut m = Module::default();
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+
+error: this function has too many arguments (10/7)
+   --> crates/emit_native/src/optimize/arc/functions.rs:295:1
+    |
+295 | / fn insert(
+296 | |     functions: &mut [Function],
+297 | |     plans: &mut HashMap<String, DartFunctionPlan>,
+298 | |     prepare_calls: bool,
+...   |
+305 | |     externals: bool,
+306 | | ) -> Result<(usize, usize), String> {
+    | |___________________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/optimize/arc/modules.rs:381:6
+    |
+381 |   ) -> (
+    |  ______^
+382 | |     Type,
+383 | |     TokenReturn,
+384 | |     Vec<(Type, bool, bool, Option<DartEntryVector>)>,
+385 | | ) {
+    | |_^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: this function has too many arguments (8/7)
+   --> crates/emit_native/src/optimize/inline.rs:190:1
+    |
+190 | / fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Function, bool)>,
+191 | |     sources: &HashMap<String, HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>>,
+192 | |     sites: &mut HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>,
+193 | |     frame_sources: &HashMap<String, HashMap<ValueId, (String, usize)>>,
+194 | |     frames: &mut HashMap<ValueId, (String, usize)>,
+195 | | ) {
+    | |_^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> crates/emit_native/src/optimize/tables.rs:273:5
+    |
+273 |     t.checks_stack = f.blocks.iter().any(|b| b.instructions.iter().any(|(_, inst, _)| is_site(inst, nl, uniforms)));
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `hir::FunctionTables { checks_stack: f.blocks.iter().any(|b| b.instructions.iter().any(|(_, inst, _)| is_site(inst, nl, uniforms))), ..Default::default() }` and removing relevant reassignments
+   --> crates/emit_native/src/optimize/tables.rs:272:5
+    |
+272 |     let mut t = FunctionTables::default();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+
+error: this function has too many arguments (8/7)
+  --> crates/emit_native/src/pruning/receiver_provenance/allocation_only_exports.rs:70:1
+   |
+70 | / fn audit<'a>(
+71 | |     body: &'a Function,
+72 | |     proof: &Provenance<'a>,
+73 | |     bodies: &HashMap<&'a str, &'a Function>,
+...  |
+78 | |     rti: &rti::Inventory,
+79 | | ) -> bool {
+   | |_________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/sdk_module.rs:219:18
+    |
+219 |     static MEMO: OnceLock<Mutex<std::collections::HashMap<(PathBuf, String), Arc<IdTable>>>> = OnceLock::new();
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: consider using `sort_by_key`
+   --> crates/emit_native/src/sdk_module.rs:928:5
+    |
+928 |     dirs.sort_by(|a, b| b.0.cmp(&a.0));
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_sort_by
+    = note: `-D clippy::unnecessary-sort-by` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unnecessary_sort_by)]`
+help: try
+    |
+928 -     dirs.sort_by(|a, b| b.0.cmp(&a.0));
+928 +     dirs.sort_by_key(|a| std::cmp::Reverse(a.0));
+    |
+
+error: consider using `sort_by_key`
+    --> crates/emit_native/src/sdk_module.rs:1287:13
+     |
+1287 |             v.sort_by(|a, b| b.1.cmp(&a.1));
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_sort_by
+help: try
+     |
+1287 -             v.sort_by(|a, b| b.1.cmp(&a.1));
+1287 +             v.sort_by_key(|a| std::cmp::Reverse(a.1));
+     |
+
+error: consider using `sort_by_key`
+    --> crates/emit_native/src/sdk_module.rs:1322:9
+     |
+1322 |         v.sort_by(|a, b| b.1.cmp(&a.1));
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_sort_by
+help: try
+     |
+1322 -         v.sort_by(|a, b| b.1.cmp(&a.1));
+1322 +         v.sort_by_key(|a| std::cmp::Reverse(a.1));
+     |
+
+error: consider using `sort_by_key`
+    --> crates/emit_native/src/sdk_module.rs:1502:9
+     |
+1502 |         v.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_sort_by
+help: try
+     |
+1502 -         v.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+1502 +         v.sort_by_key(|a| std::cmp::Reverse(a.1.0));
+     |
+
+error: useless use of `vec!`
+   --> crates/emit_native/src/compact_stack_trace.rs:727:32
+    |
+727 |         assert_eq!(convert_elf(&mut vec![0u8; 8]), Ok(false));
+    |                                ^^^^^^^^^^^^^^^^^ help: you can use a slice directly: `&mut [0u8; 8]`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#useless_vec
+    = note: `-D clippy::useless-vec` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::useless_vec)]`
+
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+error: could not compile `dartforge-emit-native` (lib) due to 33 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `dartforge-emit-native` (lib test) due to 47 previous errors

@@ -262,7 +262,7 @@ pub fn analyze_with(
     for b in 0..nb {
         let exit = live_at_exit_set(b, &entry);
         let e = walk_block(b, exit, &mut |inst, who, d, after, before| {
-            let collection = inst.is_none_or(|i| may_collect(i));
+            let collection = inst.is_none_or(may_collect);
             if collection {
                 let roots = match inst {
                     Some(i) if callee_roots(i) => {
@@ -385,7 +385,7 @@ fn dead_slots(func: &Function, position: &HashMap<BlockId, usize>, r: &mut Roots
     // exit; `record` receives the zeroings.
     let walk = |b: usize, mut state: Set, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| -> Set {
         let block = &func.blocks[b];
-        let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+        let clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
             let dead: Vec<usize> = state.elements().filter(|&s| !live.has(s)).collect();
             for &s in &dead {
                 state.take_out(s);

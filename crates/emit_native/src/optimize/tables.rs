@@ -387,7 +387,7 @@ fn from_function(f: &mut Function, nl: &HashSet<String>, preserve_cleanup: bool,
                 pos.insert(landing_pad, f.blocks.len());
                 f.blocks.push(BasicBlock { id: landing_pad, instructions: Vec::new(), terminator: Terminator::Branch(rest) });
                 pos.insert(rest, f.blocks.len());
-                f.blocks.push(BasicBlock { id: rest, instructions: tail, terminator: terminator });
+                f.blocks.push(BasicBlock { id: rest, instructions: tail, terminator });
                 if typ != Type::Void {
                     // The result, from here on, is that of the call or the
                     // default (what the throwing function returned).

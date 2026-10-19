@@ -201,7 +201,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if repeated {
             let name = self.ctx.symbol_name(sym).to_string();
             let end = offset + name.len();
-            self.language_error(&format!("'{name}' is already declared in this scope."), dartforge_diagnostics::Span { start: offset, end: end });
+            self.language_error(&format!("'{name}' is already declared in this scope."), dartforge_diagnostics::Span { start: offset, end });
         }
         let ty = Self::local_repr(ty);
         // Captured only by direct functions and assigned: goes by the address of the
@@ -341,7 +341,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         origin: &Local,
     ) {
         let late = origin.late.as_ref().filter(|l| l.cell && cell).map(|l| {
-            let state = self.emit(Instruction::EnvGet { env: env.clone(), index: index }, Type::Ref);
+            let state = self.emit(Instruction::EnvGet { env: env.clone(), index }, Type::Ref);
             LateLocal {
                 initialized: state,
                 cell: true,
@@ -607,7 +607,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::Ref,
         );
         let value = self.emit(Instruction::CellGet { cell: old }, local.ty);
-        let new_one = self.emit(Instruction::AllocCell { value: value }, Type::Ref);
+        let new_one = self.emit(Instruction::AllocCell { value }, Type::Ref);
         self.emit(
             Instruction::Store {
                 ptr: ptr.clone(),

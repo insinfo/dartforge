@@ -376,7 +376,7 @@ impl<'a> Context<'a> {
                             Some(k) => n.push(interner.resolve(k.sym).to_string()),
                             None => {
                                 // `:x` — the name is that of the variable inside the field.
-                                let text = &u.source[f.span.start as usize..f.span.end as usize];
+                                let text = &u.source[f.span.start..f.span.end];
                                 if text.trim_start().starts_with(':')
                                     && let Some(s) = pattern_variable_name(&u.ast, f.pattern)
                                 {

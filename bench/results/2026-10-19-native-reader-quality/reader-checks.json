@@ -1,0 +1,24 @@
+{
+  "baseline": "3e1aa0e5",
+  "checks": [
+    {
+      "revision": "before",
+      "exit_code": 101,
+      "summary": "test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s"
+    },
+    {
+      "revision": "after",
+      "exit_code": 0,
+      "summary": "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+    },
+    {
+      "revision": "after-optimized",
+      "exit_code": 0,
+      "summary": "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+    }
+  ],
+  "sources": {
+    "crates/emit_native/src/gcmap.rs": "50029f6f699f33fa55e0155229069c335d7850a2a51461feafb23b13759e86f6",
+    "crates/emit_native/src/compact_stack_trace.rs": "26d3bfafe7fcfeb2417632026990f38847a4df0ff63891d0d4c344ff2bbff41b"
+  }
+}

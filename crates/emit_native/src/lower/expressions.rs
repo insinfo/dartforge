@@ -305,8 +305,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // `dynamic` (or absent) type forces nothing: the operand stays in the
         // representation it was produced in, and each boundary coerces by the
         // real type of the operand.
-        if let Some(t) = self.ctx.get_type(self.unit_id, expr_id) {
-            if t != self.ctx.core.dynamic_ && !self.ctx.is_void(t) && !self.is_terminated() {
+        if let Some(t) = self.ctx.get_type(self.unit_id, expr_id)
+            && t != self.ctx.core.dynamic_ && !self.ctx.is_void(t) && !self.is_terminated() {
                 let r = self.ctx.to_hir_type(t);
                 if !matches!(r, Type::Void)
                     && !matches!(self.operand_type(&v), Type::Void)
@@ -315,7 +315,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     v = self.coerce(v, r);
                 }
             }
-        }
         v
     }
 
@@ -343,7 +342,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         match &expr.kind {
             ExprKind::Int(span) => {
-                let raw = &self.source()[span.start as usize..span.end as usize];
+                let raw = &self.source()[span.start..span.end];
                 let text = raw.replace('_', "");
                 let val: i64 = if let Some(hex) =
                     text.strip_prefix("0x").or_else(|| text.strip_prefix("0X"))
@@ -358,7 +357,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.emit(Instruction::Const(Constant::Int(val)), Type::I64)
             }
             ExprKind::Double(span) => {
-                let raw = &self.source()[span.start as usize..span.end as usize];
+                let raw = &self.source()[span.start..span.end];
                 let val: f64 = raw.replace('_', "").parse().unwrap_or(0.0);
                 self.emit(Instruction::Const(Constant::Double(val)), Type::F64)
             }

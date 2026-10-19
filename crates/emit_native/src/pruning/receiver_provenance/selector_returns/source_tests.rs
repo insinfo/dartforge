@@ -40,7 +40,7 @@ void main() {
         assert!(module.errors.is_empty(), "{:?}", module.errors);
         module.arc_fixed_ancestry = true;
         crate::optimize::prepare_for_emission(&mut module, false, false);
-        let modules = vec![module];
+        let modules = [module];
         let proof = analyze(&modules.iter().collect::<Vec<_>>());
         let physical_class = |name: &str| modules.iter().flat_map(|module| &module.classes)
             .find(|class| class.name == name).unwrap().id;

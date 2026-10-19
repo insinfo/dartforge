@@ -324,7 +324,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let x = b.read_global(v, span);
                 elements.push((x, 3));
             }
-            let l = b.emit(Instruction::AllocList { elements: elements }, Type::Ref);
+            let l = b.emit(Instruction::AllocList { elements }, Type::Ref);
             if let Some(list) = b.ctx.core.list_class {
                 let ty = b.recipe_rti(&super::rti::Recipe {
                     text: format!("C{}<C{}>", b.ctx.id_rti(list), b.ctx.id_rti(cid)),

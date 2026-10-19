@@ -59,8 +59,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         ast::StringPart::Text(value) => text.push_str(value.as_str()?),
                         ast::StringPart::Interpolation(value) => {
                             if let Some(value) = self.environment_key(unit, *value, depth + 1) { text.push_str(&value); }
-                            else if let Some(value) = self.environment_boolean(unit, *value, depth + 1) { text.push_str(if value { "true" } else { "false" }); }
-                            else { return None; }
+                            else {
+                                let value = self.environment_boolean(unit, *value, depth + 1)?; text.push_str(if value { "true" } else { "false" }); }
                         }
                     }
                 }

@@ -526,7 +526,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // `Int32x4(r.x.toInt() [>> c], …)`.
         let source = self.source();
         let literal = |x: ExprId| match &ast.expr(without_parentheses(x)).kind {
-            ExprKind::Int(span) => source.get(span.start as usize..span.end as usize)?.replace('_', "").parse::<i64>().ok(),
+            ExprKind::Int(span) => source.get(span.start..span.end)?.replace('_', "").parse::<i64>().ok(),
             _ => None,
         };
         let mut origin = None;

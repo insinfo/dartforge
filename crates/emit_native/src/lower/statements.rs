@@ -93,7 +93,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     let late_local = var_list.late
                         && (var.initializer.is_none()
-                            || !self.cells.contains(&(var.name.span.start as usize)));
+                            || !self.cells.contains(&var.name.span.start));
                     if var_list.const_
                         && let Some(init_id) = var.initializer
                         && let Some(k) = self.constant_key(ast, init_id, true)
@@ -128,7 +128,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     } else {
                         Self::zero_value(ty)
                     };
-                    self.declare_variable(sym, var.name.span.start as usize, ty, init_op);
+                    self.declare_variable(sym, var.name.span.start, ty, init_op);
                     if late_local {
                         self.configure_late_local(sym, var_list.final_, var.initializer);
                     }
@@ -277,7 +277,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 let ty = self.local_repr_of(var.name.span.start);
                                 let late_local = var_list.late
                                     && (var.initializer.is_none()
-                                        || !self.cells.contains(&(var.name.span.start as usize)));
+                                        || !self.cells.contains(&var.name.span.start));
                                 let init_op = if late_local {
                                     Self::zero_value(ty)
                                 } else if let Some(init_id) = var.initializer {
@@ -285,7 +285,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 } else {
                                     Self::zero_value(ty)
                                 };
-                                self.declare_variable(sym, var.name.span.start as usize, ty, init_op);
+                                self.declare_variable(sym, var.name.span.start, ty, init_op);
                                 if late_local {
                                     self.configure_late_local(sym, var_list.final_, var.initializer);
                                 }
@@ -641,10 +641,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
                 self.open_scope();
                 if let Some(ex_name) = &clause.exception {
-                    self.declare_variable(ex_name.sym, ex_name.span.start as usize, Type::Ref, ex_bits.clone());
+                    self.declare_variable(ex_name.sym, ex_name.span.start, Type::Ref, ex_bits.clone());
                 }
                 if let (Some(st_name), Some(st_val)) = (&clause.stack_trace, st_val) {
-                    self.declare_variable(st_name.sym, st_name.span.start as usize, Type::Ref, st_val);
+                    self.declare_variable(st_name.sym, st_name.span.start, Type::Ref, st_val);
                 }
 
                 self.active_catch_stack.push((ex_bits.clone(), 3));
@@ -791,7 +791,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.terminate(Terminator::Switch {
                     val: Operand::Val(reason_phi),
                     default: b_norm,
-                    cases: cases,
+                    cases,
                 });
 
                 self.set_block(b_ret);
@@ -864,7 +864,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 l.variables.iter().all(|v| {
                     let ok = v.initializer.is_none_or(|e| self.expression_without_calls(ast, e, list, declared_set))
-                        && self.scalar(self.ctx.local_type(self.unit_id, v.name.span.start as usize));
+                        && self.scalar(self.ctx.local_type(self.unit_id, v.name.span.start));
                     declared_set.insert(v.name.sym);
                     ok
                 })
@@ -1037,7 +1037,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let i = var.name.sym;
         let int = self.ctx.core.int;
-        if self.ctx.local_type(self.unit_id, var.name.span.start as usize) != Some(int) {
+        if self.ctx.local_type(self.unit_id, var.name.span.start) != Some(int) {
             return None;
         }
         let Some(cond) = condition else { return None };
@@ -1059,7 +1059,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let [u] = updates else { return None };
         let source = self.source();
         let literal = |e: ExprId| match &ast.expr(e).kind {
-            ExprKind::Int(span) => source.get(span.start as usize..span.end as usize).and_then(|t| {
+            ExprKind::Int(span) => source.get(span.start..span.end).and_then(|t| {
                 let t = t.replace('_', "");
                 match t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
                     Some(h) => i64::from_str_radix(h, 16).ok(),

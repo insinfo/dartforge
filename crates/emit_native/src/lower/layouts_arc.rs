@@ -182,8 +182,8 @@ void main() { Base().exercitar(Object()); }
                     ).unwrap().unwrap();
                     let mut allocations = 0;
                     for (v, i, _) in main.blocks.iter().flat_map(|b| &b.instructions) {
-                        if matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_object_new") {
-                            if let Some(nodes) = analysis.value(*v).and_then(|p| p.nodes()) {
+                        if matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_object_new")
+                            && let Some(nodes) = analysis.value(*v).and_then(|p| p.nodes()) {
                                 assert_eq!(nodes.len(), 1);
                                 let expected = &module.arc_sites[&main.symbol][v];
                                 assert!(nodes.iter().all(|n| matches!(n,
@@ -191,7 +191,6 @@ void main() { Base().exercitar(Object()); }
                                         if site == expected)));
                                 allocations += 1;
                             }
-                        }
                     }
                     assert!(allocations > 0, "source origin/layout did not feed points-to");
                     for (idx_value, ty) in [

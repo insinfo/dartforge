@@ -127,6 +127,67 @@ impl Encoder<'_> {
     }
 }
 
+impl super::Context<'_> {
+    pub(super) fn layout_type_identity(&self, ty: TypeId) -> Option<String> {
+        encode(self.table, ty, &|class| self.layout_class_key(class), &|param| self.layout_parameter_key(param), &|name| self.symbol_name(name).to_owned())
+    }
+
+    fn layout_class_key(&self, class: ClassId) -> Option<String> {
+        let declaration = self.program.classes.get(class.0 as usize)?;
+        // Named SDK outline declarations retain the dart: URI even without an
+        // AST body. Anonymous synthetic application classes have no proven key.
+        if declaration.decl.is_none() && !self.program.library(declaration.library).is_sdk {
+            return None;
+        }
+        let name = self.symbol_name(declaration.name);
+        if name.is_empty() {
+            return None;
+        }
+        Some(format!("C{}{}", atom(&self.library_name(declaration.library)), atom(name)))
+    }
+
+    fn layout_parameter_key(&self, param: TypeParamId) -> Option<String> {
+        use dartforge_types::table::TypeParamOwner;
+        let data = self.table.param(param);
+        let (owner, parameters): (String, &[TypeParamId]) = match data.owner {
+            TypeParamOwner::Class(class) => (self.layout_class_key(class)?, &self.outline.classes.get(class.0 as usize)?.type_params),
+            TypeParamOwner::Typedef(id) => {
+                let declaration = self.program.typedefs.get(id.0 as usize)?;
+                (format!("A{}{}", atom(&self.library_name(declaration.library)), atom(self.symbol_name(declaration.name))), &self.outline.typedefs.get(id.0 as usize)?.type_params)
+            }
+            TypeParamOwner::Extension(id) => {
+                let declaration = self.program.extensions.get(id.0 as usize)?;
+                let name = declaration.name?;
+                (format!("X{}{}", atom(&self.library_name(declaration.library)), atom(self.symbol_name(name))), &self.outline.extensions.get(id.0 as usize)?.type_params)
+            }
+            TypeParamOwner::Function(id) => {
+                let declaration = self.program.functions.get(id.0 as usize)?;
+                let owner = if let Some(class) = declaration.class {
+                    self.layout_class_key(class)?
+                } else if let Some(extension) = declaration.extension {
+                    let extension = self.program.extensions.get(extension.0 as usize)?;
+                    format!("X{}{}", atom(&self.library_name(extension.library)), atom(self.symbol_name(extension.name?)))
+                } else {
+                    format!("L{}", atom(&self.library_name(declaration.library)))
+                };
+                let kind = match declaration.kind {
+                    dartforge_elements::model::FunctionKind::Function => "function",
+                    dartforge_elements::model::FunctionKind::Getter => "getter",
+                    dartforge_elements::model::FunctionKind::Setter => "setter",
+                    dartforge_elements::model::FunctionKind::Operator => "operator",
+                    dartforge_elements::model::FunctionKind::Constructor => "constructor",
+                    dartforge_elements::model::FunctionKind::SyntheticConstructor => return None,
+                    dartforge_elements::model::FunctionKind::ImplicitAccessor => return None,
+                };
+                (format!("M{}{}{}", atom(&owner), atom(kind), atom(self.symbol_name(declaration.name))), &self.outline.functions.get(id.0 as usize)?.type_params)
+            }
+            TypeParamOwner::GenericFunctionType => return None,
+        };
+        let index = parameters.iter().position(|&candidate| candidate == param)?;
+        Some(format!("{}:{index}", atom(&owner)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,65 +315,4 @@ mod tests {
         assert_eq!(identity(&first, branching), None, "bounded work even for exponentially shared DAGs");
     }
 
-}
-
-impl super::Context<'_> {
-    pub(super) fn layout_type_identity(&self, ty: TypeId) -> Option<String> {
-        encode(self.table, ty, &|class| self.layout_class_key(class), &|param| self.layout_parameter_key(param), &|name| self.symbol_name(name).to_owned())
-    }
-
-    fn layout_class_key(&self, class: ClassId) -> Option<String> {
-        let declaration = self.program.classes.get(class.0 as usize)?;
-        // Named SDK outline declarations retain the dart: URI even without an
-        // AST body. Anonymous synthetic application classes have no proven key.
-        if declaration.decl.is_none() && !self.program.library(declaration.library).is_sdk {
-            return None;
-        }
-        let name = self.symbol_name(declaration.name);
-        if name.is_empty() {
-            return None;
-        }
-        Some(format!("C{}{}", atom(&self.library_name(declaration.library)), atom(name)))
-    }
-
-    fn layout_parameter_key(&self, param: TypeParamId) -> Option<String> {
-        use dartforge_types::table::TypeParamOwner;
-        let data = self.table.param(param);
-        let (owner, parameters): (String, &[TypeParamId]) = match data.owner {
-            TypeParamOwner::Class(class) => (self.layout_class_key(class)?, &self.outline.classes.get(class.0 as usize)?.type_params),
-            TypeParamOwner::Typedef(id) => {
-                let declaration = self.program.typedefs.get(id.0 as usize)?;
-                (format!("A{}{}", atom(&self.library_name(declaration.library)), atom(self.symbol_name(declaration.name))), &self.outline.typedefs.get(id.0 as usize)?.type_params)
-            }
-            TypeParamOwner::Extension(id) => {
-                let declaration = self.program.extensions.get(id.0 as usize)?;
-                let name = declaration.name?;
-                (format!("X{}{}", atom(&self.library_name(declaration.library)), atom(self.symbol_name(name))), &self.outline.extensions.get(id.0 as usize)?.type_params)
-            }
-            TypeParamOwner::Function(id) => {
-                let declaration = self.program.functions.get(id.0 as usize)?;
-                let owner = if let Some(class) = declaration.class {
-                    self.layout_class_key(class)?
-                } else if let Some(extension) = declaration.extension {
-                    let extension = self.program.extensions.get(extension.0 as usize)?;
-                    format!("X{}{}", atom(&self.library_name(extension.library)), atom(self.symbol_name(extension.name?)))
-                } else {
-                    format!("L{}", atom(&self.library_name(declaration.library)))
-                };
-                let kind = match declaration.kind {
-                    dartforge_elements::model::FunctionKind::Function => "function",
-                    dartforge_elements::model::FunctionKind::Getter => "getter",
-                    dartforge_elements::model::FunctionKind::Setter => "setter",
-                    dartforge_elements::model::FunctionKind::Operator => "operator",
-                    dartforge_elements::model::FunctionKind::Constructor => "constructor",
-                    dartforge_elements::model::FunctionKind::SyntheticConstructor => return None,
-                    dartforge_elements::model::FunctionKind::ImplicitAccessor => return None,
-                };
-                (format!("M{}{}{}", atom(&owner), atom(kind), atom(self.symbol_name(declaration.name))), &self.outline.functions.get(id.0 as usize)?.type_params)
-            }
-            TypeParamOwner::GenericFunctionType => return None,
-        };
-        let index = parameters.iter().position(|&candidate| candidate == param)?;
-        Some(format!("{}:{index}", atom(&owner)))
-    }
 }
