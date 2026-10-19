@@ -1,0 +1,12 @@
+[
+  {
+    "file": "initial-sdk-failure.log",
+    "original_sha256": "00a7933dac93baeec4413ada3164d56ee4fa122ab8e4a1cfdb7f3f8a15b339dc",
+    "stored_sha256": "00a7933dac93baeec4413ada3164d56ee4fa122ab8e4a1cfdb7f3f8a15b339dc"
+  },
+  {
+    "file": "initial-escape-failure.log",
+    "original_sha256": "b5d3d564ddddeafdb4e49fa3719f70a6d5622fa5a711d30493580283ba6c82f5",
+    "stored_sha256": "b5d3d564ddddeafdb4e49fa3719f70a6d5622fa5a711d30493580283ba6c82f5"
+  }
+]

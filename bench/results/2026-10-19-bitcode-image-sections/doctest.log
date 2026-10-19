@@ -1,0 +1,10 @@
+   Compiling dartforge-llvm v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.10s
+   Doc-tests dartforge_llvm
+
+running 1 test
+test crates/llvm/src/lib.rs - inspect_image_sections (line 420) ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+all doctests ran in 89.67s; merged doctests compilation took 89.23s

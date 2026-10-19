@@ -577,6 +577,14 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
         assert!(!inventory.known_node(symbol));
     }
     let startup = crate::sdk_module::sdk_records();
+    #[cfg(feature = "embedded-llvm")]
+    super::bitcode_tests::compare_selected_objects(
+        directory,
+        &sdk.key,
+        &names,
+        &runtime,
+        &sdk.objects,
+    );
     assert!(!startup.is_empty());
     assert!(
         startup.iter().all(|symbol| !inventory.entry(symbol)),

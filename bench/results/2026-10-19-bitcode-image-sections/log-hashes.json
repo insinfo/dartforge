@@ -1,0 +1,58 @@
+[
+  {
+    "file": "inventory.log",
+    "original_bytes": 158911,
+    "original_sha256": "d39926dd282d034b7d494057c448cbad544f907c216aa0fd157ac4fdd3626eac",
+    "stored_sha256": "7b5ef81f52f921b4b524347e86937a93abc18ee23d97e11bb9b6df8a9fc7ba81",
+    "excerpt": false
+  },
+  {
+    "file": "image-tests.log",
+    "original_bytes": 139286,
+    "original_sha256": "8129ce5382a5c49ce769a5342e114ec489ded516560724406a3bb2c8211c69ec",
+    "stored_sha256": "559ca9b0cb58e7600ab8ed139601964a6337767ba6ba1727b987c5277a493c7e",
+    "excerpt": false
+  },
+  {
+    "file": "cross-objects-and-initial-image-tests.log",
+    "original_bytes": 139683,
+    "original_sha256": "f8740b2862f11a88c378bb06821267f6f0deed10d765347bc57de6b9b375e8bf",
+    "stored_sha256": "a3f71c388cd5ab4246a3b22a4227c0fddde0ab573b6fc94a5682ecbb104acd77",
+    "excerpt": false
+  },
+  {
+    "file": "doctest.log",
+    "original_bytes": 444,
+    "original_sha256": "587514f074e75c0d0b44032673291cd1b5d3be9a686b831027916bb16844a880",
+    "stored_sha256": "587514f074e75c0d0b44032673291cd1b5d3be9a686b831027916bb16844a880",
+    "excerpt": false
+  },
+  {
+    "file": "clippy.log",
+    "original_bytes": 468,
+    "original_sha256": "c295c9ba6a61c61d38923edde33e81b96025bfc5b7f3608dddbb16f2634682f4",
+    "stored_sha256": "c295c9ba6a61c61d38923edde33e81b96025bfc5b7f3608dddbb16f2634682f4",
+    "excerpt": false
+  },
+  {
+    "file": "feature-clippy.log",
+    "original_bytes": 178,
+    "original_sha256": "98f77f295c40a97cd8ecd30900cb7bcaf2272bb33f2003df7f70ccdc93f7220e",
+    "stored_sha256": "98f77f295c40a97cd8ecd30900cb7bcaf2272bb33f2003df7f70ccdc93f7220e",
+    "excerpt": false
+  },
+  {
+    "file": "doc.log",
+    "original_bytes": 3144,
+    "original_sha256": "51e00558132e1d6d523bdbc9b8a6aa4770d2afc6b20e4f8f040f858e932e31b8",
+    "stored_sha256": "51e00558132e1d6d523bdbc9b8a6aa4770d2afc6b20e4f8f040f858e932e31b8",
+    "excerpt": false
+  },
+  {
+    "file": "fmt-excerpt.log",
+    "original_bytes": 15760054,
+    "original_sha256": "6dac44fb19a57fec82f6552f6b0d4efed2484334ede880b15b70dbe2a4e75ad7",
+    "stored_sha256": "b72814a0f65e5a5539705b89cf410a7e053928a67c578bf29f4102975febdb76",
+    "excerpt": true
+  }
+]

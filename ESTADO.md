@@ -3,6 +3,23 @@
 ## Atualização de 19/10/2026
 
 
+- A inspeção estrutural LLVM agora lê IR/bitcode verificado e preserva nomes de
+  seção completos, inclusive NULs e barras invertidas da impressão canônica.
+  A integração com `embedded-llvm` conferiu os bytes/digests dos 15 artefatos
+  reais do SDK: 5.255 definições de imagem na fonte, 5.233 retidas e 22 removidas
+  pelo otimizador. Todas as retidas coincidem com os inicializadores observados;
+  31.395 chamadas inline de assembly correspondem à leitura TSD exata revisada.
+  Passaram 64 testes de inventário, oito da nova inspeção, um de objetos para
+  cinco destinos e o exemplo executável da API. Clippy estrito do workspace e
+  com `embedded-llvm` passa; documentação privada com avisos como erro também.
+  O inventário/schema 5 permanece idêntico ao anterior;
+  isso não muda a geração nem autoriza imagens/classes. Os artefatos examinados
+  são bitcode anterior ao LTO: arquivos do runtime, entradas do ligador e imagem
+  final ainda precisam de prova. Fmt global e aprovação integral seguem pendentes;
+  sem nova matriz desktop/JIT ou redução comprovada do binário.
+  Evidências: `bench/results/2026-10-19-bitcode-image-sections/README.md`.
+
+
 - O schema 5 vincula um censo de seções/marcadores ao IR final de cada módulo.
   O scanner separa símbolos, strings e comentários, registra contribuições de
   funções/globais e conserva obrigações para assembly, atributos e formas não

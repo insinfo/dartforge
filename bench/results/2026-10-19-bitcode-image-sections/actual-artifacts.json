@@ -1,0 +1,152 @@
+[
+  {
+    "artifact_digest": "690510bd224361fefe7dcc7383143d3de30234f91a2d6974c400da1121ccc0e3",
+    "inline_assembly_sites": 2173,
+    "native_link_image_verified": false,
+    "object": "_internal.o",
+    "object_triple": "arm64-apple-macosx28.0.0",
+    "removed_definitions": 1,
+    "retained_image_definitions": 346,
+    "source_image_definitions": 347
+  },
+  {
+    "artifact_digest": "cfeb5377777e443ff88f4dde788f9f963219a6b671f907a4bfe048374504e068",
+    "inline_assembly_sites": 4103,
+    "native_link_image_verified": false,
+    "object": "core.o",
+    "object_triple": "arm64-apple-macosx28.0.0",
+    "removed_definitions": 8,
+    "retained_image_definitions": 860,
+    "source_image_definitions": 868
+  },
+  {
+    "artifact_digest": "179d7abff855dcf98eb33c925ada58ac0f6c72152bab6d15d36fa7102db8351d",
+    "inline_assembly_sites": 683,
+    "native_link_image_verified": false,
+    "object": "_compact_hash.o",
+    "object_triple": "arm64-apple-macosx28.0.0",
+    "removed_definitions": 1,
+    "retained_image_definitions": 90,
+    "source_image_definitions": 91
+  },
+  {
+    "artifact_digest": "c2aa310c0950ade7c97cd59237d8e7ada31d4d5331661454bfefca32f83fa1a2",
+    "inline_assembly_sites": 2265,
+    "native_link_image_verified": false,
+    "object": "collection.o",
+    "object_triple": "arm64-apple-macosx28.0.0",
+    "removed_definitions": 1,
+    "retained_image_definitions": 275,
+    "source_image_definitions": 276
+  },
+  {
+    "artifact_digest": "48291594c61dd75f47cbedc01149598e3bef390fef96d4f74770b6f166fba8ad",
+    "inline_assembly_sites": 240,
+    "native_link_image_verified": false,
+    "object": "math.o",
+    "object_triple": "arm64-apple-macosx28.0.0",
+    "removed_definitions": 1,
+    "retained_image_definitions": 43,
+    "source_image_definitions": 44
+  },
+  {
+    "artifact_digest": "e6d85aad94dda31b3abde7d1d1fb9c5413a5fda9da8487b562dc251345a4572e",
+    "inline_assembly_sites": 2299,
+    "native_link_image_verified": false,
+    "object": "convert.o",
+    "object_triple": "arm64-apple-macosx28.0.0",
+    "removed_definitions": 1,
+    "retained_image_definitions": 349,
+    "source_image_definitions": 350
+  },
+  {
+    "artifact_digest": "de88eebcbece3229875fc09e2fae56a2ef9777d72e6612a6aa0478c327277f49",
+    "inline_assembly_sites": 3242,
+    "native_link_image_verified": false,
+    "object": "async.o",
+    "object_triple": "arm64-apple-macosx28.0.0",
+    "removed_definitions": 1,
+    "retained_image_definitions": 480,
+    "source_image_definitions": 481
+  },
+  {
+    "artifact_digest": "fb389c8d577be323c1bd9a62fe2525272e0ade4ee57efa54a21c7642ed95f3d3",
+    "inline_assembly_sites": 4684,
+    "native_link_image_verified": false,
+    "object": "typed_data.o",
+    "object_triple": "arm64-apple-macosx28.0.0",
+    "removed_definitions": 1,
+    "retained_image_definitions": 410,
+    "source_image_definitions": 411
+  },
+  {
+    "artifact_digest": "6422f9808ca41b80a47dec4bc58fa4dab7728189003baa0aee3454716ca99a2b",
+    "inline_assembly_sites": 339,
+    "native_link_image_verified": false,
+    "object": "isolate.o",
+    "object_triple": "arm64-apple-macosx28.0.0",
+    "removed_definitions": 1,
+    "retained_image_definitions": 96,
+    "source_image_definitions": 97
+  },
+  {
+    "artifact_digest": "3faca4918d1236950414fea8bea50e7e627d6ce0618b857414ce8a49eb798cb9",
+    "inline_assembly_sites": 232,
+    "native_link_image_verified": false,
+    "object": "developer.o",
+    "object_triple": "arm64-apple-macosx28.0.0",
+    "removed_definitions": 1,
+    "retained_image_definitions": 91,
+    "source_image_definitions": 92
+  },
+  {
+    "artifact_digest": "8fe09acdea315b9a5fa1cba854b4c3863e2241305b67917afa0f4d367fcf0482",
+    "inline_assembly_sites": 8,
+    "native_link_image_verified": false,
+    "object": "nativewrappers.o",
+    "object_triple": "arm64-apple-macosx28.0.0",
+    "removed_definitions": 1,
+    "retained_image_definitions": 0,
+    "source_image_definitions": 1
+  },
+  {
+    "artifact_digest": "56d6346162b2ad91a68ea54ef71073e23352e2f15f1d69cad5072e29a785dd8e",
+    "inline_assembly_sites": 713,
+    "native_link_image_verified": false,
+    "object": "ffi.o",
+    "object_triple": "arm64-apple-macosx28.0.0",
+    "removed_definitions": 1,
+    "retained_image_definitions": 155,
+    "source_image_definitions": 156
+  },
+  {
+    "artifact_digest": "8ece7fc738192c44fd1160c23101955496f2566788057d71ab9f77853b14c984",
+    "inline_assembly_sites": 4222,
+    "native_link_image_verified": false,
+    "object": "_http.o",
+    "object_triple": "arm64-apple-macosx28.0.0",
+    "removed_definitions": 1,
+    "retained_image_definitions": 900,
+    "source_image_definitions": 901
+  },
+  {
+    "artifact_digest": "dd319f7cef7d21c5ddc16061c24064a1ff89ed1bd65a00d26c46ddd5880355f5",
+    "inline_assembly_sites": 6026,
+    "native_link_image_verified": false,
+    "object": "io.o",
+    "object_triple": "arm64-apple-macosx28.0.0",
+    "removed_definitions": 1,
+    "retained_image_definitions": 1083,
+    "source_image_definitions": 1084
+  },
+  {
+    "artifact_digest": "ac1efe61a117f93c579c80047b67078c437b2016c57bbaf3ad35eaf31153846d",
+    "inline_assembly_sites": 166,
+    "native_link_image_verified": false,
+    "object": "mirrors.o",
+    "object_triple": "arm64-apple-macosx28.0.0",
+    "removed_definitions": 1,
+    "retained_image_definitions": 55,
+    "source_image_definitions": 56
+  }
+]

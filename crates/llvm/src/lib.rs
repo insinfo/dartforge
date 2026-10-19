@@ -23,6 +23,7 @@
 #![allow(unsafe_code)]
 
 pub mod check_rs4gc;
+pub mod image_sections;
 
 use llvm_sys::bit_writer::LLVMWriteBitcodeToMemoryBuffer;
 use llvm_sys::core::{
@@ -410,6 +411,240 @@ pub fn generate_from_bitcode(name: &str, bitcode: &[u8], cpu: Option<&'static st
     }
     dump_before_generator(name, &module);
     Ok((llvm_machine.emit_object(&module).map_err(|e| dump_if_requested(name, "object", &module, e))?, with_maps))
+}
+
+/// Inspect explicit section definitions, declarations and assembly in IR/bitcode.
+/// The module is parsed and verified in its own context; no target code is run.
+/// Native objects/archives must be inspected separately after code generation.
+///
+/// ```
+/// let inventory = dartforge_llvm::inspect_image_sections("sample",
+///     b"@anchor = constant [2 x i64] zeroinitializer, section \"dfimg\", align 8\n").unwrap();
+/// assert_eq!(inventory.globals.len(), 1);
+/// assert_eq!(inventory.globals[0].section, b"dfimg");
+/// ```
+///
+/// # Errors
+/// Returns a diagnostic when LLVM cannot parse or verify the input, or the name
+/// contains NUL. An unsupported printed-header format is also rejected rather
+/// than associating a section with an unchecked symbol. No inspection record is
+/// published for a rejected module.
+pub fn inspect_image_sections(
+    name: &str,
+    input: &[u8],
+) -> Result<image_sections::Inventory, String> {
+    use image_sections::{Bytes, Function, Global, Initializer, InlineAsm, Inventory};
+    use llvm_sys::core::*;
+    use llvm_sys::{LLVMLinkage, LLVMTypeKind, LLVMVisibility};
+    let context = Context::new();
+    let module = context.read_bytes(name, input)?;
+    // SAFETY: every value/type/buffer below belongs to this live module/context.
+    // Aggregate accesses follow explicit type/arity checks; integer reads require
+    // i64 constants, and byte copies use LLVM's returned lengths. Nothing raw
+    // escapes. Messages from the verifier are consumed exactly once.
+    unsafe {
+        let mut message = ptr::null_mut();
+        let rejected = llvm_sys::analysis::LLVMVerifyModule(
+            module.m,
+            llvm_sys::analysis::LLVMVerifierFailureAction::LLVMReturnStatusAction,
+            &mut message,
+        ) != 0;
+        let diagnostic = if message.is_null() {
+            String::new()
+        } else {
+            take_message(message)
+        };
+        if rejected {
+            return Err(format!("LLVM rejected the module {name}: {diagnostic}"));
+        }
+        let copy = |data: *const c_char, len: usize| {
+            if len == 0 {
+                Vec::new()
+            } else {
+                std::slice::from_raw_parts(data.cast::<u8>(), len).to_vec()
+            }
+        };
+        let headers = image_sections::printed_sections(&module.text())?;
+        let mut global_headers = headers.globals.into_iter();
+        let mut function_headers = headers.functions.into_iter();
+        let checked_section = |header: Option<image_sections::PrintedHeader>,
+                               name: &[u8]|
+         -> Result<Vec<u8>, String> {
+            let header = header.ok_or("missing printed LLVM header")?;
+            if header.name != name
+                && !(name.is_empty() && header.name.iter().all(u8::is_ascii_digit))
+            {
+                return Err("LLVM header/list identity mismatch".into());
+            }
+            Ok(header.section)
+        };
+        let value_name = |value| {
+            let mut len = 0;
+            let data = LLVMGetValueName2(value, &mut len);
+            copy(data, len)
+        };
+        let word = |value: llvm_sys::prelude::LLVMValueRef| {
+            if value.is_null() || LLVMIsAConstantInt(value).is_null() {
+                return None;
+            }
+            let ty = LLVMTypeOf(value);
+            (LLVMGetIntTypeWidth(ty) == 64).then(|| LLVMConstIntGetZExtValue(value))
+        };
+        let mut globals = Vec::new();
+        let mut global = LLVMGetFirstGlobal(module.m);
+        while !global.is_null() {
+            let section = checked_section(global_headers.next(), &value_name(global))?;
+            let value = LLVMGetInitializer(global);
+            if !section.is_empty() || value.is_null() {
+                let initializer = if value.is_null() {
+                    None
+                } else {
+                    let ty = LLVMTypeOf(value);
+                    let mut decoded = Initializer::Other;
+                    if LLVMGetTypeKind(ty) == LLVMTypeKind::LLVMArrayTypeKind
+                        && LLVMGetArrayLength2(ty) == 2
+                        && LLVMGetTypeKind(LLVMGetElementType(ty))
+                            == LLVMTypeKind::LLVMIntegerTypeKind
+                        && LLVMGetIntTypeWidth(LLVMGetElementType(ty)) == 64
+                        && LLVMIsNull(value) != 0
+                    {
+                        decoded = Initializer::ZeroAnchor;
+                    }
+                    if LLVMGetTypeKind(ty) == LLVMTypeKind::LLVMStructTypeKind
+                        && LLVMIsPackedStruct(ty) == 0
+                        && LLVMCountStructElementTypes(ty) == 4
+                        && (!LLVMIsAConstantStruct(value).is_null()
+                            || !LLVMIsAConstantAggregateZero(value).is_null())
+                    {
+                        let values = [
+                            LLVMGetAggregateElement(value, 0),
+                            LLVMGetAggregateElement(value, 1),
+                            LLVMGetAggregateElement(value, 2),
+                        ];
+                        let words = [word(values[0]), word(values[1]), word(values[2])];
+                        let payload = LLVMGetAggregateElement(value, 3);
+                        if let [Some(a), Some(b), Some(c)] = words
+                            && !payload.is_null()
+                        {
+                            let array = LLVMTypeOf(payload);
+                            if LLVMGetTypeKind(array) == LLVMTypeKind::LLVMArrayTypeKind
+                                && LLVMGetTypeKind(LLVMGetElementType(array))
+                                    == LLVMTypeKind::LLVMIntegerTypeKind
+                                && LLVMGetIntTypeWidth(LLVMGetElementType(array)) == 8
+                            {
+                                let storage = if !LLVMIsAConstantAggregateZero(payload).is_null() {
+                                    Some(Bytes::Zeroes(LLVMGetArrayLength2(array)))
+                                } else if !LLVMIsAConstantDataArray(payload).is_null() {
+                                    let mut len = 0;
+                                    let data = LLVMGetAsString(payload, &mut len);
+                                    Some(Bytes::Data(copy(data, len)))
+                                } else {
+                                    None
+                                };
+                                if let Some(bytes) = storage {
+                                    decoded = Initializer::HeaderAndBytes {
+                                        words: [a, b, c],
+                                        bytes,
+                                    };
+                                }
+                            }
+                        }
+                    }
+                    Some(decoded)
+                };
+                globals.push(Global {
+                    name: value_name(global),
+                    section,
+                    constant: LLVMIsGlobalConstant(global) != 0,
+                    declaration: value.is_null(),
+                    link_once_odr: LLVMGetLinkage(global) == LLVMLinkage::LLVMLinkOnceODRLinkage,
+                    hidden: LLVMGetVisibility(global) == LLVMVisibility::LLVMHiddenVisibility,
+                    externally_initialized: LLVMIsExternallyInitialized(global) != 0,
+                    alignment: LLVMGetAlignment(global),
+                    address_space: LLVMGetPointerAddressSpace(LLVMTypeOf(global)),
+                    initializer,
+                });
+            }
+            global = LLVMGetNextGlobal(global);
+        }
+        let mut functions = Vec::new();
+        let mut inline_asm = Vec::new();
+        let mut function = LLVMGetFirstFunction(module.m);
+        while !function.is_null() {
+            let name = value_name(function);
+            let section = checked_section(function_headers.next(), &name)?;
+            if !section.is_empty() {
+                functions.push(Function {
+                    name: name.clone(),
+                    section,
+                    declaration: LLVMIsDeclaration(function) != 0,
+                });
+            }
+            let mut block = LLVMGetFirstBasicBlock(function);
+            while !block.is_null() {
+                let mut instruction = LLVMGetFirstInstruction(block);
+                while !instruction.is_null() {
+                    if matches!(
+                        LLVMGetInstructionOpcode(instruction),
+                        LLVMOpcode::LLVMCall | LLVMOpcode::LLVMInvoke | LLVMOpcode::LLVMCallBr
+                    ) {
+                        let called = LLVMGetCalledValue(instruction);
+                        if !LLVMIsAInlineAsm(called).is_null() {
+                            let mut len = 0;
+                            let data = LLVMGetInlineAsmAsmString(called, &mut len);
+                            let template = copy(data, len);
+                            let data = LLVMGetInlineAsmConstraintString(called, &mut len);
+                            inline_asm.push(InlineAsm {
+                                function: name.clone(),
+                                signature: take_message(LLVMPrintTypeToString(
+                                    LLVMGetInlineAsmFunctionType(called),
+                                )),
+                                template,
+                                constraints: copy(data, len),
+                                side_effects: LLVMGetInlineAsmHasSideEffects(called) != 0,
+                                aligned_stack: LLVMGetInlineAsmNeedsAlignedStack(called) != 0,
+                                can_unwind: LLVMGetInlineAsmCanUnwind(called) != 0,
+                                intel_dialect: LLVMGetInlineAsmDialect(called)
+                                    == llvm_sys::LLVMInlineAsmDialect::LLVMInlineAsmDialectIntel,
+                            });
+                        }
+                    }
+                    instruction = LLVMGetNextInstruction(instruction);
+                }
+                block = LLVMGetNextBasicBlock(block);
+            }
+            function = LLVMGetNextFunction(function);
+        }
+        if global_headers.next().is_some() || function_headers.next().is_some() {
+            return Err("unexpected printed LLVM headers".into());
+        }
+        let mut aliases = Vec::new();
+        let mut alias = LLVMGetFirstGlobalAlias(module.m);
+        while !alias.is_null() {
+            aliases.push(value_name(alias));
+            alias = LLVMGetNextGlobalAlias(alias);
+        }
+        let mut indirect_functions = Vec::new();
+        let mut ifunc = LLVMGetFirstGlobalIFunc(module.m);
+        while !ifunc.is_null() {
+            indirect_functions.push(value_name(ifunc));
+            ifunc = LLVMGetNextGlobalIFunc(ifunc);
+        }
+        let mut len = 0;
+        let data = LLVMGetModuleInlineAsm(module.m, &mut len);
+        Ok(Inventory {
+            triple: module.triple(),
+            data_layout: CStr::from_ptr(LLVMGetDataLayoutStr(module.m))
+                .to_string_lossy()
+                .into_owned(),
+            globals,
+            functions,
+            module_asm: copy(data, len),
+            inline_asm,
+            aliases,
+            indirect_functions,
+        })
+    }
 }
 
 /// `DARTFORGE_CHECK_RS4GC=1`: the root checker after

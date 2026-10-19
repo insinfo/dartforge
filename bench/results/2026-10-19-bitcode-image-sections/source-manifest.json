@@ -1,0 +1,9 @@
+{
+  "crates/llvm/src/lib.rs": "5d02b1923a812b7b37abb2dc0b133ede1ac6042ade8ee7db77fc7f0b1884e4de",
+  "crates/llvm/src/image_sections.rs": "082dabe28b200c03c50312fc86244c0d9f9b3c348fcd0e7b7fe179c4d5a8218f",
+  "crates/llvm/tests/image_sections.rs": "140e791c2199d7b51415603c04c77b70725c3d8ba3777525b08fada1668c4221",
+  "crates/emit_native/src/llvm/tests.rs": "0d3c2db7dc305c8affbc8e4e9089a3590ecadbbfb2fcc2f6f7e2cb796ed27822",
+  "crates/emit_native/src/pruning/allocation_inventory/imports.rs": "92a6abc4771e9b7a4890618528c89e6d527aa59702c2a39db9de77268721b24d",
+  "crates/emit_native/src/pruning/allocation_inventory/imports/tests.rs": "61d894b93099c728cf95f0ca32fe1eabfca52357daa3b2206dfe7a1b90b83db5",
+  "crates/emit_native/src/pruning/allocation_inventory/imports/bitcode_tests.rs": "7712e0fcf8f54de16677601a7828987cdaf3cfd783ea227cee5fc02433ff5d6b"
+}

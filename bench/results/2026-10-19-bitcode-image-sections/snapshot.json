@@ -1,0 +1,13 @@
+{
+  "cache_key": "2a56c339041dbb4e12c4056c9af637a3",
+  "schema": 5,
+  "production": true,
+  "path": "target/native_cache/sdk/2a56c339041dbb4e12c4056c9af637a3/allocation-inventory.json",
+  "bytes": 69945429,
+  "sha256": "01c7b102101421a331e75a21113843e19c3b5c67f529af81abf179657e29bd56",
+  "modules": 15,
+  "source_image_definitions": 5255,
+  "module_records_match_prior_schema5": true,
+  "inventory_matches_prior_schema5": true,
+  "native_link_image_verified": false
+}

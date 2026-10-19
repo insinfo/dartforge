@@ -982,7 +982,7 @@ fn check_cleanup_objects(ir: &str) {
         {ir}"#);
     for optimize in [false, true] {
         let object = dartforge_llvm::generate("cleanup-retoma", &complete, &dartforge_llvm::Options {
-            optimize: optimize, format: dartforge_llvm::Format::Object, cpu: None,
+            optimize, format: dartforge_llvm::Format::Object, cpu: None,
         }).unwrap_or_else(|error| panic!("{error}\n{complete}"));
         assert!(!object.is_empty());
     }

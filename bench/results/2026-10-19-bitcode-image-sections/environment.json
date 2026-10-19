@@ -1,0 +1,12 @@
+{
+  "base": "7a566b5901669082602f533e6215f241c8ac0eff",
+  "system": "Darwin arm64",
+  "llvm": "22.1.8",
+  "dart_source_sdk": "3.6.2",
+  "native_link_image_verified": false,
+  "commands": {
+    "inventory": "cargo test --locked -p dartforge-emit-native --features embedded-llvm --lib --target-dir target/impl-a pruning::allocation_inventory -- --include-ignored --nocapture",
+    "llvm": "cargo test --locked -p dartforge-llvm --test image_sections",
+    "llvm_prefix": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64"
+  }
+}

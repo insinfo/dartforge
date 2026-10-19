@@ -703,3 +703,37 @@ continuam vinculadas à publicação do compilador e ao snapshot imutável.
 Esse estado não entra nas condições de autorização: um censo de fonte limpo
 continua insuficiente para `register_image`, retorno de handles ou ativação de
 classes. A prova dos startups completos e da imagem ligada permanece pendente.
+
+
+### Inspeção estrutural dos artefatos LLVM selecionados
+
+`dartforge_llvm::inspect_image_sections` lê IR ou bitcode em um contexto próprio,
+executa o verificador LLVM e devolve dados Rust independentes da vida do módulo.
+Registra globais com seção explícita, declarações, funções com seção, assembly
+inline/de módulo e nomes de aliases/ifuncs. Os inicializadores reconhecidos são
+âncoras zeradas e estruturas não empacotadas de três palavras i64 seguidas de um
+array i8. Ponteiros, poison e outros formatos permanecem não classificados.
+Arrays zerados conservam o comprimento lógico sem alocar seu conteúdo.
+
+A C API de seção não fornece comprimento. Para preservar inclusive NULs e evitar
+confundir uma seção desconhecida com um prefixo conhecido, o leitor recupera o
+atributo da impressão canônica do módulo e confere nomes e quantidade contra a
+enumeração estrutural da C API. Uma única impressão evita o custo repetido de
+imprimir cada valor. O decodificador aceita os escapes hexadecimais e a barra
+invertida duplicada emitida pelo LLVM. Incompatibilidades de cabeçalhos encerram
+a inspeção sem publicar observações parciais.
+
+Com `embedded-llvm`, a integração do inventário com o SDK real também lê os bytes
+dos artefatos selecionados e reconfere seus digests na publicação verificada.
+Compara cada definição gerenciada retida com os inicializadores observados nas
+fontes: símbolo, seção completa, conteúdo, alinhamento, endereço e propriedades
+de armazenamento. O otimizador pode remover definições não usadas e restringir
+a visibilidade; contribuições novas ou conteúdo alterado não são aceitos. A
+checagem também recusa funções na seção, substituição por aliases/ifuncs e
+assembly fora das formas exatas revisadas.
+
+Essa comparação é anterior ao LTO. Os `.o` do SDK examinados são bitcode, não
+uma certificação de seções nativas finais. Bibliotecas do runtime, entradas
+estrangeiras, resoluções de marcadores, relocação, comdats e opções do ligador
+continuam exigindo cobertura própria. O teste não altera as condições de
+autorização de imagens/classes nem libera os startups completos do SDK.

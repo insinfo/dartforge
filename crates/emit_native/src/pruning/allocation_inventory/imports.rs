@@ -10,6 +10,8 @@ use serde::Deserialize;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
+#[cfg(all(test, feature = "embedded-llvm"))]
+mod bitcode_tests;
 mod registry;
 mod tables;
 
