@@ -1765,33 +1765,6 @@ impl Color {
     }
 }
 
-#[cfg(test)]
-mod conversion_tests {
-    use super::*;
-
-    #[test]
-    fn hsl_to_lab_like_dart() {
-        let c = Color::for_space_internal(
-            ColorSpace::Hsl,
-            Some(20.0),
-            Some(999999.0),
-            Some(50.0),
-            Some(1.0),
-        );
-        let lab = c.to_space(ColorSpace::Lab, true);
-        let srgb = c.to_space(ColorSpace::Srgb, true);
-        let xyz50 = c.to_space(ColorSpace::XyzD50, true);
-        let x = lab.to_space(ColorSpace::XyzD65, true);
-        eprintln!(
-            "{:?}\n{:?}\n{:?}\n{:?}",
-            lab.channels_or_null(),
-            srgb.channels_or_null(),
-            xyz50.channels_or_null(),
-            x.channels_or_null()
-        );
-    }
-}
-
 /// Constants of the rec2020 gamma in dart-sass before 1.102.0
 /// (`rec2020.dart`, `_alpha` and `_beta`).
 const REC2020_ALPHA: f64 = 1.09929682680944;
@@ -1800,4 +1773,93 @@ const REC2020_BETA: f64 = 0.018053968510807;
 /// Does the running compilation imitate dart-sass 1.101 (BT.2020 gamma)?
 fn rec2020_bt2020() -> bool {
     crate::options::current_version() == crate::DartSassVersion::V1_101
+}
+
+#[cfg(test)]
+mod conversion_tests {
+    use super::*;
+
+    #[test]
+    fn hsl_conversions_match_dart_sass_1102() {
+        let _version = crate::options::set_version(crate::DartSassVersion::V1_102_0);
+        // Generated independently by tests/color_oracle.dart with Dart Sass
+        // 1.102.0. Keep missing channels and signed zeros exact; allow small
+        // platform libm rounding differences for nonzero finite channels.
+        let mut oracle = include_str!("../../tests/color_oracle.csv").lines();
+        assert_eq!(
+            oracle.next(),
+            Some("case,space,channel0,channel1,channel2,alpha")
+        );
+        for (name, channels) in [
+            (
+                "extreme-saturation",
+                [Some(20.0), Some(999999.0), Some(50.0), Some(1.0)],
+            ),
+            (
+                "negative-saturation",
+                [Some(20.0), Some(-999999.0), Some(50.0), Some(0.5)],
+            ),
+            (
+                "negative-lightness",
+                [Some(20.0), Some(100.0), Some(-100.0), Some(1.0)],
+            ),
+            (
+                "excess-lightness",
+                [Some(-340.0), Some(100.0), Some(200.0), Some(1.0)],
+            ),
+            ("missing-hue", [None, Some(75.0), Some(50.0), Some(1.0)]),
+            ("missing-saturation", [Some(20.0), None, Some(50.0), None]),
+            (
+                "missing-lightness",
+                [Some(20.0), Some(75.0), None, Some(-0.0)],
+            ),
+            ("black", [Some(0.0), Some(0.0), Some(0.0), Some(0.0)]),
+        ] {
+            let color = Color::for_space_internal(
+                ColorSpace::Hsl,
+                channels[0],
+                channels[1],
+                channels[2],
+                channels[3],
+            );
+            let lab = color.to_space(ColorSpace::Lab, true);
+            let via_lab = lab.to_space(ColorSpace::XyzD65, true);
+            for (space, converted) in [
+                ("lab", lab),
+                ("srgb", color.to_space(ColorSpace::Srgb, true)),
+                ("xyz-d50", color.to_space(ColorSpace::XyzD50, true)),
+                ("lab-to-xyz-d65", via_lab),
+            ] {
+                let fields: Vec<_> = oracle
+                    .next()
+                    .expect("missing oracle row")
+                    .split(',')
+                    .collect();
+                assert_eq!(fields.len(), 6);
+                assert_eq!((fields[0], fields[1]), (name, space));
+                let mut actual = Vec::from(converted.channels_or_null());
+                actual.push(converted.alpha_or_null());
+                for (index, (actual, expected)) in actual.into_iter().zip(&fields[2..]).enumerate()
+                {
+                    let context = format!("{name}/{space}/channel{index}");
+                    if *expected == "none" {
+                        assert_eq!(actual, None, "{context}");
+                        continue;
+                    }
+                    let actual = actual.expect(&context);
+                    let expected: f64 = expected.parse().unwrap();
+                    if expected == 0.0 || !expected.is_finite() {
+                        assert_eq!(actual.to_bits(), expected.to_bits(), "{context}");
+                    } else {
+                        let tolerance = 64.0 * f64::EPSILON * expected.abs().max(1.0);
+                        assert!(
+                            (actual - expected).abs() <= tolerance,
+                            "{context}: {actual} != {expected}"
+                        );
+                    }
+                }
+            }
+        }
+        assert!(oracle.next().is_none(), "unexpected oracle rows");
+    }
 }

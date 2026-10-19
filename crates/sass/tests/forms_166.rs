@@ -18,12 +18,10 @@ fn shapes_match_dart_sass_166() {
 }
 
 /// Shapes where the 1.102 port still comes out like 1.66 (known
-/// divergences of the default mode, not of the 1.66 mode): the value of an
-/// unknown at-rule through the old `almostAnyValue`, which keeps the `//`
-/// (1.102 uses `_interpolatedDeclarationValue`, dart-sass 1.77.7), and the
-/// `&` at the root (dart-sass 1.99), which the port refuses. The test
+/// divergences of the default mode, not of the 1.66 mode): the `&` at the root
+/// (dart-sass 1.99), which the port refuses. The test
 /// requires them to keep diverging: when one is fixed, it leaves this list.
-const PENDING_102: &[&str] = &["f24_comentario_at_rule", "f26_pai_na_raiz"];
+const PENDING_102: &[&str] = &["f26_pai_na_raiz"];
 
 #[test]
 fn shapes_match_dart_sass_102() {

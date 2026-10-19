@@ -80,6 +80,13 @@ fn defined(line: &str) -> Option<&str> {
     Some(&l[..end])
 }
 
+/// A phi definition and its incoming value/predecessor pairs.
+struct Phi<'a> {
+    value: &'a str,
+    block: &'a str,
+    entries: Vec<(&'a str, &'a str)>,
+}
+
 /// `refs` without the `!invariant.load` load values and without the `phi`s whose
 /// inputs are all of those (or constants).
 fn without_invariants<'a>(line_list: &[&'a str], mut refs: HashSet<&'a str>) -> HashSet<&'a str> {
@@ -111,7 +118,7 @@ fn without_invariants<'a>(line_list: &[&'a str], mut refs: HashSet<&'a str>) -> 
     // branches of each block: a `phi` input that arrives through the edge where
     // `X == canonical` is the canonical object itself (the optimizer swaps one for
     // the other).
-    let mut phis: Vec<(&str, &str, Vec<(&str, &str)>)> = Vec::new();
+    let mut phis = Vec::new();
     let mut equal: std::collections::HashMap<&str, (&str, &str)> = std::collections::HashMap::new();
     let mut branches: std::collections::HashMap<&str, (&str, &str)> = std::collections::HashMap::new();
     let mut block = "";
@@ -147,12 +154,12 @@ fn without_invariants<'a>(line_list: &[&'a str], mut refs: HashSet<&'a str>) -> 
                     Some((value, of))
                 })
                 .collect();
-            phis.push((d, block, entries));
+            phis.push(Phi { value: d, block, entries });
         }
     }
     loop {
         let before = invariants.len();
-        for (d, block, entries) in &phis {
+        for Phi { value: d, block, entries } in &phis {
             if invariants.contains(d) || entries.is_empty() {
                 continue;
             }

@@ -1144,7 +1144,11 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
 
         let value: Option<Interpolation> =
             if !self.toks_mut().next_char_is('!') && !self.at_end_of_statement() {
-                Some(self.almost_any_value(false)?)
+                Some(if self.options().v166() {
+                    self.almost_any_value(false)?
+                } else {
+                    self.parse_interpolated_declaration_value_with(false, false, true, true, false)?
+                })
             } else {
                 None
             };
@@ -1864,7 +1868,7 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
 
         if parse_custom_properties && name.initial_plain().starts_with("--") {
             let interpolation =
-                self.parse_interpolated_declaration_value_with(false, false, true, false)?;
+                self.parse_interpolated_declaration_value_with(false, false, true, false, true)?;
             let value_span = self.toks_mut().span_from(start);
             let value = AstExpr::String(StringExpr(interpolation, QuoteKind::None), value_span)
                 .span(value_span);
@@ -2108,18 +2112,21 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
             allow_empty,
             allow_colon,
             silent_comments,
+            true,
         )
     }
 
     /// `_interpolatedDeclarationValue` with the `silentComments` of dart-sass
     /// 1.77.7+: `//` is a silent comment (outside the value of a custom
-    /// property). 1.66 kept it in the text.
+    /// property). 1.66 kept it in the text. Unknown at-rule values also stop at
+    /// an opening brace, leaving the body to the statement parser.
     fn parse_interpolated_declaration_value_with(
         &mut self,
         allow_semicolon: bool,
         allow_empty: bool,
         allow_colon: bool,
         silent_comments: bool,
+        allow_open_brace: bool,
     ) -> SassResult<Interpolation> {
         let mut buffer = Interpolation::new();
 
@@ -2184,7 +2191,7 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
                     }
                 }
                 '\n' | '\r' => {
-                    if self.is_indented() {
+                    if self.is_indented() && (self.options().v166() || brackets.is_empty()) {
                         break;
                     }
                     if !matches!(
@@ -2199,6 +2206,7 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
                     self.toks_mut().next();
                     wrote_newline = true;
                 }
+                '{' if !allow_open_brace => break,
                 '(' | '{' | '[' => {
                     self.toks_mut().next();
                     buffer.add_char(tok.kind);
@@ -2459,7 +2467,7 @@ pub(crate) trait StylesheetParser<'a>: BaseParser + Sized {
         if name_buffer.initial_plain().starts_with("--") {
             let value_start = self.toks().cursor();
             let value =
-                self.parse_interpolated_declaration_value_with(false, false, true, false)?;
+                self.parse_interpolated_declaration_value_with(false, false, true, false, true)?;
             let value_span = self.toks_mut().span_from(value_start);
             self.expect_statement_separator(Some("custom property"))?;
             return Ok(DeclarationOrBuffer::Stmt(AstStmt::Style(AstStyle {

@@ -1,0 +1,25 @@
+
+running 2 tests
+test shapes_match_dart_sass_166 ... ok
+test shapes_match_dart_sass_102 ... FAILED
+
+failures:
+
+---- shapes_match_dart_sass_102 stdout ----
+60 equal out of 64
+
+thread 'shapes_match_dart_sass_102' (1079775) panicked at crates/sass/tests/forms_166.rs:96:5:
+f24_comentario_at_rule (expanded): mode "@foo bar // comentario\n  baz;\n.a {\n  b: c;\n}\n" ≠ oracle "@foo bar \n  baz;\n.a {\n  b: c;\n}\n"
+f24_comentario_at_rule (compressed): mode "@foo bar // comentario\n  baz;.a{b:c}" ≠ oracle "@foo bar \n  baz;.a{b:c}"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    shapes_match_dart_sass_102
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Compiling dartforge-sass v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/sass)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.99s
+     Running tests/forms_166.rs (target/debug/deps/forms_166-90afd8d10dfdae37)
+error: test failed, to rerun pass `-p dartforge-sass --test forms_166`

@@ -2,6 +2,21 @@
 
 ## Atualização de 19/10/2026
 
+- Sass moderno usa a gramática de valores de declaração nas regras `@`
+  desconhecidas: comentários `//` deixam de vazar para o CSS, delimitadores
+  balanceados são respeitados e valores da sintaxe indentada podem continuar
+  dentro de parênteses. Casos SCSS/Sass coincidiram com os oráculos oficiais
+  1.101.0, 1.101.2 e 1.102.0 nos dois estilos; a rejeição de um corpo antes de
+  fechar parênteses/colchetes e de comentários silenciosos em CSS puro também
+  foi conferida. O modo 1.66 manteve suas saídas e sua regra de fim de linha,
+  verificada contra a versão oficial. A divergência de `f24` saiu da
+  lista; `f26_pai_na_raiz` continua pendente. O teste de cores que só imprimia
+  valores agora verifica 128 canais/alfas contra Dart Sass 1.102.0. Suítes:
+  15 testes Sass, 12 LLVM e um de integração com sass_builder passaram; Clippy
+  com todos os alvos passou em LLVM/Sass. O verificador RS4GC agora nomeia a
+  estrutura das entradas de phi. Restam avisos do Clippy em elements/formatter,
+  a formatação geral e o link padrão Apple/LLVM 22. Evidências e comandos:
+  `bench/results/2026-10-19-sass-at-rules/checks.json`.
 - Frontend e runtime passam no Clippy com `--all-targets -- -D warnings`, após
   correção de 18 diagnósticos sem supressões. A coleta do corpus agora propaga
   erros de leitura e exige arquivos Dart: o teste do lexer deixava um SDK

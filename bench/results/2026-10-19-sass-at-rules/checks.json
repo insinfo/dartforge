@@ -1,0 +1,264 @@
+{
+  "recorded_at": "2026-10-19T06:08:38.133313-03:00",
+  "base_revision": "1b6242c646988fbf7f59dea58c093420b846c5df",
+  "platform": "macOS ARM64",
+  "source_sha256": {
+    ".gitattributes": "6a5f1420e1f44be0d137a2d9ec073cffd70608226307dc13fce29f39dd2cc911",
+    "crates/llvm/src/check_rs4gc.rs": "1700f26f5f4474cdaac3dabb1e255da6775e1b558d5ff0cd75df984f0b7fe6cf",
+    "crates/sass/src/color/mod.rs": "a564f085318a34cd59d3fb1f1049de7ad3dacd47f2b72608f49bacc29e3c3f70",
+    "crates/sass/src/parse/stylesheet.rs": "764e3ae7b89a4c95974cc062c5f93ea13ced1831feb3ca92e943c31a69d9607a",
+    "crates/sass/tests/at_rule_oracle.dart": "153f72570298282e804f661813039e30a76d9ae314ae8f38184f44aa3f3d8486",
+    "crates/sass/tests/color_oracle.csv": "0cf0b084fa0ebf370d77d56b8a89cc2d23e63a8db3029603d70ddd9a58ee958d",
+    "crates/sass/tests/color_oracle.dart": "f53634865d849bab379f827bacd5d45e624b22b6f50b703c3427610b0eec3158",
+    "crates/sass/tests/forms_166.rs": "e5d983d2428269d323041739875e9c2781fc4c8c973774e85f98ed0645c80810",
+    "crates/sass/tests/unknown_at_rules.compressed.css": "dbbe8d126e89d4b27f4a5e899807b5750412050eb5f97b9846e8d7233ca2f78a",
+    "crates/sass/tests/unknown_at_rules.expanded.css": "35041d785b214b43685753df78e33fdb5c7e615631430e0dc73955e35ebf31ff",
+    "crates/sass/tests/unknown_at_rules.rs": "78d6214aeb9c37f8620959ebd4873c87fa979f944076e17e91e1c2ce1dd84a67",
+    "crates/sass/tests/unknown_at_rules.sass": "42ee5064e7e4faf53d6d9e8f38cffaa65df641d999de4d78c10145cd1d2187f6",
+    "crates/sass/tests/unknown_at_rules.sass.compressed.css": "539d8a831ac8182905d65a414f0e964caa519813dc457964c652f0b4214983bf",
+    "crates/sass/tests/unknown_at_rules.sass.expanded.css": "74f0f421fe71234ccba6c7fdd6a83161d6847a28c4c17d594557e10c6dd44318",
+    "crates/sass/tests/unknown_at_rules.scss": "2a3358304ba4ccc6e5c2cd20bc32c26473f7dcb087eb09cd9aa34927067ad9cf"
+  },
+  "official_oracle": {
+    "dart_version": "3.6.2",
+    "sass_primary_version": "1.102.0",
+    "packages": "corpus/builders/sass_builder/.dart_tool/package_config.json",
+    "command": "dart --packages=<package_config.json> crates/sass/tests/at_rule_oracle.dart <input.scss|input.sass|input.css> <expanded|compressed>",
+    "fixture_sha256": {
+      "unknown_at_rules.sass.expanded.css": "74f0f421fe71234ccba6c7fdd6a83161d6847a28c4c17d594557e10c6dd44318",
+      "unknown_at_rules.compressed.css": "dbbe8d126e89d4b27f4a5e899807b5750412050eb5f97b9846e8d7233ca2f78a",
+      "unknown_at_rules.expanded.css": "35041d785b214b43685753df78e33fdb5c7e615631430e0dc73955e35ebf31ff",
+      "unknown_at_rules.sass.compressed.css": "539d8a831ac8182905d65a414f0e964caa519813dc457964c652f0b4214983bf"
+    },
+    "older_version_outputs": [
+      {
+        "version": "1.101.0",
+        "syntax": "scss",
+        "style": "expanded",
+        "sha256": "35041d785b214b43685753df78e33fdb5c7e615631430e0dc73955e35ebf31ff",
+        "matches_1102_oracle": true
+      },
+      {
+        "version": "1.101.0",
+        "syntax": "scss",
+        "style": "compressed",
+        "sha256": "dbbe8d126e89d4b27f4a5e899807b5750412050eb5f97b9846e8d7233ca2f78a",
+        "matches_1102_oracle": true
+      },
+      {
+        "version": "1.101.0",
+        "syntax": "sass",
+        "style": "expanded",
+        "sha256": "74f0f421fe71234ccba6c7fdd6a83161d6847a28c4c17d594557e10c6dd44318",
+        "matches_1102_oracle": true
+      },
+      {
+        "version": "1.101.0",
+        "syntax": "sass",
+        "style": "compressed",
+        "sha256": "539d8a831ac8182905d65a414f0e964caa519813dc457964c652f0b4214983bf",
+        "matches_1102_oracle": true
+      },
+      {
+        "version": "1.101.2",
+        "syntax": "scss",
+        "style": "expanded",
+        "sha256": "35041d785b214b43685753df78e33fdb5c7e615631430e0dc73955e35ebf31ff",
+        "matches_1102_oracle": true
+      },
+      {
+        "version": "1.101.2",
+        "syntax": "scss",
+        "style": "compressed",
+        "sha256": "dbbe8d126e89d4b27f4a5e899807b5750412050eb5f97b9846e8d7233ca2f78a",
+        "matches_1102_oracle": true
+      },
+      {
+        "version": "1.101.2",
+        "syntax": "sass",
+        "style": "expanded",
+        "sha256": "74f0f421fe71234ccba6c7fdd6a83161d6847a28c4c17d594557e10c6dd44318",
+        "matches_1102_oracle": true
+      },
+      {
+        "version": "1.101.2",
+        "syntax": "sass",
+        "style": "compressed",
+        "sha256": "539d8a831ac8182905d65a414f0e964caa519813dc457964c652f0b4214983bf",
+        "matches_1102_oracle": true
+      }
+    ],
+    "negative_cases": [
+      {
+        "version": "1.101.0",
+        "source": "@foo (nested {x: y});",
+        "exit_code": 255,
+        "expected_error": "expected \")\""
+      },
+      {
+        "version": "1.101.0",
+        "source": "@foo [nested {x: y}];",
+        "exit_code": 255,
+        "expected_error": "expected \"]\""
+      },
+      {
+        "version": "1.101.0",
+        "source": "@foo bar // silent comment\n baz;",
+        "exit_code": 255,
+        "expected_error": "Silent comments aren't allowed in plain CSS"
+      },
+      {
+        "version": "1.101.2",
+        "source": "@foo (nested {x: y});",
+        "exit_code": 255,
+        "expected_error": "expected \")\""
+      },
+      {
+        "version": "1.101.2",
+        "source": "@foo [nested {x: y}];",
+        "exit_code": 255,
+        "expected_error": "expected \"]\""
+      },
+      {
+        "version": "1.101.2",
+        "source": "@foo bar // silent comment\n baz;",
+        "exit_code": 255,
+        "expected_error": "Silent comments aren't allowed in plain CSS"
+      },
+      {
+        "version": "1.102.0",
+        "source": "@foo (nested {x: y});",
+        "exit_code": 255,
+        "expected_error": "expected \")\""
+      },
+      {
+        "version": "1.102.0",
+        "source": "@foo [nested {x: y}];",
+        "exit_code": 255,
+        "expected_error": "expected \"]\""
+      },
+      {
+        "version": "1.102.0",
+        "source": "@foo bar // silent comment\n baz;",
+        "exit_code": 255,
+        "expected_error": "Silent comments aren't allowed in plain CSS"
+      }
+    ],
+    "source": "Official installed sass packages, using the public compileStringToResult API. The package configuration selected each exact sass version; other dependency entries were unchanged.",
+    "installed_package_hashes": {
+      "1.101.0": {
+        "lib_source_sha256": "57db6f48f4f379606edcc4c5174c268101ca82c2e4283759594d047692ca898a",
+        "pubspec_sha256": "0be250d7ade5e265d47562c60edd63c71c27d736ab4bd9256498dbd2a30c9f55"
+      },
+      "1.101.2": {
+        "lib_source_sha256": "f1b610352446eba52d7134a3ae462cb63b3eaeef403c4ce4245f0677677b437c",
+        "pubspec_sha256": "dc82068a19b6cd1e8c55bde5d73224810a61fcf70be34dc6832c472b49595f7e"
+      },
+      "1.102.0": {
+        "lib_source_sha256": "aae06ffb1c6767e28117c081228a85936f0b6a22e8d64207c17814112f06c263",
+        "pubspec_sha256": "38a24e25fcbc2b5d3df23049690e523c10ce9097a56579a18e213497ae3bda3d"
+      },
+      "1.66.0": {
+        "lib_source_sha256": "39c51d0290ee41a5a28d1aec998c3b4322f0855bd755f201c0a51273491950fd",
+        "pubspec_sha256": "49285d2118d52369d8bc73a511e858deb061ae814e18f523805a90a2a33518c3"
+      }
+    },
+    "indented_declaration_version_boundary": [
+      {
+        "version": "1.66.0",
+        "source": ".a\n  --value: (\n    content)\n",
+        "exit_code": 255,
+        "stdout": "",
+        "expected_error": "expected \")\""
+      },
+      {
+        "version": "1.101.0",
+        "source": ".a\n  --value: (\n    content)\n",
+        "exit_code": 0,
+        "stdout": ".a {\n  --value: (\n    content);\n}",
+        "expected_error": null
+      },
+      {
+        "version": "1.101.2",
+        "source": ".a\n  --value: (\n    content)\n",
+        "exit_code": 0,
+        "stdout": ".a {\n  --value: (\n    content);\n}",
+        "expected_error": null
+      },
+      {
+        "version": "1.102.0",
+        "source": ".a\n  --value: (\n    content)\n",
+        "exit_code": 0,
+        "stdout": ".a {\n  --value: (\n    content);\n}",
+        "expected_error": null
+      }
+    ]
+  },
+  "color_oracle": {
+    "command": "dart --packages=<package_config.json> crates/sass/tests/color_oracle.dart",
+    "sass_version": "1.102.0",
+    "cases": 8,
+    "destinations_per_case": 4,
+    "channels_and_alpha_checked": 128,
+    "sha256": "0cf0b084fa0ebf370d77d56b8a89cc2d23e63a8db3029603d70ddd9a58ee958d",
+    "comparison": "Missing channels and signed zero are exact. Nonzero finite channels allow 64 * f64::EPSILON * max(abs(expected), 1) for platform libm rounding."
+  },
+  "baseline": {
+    "parser_source": "git show HEAD:crates/sass/src/parse/stylesheet.rs at base_revision",
+    "forms_test_exit": 101,
+    "new_cases_test_exit": 101,
+    "restored_after_run": true,
+    "indented_before_fix_exit": 101
+  },
+  "sass_suite": {
+    "command": "cargo test --locked -p dartforge-sass -- --include-ignored",
+    "exit_code": 0,
+    "passed": 15,
+    "failed": 0,
+    "ignored": 0,
+    "known_remaining_fixture_divergence": "f26_pai_na_raiz",
+    "native_css_comparison": "Two syntaxes, two modern modes, two styles. Expanded native string API appends a final newline, added to the official oracle for comparison. Other bytes, including line-end spaces, are preserved."
+  },
+  "builder_forms": {
+    "command": "cargo test --locked -p dartforge-ng-generator --test sass_forms",
+    "exit_code": 0,
+    "passed": 1
+  },
+  "llvm_suite": {
+    "command": "python3 scripts/cargo-macos-llvm.py test --locked -p dartforge-llvm --target-dir target/macos-link-validation",
+    "environment": {
+      "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+      "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64"
+    },
+    "exit_code": 0,
+    "passed": 12,
+    "failed": 0
+  },
+  "focused_clippy": {
+    "command": "cargo clippy --locked -p dartforge-llvm -p dartforge-sass --all-targets -- -D warnings",
+    "exit_code": 0
+  },
+  "required_workspace_checks": {
+    "format": {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 1,
+      "result": "Existing workspace formatting differences remain."
+    },
+    "clippy": {
+      "command": "cargo clippy --locked --workspace --all-targets -- -D warnings",
+      "exit_code": 101,
+      "result": "Remaining diagnostics in elements/load.rs and formatter; later crates may have more."
+    },
+    "tests": {
+      "command": "cargo test --locked --workspace -- --include-ignored",
+      "exit_code": 101,
+      "result": "Apple LLVM 21 linker cannot read LLVM 22 bitcode. The focused LLVM suite passed with the matching LLVM linker."
+    },
+    "docs": {
+      "command": "cargo doc --locked --workspace --no-deps --document-private-items",
+      "exit_code": 0,
+      "result": "Generated with existing warnings."
+    }
+  },
+  "performance_claim": null
+}

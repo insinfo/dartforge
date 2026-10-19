@@ -1,0 +1,24 @@
+
+running 3 tests
+test plain_css_still_rejects_silent_comments ... ok
+test modern_at_rule_values_reject_unclosed_brackets_before_a_body ... ok
+test modern_at_rule_values_match_official_css ... FAILED
+
+failures:
+
+---- modern_at_rule_values_match_official_css stdout ----
+
+thread 'modern_at_rule_values_match_official_css' (1079858) panicked at crates/sass/tests/unknown_at_rules.rs:16:72:
+called `Result::unwrap()` on an `Err` value: SassError { kind: ParseError { message: "expected \"{\".", loc: SpanLoc { file: File("stdin"), begin: LineCol { line: 5, column: 27 }, end: LineCol { line: 5, column: 28 } }, unicode: true } }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    modern_at_rule_values_match_official_css
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Compiling dartforge-sass v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/sass)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/unknown_at_rules.rs (target/debug/deps/unknown_at_rules-68fb4e991efe9567)
+error: test failed, to rerun pass `-p dartforge-sass --test unknown_at_rules`

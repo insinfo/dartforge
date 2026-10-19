@@ -1,0 +1,19 @@
+@foo bar 
+  baz;
+@foo "https://example.test/a//b" /* loud comment */ 2 {
+  .item {
+    value: preserved;
+  }
+}
+@foo function(a; b, [x: y]);
+@foo (nested [key: value]) {
+  .outer {
+    value: body;
+  }
+}
+.outer {
+  after: untouched;
+  --literal: { // retained in custom properties
+    nested: value;
+  };
+}

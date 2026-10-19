@@ -1,0 +1,9 @@
+@foo (alpha
+  beta) {
+  .item {
+    value: present;
+  }
+}
+.after {
+  value: ok;
+}

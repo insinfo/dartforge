@@ -1,3 +1,5 @@
 * text=auto eol=lf
 # Corpus de paridade: os offsets do oráculo valem para os bytes exatos.
 corpus/diagnostics/** -text
+# Official Sass output includes intentional line-end spaces; preserve its bytes.
+crates/sass/tests/unknown_at_rules*.css -text whitespace=-blank-at-eol

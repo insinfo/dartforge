@@ -1,0 +1,40 @@
+   Compiling dartforge-sass v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/sass)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.30s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_sass-e21f19f1c4c4adfd)
+
+running 2 tests
+test sass_builder::tests::resolves_like_asset_id ... ok
+test color::conversion_tests::hsl_conversions_match_dart_sass_1102 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/forms_166.rs (target/debug/deps/forms_166-90afd8d10dfdae37)
+
+running 2 tests
+test shapes_match_dart_sass_166 ... ok
+test shapes_match_dart_sass_102 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/unknown_at_rules.rs (target/debug/deps/unknown_at_rules-68fb4e991efe9567)
+
+running 4 tests
+test plain_css_still_rejects_silent_comments ... ok
+test modern_at_rule_values_reject_unclosed_brackets_before_a_body ... ok
+test indented_declaration_newline_boundary_follows_the_selected_version ... ok
+test modern_at_rule_values_match_official_css ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests dartforge_sass
+
+running 7 tests
+test crates/sass/src/selector/extend/functions.rs - selector::extend::functions::paths (line 711) - compile ... ok
+test crates/sass/src/lib.rs - from_path (line 256) - compile ... ok
+test crates/sass/src/options.rs - options::DartSassVersion::from_lock (line 311) ... ok
+test crates/sass/src/options.rs - options::Options<'a>::version (line 196) ... ok
+test crates/sass/src/lib.rs - from_string (line 270) ... ok
+test crates/sass/src/lib.rs - (line 15) ... ok
+test crates/sass/src/builtin/functions/mod.rs - builtin::functions::Builtin (line 31) ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
