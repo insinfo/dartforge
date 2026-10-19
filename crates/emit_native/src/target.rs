@@ -106,7 +106,14 @@ pub fn select(target: NativeTarget) -> Result<(), String> {
 /// The frozen selection, initialized to the host when no destination was selected.
 pub fn current() -> NativeTarget { *DESTINATION.get_or_init(NativeTarget::host) }
 /// Whether this process is compiling for a different native destination.
-pub fn is_cross() -> bool { current() != NativeTarget::host() }
+pub fn is_cross() -> bool {
+    // An unsupported compiler host must never supply its own runtime archive
+    // for a supported destination with a different ABI (notably Windows ARM64).
+    let native_host = (cfg!(windows) && cfg!(target_arch = "x86_64"))
+        || ((cfg!(target_os = "linux") || cfg!(target_os = "macos"))
+            && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64")));
+    !native_host || current() != NativeTarget::host()
+}
 /// Architecture of the generated code, independent of the compiler CPU.
 pub fn is_aarch64() -> bool { current().is_arm64() }
 /// Whether the generated code uses a supported Unix ABI.

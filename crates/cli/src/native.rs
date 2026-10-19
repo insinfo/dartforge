@@ -500,6 +500,10 @@ fn emit_native_ir(
 pub fn select_destination(args: &mut Vec<std::ffi::OsString>) -> Result<(), Box<dyn std::error::Error>> {
     use dartforge_emit_native::target::{self, NativeTarget};
     let allowed = args.first().is_some_and(|a| a == "aot" || a == "compile-native");
+    if cfg!(windows) && !cfg!(target_arch = "x86_64") && args.first().is_some_and(|a|
+        a == "aot" || a == "compile-native" || a == "run" || a == "reload" || a == "pack" || a == "export-target") {
+        return Err("the native Windows compiler/runtime currently requires x64; build DartForge with --target x86_64-pc-windows-msvc (runs on Windows ARM64 through x64 compatibility)".into());
+    }
     let mut target = None;
     let mut bundle = None;
     let mut index = 1;

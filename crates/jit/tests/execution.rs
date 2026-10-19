@@ -506,3 +506,38 @@ void main() {
     assert_eq!(jit.code, Some(0), "{jit:?}");
     assert_eq!(jit.code, aot.code, "JIT {jit:?}\nAOT {aot:?}");
 }
+
+/// Shadow-stack sessions need bounded COFF code/data too, not only maps mode.
+/// Materialize several objects, keep them alive together, and check the actual
+/// addresses after relocation rather than inspecting allocator configuration.
+#[cfg(all(windows, target_arch = "x86_64"))]
+#[test]
+fn windows_shadow_stack_code_and_data_have_bounded_rvas() {
+    let mut session = JitSession::new().unwrap();
+    for index in 0..16 {
+        let ir = format!("@payload{index} = constant [4096 x i8] zeroinitializer, align 16\n\
+            define i64 @reader{index}() uwtable {{\n\
+              %p = ptrtoint ptr @payload{index} to i64\n\
+              ret i64 %p\n}}\n");
+        session.add_ir_module(&format!("bounded{index}"), &ir).unwrap();
+        let code = session.lookup(&format!("reader{index}")).unwrap();
+        let data = session.lookup(&format!("payload{index}")).unwrap();
+        assert!(data > code, "COFF data must follow code: code={code:x} data={data:x}");
+        assert!(data - code < (256 << 20), "COFF RVAs must fit in the bounded region");
+    }
+}
+
+/// Backend-generated COFF floating-point pool symbols need the same ownership
+/// policy as LLJIT's default layer, including when a later object repeats them.
+#[cfg(all(windows, target_arch = "x86_64"))]
+#[test]
+fn windows_constant_pool_symbols_materialize_across_objects() {
+    let mut session = JitSession::new().unwrap();
+    for index in 0..4 {
+        let ir = format!("define double @scaled{index}(double %x) {{\n\
+            %result = fmul double %x, 1.234567890000000e+02\n\
+            ret double %result\n}}\n");
+        session.add_ir_module(&format!("constant_pool{index}"), &ir).unwrap();
+        assert_ne!(session.lookup(&format!("scaled{index}")).unwrap(), 0);
+    }
+}

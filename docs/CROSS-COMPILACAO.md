@@ -15,6 +15,14 @@ Destinos implementados:
 | macos-x64 | x86_64-apple-darwin | Mach-O |
 | macos-arm64 | aarch64-apple-darwin | Mach-O |
 
+Para construir o próprio compilador na VM Windows ARM64 com LLVM x64, selecione
+explicitamente o destino Rust: `cargo build --release -p dartforge-cli --features
+jit --target x86_64-pc-windows-msvc`. Não misture uma biblioteca LLVM x64 com um
+executável Rust ARM64; o build agora verifica essa arquitetura antecipadamente.
+O JIT Windows requer a instalação LLVM completa (headers C++, `clang-cl` e
+`llvm-lib`) e os headers C++ do MSVC. Um bridge pequeno preserva as políticas
+COFF do LLJIT quando o alocador delimitado de código/dados é instalado.
+
 Windows ARM64 executa o destino x64 por compatibilidade; não há destino nativo
 Windows ARM64 nesta implementação. Os triples da tabela também são aceitos.
 Sem `--target`, o comportamento continua sendo compilar para o host.

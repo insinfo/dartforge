@@ -39,6 +39,18 @@ fn main() {
     println!("cargo::rerun-if-env-changed=LLVM_SYS_221_PREFIX");
 
     let prefix = prefix();
+    // The LLVM library is loaded by the Rust compiler executable, not by
+    // programs it emits. Catch an ARM64/x64 mismatch before compiling the
+    // entire workspace and reporting hundreds of unresolved link symbols.
+    if std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows") {
+        let triple = llvm_config(&prefix, &["--host-target"])
+            .unwrap_or_else(|error| panic!("cannot determine LLVM library architecture: {error}"));
+        let library_arch = triple.trim().split('-').next().unwrap_or("");
+        let library_arch = if library_arch == "arm64" { "aarch64" } else { library_arch };
+        let rust_arch = std::env::var("CARGO_CFG_TARGET_ARCH").expect("Rust target architecture");
+        assert_eq!(library_arch, rust_arch,
+            "LLVM library architecture does not match the Rust build target; install matching LLVM or build DartForge with --target matching LLVM (for x64: --target x86_64-pc-windows-msvc)");
+    }
     let libdir = prefix.join("lib");
     if !libdir.is_dir() {
         println!(

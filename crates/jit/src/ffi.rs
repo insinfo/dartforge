@@ -1217,9 +1217,8 @@ fn target_machine() -> Result<LLVMTargetMachineRef, String> {
 pub(crate) struct Lljit {
     handle: LLVMOrcLLJITRef,
     main: LLVMOrcJITDylibRef,
-    /// With map-based roots or with the symbolic stack trace, the context of the object
-    /// layer (which registers the maps and the trace sections); null without
-    /// them.
+    /// Context for maps/trace registration and Windows' bounded COFF layout.
+    /// Null only when the platform can use LLVM's default object allocator.
     layer: *mut LayerContext,
     maps: bool,
     trace: bool,
@@ -1329,7 +1328,11 @@ impl Lljit {
         // §13.14): the `dfpcl` section of each object is registered by the
         // memory manager of our own layer.
         let trace = symbolic_trace();
-        let layer: *mut LayerContext = if maps || trace {
+        // COFF ADDR32NB relocations also occur with shadow-stack roots (unwind
+        // records and jump tables). Windows may otherwise allocate code and
+        // data more than 4 GiB apart, which makes RuntimeDyld abort the process.
+        let bounded_layout = maps || trace || cfg!(all(windows, target_arch = "x86_64"));
+        let layer: *mut LayerContext = if bounded_layout {
             Box::into_raw(Box::new(LayerContext { rec: std::sync::Mutex::new(None), trace: std::sync::Mutex::new(None) }))
         } else {
             ptr::null_mut()
@@ -1352,7 +1355,7 @@ impl Lljit {
                 builder,
                 LLVMOrcJITTargetMachineBuilderCreateFromTargetMachine(machine),
             );
-            if maps || trace {
+            if bounded_layout {
                 llvm_sys::orc2::lljit::LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator(builder, create_layer, layer.cast());
             }
             if let Some(message) = take_error(LLVMOrcCreateLLJIT(&mut handle, builder)) {
@@ -1403,7 +1406,7 @@ impl Lljit {
     /// # Errors
     /// The library does not load or does not export the registration.
     pub(crate) fn use_library_registry(&self, dll: &std::path::Path) -> Result<(), String> {
-        if self.layer.is_null() {
+        if self.layer.is_null() || (!self.maps && !self.trace) {
             return Ok(());
         }
         let module = load_library(dll);
@@ -2751,10 +2754,10 @@ struct JitObject {
     /// The stack map section and the `.pdata` one (COFF).
     map: Option<(*const u8, usize)>,
     #[cfg_attr(not(all(windows, target_arch = "x86_64")), allow(dead_code))]
-    pdata: Option<(*const u8, usize)>,
+    pdata: Vec<(*const u8, usize)>,
     registered_map: bool,
     #[cfg_attr(not(all(windows, target_arch = "x86_64")), allow(dead_code))]
-    registered_table: bool,
+    registered_tables: usize,
     /// The stack trace sections (`.dfpcl$m`, `dfpcl`, `__dfpcl`; on ELF, one
     /// per `comdat` group).
     trace: Vec<(*const u8, usize)>,
@@ -2770,9 +2773,9 @@ impl JitObject {
             code: 0,
             data: HALF_REGION,
             map: None,
-            pdata: None,
+            pdata: Vec::new(),
             registered_map: false,
-            registered_table: false,
+            registered_tables: 0,
             trace: Vec::new(),
             registered_trace: false,
             finished: false,
@@ -2820,16 +2823,15 @@ impl JitObject {
             }
         }
         #[cfg(all(windows, target_arch = "x86_64"))]
-        if let Some((p, n)) = self.pdata
-            && n >= 12
-        {
+        for &(p, n) in &self.pdata {
+            if n < 12 { continue; }
             // SAFETY: the object's relocated `.pdata`; its RVAs are relative to the
             // region base (the lowest address of the sections, as RTDyld
             // computes it: the first code section starts there).
             if unsafe { RtlAddFunctionTable(p, (n / 12) as u32, self.base as u64) } == 0 {
                 return Err("the system refused the function table of the JIT object".to_owned());
             }
-            self.registered_table = true;
+            self.registered_tables += 1;
         }
         if let Some((p, n)) = self.map {
             // SAFETY: the layer outlives its objects.
@@ -2881,10 +2883,9 @@ impl Drop for JitObject {
             }
         }
         #[cfg(all(windows, target_arch = "x86_64"))]
-        if self.registered_table
-            && let Some((p, _)) = self.pdata
-        {
-            // SAFETY: the table was registered with this address.
+        for &(p, _) in self.pdata.iter().filter(|(_, size)| *size >= 12).take(self.registered_tables) {
+            // SAFETY: each table was registered with this address and stays
+            // alive until after every registration has been removed.
             unsafe { RtlDeleteFunctionTable(p) };
         }
         if !self.base.is_null() {
@@ -2926,7 +2927,7 @@ extern "C" fn allocate_data(
         if n == b".llvm_stackmaps" || n == b"__llvm_stackmaps" {
             o.map = Some((p, size));
         } else if n == b".pdata" {
-            o.pdata = Some((p, size));
+            o.pdata.push((p, size));
         } else if n == b".dfpcl$m" || n == b"dfpcl" || n == b"__dfpcl" {
             o.trace.push((p, size));
         }
@@ -2974,8 +2975,13 @@ unsafe extern "C" {
     ) -> llvm_sys::orc2::LLVMOrcObjectLayerRef;
 }
 
-/// The session's object layer with maps: RTDyld with the memory manager
-/// above.
+#[cfg(windows)]
+unsafe extern "C" {
+    fn dartforge_configure_coff_layer(layer: llvm_sys::orc2::LLVMOrcObjectLayerRef);
+}
+
+/// RTDyld with bounded code/data regions: Windows always needs this layout;
+/// maps and symbolic traces additionally use its registration hooks.
 extern "C" fn create_layer(
     layer: *mut std::ffi::c_void,
     session: llvm_sys::orc2::LLVMOrcExecutionSessionRef,
@@ -2984,7 +2990,7 @@ extern "C" fn create_layer(
     // SAFETY: the C header signature (above); `layer` is the session's context,
     // alive until its `Drop`, and the functions live for the whole process.
     unsafe {
-        create_rtdyld_layer_with_manager(
+        let object_layer = create_rtdyld_layer_with_manager(
             session,
             layer,
             create_context,
@@ -2993,7 +2999,10 @@ extern "C" fn create_layer(
             allocate_data,
             finalize_memory,
             Some(destroy),
-        )
+        );
+        #[cfg(windows)]
+        dartforge_configure_coff_layer(object_layer);
+        object_layer
     }
 }
 

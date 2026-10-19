@@ -4,6 +4,13 @@ use std::process::Command;
 
 #[test]
 fn target_errors_are_actionable() {
+    if cfg!(windows) && !cfg!(target_arch = "x86_64") {
+        let result = Command::new(env!("CARGO_BIN_EXE_dartforge"))
+            .args(["aot", "missing.dart", "out.exe"]).output().unwrap();
+        assert!(!result.status.success());
+        assert!(String::from_utf8_lossy(&result.stderr).contains("requires x64"));
+        return;
+    }
     for (args, message) in [
         (
             vec!["aot", "missing.dart", "--target", "windows-arm64"],
