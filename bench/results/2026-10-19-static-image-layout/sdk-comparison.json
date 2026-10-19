@@ -1,0 +1,115 @@
+{
+  "old": {
+    "path": "target/native_cache/sdk/ba0e551ee36816845a2b39cd67a36aa8/allocation-inventory.json",
+    "bytes": 67760874,
+    "schema": 3,
+    "sha256": "20b4958cd4ff4174124ef0420ed9638a592d8a189f4b7d854d1130588d8ce3b8"
+  },
+  "new": {
+    "path": "target/native_cache/sdk/84edde5eda74e85f6d323dcbf6ed60f0/allocation-inventory.json",
+    "bytes": 68851974,
+    "schema": 4,
+    "sha256": "bbb9d701c3e12ad85eb9af3aa6d8b0c006f1775030141cc0ba3161bb1d39dbc6"
+  },
+  "module_ir_digests_unchanged": true,
+  "startup_count": 15,
+  "startup_body_digests_unchanged": true,
+  "global_kinds": {
+    "native_bytes": 7753,
+    "unclassified_initializer": 266,
+    "static_string": 5240
+  },
+  "other_observed_image_section_globals": [
+    {
+      "module": "dart:_internal",
+      "symbol": "df.img.anchor",
+      "kind": "unclassified_initializer",
+      "initializer_digest": "3e7c41dcf8c47dd823d81e03d7c73c2393056e805dc028d9619f0dee4ace8ebd"
+    },
+    {
+      "module": "dart:core",
+      "symbol": "df.img.anchor",
+      "kind": "unclassified_initializer",
+      "initializer_digest": "3e7c41dcf8c47dd823d81e03d7c73c2393056e805dc028d9619f0dee4ace8ebd"
+    },
+    {
+      "module": "dart:_compact_hash",
+      "symbol": "df.img.anchor",
+      "kind": "unclassified_initializer",
+      "initializer_digest": "3e7c41dcf8c47dd823d81e03d7c73c2393056e805dc028d9619f0dee4ace8ebd"
+    },
+    {
+      "module": "dart:collection",
+      "symbol": "df.img.anchor",
+      "kind": "unclassified_initializer",
+      "initializer_digest": "3e7c41dcf8c47dd823d81e03d7c73c2393056e805dc028d9619f0dee4ace8ebd"
+    },
+    {
+      "module": "dart:math",
+      "symbol": "df.img.anchor",
+      "kind": "unclassified_initializer",
+      "initializer_digest": "3e7c41dcf8c47dd823d81e03d7c73c2393056e805dc028d9619f0dee4ace8ebd"
+    },
+    {
+      "module": "dart:convert",
+      "symbol": "df.img.anchor",
+      "kind": "unclassified_initializer",
+      "initializer_digest": "3e7c41dcf8c47dd823d81e03d7c73c2393056e805dc028d9619f0dee4ace8ebd"
+    },
+    {
+      "module": "dart:async",
+      "symbol": "df.img.anchor",
+      "kind": "unclassified_initializer",
+      "initializer_digest": "3e7c41dcf8c47dd823d81e03d7c73c2393056e805dc028d9619f0dee4ace8ebd"
+    },
+    {
+      "module": "dart:typed_data",
+      "symbol": "df.img.anchor",
+      "kind": "unclassified_initializer",
+      "initializer_digest": "3e7c41dcf8c47dd823d81e03d7c73c2393056e805dc028d9619f0dee4ace8ebd"
+    },
+    {
+      "module": "dart:isolate",
+      "symbol": "df.img.anchor",
+      "kind": "unclassified_initializer",
+      "initializer_digest": "3e7c41dcf8c47dd823d81e03d7c73c2393056e805dc028d9619f0dee4ace8ebd"
+    },
+    {
+      "module": "dart:developer",
+      "symbol": "df.img.anchor",
+      "kind": "unclassified_initializer",
+      "initializer_digest": "3e7c41dcf8c47dd823d81e03d7c73c2393056e805dc028d9619f0dee4ace8ebd"
+    },
+    {
+      "module": "dart:nativewrappers",
+      "symbol": "df.img.anchor",
+      "kind": "unclassified_initializer",
+      "initializer_digest": "3e7c41dcf8c47dd823d81e03d7c73c2393056e805dc028d9619f0dee4ace8ebd"
+    },
+    {
+      "module": "dart:ffi",
+      "symbol": "df.img.anchor",
+      "kind": "unclassified_initializer",
+      "initializer_digest": "3e7c41dcf8c47dd823d81e03d7c73c2393056e805dc028d9619f0dee4ace8ebd"
+    },
+    {
+      "module": "dart:_http",
+      "symbol": "df.img.anchor",
+      "kind": "unclassified_initializer",
+      "initializer_digest": "3e7c41dcf8c47dd823d81e03d7c73c2393056e805dc028d9619f0dee4ace8ebd"
+    },
+    {
+      "module": "dart:io",
+      "symbol": "df.img.anchor",
+      "kind": "unclassified_initializer",
+      "initializer_digest": "3e7c41dcf8c47dd823d81e03d7c73c2393056e805dc028d9619f0dee4ace8ebd"
+    },
+    {
+      "module": "dart:mirrors",
+      "symbol": "df.img.anchor",
+      "kind": "unclassified_initializer",
+      "initializer_digest": "3e7c41dcf8c47dd823d81e03d7c73c2393056e805dc028d9619f0dee4ace8ebd"
+    }
+  ],
+  "growth_percent": 1.6102212613137157
+}

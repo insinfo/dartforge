@@ -6,6 +6,7 @@
 pub(crate) mod closure;
 pub(crate) mod publication;
 pub(crate) mod imports;
+mod images;
 
 use super::{AllocationRecord, AllocationState, Summary};
 use std::collections::HashMap;

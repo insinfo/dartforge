@@ -3,6 +3,20 @@
 ## Atualização de 19/10/2026
 
 
+- O schema 4 preserva o inicializador de todos os globais e revalida digest,
+  símbolo e classificação. Um observador de strings estáticas confere header
+  permanente/RAW, CID, palavras, comprimento, bytes/padding, hash VM e chave
+  canônica, incluindo Latin-1, UTF-16 e surrogates. No SDK real foram observadas
+  5.240 definições válidas (CID 6); 15 âncoras da seção continuam não classificadas.
+  Isso não autoriza registro de imagem, handles ou retorno Ref/ptr: falta provar
+  a faixa e todos os contribuidores do ligador. Passaram 58 testes de inventário,
+  51 de classes e 14 gerais de poda, Clippy/docs estritos. IR dos módulos e corpos
+  dos 15 startups permanecem iguais; cache JSON cresceu 1,6% para guardar dados.
+  Fmt global, aprovação integral, imagem/startup completos e poda do explorador
+  continuam pendentes; sem nova matriz desktop/JIT ou ganho de binário medido.
+  Evidências: `bench/results/2026-10-19-static-image-layout/README.md`.
+
+
 - O certificado de startup compõe agora nomes de classes/argumentos com arestas
   nominais. O schema 3 preserva inicializadores literais e verifica digest,
   propriedade privada, bytes/escapes, comprimento exato e UTF-8. Ponteiros

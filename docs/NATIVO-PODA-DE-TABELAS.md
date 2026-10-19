@@ -620,10 +620,11 @@ recusados; este certificado não conclui a poda do explorador. A regressão
 compilada conserva consultas nominais transitivas e inversas com registro amplo
 e certificado, em execução normal e sob estresse de GC.
 
-### Metadados textuais e inicializadores no schema 3
+### Metadados textuais e inicializadores
 
-O inventário conserva `native_initializer` nas constantes de bytes, vinculado
-ao digest da linha original; nos demais globais o campo é explicitamente nulo.
+O schema atual conserva `initializer` em todos os globais, vinculado
+ao digest da linha original. O schema 3 guardava somente `native_initializer`
+nas constantes de bytes; esse formato foi substituído pelo schema 4.
 O leitor verifica digest, símbolo, propriedade local e inicializador literal
 imutável. O decodificador confere o tamanho do array, escapes LLVM hexadecimais,
 aspas, comentários fora de strings e alinhamento simples; formas não suportadas
@@ -646,3 +647,27 @@ continua sem autorização como chamada comum e as APIs não entram na lista
 global de runtime coberto. O grafo temporário conserva somente referências reais
 dos bytes literais, descartando citações espúrias de `@` dentro de seus textos;
 o snapshot original é preservado.
+
+### Observações dos blocos de strings estáticas no schema 4
+
+Antes de autorizar uma faixa de imagem, é necessário conferir seus contribuidores
+e os valores gerenciados que ela pode publicar. O inventário agora preserva
+também os inicializadores gerenciados e recomputa sua classificação no leitor.
+Um literal individual recebe `kind: static_string` somente quando coincide com
+o layout permanente do emissor: objeto constante `linkonce_odr`, CID de string,
+flags RAW, número de palavras, hash VM, comprimento e bytes preenchidos com zeros
+até a palavra. A chave canônica é recalculada a partir do CID e das unidades.
+UTF-16 contendo somente Latin-1 é recusado como representação não canônica.
+
+O validador reconhece as grafias de seção do Mach-O, ELF e COFF e o alinhamento
+exato de oito bytes. Isso observa o layout LLVM, sem provar os objetos finais
+desses três formatos, relocação, comdat, âncoras, limites da seção ou o conjunto
+completo de entradas do ligador. Âncoras e inicializadores não reconhecidos
+permanecem separados dos literais conhecidos.
+
+O diagnóstico de inventário informa o número de **definições** observadas e os
+CIDs encontrados, antes de deduplicação pelo ligador. Não é contagem de objetos
+únicos nem prova do universo inteiro da seção. Esses fatos não autorizam
+`register_image`, exposição de handles estáticos ou retorno `Ref`/`ptr` de uma
+importação. Os testes verificam explicitamente essa fronteira e a recusa de
+classificações alteradas mesmo após recomputar a integridade da publicação.

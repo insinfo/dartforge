@@ -286,8 +286,8 @@ pub(crate) fn audit(modules: &[(&str, &str)]) -> Bundle {
         for line in ir.lines().filter(|line| line.starts_with('@') && line.contains(" = ")) {
             let name = global_references(line).into_iter().next().unwrap_or_default();
             let bytes = native_bytes(line);
-            globals.push(json!({"module":module,"symbol":name,"kind":if bytes {"native_bytes"} else {"unclassified_initializer"},
-                "native_initializer": bytes.then_some(line),
+            globals.push(json!({"module":module,"symbol":name,"kind":if bytes {"native_bytes"} else if super::images::static_string(line).is_some() {"static_string"} else {"unclassified_initializer"},
+                "initializer": line,
                 "initializer_digest":blake3::hash(line.as_bytes()).to_hex().to_string(),"references":if bytes {vec![]} else {global_references(line).into_iter().skip(1).collect::<Vec<_>>()}}));
         }
         let mut lines = ir.lines();

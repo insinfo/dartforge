@@ -1,0 +1,10 @@
+{
+  "crates/emit_native/src/lib.rs": "c1ab1a74b6b82f13500366425ce4f23a1beec8f0655f6962b547f23957cb5a0c",
+  "crates/emit_native/src/pruning/allocation_inventory.rs": "ac7d14b80b7c270c6deafe51dad2e0ee5f67baefe6017c87009ef05c009a6f54",
+  "crates/emit_native/src/pruning/allocation_inventory/images.rs": "7b0feab95a097b997e90b825bd609f97c9b1acca47e535b31daa21afb556fba9",
+  "crates/emit_native/src/pruning/allocation_inventory/closure.rs": "f05ed883985cf044c50a1816d4d28837ab0f3aab51dae891eea786387347a468",
+  "crates/emit_native/src/pruning/allocation_inventory/closure/tests.rs": "a725b06ed8cfaf77b659d3343da4d0d733bb5bc4d906edb8d20ab7e7dcb213ca",
+  "crates/emit_native/src/pruning/allocation_inventory/imports.rs": "9fa10f276b66a1323386b1b475865dcddcbfcd67578c0b14c9ab5175fc2cd0d4",
+  "crates/emit_native/src/pruning/allocation_inventory/imports/tests.rs": "e209d3a929d07bf29c2eb9c2f196e49e7fa6500a8c6224f9c7fe7d4c291923a5",
+  "crates/emit_native/src/pruning/allocation_inventory/publication.rs": "63dfa349030d0e429e43603c5c0e8f15543617a705b45303332c1474a12b4887"
+}

@@ -1,0 +1,22 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+error: using `chunks_exact` with a constant chunk size
+  --> crates/emit_native/src/pruning/allocation_inventory/images.rs:70:28
+   |
+70 |         if content[..used].chunks_exact(2).all(|b| b[1] == 0) {
+   |                            ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+   = note: `-D clippy::chunks-exact-to-as-chunks` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::chunks_exact_to_as_chunks)]`
+
+error: using `chunks_exact` with a constant chunk size
+  --> crates/emit_native/src/pruning/allocation_inventory/images.rs:75:18
+   |
+75 |                 .chunks_exact(2)
+   |                  ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+
+error: could not compile `dartforge-emit-native` (lib) due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `dartforge-emit-native` (lib test) due to 2 previous errors

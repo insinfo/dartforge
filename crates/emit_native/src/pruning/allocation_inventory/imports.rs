@@ -35,7 +35,7 @@ struct Global {
     symbol: String,
     kind: String,
     initializer_digest: String,
-    native_initializer: Option<String>,
+    initializer: String,
     references: Vec<String>,
 }
 #[derive(Debug, Deserialize)]
@@ -86,6 +86,8 @@ pub(crate) struct Inventory {
     definitions: HashSet<String>,
     summaries: Vec<Summary>,
     known_allocations: usize,
+    image_strings: usize,
+    image_string_cids: BTreeSet<u32>,
     table_declarations: HashMap<String, u32>,
     metadata_startups: HashSet<String>,
 }
@@ -157,7 +159,7 @@ impl Inventory {
             summaries.push(Summary::from_string(std::str::from_utf8(&bytes).ok()?).ok()?);
         }
         for global in value["inventory"]["globals"].as_array()? {
-            global.as_object()?.get("native_initializer")?;
+            global.as_object()?.get("initializer")?;
         }
         let functions = value["inventory"]["functions"].as_array()?;
         for record in functions {
@@ -274,28 +276,33 @@ impl Inventory {
         let mut byte_contents = HashMap::new();
         let mut globals = HashSet::new();
         let mut global_counts = HashMap::new();
+        let mut image_strings = 0;
+        let mut image_string_cids = BTreeSet::new();
         for g in &raw.globals {
             if !modules.contains(g.module.as_str())
                 || g.symbol.is_empty()
                 || !digest(&g.initializer_digest)
-                || !matches!(g.kind.as_str(), "native_bytes" | "unclassified_initializer")
+                || blake3::hash(g.initializer.as_bytes()).to_hex().as_str() != g.initializer_digest
+                || super::super::global_name(&g.initializer)?.0 != g.symbol
             {
                 return None;
             }
-            let content = match g.kind.as_str() {
-                "native_bytes" => {
-                    let initializer = g.native_initializer.as_deref()?;
-                    if blake3::hash(initializer.as_bytes()).to_hex().as_str()
-                        != g.initializer_digest
-                        || super::super::global_name(initializer)?.0 != g.symbol
-                    {
-                        return None;
-                    }
-                    Some(super::closure::native_byte_content(initializer)?)
-                }
-                _ if g.native_initializer.is_none() => None,
-                _ => return None,
+            let content = super::closure::native_byte_content(&g.initializer);
+            let image = super::images::static_string(&g.initializer);
+            let expected_kind = if content.is_some() {
+                "native_bytes"
+            } else if image.is_some() {
+                "static_string"
+            } else {
+                "unclassified_initializer"
             };
+            if g.kind != expected_kind {
+                return None;
+            }
+            if let Some(image) = image {
+                image_strings += 1;
+                image_string_cids.insert(image.cid);
+            }
             let local = format!("{}#{}", g.module, g.symbol);
             let key = if declared[g.module.as_str()].contains_key(local.as_str()) {
                 local
@@ -309,10 +316,7 @@ impl Inventory {
             if g.kind == "native_bytes"
                 && g.references.is_empty()
                 && key.contains('#')
-                && g.native_initializer
-                    .as_deref()
-                    .and_then(super::super::global_name)
-                    .is_some_and(|(_, local, _)| local)
+                && super::super::global_name(&g.initializer).is_some_and(|(_, local, _)| local)
                 && declared[g.module.as_str()].get(key.as_str()) == Some(&1)
                 && !by_key.contains_key(key.as_str())
             {
@@ -397,6 +401,8 @@ impl Inventory {
             definitions,
             summaries,
             known_allocations,
+            image_strings,
+            image_string_cids,
             table_declarations,
             metadata_startups,
         })
@@ -561,6 +567,10 @@ impl Inventory {
     }
     pub(crate) fn contains_definition(&self, key: &str) -> bool {
         self.definitions.contains(key)
+    }
+    /// Observations only: not a complete section census or registration proof.
+    pub(crate) fn image_string_counts(&self) -> (usize, &BTreeSet<u32>) {
+        (self.image_strings, &self.image_string_cids)
     }
     pub(crate) fn counts(&self) -> (usize, usize, usize) {
         (

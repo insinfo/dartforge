@@ -29,6 +29,57 @@ fn fixtures(ir: &str) -> (tempfile::TempDir, Vec<String>, std::path::PathBuf) {
     (dir, names, runtime)
 }
 #[test]
+fn static_block_observations_do_not_authorize_handles_or_image_registration() {
+    let literal = super::super::images::tests::emitted_literal("λ".as_bytes());
+    let symbol = crate::pruning::global_name(&literal).unwrap().0;
+    let (markers, start, end) = crate::target::image_markers();
+    let ir = format!(
+        "{literal}\n{markers}\ndefine void @df.register.dart$3atest() {{\n call void @dartforge_register_image(ptr {start}, ptr {end})\n ret void\n}}\ndefine i64 @{LEAF}() {{\n ret i64 ptrtoint (ptr getelementptr (i8, ptr @\"{symbol}\", i64 2) to i64)\n}}\n"
+    );
+    let (dir, names, runtime) = fixtures(&ir);
+    let inventory = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
+    let (count, cids) = inventory.image_string_counts();
+    assert_eq!(count, 1);
+    assert_eq!(
+        cids,
+        &BTreeSet::from([dartforge_runtime::layout::cid::TWO_BYTE_STRING as u32])
+    );
+    assert!(!inventory.entry("df.register.dart$3atest"));
+    assert!(!inventory.known_node(symbol));
+    assert!(!inventory.call(LEAF, &[], Type::Ref));
+    assert!(!inventory.call(LEAF, &[], Type::I64));
+}
+
+#[test]
+fn managed_initializer_classification_is_recomputed_after_integrity_validation() {
+    let literal = super::super::images::tests::emitted_literal(b"abc");
+    for variant in 0..3 {
+        let (dir, names, runtime) = fixtures(&literal);
+        rewrite(dir.path(), |value| {
+            let global = &mut value["inventory"]["globals"][0];
+            if variant == 0 {
+                global["kind"] = serde_json::json!("native_bytes");
+            } else if variant == 1 {
+                global["kind"] = serde_json::json!("unclassified_initializer");
+            } else {
+                let altered = literal.replace("align 8", "align 1");
+                global["initializer_digest"] =
+                    serde_json::json!(blake3::hash(altered.as_bytes()).to_hex().to_string());
+                global["initializer"] = serde_json::json!(altered);
+            }
+        });
+        assert!(super::super::publication::verify(
+            dir.path(),
+            "test-key",
+            true,
+            &names,
+            &runtime
+        ));
+        assert!(Inventory::load(dir.path(), "test-key", true, &names, &runtime).is_none());
+    }
+}
+
+#[test]
 fn exact_private_utf8_names_extend_the_entry_only_metadata_domain() {
     let (dir, names, runtime) = fixtures(NAME_STARTUP);
     let inventory = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
@@ -117,24 +168,24 @@ fn metadata_names_require_exact_lengths_local_literals_and_valid_utf8() {
 }
 
 #[test]
-fn native_initializer_records_are_rechecked_after_integrity_validation() {
+fn initializer_records_are_rechecked_after_integrity_validation() {
     for variant in 0..5 {
         let (dir, names, runtime) = fixtures(NAME_STARTUP);
         rewrite(dir.path(), |value| {
             let record = &mut value["inventory"]["globals"][0];
             match variant {
                 0 => {
-                    record["native_initializer"] =
+                    record["initializer"] =
                         serde_json::json!("@cls = private constant [6 x i8] c\"Other!\"")
                 }
-                1 => record["native_initializer"] = serde_json::Value::Null,
+                1 => record["initializer"] = serde_json::Value::Null,
                 2 => {
-                    record.as_object_mut().unwrap().remove("native_initializer");
+                    record.as_object_mut().unwrap().remove("initializer");
                 }
                 3 => record["symbol"] = serde_json::json!("different"),
                 _ => {
                     let initializer = "@cls = private constant [6 x i8] c\"short\"";
-                    record["native_initializer"] = serde_json::json!(initializer);
+                    record["initializer"] = serde_json::json!(initializer);
                     record["initializer_digest"] = serde_json::json!(
                         blake3::hash(initializer.as_bytes()).to_hex().to_string()
                     );
@@ -473,6 +524,15 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
             .is_ok()
     );
     let (unique, known, pure) = inventory.counts();
+    let (image_strings, image_cids) = inventory.image_string_counts();
+    assert!(image_strings > 0);
+    assert!(image_cids.iter().all(|cid| {
+        [
+            dartforge_runtime::layout::cid::ONE_BYTE_STRING as u32,
+            dartforge_runtime::layout::cid::TWO_BYTE_STRING as u32,
+        ]
+        .contains(cid)
+    }));
     assert!(unique > 0 && known > 0 && pure > 0);
     let declarations = inventory.table_declarations.len();
     assert!(
@@ -497,7 +557,7 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
     );
     println!(
         "{}",
-        serde_json::json!({"key":sdk.key,"unique_definitions":unique,"allocation_closures":known,"reviewed_empty_closures":pure,"startup_complete":false,"table_declarations":declarations})
+        serde_json::json!({"key":sdk.key,"unique_definitions":unique,"allocation_closures":known,"reviewed_empty_closures":pure,"startup_complete":false,"table_declarations":declarations,"checked_static_strings":image_strings,"image_string_cids":image_cids})
     );
 }
 

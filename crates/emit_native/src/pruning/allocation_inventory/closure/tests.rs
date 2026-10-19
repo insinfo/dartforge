@@ -16,7 +16,7 @@ fn native_byte_arrays_preserve_exact_escaped_contents_and_lengths() {
     ] {
         assert_eq!(native_byte_content(line), Some(expected), "{line}");
         let bundle = audit(&[("sdk", line)]);
-        assert_eq!(bundle.globals[0]["native_initializer"], line);
+        assert_eq!(bundle.globals[0]["initializer"], line);
         assert_eq!(bundle.globals[0]["references"], json!([]));
     }
 }
@@ -37,7 +37,7 @@ fn malformed_or_nonliteral_byte_initializers_remain_unclassified() {
     ] {
         assert!(native_byte_content(line).is_none(), "{line}");
         let bundle = audit(&[("sdk", line)]);
-        assert!(bundle.globals[0]["native_initializer"].is_null());
+        assert_eq!(bundle.globals[0]["initializer"], line);
     }
 }
 
