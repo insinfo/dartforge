@@ -55,7 +55,7 @@ impl DebugInfo {
         }
     }
 
-    fn new(&mut self, text: String) -> u32 {
+    fn add_metadata(&mut self, text: String) -> u32 {
         self.metadata.push(text);
         (self.metadata.len() - 1) as u32
     }
@@ -67,7 +67,7 @@ impl DebugInfo {
         let p = std::path::Path::new(path);
         let name = p.file_name().map_or_else(|| path.to_string(), |n| n.to_string_lossy().into_owned());
         let dir = p.parent().map(|d| d.display().to_string()).unwrap_or_default();
-        let n = self.new(format!("!DIFile(filename: \"{}\", directory: \"{}\")", ir_text(&name), ir_text(&dir)));
+        let n = self.add_metadata(format!("!DIFile(filename: \"{}\", directory: \"{}\")", ir_text(&name), ir_text(&dir)));
         self.files.insert(path.to_string(), n);
         self.unit_file.get_or_insert(n);
         n
@@ -77,7 +77,7 @@ impl DebugInfo {
         if let Some(&n) = self.locals.get(&(line, column, scope)) {
             return n;
         }
-        let n = self.new(format!("!DILocation(line: {line}, column: {column}, scope: !{scope})"));
+        let n = self.add_metadata(format!("!DILocation(line: {line}, column: {column}, scope: !{scope})"));
         self.locals.insert((line, column, scope), n);
         n
     }
@@ -86,7 +86,7 @@ impl DebugInfo {
     /// definition and the `!dbg` on each instruction; the markers go away.
     pub(super) fn annotate(&mut self, text: &str, func: &Function, d: &FunctionDebugInfo) -> String {
         let file = self.file(&d.file);
-        let sp = self.new(format!(
+        let sp = self.add_metadata(format!(
             "distinct !DISubprogram(name: \"{}\", scope: !{file}, file: !{file}, line: {}, \
              type: !{TYPE}, scopeLine: {}, spFlags: DISPFlagDefinition, unit: !{UNIT})",
             ir_text(&dart_name(func)),
@@ -122,13 +122,13 @@ impl DebugInfo {
             "distinct !DICompileUnit(language: DW_LANG_C99, file: !{file}, producer: \"dartforge\", \
              isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug)"
         );
-        let version = self.new(match crate::target::target_os() {
+        let version = self.add_metadata(match crate::target::target_os() {
             crate::target::Os::Windows => "!{i32 2, !\"CodeView\", i32 1}".to_string(),
             // Xcode's `dsymutil` and `lldb` read DWARF 4 without caveats.
             crate::target::Os::MacOs => "!{i32 7, !\"Dwarf Version\", i32 4}".to_string(),
             crate::target::Os::Linux => "!{i32 7, !\"Dwarf Version\", i32 5}".to_string(),
         });
-        let format = self.new("!{i32 2, !\"Debug Info Version\", i32 3}".to_string());
+        let format = self.add_metadata("!{i32 2, !\"Debug Info Version\", i32 3}".to_string());
         out.push_str("\n; Debug information (J05)\n");
         writeln!(out, "!llvm.dbg.cu = !{{!{UNIT}}}").unwrap();
         writeln!(out, "!llvm.module.flags = !{{!{version}, !{format}}}").unwrap();

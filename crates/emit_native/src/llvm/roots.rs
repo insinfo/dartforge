@@ -33,6 +33,9 @@ use std::collections::HashMap;
 #[derive(Clone, PartialEq, Eq)]
 struct Set(Vec<u64>);
 
+/// Observation of one instruction's definition and liveness before/after it.
+type RootVisitor<'a> = dyn FnMut(Option<&Instruction>, Option<ValueId>, Option<usize>, &Set, &Set) + 'a;
+
 impl Set {
     fn empty(n: usize) -> Self {
         Set(vec![0; n.div_ceil(64)])
@@ -192,7 +195,7 @@ pub fn analyze_with(
     // live at the entry of the block (after the `phi`s, which are not uses).
     let walk_block = |b: usize,
                   exit: Set,
-                  visit: &mut dyn FnMut(Option<&Instruction>, Option<ValueId>, Option<usize>, &Set, &Set)|
+                  visit: &mut RootVisitor<'_>|
      -> Set {
         let block = &func.blocks[b];
         let mut live_set = exit;

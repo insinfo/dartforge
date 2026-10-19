@@ -1,0 +1,87 @@
+[
+  {
+    "name": "workspace-fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "exit": 1,
+    "bytes": 15739601,
+    "sha256": "746e2fd87191f3167446ddc647e098b2b53207f084a15eecd859515dae0add9a",
+    "tail": [
+      "         perm.selectors.insert(0, \"toJson\".into());",
+      "         let m2 = compute(e, &perm);",
+      "-        let same = (0..a.program.functions.len()).all(|i| m.is_live_function(FunctionElementId(i as u32)) == m2.is_live_function(FunctionElementId(i as u32)))",
+      "-            && (0..a.program.classes.len()).all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));",
+      "+        let same = (0..a.program.functions.len()).all(|i| {",
+      "+            m.is_live_function(FunctionElementId(i as u32))",
+      "+                == m2.is_live_function(FunctionElementId(i as u32))",
+      "+        }) && (0..a.program.classes.len())",
+      "+            .all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));",
+      "         check(same, \"determinism\");",
+      "         Ok(errors)",
+      "     })"
+    ]
+  },
+  {
+    "name": "workspace-clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 101,
+    "bytes": 16700,
+    "sha256": "650092d09036ee4ee94c0d9c74bae119d16f30779b14e9247d3ec41f9ad16a06",
+    "tail": [
+      "",
+      "error: useless use of `vec!`",
+      "   --> crates/emit_native/src/compact_stack_trace.rs:727:32",
+      "    |",
+      "727 |         assert_eq!(convert_elf(&mut vec![0u8; 8]), Ok(false));",
+      "    |                                ^^^^^^^^^^^^^^^^^ help: you can use a slice directly: `&mut [0u8; 8]`",
+      "    |",
+      "    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#useless_vec",
+      "    = note: `-D clippy::useless-vec` implied by `-D warnings`",
+      "    = help: to override `-D warnings` add `#[allow(clippy::useless_vec)]`",
+      "",
+      "error: could not compile `dartforge-emit-native` (lib test) due to 25 previous errors"
+    ]
+  },
+  {
+    "name": "workspace-doc",
+    "command": [
+      "cargo",
+      "doc",
+      "--locked",
+      "--workspace",
+      "--no-deps",
+      "--document-private-items"
+    ],
+    "exit": 0,
+    "bytes": 2872,
+    "sha256": "e0b4df79106df4590b22717454d3238bfc4f773df8cae59a8c6d8076e3409d9d",
+    "tail": [
+      " Documenting dartforge-world v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/world)",
+      " Documenting dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)",
+      " Documenting dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)",
+      " Documenting dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)",
+      " Documenting dartforge-frontend v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/frontend)",
+      " Documenting dartforge-dfexec v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dfexec)",
+      " Documenting dartforge-intern v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/intern)",
+      " Documenting dartforge-diagnostics v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/diagnostics)",
+      " Documenting dartforge-instrument v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/instrument)",
+      " Documenting dartforge-abi v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/abi)",
+      "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 25s",
+      "   Generated /Volumes/ssd_dock/MyRustProjects/dartforge/target/doc/dartforge_abi/index.html and 29 other files"
+    ]
+  }
+]

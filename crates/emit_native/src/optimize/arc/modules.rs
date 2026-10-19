@@ -372,17 +372,18 @@ fn private_name(
     }
 }
 
+/// Parameter representation, scalar/RTI certificates and optional entry vector.
+type ParameterProtocol = (Type, bool, bool, Option<DartEntryVector>);
+/// Return representation/ownership and the ordered parameter protocol.
+type FunctionProtocol = (Type, TokenReturn, Vec<ParameterProtocol>);
+
 // A verified interface, not equality of the body nor a promise of functional ODR.
 // SSA IDs are local: the semantic roles belong to the positions of the signature.
 fn protocol(
     m: &Module,
     f: &Function,
     p: &DartFunctionPlan,
-) -> (
-    Type,
-    TokenReturn,
-    Vec<(Type, bool, bool, Option<DartEntryVector>)>,
-) {
+) -> FunctionProtocol {
     let ret = if m.dart_ref_returns.contains(&f.symbol)
         || m.arc_uniform_returns.contains(&f.symbol)
     {

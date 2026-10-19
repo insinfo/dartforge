@@ -1,0 +1,47 @@
+{
+  "base": "134d114b",
+  "platform": "macOS ARM64",
+  "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+  "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+  "native_tests": {
+    "DARTFORGE_TEST_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+    "CARGO_BUILD_JOBS": "2",
+    "RUST_TEST_THREADS": "2",
+    "PATH_prefix": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin"
+    ]
+  },
+  "workspace_docs": {
+    "RUSTDOCFLAGS": "-D warnings"
+  },
+  "package_clippy": {
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "-p",
+      "dartforge-emit-native",
+      "--all-targets",
+      "--no-deps",
+      "--target-dir",
+      "target/impl-a",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 101
+  },
+  "ongoing_workspace_baseline": {
+    "revision": "81e6762b16d755a0f94290eeaca31b83464630f1",
+    "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+    "compiler_sha256": "f3284c9d610665e9325899ec0036ddfeb058adb9bc375ee741905c376b8f30f8",
+    "started_utc": "2026-10-19T16:47:45.344077+00:00",
+    "pid": 73529,
+    "case_filter": null,
+    "build_jobs": 2,
+    "test_threads": 2
+  }
+}

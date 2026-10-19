@@ -6,6 +6,15 @@
 //! - Syntactic sugar has been desugared.
 //! - The LLVM backend (and in the future Cranelift) consumes this structure directly.
 
+/// Runtime class ID, class name and selector-to-adapter entries registered at startup.
+///
+/// ```
+/// use dartforge_emit_native::hir::MethodTable;
+/// let table: MethodTable = (7, "Example".into(), vec![("method".into(), "df.adapter".into())]);
+/// assert_eq!(table.2[0].0, "method");
+/// ```
+pub type MethodTable = (u32, String, Vec<(String, String)>);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockId(pub u32);
 
@@ -1238,7 +1247,7 @@ pub struct Module {
     pub sdk_library: bool,
     /// Method tables of the classes of this module, registered in the runtime
     /// at startup (P5c): (class id, [(selector, adapter symbol)]).
-    pub method_tables: Vec<(u32, String, Vec<(String, String)>)>,
+    pub method_tables: Vec<MethodTable>,
     /// The function that returns the method table of each compiled concrete
     /// class (of any module), by id: the allocation of an object of the
     /// class registers the table (`dartforge_object_new_t`).

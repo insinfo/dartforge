@@ -1,0 +1,64 @@
+[
+  {
+    "name": "native-unit",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "dartforge-emit-native",
+      "--lib",
+      "--target-dir",
+      "target/impl-a",
+      "--",
+      "--include-ignored"
+    ],
+    "exit": 0,
+    "bytes": 84401,
+    "sha256": "e9e9f03b3f3b418d8ca32f7923ef7fd3d5c9bc116385dffe62ae0bdfd4f08df9",
+    "tail": [
+      "test tests::constant_validation_rejects_non_const_constructors_before_reachability ... ok",
+      "test tests::emit_ir_is_deterministic ... ok",
+      "test tests::error_constructs_ignores_non_constructs ... ok",
+      "test tests::native_compilation_environment_rejects_unknown_const_names_in_nested_queries ... ok",
+      "test tests::native_compilation_environment_uses_reserved_definition_and_defaults ... ok",
+      "test sdk_module::tests::emit_the_sdk ... ok",
+      "test tests::source_dart_async_only_for_users ... ok",
+      "test tests::unsupported_construct_is_error_with_all_diagnostics ... ok",
+      "test tests::t_id_stable_symbols ... ok",
+      "",
+      "test result: ok. 822 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 374.80s",
+      ""
+    ]
+  },
+  {
+    "name": "native-doc",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "dartforge-emit-native",
+      "--doc",
+      "--target-dir",
+      "target/impl-a"
+    ],
+    "exit": 0,
+    "bytes": 14486,
+    "sha256": "0d0c9811e008728969c332afed641a38e66c73eecf84bafbb43c9949dd01c8fc",
+    "tail": [
+      "test crates/emit_native/src/target.rs - target::NativeTarget (line 25) ... ok",
+      "test crates/emit_native/src/target.rs - target::target_os (line 124) ... ok",
+      "",
+      "test result: ok. 121 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s",
+      "",
+      "",
+      "running 1 test",
+      "test crates/emit_native/src/optimize/arc/analysis/hir.rs - optimize::arc::analysis::hir::HirAnalysis::unknown_set (line 169) - compile fail ... ok",
+      "",
+      "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s",
+      "",
+      "all doctests ran in 1.94s; merged doctests compilation took 1.08s"
+    ]
+  }
+]

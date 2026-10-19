@@ -7,6 +7,9 @@
 use super::*;
 use std::collections::BTreeMap;
 
+/// Ref Phi definitions, indexed by SSA value, with predecessor/operand entries.
+type RefPhis<'a> = HashMap<ValueId, (BlockId, &'a Vec<(BlockId, Operand)>)>;
+
 /// Inserts the copies of the non-owned entries of the Ref Phis that need an
 /// owner and returns how many it inserted.
 ///
@@ -24,7 +27,7 @@ pub(super) fn copy_borrows(
     index: &super::calls::DartFunctionIndex<'_>,
     p: &DartFunctionPlan,
 ) -> Result<usize, String> {
-    let phis: HashMap<ValueId, (BlockId, &Vec<(BlockId, Operand)>)> = f
+    let phis: RefPhis<'_> = f
         .blocks
         .iter()
         .flat_map(|b| b.instructions.iter().map(move |i| (b.id, i)))
@@ -63,7 +66,7 @@ fn copy(
     classes: &HashMap<ValueId, Ownership>,
     extra_pending: &HashMap<ValueId, BlockId>,
 ) -> Result<usize, String> {
-    let phis: HashMap<ValueId, (BlockId, &Vec<(BlockId, Operand)>)> = f
+    let phis: RefPhis<'_> = f
         .blocks
         .iter()
         .flat_map(|b| b.instructions.iter().map(move |i| (b.id, i)))

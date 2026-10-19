@@ -216,7 +216,8 @@ fn load_source_libraries(
 pub fn sdk_class_ids(lib_dir: &Path) -> Result<std::sync::Arc<crate::context::IdTable>, String> {
     use crate::context::IdTable;
     use std::sync::{Arc, Mutex, OnceLock};
-    static MEMO: OnceLock<Mutex<std::collections::HashMap<(PathBuf, String), Arc<IdTable>>>> = OnceLock::new();
+    type IdCache = std::collections::HashMap<(PathBuf, String), Arc<IdTable>>;
+    static MEMO: OnceLock<Mutex<IdCache>> = OnceLock::new();
     let memo = MEMO.get_or_init(Default::default);
     let key = sdk_key(lib_dir, "class-ids", &[])?;
     let memo_key = (lib_dir.to_path_buf(), key.clone());
@@ -925,7 +926,7 @@ fn prune_old_sdks(root: &Path, current: &Path) {
         .filter(|p| p.is_dir() && p != current && p.join("pronto").is_file())
         .filter_map(|p| Some((std::fs::metadata(p.join("pronto")).ok()?.modified().ok()?, p)))
         .collect();
-    dirs.sort_by(|a, b| b.0.cmp(&a.0));
+    dirs.sort_by_key(|entry| std::cmp::Reverse(entry.0));
     let hour = std::time::Duration::from_secs(3600);
     for (when, dir) in dirs.into_iter().skip(3) {
         if when.elapsed().is_ok_and(|d| d > hour) {

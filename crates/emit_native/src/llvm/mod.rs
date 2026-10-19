@@ -5051,6 +5051,7 @@ fn out_of_line(text: &str, names: &[String]) -> String {
 /// * `@df.allocate(header, w)`: the TLAB of `w ≤ TLAB_N` words (the cursor
 ///   advances `16 + 8w` and writes word 0); exhausted or a larger `w`,
 ///   `dartforge_allocate(cid, w, header >> 8)`.
+///
 /// `@df.body(h, ctx)`: the start of the body of an object (the header; the
 /// fields 16 bytes later), the same computation as `emit_field_addresses`
 /// inline — a value that is not an object reads the reserve object of the context

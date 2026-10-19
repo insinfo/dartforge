@@ -10,6 +10,13 @@ use dartforge_types::resolved::{BodyTypes, Resolved};
 use dartforge_types::table::{CoreTypes, Type, TypeId, TypeTable};
 
 
+/// Semantic member identity used by immutable dispatch caches.
+type DispatchKey = (dartforge_elements::model::ClassId, SymbolId);
+/// Shared dispatch implementations, cached once per immutable program.
+type Implementations = std::sync::Arc<Vec<crate::lower::sdk_source::Implementation>>;
+/// Implementations annotated with their runtime class identifiers.
+type ClassImplementations = std::sync::Arc<Vec<(i64, crate::lower::sdk_source::Implementation)>>;
+
 pub struct Context<'a> {
     pub program: &'a Program,
     pub interner: &'a Interner,
@@ -110,18 +117,14 @@ pub struct Context<'a> {
     /// result only depends on the program and the compiled libraries, fixed
     /// after the construction of the context.
     pub implementations_memo:
-        std::sync::RwLock<std::collections::HashMap<(dartforge_elements::model::ClassId, SymbolId), std::sync::Arc<Vec<crate::lower::sdk_source::Implementation>>>>,
+        std::sync::RwLock<std::collections::HashMap<DispatchKey, Implementations>>,
     /// The subtypes of each class (`Context::subtypes`), computed on the
     /// first query.
     pub subtypes_memo:
         std::sync::RwLock<std::collections::HashMap<dartforge_elements::model::ClassId, std::sync::Arc<Vec<dartforge_elements::model::ClassId>>>>,
     /// Likewise for `sdk_source::implementations_by_class`.
-    pub implementations_by_class_memo: std::sync::RwLock<
-        std::collections::HashMap<
-            (dartforge_elements::model::ClassId, SymbolId),
-            Option<std::sync::Arc<Vec<(i64, crate::lower::sdk_source::Implementation)>>>,
-        >,
-    >,
+    pub implementations_by_class_memo:
+        std::sync::RwLock<std::collections::HashMap<DispatchKey, Option<ClassImplementations>>>,
     /// Selected SDK multiplication semantics, certified once for this immutable program.
     pub(crate) primitive_multiply_certificate: std::sync::OnceLock<bool>,
     /// Experimental guarded multiplication; disabled unless explicitly requested.

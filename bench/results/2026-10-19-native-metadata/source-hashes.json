@@ -1,0 +1,12 @@
+{
+  "crates/emit_native/src/context.rs": "1d3f3682aa8f7e63021bac4531e9b976fcc2c0b33b44e39ccf5748fe50df5a0e",
+  "crates/emit_native/src/hir.rs": "7c7ea80961a70eaa8ad0a2ee5465708305bc929644de2e0cc9fbd06866a65544",
+  "crates/emit_native/src/llvm/debug_info.rs": "d583c764a933281fb967afefe43480bc3c668e9f945f9c82eb74593ac45a6166",
+  "crates/emit_native/src/llvm/mod.rs": "c6792dac12821c4559faf6c07766c5c966f822e7f1cbeda447f34d77e5c80b84",
+  "crates/emit_native/src/llvm/roots.rs": "ec8b3ec92a9d9d5c19c69c5dfce912dca7e8b4519b31cd6e5b907fdc2ebff75e",
+  "crates/emit_native/src/lower/async_sm.rs": "d71a997b32334e48979d97f9559cdd1a54a1f80cf1396f77818db7e33b49884b",
+  "crates/emit_native/src/optimize/arc/modules.rs": "59289d236c4f24790e592c72c383b696bb42afda3c45b2165ac1b9c9ccb5f25d",
+  "crates/emit_native/src/optimize/arc/phis.rs": "4b6eeee58c2f78be42a05a9fc0dda94596e2accd8a7d6b861427739082c86db1",
+  "crates/emit_native/src/optimize/tables.rs": "a5ace420000ce2eb66ad4e71aa6f388191bbb51eccf62d3656a82c39c7fc9760",
+  "crates/emit_native/src/sdk_module.rs": "0a2d0f70d5b54b779a33f7298b410a6ff9c34c595087c38d6069d0b26e6a924b"
+}

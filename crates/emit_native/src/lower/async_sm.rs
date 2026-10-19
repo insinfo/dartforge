@@ -48,6 +48,11 @@ use dartforge_frontend::ast::{self, FunctionBody};
 use dartforge_intern::SymbolId;
 use std::collections::{HashMap, HashSet};
 
+/// Named locals saved in an async closure stub.
+type StubLocals = Vec<(SymbolId, Local)>;
+/// Writes moved from a pending-exception guard onto its success edge.
+type SuccessEdgeWrites = (BlockId, BlockId, Vec<(ValueId, Instruction, Type)>);
+
 /// Class id of the frame of an `async` function (below the record
 /// shapes, `context::SHAPE_BASE_ID`).
 pub const ASYNC_FRAME_ID: u32 = 0x3FFF_FF00;
@@ -200,7 +205,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The locals visible in the stub, in deterministic order: those bound to the
     /// environment of the closure (by position) and the others — the parameters — by
     /// the offset of the declaration.
-    fn stub_locals(&self) -> (Vec<(SymbolId, Local)>, Vec<(SymbolId, Local)>) {
+    fn stub_locals(&self) -> (StubLocals, StubLocals) {
         let mut env = Vec::new();
         let mut others = Vec::new();
         let mut seen_set = HashSet::new();
@@ -1641,7 +1646,7 @@ fn save_live(
     }
     // Writes of the result of a guarded call: they go to the success
     // edge (a new block), after the guard.
-    let mut on_edges: Vec<(BlockId, BlockId, Vec<(ValueId, Instruction, Type)>)> = Vec::new();
+    let mut on_edges: Vec<SuccessEdgeWrites> = Vec::new();
     for b in &mut func.blocks {
         let saved = guard(b);
         // Rereads at the end of the block for the `phi` entries of the successors

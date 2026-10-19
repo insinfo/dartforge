@@ -269,8 +269,10 @@ fn false_operand() -> Operand {
 }
 
 fn from_function(f: &mut Function, nl: &HashSet<String>, preserve_cleanup: bool, uniforms: bool) -> FunctionTables {
-    let mut t = FunctionTables::default();
-    t.checks_stack = f.blocks.iter().any(|b| b.instructions.iter().any(|(_, inst, _)| is_site(inst, nl, uniforms)));
+    let mut t = FunctionTables {
+        checks_stack: f.blocks.iter().any(|b| b.instructions.iter().any(|(_, inst, _)| is_site(inst, nl, uniforms))),
+        ..FunctionTables::default()
+    };
     let (mut next_v, mut next_b) = largest_ids(f);
     let mut uses = count_uses(f);
     let mut pos: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(k, b)| (b.id, k)).collect();

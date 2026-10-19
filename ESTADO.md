@@ -2,6 +2,18 @@
 
 ## Atualização de 19/10/2026
 
+- Tipos de metadados nativos agora têm nomes: caches de despacho, tabelas de
+  métodos, visitantes de raízes, locais/arestas async, Phis Ref e protocolos ARC.
+  As representações e os algoritmos permanecem iguais. O helper de metadados
+  de depuração usa `add_metadata`; a inicialização de tabelas e a ordenação do
+  cache SDK foram simplificadas. Sem supressões, Clippy nativo caiu de 32/47
+  para 10/25 diagnósticos (biblioteca/testes), mas ainda reprova. Passaram todos
+  os 822 testes unitários com `--include-ignored` e os 122 doctests no macOS;
+  docs do workspace continuam sem avisos. Fmt segue pendente. Não houve nova
+  certificação Windows/Linux, redução do explorador ou solução da poda completa
+  dos backends estrangeiros. A suíte global de `81e6762b` continua ativa nos
+  builders nativos. Evidências: `bench/results/2026-10-19-native-metadata/README.md`.
+
 - Documentação do workspace passa sem avisos com `RUSTDOCFLAGS='-D warnings'`,
   tanto pública quanto com `--document-private-items`. Foram corrigidos 28
   diagnósticos de links (nomes antigos, referências públicas a itens privados

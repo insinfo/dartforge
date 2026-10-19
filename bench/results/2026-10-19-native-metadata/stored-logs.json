@@ -1,0 +1,42 @@
+{
+  "clippy-before.log": {
+    "source": "/tmp/forge-doc-links-workspace-clippy.log",
+    "raw_bytes": 31225,
+    "raw_sha256": "18c89e67b7cc06b5f23d8447e29b457a8127727ede87e636bed151450f768715",
+    "stored_bytes": 31225,
+    "stored_sha256": "18c89e67b7cc06b5f23d8447e29b457a8127727ede87e636bed151450f768715",
+    "normalization": "Trim trailing blank lines only"
+  },
+  "clippy-after.log": {
+    "source": "/tmp/forge-native-metadata-clippy-after.log",
+    "raw_bytes": 16560,
+    "raw_sha256": "e99765a4d3c87b8738be2213926cccf0c4c80ce15854a5f3591101e7ae6d4ba8",
+    "stored_bytes": 16560,
+    "stored_sha256": "e99765a4d3c87b8738be2213926cccf0c4c80ce15854a5f3591101e7ae6d4ba8",
+    "normalization": "Trim trailing blank lines only"
+  },
+  "native-unit.log": {
+    "source": "/tmp/forge-native-metadata/native-unit.log",
+    "raw_bytes": 84401,
+    "raw_sha256": "e9e9f03b3f3b418d8ca32f7923ef7fd3d5c9bc116385dffe62ae0bdfd4f08df9",
+    "stored_bytes": 84400,
+    "stored_sha256": "d7a8f70bc10edfb8067df0301ac9876f42971c67da648177da5e30af91eaa6f1",
+    "normalization": "Trim trailing blank lines only"
+  },
+  "native-doc.log": {
+    "source": "/tmp/forge-native-metadata/native-doc.log",
+    "raw_bytes": 14486,
+    "raw_sha256": "0d0c9811e008728969c332afed641a38e66c73eecf84bafbb43c9949dd01c8fc",
+    "stored_bytes": 14486,
+    "stored_sha256": "0d0c9811e008728969c332afed641a38e66c73eecf84bafbb43c9949dd01c8fc",
+    "normalization": "Trim trailing blank lines only"
+  },
+  "workspace-doc.log": {
+    "source": "/tmp/forge-native-metadata/workspace-doc.log",
+    "raw_bytes": 2872,
+    "raw_sha256": "e0b4df79106df4590b22717454d3238bfc4f773df8cae59a8c6d8076e3409d9d",
+    "stored_bytes": 2872,
+    "stored_sha256": "e0b4df79106df4590b22717454d3238bfc4f773df8cae59a8c6d8076e3409d9d",
+    "normalization": "Trim trailing blank lines only"
+  }
+}
