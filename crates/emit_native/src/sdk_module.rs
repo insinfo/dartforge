@@ -1077,7 +1077,7 @@ pub enum ContextInTls {
 /// `thread_local` variable of the module itself (the `tlv_get_addr` of Mach-O
 /// does not touch the other registers), filled by the runtime on the first call
 /// of each thread; on macOS arm64, from the `pthread` slot that the runtime
-/// publishes before any Dart code of the thread ([`context_in_tsd`]). The
+/// publishes before any Dart code of the thread (`context_in_tsd`). The
 /// address of the context of a thread does not change while it lives
 /// (`runtime/src/gc_roots.rs`). Only in AOT: the JIT has no `thread_local` in
 /// its modules. The `fib(32)` of `bench/comparison` spent 1/3 of the time in

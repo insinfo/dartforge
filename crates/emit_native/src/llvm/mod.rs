@@ -457,7 +457,7 @@ impl<'a> LlvmEmitter<'a> {
     /// No object will have an outside body (the `OUT_OF_LINE` bit, which only the reload migration
     /// of the JIT creates — `runtime/src/heap.rs`, `swap_fields`): AOT
     /// and the production SDK. With this, the field of the `this` of a method is read
-    /// directly from the block ([`Self::direct_body`]).
+    /// directly from the block (`Self::direct_body`).
     pub fn with_body_without_outside(mut self, yes: bool) -> Self {
         self.body_without_outside = yes;
         self
@@ -509,7 +509,7 @@ impl<'a> LlvmEmitter<'a> {
 
     /// Production (the program and the SDK modules): the method tables assembled
     /// at link time are registered when the isolate is prepared, and the inline
-    /// allocation skips the registration test ([`Self::emit_inline_allocation`]).
+    /// allocation skips the registration test (`Self::emit_inline_allocation`).
     /// The program module declares `@df.register.sdk_tables`, which
     /// `pruning::assemble` defines with one `dartforge_register_table` per
     /// assembled table, and calls it from `df.prepare_isolate` right after

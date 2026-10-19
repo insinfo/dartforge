@@ -2,6 +2,18 @@
 
 ## Atualização de 19/10/2026
 
+- Documentação do workspace passa sem avisos com `RUSTDOCFLAGS='-D warnings'`,
+  tanto pública quanto com `--document-private-items`. Foram corrigidos 28
+  diagnósticos de links (nomes antigos, referências públicas a itens privados
+  e `write` ambíguo). O helper `FieldDeclaration::identity`, usado apenas em
+  testes, é compilado com `cfg(test)`, eliminando também o aviso de código morto.
+  Os nove testes dirigidos de campos declarados passaram; os outros 813 foram
+  filtrados, sem alegação de suíte nativa completa. Validação macOS e features
+  padrão; não repetida nas VMs. Fmt global segue pendente; Clippy nativo mantém
+  32 diagnósticos de biblioteca e 47 de testes. A suíte global da revisão-base
+  `81e6762b` continua ativa nos builders nativos, sem resultado final.
+  Evidências: `bench/results/2026-10-19-rustdoc-links/README.md`.
+
 - LSP passa no Clippy estrito com todos os alvos, sem supressões: as 16
   pendências restantes foram resolvidas com tipos para requisições/metadados,
   opções de imports e consultas de ocorrências, aliases descritivos e duas

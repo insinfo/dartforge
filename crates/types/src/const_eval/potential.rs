@@ -15,7 +15,7 @@ pub fn the_collect(m: &Engine<'_>, cx: &Ctx, e: ExprId, nodes: &mut Vec<Span>) {
     collect_into(m, cx, e, cx.lexical.is_some(), true, nodes);
 }
 
-/// Like [`coletar`], saying whether the parameters count and whether the
+/// Like [`the_collect`], saying whether the parameters count and whether the
 /// node is in a constant context.
 pub fn collect_into(m: &Engine<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_const: bool, nodes: &mut Vec<Span>) {
     let u = cx.unit;

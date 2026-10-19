@@ -2183,7 +2183,7 @@ pub(crate) fn inferable_alias(inf: &mut BodyInferrer<'_>, td: dartforge_elements
     })
 }
 
-/// [`construir`] with the inferable alias ([`inferable_alias`]) through which
+/// [`build`] with the inferable alias ([`inferable_alias`]) through which
 /// the class was named: the inferred parameters are the alias's and the
 /// signature is the constructor's with the arguments of the alias's target.
 #[allow(clippy::too_many_arguments)]

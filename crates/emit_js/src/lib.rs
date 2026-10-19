@@ -121,7 +121,7 @@ pub fn id_number(id: &str) -> Option<usize> {
 
 /// The short id of each class (index: `ClassId`) in the rti recipes of SDK mode
 /// (`Ctx::class_recipe`, `docs/JS-PRODUCAO-TAMANHO.md` §9.5): first the
-/// [`FREQUENT_CLASSES`], then the others in program order, each one with the
+/// `FREQUENT_CLASSES`, then the others in program order, each one with the
 /// next name of the sequence `a`, `b`, …, `$`, `aa`, `ba`… (the first letter out
 /// of 54, the following ones out of 64). A function of the program only: the
 /// emitter, the checker and the name table arrive at the same id.
@@ -803,7 +803,7 @@ pub fn write(emitted: &Emitted, dir: &std::path::Path, dart_sdk_js: &std::path::
     write_with_options(emitted, dir, dart_sdk_js, true)
 }
 
-/// Like [`write`], optionally skipping the comparison with the file on disk.
+/// Like [`write()`], optionally skipping the comparison with the file on disk.
 ///
 /// The resident session (`dartforge dev`) already knows which modules changed,
 /// from the text of the previous compilation that it keeps in memory: re-reading

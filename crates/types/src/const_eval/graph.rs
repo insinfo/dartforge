@@ -7,16 +7,16 @@
 //! * the index and the lowest reachable index of each node **persist** across
 //!   walks, and the index counter **restarts at 1** on each walk;
 //! * a node only leaves consideration when the graph considers it evaluated
-//!   ([`Grafo::evaluated`]). A constructor in a cycle never becomes evaluated:
+//!   ([`Graph::evaluated`]). A constructor in a cycle never becomes evaluated:
 //!   in a later walk it is "already seen" with its old index, and a
 //!   dependent may be popped together with the ancestor as a multi-node
 //!   component, which is the false `recursive_compile_time_constant` that
 //!   depends on declaration order (case `c27` of the specification).
 //!
 //! Each strongly connected component is delivered once: a single node without
-//! an edge to itself goes to [`Grafo::evaluate`]; any other component
+//! an edge to itself goes to [`Graph::evaluate`]; any other component
 //! (several nodes, or a node that depends on itself) goes to
-//! [`Grafo::evaluate_component`], which marks the cycle.
+//! [`Graph::evaluate_component`], which marks the cycle.
 
 /// The graph the walker traverses. Nodes are dense indices.
 pub trait Graph {
@@ -39,7 +39,7 @@ pub trait Graph {
 }
 
 /// The walk state that persists across calls to
-/// [`Walker::percorrer`].
+/// [`Walker::traverse`].
 #[derive(Debug, Default)]
 pub struct Walker {
     /// `_index` of each node (0 = never seen).

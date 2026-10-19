@@ -1431,7 +1431,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// of the receiver when some subclass overrides the member.
     ///
     /// There is no vtable yet: a `switch` over `dartforge_value_class`
-    /// chooses the implementation (up to [`DEVIRTUALIZATION_FAN_OUT`]
+    /// chooses the implementation (up to `DEVIRTUALIZATION_FAN_OUT`
     /// implementations; above that, the selector). Each target matches the
     /// arguments with ITS parameters (defaults and representation may differ
     /// between overrides) and the result is coerced to the representation of

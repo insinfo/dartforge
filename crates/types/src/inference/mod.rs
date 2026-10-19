@@ -1055,7 +1055,7 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// A warning with a code whose arguments go together through the
-    /// `ErrorReporter`'s conversion ([`crate::display::Displayer::argumentos`],
+    /// `ErrorReporter`'s conversion ([`crate::display::Displayer::arguments`],
     /// T7): the types come out with aliases, and two types of the same report
     /// with the same text get the `(where X is defined in …)`.
     pub(crate) fn warning_with_args(&mut self, code: dartforge_diagnostics::Code, span: Span, args: &[crate::display::Arg<'_>]) {

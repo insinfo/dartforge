@@ -7,14 +7,14 @@
 //!
 //! The matched value is a **temporary reference** with its own promotion
 //! key: here, a synthetic local of the body, whose model lives in the
-//! current [`Fluxo`] like that of any variable. The matched type of a
+//! current [`Flow`] like that of any variable. The matched type of a
 //! pattern is the promoted type of that key on entry to the pattern;
 //! promoting the key also promotes the scrutinee, when it is a reference
 //! that the construct allows to promote. The "did not match" state is
 //! accumulated separately ([`Matching::not_matched`]) and starts unreachable:
 //! it only becomes reachable when some pattern can fail.
 //!
-//! Only the analyzer uses this path (see [`ligado`]); the compilers keep the
+//! Only the analyzer uses this path (see [`enabled`]); the compilers keep the
 //! old typing of `super::type_check`.
 
 use super::super::body::{Body, Local, MemberName};

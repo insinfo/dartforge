@@ -244,7 +244,7 @@ fn name_and_span(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId) -> (String, dartf
 /// `.the_name(args)` / `const .the_name(args)` that is a construction: the
 /// constructor of `D`, with the type arguments from the call's context.
 /// `None` when it is not a construction (a static method goes through the
-/// call's common path, which types the target through [`value`]).
+/// call's common path, which types the target through [`value_`]).
 pub(crate) fn construction(
     inf: &mut BodyInferrer<'_>,
     cx: &mut Body,

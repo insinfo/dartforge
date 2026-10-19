@@ -800,7 +800,7 @@ fn has_annotation(
 /// Arguments of `@Component` whose effect the generator knows. `pipes:` is here
 /// because the list does not change the view; using a pipe in the template
 /// does, and that is checked against the template. `exports:` only puts names
-/// in the expression scope (see [`ler`]).
+/// in the expression scope (see [`read_component`]).
 const KNOWN_ARGUMENTS: &[&str] = &[
     "selector",
     // Only decides which class a user's `#ref="name"` points to

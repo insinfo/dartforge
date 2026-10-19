@@ -216,7 +216,7 @@ pub fn compute(a: &dartforge_emit_js::Analysis<'_>, js_names: &HashSet<String>, 
 /// Fills [`Names::groups`] and [`Names::solitary`] from the element model.
 ///
 /// An instance member of class `C` gives the names its emission may use on
-/// the instances: the member name ([`js_member_name`]) and, for a program
+/// the instances: the member name ([`dartforge_emit_js::body::js_member_name`]) and, for a program
 /// library, the private or storage property
 /// ([`dartforge_emit_js::production_private_name`]). The SDK's private names
 /// are symbols and do not matter here. Every other element (static,

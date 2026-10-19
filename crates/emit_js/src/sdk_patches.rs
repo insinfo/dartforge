@@ -129,7 +129,7 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
     ),
 ];
 
-/// Applies [`PATCHES`] to `sdk` as overlay replacements. The patched files
+/// Applies `PATCHES` to `sdk` as overlay replacements. The patched files
 /// are written once, by content, under `dir`.
 pub fn apply(sdk: &mut SdkLayout, dir: &Path) {
     let mut by_file: Vec<(&str, Vec<(&str, &str)>)> = Vec::new();

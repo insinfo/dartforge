@@ -1,0 +1,20 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "dartforge-emit-native",
+    "--lib",
+    "--target-dir",
+    "target/impl-a",
+    "declared_field",
+    "--",
+    "--include-ignored"
+  ],
+  "exit": 0,
+  "passed": 9,
+  "filtered_out": 813,
+  "bytes": 1479,
+  "sha256": "29742d8bf747f44e886dae6ebecf54cbd818df73e6a4d8e9362cddc4c2211b3d"
+}

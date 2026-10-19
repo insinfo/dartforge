@@ -174,7 +174,7 @@ pub(crate) struct Body {
     /// `DotShorthand` expression (see `atalhos`).
     pub shorthand_context: HashMap<u32, TypeId>,
     /// `DotShorthand` roots of an invocation whose error was already reported
-    /// (`shorthands::construction`): the target's [`super::shorthands::value`] does not report again.
+    /// (`shorthands::construction`): the target's [`super::shorthands::value_`] does not report again.
     pub reported_shorthands: std::collections::HashSet<u32>,
     /// Names written anywhere in the top-level body: inside a closure they do
     /// not stay promoted (`functionExpression_begin` does the conservative join
@@ -546,7 +546,7 @@ impl Body {
     }
 
     /// The lexical scope at this point, for the LSP probe: each name once, by
-    /// the innermost declaration (the same order as [`Body::buscar`]).
+    /// the innermost declaration (the same order as [`Body::lookup`]).
     pub fn visible_scope(&self) -> crate::resolved::ProbedScope {
         let mut seen: HashSet<SymbolId> = HashSet::new();
         let mut output = crate::resolved::ProbedScope {

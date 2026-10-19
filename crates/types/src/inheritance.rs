@@ -16,7 +16,7 @@
 //! library. The text key is the element model's (setter `x_=`).
 //!
 //! Each member's type (`ExecutableElement.type`) and subtyping come from the
-//! [`Provedor`]: inference provides the types of inferred fields on demand;
+//! [`Provider`]: inference provides the types of inferred fields on demand;
 //! the passes after it use [`OutlineProvider`].
 //! Written without compiling or running (2026-10-05).
 

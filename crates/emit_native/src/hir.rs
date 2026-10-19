@@ -251,6 +251,7 @@ pub struct FieldDeclaration {
     pub storage_type: Type,
 }
 
+#[cfg(test)]
 impl FieldDeclaration {
     /// Semantic identity excludes flags and layout premises, which a proof must reconcile.
     pub(crate) fn identity(&self) -> (&str, &str, &str) {

@@ -360,7 +360,7 @@ pub(crate) struct Exhaustiveness<'m, 'a> {
     invalid: bool,
     /// Writes the witnesses with part markers.
     mark: bool,
-    /// Computes [`Result_::partes`].
+    /// Computes [`Result_::parts`].
     pub(crate) collect_parts: bool,
 }
 

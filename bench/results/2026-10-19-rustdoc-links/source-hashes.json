@@ -1,0 +1,22 @@
+{
+  "crates/emit_js/src/lib.rs": "d910aaf0e8d1e82c9ca92ad12fc8356c45a58bb3930de5238500d86cb9f747c3",
+  "crates/emit_js/src/sdk_patches.rs": "8fd49ade701520c3a4c00c5917b09f6176032e2b7a4eb33affaad6a2f22cd413",
+  "crates/emit_js_production/src/properties.rs": "319e3a4f39b5220bcc2f5cb0d9016d9bb22aebed540dfb2c3a8be6c0aee33083",
+  "crates/emit_native/src/hir.rs": "335904c07e120aa6972795ee471e6a797027903af8bceb8572395739fadb9005",
+  "crates/emit_native/src/llvm/mod.rs": "7ddd3d952a3b913a5dafdba8da34d7e8e7d9a3a977c3ad45f1d34ffad3c08c43",
+  "crates/emit_native/src/lower/members.rs": "e532f7de4c3f5b21d4a74223d05338c0b51d9bb95ba4eb7e22fa6aa6ff771361",
+  "crates/emit_native/src/natives.rs": "71cc20931f6cd77ed8570a69e181b99e546d96ccc9d4b9b509c5bf3d987a7102",
+  "crates/emit_native/src/sdk_module.rs": "e285cbeae332fefee0ddc4613be334b0b21c80ae2fe3c66b5855d26ec258f3af",
+  "crates/ng_generator/src/component.rs": "ce41dce0d2baf6b51de38445a2e3571f14f98a84590e3bb1f564109d4ece9abb",
+  "crates/types/src/const_eval/cycles.rs": "962b65d9dbe72c7c6610bd7b74d60f007172f2486e5a754257fee112ab324932",
+  "crates/types/src/const_eval/exhaustiveness.rs": "a80ce217b73954aa9bbb008e992daf28dbc784a62d41f4c79fe63e1e4e49fd6c",
+  "crates/types/src/const_eval/graph.rs": "3602591b17a5032ffe8ddf7aa0bcaed5d1b4153a1e113e23f816fc33c99f0b09",
+  "crates/types/src/const_eval/potential.rs": "a8e083a6cd33bfcf27c2fecea95135747a6f9561ab4f6d3b3bc45ab2acb837a1",
+  "crates/types/src/inference/body.rs": "f72d5d700d3d168eb1409fd0329f49f4beb925d53fec27bf94c34833172daef9",
+  "crates/types/src/inference/calls.rs": "e077f0c03f60ae0b4fbc02c2c697894bf63023c553f994731c61793b035cd99f",
+  "crates/types/src/inference/flow.rs": "6f580e5d1578464eadd64a68c122c854e5779657aa5c31dbe5dd6a0a4f428dba",
+  "crates/types/src/inference/mod.rs": "6d3ac6a90000355cb62d9aa1df7851429ca2ba99e284f0a0fec95fec501fef45",
+  "crates/types/src/inference/patterns/matching.rs": "b58f57d23b353ac914ab08a03b08e990de73ed3a919ba383a8821f0917c316b2",
+  "crates/types/src/inference/shorthands.rs": "e59f698e3bbbfcc950ea735936dfd1cf6138c14fe9b4e6a153a393318499cf15",
+  "crates/types/src/inheritance.rs": "68d51ae745ea83345603d002b9608793948284c7757cde70345400dc1a769c4d"
+}

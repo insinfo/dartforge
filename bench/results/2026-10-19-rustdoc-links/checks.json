@@ -1,0 +1,133 @@
+[
+  {
+    "name": "workspace-fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "environment": {
+      "RUSTDOCFLAGS": "-D warnings",
+      "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+      "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64"
+    },
+    "exit": 1,
+    "bytes": 15739561,
+    "sha256": "e21edc835d449805ffc1867d16c16994294fcf52c941f1fef4886cefc4c85749",
+    "tail": [
+      "Diff in /Volumes/ssd_dock/MyRustProjects/dartforge/crates/world/tests/world.rs:133:",
+      "         let mut perm = roots.clone();",
+      "         perm.selectors.insert(0, \"toJson\".into());",
+      "         let m2 = compute(e, &perm);",
+      "-        let same = (0..a.program.functions.len()).all(|i| m.is_live_function(FunctionElementId(i as u32)) == m2.is_live_function(FunctionElementId(i as u32)))",
+      "-            && (0..a.program.classes.len()).all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));",
+      "+        let same = (0..a.program.functions.len()).all(|i| {",
+      "+            m.is_live_function(FunctionElementId(i as u32))",
+      "+                == m2.is_live_function(FunctionElementId(i as u32))",
+      "+        }) && (0..a.program.classes.len())",
+      "+            .all(|i| m.class_level(ClassId(i as u32)) == m2.class_level(ClassId(i as u32)));",
+      "         check(same, \"determinism\");",
+      "         Ok(errors)",
+      "     })"
+    ]
+  },
+  {
+    "name": "workspace-clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "environment": {
+      "RUSTDOCFLAGS": "-D warnings",
+      "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+      "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64"
+    },
+    "exit": 101,
+    "bytes": 31225,
+    "sha256": "18c89e67b7cc06b5f23d8447e29b457a8127727ede87e636bed151450f768715",
+    "tail": [
+      "1502 +         v.sort_by_key(|a| std::cmp::Reverse(a.1.0));",
+      "     |",
+      "",
+      "error: useless use of `vec!`",
+      "   --> crates/emit_native/src/compact_stack_trace.rs:727:32",
+      "    |",
+      "727 |         assert_eq!(convert_elf(&mut vec![0u8; 8]), Ok(false));",
+      "    |                                ^^^^^^^^^^^^^^^^^ help: you can use a slice directly: `&mut [0u8; 8]`",
+      "    |",
+      "    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#useless_vec",
+      "    = note: `-D clippy::useless-vec` implied by `-D warnings`",
+      "    = help: to override `-D warnings` add `#[allow(clippy::useless_vec)]`",
+      "",
+      "error: could not compile `dartforge-emit-native` (lib test) due to 47 previous errors"
+    ]
+  },
+  {
+    "name": "workspace-doc",
+    "command": [
+      "cargo",
+      "doc",
+      "--locked",
+      "--workspace",
+      "--no-deps",
+      "--document-private-items"
+    ],
+    "environment": {
+      "RUSTDOCFLAGS": "-D warnings",
+      "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+      "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64"
+    },
+    "exit": 0,
+    "bytes": 503,
+    "sha256": "c45fcab60b145edd4ba082afc68cf91911acef4540d582c2de254b264d7352b6",
+    "tail": [
+      "   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)",
+      " Documenting dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)",
+      " Documenting dartforge-differential v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/differential)",
+      "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.65s",
+      "   Generated /Volumes/ssd_dock/MyRustProjects/dartforge/target/doc/dartforge_abi/index.html and 29 other files"
+    ]
+  },
+  {
+    "name": "workspace-public-doc",
+    "command": [
+      "cargo",
+      "doc",
+      "--locked",
+      "--workspace",
+      "--no-deps"
+    ],
+    "environment": {
+      "RUSTDOCFLAGS": "-D warnings",
+      "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+      "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64"
+    },
+    "exit": 0,
+    "bytes": 2766,
+    "sha256": "20a45941f56b8be851c8fa7372c06b22024a2a93d29cda8f47589989f193915a",
+    "tail": [
+      " Documenting dartforge-analysis v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/analysis)",
+      " Documenting dartforge-macros-host v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/macros_host)",
+      " Documenting dartforge-world v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/world)",
+      " Documenting dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)",
+      " Documenting dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)",
+      " Documenting dartforge-formatter v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/formatter)",
+      " Documenting dartforge-frontend v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/frontend)",
+      " Documenting dartforge-dfexec v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dfexec)",
+      " Documenting dartforge-diagnostics v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/diagnostics)",
+      " Documenting dartforge-intern v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/intern)",
+      " Documenting dartforge-instrument v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/instrument)",
+      " Documenting dartforge-abi v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/abi)",
+      "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 11s",
+      "   Generated /Volumes/ssd_dock/MyRustProjects/dartforge/target/doc/dartforge_abi/index.html and 29 other files"
+    ]
+  }
+]

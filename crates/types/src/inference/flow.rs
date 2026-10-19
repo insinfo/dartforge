@@ -1,7 +1,7 @@
 //! Flow model (`flow-analysis.md`): promotion chains, types of interest,
 //! definite assignment and reachability.
 //!
-//! A [`Fluxo`] is the specification's `FlowModel`; each local variable has a
+//! A [`Flow`] is the specification's `FlowModel`; each local variable has a
 //! [`VarModel`] (`PromotionModel`). Joins follow `join`/`joinPM`; assignment
 //! follows `demote` + `toi_promote`; promotion by a test follows `promote`.
 

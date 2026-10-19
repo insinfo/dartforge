@@ -1,0 +1,19 @@
+   Compiling dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+   Compiling dartforge-world v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/world)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.84s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-58f242ef6e261ae4)
+
+running 9 tests
+test hir::declared_field_tests::identity_is_not_an_incidental_slot_or_subclass ... ok
+test hir::declared_field_tests::attachment_preserves_checked_arguments_and_unknown_operations ... ok
+test hir::declared_field_tests::cloned_field_call_keeps_identity_and_remaps_all_arguments ... ok
+test hir::declared_field_tests::declaration_attachment_refuses_incompatible_abi_and_slot ... ok
+test optimize::effects::declared_field_effect_tests::declaration_metadata_preserves_runtime_exception_effects ... ok
+test pruning::declared_field_summary_tests::persistent_field_facts_refuse_corruption_and_old_schema ... ok
+test pruning::declared_field_summary_tests::hir_field_observation_survives_disk_summary_roundtrip ... ok
+test hir::declared_field_tests::llvm_keeps_exact_checked_field_emission ... ok
+test pruning::declared_field_summary_tests::actual_sdk_base64_declarations_survive_summary_roundtrip ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 813 filtered out; finished in 2.88s
+

@@ -11,9 +11,9 @@
 //! [`Engine`]. What comes out of here is who is in a cycle:
 //!
 //! * each variable of a component gets `recursive_compile_time_constant`
-//!   at its name ([`InstanceState::variables_in_cycle`], [`InstanceState::locals_in_cycle`]);
+//!   at its name ([`State::variables_in_cycle`], [`State::locals_in_cycle`]);
 //! * each constructor of a component stops being cycle-free
-//!   ([`InstanceState::constructors_in_cycle`]): every creation through it is worth
+//!   ([`State::constructors_in_cycle`]): every creation through it is worth
 //!   an unknown of the type, and the verifier reports
 //!   `recursive_constant_constructor` at the name of the header's class.
 //!

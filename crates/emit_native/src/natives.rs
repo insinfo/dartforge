@@ -27,7 +27,7 @@
 //! rejects a native without an entry (and an entry that is no longer a native): that is what
 //! prevents a new patch of the SDK — or of the overlay — from coming in silently.
 //!
-//! [`SOURCE_LIBRARIES`]: crate::sdk_modulo::SOURCE_LIBRARIES
+//! [`SOURCE_LIBRARIES`]: crate::sdk_module::SOURCE_LIBRARIES
 
 /// What the backend does with a native.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
