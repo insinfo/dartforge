@@ -1,7 +1,7 @@
 //! Comparison with the oracle and per-code scoreboard.
 //!
-//! Key: `(file, code, UTF-16 offset, length)`. A pair with the same key is a
-//! **hit**; among hits, a different severity, message or correction counts as
+//! Key: `(file, code, UTF-16 offset, length, line, column)`. A pair with the same key is a
+//! **hit**; among hits, a different severity, diagnostic type, message or correction counts as
 //! a **wrong message**. What is left on each side, in the same file and with
 //! the same code, is paired in offset order as a **wrong position**; the rest
 //! is a **false positive** (ours only) or a **false negative** (oracle only).
@@ -14,7 +14,10 @@ use std::fmt::Write as _;
 
 /// Divergence samples per (code, category): `DARTFORGE_PARITY_SAMPLES`, 3 by default.
 fn sample_limit() -> usize {
-    std::env::var("DARTFORGE_PARITY_SAMPLES").ok().and_then(|v| v.parse().ok()).unwrap_or(3)
+    std::env::var("DARTFORGE_PARITY_SAMPLES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3)
 }
 
 /// The counters of one code.
@@ -42,16 +45,22 @@ impl Count {
 
     /// Exact hit (position and message) in every case, with at least one.
     pub fn perfect(&self) -> bool {
-        self.oracle > 0 && self.hits == self.oracle && self.ours == self.oracle && self.wrong_message == 0
+        self.oracle > 0
+            && self.hits == self.oracle
+            && self.ours == self.oracle
+            && self.wrong_message == 0
     }
 
-    /// Everything we emit matches the oracle (position, severity and
+    /// Everything we emit matches the oracle (position, severity, diagnostic type and
     /// message), with at least one hit: no false positive, no wrong position,
     /// no wrong message. False negatives are allowed — this is the publication
     /// criterion (`verified.txt`): what the user sees is right, even if
     /// some diagnostic is missing.
     pub fn no_emitted_error(&self) -> bool {
-        self.hits > 0 && self.false_positives == 0 && self.wrong_position == 0 && self.wrong_message == 0
+        self.hits > 0
+            && self.false_positives == 0
+            && self.wrong_position == 0
+            && self.wrong_message == 0
     }
 }
 
@@ -89,7 +98,10 @@ impl Scoreboard {
     fn sample(&mut self, code: &str, cat: &'static str, r: &Record, extra: &str) {
         let v = self.samples.entry((code.to_string(), cat)).or_default();
         if v.len() < sample_limit() {
-            v.push(format!("{}:{}:{} {}{extra}", r.file, r.line, r.column, r.problem_message));
+            v.push(format!(
+                "{}:{}:{} {}{extra}",
+                r.file, r.line, r.column, r.problem_message
+            ));
         }
     }
 
@@ -107,22 +119,61 @@ impl Scoreboard {
         for ((_, code), (mut o, mut n)) in sides {
             o.sort();
             n.sort();
-            let mut count = Count { oracle: o.len(), ours: n.len(), ..Count::default() };
+            let mut count = Count {
+                oracle: o.len(),
+                ours: n.len(),
+                ..Count::default()
+            };
+            let same_location = |a: &Record, b: &Record| {
+                a.offset == b.offset
+                    && a.length == b.length
+                    && a.line == b.line
+                    && a.column == b.column
+            };
+            let same_metadata = |a: &Record, b: &Record| {
+                a.severity == b.severity
+                    && a.error_type == b.error_type
+                    && a.problem_message == b.problem_message
+                    && a.correction_message == b.correction_message
+            };
             let mut rest_o = Vec::new();
             let mut used = vec![false; n.len()];
-            for ro in &o {
-                let found = (0..n.len()).find(|&i| !used[i] && n[i].offset == ro.offset && n[i].length == ro.length);
-                match found {
+            let mut paired = vec![None; o.len()];
+            // Reserve exact matches before pairing metadata differences. Otherwise
+            // a duplicate-key mismatch can consume another record's exact match.
+            for (j, ro) in o.iter().enumerate() {
+                if let Some(i) = (0..n.len())
+                    .find(|&i| !used[i] && same_location(ro, n[i]) && same_metadata(ro, n[i]))
+                {
+                    used[i] = true;
+                    paired[j] = Some(i);
+                }
+            }
+            for (j, ro) in o.iter().enumerate() {
+                if paired[j].is_none()
+                    && let Some(i) = (0..n.len()).find(|&i| !used[i] && same_location(ro, n[i]))
+                {
+                    used[i] = true;
+                    paired[j] = Some(i);
+                }
+            }
+            for (j, ro) in o.iter().enumerate() {
+                match paired[j] {
                     Some(i) => {
-                        used[i] = true;
                         count.hits += 1;
                         let rn = n[i];
-                        if rn.severity != ro.severity
-                            || rn.problem_message != ro.problem_message
-                            || rn.correction_message != ro.correction_message
-                        {
+                        if !same_metadata(ro, rn) {
                             count.wrong_message += 1;
-                            let extra = format!("  <> ours: {}", rn.problem_message);
+                            let extra = format!(
+                                " [oracle {} {} correction {:?}] <> ours: {} {} {:?} correction {:?}",
+                                ro.severity,
+                                ro.error_type,
+                                ro.correction_message,
+                                rn.severity,
+                                rn.error_type,
+                                rn.problem_message,
+                                rn.correction_message
+                            );
                             self.sample(code, "message", ro, &extra);
                         }
                     }
@@ -133,7 +184,10 @@ impl Scoreboard {
             let pairs = rest_o.len().min(rest_n.len());
             count.wrong_position = pairs;
             for k in 0..pairs {
-                let extra = format!("  <> ours {}:{} (+{})", rest_n[k].line, rest_n[k].column, rest_n[k].length);
+                let extra = format!(
+                    "  <> ours {}:{} (+{})",
+                    rest_n[k].line, rest_n[k].column, rest_n[k].length
+                );
                 self.sample(code, "position", rest_o[k], &extra);
             }
             count.false_negatives = rest_o.len() - pairs;
@@ -144,7 +198,10 @@ impl Scoreboard {
             for r in &rest_n[pairs..] {
                 self.sample(code, "FP", r, "");
             }
-            self.by_code.entry(code.to_string()).or_default().add(&count);
+            self.by_code
+                .entry(code.to_string())
+                .or_default()
+                .add(&count);
         }
     }
 
@@ -157,12 +214,25 @@ impl Scoreboard {
         let _ = writeln!(
             s,
             "{title}: oracle {} | ours {} | hits {} (wrong message {}) | wrong position {} | FP {} | FN {}",
-            t.oracle, t.ours, t.hits, t.wrong_message, t.wrong_position, t.false_positives, t.false_negatives
+            t.oracle,
+            t.ours,
+            t.hits,
+            t.wrong_message,
+            t.wrong_position,
+            t.false_positives,
+            t.false_negatives
         );
         let perfect = self.by_code.values().filter(|c| c.perfect()).count();
         let with_cases = self.by_code.values().filter(|c| c.oracle > 0).count();
-        let _ = writeln!(s, "codes at 100% (position and message): {perfect} of {with_cases} with cases in the oracle");
-        let _ = writeln!(s, "{:<58} {:>7} {:>7} {:>7} {:>6} {:>6} {:>6} {:>6}", "code", "oracle", "ours", "hit", "msg≠", "pos≠", "FP", "FN");
+        let _ = writeln!(
+            s,
+            "codes at 100% (position and message): {perfect} of {with_cases} with cases in the oracle"
+        );
+        let _ = writeln!(
+            s,
+            "{:<58} {:>7} {:>7} {:>7} {:>6} {:>6} {:>6} {:>6}",
+            "code", "oracle", "ours", "hit", "msg≠", "pos≠", "FP", "FN"
+        );
         for (k, c) in &self.by_code {
             let _ = writeln!(
                 s,
@@ -214,8 +284,18 @@ mod tests {
 
     #[test]
     fn categories() {
-        let o = vec![r("a", "x", 1, 1, "m"), r("a", "x", 5, 1, "m"), r("a", "y", 2, 2, "m"), r("a", "z", 3, 1, "m")];
-        let n = vec![r("a", "x", 1, 1, "other"), r("a", "x", 9, 1, "m"), r("a", "w", 0, 1, "m"), r("a", "z", 3, 1, "m")];
+        let o = vec![
+            r("a", "x", 1, 1, "m"),
+            r("a", "x", 5, 1, "m"),
+            r("a", "y", 2, 2, "m"),
+            r("a", "z", 3, 1, "m"),
+        ];
+        let n = vec![
+            r("a", "x", 1, 1, "other"),
+            r("a", "x", 9, 1, "m"),
+            r("a", "w", 0, 1, "m"),
+            r("a", "z", 3, 1, "m"),
+        ];
         let mut p = Scoreboard::default();
         p.compare(&o, &n);
         let x = p.by_code["x"];
@@ -224,5 +304,41 @@ mod tests {
         assert_eq!(p.by_code["w"].false_positives, 1);
         assert!(p.by_code["z"].perfect());
         assert!(!x.perfect());
+    }
+    #[test]
+    fn diagnostic_type_is_part_of_a_match() {
+        let expected = r("a.dart", "x", 0, 1, "same message");
+        let mut actual = expected.clone();
+        actual.error_type = "SYNTACTIC_ERROR".into();
+        let mut scoreboard = Scoreboard::default();
+        scoreboard.compare(&[expected], &[actual]);
+        assert_eq!(scoreboard.total().wrong_message, 1);
+        assert!(!scoreboard.total().perfect());
+    }
+
+    #[test]
+    fn exact_duplicate_key_matches_are_reserved_before_fallbacks() {
+        let a = r("a.dart", "x", 0, 1, "a");
+        let b = r("a.dart", "x", 0, 1, "b");
+        let mut scoreboard = Scoreboard::default();
+        scoreboard.compare(&[a, b.clone()], &[b]);
+        let count = scoreboard.total();
+        assert_eq!(
+            (count.hits, count.wrong_message, count.false_negatives),
+            (1, 0, 1)
+        );
+    }
+
+    #[test]
+    fn line_and_column_cannot_disagree_with_matching_offsets() {
+        let expected = r("a.dart", "x", 0, 1, "same");
+        let mut actual = expected.clone();
+        actual.column += 1;
+        let mut scoreboard = Scoreboard::default();
+        scoreboard.compare(&[expected], &[actual]);
+        assert_eq!(
+            (scoreboard.total().hits, scoreboard.total().wrong_position),
+            (0, 1)
+        );
     }
 }

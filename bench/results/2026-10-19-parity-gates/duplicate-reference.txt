@@ -1,0 +1,4 @@
+== main.dart
+- 1:1 (+4) intentional_oracle_only: Deliberate negative gate fixture.
+- 1:1 (+4) intentional_oracle_only: Deliberate negative gate fixture.
+total: = 0 | ~ 0 | - 2 | + 0

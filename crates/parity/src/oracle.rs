@@ -50,7 +50,20 @@ impl OracleSdk {
 
     /// Does this SDK's `dart` executable exist on this machine?
     pub fn available(self) -> bool {
-        self.root().join("bin").join(if cfg!(windows) { "dart.exe" } else { "dart" }).is_file()
+        self.executable().is_file()
+    }
+
+    /// Path of this SDK's executable, without requiring installation.
+    ///
+    /// ```
+    /// use dartforge_parity::oracle::OracleSdk;
+    /// assert_eq!(OracleSdk::V362.executable().file_name().unwrap(),
+    ///     if cfg!(windows) { "dart.exe" } else { "dart" });
+    /// ```
+    pub fn executable(self) -> PathBuf {
+        self.root()
+            .join("bin")
+            .join(if cfg!(windows) { "dart.exe" } else { "dart" })
     }
 
     /// Where the SDK is on this machine (`DARTFORGE_ORACLE_3_6`/`_3_13` override it).
@@ -59,7 +72,9 @@ impl OracleSdk {
             OracleSdk::V362 => ("DARTFORGE_ORACLE_3_6", "E:/DartSDKs/3.6.2"),
             OracleSdk::V3134 => ("DARTFORGE_ORACLE_3_13", "E:/DartSDKs/3.13.4/dart-sdk"),
         };
-        std::env::var_os(var).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(default))
+        std::env::var_os(var)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(default))
     }
 }
 
@@ -101,7 +116,10 @@ impl Record {
             line: r.start.line,
             column: r.start.column,
             problem_message: without_root(&d.problem_message, root),
-            correction_message: d.correction_message.as_deref().map(|m| without_root(m, root)),
+            correction_message: d
+                .correction_message
+                .as_deref()
+                .map(|m| without_root(m, root)),
         })
     }
 }
@@ -119,13 +137,18 @@ impl Record {
 /// assert_eq!(m, "Target of URI doesn't exist: '<raiz>/a.dart'.");
 /// ```
 pub fn without_root(msg: &str, root: &Path) -> String {
-    let slash = crate::analysis::key(root).to_string_lossy().replace('\\', "/");
+    let slash = crate::analysis::key(root)
+        .to_string_lossy()
+        .replace('\\', "/");
     let slash = slash.trim_end_matches('/');
     if slash.is_empty() {
         return msg.to_string();
     }
     let backslash = slash.replace('/', "\\");
-    let uri = format!("file://{}{slash}", if slash.starts_with('/') { "" } else { "/" });
+    let uri = format!(
+        "file://{}{slash}",
+        if slash.starts_with('/') { "" } else { "/" }
+    );
     let mut out = msg.to_string();
     for form in [uri.as_str(), slash, backslash.as_str()] {
         let mut s = String::with_capacity(out.len());
@@ -148,9 +171,15 @@ pub fn without_root(msg: &str, root: &Path) -> String {
 /// Relative path with `/`, ignoring case in the root (Windows).
 pub fn relative(p: &Path, root: &Path) -> Option<String> {
     let p = crate::analysis::key(p).to_string_lossy().replace('\\', "/");
-    let r = crate::analysis::key(root).to_string_lossy().replace('\\', "/");
+    let r = crate::analysis::key(root)
+        .to_string_lossy()
+        .replace('\\', "/");
     let r = r.trim_end_matches('/');
-    if p.len() > r.len() && p[..r.len()].eq_ignore_ascii_case(r) && p.as_bytes()[r.len()] == b'/' {
+    if p.len() > r.len()
+        && p.get(..r.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(r))
+        && p.as_bytes()[r.len()] == b'/'
+    {
         Some(p[r.len() + 1..].to_string())
     } else {
         None
@@ -182,42 +211,128 @@ pub fn fnv(bytes: &[u8], mut h: u64) -> u64 {
 
 pub const FNV_START: u64 = 0xcbf29ce484222325;
 
+/// Verify that an executable reports the selected SDK version.
+///
+/// ```
+/// use dartforge_parity::oracle::{validate_sdk, OracleSdk};
+/// assert!(validate_sdk(OracleSdk::V362, std::path::Path::new("")).is_err());
+/// ```
+///
+/// # Errors
+/// Returns an error for a missing executable, failed version command or version mismatch.
+pub fn validate_sdk(sdk: OracleSdk, dart: &Path) -> Result<(), String> {
+    if !dart.is_file() {
+        return Err(format!(
+            "SDK {} not found at {}",
+            sdk.version(),
+            dart.display()
+        ));
+    }
+    let version = Command::new(dart)
+        .arg("--version")
+        .output()
+        .map_err(|e| format!("{}: {e}", dart.display()))?;
+    if !version.status.success() {
+        return Err(format!(
+            "{} --version failed: {}",
+            dart.display(),
+            String::from_utf8_lossy(&version.stderr)
+        ));
+    }
+    validate_version(
+        &format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&version.stdout),
+            String::from_utf8_lossy(&version.stderr)
+        ),
+        sdk.version(),
+    )?;
+    Ok(())
+}
+
 /// Runs `dart analyze --format=json <targets>...` with the given SDK, in the
 /// package's directory. `cache` goes to `--cache` (off the C: drive). Returns
 /// the diagnostics.
-pub fn run(sdk: OracleSdk, package: &Path, targets: &[PathBuf], cache: &Path) -> Result<Vec<DiagJson>, String> {
-    let dart = sdk.root().join("bin").join(if cfg!(windows) { "dart.exe" } else { "dart" });
-    if !dart.exists() {
-        return Err(format!("SDK {} not found at {}", sdk.version(), dart.display()));
+pub fn run(
+    sdk: OracleSdk,
+    package: &Path,
+    targets: &[PathBuf],
+    cache: &Path,
+) -> Result<Vec<DiagJson>, String> {
+    if targets.is_empty() {
+        return Err("oracle requires at least one target".into());
     }
+    let dart = sdk.executable();
+    validate_sdk(sdk, &dart)?;
     let output = Command::new(&dart)
         .arg("analyze")
         .arg("--format=json")
         .arg("--cache")
         .arg(cache)
-        .args(targets.iter().map(|a| std::path::absolute(a).unwrap_or_else(|_| a.clone())))
+        .args(
+            targets
+                .iter()
+                .map(|a| std::path::absolute(a).unwrap_or_else(|_| a.clone())),
+        )
         .current_dir(package)
         .env("DART_DISABLE_ANALYTICS", "1")
         .output()
         .map_err(|e| format!("{}: {e}", dart.display()))?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    let code = output.status.code().unwrap_or(-1);
-    if !(0..=3).contains(&code) {
+    let text = std::str::from_utf8(&output.stdout)
+        .map_err(|e| format!("oracle output is not UTF-8: {e}"))?;
+    parse_report(
+        text,
+        output.status.code().unwrap_or(-1),
+        &String::from_utf8_lossy(&output.stderr),
+    )
+}
+
+/// Pin the actual executable version rather than trusting its configured directory name.
+fn validate_version(output: &str, expected: &str) -> Result<(), String> {
+    let actual = output
+        .lines()
+        .find_map(|line| line.strip_prefix("Dart SDK version: "))
+        .and_then(|version| version.split_whitespace().next());
+    if actual != Some(expected) {
         return Err(format!(
-            "dart analyze exited with {code}: {}{}",
-            text.chars().take(2000).collect::<String>(),
-            String::from_utf8_lossy(&output.stderr).chars().take(2000).collect::<String>()
+            "expected Dart SDK {expected}, got {}",
+            actual.unwrap_or("unrecognized version output")
         ));
     }
-    // The output may be preceded by warnings; the JSON is the line starting with `{`.
-    let json = text.lines().find(|l| l.starts_with('{')).unwrap_or("");
-    if json.is_empty() {
-        // No JSON: the analysis server crashed (e.g. 3.6.2's `FormatException`
-        // with a digit separator in `1.234_456e0`).
-        return Err(format!("no JSON (code {code}): {}", text.lines().take(6).collect::<Vec<_>>().join(" | ")));
+    Ok(())
+}
+
+/// Rejects unusable or unsupported oracle output before treating it as reference data.
+fn parse_report(text: &str, code: i32, stderr: &str) -> Result<Vec<DiagJson>, String> {
+    if !(0..=3).contains(&code) {
+        return Err(format!(
+            "dart analyze exited with {code}: {}{stderr}",
+            text.chars().take(2000).collect::<String>()
+        ));
     }
-    let r: Report = serde_json::from_str(json).map_err(|e| format!("oracle JSON: {e}"))?;
-    Ok(r.diagnostics)
+    let json = text
+        .lines()
+        .find(|line| line.starts_with('{'))
+        .unwrap_or("");
+    if json.is_empty() {
+        return Err(format!(
+            "no JSON (code {code}): {}",
+            text.lines().take(6).collect::<Vec<_>>().join(" | ")
+        ));
+    }
+    let report: Report = serde_json::from_str(json).map_err(|e| format!("oracle JSON: {e}"))?;
+    if report.version != 1 {
+        return Err(format!(
+            "unsupported oracle JSON version {}; expected 1",
+            report.version
+        ));
+    }
+    if code != 0 && report.diagnostics.is_empty() {
+        return Err(format!(
+            "oracle exited with {code} but returned no diagnostics: {stderr}"
+        ));
+    }
+    Ok(report.diagnostics)
 }
 
 /// Writes the record (sorted) and the metadata.
@@ -229,19 +344,30 @@ pub fn write(dir: &Path, mut regs: Vec<Record>, meta: &Meta) -> std::io::Result<
         s.push('\n');
     }
     std::fs::write(dir.join("oracle.jsonl"), s)?;
-    std::fs::write(dir.join("oracle.json"), serde_json::to_string_pretty(meta).expect("JSON") + "\n")
+    std::fs::write(
+        dir.join("oracle.json"),
+        serde_json::to_string_pretty(meta).expect("JSON") + "\n",
+    )
 }
 
 /// Reads a group's record and metadata.
 pub fn read(dir: &Path) -> Result<(Vec<Record>, Meta), String> {
     let meta: Meta = serde_json::from_str(
-        &std::fs::read_to_string(dir.join("oracle.json")).map_err(|e| format!("{}: {e}", dir.display()))?,
+        &std::fs::read_to_string(dir.join("oracle.json"))
+            .map_err(|e| format!("{}: {e}", dir.display()))?,
     )
     .map_err(|e| e.to_string())?;
     let text = std::fs::read_to_string(dir.join("oracle.jsonl")).map_err(|e| e.to_string())?;
     let mut regs = Vec::new();
     for l in text.lines().filter(|l| !l.is_empty()) {
         regs.push(serde_json::from_str(l).map_err(|e| format!("{l}: {e}"))?);
+    }
+    if regs.len() != meta.diagnostics {
+        return Err(format!(
+            "oracle diagnostic count mismatch: metadata {}, records {}",
+            meta.diagnostics,
+            regs.len()
+        ));
     }
     Ok((regs, meta))
 }
@@ -254,7 +380,9 @@ pub fn read(dir: &Path) -> Result<(Vec<Record>, Meta), String> {
 /// parser's (`Feature::UNKNOWN_IN_3_6`), which uses it to decide each
 /// unit's reference.
 pub fn features_unknown_to_3_6_2() -> impl Iterator<Item = &'static str> {
-    dartforge_frontend::features::Feature::UNKNOWN_IN_3_6.into_iter().map(|f| f.name())
+    dartforge_frontend::features::Feature::UNKNOWN_IN_3_6
+        .into_iter()
+        .map(|f| f.name())
 }
 
 /// The tool's current version is 3.13 (VERSOES-LINGUAGEM.md, D2): in a 3.6
@@ -276,11 +404,16 @@ pub fn uses_new_syntax(regs_313: &[&Record]) -> bool {
 /// version is the group package's, 3.6: files with a `// @dart` marker above
 /// it live in the `*-3.13` groups, and a marker below it enables none of the
 /// features that decide the reference.
-pub fn marker_3_13(dir: &Path, sources: &[std::path::PathBuf]) -> std::collections::BTreeSet<String> {
+pub fn marker_3_13(
+    dir: &Path,
+    sources: &[std::path::PathBuf],
+) -> std::collections::BTreeSet<String> {
     let features = dartforge_frontend::features::LibraryFeatures::floor();
     let mut marked = std::collections::BTreeSet::new();
     for f in sources {
-        let Ok(text) = std::fs::read_to_string(f) else { continue };
+        let Ok(text) = std::fs::read_to_string(f) else {
+            continue;
+        };
         let mut names = dartforge_intern::Interner::new();
         let parsed = dartforge_frontend::parser::parse_with(&text, &mut names, features);
         if parsed.reference == dartforge_diagnostics::AnalyzerReference::V3_13
@@ -302,6 +435,76 @@ pub fn read_new_syntax(root: &Path) -> std::collections::BTreeMap<String, Vec<St
 }
 
 /// Writes the list of [`read_new_syntax`].
-pub fn write_new_syntax(root: &Path, list: &std::collections::BTreeMap<String, Vec<String>>) -> std::io::Result<()> {
-    std::fs::write(root.join("new-syntax.json"), serde_json::to_string_pretty(list).expect("JSON") + "\n")
+pub fn write_new_syntax(
+    root: &Path,
+    list: &std::collections::BTreeMap<String, Vec<String>>,
+) -> std::io::Result<()> {
+    std::fs::write(
+        root.join("new-syntax.json"),
+        serde_json::to_string_pretty(list).expect("JSON") + "\n",
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relative_rejects_outside_unicode_paths_without_slicing_characters() {
+        let base = std::env::temp_dir();
+        assert_eq!(
+            relative(&base.join("🦀x/file.dart"), &base.join("aa")),
+            None
+        );
+    }
+    #[test]
+    fn report_requires_a_supported_complete_document() {
+        assert!(
+            parse_report(r#"{"version":1,"diagnostics":[]}"#, 0, "")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            parse_report(r#"{"version":99,"diagnostics":[]}"#, 0, "")
+                .unwrap_err()
+                .contains("version")
+        );
+        assert!(parse_report(r#"{"version":1,"diagnostics":[]}"#, 3, "failure").is_err());
+        assert!(parse_report("not JSON", 0, "").is_err());
+        assert!(parse_report(r#"{"version":1,"diagnostics":[]}"#, -1, "").is_err());
+    }
+
+    #[test]
+    fn recorded_diagnostic_count_must_match_the_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut meta = Meta {
+            sdk: OracleSdk::V362,
+            hash: "test".into(),
+            files: 1,
+            diagnostics: 1,
+            excluded: vec![],
+        };
+        write(dir.path(), vec![], &meta).unwrap();
+        assert!(read(dir.path()).unwrap_err().contains("count mismatch"));
+        meta.diagnostics = 0;
+        write(dir.path(), vec![], &meta).unwrap();
+        assert!(read(dir.path()).unwrap().0.is_empty());
+    }
+
+    #[test]
+    fn oracle_refuses_an_empty_target_list_before_running() {
+        assert!(
+            run(OracleSdk::V362, Path::new("."), &[], Path::new("cache"))
+                .unwrap_err()
+                .contains("at least one target")
+        );
+    }
+
+    #[test]
+    fn executable_version_must_match_the_selected_oracle() {
+        validate_version("Dart SDK version: 3.6.2 (stable)", "3.6.2").unwrap();
+        assert!(validate_version("Dart SDK version: 3.6.20 (stable)", "3.6.2").is_err());
+        assert!(validate_version("Dart SDK version: 3.13.4 (stable)", "3.6.2").is_err());
+        assert!(validate_version("not a version", "3.6.2").is_err());
+    }
 }

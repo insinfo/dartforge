@@ -1,0 +1,5 @@
+{
+  "exit_code": 0,
+  "reported_missing": true,
+  "stdout": "== main.dart\n- 1:1 (+4) intentional_oracle_only: Deliberate negative gate fixture.\ntotal: = 0 | ~ 0 | - 1 | + 0\n"
+}

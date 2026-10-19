@@ -654,7 +654,7 @@ impl Engine {
                 }
                 if let Some(d) = self.directive_without_target(&text, &base, config.as_ref(), lit.span, part) {
                     analysis.report(k, d, phase::DIRECTIVES);
-                } else if part && let Some(target_uri) = self.part_without_part_of(&text, &base, config.as_ref(), &program, &texts) {
+                } else if part && let Some(target_uri) = self.part_without_part_of(&text, &base, config.as_ref(), &program, texts) {
                     // `_resolvePartDirective` (`library_analyzer.dart:971-1032`):
                     // the file exists and is not a part.
                     let d = Diagnostic::with_code(codes::compile_time_error::PART_OF_NON_PART, lit.span, [target_uri.as_str()]);
@@ -773,7 +773,6 @@ impl Engine {
                 }
             }
             for (u, d, f) in with_phase(phase::DIRECTIVES, dartforge_analysis::imports::deferred_extensions(&program, *lib))
-                .into_iter()
                 .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::imports::internal_and_deferred_directives(&program, *lib)))
                 .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::imports::undefined_shown_names(&program, *lib, &interner)))
                 .chain(with_phase(phase::DIRECTIVES, dartforge_analysis::imports::ambiguous_exports(&program, *lib, &interner)))
@@ -804,7 +803,6 @@ impl Engine {
                 }
             }
             for (u, d, f) in with_phase(phase::RESOLUTION_VISITOR, dartforge_analysis::clauses::check(&program, *lib, &interner))
-                .into_iter()
                 .chain(with_phase(phase::MEMBER_DUPLICATE_DEFINITION, dartforge_analysis::members::check(&program, *lib, &interner)))
                 .chain(with_phase(phase::ERROR_VERIFIER, dartforge_analysis::simple_bounds::check(&program, *lib, &interner, &simple_bounds)))
             {
@@ -1708,11 +1706,10 @@ impl Index {
     /// the exact range; otherwise the first whose top-level declaration
     /// contains it.
     fn attribute_among(&self, program: &Program, s: Span, units: &[UnitId]) -> Option<UnitId> {
-        if let Some(v) = self.exact.get(&(s.start, s.end)) {
-            if let Some(u) = v.iter().find(|u| units.contains(u)) {
+        if let Some(v) = self.exact.get(&(s.start, s.end))
+            && let Some(u) = v.iter().find(|u| units.contains(u)) {
                 return Some(*u);
             }
-        }
         units.iter().copied().find(|u| {
             let unit = program.unit(*u);
             unit.unit.declarations.iter().any(|d| {

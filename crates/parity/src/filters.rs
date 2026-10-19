@@ -616,20 +616,18 @@ impl IgnoreComments {
         };
         let mut seen_in_file: BTreeSet<String> = BTreeSet::new();
         for e in &file_raw {
-            if let Some((name, offset)) = name_of(e) {
-                if !seen_in_file.insert(name.clone()) {
+            if let Some((name, offset)) = name_of(e)
+                && !seen_in_file.insert(name.clone()) {
                     ig.repeated.push((name.clone(), dartforge_diagnostics::Span { start: offset, end: offset + name.len() }));
                 }
-            }
         }
         for (_, elements) in &line_raw {
             let mut seen_in_line: BTreeSet<String> = BTreeSet::new();
             for e in elements {
-                if let Some((name, offset)) = name_of(e) {
-                    if seen_in_file.contains(&name) || !seen_in_line.insert(name.clone()) {
+                if let Some((name, offset)) = name_of(e)
+                    && (seen_in_file.contains(&name) || !seen_in_line.insert(name.clone())) {
                         ig.repeated.push((name.clone(), dartforge_diagnostics::Span { start: offset, end: offset + name.len() }));
                     }
-                }
             }
         }
         ig.file = file_raw;

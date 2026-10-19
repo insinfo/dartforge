@@ -2,6 +2,21 @@
 
 ## Atualização de 19/10/2026
 
+- Parity agora compara tipo do diagnóstico, severidade, mensagem/correção e
+  coordenadas, reservando correspondências exatas antes de parear diferenças
+  com a mesma chave. Quatro regressões falharam antes e passam após a correção,
+  inclusive um pânico ao cortar caminho UTF-8. `probe_files` não descarta
+  duplicatas e retorna falha para diferenças, fontes/referências inválidas ou
+  análise incompleta; preserva metadados existentes do pacote. A gravação de
+  oráculos valida a versão real do SDK e preserva fontes e referências quando
+  a ferramenta falha, em vez de remover arquivos automaticamente. Passaram 210
+  testes de analysis/parity e 16 cenários reais de CLI; a falha pós-validação
+  do gravador foi exercitada com um substituto controlado, identificado como tal.
+  Parity passa no Clippy estrito com todos os alvos, sem novas supressões.
+  SDK 3.13.4 positivo não foi executado; a comparação cobre a projeção `Record`,
+  não todos os campos JSON. Checks globais: formatação pendente, Clippy para em
+  emit-native, testes param no link Apple/LLVM 22; docs geradas com avisos.
+  Evidências, reprodução e limites: `bench/results/2026-10-19-parity-gates/README.md`.
 - A sessão residente agora aplica o filtro de erros obrigatórios de linguagem
   e atribuição definida usado por `compile-js`: a leitura de um `final` não
   atribuído rejeita a revisão antes da emissão, preservando o JavaScript válido

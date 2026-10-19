@@ -19,7 +19,9 @@ fn engine() -> Engine {
     result.expect("Dart SDK sources required for analyzer parity tests")
 }
 
-const CASES: &[(&str, &str, &[(&str, usize, usize, usize)])] = &[
+type ExpectedDiagnostic = (&'static str, usize, usize, usize);
+type AnalyzerCase = (&'static str, &'static str, &'static [ExpectedDiagnostic]);
+const CASES: &[AnalyzerCase] = &[
     (
         "dup.dart",
         "class A {\n  static void foo() {}\n}\nclass A {\n  void foo() {}\n}\n",

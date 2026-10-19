@@ -175,24 +175,22 @@ pub fn sites(text: &str, kind: &str) -> Vec<(usize, usize, String)> {
         }
         "type" => {
             for t in &ast.types {
-                if let TypeKind::Named { name, args } = &t.kind {
-                    if name.len() == 1 && args.is_empty() && !t.nullable {
+                if let TypeKind::Named { name, args } = &t.kind
+                    && name.len() == 1 && args.is_empty() && !t.nullable {
                         match source(t.span) {
                             "String" => v.push((t.span.start, t.span.end, "int".into())),
                             "int" => v.push((t.span.start, t.span.end, "String".into())),
                             _ => {}
                         }
                     }
-                }
             }
         }
         "bang" => {
             for e in &ast.exprs {
-                if let ExprKind::Unary { op: UnaryOp::NullAssert, .. } = e.kind {
-                    if e.span.end > 0 && text.as_bytes().get(e.span.end - 1) == Some(&b'!') {
+                if let ExprKind::Unary { op: UnaryOp::NullAssert, .. } = e.kind
+                    && e.span.end > 0 && text.as_bytes().get(e.span.end - 1) == Some(&b'!') {
                         v.push((e.span.end - 1, e.span.end, String::new()));
                     }
-                }
             }
         }
         "await" => {

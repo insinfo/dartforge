@@ -1,0 +1,154 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Checking dartforge-parity v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/parity)
+warning: unresolved link to `js_member_name`
+   --> crates/emit_js_production/src/properties.rs:219:39
+    |
+219 | /// the instances: the member name ([`js_member_name`]) and, for a program
+    |                                       ^^^^^^^^^^^^^^ no item named `js_member_name` in scope
+    |
+    = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+    = note: `#[warn(rustdoc::broken_intra_doc_links)]` on by default
+
+warning: `dartforge-emit-js-production` (lib doc) generated 1 warning
+ Documenting dartforge-dev v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dev)
+ Documenting dartforge-parity v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/parity)
+warning: unresolved link to `ler`
+   --> crates/ng_generator/src/component.rs:803:36
+    |
+803 | /// in the expression scope (see [`ler`]).
+    |                                    ^^^ no item named `ler` in scope
+    |
+    = help: to escape `[` and `]` characters, add '\' before them like `\[` or `\]`
+    = note: `#[warn(rustdoc::broken_intra_doc_links)]` on by default
+
+warning: public documentation for `apply` links to private item `PATCHES`
+   --> crates/emit_js/src/sdk_patches.rs:132:15
+    |
+132 | /// Applies [`PATCHES`] to `sdk` as overlay replacements. The patched files
+    |               ^^^^^^^ this item is private
+    |
+    = note: this link resolves only because you passed `--document-private-items`, but will break without
+    = note: `#[warn(rustdoc::private_intra_doc_links)]` on by default
+
+warning: public documentation for `recipe_ids` links to private item `FREQUENT_CLASSES`
+   --> crates/emit_js/src/lib.rs:124:7
+    |
+124 | /// [`FREQUENT_CLASSES`], then the others in program order, each one with the
+    |       ^^^^^^^^^^^^^^^^ this item is private
+    |
+    = note: this link resolves only because you passed `--document-private-items`, but will break without
+
+warning: `write` is both a function and a macro
+   --> crates/emit_js/src/lib.rs:806:12
+    |
+806 | /// Like [`write`], optionally skipping the comparison with the file on disk.
+    |            ^^^^^ ambiguous link
+    |
+    = note: `#[warn(rustdoc::broken_intra_doc_links)]` on by default
+help: to link to the function, add parentheses
+    |
+806 | /// Like [`write()`], optionally skipping the comparison with the file on disk.
+    |                 ++
+help: to link to the macro, add an exclamation mark
+    |
+806 | /// Like [`write!`], optionally skipping the comparison with the file on disk.
+    |                 +
+
+warning: `dartforge-ng-generator` (lib doc) generated 1 warning
+warning: `dartforge-emit-js` (lib doc) generated 3 warnings
+warning: unresolved link to `InstanceState::variables_in_cycle`
+  --> crates/types/src/const_eval/cycles.rs:14:22
+   |
+14 | //!   at its name ([`InstanceState::variables_in_cycle`], [`InstanceState::locals_in_cycle`]);
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no item named `InstanceState` in scope
+   |
+   = note: `#[warn(rustdoc::broken_intra_doc_links)]` on by default
+
+warning: unresolved link to `InstanceState::locals_in_cycle`
+  --> crates/types/src/const_eval/cycles.rs:14:61
+   |
+14 | //!   at its name ([`InstanceState::variables_in_cycle`], [`InstanceState::locals_in_cycle`]);
+   |                                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no item named `InstanceState` in scope
+
+warning: unresolved link to `InstanceState::constructors_in_cycle`
+  --> crates/types/src/const_eval/cycles.rs:16:10
+   |
+16 | //!   ([`InstanceState::constructors_in_cycle`]): every creation through it is worth
+   |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no item named `InstanceState` in scope
+
+warning: unresolved link to `Result_::partes`
+   --> crates/types/src/const_eval/exhaustiveness.rs:363:
+[bounded excerpt; full original log hash recorded in checks.json]
+field or associated item named `argumentos`
+
+warning: `dartforge-types` (lib doc) generated 18 warnings
+ Documenting dartforge-lsp v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/lsp)
+ Documenting dartforge-cli v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli)
+ Documenting dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+warning: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `identity` is never used
+   --> crates/emit_native/src/hir.rs:256:19
+    |
+254 | impl FieldDeclaration {
+    | --------------------- method in this implementation
+255 |     /// Semantic identity excludes flags and layout premises, which a proof must reconcile.
+256 |     pub(crate) fn identity(&self) -> (&str, &str, &str) {
+    |                   ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `dartforge-emit-native` (lib) generated 2 warnings (run `cargo fix --lib -p dartforge-emit-native` to apply 1 suggestion)
+ Documenting dartforge-differential v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/differential)
+warning: public documentation for `with_body_without_outside` links to private item `Self::direct_body`
+   --> crates/emit_native/src/llvm/mod.rs:460:36
+    |
+460 |     /// directly from the block ([`Self::direct_body`]).
+    |                                    ^^^^^^^^^^^^^^^^^ this item is private
+    |
+    = note: this link resolves only because you passed `--document-private-items`, but will break without
+    = note: `#[warn(rustdoc::private_intra_doc_links)]` on by default
+
+warning: public documentation for `with_tables_registered_at_startup` links to private item `Self::emit_inline_allocation`
+   --> crates/emit_native/src/llvm/mod.rs:512:51
+    |
+512 |     /// allocation skips the registration test ([`Self::emit_inline_allocation`]).
+    |                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this item is private
+    |
+    = note: this link resolves only because you passed `--document-private-items`, but will break without
+
+warning: public documentation for `call_member` links to private item `DEVIRTUALIZATION_FAN_OUT`
+    --> crates/emit_native/src/lower/members.rs:1434:45
+     |
+1434 |     /// chooses the implementation (up to [`DEVIRTUALIZATION_FAN_OUT`]
+     |                                             ^^^^^^^^^^^^^^^^^^^^^^^^ this item is private
+     |
+     = note: this link resolves only because you passed `--document-private-items`, but will break without
+
+warning: unresolved link to `crate::sdk_modulo::SOURCE_LIBRARIES`
+  --> crates/emit_native/src/natives.rs:30:27
+   |
+30 | //! [`SOURCE_LIBRARIES`]: crate::sdk_modulo::SOURCE_LIBRARIES
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no item named `sdk_modulo` in module `dartforge_emit_native`
+   |
+   = note: `#[warn(rustdoc::broken_intra_doc_links)]` on by default
+
+warning: public documentation for `with_context_in_tls` links to private item `context_in_tsd`
+    --> crates/emit_native/src/sdk_module.rs:1080:53
+     |
+1080 | /// publishes before any Dart code of the thread ([`context_in_tsd`]). The
+     |                                                     ^^^^^^^^^^^^^^ this item is private
+     |
+     = note: this link resolves only because you passed `--document-private-items`, but will break without
+
+warning: `dartforge-emit-native` (lib doc) generated 5 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.41s
+   Generated /Volumes/ssd_dock/MyRustProjects/dartforge/target/doc/dartforge_abi/index.html and 29 other files

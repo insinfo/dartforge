@@ -1,0 +1,82 @@
+   Compiling dartforge-parity v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/parity)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.23s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_parity-5df974ad283d1bef)
+
+running 37 tests
+test analysis::tests::part_by_first_directive ... ok
+test bridge::tests::missing_getter_in_extension_override ... ok
+test bridge::tests::missing_method_in_extension_override ... ok
+test bridge::tests::instance_member_in_static_extension_access ... ok
+test bridge::tests::class_getter_without_setter_keeps_arguments ... ok
+test bridge::tests::assignment_to_type_and_function_gives_official_messages ... ok
+test bridge::tests::instance_member_in_class_instantiation ... ok
+test bridge::tests::assigning_const_and_top_level_final_have_their_own_codes ... ok
+test bridge::tests::missing_new_constructor_in_explicit_instantiation ... ok
+test bridge::tests::missing_operator_in_override ... ok
+test bridge::tests::missing_setter_in_extension_override ... ok
+test bridge::tests::override_without_call ... ok
+test bridge::tests::reference_to_generative_enum_constructor_has_own_code ... ok
+test bridge::tests::static_member_in_extension_override ... ok
+test bridge::tests::static_or_unknown_member_in_class_instantiation ... ok
+test bridge::tests::types_by_template ... ok
+test bridge::tests::write_to_method_has_official_code ... ok
+test bridge::tests::syntax_expected_token ... ok
+test filters::tests::basic_glob ... ok
+test corpus::tests::declared_version ... ok
+test corpus::tests::extracts_snippets_and_skips_context ... ok
+test json::tests::lines_utf16_and_breaks ... ok
+test filters::tests::real_yaml ... ok
+test filters::tests::new_sali_options ... ok
+test filters::tests::oracle_table ... ok
+test filters::tests::include_merge ... ok
+test filters::tests::repeated_names ... ok
+test scoreboard::tests::categories ... ok
+test filters::tests::ignore_applies_to_errors_except_cannot_ignore ... ok
+test scoreboard::tests::exact_duplicate_key_matches_are_reserved_before_fallbacks ... FAILED
+test oracle::tests::relative_rejects_outside_unicode_paths_without_slicing_characters ... FAILED
+test scoreboard::tests::diagnostic_type_is_part_of_a_match ... FAILED
+test scoreboard::tests::line_and_column_cannot_disagree_with_matching_offsets ... FAILED
+test projects::tests::sites_of_each_kind ... ok
+test analysis::tests::inherited_conflict_reaches_the_right_file_in_the_engine ... ok
+test analysis::tests::in_memory_texts_and_cancellation ... ok
+test analysis::tests::conditional_false_uses_absent_analyzer_context_and_private_branch_types ... ok
+
+failures:
+
+---- scoreboard::tests::exact_duplicate_key_matches_are_reserved_before_fallbacks stdout ----
+
+thread 'scoreboard::tests::exact_duplicate_key_matches_are_reserved_before_fallbacks' (1284926) panicked at crates/parity/src/scoreboard.rs:246:9:
+assertion `left == right` failed
+  left: (1, 1, 1)
+ right: (1, 0, 1)
+
+---- oracle::tests::relative_rejects_outside_unicode_paths_without_slicing_characters stdout ----
+
+thread 'oracle::tests::relative_rejects_outside_unicode_paths_without_slicing_characters' (1284922) panicked at crates/parity/src/oracle.rs:153:30:
+end byte index 51 is not a char boundary; it is inside '🦀' (bytes 49..53 of string)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- scoreboard::tests::diagnostic_type_is_part_of_a_match stdout ----
+
+thread 'scoreboard::tests::diagnostic_type_is_part_of_a_match' (1284925) panicked at crates/parity/src/scoreboard.rs:235:9:
+assertion `left == right` failed
+  left: 0
+ right: 1
+
+---- scoreboard::tests::line_and_column_cannot_disagree_with_matching_offsets stdout ----
+
+thread 'scoreboard::tests::line_and_column_cannot_disagree_with_matching_offsets' (1284927) panicked at crates/parity/src/scoreboard.rs:256:9:
+assertion `left == right` failed
+  left: (1, 0)
+ right: (0, 1)
+
+
+failures:
+    oracle::tests::relative_rejects_outside_unicode_paths_without_slicing_characters
+    scoreboard::tests::diagnostic_type_is_part_of_a_match
+    scoreboard::tests::exact_duplicate_key_matches_are_reserved_before_fallbacks
+    scoreboard::tests::line_and_column_cannot_disagree_with_matching_offsets
+
+test result: FAILED. 33 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p dartforge-parity --lib`

@@ -1,0 +1,45 @@
+{
+  "baseline": "c0158ec9",
+  "targeted_tests": {
+    "exit_code": 0,
+    "passed": 210,
+    "failed": 0,
+    "ignored": 0
+  },
+  "targeted_clippy": {
+    "exit_code": 0,
+    "all_targets": true,
+    "new_suppressions": false
+  },
+  "cli_cases": 16,
+  "workspace_checks": [
+    {
+      "check": "format",
+      "exit_code": 1,
+      "log_sha256": "17d286a5ce9bb1c6c540642b18bad7d51c2feb9a4bd0cd71eb4ac813d1861daa",
+      "log_bytes": 15771559,
+      "excerpt": "format.txt"
+    },
+    {
+      "check": "clippy",
+      "exit_code": 101,
+      "log_sha256": "e0cfd22d46369df9567c11534786353e9d11f21ac1537380d4acdfd98aa74e46",
+      "log_bytes": 131584,
+      "excerpt": "clippy.txt"
+    },
+    {
+      "check": "workspace-tests",
+      "exit_code": 101,
+      "log_sha256": "f51ae537b9befa1a7e99abf18875f53d7e5d97a115563baa765890f0e074e6ae",
+      "log_bytes": 1570574,
+      "excerpt": "workspace-tests.txt"
+    },
+    {
+      "check": "docs",
+      "exit_code": 0,
+      "log_sha256": "4a80954d62f4fb0b3aeab13c8048cd04e47dc1fec6bb9052f5b9ef16d9d34135",
+      "log_bytes": 12455,
+      "excerpt": "docs.txt"
+    }
+  ]
+}

@@ -1,0 +1,175 @@
+    Checking dartforge-parity v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/parity)
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Checking dartforge-dev v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dev)
+    Checking dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+    Checking dartforge-analysis v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/analysis)
+    Checking dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+    Checking dartforge-lsp v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/lsp)
+    Checking dartforge-cli v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli)
+error: this `if` statement can be collapsed
+   --> crates/cli/src/pub_get/output.rs:122:9
+    |
+122 | /         if let Some(bound) = constraint.lower {
+123 | |             if lower.as_ref().is_none_or(|(v, inc): &(Version, bool)| {
+124 | |                 super::constraints::compare_versions(&bound.0, v).is_gt()
+125 | |                     || (super::constraints::compare_versions(&bound.0, v).is_eq()
+...   |
+131 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+122 ~         if let Some(bound) = constraint.lower
+123 ~             && lower.as_ref().is_none_or(|(v, inc): &(Version, bool)| {
+124 |                 super::constraints::compare_versions(&bound.0, v).is_gt()
+...
+129 |                 lower = Some(bound);
+130 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/cli/src/pub_get/output.rs:132:9
+    |
+132 | /         if let Some(bound) = constraint.upper {
+133 | |             if upper.as_ref().is_none_or(|(v, inc): &(Version, bool)| {
+134 | |                 super::constraints::compare_versions(&bound.0, v).is_lt()
+135 | |                     || (super::constraints::compare_versions(&bound.0, v).is_eq()
+...   |
+141 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+132 ~         if let Some(bound) = constraint.upper
+133 ~             && upper.as_ref().is_none_or(|(v, inc): &(Version, bool)| {
+134 |                 super::constraints::compare_versions(&bound.0, v).is_lt()
+...
+139 |                 upper = Some(bound);
+140 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/cli/src/pub_get/resolver.rs:111:13
+    |
+111 | /             if let Some(value) = selected.get(name) {
+112 | |                 if value.source != requirement.source
+113 | |                     || !requirement
+114 | |                         .constraints
+...   |
+120 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+111 ~             if let Some(value) = selected.get(name)
+112 ~                 && (value.source != requirement.source
+113 |                     || !requirement
+114 |                         .constraints
+115 |                         .iter()
+116 ~                         .all(|(_, c)| c.allows(&value.candidate.manifest.version)))
+117 |                 {
+118 |                     return Err(SearchError::Conflict(conflict(name, requirement)));
+119 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/cli/src/pub_get/resolver.rs:153:9
+    |
+153 | /         if let Some((source, version)) = self.locked.get(name) {
+154 | |             if source == &requirement.source {
+155 | |                 if let Some(index) = candidates
+156 | |
+[bounded excerpt; full original log hash recorded in checks.json]
+s.get(call_value)?;`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#question_mark
+
+error: consider using `sort_by_key`
+    --> crates/emit_native/src/sdk_module.rs:1287:13
+     |
+1287 |             v.sort_by(|a, b| b.1.cmp(&a.1));
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_sort_by
+help: try
+     |
+1287 -             v.sort_by(|a, b| b.1.cmp(&a.1));
+1287 +             v.sort_by_key(|a| std::cmp::Reverse(a.1));
+     |
+
+error: consider using `sort_by_key`
+    --> crates/emit_native/src/sdk_module.rs:1322:9
+     |
+1322 |         v.sort_by(|a, b| b.1.cmp(&a.1));
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_sort_by
+help: try
+     |
+1322 -         v.sort_by(|a, b| b.1.cmp(&a.1));
+1322 +         v.sort_by_key(|a| std::cmp::Reverse(a.1));
+     |
+
+error: consider using `sort_by_key`
+    --> crates/emit_native/src/sdk_module.rs:1502:9
+     |
+1502 |         v.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_sort_by
+help: try
+     |
+1502 -         v.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+1502 +         v.sort_by_key(|a| std::cmp::Reverse(a.1.0));
+     |
+
+error: called `.err().expect()` on a `Result` value
+   --> crates/emit_native/src/lib.rs:871:55
+    |
+871 |                 let error = emit_ir(&entry, &options).err().expect("unsupported const name must reject IR emission");
+    |                                                       ^^^^^^^^^^^^ help: try: `expect_err`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#err_expect
+    = note: `-D clippy::err-expect` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::err_expect)]`
+
+error: called `.err().expect()` on a `Result` value
+   --> crates/emit_native/src/lib.rs:897:55
+    |
+897 |                 let error = emit_ir(&entry, &options).err().expect("invalid constant must reject IR emission");
+    |                                                       ^^^^^^^^^^^^ help: try: `expect_err`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#err_expect
+
+error: called `.err().expect()` on a `Result` value
+   --> crates/emit_native/src/lib.rs:904:51
+    |
+904 |             let error = emit_ir(&entry, &options).err().expect("SDK non-const constructor must reject IR emission");
+    |                                                   ^^^^^^^^^^^^ help: try: `expect_err`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#err_expect
+
+error: useless use of `vec!`
+   --> crates/emit_native/src/compact_stack_trace.rs:520:32
+    |
+520 |         assert_eq!(convert_elf(&mut vec![0u8; 8]), Ok(false));
+    |                                ^^^^^^^^^^^^^^^^^ help: you can use a slice directly: `&mut [0u8; 8]`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#useless_vec
+    = note: `-D clippy::useless-vec` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::useless_vec)]`
+
+error: useless use of `vec!`
+  --> crates/emit_native/src/pruning/receiver_provenance/selector_returns/source_tests.rs:43:23
+   |
+43 |         let modules = vec![module];
+   |                       ^^^^^^^^^^^^ help: you can use an array directly: `[module]`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#useless_vec
+
+error: could not compile `dartforge-emit-native` (lib test) due to 192 previous errors

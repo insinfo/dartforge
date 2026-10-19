@@ -1,0 +1,3 @@
+== main.dart
+= 1:19 (+6) unused_local_variable: The value of the local variable 'unused' isn't used.
+total: = 1 | ~ 0 | - 0 | + 0

@@ -1,0 +1,20 @@
+{
+  "Cargo.lock": "ff600622b5e67d7acd4b5dfdbdabbc7e484567609d55dbe10b9d2390130c9925",
+  "crates/parity/Cargo.toml": "eed9fe56cf8a41d69221a2b542da519e2d7af718186c2c5638bd70cc36210c0c",
+  "crates/parity/examples/analyze_project.rs": "5966d1fafa837f1d90497d2983ef2caeb6dd9e0e630dd9050de29846189c49e4",
+  "crates/parity/examples/generate_codes.rs": "4a796a64a2b37c24f242aab8bc36bc1e97f3a2e800ec2df9b9ea5962a4521b13",
+  "crates/parity/examples/probe_files.rs": "96d95ac6fd689171d1ded85ecd331eaa51d05a5d15042a3fd7ecaad4427b49a6",
+  "crates/parity/src/analysis.rs": "74c1b16bb6e45d3b69b8dc92967b1fb17c9c55206b3c6e76ea689009a4a80ecd",
+  "crates/parity/src/bridge.rs": "5fabf583dbbe70888785af515fa8f602f9f0af0cc938da6635acbceb07159027",
+  "crates/parity/src/corpus.rs": "3457b9597e7904f88560364e10b98ac20daf87f65aa4d076c6ac2d5ec6ccd5fc",
+  "crates/parity/src/filters.rs": "177042f6d45d50f277d1c2a1cb5d541f104e255ce64c24a3908f7141d5d8d8a4",
+  "crates/parity/src/json.rs": "4b86e5cca4e34c5e4565a6acff4bb3d973c1d339e34557525949fb4b59c7afdc",
+  "crates/parity/src/lib.rs": "b7e0f5ebb3b2807f2e6d83c677ccf30f0e7a42ac237495ec418e48b76f5d7c72",
+  "crates/parity/src/main.rs": "659486f620f345ae5c28489243904cbe480141b89d3d20b7b717179576032da8",
+  "crates/parity/src/oracle.rs": "436c8af65321180b84305ae71d8b7f2d284fde5d019358ea4c10ca50d39da41b",
+  "crates/parity/src/output.rs": "136fd382e2da1a15d5566df043aaa1e1719b4a431eb83dfd441341918c742f41",
+  "crates/parity/src/projects.rs": "0ca1a931f0c37a6c6d53a75b32bd69cfd606882f8fd583dd9140fbfe67ac5660",
+  "crates/parity/src/scoreboard.rs": "37d43bfd587e868917c1e92294924bf16bfd414180a23bd43f58867603496625",
+  "crates/parity/tests/analyzer_rules.rs": "f73879618ac52b5b048146ac94326a72792b3ff399eb5feb43cfd6f0e624e5d6",
+  "crates/parity/tests/probe.rs": "adba6faad4902dedbd237f3f54579984f5d11c3522d17a7f8b94e6d8bf2d1582"
+}

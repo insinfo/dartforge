@@ -36,7 +36,8 @@ const CLASSES: &[(&str, &str, &str)] = &[
 /// 6.11 codes do not change.
 ///
 /// (class, module, constant, name, unique, message, correction, type)
-const SUPPLEMENT_3_13: &[(&str, &str, &str, &str, &str, &str, &str, &str)] = &[
+type SupplementalCode = (&'static str, &'static str, &'static str, &'static str, &'static str, &'static str, &'static str, &'static str);
+const SUPPLEMENT_3_13: &[SupplementalCode] = &[
     (
         "CompileTimeErrorCode",
         "compile_time_error",
@@ -779,7 +780,7 @@ fn main() {
         let index = |unique: &str| all.iter().position(|e| e.0.unique == unique).unwrap_or_else(|| panic!("variant: {unique} is not in the table"));
         for (from_code, to, args, requires) in VARIANTS_3_13 {
             let minimum = args.iter().map(|a| *a + 1).max().unwrap_or(0).max(*requires);
-            variants.push((index(*from_code), (!to.is_empty()).then(|| index(*to)), *args, minimum));
+            variants.push((index(from_code), (!to.is_empty()).then(|| index(to)), *args, minimum));
         }
     }
     // The new shape of a code with the same name inherits the published documentation.

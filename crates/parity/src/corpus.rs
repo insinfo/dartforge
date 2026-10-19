@@ -46,11 +46,10 @@ pub fn groups(root: &Path) -> Vec<(String, Group)> {
     let Ok(ents) = std::fs::read_dir(root) else { return v };
     for e in ents.flatten() {
         let g = e.path().join("group.json");
-        if let Ok(t) = std::fs::read_to_string(&g) {
-            if let Ok(group) = serde_json::from_str::<Group>(&t) {
+        if let Ok(t) = std::fs::read_to_string(&g)
+            && let Ok(group) = serde_json::from_str::<Group>(&t) {
                 v.push((e.file_name().to_string_lossy().into_owned(), group));
             }
-        }
     }
     v.sort_by(|a, b| a.0.cmp(&b.0));
     v
@@ -528,8 +527,8 @@ pub fn extract_snippets(src: &str) -> (Vec<(String, String, String)>, usize) {
                 let uses_context = class_ctx || body.iter().any(|(_, x)| matches!(x, T::Id(n) if CONTEXT.contains(&n.as_str())));
                 let mut found = Vec::new();
                 for w in body.windows(3) {
-                    if let (T::Id(n), T::P('('), T::Str(raw, true, code)) = (&w[0].1, &w[1].1, &w[2].1) {
-                        if CALLS.contains(&n.as_str()) {
+                    if let (T::Id(n), T::P('('), T::Str(raw, true, code)) = (&w[0].1, &w[1].1, &w[2].1)
+                        && CALLS.contains(&n.as_str()) {
                             if !*raw && (code.contains('$') || code.contains('\\')) {
                                 continue;
                             }
@@ -542,7 +541,6 @@ pub fn extract_snippets(src: &str) -> (Vec<(String, String, String)>, usize) {
                                 .unwrap_or(code);
                             found.push(value.to_string());
                         }
-                    }
                 }
                 if uses_context {
                     skipped += 1;
@@ -585,8 +583,8 @@ fn block_end(t: &[(usize, T)], open: usize) -> usize {
 fn has_context_setup(body: &[(usize, T)]) -> bool {
     let mut i = 0;
     while i < body.len() {
-        if let T::Id(n) = &body[i].1 {
-            if n == "setUp" {
+        if let T::Id(n) = &body[i].1
+            && n == "setUp" {
                 let mut j = i;
                 while j < body.len() && body[j].1 != T::P('{') && body[j].1 != T::P(';') {
                     j += 1;
@@ -598,7 +596,6 @@ fn has_context_setup(body: &[(usize, T)]) -> bool {
                     }
                 }
             }
-        }
         i += 1;
     }
     false

@@ -1,0 +1,262 @@
+   Compiling dartforge-parity v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/parity)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.13s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_analysis-3d50aba2531d4204)
+
+running 153 tests
+test a_context::tests::super_in_instance_method_is_valid ... ok
+test a_context::tests::super_in_non_late_field_and_in_initializer ... ok
+test a_context::tests::super_in_static_context ... ok
+test a_context::tests::await_in_late_local ... ok
+test a_context::tests::super_in_extension_and_extension_type ... ok
+test a_context::tests::literal_type_arguments ... ok
+test a_doc::tests::inside_fenced_block_does_not_count ... ok
+test a_context::tests::await_for_outside_async ... ok
+test a_doc::tests::missing_and_format ... ok
+test a_doc::tests::new_in_a_block_comment_reference ... ok
+test a_doc::tests::oracle_example ... ok
+test analyzer_tree::tests::field_variable_list ... ok
+test analyzer_tree::tests::expression_body_with_semicolon ... ok
+test analyzer_tree::tests::annotation_name_and_annotation ... ok
+test analyzer_tree::tests::param_list_with_parens ... ok
+test c2_syntactic::tests::main_that_is_not_a_function ... ok
+test c2_syntactic::tests::jumps_outside_loop ... ok
+test c2_syntactic::tests::labels ... ok
+test c2_syntactic::tests::return_with_value_in_generator ... ok
+test c2_syntactic::tests::rethrow_outside_and_inside_catch ... ok
+test c2_syntactic::tests::unused_label_and_member_label ... ok
+test c2_syntactic::tests::pattern_shapes ... ok
+test c2_syntactic::tests::unnecessary_final_and_late_final ... ok
+test clauses::tests::enum_as_superinterface ... ok
+test clauses::tests::class_alias_as_mixin ... ok
+test clauses::tests::forbidden_type_with_alias_and_bounds ... ok
+test clauses::tests::mixin_without_the_on_constraint ... ok
+test duplicates::tests::getter_and_setter_do_not_collide ... ok
+test duplicates::tests::same_named_declarations_merge_members ... ok
+test duplicates::tests::top_level_members_and_locals ... ok
+test duplicates::tests::unary_and_binary_minus_coexist ... ok
+test enums::tests::constant_in_augmentation_completes_base_enum ... ok
+test enums::tests::empty_enum_matches_the_3_6_oracle ... ok
+test externals::tests::abstract_field_initializers_match_oracle ... ok
+test externals::tests::abstract_field_without_initializer_reports_nothing ... ok
+test externals::tests::external_without_initializer_and_static_field_report_nothing ... ok
+test externals::tests::three_shapes_match_recorded_oracle ... ok
+test clauses::tests::mixin_that_inherits_and_factory_only_superclass ... ok
+test initialization::tests::constructor_with_three_fields_uses_3_plus_variant ... ok
+test initialization::tests::constructors_with_non_final_non_nullable_fields_from_oracle ... ok
+test initialization::tests::constructors_initialize_fields_by_parameter_or_list ... ok
+test initialization::tests::enum_index_uses_own_diagnostic ... ok
+test clauses::tests::imported_legacy_class_may_be_used_as_mixin_in_current_code ... ok
+test initialization::tests::partial_list_and_nullable_follow_same_rule ... ok
+test initialization::tests::primary_constructor_reports_on_class_name_like_3_13_oracle ... ok
+test initialization::tests::non_final_non_nullable_instance_fields_from_oracle ... ok
+test initialization::tests::static_with_generative_constructor_not_reported ... ok
+test clauses::tests::clause_that_does_not_name_a_class ... ok
+test initialization::tests::three_sources_from_official_corpus ... ok
+test language_version::tests::formats ... ok
+test initialization::tests::secondary_constructors_match_3_6_oracle ... ok
+test initialization::tests::top_level_static_instance_and_exceptions_from_oracle ... ok
+test lints::regexp_vm::tests::vm_errors_and_valid_patterns ... ok
+test clauses::tests::nullable_type_in_clause ... ok
+test lints::pubspec::dependency_cache_tests::warm_dependency_lookups_preserve_mode_and_owned_results ... ok
+test lints::rules10::tests::cascades_on_lists ... ok
+test lints::rules11::tests::flutter_style_todo ... ok
+test lints::rules10::tests::classes ... ok
+test lints::rules2::tests::declarations ... ok
+test lints::rules2::tests::prefixes ... ok
+test lints::rules10::tests::for_each_final ... ok
+test lints::rules2::tests::expressions_and_statements ... ok
+test lints::rules3::tests::library_names ... ok
+test lints::rules3::tests::expressions ... ok
+test lints::rules4::tests::expressions ... ok
+test lints::rules4::tests::functions_in_variables ... ok
+test lints::rules4::tests::names_and_parameters ... ok
+test lints::rules5::tests::constructor_order ... ok
+test lints::rules3::tests::declarations ... ok
+test lints::rules5::tests::parameters_and_declarations ... ok
+test lints::rules5::tests::raw_strings_and_end_of_file ... ok
+test lints::rules6::tests::null_for_void ... ok
+test lints::rules6::tests::flow_in_finally ... ok
+test clauses::tests::mixin_class_with_constructor_or_supertype ... ok
+test lints::rules7::tests::escapes ... ok
+test lints::rules8::tests::assignments ... ok
+test lints::rules6::tests::declarations ... ok
+test lints::rules7::tests::lines ... ok
+test lints::rules6::tests::statements_and_expressions ... ok
+test lints::rules8::tests::body_on_same_line ... ok
+test lints::rules7::tests::quotes ... ok
+test lints::rules8::tests::directive_order ... ok
+test lints::rules8::tests::constructors ... ok
+test lints::rules8::tests::literals_in_conditions ... ok
+test lints::rules9::tests::equality_and_hash ... ok
+test lints::rules8::tests::null_initializers ... ok
+test lints::rules9::tests::getters_and_setters ... ok
+test lints::rules8::tests::unnecessary_const ... ok
+test lints::rules9::tests::unnecessary_final ... ok
+test lints::rules::tests::name_shapes ... ok
+test lints::rules::tests::directives_and_typedefs ... ok
+test lints::rules9::tests::initializing_formals ... ok
+test lints::rules::tests::flow_statements ... ok
+test lints::rules::tests::names ... ok
+test lints::strings::tests::comments_outside_strings ... ok
+test lints::strings::tests::adjacent_literals_and_interpolation ... ok
+test lints::walk::tests::ancestor_stack ... ok
+test locals::tests::catch_variables ... ok
+test locals::tests::duplicate_pattern_and_parameter_annotation ... ok
+test locals::tests::redeclaration_in_same_scope ... ok
+test locals::tests::reads_and_writes ... ok
+test locals::tests::refutable_case_reference_anchor_and_hoisting ... ok
+test locals::tests::shadow_and_closure ... ok
+test locals::tests::shared_patterns_and_for_update ... ok
+test locals::tests::skipped_fragment_citing_the_name_does_not_report ... ok
+test clauses::tests::repeated_and_superclass ... ok
+test clauses::tests::on_constraint_of_applied_mixin ... ok
+test clauses::tests::supertype_of_itself ... ok
+test members::tests::recovery_constructor_does_not_report ... ok
+test members::tests::built_in_identifier_as_name ... ok
+test members::tests::conflicting_type_parameters ... ok
+test members::tests::field_formals_outside_constructor ... ok
+test members::tests::factory_with_another_name ... ok
+test members::tests::object_members_and_abstract_in_extensions ... ok
+test meta::tests::members_of_decl_without_members ... ok
+test natives::tests::clause_and_body_like_the_oracle ... ok
+test members::tests::return_in_generative_constructor ... ok
+test members::tests::fields ... ok
+test non_dart::manifest::tests::features_permissions_and_activities ... ok
+test non_dart::manifest::tests::broken_xml_does_not_report ... ok
+test non_dart::manifest::tests::no_touchscreen ... ok
+test members::tests::initializer_list ... ok
+test non_dart::options::tests::analyzer_section ... ok
+test non_dart::options::tests::include_and_syntax ... ok
+test non_dart::options::tests::lint_rules_section ... ok
+test non_dart::pubspec::tests::name_and_fields ... ok
+test non_dart::options::tests::quoted_list_formats ... ok
+test members::tests::setters ... ok
+test non_dart::pubspec::tests::platforms_and_workspace ... ok
+test non_dart::tests::message_with_arguments ... ok
+test non_dart::pubspec::tests::dependencies ... ok
+test non_dart::yaml::tests::syntax_error ... ok
+test non_dart::yaml::tests::key_and_value_positions ... ok
+test non_dart::yaml::tests::flow_and_types ... ok
+test operators::tests::minus_accepts_zero_or_one_parameter ... ok
+test phases::tests::built_in_word_as_type ... ok
+test operators::tests::optional_and_index_return ... ok
+test phases::tests::direction_in_literal_and_in_comment ... ok
+test operators::tests::real_operators_from_the_corpus ... ok
+test phases::tests::identical_consecutive_pair_is_duplicate ... ok
+test phases::tests::colon_as_default_separator ... ok
+test private_decls::tests::pragma_makes_used ... ok
+test members::tests::this_without_access ... ok
+test members::tests::typedef_referencing_itself ... ok
+test private_decls::tests::values_public_typedef_and_single_constructor ... ok
+test todos::tests::oracle_table ... ok
+test todos::tests::unfolds_the_block ... ok
+test todos::tests::what_does_not_match ... ok
+test modifiers::tests::modifiers_from_another_library ... ok
+test private_decls::tests::matches_oracle_except_operator ... ok
+test publication::tests::verified_assignment_is_published_without_publishing_unverified_errors ... ok
+test lints::pubspec::dependency_cache_tests::misses_and_eviction_preserve_uncached_results ... ok
+test clauses::tests::class_as_mixin_follows_the_oracle ... ok
+
+test result: ok. 153 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running unittests src/lib.rs (target/debug/deps/dartforge_parity-25b48373d5e9f73c)
+
+running 41 tests
+test bridge::tests::assigning_const_and_top_level_final_have_their_own_codes ... ok
+test bridge::tests::instance_member_in_static_extension_access ... ok
+test bridge::tests::missing_getter_in_extension_override ... ok
+test bridge::tests::class_getter_without_setter_keeps_arguments ... ok
+test bridge::tests::assignment_to_type_and_function_gives_official_messages ... ok
+test bridge::tests::instance_member_in_class_instantiation ... ok
+test analysis::tests::part_by_first_directive ... ok
+test bridge::tests::missing_method_in_extension_override ... ok
+test bridge::tests::missing_new_constructor_in_explicit_instantiation ... ok
+test bridge::tests::missing_operator_in_override ... ok
+test bridge::tests::override_without_call ... ok
+test bridge::tests::missing_setter_in_extension_override ... ok
+test bridge::tests::reference_to_generative_enum_constructor_has_own_code ... ok
+test bridge::tests::static_member_in_extension_override ... ok
+test bridge::tests::static_or_unknown_member_in_class_instantiation ... ok
+test bridge::tests::types_by_template ... ok
+test bridge::tests::write_to_method_has_official_code ... ok
+test bridge::tests::syntax_expected_token ... ok
+test filters::tests::basic_glob ... ok
+test corpus::tests::declared_version ... ok
+test corpus::tests::extracts_snippets_and_skips_context ... ok
+test json::tests::lines_utf16_and_breaks ... ok
+test oracle::tests::executable_version_must_match_the_selected_oracle ... ok
+test filters::tests::real_yaml ... ok
+test oracle::tests::oracle_refuses_an_empty_target_list_before_running ... ok
+test filters::tests::include_merge ... ok
+test filters::tests::oracle_table ... ok
+test filters::tests::new_sali_options ... ok
+test filters::tests::repeated_names ... ok
+test oracle::tests::relative_rejects_outside_unicode_paths_without_slicing_characters ... ok
+test scoreboard::tests::diagnostic_type_is_part_of_a_match ... ok
+test scoreboard::tests::line_and_column_cannot_disagree_with_matching_offsets ... ok
+test scoreboard::tests::categories ... ok
+test scoreboard::tests::exact_duplicate_key_matches_are_reserved_before_fallbacks ... ok
+test filters::tests::ignore_applies_to_errors_except_cannot_ignore ... ok
+test oracle::tests::report_requires_a_supported_complete_document ... ok
+test projects::tests::sites_of_each_kind ... ok
+test oracle::tests::recorded_diagnostic_count_must_match_the_records ... ok
+test analysis::tests::inherited_conflict_reaches_the_right_file_in_the_engine ... ok
+test analysis::tests::in_memory_texts_and_cancellation ... ok
+test analysis::tests::conditional_false_uses_absent_analyzer_context_and_private_branch_types ... ok
+
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/main.rs (target/debug/deps/dartforge_parity-5448cfd89684c81d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/analyzer_rules.rs (target/debug/deps/analyzer_rules-c30fcd3502fdd28f)
+
+running 4 tests
+test literal_constructor_in_a_constant_context ... ok
+test root_spelled_differently_from_the_file_system ... ok
+test internal_is_the_meta_getter ... ok
+test ported_rules_give_what_analyzer_3_6_2_gives ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/probe.rs (target/debug/deps/probe-0cb35d8dd075c316)
+
+running 1 test
+test seven_error_probe_matches_the_oracle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests examples/probe_files.rs (target/debug/examples/probe_files-6c22dc53d60c31d1)
+
+running 7 tests
+test tests::metadata_and_coordinates_are_part_of_an_exact_match ... ok
+test tests::exact_matches_are_not_consumed_by_other_duplicate_keys ... ok
+test tests::duplicates_cannot_disappear_from_the_comparison ... ok
+test tests::discovery_rejects_directory_symlinks_instead_of_looping ... ok
+test tests::selection_rejects_empty_missing_duplicate_and_outside_inputs ... ok
+test tests::existing_package_metadata_is_preserved_and_incomplete_metadata_is_rejected ... ok
+test tests::recorded_oracle_requires_current_sources_counts_and_sdk ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests dartforge_analysis
+
+running 1 test
+test crates/analysis/src/lints/pubspec.rs - lints::pubspec::available_dependencies (line 252) ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.50s; merged doctests compilation took 0.31s
+   Doc-tests dartforge_parity
+
+running 3 tests
+test crates/parity/src/oracle.rs - oracle::validate_sdk (line 216) ... ok
+test crates/parity/src/oracle.rs - oracle::OracleSdk::executable (line 58) ... ok
+test crates/parity/src/oracle.rs - oracle::without_root (line 133) ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.49s; merged doctests compilation took 0.30s

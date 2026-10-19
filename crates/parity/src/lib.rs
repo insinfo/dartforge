@@ -377,7 +377,7 @@ pub fn run_ours(
             };
             results.lock().expect("results")[i] = Some(r);
             let n = done.fetch_add(1, Ordering::SeqCst) + 1;
-            if ex.progress && (n % 20 == 0 || n == batches.len()) {
+            if ex.progress && (n.is_multiple_of(20) || n == batches.len()) {
                 eprintln!("  {n}/{} batches", batches.len());
             }
         }

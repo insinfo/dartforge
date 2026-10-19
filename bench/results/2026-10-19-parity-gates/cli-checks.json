@@ -1,0 +1,106 @@
+{
+  "cases": [
+    {
+      "case": "usage",
+      "exit_code": 2,
+      "expected": 2,
+      "passed": true
+    },
+    {
+      "case": "empty-input",
+      "exit_code": 1,
+      "expected": 1,
+      "passed": true
+    },
+    {
+      "case": "missing-input",
+      "exit_code": 1,
+      "expected": 1,
+      "passed": true
+    },
+    {
+      "case": "duplicate-input",
+      "exit_code": 1,
+      "expected": 1,
+      "passed": true
+    },
+    {
+      "case": "outside-input",
+      "exit_code": 1,
+      "expected": 1,
+      "passed": true
+    },
+    {
+      "case": "fresh-warning-match",
+      "exit_code": 0,
+      "expected": 0,
+      "passed": true
+    },
+    {
+      "case": "repeated-free-match",
+      "exit_code": 0,
+      "expected": 0,
+      "passed": true
+    },
+    {
+      "case": "invalid-ours-sdk",
+      "exit_code": 1,
+      "expected": 1,
+      "passed": true
+    },
+    {
+      "case": "existing-metadata-match",
+      "exit_code": 0,
+      "expected": 0,
+      "passed": true
+    },
+    {
+      "case": "recorded-mismatch",
+      "exit_code": 1,
+      "expected": 1,
+      "passed": true
+    },
+    {
+      "case": "stale-source",
+      "exit_code": 1,
+      "expected": 1,
+      "passed": true
+    },
+    {
+      "case": "corrupt-reference-count",
+      "exit_code": 1,
+      "expected": 1,
+      "passed": true
+    },
+    {
+      "case": "duplicate-reference",
+      "exit_code": 1,
+      "expected": 1,
+      "passed": true
+    },
+    {
+      "case": "wrong-recorder-sdk",
+      "exit_code": 1,
+      "expected": 1,
+      "passed": true
+    },
+    {
+      "case": "invalid-oracle-output-preserves-data",
+      "exit_code": 1,
+      "expected": 1,
+      "passed": true
+    },
+    {
+      "case": "unknown-recorder-group",
+      "exit_code": 1,
+      "expected": 1,
+      "passed": true
+    }
+  ],
+  "all_passed": true,
+  "real_sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk",
+  "warning_match_verified": true,
+  "existing_metadata_preserved": true,
+  "sdk_failure_preserved_sources_and_oracles": true,
+  "invalid_report_test_uses_a_test_double": true
+}
