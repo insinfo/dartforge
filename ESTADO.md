@@ -3,6 +3,21 @@
 ## Atualização de 19/10/2026
 
 
+- O certificado de startup compõe agora nomes de classes/argumentos com arestas
+  nominais. O schema 3 preserva inicializadores literais e verifica digest,
+  propriedade privada, bytes/escapes, comprimento exato e UTF-8. Ponteiros
+  deslocados, regiões externas, dados ambíguos e outros efeitos não são admitidos.
+  O teste do runtime confirma texto preservado sem alocações Dart; startup misto
+  compilado passa com registro amplo/certificado, normal/GC sob estresse. Passaram
+  52 testes de inventário com SDK real, 51 de classes, 14 gerais de poda e o teste
+  de runtime; Clippy/docs estritos passam. Cache JSON cresceu 1,3% para conservar
+  7.753 inicializadores, com IR dos módulos e 15 startups inalterados. Isso não é
+  ganho de tamanho do executável. Imagens, tabelas e helpers ainda impedem os
+  startups completos do SDK; fmt, aprovação integral e poda completa seguem
+  pendentes, sem nova matriz desktop/JIT. Evidências:
+  `bench/results/2026-10-19-text-metadata-startup/README.md`.
+
+
 - A prova de classes ganhou certificado separado para startups `void ()` que
   somente publicam arestas nominais literais por `register_subclass`. Exige
   corpo/ABI/identidade únicos, CIDs e arestas do snapshot reconciliado; pai 0

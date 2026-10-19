@@ -1,0 +1,16 @@
+{
+  "README.md": "dcda385dd86cf415f3b814898243302bfa013148deb13586c3add0efa5977d37",
+  "checks.json": "217fa0744fdc069b8ea20f1191cb2a29c8c4344dec6d40caada3cc7c74bac696",
+  "class-proof.log": "2f873164c35a09f8bf091b8f90878ce31a6e767c314fed7eaeada6a611917717",
+  "clippy.log": "c895c5bac9a08bd9ec9018e8ba7c07927200d68a83a47b8fb71c3e1b872ab85d",
+  "doc.log": "d38c9ac3afe9932e36918ff2be10bb20735bc30071abbefb806525bc3e11bf06",
+  "environment.json": "d0053924e2e22144e01d0355196fc6af98dae15700dfedf8917d4ad1bfa431c1",
+  "fmt-excerpt.log": "c81626b08228bbb164c04c52ccdba9c6183c95d146e62ba1bcf50b4375b8096f",
+  "fmt-original.json": "4d8749cbfee520ffb609d4186e8a691b8a69aa799a1616ca5858bcf777c714f9",
+  "inventory.log": "8b314ac1b8726b25bda69e399f4fa0f68b092b1ad0e284db2505ebfbcdd7a743",
+  "log-normalization.json": "ee6705f9c4958b8ff847850e52e3c8c0e6fd1d6b0418fdc0fce0d04663a688f7",
+  "pruning.log": "152400f7e1d94155658420a669737d5d4fc0b13b9e0de1aad0f7ed47d1c3039f",
+  "runtime.log": "001249c42e0cc0dce1e142f40060ce6a7e91d40c0e57b925be82308a496d09a5",
+  "sdk-comparison.json": "39a33ad7a42d306fddd226171e839b266727bd303b29a7dde06eb5d94db8c41d",
+  "sources.json": "70aaa6713be3d4d777d333b827e1198609eddf46584b587f097c8276693bbd7d"
+}

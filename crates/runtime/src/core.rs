@@ -749,6 +749,54 @@ pub unsafe extern "C" fn dartforge_record_new(pairs: *const i64, len: i64) -> i6
 // ─── Unified space (docs/NATIVO-ESPACO-UNIFICADO.md §3.6): P0a skeleton ───────
 
 #[cfg(test)]
+mod tests_metadata_registration {
+    use super::*;
+
+    #[test]
+    fn names_preserve_utf8_and_do_not_allocate_dart_objects() {
+        let cid = 1_900_003;
+        let class_name = "Naïve;@\\\"";
+        let argument = "df_test_argument_é;@\\\"";
+        let before = HEAP.with(|heap| heap.borrow().stats().allocations);
+        let previous_class = CLASS_NAMES.with(|names| names.borrow_mut().remove(&cid));
+        let hash = name_hash(argument);
+        let previous_argument = argument_names().write().unwrap().remove(&hash);
+        // SAFETY: both UTF-8 slices outlive the calls and have exact byte lengths.
+        unsafe {
+            dartforge_register_class_name(cid, class_name.as_ptr(), class_name.len() as i64);
+            dartforge_register_argument_name(argument.as_ptr(), argument.len() as i64);
+        }
+        assert_eq!(
+            CLASS_NAMES
+                .with(|names| names.borrow().get(&cid).cloned())
+                .as_deref(),
+            Some(class_name)
+        );
+        assert_eq!(
+            argument_names()
+                .read()
+                .unwrap()
+                .get(&hash)
+                .map(String::as_str),
+            Some(argument)
+        );
+        assert_eq!(HEAP.with(|heap| heap.borrow().stats().allocations), before);
+        CLASS_NAMES.with(|names| {
+            let mut names = names.borrow_mut();
+            names.remove(&cid);
+            if let Some(previous) = previous_class {
+                names.insert(cid, previous);
+            }
+        });
+        let mut names = argument_names().write().unwrap();
+        names.remove(&hash);
+        if let Some(previous) = previous_argument {
+            names.insert(hash, previous);
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests_owners_record_and_concat {
     use super::*;
 

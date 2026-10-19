@@ -1,0 +1,15 @@
+{
+  "base_revision": "c7901f8b",
+  "host": "macOS ARM64",
+  "llvm": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+  "sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+  "commands": [
+    "cargo test --locked -p dartforge-emit-native --lib --target-dir target/impl-a pruning::allocation_inventory -- --include-ignored --nocapture",
+    "cargo test --locked -p dartforge-emit-native --lib --target-dir target/impl-a pruning::class_reachability -- --include-ignored",
+    "cargo test --locked -p dartforge-emit-native --lib --target-dir target/impl-a pruning::tests -- --include-ignored",
+    "cargo test --locked -p dartforge-runtime --lib names_preserve_utf8"
+  ],
+  "documentation_environment": {
+    "RUSTDOCFLAGS": "-Dwarnings"
+  }
+}

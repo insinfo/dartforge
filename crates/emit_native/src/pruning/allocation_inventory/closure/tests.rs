@@ -1,4 +1,46 @@
 use super::*;
+
+#[test]
+fn native_byte_arrays_preserve_exact_escaped_contents_and_lengths() {
+    for (line, expected) in [
+        (
+            "@s = private unnamed_addr constant [4 x i8] c\"a\\22\\5C;\" ; comment",
+            vec![b'a', b'"', b'\\', b';'],
+        ),
+        (
+            "@s = private constant [2 x i8] c\"\\C3\\A9\", align 1",
+            vec![0xc3, 0xa9],
+        ),
+        ("@s = private constant [0 x i8] c\"\"", vec![]),
+        ("@s = private constant [3 x i8] c\"a@b\"", b"a@b".to_vec()),
+    ] {
+        assert_eq!(native_byte_content(line), Some(expected), "{line}");
+        let bundle = audit(&[("sdk", line)]);
+        assert_eq!(bundle.globals[0]["native_initializer"], line);
+        assert_eq!(bundle.globals[0]["references"], json!([]));
+    }
+}
+
+#[test]
+fn malformed_or_nonliteral_byte_initializers_remain_unclassified() {
+    for line in [
+        "@s = private constant [2 x i8] c\"a\"",
+        "@s = private constant [1 x i8] c\"ab\"",
+        "@s = private constant [1 x i8] c\"\\ZZ\"",
+        "@s = private constant [1 x i8] c\"\\1\"",
+        "@s = private constant [1 x i8] c\"a\", align 0",
+        "@s = private constant [1 x i8] c\"a\" garbage",
+        "@s = private constant ptr @target",
+        "@s = private global [1 x i8] c\"a\"",
+        "@s = private constant [999999999999999999999999 x i8] c\"a\"",
+        "@s = private constant ptr null ; constant [1 x i8] c\"a\"",
+    ] {
+        assert!(native_byte_content(line).is_none(), "{line}");
+        let bundle = audit(&[("sdk", line)]);
+        assert!(bundle.globals[0]["native_initializer"].is_null());
+    }
+}
+
 fn state(bundle: &Bundle, symbol: &str) -> Option<Vec<u32>> {
     let index = bundle.definitions.iter().position(|d| d.key == symbol).unwrap();
     bundle.closures[index].as_ref().map(|values| values.iter().copied().collect())

@@ -3,7 +3,7 @@
 //! Allocation closure and exposure closure are distinct. Ordinary imports need
 //! an allocation-free closure of direct, ABI-matched source definitions and
 //! reviewed LLVM expect calls. A separate entry-only certificate covers literal
-//! nominal subtype startup. Raw memory, images and helper bindings stay open.
+//! nominal/text metadata startup. Raw memory, images and helpers stay open.
 use super::super::Summary;
 use crate::hir::Type;
 use serde::Deserialize;
@@ -35,6 +35,7 @@ struct Global {
     symbol: String,
     kind: String,
     initializer_digest: String,
+    native_initializer: Option<String>,
     references: Vec<String>,
 }
 #[derive(Debug, Deserialize)]
@@ -86,7 +87,7 @@ pub(crate) struct Inventory {
     summaries: Vec<Summary>,
     known_allocations: usize,
     table_declarations: HashMap<String, u32>,
-    subtype_startups: HashSet<String>,
+    metadata_startups: HashSet<String>,
 }
 fn digest(text: &str) -> bool {
     text.len() == 64
@@ -154,6 +155,9 @@ impl Inventory {
                 return None;
             }
             summaries.push(Summary::from_string(std::str::from_utf8(&bytes).ok()?).ok()?);
+        }
+        for global in value["inventory"]["globals"].as_array()? {
+            global.as_object()?.get("native_initializer")?;
         }
         let functions = value["inventory"]["functions"].as_array()?;
         for record in functions {
@@ -267,6 +271,7 @@ impl Inventory {
         let mut allocations: Vec<Option<BTreeSet<u32>>> = vec![None; edges.len()];
         let mut pure = vec![false; edges.len()];
         let mut byte_keys = HashSet::new();
+        let mut byte_contents = HashMap::new();
         let mut globals = HashSet::new();
         let mut global_counts = HashMap::new();
         for g in &raw.globals {
@@ -277,6 +282,20 @@ impl Inventory {
             {
                 return None;
             }
+            let content = match g.kind.as_str() {
+                "native_bytes" => {
+                    let initializer = g.native_initializer.as_deref()?;
+                    if blake3::hash(initializer.as_bytes()).to_hex().as_str()
+                        != g.initializer_digest
+                        || super::super::global_name(initializer)?.0 != g.symbol
+                    {
+                        return None;
+                    }
+                    Some(super::closure::native_byte_content(initializer)?)
+                }
+                _ if g.native_initializer.is_none() => None,
+                _ => return None,
+            };
             let local = format!("{}#{}", g.module, g.symbol);
             let key = if declared[g.module.as_str()].contains_key(local.as_str()) {
                 local
@@ -290,15 +309,21 @@ impl Inventory {
             if g.kind == "native_bytes"
                 && g.references.is_empty()
                 && key.contains('#')
+                && g.native_initializer
+                    .as_deref()
+                    .and_then(super::super::global_name)
+                    .is_some_and(|(_, local, _)| local)
                 && declared[g.module.as_str()].get(key.as_str()) == Some(&1)
                 && !by_key.contains_key(key.as_str())
             {
+                byte_contents.insert(key.clone(), content?);
                 byte_keys.insert(key);
             }
         }
         // Declarations and interposable globals may repeat across SDK modules.
         // They remain opaque; only a uniquely defined local byte constant is safe.
         byte_keys.retain(|key| global_counts.get(key) == Some(&1));
+        byte_contents.retain(|key, _| byte_keys.contains(key));
         for component in crate::optimize::scc::components(&edges) {
             let members: HashSet<_> = component.iter().copied().collect();
             let mut known = true;
@@ -344,7 +369,8 @@ impl Inventory {
                 }
             }
         }
-        let subtype_startups = registry::subtype_startups(&raw.functions, &summaries, &by_key);
+        let metadata_startups =
+            registry::metadata_startups(&raw.functions, &summaries, &by_key, &byte_contents);
         let known_allocations = allocations.iter().filter(|c| c.is_some()).count();
         let mut facts = HashMap::new();
         for (index, f) in raw.functions.into_iter().enumerate() {
@@ -372,7 +398,7 @@ impl Inventory {
             summaries,
             known_allocations,
             table_declarations,
-            subtype_startups,
+            metadata_startups,
         })
     }
 
@@ -479,7 +505,7 @@ impl Inventory {
     }
     pub(crate) fn known_node(&self, key: &str) -> bool {
         self.bytes.contains(key)
-            || self.subtype_startups.contains(key)
+            || self.metadata_startups.contains(key)
             || self.facts.get(key).is_some_and(|f| f.pure)
             || matches!(key, "llvm.expect.i1" | "llvm.expect.i64")
                 && !self.definitions.contains(key)
@@ -497,12 +523,12 @@ impl Inventory {
     }
     /// Startup-only metadata publication is not an ordinary pure Dart call.
     pub(crate) fn entry(&self, symbol: &str) -> bool {
-        self.call(symbol, &[], Type::Void) || self.subtype_startups.contains(symbol)
+        self.call(symbol, &[], Type::Void) || self.metadata_startups.contains(symbol)
     }
-    /// Discharge only edges owned by certified subtype startup bodies. Other
+    /// Discharge only edges owned by certified metadata startup bodies. Other
     /// uses of the runtime API remain visible and require their own proof.
     pub(crate) fn class_proof_summaries(&self) -> std::borrow::Cow<'_, [Summary]> {
-        if self.subtype_startups.is_empty() {
+        if self.metadata_startups.is_empty() {
             return std::borrow::Cow::Borrowed(&self.summaries);
         }
         let mut summaries = self.summaries.clone();
@@ -511,11 +537,22 @@ impl Inventory {
                 if summary
                     .names
                     .get(definition.name as usize)
-                    .is_some_and(|symbol| self.subtype_startups.contains(symbol))
+                    .is_some_and(|symbol| self.bytes.contains(symbol))
+                {
+                    // A checked byte-array initializer cannot contain address
+                    // edges. Legacy summaries may cite an @ inside its text.
+                    definition.refs.clear();
+                }
+                if summary
+                    .names
+                    .get(definition.name as usize)
+                    .is_some_and(|symbol| self.metadata_startups.contains(symbol))
                 {
                     definition.refs.retain(|node| {
-                        summary.names.get(*node as usize).map(String::as_str)
-                            != Some(registry::SUBCLASS)
+                        !summary
+                            .names
+                            .get(*node as usize)
+                            .is_some_and(|name| registry::metadata_api(name))
                     });
                 }
             }

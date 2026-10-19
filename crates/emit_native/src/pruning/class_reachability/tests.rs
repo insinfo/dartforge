@@ -1444,9 +1444,9 @@ fn subtype_startup_certificate_does_not_authorize_ordinary_calls_or_unowned_edge
 
 #[test]
 #[ignore = "requires Clang and the native runtime"]
-fn compiled_subtype_startup_preserves_nominal_queries_with_gc_stress() {
+fn compiled_metadata_startup_preserves_nominal_queries_with_gc_stress() {
     std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
-        let ir = "; df.cone-class 900\n; df.cone-class 901\n; df.cone-class 902\n; df.cone-parent 900 901\n; df.cone-parent 901 902\ndefine void @df.register.dart$3atest() {\n call void @dartforge_register_subclass(i64 900, i64 901)\n call void @dartforge_register_subclass(i64 901, i64 902)\n ret void\n}\n";
+        let ir = "; df.cone-class 900\n; df.cone-class 901\n; df.cone-class 902\n; df.cone-parent 900 901\n; df.cone-parent 901 902\n@df.test.class_name = private constant [6 x i8] c\"Na\\C3\\AFve\"\n@df.test.argument_name = private constant [5 x i8] c\"a\\22\\5C\\40;\"\ndefine void @df.register.dart$3atest() {\n call void @dartforge_register_class_name(i64 900, ptr @df.test.class_name, i64 6)\n call void @dartforge_register_argument_name(ptr @df.test.argument_name, i64 5)\n call void @dartforge_register_subclass(i64 900, i64 901)\n call void @dartforge_register_subclass(i64 901, i64 902)\n ret void\n}\n";
         let (directory, summary, inventory) = checked_scalar_sdk(ir);
         for closed in [false, true] {
             let mut module = fixture();

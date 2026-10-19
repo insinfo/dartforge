@@ -1,0 +1,19 @@
+{
+  "old": {
+    "path": "target/native_cache/sdk/b07257e111779556f2bedde2e984fe73/allocation-inventory.json",
+    "bytes": 66874532,
+    "schema": 2,
+    "sha256": "eb587bfaa15bb7543aa65e5e6e89cb1b2924d05c143acfa01ceb5afd07265286"
+  },
+  "new": {
+    "path": "target/native_cache/sdk/ba0e551ee36816845a2b39cd67a36aa8/allocation-inventory.json",
+    "bytes": 67760874,
+    "schema": 3,
+    "sha256": "20b4958cd4ff4174124ef0420ed9638a592d8a189f4b7d854d1130588d8ce3b8"
+  },
+  "startup_body_count": 15,
+  "startup_bodies_unchanged": true,
+  "new_native_initializer_count": 7753,
+  "module_ir_digests_unchanged": true,
+  "cache_growth_percent": 1.3253804901393496
+}

@@ -590,13 +590,15 @@ multilinha pode ter comentário ao lado. Uma regressão com IR válido no LLVM
 reproduziu o coletor ignorando a alocação real e publicando fechamento vazio.
 O corpo completo agora conserva o CID alocado, inclusive nas funções que o
 chamam, e o consumidor recusa a importação como fechamento vazio. O formato
-continua no schema 2; a mudança no coletor participa do fingerprint do compilador
-e invalida o cache SDK produzido pelo código anterior.
+não exigiu uma mudança de schema; o coletor participa do fingerprint do compilador
+e invalida o cache SDK produzido pelo código anterior. O schema atual é descrito
+abaixo.
 
 ### Startup nominal com certificado separado
 
 A prova de classes aceita como raiz um startup `void ()` cujo corpo completo
-publica somente relações literais por `dartforge_register_subclass`. A função
+publica relações literais por `dartforge_register_subclass` e/ou os metadados
+textuais certificados abaixo. A função
 deve ter o símbolo de registro do módulo, definição única e não interponível,
 sem alocação direta, dependências executáveis ou obrigações adicionais. Cada
 chamada exige a ABI exata, CIDs nominais válidos e não ambíguos, o filho declarado
@@ -609,11 +611,38 @@ Isso não torna a função uma importação pura. Chamadas comuns ao startup e u
 diretos da API continuam sem autorização. Depois da reconciliação do snapshot,
 uma cópia temporária do grafo elimina somente as arestas nativas pertencentes
 aos startups certificados; os outros usuários da API permanecem visíveis. Os
-resumos originais, os corpos executáveis e o formato do inventário não mudam.
+resumos originais e os corpos executáveis não mudam.
 Sem candidatos certificados, a prova reutiliza os resumos verificados sem cópia.
 
-Registros de nomes de classes, argumentos, tabelas, imagens estáticas e helpers
-ainda exigem contratos próprios. Os startups completos do SDK real continuam
+Registros de tabelas, imagens estáticas e helpers ainda exigem contratos próprios.
+Os startups completos do SDK real continuam
 recusados; este certificado não conclui a poda do explorador. A regressão
 compilada conserva consultas nominais transitivas e inversas com registro amplo
 e certificado, em execução normal e sob estresse de GC.
+
+### Metadados textuais e inicializadores no schema 3
+
+O inventário conserva `native_initializer` nas constantes de bytes, vinculado
+ao digest da linha original; nos demais globais o campo é explicitamente nulo.
+O leitor verifica digest, símbolo, propriedade local e inicializador literal
+imutável. O decodificador confere o tamanho do array, escapes LLVM hexadecimais,
+aspas, comentários fora de strings e alinhamento simples; formas não suportadas
+continuam sem prova. Arrays gerenciados e tabelas de ponteiros não são textos.
+Snapshots dos schemas anteriores precisam ser reconstruídos.
+
+O certificado de entrada admite `dartforge_register_class_name` para CIDs
+nominais locais válidos e `dartforge_register_argument_name` para nomes. As
+chamadas exigem ABI exata, referência direta a uma constante privada única do
+mesmo módulo, comprimento igual ao array completo e UTF-8 válido. Não são aceitos
+ponteiros deslocados/GEP, regiões externas, comprimentos negativos/inexatos,
+UTF-8 inválido ou outros efeitos nativos. Registros locais conflitantes de nome
+para o mesmo CID são recusados.
+
+Essas APIs copiam texto para mapas nativos, sem criar objetos Dart ou ativar
+tabelas de classes. O teste do runtime confere os bytes UTF-8 e a estabilidade
+do contador de alocações Dart. O teste compilado executa startup misto de nomes
+e relações nominais, amplo/certificado, normal/com GC sob estresse. A função
+continua sem autorização como chamada comum e as APIs não entram na lista
+global de runtime coberto. O grafo temporário conserva somente referências reais
+dos bytes literais, descartando citações espúrias de `@` dentro de seus textos;
+o snapshot original é preservado.

@@ -2,6 +2,7 @@ use super::*;
 
 const MODULE: &str = "dart:test";
 const LEAF: &str = "df.dart$3atest..leaf";
+const NAME_STARTUP: &str = "; df.cone-class 900\n; df.cone-class 901\n; df.cone-parent 900 901\n@cls = private constant [6 x i8] c\"Na\\C3\\AFve\"\n@arg = private constant [5 x i8] c\"a\\22\\5C\\40;\"\ndefine void @df.register.dart$3atest() {\n call void @dartforge_register_class_name(i64 900, ptr @cls, i64 6)\n call void @dartforge_register_subclass(i64 900, i64 901)\n call void @dartforge_register_argument_name(ptr @arg, i64 5)\n ret void\n}\n";
 const SUBTYPE_STARTUP: &str = "; df.cone-class 900\n; df.cone-class 901\n; df.cone-parent 900 901\ndefine void @df.register.dart$3atest() {\n call void @dartforge_register_subclass(i64 900, i64 901)\n ret void\n}\n";
 fn fixtures(ir: &str) -> (tempfile::TempDir, Vec<String>, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
@@ -27,6 +28,130 @@ fn fixtures(ir: &str) -> (tempfile::TempDir, Vec<String>, std::path::PathBuf) {
     .unwrap();
     (dir, names, runtime)
 }
+#[test]
+fn exact_private_utf8_names_extend_the_entry_only_metadata_domain() {
+    let (dir, names, runtime) = fixtures(NAME_STARTUP);
+    let inventory = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
+    assert!(inventory.entry("df.register.dart$3atest"));
+    assert!(!inventory.call("df.register.dart$3atest", &[], Type::Void));
+    for symbol in [
+        "dartforge_register_class_name",
+        "dartforge_register_argument_name",
+    ] {
+        assert!(!inventory.known_node(symbol));
+        assert!(!inventory.call(symbol, &[], Type::Void));
+    }
+}
+
+#[test]
+fn text_metadata_startups_do_not_require_a_subtype_call() {
+    for api in [
+        "dartforge_register_class_name",
+        "dartforge_register_argument_name",
+    ] {
+        let ir = NAME_STARTUP
+            .lines()
+            .filter(|line| !line.contains("call void @dartforge_register_") || line.contains(api))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let (dir, names, runtime) = fixtures(&ir);
+        let inventory = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
+        assert!(inventory.entry("df.register.dart$3atest"), "{api}");
+    }
+}
+
+#[test]
+fn literal_at_signs_do_not_publish_address_edges_from_name_bytes() {
+    let ir = NAME_STARTUP.replace("a\\22\\5C\\40;", "a@b;c");
+    let (dir, names, runtime) = fixtures(&ir);
+    let inventory = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
+    assert!(inventory.entry("df.register.dart$3atest"));
+    let refs = |summary: &Summary| {
+        summary
+            .definitions
+            .iter()
+            .find(|d| summary.names[d.name as usize] == "dart:test#arg")
+            .unwrap()
+            .refs
+            .clone()
+    };
+    assert!(
+        !refs(&inventory.summaries[0]).is_empty(),
+        "legacy summary observes a literal @"
+    );
+    assert!(refs(&inventory.class_proof_summaries()[0]).is_empty());
+    assert!(
+        !refs(&inventory.summaries[0]).is_empty(),
+        "original snapshot stays intact"
+    );
+}
+
+#[test]
+fn metadata_names_require_exact_lengths_local_literals_and_valid_utf8() {
+    for variant in 0..10 {
+        let ir = match variant {
+            0 => NAME_STARTUP.replace("ptr @cls, i64 6", "ptr @cls, i64 5"),
+            1 => NAME_STARTUP.replace("ptr @arg, i64 5", "ptr @arg, i64 6"),
+            2 => NAME_STARTUP.replace("ptr @arg, i64 5", "ptr @arg, i64 -1"),
+            3 => NAME_STARTUP.replace("Na\\C3\\AFve", "Na\\FF\\FEve"),
+            4 => NAME_STARTUP.replace("private constant", "constant"),
+            5 => NAME_STARTUP.replace("ptr @cls,", "ptr null,"),
+            6 => NAME_STARTUP.replace(
+                "ptr @cls,",
+                "ptr getelementptr ([6 x i8], ptr @cls, i64 0, i64 1),",
+            ),
+            7 => NAME_STARTUP.replace("i64 900, ptr @cls", "i64 999, ptr @cls"),
+            8 => format!("{NAME_STARTUP}@cls = private constant [6 x i8] c\"Other!\"\n"),
+            _ => NAME_STARTUP.replace(
+                " ret void",
+                " call void @dartforge_register_helper(ptr @arg, i64 5, ptr null)\n ret void",
+            ),
+        };
+        let (dir, names, runtime) = fixtures(&ir);
+        let inventory = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
+        assert!(
+            !inventory.entry("df.register.dart$3atest"),
+            "variant {variant}"
+        );
+    }
+}
+
+#[test]
+fn native_initializer_records_are_rechecked_after_integrity_validation() {
+    for variant in 0..5 {
+        let (dir, names, runtime) = fixtures(NAME_STARTUP);
+        rewrite(dir.path(), |value| {
+            let record = &mut value["inventory"]["globals"][0];
+            match variant {
+                0 => {
+                    record["native_initializer"] =
+                        serde_json::json!("@cls = private constant [6 x i8] c\"Other!\"")
+                }
+                1 => record["native_initializer"] = serde_json::Value::Null,
+                2 => {
+                    record.as_object_mut().unwrap().remove("native_initializer");
+                }
+                3 => record["symbol"] = serde_json::json!("different"),
+                _ => {
+                    let initializer = "@cls = private constant [6 x i8] c\"short\"";
+                    record["native_initializer"] = serde_json::json!(initializer);
+                    record["initializer_digest"] = serde_json::json!(
+                        blake3::hash(initializer.as_bytes()).to_hex().to_string()
+                    );
+                }
+            }
+        });
+        assert!(super::super::publication::verify(
+            dir.path(),
+            "test-key",
+            true,
+            &names,
+            &runtime
+        ));
+        assert!(Inventory::load(dir.path(), "test-key", true, &names, &runtime).is_none());
+    }
+}
+
 #[test]
 fn nominal_startup_certificate_is_entry_only_and_owns_its_graph_edges() {
     let ir = format!(

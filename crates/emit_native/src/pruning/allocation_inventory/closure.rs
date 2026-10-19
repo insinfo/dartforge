@@ -170,20 +170,55 @@ pub(super) fn arguments_match(result: &str, parameters: &[String], values: &[Str
 fn global_references(text: &str) -> Vec<String> {
     super::super::cited(text).map(str::to_owned).collect()
 }
-fn native_bytes(line: &str) -> bool {
-    // Classify the actual initializer, not a suggestive name or comment. Static
-    // managed-image blocks and function-pointer tables remain separate globals.
-    let line = line.split(';').next().unwrap_or_default();
-    let Some((_, value)) = line.split_once(" = ") else { return false };
+/// Decode the exact immutable byte array, never a name or comment hint.
+/// Unsupported initializer attributes remain an open obligation.
+pub(super) fn native_byte_content(line: &str) -> Option<Vec<u8>> {
+    let line = uncomment(line)?;
+    let (_, value) = line.split_once(" = ")?;
     let mut value = value.trim();
     loop {
-        let Some((word, tail)) = value.split_once(' ') else { return false };
-        if matches!(word, "private" | "internal" | "unnamed_addr" | "local_unnamed_addr" | "dso_local") { value = tail.trim_start(); }
-        else { break }
+        let (word, tail) = value.split_once(' ')?;
+        if matches!(
+            word,
+            "private" | "internal" | "unnamed_addr" | "local_unnamed_addr" | "dso_local"
+        ) {
+            value = tail.trim_start();
+        } else {
+            break;
+        }
     }
-    let Some(array) = value.strip_prefix("constant [") else { return false };
-    let Some((length, rest)) = array.split_once(" x i8] c\"") else { return false };
-    length.parse::<usize>().is_ok() && rest.contains('"') && !rest.contains('@')
+    let array = value.strip_prefix("constant [")?;
+    let (length, literal) = array.split_once(" x i8] ")?;
+    let length = length.parse::<usize>().ok()?;
+    let quoted = literal.strip_prefix('c')?;
+    if !quoted.starts_with('"') {
+        return None;
+    }
+    let end = quoted_end(quoted.as_bytes(), 0)?;
+    let tail = quoted[end..].trim();
+    if !tail.is_empty() {
+        let alignment = tail.strip_prefix(", align ")?.parse::<u64>().ok()?;
+        if !alignment.is_power_of_two() {
+            return None;
+        }
+    }
+    let encoded = &quoted.as_bytes()[1..end - 1];
+    let mut decoded = Vec::new();
+    let mut index = 0;
+    while index < encoded.len() {
+        if encoded[index] == b'\\' {
+            let hex = std::str::from_utf8(encoded.get(index + 1..index + 3)?).ok()?;
+            decoded.push(u8::from_str_radix(hex, 16).ok()?);
+            index += 3;
+        } else {
+            decoded.push(encoded[index]);
+            index += 1;
+        }
+    }
+    (decoded.len() == length).then_some(decoded)
+}
+fn native_bytes(line: &str) -> bool {
+    native_byte_content(line).is_some()
 }
 
 fn analyze_body(definition: &mut Definition, body: &[&str], byte_globals: &BTreeSet<String>) {
@@ -250,8 +285,10 @@ pub(crate) fn audit(modules: &[(&str, &str)]) -> Bundle {
             .filter_map(|line| global_references(line).into_iter().next()).collect();
         for line in ir.lines().filter(|line| line.starts_with('@') && line.contains(" = ")) {
             let name = global_references(line).into_iter().next().unwrap_or_default();
-            globals.push(json!({"module":module,"symbol":name,"kind":if native_bytes(line) {"native_bytes"} else {"unclassified_initializer"},
-                "initializer_digest":blake3::hash(line.as_bytes()).to_hex().to_string(),"references":global_references(line).into_iter().skip(1).collect::<Vec<_>>()}));
+            let bytes = native_bytes(line);
+            globals.push(json!({"module":module,"symbol":name,"kind":if bytes {"native_bytes"} else {"unclassified_initializer"},
+                "native_initializer": bytes.then_some(line),
+                "initializer_digest":blake3::hash(line.as_bytes()).to_hex().to_string(),"references":if bytes {vec![]} else {global_references(line).into_iter().skip(1).collect::<Vec<_>>()}}));
         }
         let mut lines = ir.lines();
         while let Some(header) = lines.next() {

@@ -6,7 +6,7 @@
 use super::closure::Bundle;
 use serde_json::{Value, json};
 use std::path::Path;
-pub(super) const SCHEMA: u64 = 2;
+pub(super) const SCHEMA: u64 = 3;
 const FILE: &str = "allocation-inventory.json";
 const READY: &str = "allocation-inventory.ready";
 fn digest(path: &Path) -> Option<String> {

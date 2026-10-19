@@ -1,16 +1,49 @@
-//! Entry-only certificates for nominal subtype registration.
+//! Entry-only certificates for nominal and textual metadata registration.
 //! This domain changes metadata, not heap class activation or helper bindings.
 use super::{Function, Summary};
 use std::collections::{HashMap, HashSet};
 
 pub(super) const SUBCLASS: &str = "dartforge_register_subclass";
+const CLASS_NAME: &str = "dartforge_register_class_name";
+const ARGUMENT_NAME: &str = "dartforge_register_argument_name";
+
+pub(super) fn metadata_api(symbol: &str) -> bool {
+    matches!(symbol, SUBCLASS | CLASS_NAME | ARGUMENT_NAME)
+}
+
+fn literal(argument: &str) -> Option<i64> {
+    argument.strip_prefix("i64 ")?.parse().ok()
+}
+
+fn text_constant<'a>(
+    module: &str,
+    pointer: &str,
+    length: &str,
+    bytes: &'a HashMap<String, Vec<u8>>,
+) -> Option<(&'a str, String)> {
+    let symbol = pointer.strip_prefix("ptr @")?;
+    if symbol.is_empty()
+        || !symbol
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_$.-".contains(&b))
+    {
+        return None;
+    }
+    let key = format!("{module}#{symbol}");
+    let content = bytes.get(&key)?;
+    if usize::try_from(literal(length)?).ok()? != content.len() {
+        return None;
+    }
+    Some((std::str::from_utf8(content).ok()?, key))
+}
 
 /// Accept only complete startup bodies whose sole external effect publishes
-/// literal edges already present in the reconciled nominal image.
-pub(super) fn subtype_startups(
+/// literal nominal edges and bounds-checked immutable UTF-8 metadata.
+pub(super) fn metadata_startups(
     functions: &[Function],
     summaries: &[Summary],
     by_key: &HashMap<String, Vec<usize>>,
+    byte_contents: &HashMap<String, Vec<u8>>,
 ) -> HashSet<String> {
     let nominal: HashSet<_> = summaries
         .iter()
@@ -49,29 +82,33 @@ pub(super) fn subtype_startups(
             || !function.direct_classes.is_empty()
             || function.calls.is_empty()
             || !function.dependencies.is_empty()
-            || function.unknown_obligations
-                != [format!("image_registry_or_helper_binding:{SUBCLASS}")]
             || function.exposure_obligations != ["image_registry_or_helper_binding"]
-            || by_key.contains_key(SUBCLASS)
-            || by_key.contains_key(&format!("{}#{SUBCLASS}", function.module))
+            || function.calls.iter().any(|call| {
+                !metadata_api(&call.symbol)
+                    || by_key.contains_key(&call.symbol)
+                    || by_key.contains_key(&format!("{}#{}", function.module, call.symbol))
+            })
         {
             continue;
         }
-        let definitions: Vec<_> = summary
-            .definitions
+        let expected_unknown: std::collections::BTreeSet<_> = function
+            .calls
             .iter()
-            .filter(|d| summary.names.get(d.name as usize) == Some(&function.key))
+            .map(|call| format!("image_registry_or_helper_binding:{}", call.symbol))
             .collect();
-        if definitions.len() != 1
-            || !definitions[0].calls.is_empty()
-            || definitions[0].refs.is_empty()
-            || definitions[0]
-                .refs
-                .iter()
-                .any(|node| summary.names.get(*node as usize).map(String::as_str) != Some(SUBCLASS))
+        if function
+            .unknown_obligations
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            != expected_unknown.iter().collect()
         {
             continue;
         }
+        let mut covered_names: HashSet<String> = function
+            .calls
+            .iter()
+            .map(|call| call.symbol.clone())
+            .collect();
         let valid_cid = |cid: i64| {
             (0..=i64::from(i32::MAX)).contains(&cid)
                 && nominal.contains(&cid)
@@ -84,26 +121,82 @@ pub(super) fn subtype_startups(
                                 .all(|s| crate::pruning::universal_parent::summarized(s))
                 })
         };
+        let mut class_names: HashMap<i64, String> = HashMap::new();
         if !function.calls.iter().all(|call| {
-            if call.symbol != SUBCLASS
-                || call.abi.result != "void"
-                || call.abi.parameters != ["i64", "i64"]
-                || call.arguments.len() != 2
-            {
+            if call.abi.result != "void" {
                 return false;
             }
-            let literal = |argument: &str| argument.strip_prefix("i64 ")?.parse::<i64>().ok();
-            let Some(child) = literal(&call.arguments[0]) else {
-                return false;
-            };
-            let Some(parent) = literal(&call.arguments[1]) else {
-                return false;
-            };
-            valid_cid(child)
-                && valid_cid(parent)
-                && summary.nominal_classes.contains(&child)
-                && summary.parent_edges.contains(&(child, parent))
+            match call.symbol.as_str() {
+                SUBCLASS if call.abi.parameters == ["i64", "i64"] && call.arguments.len() == 2 => {
+                    let Some(child) = literal(&call.arguments[0]) else {
+                        return false;
+                    };
+                    let Some(parent) = literal(&call.arguments[1]) else {
+                        return false;
+                    };
+                    valid_cid(child)
+                        && valid_cid(parent)
+                        && summary.nominal_classes.contains(&child)
+                        && summary.parent_edges.contains(&(child, parent))
+                }
+                CLASS_NAME
+                    if call.abi.parameters == ["i64", "ptr", "i64"]
+                        && call.arguments.len() == 3 =>
+                {
+                    let Some(cid) = literal(&call.arguments[0]) else {
+                        return false;
+                    };
+                    if !valid_cid(cid) || !summary.nominal_classes.contains(&cid) {
+                        return false;
+                    }
+                    let Some((text, key)) = text_constant(
+                        &function.module,
+                        &call.arguments[1],
+                        &call.arguments[2],
+                        byte_contents,
+                    ) else {
+                        return false;
+                    };
+                    covered_names.insert(key);
+                    match class_names.insert(cid, text.into()) {
+                        Some(previous) => previous == text,
+                        None => true,
+                    }
+                }
+                ARGUMENT_NAME
+                    if call.abi.parameters == ["ptr", "i64"] && call.arguments.len() == 2 =>
+                {
+                    let Some((_, key)) = text_constant(
+                        &function.module,
+                        &call.arguments[0],
+                        &call.arguments[1],
+                        byte_contents,
+                    ) else {
+                        return false;
+                    };
+                    covered_names.insert(key);
+                    true
+                }
+                _ => false,
+            }
         }) {
+            continue;
+        }
+        let definitions: Vec<_> = summary
+            .definitions
+            .iter()
+            .filter(|d| summary.names.get(d.name as usize) == Some(&function.key))
+            .collect();
+        if definitions.len() != 1
+            || !definitions[0].calls.is_empty()
+            || definitions[0].refs.is_empty()
+            || definitions[0].refs.iter().any(|node| {
+                summary
+                    .names
+                    .get(*node as usize)
+                    .is_none_or(|name| !covered_names.contains(name))
+            })
+        {
             continue;
         }
         accepted.insert(function.key.clone());
@@ -124,7 +217,8 @@ mod tests {
         for (index, f) in raw.functions.iter().enumerate() {
             keys.entry(f.key.clone()).or_default().push(index);
         }
-        subtype_startups(&raw.functions, &summaries, &keys).contains("df.register.dart$3atest")
+        metadata_startups(&raw.functions, &summaries, &keys, &HashMap::new())
+            .contains("df.register.dart$3atest")
     }
 
     #[test]

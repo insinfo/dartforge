@@ -1,0 +1,26 @@
+{
+  "inventory.log": {
+    "original_sha256": "720a2be9bdb2b0738620518a8cb6a048393f08e019db7b4198b1a8dea549b620",
+    "stored_sha256": "8b314ac1b8726b25bda69e399f4fa0f68b092b1ad0e284db2505ebfbcdd7a743"
+  },
+  "class-proof.log": {
+    "original_sha256": "4553394e0e6a2c819427ec03db50ccabaf9a9e8376e7a9336c68c0e261784839",
+    "stored_sha256": "2f873164c35a09f8bf091b8f90878ce31a6e767c314fed7eaeada6a611917717"
+  },
+  "pruning.log": {
+    "original_sha256": "a3c8a125faefe0c08fec52a1dd89b4dc5cf8b4eda0354343b461d7425d4cf71b",
+    "stored_sha256": "152400f7e1d94155658420a669737d5d4fc0b13b9e0de1aad0f7ed47d1c3039f"
+  },
+  "runtime.log": {
+    "original_sha256": "64078a49171406f0eceeb417ad714a4e675e04ce26d43f7fe75f588c3dc48fd0",
+    "stored_sha256": "001249c42e0cc0dce1e142f40060ce6a7e91d40c0e57b925be82308a496d09a5"
+  },
+  "clippy.log": {
+    "original_sha256": "c895c5bac9a08bd9ec9018e8ba7c07927200d68a83a47b8fb71c3e1b872ab85d",
+    "stored_sha256": "c895c5bac9a08bd9ec9018e8ba7c07927200d68a83a47b8fb71c3e1b872ab85d"
+  },
+  "doc.log": {
+    "original_sha256": "d38c9ac3afe9932e36918ff2be10bb20735bc30071abbefb806525bc3e11bf06",
+    "stored_sha256": "d38c9ac3afe9932e36918ff2be10bb20735bc30071abbefb806525bc3e11bf06"
+  }
+}
