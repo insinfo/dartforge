@@ -319,13 +319,11 @@ impl<'a> BodyInferrer<'a> {
                         }
                     }
                     let s = self.interner.resolve(name);
-                    if let Some(d) = s.strip_prefix('$') {
-                        if let Ok(i) = d.parse::<usize>() {
-                            if i >= 1 && i <= positional.len() {
+                    if let Some(d) = s.strip_prefix('$')
+                        && let Ok(i) = d.parse::<usize>()
+                            && i >= 1 && i <= positional.len() {
                                 return Some(InterfaceMember { resolved: Resolved::Dynamic, ty: positional[i - 1], method: false, function: None, of_extension: false });
                             }
-                        }
-                    }
                 }
                 let r = self.core.record;
                 self.interface_member(r, name, setter)
@@ -883,8 +881,8 @@ impl<'a> BodyInferrer<'a> {
     /// enum constants and constructor tear-offs.
     pub(crate) fn static_member(&mut self, cls: ClassId, name: SymbolId, setter: bool) -> Option<InterfaceMember> {
         let c = self.program.class(cls);
-        if !setter {
-            if let Some(&v) = c.enum_constants.iter().find(|&&v| self.program.variable(v).name == name) {
+        if !setter
+            && let Some(&v) = c.enum_constants.iter().find(|&&v| self.program.variable(v).name == name) {
                 // The constant's type (`E<int>` in `a<int>()`), not `E<T>`.
                 let t = self.variable_type(v);
                 return Some(InterfaceMember {
@@ -895,10 +893,9 @@ impl<'a> BodyInferrer<'a> {
                     of_extension: false,
                 });
             }
-        }
         let key = if setter { self.setter_key(name) } else { Some(name) };
-        if let Some(key) = key {
-            if let Some(&f) = c.static_members.get(&key) {
+        if let Some(key) = key
+            && let Some(&f) = c.static_members.get(&key) {
                 let fe = self.program.function(f);
                 let member = match (fe.kind, fe.variable) {
                     (FunctionKind::ImplicitAccessor, Some(v)) => MemberRef::Variable(v),
@@ -913,7 +910,6 @@ impl<'a> BodyInferrer<'a> {
                     of_extension: false,
                 });
             }
-        }
         None
     }
 

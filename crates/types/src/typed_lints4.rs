@@ -302,23 +302,23 @@ fn the_collections(
 }
 
 /// `isTypeAcceptableWhenExpectingVoid`.
-fn accepted_as_void(program: &Program, table: &TypeTable, core: &CoreTypes, t: TypeId) -> bool {
+fn accepted_as_void(table: &TypeTable, core: &CoreTypes, t: TypeId) -> bool {
     match table.get(t) {
         Type::Void | Type::Null | Type::Never => true,
         Type::Interface { class, args, .. } if Some(*class) == core.future_class => {
-            args.first().is_some_and(|x| accepted_as_void(program, table, core, *x))
+            args.first().is_some_and(|x| accepted_as_void(table, core, *x))
         }
         _ => false,
     }
 }
 
 /// `isTypeAcceptableWhenExpectingFutureOrVoid`.
-fn accepted_as_future_or_void(program: &Program, table: &TypeTable, core: &CoreTypes, t: TypeId) -> bool {
+fn accepted_as_future_or_void(table: &TypeTable, core: &CoreTypes, t: TypeId) -> bool {
     match table.get(t) {
         Type::Dynamic | Type::FutureOr { .. } => true,
-        _ if accepted_as_void(program, table, core, t) => true,
+        _ if accepted_as_void(table, core, t) => true,
         Type::Interface { class, args, .. } if Some(*class) == core.future_class => {
-            args.first().is_some_and(|x| accepted_as_future_or_void(program, table, core, *x))
+            args.first().is_some_and(|x| accepted_as_future_or_void(table, core, *x))
         }
         _ => false,
     }
@@ -326,7 +326,7 @@ fn accepted_as_future_or_void(program: &Program, table: &TypeTable, core: &CoreT
 
 /// `void_checks`'s `_check`: `true` reports. `block_closure`: the checked
 /// node is a `FunctionExpression` whose body is not an expression body.
-fn check_void(program: &Program, table: &TypeTable, core: &CoreTypes, expected: TypeId, t: TypeId, is_return: bool, block_closure: bool) -> bool {
+fn check_void(table: &TypeTable, core: &CoreTypes, expected: TypeId, t: TypeId, is_return: bool, block_closure: bool) -> bool {
     if core.is_unknown(table, expected) || core.is_unknown(table, t) {
         return false;
     }
@@ -334,11 +334,11 @@ fn check_void(program: &Program, table: &TypeTable, core: &CoreTypes, expected: 
     if expected_void && !matches!(table.get(t), Type::Dynamic) && is_return {
         return false;
     }
-    if expected_void && !accepted_as_void(program, table, core, t) {
+    if expected_void && !accepted_as_void(table, core, t) {
         return true;
     }
     if let Type::FutureOr { arg, .. } = table.get(expected) {
-        if matches!(table.get(*arg), Type::Void) && !accepted_as_future_or_void(program, table, core, t) {
+        if matches!(table.get(*arg), Type::Void) && !accepted_as_future_or_void(table, core, t) {
             return true;
         }
         return false;
@@ -349,7 +349,7 @@ fn check_void(program: &Program, table: &TypeTable, core: &CoreTypes, expected: 
     if block_closure
         && let (Type::Function { ret: r1, .. }, Type::Function { ret: r2, .. }) = (table.get(expected), table.get(t))
     {
-        return check_void(program, table, core, *r1, *r2, is_return, block_closure);
+        return check_void(table, core, *r1, *r2, is_return, block_closure);
     }
     false
 }
@@ -369,7 +369,7 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
         let id = ExprId(k as u32);
         if let ExprKind::Assign { value, .. } = &e.kind
             && let (Some(&expected), Some(t)) = (body.write_types.get(&id), ty(*value))
-            && check_void(program, table, core, expected, t, false, block_closure(*value))
+            && check_void(table, core, expected, t, false, block_closure(*value))
         {
             report(e.span, out);
         }
@@ -436,7 +436,7 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
             continue;
         }
         if let (Some(expected), Some(t)) = (function_return(f), ty(*v))
-            && check_void(program, table, core, expected, t, true, block_closure(*v))
+            && check_void(table, core, expected, t, true, block_closure(*v))
         {
             report(s.span, out);
         }
@@ -457,7 +457,7 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
         };
         for arg in args_list.args.iter() {
             if let (Some(&p), Some(t)) = (body.parameter_types.get(&arg.value), ty(arg.value))
-                && check_void(program, table, core, p, t, false, block_closure(arg.value))
+                && check_void(table, core, p, t, false, block_closure(arg.value))
             {
                 report(a.expr(arg.value).span, out);
             }
@@ -501,7 +501,7 @@ fn void_checks(program: &Program, table: &mut TypeTable, core: &CoreTypes, outli
     for p in assigned {
         let (Some(&the_value), Some(&decl)) = (body.matched_types.get(&p), body.pattern_declarations.get(&p)) else { continue };
         let Some(expected) = body.local_type(decl) else { continue };
-        if check_void(program, table, core, expected, the_value, false, false) {
+        if check_void(table, core, expected, the_value, false, false) {
             report(a.pattern(p).span, out);
         }
     }

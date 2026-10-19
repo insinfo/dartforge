@@ -276,11 +276,10 @@ impl<'a> G<'_, 'a> {
             let mut deps = Vec::new();
             if let Some(k) = var.class {
                 let the_key = cst.constructor.map(|n| n.sym).or_else(|| m.interner.lookup(""));
-                if let Some(g) = the_key.and_then(|c| program.class(k).constructors.get(&c).copied()) {
-                    if program.function(program.public(g)).const_ {
+                if let Some(g) = the_key.and_then(|c| program.class(k).constructors.get(&c).copied())
+                    && program.function(program.public(g)).const_ {
                         deps.push(Target::Ctor(g));
                     }
-                }
             }
             if let Some(args) = &cst.arguments {
                 deps.extend(self.references(unit, |p| {
@@ -377,15 +376,12 @@ impl<'a> G<'_, 'a> {
         if implicit_super {
             // Without a written `super(...)`/`this(...)`: the superclass's unnamed
             // constructor, if it is `const` and the superclass is not `Object`.
-            if let Some(sup) = declared_superclass(program, cls) {
-                if Some(sup) != m.core.object_class {
-                    if let Some(g) = empty.and_then(|c| program.class(sup).constructors.get(&c).copied()) {
-                        if program.function(program.public(g)).const_ {
+            if let Some(sup) = declared_superclass(program, cls)
+                && Some(sup) != m.core.object_class
+                    && let Some(g) = empty.and_then(|c| program.class(sup).constructors.get(&c).copied())
+                        && program.function(program.public(g)).const_ {
                             deps.push(Target::Ctor(g));
                         }
-                    }
-                }
-            }
         }
         // Every `final`/`const` instance field with an initializer.
         for &v in program.class(cls).fields.iter() {
@@ -914,15 +910,14 @@ impl<'p, 'a> Walk<'p, 'a> {
             // constant with that name, as the verifier reads it.
             PatternKind::Variable { final_: false, var_: false, ty: None, name } if self.patterns_enabled => {
                 let program = self.m.program;
-                if let Some(Element::Variable(v)) = program.lookup_in_unit(self.u, name.sym).and_then(|b| b.getter) {
-                    if program.variable(v).const_ {
+                if let Some(Element::Variable(v)) = program.lookup_in_unit(self.u, name.sym).and_then(|b| b.getter)
+                    && program.variable(v).const_ {
                         if self.references {
                             self.output.push(Target::Var(v));
                         } else if self.the_seen.insert(Target::Var(v)) {
                             self.loose.push(Target::Var(v));
                         }
                     }
-                }
             }
             PatternKind::Relational { value, .. } => {
                 let e = *value;
@@ -1002,34 +997,31 @@ impl<'p, 'a> Walk<'p, 'a> {
             // inference, but with the declaration recorded).
             Some(Resolved::Local(_)) | None => {
                 let offset = m.body.units.get(self.u.0 as usize).and_then(|b| b.local_declaration(e));
-                if let Some(offset) = offset {
-                    if self.est.local_initializer(m, self.u, offset).is_some() {
+                if let Some(offset) = offset
+                    && self.est.local_initializer(m, self.u, offset).is_some() {
                         self.output.push(Target::Local(self.u, offset));
                     }
-                }
                 None
             }
             _ => None,
         };
-        if let Some(v) = v {
-            if program.variable(v).const_ {
+        if let Some(v) = v
+            && program.variable(v).const_ {
                 self.output.push(Target::Var(v));
             }
-        }
     }
 
     /// An instance creation: `is_const` is the node's `isConst` (the written
     /// `const`, or the implicit creation in a constant context).
     fn creation(&mut self, e: ExprId, is_const: bool, in_const: bool, args: &'a ast::Arguments) {
         if self.references {
-            if is_const {
-                if let Some(Resolved::Constructor(f)) = self.m.resolved(self.u, e) {
+            if is_const
+                && let Some(Resolved::Constructor(f)) = self.m.resolved(self.u, e) {
                     let program = self.m.program;
                     if program.function(program.public(*f)).const_ {
                         self.output.push(Target::Ctor(*f));
                     }
                 }
-            }
             for x in args.args.iter() {
                 self.expr(x.value, in_const || is_const);
             }

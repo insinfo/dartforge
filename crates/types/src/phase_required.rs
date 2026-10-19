@@ -98,7 +98,7 @@ pub fn missing_required(program: &Program, interner: &Interner, body: &UnitBodyT
                     _ => typ.span.end,
                 };
                 let end = constructor.map_or(typ.span.end.max(type_end), |k| k.span.end);
-                (*f, arguments, Span { start: typ.span.start, end: end })
+                (*f, arguments, Span { start: typ.span.start, end })
             }
             _ => continue,
         };

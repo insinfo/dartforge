@@ -111,7 +111,7 @@ pub fn findings(program: &Program, table: &mut TypeTable, core: &CoreTypes, outl
         let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
         if is_subtype(t, r, &mut env) {
             let start = a.expr(x).span.start;
-            out.push((Span { start: start, end: start + "await".len() }, "unnecessary_await_in_return", Vec::new()));
+            out.push((Span { start, end: start + "await".len() }, "unnecessary_await_in_return", Vec::new()));
         }
     }
     out

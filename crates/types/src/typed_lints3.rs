@@ -456,11 +456,10 @@ fn dynamic_calls(
                 }
             },
             // An assignment with a `dynamic` read (not `=`, not `??=`).
-            ExprKind::Assign { op, target, .. } => {
-                if !matches!(op, AssignOp::Assign | AssignOp::Compound(BinaryOp::IfNull)) && dynamic(*target) {
+            ExprKind::Assign { op, target, .. }
+                if !matches!(op, AssignOp::Assign | AssignOp::Compound(BinaryOp::IfNull)) && dynamic(*target) => {
                     findings.push(e.span);
                 }
-            }
             _ => {}
         }
     }

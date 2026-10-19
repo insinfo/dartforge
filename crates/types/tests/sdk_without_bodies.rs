@@ -105,7 +105,7 @@ fn sdk_without_bodies_and_typed_user() {
     for (i, u) in program.units.iter().enumerate() {
         if program.library(u.library).is_sdk {
             sdk_units += 1;
-            assert!(u.ast.exprs.len() > 0, "{}: the SDK unit has expressions in the AST", u.uri);
+            assert!(!u.ast.exprs.is_empty(), "{}: the SDK unit has expressions in the AST", u.uri);
             assert!(!bodies.units[i].has_tables(), "{}: the SDK must not have inferred bodies", u.uri);
             assert_eq!(bodies.units[i].resolved_targets().count(), 0, "{}: the SDK must not have resolutions", u.uri);
         }
@@ -121,14 +121,13 @@ fn sdk_without_bodies_and_typed_user() {
     let int_class = program.classes.iter().position(|c| interner.resolve(c.name) == "int").unwrap();
     let mut y_int = false;
     for (i, e) in unit.ast.exprs.iter().enumerate() {
-        if let dartforge_frontend::ast::ExprKind::Identifier(n) = &e.kind {
-            if interner.resolve(n.sym) == "y" {
+        if let dartforge_frontend::ast::ExprKind::Identifier(n) = &e.kind
+            && interner.resolve(n.sym) == "y" {
                 let ty = table.get(the_table.get_type(dartforge_frontend::ast::ExprId(i as u32)).expect("typed"));
                 if let Type::Interface { class, .. } = ty {
                     y_int |= class.0 as usize == int_class;
                 }
             }
-        }
     }
     assert!(y_int, "`y` must have type `int`");
 

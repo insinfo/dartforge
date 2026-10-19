@@ -255,6 +255,9 @@ pub struct SharedInference {
     ready_mark: std::cell::RefCell<Vec<bool>>,
 }
 
+/// Member name, candidate list and an optional pair of full extension descriptions.
+type ExtensionAmbiguity = (String, String, Option<(String, String)>);
+
 /// Body inference context for the whole program.
 pub struct BodyInferrer<'a> {
     pub program: &'a Program,
@@ -346,7 +349,7 @@ pub struct BodyInferrer<'a> {
     /// annotation.
     pub(crate) type_container: (Option<dartforge_elements::model::ClassId>, Option<ExtensionId>),
     /// Extension ambiguity of the last member lookup: `(name, list)`.
-    pub(crate) extension_ambiguity: Option<(String, String, Option<(String, String)>)>,
+    pub(crate) extension_ambiguity: Option<ExtensionAmbiguity>,
     /// The annotation being resolved is in a static method or field.
     pub(crate) in_static_member: bool,
     /// The `InheritanceManager3` (the classes' interfaces), with the types of

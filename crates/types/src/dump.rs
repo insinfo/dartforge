@@ -336,7 +336,7 @@ pub fn compare_block(ours: &Block, oracle: &Block) -> Comparison {
             });
         }
     }
-    c.divergences.sort_by(|a, b| (a.start, std::cmp::Reverse(a.end)).cmp(&(b.start, std::cmp::Reverse(b.end))));
+    c.divergences.sort_by_key(|a| (a.start, std::cmp::Reverse(a.end)));
     c
 }
 

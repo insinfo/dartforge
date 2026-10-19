@@ -229,11 +229,10 @@ impl<'a> BodyInferrer<'a> {
         // subtypes (`dynamic Function()` and `void Function()`) promote.
         if t == s {
             // The same type: does not promote, but records the type of interest.
-            if !m.tested.contains(&the_tested) {
-                if let Some(Some(mm)) = flow.vars.get_mut(id.0 as usize) {
+            if !m.tested.contains(&the_tested)
+                && let Some(Some(mm)) = flow.vars.get_mut(id.0 as usize) {
                     mm.tested.push(the_tested);
                 }
-            }
             return;
         }
         let t1 = if self.sub(t, s) {
@@ -271,11 +270,10 @@ impl<'a> BodyInferrer<'a> {
                 mm.chain.push(t1);
             }
         }
-        if let Some(t1) = t1 {
-            if matches!(self.table.get(t1), Type::Never) {
+        if let Some(t1) = t1
+            && matches!(self.table.get(t1), Type::Never) {
                 flow.reachable = false;
             }
-        }
     }
 
     /// The false branch of `x is T` (`tryPromoteForTypeCheck`, 3.6.2

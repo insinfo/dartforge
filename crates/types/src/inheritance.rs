@@ -838,8 +838,8 @@ impl InheritanceManager {
             with_covariance.insert(*n, r);
         }
         Interface {
-            map: map,
-            declared: declared,
+            map,
+            declared,
             implemented: with_covariance,
             forwarded,
             overridden: candidates,
@@ -884,9 +884,9 @@ impl InheritanceManager {
         let mut conflicts = super_conflicts;
         conflicts.extend(interface_conflicts);
         Interface {
-            map: map,
-            declared: declared,
-            implemented: implemented,
+            map,
+            declared,
+            implemented,
             forwarded: HashSet::new(),
             overridden: candidates,
             redeclared: Map::default(),
@@ -1045,8 +1045,8 @@ impl InheritanceManager {
         }
         Interface {
             map: implemented.clone(),
-            declared: declared,
-            implemented: implemented,
+            declared,
+            implemented,
             forwarded: HashSet::new(),
             overridden: Map::default(),
             redeclared: the_unique,

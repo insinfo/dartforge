@@ -148,11 +148,10 @@ impl BodyInferrer<'_> {
                 if Some(g) == own {
                     continue;
                 }
-                if let Some(m) = cx.flow.model(g) {
-                    if !m.chain.is_empty() {
+                if let Some(m) = cx.flow.model(g)
+                    && !m.chain.is_empty() {
                         lists.push(m.chain.clone());
                     }
-                }
             }
         }
         if lists.is_empty() {
@@ -269,11 +268,10 @@ impl BodyInferrer<'_> {
                                 }
                             }
                         }
-                        if !enabled {
-                            if let Some((u, s)) = where_ {
+                        if !enabled
+                            && let Some((u, s)) = where_ {
                                 r.push(context(program, cx.unit, u, s, unavailable));
                             }
-                        }
                     }
                 }
                 r

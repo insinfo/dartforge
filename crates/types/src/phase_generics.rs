@@ -19,6 +19,9 @@ use dartforge_intern::Interner;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+/// Interface types and conflicting instantiations of the same class.
+type InterfaceHierarchy = (Vec<TypeId>, Vec<(TypeId, TypeId)>);
+
 struct Context<'p, 't> {
     program: &'p Program,
     core: &'p CoreTypes,
@@ -26,7 +29,7 @@ struct Context<'p, 't> {
     table: &'t mut TypeTable,
     enum_: Option<ClassId>,
     /// `_getHierarchy`: the interfaces and the errors of each element.
-    memo: HashMap<ClassId, Rc<(Vec<TypeId>, Vec<(TypeId, TypeId)>)>>,
+    memo: HashMap<ClassId, Rc<InterfaceHierarchy>>,
 }
 
 /// `_ClassInterfaceType`.
@@ -144,7 +147,7 @@ impl Context<'_, '_> {
     }
 
     /// `_getHierarchy(element)`.
-    fn hierarchy(&mut self, c: ClassId) -> Rc<(Vec<TypeId>, Vec<(TypeId, TypeId)>)> {
+    fn hierarchy(&mut self, c: ClassId) -> Rc<InterfaceHierarchy> {
         if let Some(h) = self.memo.get(&c) {
             return h.clone();
         }

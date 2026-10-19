@@ -50,19 +50,15 @@ pub fn collect_into(m: &Engine<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_c
                 return;
             }
             // `identical(a, b)`.
-            if arguments.args.len() == 2 {
-                if let ExprKind::Identifier(n) = &a.expr(*target).kind {
-                    if m.interner.resolve(n.sym) == "identical" {
-                        if let Some(Resolved::Element(Element::Function(f))) = m.resolved(u, *target) {
-                            if Some(m.program.function(*f).library) == m.core.core_library {
+            if arguments.args.len() == 2
+                && let ExprKind::Identifier(n) = &a.expr(*target).kind
+                    && m.interner.resolve(n.sym) == "identical"
+                        && let Some(Resolved::Element(Element::Function(f))) = m.resolved(u, *target)
+                            && Some(m.program.function(*f).library) == m.core.core_library {
                                 collect_into(m, cx, arguments.args[0].value, params_list, in_const, nodes);
                                 collect_into(m, cx, arguments.args[1].value, params_list, in_const, nodes);
                                 return;
                             }
-                        }
-                    }
-                }
-            }
             nodes.push(span);
         }
         ExprKind::List { const_, elements, type_args } | ExprKind::SetOrMap { const_, elements, type_args } => {
@@ -129,8 +125,8 @@ pub fn collect_into(m: &Engine<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_c
                 collect_into(m, cx, *target, params_list, in_const, nodes);
                 return;
             }
-            if let ExprKind::Property { target: t2, .. } = &a.expr(*target).kind {
-                if matches!(a.expr(*t2).kind, ExprKind::Identifier(_)) {
+            if let ExprKind::Property { target: t2, .. } = &a.expr(*target).kind
+                && matches!(a.expr(*t2).kind, ExprKind::Identifier(_)) {
                     match getter_variable(m, cx, e) {
                         Some(Some(true)) | Some(None) => return,
                         Some(Some(false)) => {
@@ -140,7 +136,6 @@ pub fn collect_into(m: &Engine<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_c
                         None => {}
                     }
                 }
-            }
             nodes.push(span);
         }
         ExprKind::As { value, .. } | ExprKind::Is { value, .. } => collect_into(m, cx, *value, params_list, in_const, nodes),

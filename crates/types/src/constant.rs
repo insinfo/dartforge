@@ -71,11 +71,11 @@ impl<'a> ConstantEvaluator<'a> {
 
         match &expr.kind {
             ast::ExprKind::Int(span) => {
-                let text = &self.program.unit(unit_id).source[span.start as usize..span.end as usize];
+                let text = &self.program.unit(unit_id).source[span.start..span.end];
                 integer_literal(text).map(ConstValue::Int)
             }
             ast::ExprKind::Double(span) => {
-                let text = &self.program.unit(unit_id).source[span.start as usize..span.end as usize];
+                let text = &self.program.unit(unit_id).source[span.start..span.end];
                 real_literal(text).map(ConstValue::Double)
             }
             ast::ExprKind::Bool(b) => Some(ConstValue::Bool(*b)),
@@ -291,13 +291,12 @@ impl<'a> ConstantEvaluator<'a> {
         let expr = &self.program.unit(unit_id).ast.exprs[target.0 as usize];
 
         // identical(a, b)
-        if let ast::ExprKind::Identifier(name) = &expr.kind {
-            if self.interner.resolve(name.sym) == "identical" && args.args.len() == 2 {
+        if let ast::ExprKind::Identifier(name) = &expr.kind
+            && self.interner.resolve(name.sym) == "identical" && args.args.len() == 2 {
                 let v1 = self.evaluate_expr(unit_id, args.args[0].value)?;
                 let v2 = self.evaluate_expr(unit_id, args.args[1].value)?;
                 return Some(ConstValue::Bool(v1 == v2));
             }
-        }
 
         // String.fromEnvironment / int.fromEnvironment / bool.fromEnvironment
         if let ast::ExprKind::Property { target: recv, name, .. } = &expr.kind {

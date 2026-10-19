@@ -92,12 +92,11 @@ pub fn package_config(project: Option<&Path>, api: &Path) -> Result<Value, Strin
             let base = p.parent().unwrap_or(Path::new("."));
             if let Some(ps) = v.get_mut("packages").and_then(Value::as_array_mut) {
                 for pk in ps.iter_mut() {
-                    if let Some(r) = pk.get("rootUri").and_then(Value::as_str) {
-                        if !r.contains(':') {
+                    if let Some(r) = pk.get("rootUri").and_then(Value::as_str)
+                        && !r.contains(':') {
                             let abs = base.join(r);
                             pk["rootUri"] = json!(file_uri(&abs, true));
                         }
-                    }
                 }
             }
             v

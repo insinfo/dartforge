@@ -32,7 +32,7 @@ use dartforge_intern::{Interner, SymbolId};
 use std::collections::HashSet;
 
 /// The written formal parameters of `f` (`None` without a node).
-fn params_list<'p>(program: &'p Program, f: FunctionElementId) -> Option<(UnitId, &'p [ast::Parameter])> {
+fn params_list(program: &Program, f: FunctionElementId) -> Option<(UnitId, &[ast::Parameter])> {
     match program.function(f).node {
         FunctionRef::Function { unit, function } => {
             program.unit(unit).ast.function(function).parameters.as_deref().map(|p| (unit, p))
@@ -174,11 +174,10 @@ pub fn unused_parameters(
                 }
                 ExprKind::Identifier(n) => {
                     reads.push((u, n.sym, n.span.start));
-                    if !targets.contains(&id) {
-                        if let Some(f) = resolved_function(b.get_resolved(id)) {
+                    if !targets.contains(&id)
+                        && let Some(f) = resolved_function(b.get_resolved(id)) {
                             all.insert(f);
                         }
-                    }
                 }
                 ExprKind::Property { name, .. } => {
                     if !targets.contains(&id) {
@@ -218,11 +217,10 @@ pub fn unused_parameters(
                 [p, c, n] => (program.lookup_prefixed_in_unit(u, p.sym, c.sym), Some(*n)),
                 _ => (None, None),
             };
-            if let Some(Element::Class(c)) = class.and_then(|b| b.getter) {
-                if let Some(f) = the_constructor(program, interner, c, ctor) {
+            if let Some(Element::Class(c)) = class.and_then(|b| b.getter)
+                && let Some(f) = the_constructor(program, interner, c, ctor) {
                     mark(&mut used, f, args);
                 }
-            }
         }
     }
     // Initializers (`super(...)`, `this(...)`), `super.x` and enum constants.
@@ -231,7 +229,7 @@ pub fn unused_parameters(
         if k.library != lib {
             continue;
         }
-        for (_, &f) in k.constructors.iter() {
+        for &f in k.constructors.values() {
             let FunctionRef::Constructor { unit, member } = program.function(f).node else { continue };
             let MemberKind::Constructor(kk) = &program.unit(unit).ast.member(member).kind else { continue };
             for start in kk.initializers.iter() {
@@ -271,23 +269,21 @@ pub fn unused_parameters(
                         ([p, cn, n], None) => (program.lookup_prefixed_in_unit(unit, p.sym, cn.sym), Some(*n)),
                         _ => (None, None),
                     };
-                    if let (Some(Element::Class(dc)), ctor) = (tgt.0.and_then(|b| b.getter), tgt.1) {
-                        if let Some(t) = the_constructor(program, interner, dc, ctor) {
-                            if let Some((_, tps)) = params_list(program, t) {
+                    if let (Some(Element::Class(dc)), ctor) = (tgt.0.and_then(|b| b.getter), tgt.1)
+                        && let Some(t) = the_constructor(program, interner, dc, ctor)
+                            && let Some((_, tps)) = params_list(program, t) {
                                 for (j, _) in kk.parameters.iter().enumerate() {
                                     if let Some(k2) = corresponding(&kk.parameters, j, tps) {
                                         used.insert((t, k2));
                                     }
                                 }
                             }
-                        }
-                    }
                 }
             }
             if kk.parameters.iter().any(|p| p.super_) {
                 let v3_13 = program.reference(unit) == dartforge_diagnostics::AnalyzerReference::V3_13;
-                if let Some(s) = superclass_constructor(program, interner, c, kk) {
-                    if let Some((_, sps)) = params_list(program, s) {
+                if let Some(s) = superclass_constructor(program, interner, c, kk)
+                    && let Some((_, sps)) = params_list(program, s) {
                         let mut pos = 0usize;
                         for p in kk.parameters.iter() {
                             // Only a `DefaultFormalParameter` (`[super.x]`, `{super.x}`)
@@ -298,30 +294,26 @@ pub fn unused_parameters(
                                 if let Some((j, _)) = sps.iter().enumerate().filter(|(_, x)| x.kind != ParameterKind::Named).nth(pos) {
                                     used.insert((s, j));
                                 }
-                            } else if p.super_ {
-                                if let Some(j) = sps.iter().position(|x| x.kind == ParameterKind::Named && external_name(x) == external_name(p)) {
+                            } else if p.super_
+                                && let Some(j) = sps.iter().position(|x| x.kind == ParameterKind::Named && external_name(x) == external_name(p)) {
                                     used.insert((s, j));
                                 }
-                            }
                             if p.kind != ParameterKind::Named && p.super_ {
                                 pos += 1;
                             }
                         }
                     }
-                }
             }
         }
-        if k.kind == ClassKind::Enum {
-            if let Some(d) = k.decl {
-                if let DeclKind::Enum(en) = &program.unit(d.unit).ast.decl(d.decl).kind {
+        if k.kind == ClassKind::Enum
+            && let Some(d) = k.decl
+                && let DeclKind::Enum(en) = &program.unit(d.unit).ast.decl(d.decl).kind {
                     for constant in en.constants.iter() {
                         if let (Some(args), Some(f)) = (&constant.arguments, the_constructor(program, interner, c, constant.constructor)) {
                             mark(&mut used, f, args);
                         }
                     }
                 }
-            }
-        }
     }
 
     let mut output = Vec::new();
@@ -376,28 +368,23 @@ pub fn unused_parameters(
                 continue;
             }
             // Read in the body or in the initializers.
-            if let Some((ru, start, end)) = region {
-                if reads.iter().any(|&(u, n, o)| u == ru && n == the_name.sym && o >= start && o < end && o != the_name.span.start) {
+            if let Some((ru, start, end)) = region
+                && reads.iter().any(|&(u, n, o)| u == ru && n == the_name.sym && o >= start && o < end && o != the_name.span.start) {
                     continue;
                 }
-            }
-            if let Some(s) = upper {
-                if let Some((_, sps)) = params_list(program, s) {
-                    if corresponding(ps, j, sps).is_some_and(|k| the_required(&sps[k])) {
+            if let Some(s) = upper
+                && let Some((_, sps)) = params_list(program, s)
+                    && corresponding(ps, j, sps).is_some_and(|k| the_required(&sps[k])) {
                         continue;
                     }
-                }
-            }
             let mut the_used = false;
             for &o in &overridden {
-                if let Some((_, ops)) = params_list(program, o) {
-                    if let Some(k) = corresponding(ps, j, ops) {
-                        if the_required(&ops[k]) || used.contains(&(o, k)) {
+                if let Some((_, ops)) = params_list(program, o)
+                    && let Some(k) = corresponding(ps, j, ops)
+                        && (the_required(&ops[k]) || used.contains(&(o, k))) {
                             the_used = true;
                             break;
                         }
-                    }
-                }
             }
             if the_used {
                 continue;
@@ -457,15 +444,14 @@ fn the_overridden(program: &Program, outline: &OutlineTypes, f: FunctionElementI
     let Some(c) = fe.class else { return Vec::new() };
     let mut r = Vec::new();
     let Some(h) = outline.hierarchy.get(c) else { return r };
-    for (&s, _) in h.supertypes.iter() {
+    for &s in h.supertypes.keys() {
         if s == c {
             continue;
         }
-        if let Some(&o) = program.class(s).instance_members.get(&fe.name) {
-            if o != f && !r.contains(&o) {
+        if let Some(&o) = program.class(s).instance_members.get(&fe.name)
+            && o != f && !r.contains(&o) {
                 r.push(o);
             }
-        }
     }
     r
 }

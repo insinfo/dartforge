@@ -91,7 +91,7 @@ fn run(a: Vec<String>) {
         }
     }
     let mut v: Vec<(String, usize)> = by_code.into_iter().collect();
-    v.sort_by(|a, b| b.1.cmp(&a.1));
+    v.sort_by_key(|a| std::cmp::Reverse(a.1));
     println!("# total: {}", v.iter().map(|x| x.1).sum::<usize>());
     for (c, n) in v {
         println!("# {n:6}  {c}");

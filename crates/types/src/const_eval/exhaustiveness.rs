@@ -682,11 +682,10 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         if a == NEVER {
             return true;
         }
-        if let Type_::Wrapped(w, i) = self.types[b].clone() {
-            if self.sub(a, w) && self.sub(a, i) {
+        if let Type_::Wrapped(w, i) = self.types[b].clone()
+            && self.sub(a, w) && self.sub(a, i) {
                 return true;
             }
-        }
         match self.types[a].clone() {
             Type_::Object => false,
             Type_::Never => true,
@@ -937,11 +936,10 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         let (cls, args) = match self.m.table.get(t).clone() {
             Type::Interface { class, args, .. } => (class, args.to_vec()),
             Type::Record { positional, named, .. } => {
-                if let Some(i) = the_name.strip_prefix('$').and_then(|x| x.parse::<usize>().ok()) {
-                    if i >= 1 && i <= positional.len() {
+                if let Some(i) = the_name.strip_prefix('$').and_then(|x| x.parse::<usize>().ok())
+                    && i >= 1 && i <= positional.len() {
                         return Some(positional[i - 1]);
                     }
-                }
                 for (n, x) in named.iter() {
                     if self.m.interner.resolve(*n) == the_name {
                         return Some(*x);
@@ -969,11 +967,10 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 supers.push(crate::ops::substitute(s, &map, self.m.table));
             }
         }
-        if let Some(o) = self.m.core.object_class {
-            if cls != o {
+        if let Some(o) = self.m.core.object_class
+            && cls != o {
                 supers.push(self.m.core.object);
             }
-        }
         for s in supers {
             let Type::Interface { class: k, args: ka, .. } = self.m.table.get(s).clone() else { continue };
             let Some(&f) = self.m.program.class(k).instance_members.get(&sym) else { continue };
@@ -1177,11 +1174,10 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 r.push(e.clone());
             } else {
                 let mut pt = self.property(t, k);
-                if pt.is_none() {
-                    if let Key::Extension { ty: typ, .. } = k {
+                if pt.is_none()
+                    && let Key::Extension { ty: typ, .. } = k {
                         pt = Some(*typ);
                     }
-                }
                 r.push(Space::new(path.plus(k.clone()), pt.unwrap_or(OBJ_NULLABLE)));
             }
         }
@@ -1742,9 +1738,9 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
             }
             _ => {}
         }
-        if let Type::Interface { class, .. } = self.m.table.get(v.ty).clone() {
-            if self.m.program.class(class).kind == ClassKind::Enum {
-                if let InstanceState::Generic { fields: the_fields, .. } = &v.state {
+        if let Type::Interface { class, .. } = self.m.table.get(v.ty).clone()
+            && self.m.program.class(class).kind == ClassKind::Enum
+                && let InstanceState::Generic { fields: the_fields, .. } = &v.state {
                     let index = the_fields.iter().find_map(|(c, x)| match (c, &x.state) {
                         (super::value::Field::Index, InstanceState::Int(Some(i))) => Some(*i as usize),
                         _ => None,
@@ -1754,8 +1750,6 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                         return Space::new(path, el);
                     }
                 }
-            }
-        }
         let lib = self.lib;
         let s = if self.m.primitive_equality(v, lib) {
             let id = self.value_id(v);
@@ -2097,8 +2091,8 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
             }
             self.mark = false;
         }
-        if let Some(ts) = not_ {
-            if let Some(the_first) = ts.first() {
+        if let Some(ts) = not_
+            && let Some(the_first) = ts.first() {
                 let w = self.build_witness(the_first);
                 let mut a = String::new();
                 self.write_witness(&mut a, &w, false);
@@ -2107,7 +2101,6 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 r.witness = Some(a);
                 r.fix = Some(b);
             }
-        }
         Some(r)
     }
 }

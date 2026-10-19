@@ -236,7 +236,7 @@ fn exhaustive_cases(
         for (_, fields) in constants {
             let preferred = fields.iter().copied().find(|v| !deprecated(*v)).unwrap_or(fields[0]);
             let name = interner.resolve(program.variable(preferred).name).to_string();
-            out.push((Span { start: span.start, end: end }, "exhaustive_cases", vec![name]));
+            out.push((Span { start: span.start, end }, "exhaustive_cases", vec![name]));
         }
     }
 }
@@ -373,7 +373,7 @@ fn named_constants_and_declarations(
     for (begin, end, inits) in lists {
         let without_error = inits.iter().all(|i| matches!(engine.evaluate(&cx, *i, true), Constant::Value(_)));
         if without_error {
-            out.push((Span { start: begin, end: end }, "prefer_const_declarations", Vec::new()));
+            out.push((Span { start: begin, end }, "prefer_const_declarations", Vec::new()));
         }
     }
 }
@@ -448,16 +448,13 @@ fn super_parameters(
             let mut positional: Vec<ast::Name> = Vec::new();
             let mut invalid = false;
             for x in args.args.iter() {
-                match x.name {
-                    None => match &a.expr(x.value).kind {
-                        ExprKind::Identifier(n) => positional.push(*n),
-                        _ => {
-                            invalid = true;
-                            break;
-                        }
-                    },
-                    Some(_) => {}
-                }
+                if x.name.is_none() { match &a.expr(x.value).kind {
+                    ExprKind::Identifier(n) => positional.push(*n),
+                    _ => {
+                        invalid = true;
+                        break;
+                    }
+                } }
             }
             if invalid {
                 continue;

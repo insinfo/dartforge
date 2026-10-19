@@ -48,11 +48,10 @@ fn shape_from_elements(els: &[CollectionElement]) -> Option<bool> {
                 if let Some(f) = shape_from_elements(std::slice::from_ref(then)) {
                     return Some(f);
                 }
-                if let Some(e) = else_ {
-                    if let Some(f) = shape_from_elements(std::slice::from_ref(e)) {
+                if let Some(e) = else_
+                    && let Some(f) = shape_from_elements(std::slice::from_ref(e)) {
                         return Some(f);
                     }
-                }
             }
             CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
                 if let Some(f) = shape_from_elements(std::slice::from_ref(body)) {
@@ -174,7 +173,6 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
         // `AMBIGUOUS_SET_OR_MAP_LITERAL_EITHER`. Against the visit's shape, its
         // inferrer is abandoned and a new one, without a context, receives the
         // element types (`_toSetType`/`_toMapType`, `:740-815`).
-        let mut gi = gi;
         if keys && ambiguous.is_none() {
             let infos: Vec<Admits> = elements.iter().map(|el| admits(inf, el, true)).collect();
             let set = infos.iter().all(|a| a.can_set()) && infos.iter().any(|a| a.must_set());
@@ -400,7 +398,7 @@ fn verify_elements(
                 let k = inf.span_expr(cx.unit, *key);
                 let v = inf.span_expr(cx.unit, *value);
                 let start = if *null_aware_key { back_up_question_mark(inf, cx, k.start) } else { k.start };
-                inf.warning_with_code(ce::MAP_ENTRY_NOT_IN_MAP, Span { start: start, end: v.end }, &[]);
+                inf.warning_with_code(ce::MAP_ENTRY_NOT_IN_MAP, Span { start, end: v.end }, &[]);
             }
             // An expression (or `?e`) in a map (`:79-85`, `:107-114`).
             CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => {
@@ -409,7 +407,7 @@ fn verify_elements(
                 }
                 let s = inf.span_expr(cx.unit, *x);
                 let start = if matches!(el, CollectionElement::NullAwareExpression(_)) { back_up_question_mark(inf, cx, s.start) } else { s.start };
-                inf.warning_with_code(ce::EXPRESSION_IN_MAP, Span { start: start, end: s.end }, &[]);
+                inf.warning_with_code(ce::EXPRESSION_IN_MAP, Span { start, end: s.end }, &[]);
             }
         }
     }
@@ -646,11 +644,10 @@ fn shape_from_context_type(inf: &mut BodyInferrer<'_>, ctx: TypeId) -> Option<Sh
         if is_map && !is_iter {
             return Some(Shape::Map);
         }
-        if let Type::FutureOr { arg, .. } = inf.table.get(k).clone() {
-            if inf.as_instance_of(arg, inf.core.iterable_class).is_some() {
+        if let Type::FutureOr { arg, .. } = inf.table.get(k).clone()
+            && inf.as_instance_of(arg, inf.core.iterable_class).is_some() {
                 return Some(Shape::Set);
             }
-        }
     }
     None
 }
@@ -986,7 +983,7 @@ fn element_range(inf: &BodyInferrer<'_>, cx: &Body, el: &CollectionElement) -> d
         }
         CollectionElement::If { condition, then, else_, .. } => {
             let end = element_range(inf, cx, else_.as_deref().unwrap_or(then)).end;
-            dartforge_diagnostics::Span { start: before(a.expr(*condition).span.start, "if"), end: end }
+            dartforge_diagnostics::Span { start: before(a.expr(*condition).span.start, "if"), end }
         }
         CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
             let b = element_range(inf, cx, body);

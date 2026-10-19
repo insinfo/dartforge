@@ -121,7 +121,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                     let begin = next_token(source, span.end);
                     let end = cx.flow_ends.last().copied().or(cx.block_ends.last().copied()).unwrap_or(span.end);
                     if end > begin {
-                        inf.warning(DEAD_CODE.template.to_string(), Span { start: begin, end: end });
+                        inf.warning(DEAD_CODE.template.to_string(), Span { start: begin, end });
                     }
                 }
                 cx.dead_code = Some(cx.flow_ends.len());
@@ -238,7 +238,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                         i += 1;
                     }
                     let end = cx.flow_ends.last().copied().or(cx.block_ends.last().copied()).unwrap_or(span.end).max(span.end);
-                    inf.warning(DEAD_CODE.template.to_string(), Span { start: i, end: end });
+                    inf.warning(DEAD_CODE.template.to_string(), Span { start: i, end });
                     cx.dead_code = Some(cx.flow_ends.len());
                 }
                 let (writes, captured) = writes_in(inf, cx, &[Part::Stmt(*body)]);
@@ -339,8 +339,8 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 // join of the flows keeps the promotion common to all of them
                 // (`switchStatement_endAlternatives` joins the join variables,
                 // `case int? x?: case int? x?:` → `int`).
-                if j > i && members.len() == the_entries.len() {
-                    if let Some(first) = members.first() {
+                if j > i && members.len() == the_entries.len()
+                    && let Some(first) = members.first() {
                         for &(n, _) in first {
                             let ids: Option<Vec<LocalId>> = members.iter().map(|m| m.iter().find(|(x, _)| *x == n).map(|(_, id)| *id)).collect();
                             let Some(ids) = ids else { continue };
@@ -359,7 +359,6 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                             }
                         }
                     }
-                }
                 let base = after_value.clone();
                 cx.flow = inf.join_all(&base, &the_entries);
                 // A group with a label (`switchStatement_endAlternatives` with
@@ -396,23 +395,21 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 // body's last statement.
                 let pattern_flow = patterns::pattern_flow_enabled(inf);
                 let body_end = the_body.last().map(|&x| inf.program.unit(cx.unit).ast.stmt(x).span.end);
-                if pattern_flow {
-                    if let Some(end) = body_end {
+                if pattern_flow
+                    && let Some(end) = body_end {
                         enter_flow(cx, end);
                     }
-                }
                 // The member's statements form a local scope with their declarations
                 // (the `LocalScope` of the `SwitchMember`'s `statements`): using before
                 // declaring is `REFERENCED_BEFORE_DECLARATION`.
                 declare_forwards(inf, cx, &the_body);
                 for s in the_body {
-                    if pattern_flow && !cx.flow.reachable && cx.dead_code.is_none() {
-                        if let Some(end) = body_end {
+                    if pattern_flow && !cx.flow.reachable && cx.dead_code.is_none()
+                        && let Some(end) = body_end {
                             let start = inf.program.unit(cx.unit).ast.stmt(s).span.start;
-                            inf.warning(DEAD_CODE.template.to_string(), Span { start: start, end: end });
+                            inf.warning(DEAD_CODE.template.to_string(), Span { start, end });
                             cx.dead_code = Some(cx.flow_ends.len());
                         }
-                    }
                     infer_statement(inf, cx, s);
                 }
                 if pattern_flow && body_end.is_some() {
@@ -517,12 +514,11 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                     use dartforge_diagnostics::codes::warning as w;
                     // `on T` with `T` potentially nullable (and not invalid): a nullable
                     // value is not thrown.
-                    if let Some(t) = c.on_type {
-                        if !inf.table.is_invalid(ex_type) && !inf.is_non_nullable(ex_type) {
+                    if let Some(t) = c.on_type
+                        && !inf.table.is_invalid(ex_type) && !inf.is_non_nullable(ex_type) {
                             let sp = inf.program.unit(cx.unit).ast.ty(t).span;
                             inf.warning_with_code(w::NULLABLE_TYPE_IN_CATCH_CLAUSE, sp, &[]);
                         }
-                    }
                     if !dead_catch {
                         let last = catches.len() - 1;
                         let end = catches[last].span.end;
@@ -530,7 +526,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                             // A `catch` that catches everything: the following ones are dead.
                             if catch_index != last {
                                 let start = catches[catch_index + 1].span.start;
-                                inf.warning_with_code(w::DEAD_CODE_CATCH_FOLLOWING_CATCH, Span { start: start, end: end }, &[]);
+                                inf.warning_with_code(w::DEAD_CODE_CATCH_FOLLOWING_CATCH, Span { start, end }, &[]);
                                 dead_catch = true;
                             }
                         } else {
@@ -539,7 +535,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                                 Some(s) => {
                                     inf.warning_with_args(
                                         w::DEAD_CODE_ON_CATCH_SUBTYPE,
-                                        Span { start: c.span.start, end: end },
+                                        Span { start: c.span.start, end },
                                         &[crate::display::Arg::Type_(ex_type), crate::display::Arg::Type_(s)],
                                     );
                                     dead_catch = true;
@@ -724,10 +720,10 @@ fn group_joins(inf: &mut BodyInferrer<'_>, cx: &mut Body, members: &[Vec<(Symbol
     for (k, m) in members.iter().enumerate() {
         if k == 0 {
             for &(n, id) in m {
-                if !components.contains_key(&n) {
+                components.entry(n).or_insert_with(|| {
                     names.push(n);
-                    components.insert(n, (vec![id], true));
-                }
+                    (vec![id], true)
+                });
             }
             continue;
         }
@@ -739,10 +735,10 @@ fn group_joins(inf: &mut BodyInferrer<'_>, cx: &mut Body, members: &[Vec<(Symbol
             }
         }
         for &(n, id) in m {
-            if !components.contains_key(&n) {
+            components.entry(n).or_insert_with(|| {
                 names.push(n);
-                components.insert(n, (vec![id], false));
-            }
+                (vec![id], false)
+            });
         }
     }
     for n in names {
@@ -1199,8 +1195,8 @@ pub(crate) fn for_in_header(inf: &mut BodyInferrer<'_>, cx: &mut Body, target: &
         ast::ForInTarget::Expression(e) => {
             // `for (x in e)`: assignment to an existing variable.
             let a = &inf.program.unit(cx.unit).ast;
-            if let ExprKind::Identifier(n) = &a.expr(*e).kind {
-                if let Some(MemberName::Local(id)) = cx.lookup(n.sym) {
+            if let ExprKind::Identifier(n) = &a.expr(*e).kind
+                && let Some(MemberName::Local(id)) = cx.lookup(n.sym) {
                     expr::resolver(inf, cx, *e, crate::resolved::Resolved::Local(id));
                     // `checkFinalAlreadyAssigned(identifier, isForEachIdentifier: true)`
                     // (3.6.2 `for_resolver.dart:131-136`,
@@ -1228,7 +1224,6 @@ pub(crate) fn for_in_header(inf: &mut BodyInferrer<'_>, cx: &mut Body, target: &
                     let reason = super::flow::NonPromotionReason::Write { name: n.sym, span: n.span };
                     return Some(LoopWrite { local: id, declared: decl, written: el, reason });
                 }
-            }
             infer_free(inf, cx, *e);
         }
     }
@@ -1494,11 +1489,10 @@ pub(crate) fn writes_in(inf: &BodyInferrer<'_>, cx: &Body, parts: &[Part<'_>]) -
     let ids = |es: &[Write]| -> Vec<LocalId> {
         let mut out = Vec::new();
         for e in es {
-            if let Some(id) = write_local(cx, *e) {
-                if !out.contains(&id) {
+            if let Some(id) = write_local(cx, *e)
+                && !out.contains(&id) {
                     out.push(id);
                 }
-            }
         }
         out
     };

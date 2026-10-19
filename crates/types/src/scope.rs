@@ -617,15 +617,14 @@ impl<'a> MemberResolver<'a> {
         // from a class literal, so this is the last resort.
         if !via_super {
             let class_elem = &self.program.classes[class_id.0 as usize];
-            if let Some(&var_id) = class_elem.enum_constants.iter().find(|&&v| self.program.variables[v.0 as usize].name == name) {
-                if !is_setter {
+            if let Some(&var_id) = class_elem.enum_constants.iter().find(|&&v| self.program.variables[v.0 as usize].name == name)
+                && !is_setter {
                     let ty = self.table.intern(Type::Interface { class: class_id, args: Box::new([]), nullable: false });
                     return Some((
                         Resolved::Member { class: class_id, member: MemberRef::Variable(var_id), via_super },
                         ty,
                     ));
                 }
-            }
             if let Some(&func_id) = class_elem.static_members.get(&name) {
                 let func_elem = &self.program.functions[func_id.0 as usize];
                 if is_setter && func_elem.kind != FunctionKind::Setter && func_elem.kind != FunctionKind::ImplicitAccessor {
@@ -981,13 +980,12 @@ pub fn ambiguous_libraries(
     };
     let mut elements: Vec<Element> = Vec::new();
     for i in imports.iter().filter(|i| i.prefix == the_prefix && passes(&i.combinators)) {
-        if let Some(b) = program.library(i.library).exported.get(&the_name) {
-            if let Some(el) = b.getter.or(b.setter)
+        if let Some(b) = program.library(i.library).exported.get(&the_name)
+            && let Some(el) = b.getter.or(b.setter)
                 && !elements.contains(&el)
             {
                 elements.push(el);
             }
-        }
     }
     let library = |el: Element| match el {
         Element::Class(c) => Some(program.class(c).library),

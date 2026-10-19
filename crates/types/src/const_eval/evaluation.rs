@@ -82,6 +82,13 @@ enum VarState {
     Ready(Constant),
 }
 
+/// Location and static type of an evaluated argument.
+type ArgumentTarget = (UnitId, Span, TypeId);
+/// A named constant argument with its optional source target.
+type NamedConstantArgument = (SymbolId, Value, Option<ArgumentTarget>);
+/// Exhaustiveness witnesses indexed by their switch location.
+type SwitchWitnesses = HashMap<(UnitId, usize), Vec<Vec<super::exhaustiveness::WitnessPart>>>;
+
 /// The evaluation engine (`ConstantEvaluationEngine` with the results stored
 /// in the elements).
 pub struct Engine<'a> {
@@ -117,7 +124,7 @@ pub struct Engine<'a> {
     /// When `Some`, the verifier stores here, by (unit, offset of the
     /// `switch`), the witnesses with parts of each `non_exhaustive_switch_*`
     /// (the analyzer's `diagnostic.data`, used by `AddMissingSwitchCases`).
-    pub witnesses: Option<HashMap<(UnitId, usize), Vec<Vec<super::exhaustiveness::WitnessPart>>>>,
+    pub witnesses: Option<SwitchWitnesses>,
     /// Offsets of the names of formal parameters, per inferred unit (inference
     /// resolves a read of a parameter as that of a local).
     parameters: std::cell::RefCell<HashMap<UnitId, HashSet<usize>>>,
@@ -308,14 +315,12 @@ impl<'a> Engine<'a> {
     /// it occurs.
     fn error_in_initializer(&self, i: &Invalid, f: Option<FunctionElementId>, where_: &str, error: ErrorAt) -> Invalid {
         let mut n = i.clone();
-        if n.context.is_empty() {
-            if let Some(f) = f {
-                if let Some(u) = self.constructor_unit(f) {
+        if n.context.is_empty()
+            && let Some(f) = f
+                && let Some(u) = self.constructor_unit(f) {
                     let text = format!("The error is in the {where_} of '{}', and occurs here.", self.constructor_display(f));
                     n.context.push((u, i.span, text));
                 }
-            }
-        }
         n.unit = error.unit;
         n.span = error.span;
         n
@@ -571,10 +576,10 @@ impl<'a> Engine<'a> {
                     return self.generic(u, e, false);
                 }
                 // `identical(a, b)` from `dart:core`.
-                if let ExprKind::Identifier(n) = &a.expr(tgt).kind {
-                    if Some(n.sym) == self.sym_identical && arguments.args.len() == 2 && arguments.args.iter().all(|x| x.name.is_none()) {
-                        if let Some(Resolved::Element(Element::Function(f))) = self.resolved(u, tgt) {
-                            if Some(self.program.function(*f).library) == self.core.core_library {
+                if let ExprKind::Identifier(n) = &a.expr(tgt).kind
+                    && Some(n.sym) == self.sym_identical && arguments.args.len() == 2 && arguments.args.iter().all(|x| x.name.is_none())
+                        && let Some(Resolved::Element(Element::Function(f))) = self.resolved(u, tgt)
+                            && Some(self.program.function(*f).library) == self.core.core_library {
                                 let (x, y) = (arguments.args[0].value, arguments.args[1].value);
                                 let l = match self.evaluate(cx, x, in_const) {
                                     Constant::Value(v) => v,
@@ -587,9 +592,6 @@ impl<'a> Engine<'a> {
                                 let b = self.identical(&l, &r);
                                 return Constant::Value(Value::bool_(self.core, b));
                             }
-                        }
-                    }
-                }
                 if self.invalid_type(u, e) {
                     let mut i = self.error(u, self.span(u, e), c::INVALID_CONSTANT);
                     i.unresolved = true;
@@ -839,7 +841,7 @@ impl<'a> Engine<'a> {
                 j += 1;
             }
             let end = if j < b.len() && b[j] == b'}' { j + 1 } else { s.end };
-            return Span { start: i - 2, end: end };
+            return Span { start: i - 2, end };
         }
         s
     }
@@ -886,11 +888,10 @@ impl<'a> Engine<'a> {
                             }
                         }
                         Some(false) => {
-                            if let Some(el) = else_ {
-                                if let Some(Err(i)) = self.build_list(cx, list, std::slice::from_ref(el), const_child) {
+                            if let Some(el) = else_
+                                && let Some(Err(i)) = self.build_list(cx, list, std::slice::from_ref(el), const_child) {
                                     return Some(Err(i));
                                 }
-                            }
                         }
                     }
                 }
@@ -959,11 +960,10 @@ impl<'a> Engine<'a> {
                         Some(true) => Some(&**then),
                         Some(false) => else_.as_deref(),
                     };
-                    if let Some(r) = branch {
-                        if let Some(Err(i)) = self.build_set(cx, set, std::slice::from_ref(r)) {
+                    if let Some(r) = branch
+                        && let Some(Err(i)) = self.build_set(cx, set, std::slice::from_ref(r)) {
                             return Some(Err(i));
                         }
-                    }
                 }
                 CollectionElement::MapEntry { .. } => {
                     return Some(Err(Box::new(self.error(u, self.element_span(u, el), c::MAP_ENTRY_NOT_IN_MAP))));
@@ -1024,11 +1024,10 @@ impl<'a> Engine<'a> {
                         Some(true) => Some(&**then),
                         Some(false) => else_.as_deref(),
                     };
-                    if let Some(r) = branch {
-                        if let Some(Err(i)) = self.build_map(cx, map, std::slice::from_ref(r)) {
+                    if let Some(r) = branch
+                        && let Some(Err(i)) = self.build_map(cx, map, std::slice::from_ref(r)) {
                             return Some(Err(i));
                         }
-                    }
                 }
                 CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } => {
                     let k = self.evaluate(cx, *key, true);
@@ -1097,7 +1096,7 @@ impl<'a> Engine<'a> {
             CollectionElement::If { condition, then, else_, .. } => {
                 let s = a.expr(*condition).span;
                 let end = else_.as_ref().map(|x| self.element_span(u, x)).unwrap_or_else(|| self.element_span(u, then)).end;
-                Span { start: back_up_word(source, s.start, &["if"]), end: end }
+                Span { start: back_up_word(source, s.start, &["if"]), end }
             }
             CollectionElement::For { body, init, condition, updates, .. } => {
                 let end = self.element_span(u, body).end;
@@ -1106,11 +1105,11 @@ impl<'a> Engine<'a> {
                     .or_else(|| updates.first().map(|x| a.expr(*x).span.start))
                     .unwrap_or(end);
                 let _ = init;
-                Span { start: for_start(source, first), end: end }
+                Span { start: for_start(source, first), end }
             }
             CollectionElement::ForIn { body, iterable, .. } => {
                 let end = self.element_span(u, body).end;
-                Span { start: for_start(source, a.expr(*iterable).span.start), end: end }
+                Span { start: for_start(source, a.expr(*iterable).span.start), end }
             }
         }
     }
@@ -1172,11 +1171,10 @@ impl<'a> Engine<'a> {
         match op {
             BinaryOp::And | BinaryOp::Or => {
                 let short_circuit = if op == BinaryOp::And { Some(false) } else { Some(true) };
-                if l.as_bool() == short_circuit {
-                    if let Some(i) = self.not_potentially_constant(cx, right) {
+                if l.as_bool() == short_circuit
+                    && let Some(i) = self.not_potentially_constant(cx, right) {
                         return i;
                     }
-                }
                 // `lazyAnd`/`lazyOr`.
                 let r = (|| -> Result<InstanceState, Exception> {
                     match &l.state {
@@ -1462,17 +1460,15 @@ impl<'a> Engine<'a> {
                 return None;
             }
             let cls = self.program.class(k);
-            if let Some(f) = cls.instance_members.get(&the_name) {
-                if !self.program.function(*f).abstract_ {
+            if let Some(f) = cls.instance_members.get(&the_name)
+                && !self.program.function(*f).abstract_ {
                     return Some(k);
                 }
-            }
             for m in cls.mixin_classes.iter().rev() {
-                if let Some(f) = self.program.class(*m).instance_members.get(&the_name) {
-                    if !self.program.function(*f).abstract_ {
+                if let Some(f) = self.program.class(*m).instance_members.get(&the_name)
+                    && !self.program.function(*f).abstract_ {
                         return Some(*m);
                     }
-                }
             }
             current = cls.supertype_class;
         }
@@ -1510,11 +1506,10 @@ impl<'a> Engine<'a> {
             }
             _ => {}
         }
-        if let Some(Resolved::Element(Element::Class(k))) = &res_target {
-            if self.program.class(*k).kind == ClassKind::ExtensionType && !simple_target {
+        if let Some(Resolved::Element(Element::Class(k))) = &res_target
+            && self.program.class(*k).kind == ClassKind::ExtensionType && !simple_target {
                 return self.constant_value(cx, e, e, true);
             }
-        }
         let prefix = match self.evaluate(cx, tgt, in_const) {
             Constant::Value(v) => v,
             i => return i,
@@ -1525,11 +1520,10 @@ impl<'a> Engine<'a> {
         if matches!(self.resolved(u, e), Some(Resolved::Constructor(_))) {
             return self.constant_value(cx, e, e, true);
         }
-        if !is_interface {
-            if let Some(r) = self.property_access(u, e, &prefix, the_name) {
+        if !is_interface
+            && let Some(r) = self.property_access(u, e, &prefix, the_name) {
                 return r;
             }
-        }
         self.constant_value(cx, e, e, true)
     }
 
@@ -1840,11 +1834,10 @@ impl<'a> Engine<'a> {
                 {
                     return self.enum_values(u, error_at, k);
                 }
-                if fe.kind == FunctionKind::ImplicitAccessor {
-                    if let Some(v) = fe.variable {
+                if fe.kind == FunctionKind::ImplicitAccessor
+                    && let Some(v) = fe.variable {
                         return self.variable_reference_value(cx, error_at, v);
                     }
-                }
                 let the_static_ = fe.class.is_none() && fe.extension.is_none() || fe.static_;
                 if the_static_ && matches!(fe.kind, FunctionKind::Function | FunctionKind::Operator) {
                     // Implicit instantiation of the generic tear-off
@@ -2030,7 +2023,7 @@ impl<'a> Engine<'a> {
                 };
                 let typ = self.table.intern(Type::Interface { class: c, args: args_list.into_boxed_slice(), nullable: false });
                 let error = ErrorAt { unit: u, span: m.span };
-                match self.evaluate_call(&cx, error, f, typ, &CallArguments::Ast(args), None, true) {
+                match self.evaluate_call(&cx, error, (f, typ), &CallArguments::Ast(args), None, true) {
                     Constant::Value(v) => Some(v),
                     Constant::Invalid(_) => None,
                 }
@@ -2171,8 +2164,8 @@ impl<'a> Engine<'a> {
         let mut r = self.evaluate(&cx, init, const_);
         self.creation_args = saved;
         self.vars_stack.pop();
-        if let Constant::Value(x) = &r {
-            if const_ && !self.matches_type(x, var_type) {
+        if let Constant::Value(x) = &r
+            && const_ && !self.matches_type(x, var_type) {
                 let static_ = self.the_static(unit_id, init);
                 if self.assignable(static_, var_type) {
                     let mut i = self.error(unit_id, self.span(unit_id, init), c::VARIABLE_TYPE_MISMATCH);
@@ -2180,12 +2173,10 @@ impl<'a> Engine<'a> {
                     r = Constant::Invalid(Box::new(i));
                 }
             }
-        }
-        if let Constant::Value(x) = &mut r {
-            if const_ {
+        if let Constant::Value(x) = &mut r
+            && const_ {
                 x.variable = Some(v);
             }
-        }
         if self.cyclic.contains(&v) {
             let the_name = self.variable_name_span(v).unwrap_or(Span { start: 0, end: 0 });
             r = Constant::Invalid(Box::new(self.error(unit_id, the_name, c::RECURSIVE_COMPILE_TIME_CONSTANT)));
@@ -2260,8 +2251,8 @@ impl<'a> Engine<'a> {
                 let cx = Ctx::simple(unit, lib);
                 let empty = CallArguments::Values { positional: Vec::new(), named: Vec::new() };
                 let r = match &cst.arguments {
-                    Some(a) => self.evaluate_call(&cx, error, f, typ, &CallArguments::Ast(a), None, true),
-                    None => self.evaluate_call(&cx, error, f, typ, &empty, None, true),
+                    Some(a) => self.evaluate_call(&cx, error, (f, typ), &CallArguments::Ast(a), None, true),
+                    None => self.evaluate_call(&cx, error, (f, typ), &empty, None, true),
                 };
                 match r {
                     Constant::Invalid(i) if i.exception => {
@@ -2464,7 +2455,7 @@ impl<'a> Engine<'a> {
                 self.creation_args.insert((u, arg.value));
             }
         }
-        self.evaluate_call(cx, error, f, typ, &CallArguments::Ast(args), the_keyword, true)
+        self.evaluate_call(cx, error, (f, typ), &CallArguments::Ast(args), the_keyword, true)
     }
 
     /// Evaluates the call of constructor `f` with the arguments (`cx`'s
@@ -2473,8 +2464,7 @@ impl<'a> Engine<'a> {
         &mut self,
         cx: &Ctx,
         error: ErrorAt,
-        f: FunctionElementId,
-        typ: TypeId,
+        (f, typ): (FunctionElementId, TypeId),
         args: &CallArguments<'_>,
         the_keyword: Option<Span>,
         in_const_args: bool,
@@ -2494,8 +2484,8 @@ impl<'a> Engine<'a> {
         // fictitious object of the parameter's type).
         let params = self.outline.functions.get(f.0 as usize).map(|d| d.parameters.clone()).unwrap_or_default();
         let mut positional_args: Vec<Value> = Vec::new();
-        let mut named_args: Vec<(SymbolId, Value, Option<(UnitId, Span, TypeId)>)> = Vec::new();
-        let mut positional_targets: Vec<Option<(UnitId, Span, TypeId)>> = Vec::new();
+        let mut named_args: Vec<NamedConstantArgument> = Vec::new();
+        let mut positional_targets: Vec<Option<ArgumentTarget>> = Vec::new();
         match args {
             CallArguments::Ast(a) => {
                 let mut i_pos = 0usize;
@@ -2663,7 +2653,7 @@ impl<'a> Engine<'a> {
         f: FunctionElementId,
         typ: TypeId,
         positional_args: &[Value],
-        named_args: &[(SymbolId, Value, Option<(UnitId, Span, TypeId)>)],
+        named_args: &[NamedConstantArgument],
     ) -> R {
         let fe = self.program.function(f);
         let the_name = fe.name;
@@ -2714,8 +2704,8 @@ impl<'a> Engine<'a> {
         k: ClassId,
         typ: TypeId,
         positional_args: Vec<Value>,
-        positional_targets: Vec<Option<(UnitId, Span, TypeId)>>,
-        named_args: Vec<(SymbolId, Value, Option<(UnitId, Span, TypeId)>)>,
+        positional_targets: Vec<Option<ArgumentTarget>>,
+        named_args: Vec<NamedConstantArgument>,
     ) -> R {
         let lib = self.program.function(f).library;
         // Substitution of the class's type parameters.
@@ -2972,12 +2962,11 @@ impl<'a> Engine<'a> {
                     ast::Initializer::Redirect { constructor, arguments, .. } => {
                         let the_key = constructor.map(|n| n.sym).or_else(|| self.interner.lookup(""));
                         let tgt = the_key.and_then(|c| self.program.class(k).constructors.get(&c).copied());
-                        if let Some(g) = tgt {
-                            if self.program.function(self.program.public(g)).const_ {
-                                let r = self.evaluate_call(&cxi, error, g, typ, &CallArguments::Ast(arguments), None, false);
+                        if let Some(g) = tgt
+                            && self.program.function(self.program.public(g)).const_ {
+                                let r = self.evaluate_call(&cxi, error, (g, typ), &CallArguments::Ast(arguments), None, false);
                                 return Generator::ready(r);
                             }
-                        }
                     }
                     ast::Initializer::Assert { condition, message, span } => {
                         let r = self.evaluate(&cxi, *condition, false);
@@ -2985,16 +2974,14 @@ impl<'a> Engine<'a> {
                             Constant::Value(v) => {
                                 if !v.state.is_bool() || v.as_bool() == Some(false) {
                                     let mut i = None;
-                                    if let Some(m) = message {
-                                        if let Constant::Value(mv) = self.evaluate(&cxi, *m, false) {
-                                            if let Some(t) = mv.as_text() {
+                                    if let Some(m) = message
+                                        && let Constant::Value(mv) = self.evaluate(&cxi, *m, false)
+                                            && let Some(t) = mv.as_text() {
                                                 let mut x = self.error(cu, *span, c::CONST_EVAL_ASSERTION_FAILURE_WITH_MESSAGE);
                                                 x.args = vec![String::from_utf16_lossy(t)];
                                                 x.exception = true;
                                                 i = Some(x);
                                             }
-                                        }
-                                    }
                                     let mut i = i.unwrap_or_else(|| self.error(cu, *span, c::CONST_EVAL_ASSERTION_FAILURE));
                                     i.exception = true;
                                     return Generator::ready(Constant::Invalid(Box::new(i)));
@@ -3032,12 +3019,12 @@ impl<'a> Engine<'a> {
         }
         let Generator { f, error, k, ty: typ, fields: mut the_fields, super_name, super_args, super_positional_args, super_named_args, cxi, .. } = g;
         let cls = self.program.class(k);
-        if let Some(sup) = cls.supertype_class {
-            if Some(sup) != self.core.object_class {
+        if let Some(sup) = cls.supertype_class
+            && Some(sup) != self.core.object_class {
                 let the_key = super_name.or_else(|| self.interner.lookup(""));
                 let tgt = the_key.and_then(|c| self.program.class(sup).constructors.get(&c).copied());
-                if let Some(g) = tgt {
-                    if self.program.function(self.program.public(g)).const_ {
+                if let Some(g) = tgt
+                    && self.program.function(self.program.public(g)).const_ {
                         let super_type = self.outline.classes.get(k.0 as usize).and_then(|d| d.supertype).unwrap_or(self.core.dynamic_);
                         let super_type = match cxi.types.as_ref() {
                             Some(m) if !m.is_empty() => crate::ops::substitute(super_type, m, self.table),
@@ -3048,7 +3035,7 @@ impl<'a> Engine<'a> {
                                 let a = ast::Arguments { span: error.span, type_args: Box::new([]), args: args.into_boxed_slice() };
                                 let cx = Ctx { unit: cu, ..cxi.clone() };
                                 if super_positional_args.is_empty() && super_named_args.is_empty() {
-                                    self.evaluate_call(&cx, error, g, super_type, &CallArguments::Ast(&a), None, false)
+                                    self.evaluate_call(&cx, error, (g, super_type), &CallArguments::Ast(&a), None, false)
                                 } else {
                                     // Written arguments plus those of `super.x`.
                                     let mut pos = super_positional_args.clone();
@@ -3062,14 +3049,13 @@ impl<'a> Engine<'a> {
                                             i => return i,
                                         }
                                     }
-                                    self.evaluate_call(&cx, error, g, super_type, &CallArguments::Values { positional: pos, named: the_named }, None, false)
+                                    self.evaluate_call(&cx, error, (g, super_type), &CallArguments::Values { positional: pos, named: the_named }, None, false)
                                 }
                             }
                             None => self.evaluate_call(
                                 &cxi,
                                 error,
-                                g,
-                                super_type,
+                                (g, super_type),
                                 &CallArguments::Values { positional: super_positional_args, named: super_named_args },
                                 None,
                                 false,
@@ -3086,11 +3072,10 @@ impl<'a> Engine<'a> {
                                     n.span = error.span;
                                     n
                                 };
-                                if !i.context.is_empty() {
-                                    if let Some(x) = f.and_then(|f| self.constructor_stack(g, f)) {
+                                if !i.context.is_empty()
+                                    && let Some(x) = f.and_then(|f| self.constructor_stack(g, f)) {
                                         n.context.push(x);
                                     }
-                                }
                                 return Constant::Invalid(Box::new(n));
                             }
                             Constant::Invalid(mut i) => {
@@ -3101,17 +3086,14 @@ impl<'a> Engine<'a> {
                             }
                         }
                     }
-                }
             }
-        }
-        if cls.kind == ClassKind::ExtensionType {
-            if let Some(rep) = cls.representation {
+        if cls.kind == ClassKind::ExtensionType
+            && let Some(rep) = cls.representation {
                 let the_name = self.program.variable(rep).name;
                 if let Some((_, v)) = the_fields.iter().find(|(c, _)| *c == Field::MemberName(the_name)) {
                     return Constant::Value(v.clone());
                 }
             }
-        }
         let t = self.erase(typ);
         Constant::Value(Value::new(t, InstanceState::Generic { fields: Rc::new(the_fields), unknown: false }))
     }

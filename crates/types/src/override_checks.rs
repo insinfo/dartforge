@@ -1344,9 +1344,7 @@ fn parameter_default_value(
     core: Option<&CoreTypes>,
     outline: &OutlineTypes,
     bodies: Option<&crate::resolved::BodyTypes>,
-    f: FunctionElementId,
-    i: usize,
-    prof: u32,
+    (f, i, prof): (FunctionElementId, usize, u32),
 ) -> Option<TypeId> {
     if prof > 32 {
         return None;
@@ -1364,7 +1362,7 @@ fn parameter_default_value(
     // `_superConstructorParameterDefaultValue`: the value of the superclass
     // parameter, if its type fits this one's.
     let (fs, j) = super_parameter(program, interner, f, i)?;
-    let v = parameter_default_value(program, interner, table, core, outline, bodies, fs, j, prof + 1)?;
+    let v = parameter_default_value(program, interner, table, core, outline, bodies, (fs, j, prof + 1))?;
     let core = core?;
     // The value's type is not known here (the superclass's library without
     // inferred bodies, as when analyzing a single file in the LSP): the value
@@ -1406,7 +1404,7 @@ fn has_default(
     if !p.super_ || p.required || p.kind == ast::ParameterKind::Required {
         return false;
     }
-    if parameter_default_value(program, interner, table, core, outline, bodies, f, i, prof).is_none() {
+    if parameter_default_value(program, interner, table, core, outline, bodies, (f, i, prof)).is_none() {
         return false;
     }
     match super_parameter(program, interner, f, i) {

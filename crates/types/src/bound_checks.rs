@@ -396,7 +396,7 @@ impl Verifier<'_> {
         let error_node = |i: usize| written_ones.get(i).copied();
         if !super_allowed || of_extension {
             for (i, arg, bnd) in problems {
-                self.report_at(error_node(i), typ, params[i], arg, bnd, &context, out);
+                self.report_at(error_node(i), typ, (params[i], arg, bnd), &context, out);
             }
             return;
         }
@@ -422,7 +422,7 @@ impl Verifier<'_> {
             }
             let bnd = self.subst(data.bound, &params, &inv);
             if !self.sub(inv[i], bnd) {
-                self.report_at(error_node(i), typ, p, inv[i], bnd, &context, out);
+                self.report_at(error_node(i), typ, (p, inv[i], bnd), &context, out);
             }
         }
     }
@@ -467,9 +467,7 @@ impl Verifier<'_> {
         &mut self,
         no: Option<ast::TypeId>,
         typ: Span,
-        p: TypeParamId,
-        arg: TypeId,
-        bnd: TypeId,
+        (p, arg, bnd): (TypeParamId, TypeId, TypeId),
         context: &[String],
         out: &mut Vec<Diagnostic>,
     ) {
@@ -518,7 +516,7 @@ impl Verifier<'_> {
                     let end = a.ty(*arguments.type_args.last().unwrap()).span.end;
                     let source = self.program.unit(self.unit).source.as_str();
                     let end = source.get(end..).and_then(|r| r.find('>')).map_or(end, |k| end + k + 1);
-                    (*target, arguments.type_args.to_vec(), false, Span { start: a.expr(*target).span.start, end: end })
+                    (*target, arguments.type_args.to_vec(), false, Span { start: a.expr(*target).span.start, end })
                 }
                 _ => continue,
             };

@@ -30,7 +30,7 @@ const NBSP: char = '\u{00A0}';
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Node {
-    Element(Element),
+    Element(Box<Element>),
     Str(String),
     /// `{{ expression }}`, with the byte range of the whole form (`{{` to `}}`)
     /// in the template file — it is what goes in the `/* REF:url:start:end */`
@@ -472,7 +472,7 @@ impl<'a> Parser<'a> {
                 selector: content_selector,
             });
         }
-        Some(Node::Element(el))
+        Some(Node::Element(Box::new(el)))
     }
 
     fn skip_whitespace(&mut self) {
@@ -776,7 +776,6 @@ fn collapse(text: &str, trim_left: bool, trim_right: bool) -> Option<String> {
     // &ngsp;` after a block element becomes `' '`. `&nbsp;` is protected before
     // trimming (`preserveNbsp`, `\uE501`): Rust's `trim` would take it along.
     let blank = |c: char| c.is_whitespace() && c != NBSP;
-    let mut v = v;
     if trim_left {
         v = v.trim_start_matches(blank).to_string();
     }
@@ -946,7 +945,7 @@ mod tests {
     fn position_in_utf16_units() {
         assert_eq!(
             parse("<span>© {{ano}}</span>"),
-            vec![Node::Element(Element {
+            vec![Node::Element(Box::new(Element {
                 name: "span".into(),
                 children: vec![
                     Node::Str("© ".into()),
@@ -957,7 +956,7 @@ mod tests {
                     },
                 ],
                 ..Default::default()
-            })]
+            }))]
         );
     }
 

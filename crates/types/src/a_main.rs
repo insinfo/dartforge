@@ -74,7 +74,7 @@ pub fn main_function(
                 }
                 None => p.span.end,
             };
-            Span { start: start, end: end }
+            Span { start, end }
         };
         let Some(data) = outline.functions.get(i) else { continue };
         let Some(ty) = data.parameters.get(k).map(|p| p.ty) else { continue };

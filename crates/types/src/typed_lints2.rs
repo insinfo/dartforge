@@ -25,6 +25,7 @@
 //!   after;
 //! - `unnecessary_null_aware_assignments` is only silenced when the write
 //!   goes to a setter (`[]=` is not a setter).
+//!
 //! Written without compiling or running (2026-10-05).
 
 use crate::const_eval::evaluation::{Constant, Ctx, Engine};

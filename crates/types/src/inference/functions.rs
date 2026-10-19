@@ -64,15 +64,12 @@ fn declare_parameters(inf: &mut BodyInferrer<'_>, cx: &mut Body, params: &[ast::
         }
         if let Some(n) = &p.name {
             // A written type that does not resolve: `dynamic` without being `dynamic`.
-            if matches!(inf.table.get(t), Type::Dynamic) {
-                if let Some(x) = p.ty {
-                    if let ast::TypeKind::Named { name, .. } = &inf.program.unit(cx.unit).ast.ty(x).kind {
-                        if !name.last().is_some_and(|k| inf.interner.resolve(k.sym) == "dynamic") {
+            if matches!(inf.table.get(t), Type::Dynamic)
+                && let Some(x) = p.ty
+                    && let ast::TypeKind::Named { name, .. } = &inf.program.unit(cx.unit).ast.ty(x).kind
+                        && !name.last().is_some_and(|k| inf.interner.resolve(k.sym) == "dynamic") {
                             inf.invalid_locals.insert((cx.unit, n.span.start));
                         }
-                    }
-                }
-            }
             // `this.x` and `super.x` introduce final locals in the initializer list
             // (`FieldFormalParameterElementImpl.isFinal`,
             // `SuperFormalParameterElementImpl.isFinal`, 3.6.2
@@ -223,7 +220,7 @@ pub(crate) fn infer_declared_function(inf: &mut BodyInferrer<'_>, f: FunctionEle
                     let (Some(&pt), ft) = (types.get(i), inf.variable_type(v)) else { continue };
                     if !inf.sub(pt, ft) {
                         let start = p.metadata.first().map_or(p.span.start, |m| m.span.start.min(p.span.start));
-                        let sp = dartforge_diagnostics::Span { start: start, end: n.span.end };
+                        let sp = dartforge_diagnostics::Span { start, end: n.span.end };
                         inf.warning_with_args(
                             dartforge_diagnostics::codes::compile_time_error::FIELD_INITIALIZING_FORMAL_NOT_ASSIGNABLE,
                             sp,
@@ -1386,7 +1383,7 @@ fn implicit_super_range(inf: &BodyInferrer<'_>, ctor: &ast::Constructor, unit: U
     });
     if !primary {
         let end = ctor.name.map_or(ctor.class_name.span.end, |n| n.span.end);
-        return Span { start: ctor.class_name.span.start, end: end };
+        return Span { start: ctor.class_name.span.start, end };
     }
     let ms = u.ast.member(member).span;
     if ms.start != ctor.class_name.span.start && u.source[ms.start..].starts_with("this") {
@@ -1403,7 +1400,7 @@ fn implicit_super_range(inf: &BodyInferrer<'_>, ctor: &ast::Constructor, unit: U
         None if start < ctor.class_name.span.start => start + "const".len(),
         None => ctor.class_name.span.end,
     };
-    Span { start: start, end: end }
+    Span { start, end }
 }
 
 /// `_checkForUndefinedConstructorInInitializerImplicit`
@@ -1678,17 +1675,15 @@ fn catch_error_without_return(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, 
 pub(crate) fn infer_untyped_variable_type(inf: &mut BodyInferrer<'_>, vid: VariableId) -> TypeId {
     let v = inf.program.variable(vid);
     // Override of an inherited member (instance fields).
-    if !v.static_ {
-        if let Some(c) = v.class {
-            if let Some(t) = overlay_type(inf, c, vid) {
+    if !v.static_
+        && let Some(c) = v.class
+            && let Some(t) = overlay_type(inf, c, vid) {
                 if let Some((unit, init)) = inf.initializer(vid) {
                     let mut cx = Body::to_variable(inf, vid, unit);
                     infer(inf, &mut cx, init, t);
                 }
                 return t;
             }
-        }
-    }
     match inf.initializer(vid) {
         Some((unit, init)) => {
             let mut cx = Body::to_variable(inf, vid, unit);
@@ -2386,124 +2381,121 @@ pub(crate) fn infer_unit_metadata(inf: &mut BodyInferrer<'_>, unit: UnitId) {
                 unvalidated_annotation_with(inf, unit, None, None, m, &scope);
             }
         }
-        match &d.kind {
-            ast::DeclKind::Enum(en) => {
-                let Some(c) = cls else { continue };
-                for k in en.constants.iter() {
-                    for m in k.metadata.iter() {
-                        annotation(inf, unit, Some(c), None, m);
+        if let ast::DeclKind::Enum(en) = &d.kind {
+            let Some(c) = cls else { continue };
+            for k in en.constants.iter() {
+                for m in k.metadata.iter() {
+                    annotation(inf, unit, Some(c), None, m);
+                }
+                // `ResolverVisitor.visitEnumConstantDeclaration`
+                // (`an611:src/generated/resolver.dart:2483-2520`), before the arguments:
+                // the constructor of the synthetic creation is a factory, or does not
+                // exist (the synthetic `const` one only without a declared constructor).
+                let key = match k.constructor.map(|n| n.sym) {
+                    Some(x) if Some(x) == inf.sym.new_ => inf.sym.empty,
+                    Some(x) => Some(x),
+                    None => inf.sym.empty,
+                };
+                {
+                    use dartforge_diagnostics::codes::compile_time_error as ce;
+                    let ce_enum = inf.program.class(c);
+                    let declared = key.and_then(|ch| ce_enum.constructors.get(&ch).copied());
+                    // `buildEnumSyntheticConstructors` (`library_builder.dart:238-260`): the
+                    // synthetic unnamed one exists when no constructor is generative or
+                    // unnamed (only named factories count as absence).
+                    let synthetic = key == inf.sym.empty && enum_has_synthetic(inf, c);
+                    match declared {
+                        Some(f) if inf.program.function(f).factory => {
+                            let sp = k.constructor.map_or(k.name.span, |n| n.span);
+                            inf.warning_with_code(ce::ENUM_CONSTANT_INVOKES_FACTORY_CONSTRUCTOR, sp, &[]);
+                        }
+                        Some(_) => {}
+                        None if synthetic => {}
+                        None => match k.constructor {
+                            Some(n) => {
+                                let the_name = inf.interner.resolve(n.sym).to_string();
+                                inf.warning_with_code(ce::UNDEFINED_ENUM_CONSTRUCTOR_NAMED, n.span, &[&the_name]);
+                            }
+                            None => inf.warning_with_code(ce::UNDEFINED_ENUM_CONSTRUCTOR_UNNAMED, k.name.span, &[]),
+                        },
                     }
-                    // `ResolverVisitor.visitEnumConstantDeclaration`
-                    // (`an611:src/generated/resolver.dart:2483-2520`), before the arguments:
-                    // the constructor of the synthetic creation is a factory, or does not
-                    // exist (the synthetic `const` one only without a declared constructor).
-                    let key = match k.constructor.map(|n| n.sym) {
-                        Some(x) if Some(x) == inf.sym.new_ => inf.sym.empty,
-                        Some(x) => Some(x),
-                        None => inf.sym.empty,
-                    };
+                    // `TypeArgumentsVerifier.checkEnumConstantDeclaration`
+                    // (`type_arguments_verifier.dart:93-112`): with the constructor
+                    // resolved, a written `<…>` list with a count different from the enum's.
+                    let resolved = declared.is_some() || synthetic;
+                    let the_expected = inf.program.class(c).type_params.len();
+                    if resolved
+                        && let (Some(&first), Some(&last)) = (k.type_args.first(), k.type_args.last())
+                        && k.type_args.len() != the_expected
                     {
-                        use dartforge_diagnostics::codes::compile_time_error as ce;
-                        let ce_enum = inf.program.class(c);
-                        let declared = key.and_then(|ch| ce_enum.constructors.get(&ch).copied());
-                        // `buildEnumSyntheticConstructors` (`library_builder.dart:238-260`): the
-                        // synthetic unnamed one exists when no constructor is generative or
-                        // unnamed (only named factories count as absence).
-                        let synthetic = key == inf.sym.empty && enum_has_synthetic(inf, c);
-                        match declared {
-                            Some(f) if inf.program.function(f).factory => {
-                                let sp = k.constructor.map_or(k.name.span, |n| n.span);
-                                inf.warning_with_code(ce::ENUM_CONSTANT_INVOKES_FACTORY_CONSTRUCTOR, sp, &[]);
-                            }
-                            Some(_) => {}
-                            None if synthetic => {}
-                            None => match k.constructor {
-                                Some(n) => {
-                                    let the_name = inf.interner.resolve(n.sym).to_string();
-                                    inf.warning_with_code(ce::UNDEFINED_ENUM_CONSTRUCTOR_NAMED, n.span, &[&the_name]);
-                                }
-                                None => inf.warning_with_code(ce::UNDEFINED_ENUM_CONSTRUCTOR_UNNAMED, k.name.span, &[]),
-                            },
-                        }
-                        // `TypeArgumentsVerifier.checkEnumConstantDeclaration`
-                        // (`type_arguments_verifier.dart:93-112`): with the constructor
-                        // resolved, a written `<…>` list with a count different from the enum's.
-                        let resolved = declared.is_some() || synthetic;
-                        let the_expected = inf.program.class(c).type_params.len();
-                        if resolved
-                            && let (Some(&first), Some(&last)) = (k.type_args.first(), k.type_args.last())
-                            && k.type_args.len() != the_expected
-                        {
-                            let source = &inf.program.unit(unit).source;
-                            let arg_start = a.ty(first).span.start;
-                            let arg_end = a.ty(last).span.end;
-                            let start = source[..arg_start].rfind('<').unwrap_or(arg_start);
-                            let end = source[arg_end..].find('>').map_or(arg_end, |i| arg_end + i + 1);
-                            let (e, d) = (the_expected.to_string(), k.type_args.len().to_string());
-                            inf.warning_with_code(ce::WRONG_NUMBER_OF_TYPE_ARGUMENTS_ENUM, dartforge_diagnostics::Span { start: start, end: end }, &[&e, &d]);
-                        }
-                    }
-                    if let Some(args) = &k.arguments {
-                        let mut cx = Body::new(inf, unit, Some(c), None, true);
-                        let f = key.and_then(|ch| inf.program.class(c).constructors.get(&ch).copied());
-                        if let Some(f) = f {
-                            let explicit = if k.type_args.is_empty() {
-                                None
-                            } else {
-                                Some(k.type_args.iter().map(|&t| inf.type_argument_type(&cx, t)).collect())
-                            };
-                            let u = inf.core.unknown;
-                            let enum_name = inf.interner.resolve(en.name.sym).to_string();
-                            super::calls::define_target(inf, Some(enum_name), k.name.span);
-                            super::calls::build(inf, &mut cx, None, c, Some(f), explicit, args, u);
-                            inf.arity_target = None;
-                            // `TypeArgumentsVerifier`'s `checkEnumConstantDeclaration`: the
-                            // constructor's type arguments (written or inferred), at the written
-                            // argument or at the name.
-                            let params = inf.outline.classes[c.0 as usize].type_params.to_vec();
-                            if let Some(types) = inf.body_types.units[unit.0 as usize].instantiation(args.span.start).map(|x| x.to_vec())
-                                && types.len() == params.len()
-                            {
-                                let nodes = k.type_args.to_vec();
-                                super::calls::check_explicit_bounds(inf, unit, &params, &types, &nodes, k.name.span, None);
-                            }
-                        } else if key == inf.sym.empty && enum_has_synthetic(inf, c) {
-                            // Implicit unnamed constructor `const E()`: the arguments go through its
-                            // arity (no parameters).
-                            let ret = inf.class_this_type(c);
-                            let sig = inf.table.intern(Type::Function {
-                                type_params: Box::new([]),
-                                ret,
-                                positional: Box::new([]),
-                                optional: Box::new([]),
-                                named: Box::new([]),
-                                nullable: false,
-                            });
-                            let enum_name = inf.interner.resolve(en.name.sym).to_string();
-                            super::calls::define_target(inf, Some(enum_name), k.name.span);
-                            let u = inf.core.unknown;
-                            super::calls::invoke(inf, &mut cx, sig, args, u, None);
-                            inf.arity_target = None;
-                            // `checkEnumConstantDeclaration`: the written arguments of the implicit
-                            // constructor.
-                            let params = inf.outline.classes[c.0 as usize].type_params.to_vec();
-                            if !k.type_args.is_empty() && k.type_args.len() == params.len() {
-                                let nodes = k.type_args.to_vec();
-                                let types: Vec<TypeId> = nodes.iter().map(|&t| inf.type_argument_type(&cx, t)).collect();
-                                super::calls::check_explicit_bounds(inf, unit, &params, &types, &nodes, k.name.span, None);
-                            }
-                        } else {
-                            for x in args.args.iter() {
-                                infer_free(inf, &mut cx, x.value);
-                            }
-                        }
-                    } else if let Some(f) = inf.sym.empty.and_then(|v| inf.program.class(c).constructors.get(&v).copied()) {
-                        let enum_name = inf.interner.resolve(en.name.sym).to_string();
-                        super::calls::arity_without_arguments(inf, f, enum_name, k.name.span);
+                        let source = &inf.program.unit(unit).source;
+                        let arg_start = a.ty(first).span.start;
+                        let arg_end = a.ty(last).span.end;
+                        let start = source[..arg_start].rfind('<').unwrap_or(arg_start);
+                        let end = source[arg_end..].find('>').map_or(arg_end, |i| arg_end + i + 1);
+                        let (e, d) = (the_expected.to_string(), k.type_args.len().to_string());
+                        inf.warning_with_code(ce::WRONG_NUMBER_OF_TYPE_ARGUMENTS_ENUM, dartforge_diagnostics::Span { start, end }, &[&e, &d]);
                     }
                 }
+                if let Some(args) = &k.arguments {
+                    let mut cx = Body::new(inf, unit, Some(c), None, true);
+                    let f = key.and_then(|ch| inf.program.class(c).constructors.get(&ch).copied());
+                    if let Some(f) = f {
+                        let explicit = if k.type_args.is_empty() {
+                            None
+                        } else {
+                            Some(k.type_args.iter().map(|&t| inf.type_argument_type(&cx, t)).collect())
+                        };
+                        let u = inf.core.unknown;
+                        let enum_name = inf.interner.resolve(en.name.sym).to_string();
+                        super::calls::define_target(inf, Some(enum_name), k.name.span);
+                        super::calls::build(inf, &mut cx, None, c, Some(f), explicit, args, u);
+                        inf.arity_target = None;
+                        // `TypeArgumentsVerifier`'s `checkEnumConstantDeclaration`: the
+                        // constructor's type arguments (written or inferred), at the written
+                        // argument or at the name.
+                        let params = inf.outline.classes[c.0 as usize].type_params.to_vec();
+                        if let Some(types) = inf.body_types.units[unit.0 as usize].instantiation(args.span.start).map(|x| x.to_vec())
+                            && types.len() == params.len()
+                        {
+                            let nodes = k.type_args.to_vec();
+                            super::calls::check_explicit_bounds(inf, unit, &params, &types, &nodes, k.name.span, None);
+                        }
+                    } else if key == inf.sym.empty && enum_has_synthetic(inf, c) {
+                        // Implicit unnamed constructor `const E()`: the arguments go through its
+                        // arity (no parameters).
+                        let ret = inf.class_this_type(c);
+                        let sig = inf.table.intern(Type::Function {
+                            type_params: Box::new([]),
+                            ret,
+                            positional: Box::new([]),
+                            optional: Box::new([]),
+                            named: Box::new([]),
+                            nullable: false,
+                        });
+                        let enum_name = inf.interner.resolve(en.name.sym).to_string();
+                        super::calls::define_target(inf, Some(enum_name), k.name.span);
+                        let u = inf.core.unknown;
+                        super::calls::invoke(inf, &mut cx, sig, args, u, None);
+                        inf.arity_target = None;
+                        // `checkEnumConstantDeclaration`: the written arguments of the implicit
+                        // constructor.
+                        let params = inf.outline.classes[c.0 as usize].type_params.to_vec();
+                        if !k.type_args.is_empty() && k.type_args.len() == params.len() {
+                            let nodes = k.type_args.to_vec();
+                            let types: Vec<TypeId> = nodes.iter().map(|&t| inf.type_argument_type(&cx, t)).collect();
+                            super::calls::check_explicit_bounds(inf, unit, &params, &types, &nodes, k.name.span, None);
+                        }
+                    } else {
+                        for x in args.args.iter() {
+                            infer_free(inf, &mut cx, x.value);
+                        }
+                    }
+                } else if let Some(f) = inf.sym.empty.and_then(|v| inf.program.class(c).constructors.get(&v).copied()) {
+                    let enum_name = inf.interner.resolve(en.name.sym).to_string();
+                    super::calls::arity_without_arguments(inf, f, enum_name, k.name.span);
+                }
             }
-            _ => {}
         }
     }
     // The annotations of the parameters of a written function type
@@ -2849,10 +2841,7 @@ pub(crate) fn validate_annotation_at(
                         .is_some_and(|f| inf.program.function(inf.program.public(f)).const_)
                 };
                 let of_member = match mem {
-                    Some(n) => match static_getter(inf, Some(k), None, n.sym) {
-                        Some(g) => Some(g != Some(true) || args),
-                        None => None,
-                    },
+                    Some(n) => static_getter(inf, Some(k), None, n.sym).map(|g| g != Some(true) || args),
                     None => None,
                 };
                 match of_member {

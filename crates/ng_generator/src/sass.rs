@@ -31,6 +31,27 @@ pub enum Style {
     Compressed,
 }
 
+/// Output settings for an asset compilation.
+///
+/// ```
+/// use dartforge_ng_generator::sass::{AssetOptions, Style, DartSassVersion};
+/// let options = AssetOptions {
+///     style: Style::Compressed,
+///     source_map: true,
+///     version: DartSassVersion::V1_102_0,
+/// };
+/// assert!(options.source_map);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct AssetOptions {
+    /// CSS output style.
+    pub style: Style,
+    /// Whether to produce a source map and its CSS reference.
+    pub source_map: bool,
+    /// Exact Dart Sass compatibility profile.
+    pub version: DartSassVersion,
+}
+
 impl Style {
     fn output_style(self) -> OutputStyle {
         match self {
@@ -182,7 +203,7 @@ pub fn compile_file(scss: &Path, style: Style, map: bool) -> Result<Sheet, Reaso
 /// The dart-sass message when the stylesheet is refused.
 ///
 /// ```
-/// use dartforge_ng_generator::sass::{compile_asset, Style, AssetReader, DartSassVersion};
+/// use dartforge_ng_generator::sass::{compile_asset, AssetOptions, Style, AssetReader, DartSassVersion};
 /// use std::collections::BTreeMap;
 /// use std::path::Path;
 /// struct Nothing;
@@ -190,7 +211,7 @@ pub fn compile_file(scss: &Path, style: Style, map: bool) -> Result<Sheet, Reaso
 ///     fn exists(&self, _: &Path) -> bool { false }
 ///     fn read(&self, _: &Path) -> std::io::Result<String> { Err(std::io::ErrorKind::NotFound.into()) }
 /// }
-/// let f = compile_asset("a { b: c }", "app", "web/x.scss", &BTreeMap::new(), &Nothing, Style::Compressed, true, DartSassVersion::V1_102_0).unwrap();
+/// let f = compile_asset("a { b: c }", "app", "web/x.scss", &BTreeMap::new(), &Nothing, AssetOptions { style: Style::Compressed, source_map: true, version: DartSassVersion::V1_102_0 }).unwrap();
 /// assert_eq!(f.css, "a{b:c}\n\n/*# sourceMappingURL=x.css.map */\n");
 /// assert_eq!(f.map.unwrap(), r#"{"version":3,"sourceRoot":"","sources":["x.scss"],"names":[],"mappings":"AAAA"}"#);
 /// ```
@@ -200,10 +221,9 @@ pub fn compile_asset(
     path: &str,
     roots: &BTreeMap<String, PathBuf>,
     reader: &dyn AssetReader,
-    style: Style,
-    map: bool,
-    version: DartSassVersion,
+    options: AssetOptions,
 ) -> Result<Sheet, String> {
+    let AssetOptions { style, source_map: map, version } = options;
     let mut packages = Packages::new();
     for (name, root) in roots {
         packages.insert(name.clone(), root.clone());

@@ -401,7 +401,7 @@ pub fn substitute(
                                 .iter()
                                 .map(|&p| {
                                     let d = table.param(p).clone();
-                                    let n = table.alloc_type_param(d.name, d.owner.clone(), d.bound, d.variance);
+                                    let n = table.alloc_type_param(d.name, d.owner, d.bound, d.variance);
                                     table.param_mut(n).explicit = d.explicit;
                                     n
                                 })
@@ -549,16 +549,14 @@ fn normalize_(ty: TypeId, table: &mut TypeTable, core: &CoreTypes, in_progress: 
             if s == core.object {
                 return s;
             }
-            if matches!(table.get(s), Type::Never) {
-                if let Some(future_class) = core.future_class {
+            if matches!(table.get(s), Type::Never)
+                && let Some(future_class) = core.future_class {
                     return table.intern(Type::Interface { class: future_class, args: Box::new([core.never]), nullable: false });
                 }
-            }
-            if matches!(table.get(s), Type::Null) {
-                if let Some(future_class) = core.future_class {
+            if matches!(table.get(s), Type::Null)
+                && let Some(future_class) = core.future_class {
                     return table.intern(Type::Interface { class: future_class, args: Box::new([core.null]), nullable: true });
                 }
-            }
             if s == arg {
                 return ty;
             }
@@ -648,7 +646,7 @@ fn normalize_(ty: TypeId, table: &mut TypeTable, core: &CoreTypes, in_progress: 
                                 .iter()
                                 .map(|&p| {
                                     let d = table.param(p).clone();
-                                    let n = table.alloc_type_param(d.name, d.owner.clone(), d.bound, d.variance);
+                                    let n = table.alloc_type_param(d.name, d.owner, d.bound, d.variance);
                                     table.param_mut(n).explicit = d.explicit;
                                     n
                                 })

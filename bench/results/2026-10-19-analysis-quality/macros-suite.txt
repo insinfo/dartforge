@@ -1,0 +1,75 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_macros_host-932c08afc529b8c2)
+
+running 5 tests
+test assembly::tests::prefix_avoids_user_texts ... ok
+test protocol::tests::frame_round_trip ... ok
+test assembly::tests::top_level_declarations_rule_4_and_supertypes ... ok
+test protocol::tests::handshake_rejects_other_protocol ... ok
+test assembly::tests::json_codable_like_the_cfe ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cache.rs (target/debug/deps/cache-e9c8289c11cb2dc0)
+
+running 9 tests
+test unobserved_edit_reuses ... ok
+test new_field_invalidates_only_who_observes_it ... ok
+test materialized_in_both_forms_does_not_duplicate ... ok
+test same_output_does_not_invalidate_consumers ... ok
+test edited_implementation_invalidates_its_applications ... ok
+test previously_missing_member_invalidates ... ok
+test recompilation_without_change_does_not_talk_to_the_executor ... ok
+test with_and_without_cache_give_the_same ... ok
+test macro_error_keeps_the_last_valid_generation ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.39s
+
+     Running tests/json_codable.rs (target/debug/deps/json_codable-b5b7f2b3f8812ad3)
+
+running 4 tests
+test cache_reuses_json_codable_without_executor ... ok
+test recorded_session_reproduces_the_cfe_text ... ok
+test vm_runs_the_macro_and_matches_the_cfe ... ok
+410_json_codable: compilation 2.1 s, application 1660 ms
+411_pedido_independente: compilation 2.7 s, application 947 ms
+412_argumento_posicional: compilation 2.1 s, application 702 ms
+413_argumentos_nomeados: compilation 2.0 s, application 702 ms
+test native_executor_matches_the_cfe ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.95s
+
+     Running tests/measurement.rs (target/debug/deps/measurement-31e87857bcd59f01)
+
+running 1 test
+[measurement] 410_json_codable | 1 clean, full reload: total 1687.4 ms | startup 12.1 ms; model 1.8 ms; execution 28.4 ms (8 executions); queries 2.1 ms (85); revalidation 0.0 ms (0 reused, 0 queries replayed, 0 rerun unchanged); assembly 0.6 ms (5 assemblies, 18 results); reload 1162.8 ms (5 reloads, 0 units reused)
+[measurement] 410_json_codable | 2 clean, diff-based reload: total 589.0 ms | startup 12.4 ms; model 1.7 ms; execution 28.7 ms (8 executions); queries 2.0 ms (85); revalidation 1.2 ms (0 reused, 0 queries replayed, 0 rerun unchanged); assembly 0.6 ms (5 assemblies, 18 results); reload 67.3 ms (5 reloads, 775 units reused)
+[measurement] 410_json_codable | 3 recompilation without change: total 309.4 ms | startup 0.0 ms (executor not started); model 1.6 ms; execution 0.0 ms (0 executions); queries 0.0 ms (0); revalidation 5.2 ms (8 reused, 85 queries replayed, 0 rerun unchanged); assembly 0.5 ms (5 assemblies, 18 results); reload 66.5 ms (5 reloads, 775 units reused)
+[measurement] 410_json_codable | 4 recompilation with a new field: total 580.7 ms | startup 12.3 ms; model 1.7 ms; execution 17.7 ms (2 executions); queries 0.5 ms (19); revalidation 4.4 ms (6 reused, 68 queries replayed, 1 rerun unchanged); assembly 0.6 ms (5 assemblies, 18 results); reload 67.2 ms (5 reloads, 775 units reused)
+[measurement] synthetic N=8 | 1 clean, full reload: total 2617.2 ms | startup 11.7 ms; model 3.4 ms; execution 36.0 ms (16 executions); queries 4.3 ms (168); revalidation 0.0 ms (0 reused, 0 queries replayed, 0 rerun unchanged); assembly 1.6 ms (9 assemblies, 52 results); reload 2087.6 ms (9 reloads, 0 units reused)
+[measurement] synthetic N=8 | 2 clean, diff-based reload: total 658.7 ms | startup 12.0 ms; model 3.2 ms; execution 38.2 ms (16 executions); queries 4.3 ms (168); revalidation 2.4 ms (0 reused, 0 queries replayed, 0 rerun unchanged); assembly 1.5 ms (9 assemblies, 52 results); reload 122.4 ms (9 reloads, 1386 units reused)
+[measurement] synthetic N=8 | 3 recompilation without change: total 371.0 ms | startup 0.0 ms (executor not started); model 3.0 ms; execution 0.0 ms (0 executions); queries 0.0 ms (0); revalidation 10.8 ms (16 reused, 168 queries replayed, 0 rerun unchanged); assembly 1.4 ms (9 assemblies, 52 results); reload 120.3 ms (9 reloads, 1386 units reused)
+[measurement] synthetic N=8 | 4 recompilation with a new field: total 640.1 ms | startup 11.4 ms; model 3.1 ms; execution 18.6 ms (2 executions); queries 0.6 ms (23); revalidation 9.9 ms (14 reused, 147 queries replayed, 1 rerun unchanged); assembly 1.4 ms (9 assemblies, 52 results); reload 120.8 ms (9 reloads, 1386 units reused)
+[measurement] synthetic N=32 | 1 clean, full reload: total 13090.6 ms | startup 13.1 ms; model 22.1 ms; execution 204.2 ms (64 executions); queries 33.7 ms (672); revalidation 0.0 ms (0 reused, 0 queries replayed, 0 rerun unchanged); assembly 27.2 ms (33 assemblies, 592 results); reload 12299.1 ms (33 reloads, 0 units reused)
+[measurement] synthetic N=32 | 2 clean, diff-based reload: total 1665.9 ms | startup 22.6 ms; model 20.7 ms; execution 170.9 ms (64 executions); queries 27.9 ms (672); revalidation 15.9 ms (0 reused, 0 queries replayed, 0 rerun unchanged); assembly 25.7 ms (33 assemblies, 592 results); reload 701.1 ms (33 reloads, 5082 units reused)
+[measurement] synthetic N=32 | 3 recompilation without change: total 959.6 ms | startup 0.0 ms (executor not started); model 13.5 ms; execution 0.0 ms (0 executions); queries 0.0 ms (0); revalidation 44.8 ms (64 reused, 672 queries replayed, 0 rerun unchanged); assembly 14.9 ms (33 assemblies, 592 results); reload 553.4 ms (33 reloads, 5082 units reused)
+[measurement] synthetic N=32 | 4 recompilation with a new field: total 1356.0 ms | startup 15.3 ms; model 17.9 ms; execution 26.1 ms (2 executions); queries 1.2 ms (23); revalidation 64.1 ms (62 reused, 651 queries replayed, 1 rerun unchanged); assembly 18.5 ms (33 assemblies, 592 results); reload 621.9 ms (33 reloads, 5082 units reused)
+test host_measurement ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 24.61s
+
+     Running tests/zero_cost.rs (target/debug/deps/zero_cost-7ef82af985d0a99b)
+
+running 1 test
+test no_macro_opens_no_session ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+
+   Doc-tests dartforge_macros_host
+
+running 1 test
+test crates/macros_host/src/cache.rs - cache::MacroCache (line 140) ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.70s; merged doctests compilation took 0.52s

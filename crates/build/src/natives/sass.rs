@@ -12,7 +12,7 @@
 use crate::query::Query;
 use crate::executor::{GeneratorCtx, NativeGenerator, NativeRequest, NativeOutput};
 use crate::value::Value;
-use dartforge_ng_generator::sass::{Style, AssetReader, DartSassVersion, compile_asset};
+use dartforge_ng_generator::sass::{AssetOptions, Style, AssetReader, DartSassVersion, compile_asset};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -108,9 +108,7 @@ impl NativeGenerator for SassNative {
                 &a.input.path,
                 &request.roots,
                 &reader,
-                style,
-                source_map,
-                version,
+                AssetOptions { style, source_map, version },
             ) {
                 Ok(f) => f,
                 Err(m) => {

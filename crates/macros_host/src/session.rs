@@ -684,8 +684,8 @@ fn target_and_model(v: &View<'_>, t: &mut Table, target: &Target) -> Result<(Val
                 }
                 _ => None,
             };
-            if let Some(owner) = owner {
-                if let Some(cid) = v.class_of(&owner) {
+            if let Some(owner) = owner
+                && let Some(cid) = v.class_of(&owner) {
                     let id = t.id(owner);
                     members.insert(
                         id.to_string(),
@@ -696,7 +696,6 @@ fn target_and_model(v: &View<'_>, t: &mut Table, target: &Target) -> Result<(Val
                         }),
                     );
                 }
-            }
             Ok((d, json!({"libraries": libraries, "members": members})))
         }
     }

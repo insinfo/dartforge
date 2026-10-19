@@ -71,11 +71,10 @@ pub fn can_be_const(
                     creations.push(id);
                 }
             }
-            ExprKind::List { const_: false, .. } | ExprKind::SetOrMap { const_: false, .. } => {
-                if !parents.in_constant_context(a, id) {
+            ExprKind::List { const_: false, .. } | ExprKind::SetOrMap { const_: false, .. }
+                if !parents.in_constant_context(a, id) => {
                     literals.push(id);
                 }
-            }
             _ => {}
         }
     }

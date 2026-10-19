@@ -1,0 +1,175 @@
+{
+  "recorded_at": "2026-10-19T06:51:27.709106-03:00",
+  "base_revision": "501bdb198838bb611dd133ce85de63d5380a17db",
+  "platform": "macOS ARM64",
+  "rust_toolchain": "1.98.1",
+  "source_sha256": {
+    "crates/build/src/natives/sass.rs": "f97b21c109084935e659360285f3b2f584d1f133c7f6443e8649d07da339d12a",
+    "crates/macros_host/src/applications.rs": "72c86521d1b80ac61769693435358e8ec2d8487a33c6fed966608ed23617324f",
+    "crates/macros_host/src/session.rs": "d456223777a77f46629439ae89fb61f23062a215e521759a2458c59d9c93b2a5",
+    "crates/macros_host/src/vm.rs": "c87644b7e45766023bfbbacbf6defa34e21677806ebfb349c33e60929149bc1a",
+    "crates/ng_generator/src/directives.rs": "b317a7b85d1197a37a71de951e719dd69e43b22ccc2a421d6cbf52ecde6adca4",
+    "crates/ng_generator/src/html.rs": "6bfa07547910060095de0dd18db9ec394b9ef1bcbece62373594461566ce15a9",
+    "crates/ng_generator/src/resolution.rs": "87077c1234bd637a73d5e3129cd0cbcf2cb32845cbb627a3524ac4e88a77dbd4",
+    "crates/ng_generator/src/sass.rs": "f5d534685ff41dbb6e2bad3a23836a82637a43db9ae4800c251d991ce3193616",
+    "crates/ng_generator/src/view.rs": "888cc42345dad00b02ffafcd3cf4c01191227f97ae27aa9d440ff07298200af2",
+    "crates/ng_generator/tests/corpus.rs": "0c2b2d14ce5582540727ec3b7045d83120fc7eef2b49274e1673a5a0ceab92bf",
+    "crates/types/examples/warnings.rs": "c5dbf011b1ff6759edb7b428d757381e9e833f91eef0f30b9f3b4ab436cad7ff",
+    "crates/types/src/a_main.rs": "88a6669839e1330c12d280be192e4f850460ff94c2af154aca5b624bed07814a",
+    "crates/types/src/bound_checks.rs": "b6e332a818b30565f9b8b5ea6a29b2edc8df379ec4405e22c25602b34a2aa93a",
+    "crates/types/src/const_eval/cycles.rs": "4f9ab510e70b54d3e6ccc607db5e875341ae4a520b8f23c1738fbb5e71f2a86c",
+    "crates/types/src/const_eval/evaluation.rs": "794e93b53446a5ebb764a89255a844c407967c5933caca33adf7dd25b0347b57",
+    "crates/types/src/const_eval/exhaustiveness.rs": "4e6c2a993e6c1cd6ce0c05c3b370433a97af2213d5d93efae413c4344251e580",
+    "crates/types/src/const_eval/potential.rs": "ca6b43d083a6de9a2ae430fa9829bce648e81f259df4561444040a6d4a0b95f9",
+    "crates/types/src/const_eval/verifier.rs": "fbc5251b7460438299b7b36400d240a641743cc7768cdc93e756db7b9a673504",
+    "crates/types/src/constant.rs": "3230f1a2417f9c98da86a30a3b0d39769384749e91bd870e35bfbadb41fd08f9",
+    "crates/types/src/constraints.rs": "0bd375cea8ce5829f47aad88a35a40e40b2f48fcdeeba56172abf0fc5d990424",
+    "crates/types/src/dump.rs": "4537ca856122e848d0cb130bdda9097c54a882a1b0cdee1831f9df5e841aa845",
+    "crates/types/src/field_promotion.rs": "3b7b41b530171c5fffacf5fd3d77fc2cf8e35681cbe8a3fb0cc684de336e0c36",
+    "crates/types/src/inference/body.rs": "53ee9081e69d19dccc93bb916c0795cc3b1fa7bd61bd9977b5f86210b89a96e8",
+    "crates/types/src/inference/calls.rs": "b0c2ce4bd8f7a72c593a39951166bd372f329d0644cab2a007d57132ecd1f7c6",
+    "crates/types/src/inference/collections.rs": "8e8c0671318699208eb777d2ddfea2252993527613480accc36e71df7cabc99f",
+    "crates/types/src/inference/expr.rs": "9988936170732e3764d7fa3d5b14edb5328facddb313f258896bd65fecc8a64b",
+    "crates/types/src/inference/flow.rs": "cae5fc3233285e899044b7812b8f2f60a3da298e43271479369ec03e5375a588",
+    "crates/types/src/inference/functions.rs": "2f0b1fc2780274ee851254448ed5dc65a3445c42df7fe9bac92d54b289535968",
+    "crates/types/src/inference/members.rs": "0f08fc8d076b1ea9c41ab27e66834425819ec7e2a15093c2b03317c996d15ba3",
+    "crates/types/src/inference/mod.rs": "ac96daa29f401970573dcc1ea5093cd4785884c0c6177ca38f2b9ccfc36e6554",
+    "crates/types/src/inference/non_promotion.rs": "8fba357c975825a50d69aca8a00440151f9fcd64fdb8a1c6f1c8203cfb60ef51",
+    "crates/types/src/inference/patterns.rs": "e3fc4cb44a2aa2039a6c6be1e997187729c0b37018e4dacc98ac28665f002b03",
+    "crates/types/src/inference/patterns/matching.rs": "d316c5fa8c30404618309a8a0e3f0cad9b927df84f0cac1c272714d5b427ab1f",
+    "crates/types/src/inference/statements.rs": "3bbf77d80f609ffcf1546de25ba1688bf5347198b706322f2f76c083ea1665f3",
+    "crates/types/src/inference/types.rs": "ba41a8f2205b6c46a3965e20565dc16d98d0be0733462b583882b0ca723d4c9a",
+    "crates/types/src/inheritance.rs": "a628435bcfbe88a7cb929f79ff4b147a0d1d56f2032362a1f4b25e9779b2b670",
+    "crates/types/src/ops.rs": "39ca22a4af81cbc846327a15e95b8e79627658d69ad5ab3bb04ba4ca88232b07",
+    "crates/types/src/override_checks.rs": "93451aa6ed8b7747ed9932fb04a68cc451e5b3e40678cc32eea753962a80ed20",
+    "crates/types/src/parameters.rs": "7febb1d10b54e2408c1bc176dcfec3fc0d85f07581a2355251bbc1c60d7be506",
+    "crates/types/src/phase_catch_error.rs": "affd004f4a81b3f8354464737c518c2ddb0b6254f8a2d34739b8016c3badb486",
+    "crates/types/src/phase_deprecated.rs": "be71d899c829ee9c6bf350d87a6b5967e31f2b108f3dbfd0647725d6921fb217",
+    "crates/types/src/phase_ffi.rs": "a35e7579d0178c81d65f8dd41443e954cee45fe0cea00684280b55d164d1506b",
+    "crates/types/src/phase_generics.rs": "5af82c014d533acfda513de93216843344e689a87ae3611cf6270d9b42f92239",
+    "crates/types/src/phase_required.rs": "0e2f4d40aee142da40667c555543d4daa60575ba07f452109d47c0661e331b75",
+    "crates/types/src/resolve.rs": "aa7486b71cc0a9a42979f5ab48be63ebbfdcb4ed3771ec0a0be5d081908a1c3c",
+    "crates/types/src/scope.rs": "ad05178fcedbc3dff50978ad8b7db8a028ffdf066219e1df35912293272a965c",
+    "crates/types/src/table.rs": "3473dcfd2ad0b1bdf99294d5560de72e3321aab72440a4d1c6e88f2c2095cb13",
+    "crates/types/src/typed_lints2.rs": "7d76dc8f55fba28ed918cf554405d064c03fefa90201a3f5ff15d3ec1e1517e6",
+    "crates/types/src/typed_lints3.rs": "5e4727207bdceb6f5a53fe0e3038d58df2f0df7433ad8b075754724d1004bab5",
+    "crates/types/src/typed_lints4.rs": "7ba48c38e9ea78c4a7f79a221312366d3ae1be5cf2582d7b34b84388a1de12df",
+    "crates/types/src/typed_lints5.rs": "174aa5bf197cbd4b9043cf49ed7f0bf36d895ffa6491d526c9ceed595e08f981",
+    "crates/types/src/typed_lints6.rs": "a446312b1dfc80bfec288f9ae56768bcd3b25ccd25a9b4b4e5c08b76f8115c83",
+    "crates/types/src/typed_lints7.rs": "d4d69142d5e755bfc5ec21eb0a9632df5ed1615715e6668466b17263444d74e6",
+    "crates/types/src/variance.rs": "618ccfe180b523811a87064c7d50157f5bae5075143307ef4255ace3bfbc4d96",
+    "crates/types/tests/bodies.rs": "b82f0d2c547c34af2e95616d72961e535f84a54507e4fae1847314566371e6e4",
+    "crates/types/tests/sdk_without_bodies.rs": "cb076301456db514a236c41c2946b61fbcb0792fed487ef8e52eb98677ac9a9b"
+  },
+  "focused_clippy": {
+    "command": "cargo clippy --locked -p dartforge-types -p dartforge-macros-host -p dartforge-ng-generator --all-targets -- -D warnings",
+    "exit_code": 0,
+    "new_suppressions": false
+  },
+  "api_changes": [
+    "HTML Node::Element now owns Box<Element>.",
+    "Sass compile_asset groups output flags in AssetOptions; the build-engine caller was migrated.",
+    "Private type-checker call sites group related target, context and diagnostic arguments; named aliases preserve existing tuple representations."
+  ],
+  "type_tests": {
+    "command": "cargo test --locked -p dartforge-types -- --include-ignored",
+    "exit_code": 0,
+    "passed": 119,
+    "includes_doctests": true
+  },
+  "ng_tests": {
+    "command": "cargo test --locked -p dartforge-ng-generator -- --include-ignored --nocapture",
+    "exit_code": 0,
+    "passed": 74,
+    "includes_doctests": true,
+    "official_artifacts_checked": 372,
+    "pending": 0
+  },
+  "macro_tests": {
+    "command": "cargo test --locked -p dartforge-macros-host -- --include-ignored --nocapture",
+    "exit_code": 0,
+    "passed": 21,
+    "includes_doctests": true,
+    "native_cases": [
+      "410_json_codable",
+      "411_pedido_independente",
+      "412_argumento_posicional",
+      "413_argumentos_nomeados"
+    ],
+    "scope": "VM, recorded CFE output, caching, incremental measurements and native executor. Timing lines are raw test output, not performance evidence."
+  },
+  "test_environment": {
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_TEST_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_NATIVE_COMPILER": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/analysis-quality-producer/dartforge",
+    "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+    "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"
+  },
+  "native_producer": {
+    "command": "cargo build --locked --release -p dartforge-cli --features native --target-dir target/impl-a",
+    "exit_code": 0,
+    "sha256": "fd803b145534b2662194787907125cb98512df844d6047c7303f2624965b788a",
+    "frozen_copy": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/analysis-quality-producer/dartforge",
+    "features": [
+      "native"
+    ],
+    "scope": "Fresh producer for macro executor compilation. No JIT validation is claimed for this native-only binary. Later edits were corpus validation tests and source whitespace/documentation cleanup."
+  },
+  "input_repair": {
+    "command": "PUB_CACHE=/Volumes/ssd_dock/tools/dart/pub-cache dart pub get --offline --enforce-lockfile",
+    "directories": [
+      "corpus/ngdart",
+      "corpus/macros/411_pedido_independente",
+      "corpus/macros/412_argumento_posicional",
+      "corpus/macros/413_argumentos_nomeados"
+    ],
+    "result": "Ignored package_config.json files contained Windows pub-cache locations. Recreated from existing lockfiles without dependency upgrades. The baseline generator reproduced the same stale-input mismatch before repair."
+  },
+  "corpus_guard": {
+    "directory_validation": "Registered dependencies must resolve to real package directories; regression checks missing names, stale paths and a valid directory.",
+    "artifact_coverage": "Every official .dart artifact must be generated, except explicitly listed refusals; the current refusal list is empty. SDK/oracle absence and directory entry errors fail the check."
+  },
+  "node_layout": {
+    "before_bytes": 344,
+    "after_bytes": 40,
+    "measurement": "std::mem::size_of::<html::Node>() in standalone Cargo probes, using the baseline and current sources with the same host toolchain.",
+    "baseline_export": "target/analysis-ng-baseline: git show from base_revision; dependency paths and test corpus root adapted to the local checkout only.",
+    "scope": "Inline enum size only. Element payloads are separately allocated after boxing; no claim about total heap memory or speed."
+  },
+  "native_tests": {
+    "command": "cargo test --locked -p dartforge-emit-native --lib --target-dir target/impl-a",
+    "exit_code": 0,
+    "passed": 777,
+    "failed": 0,
+    "ignored": 9
+  },
+  "build_sass": {
+    "command": "cargo test --locked -p dartforge-build --test corpus sass_release_css_on_demand_without_support -- --ignored --nocapture",
+    "exit_code": 0,
+    "passed": 1
+  },
+  "required_workspace_checks": {
+    "format": {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 1,
+      "result": "Workspace formatting remains pending."
+    },
+    "clippy": {
+      "command": "cargo clippy --locked --workspace --all-targets -- -D warnings",
+      "exit_code": 101,
+      "result": "Next failures are 13 diagnostics in dartforge-build. Later crates may have more."
+    },
+    "tests": {
+      "command": "cargo test --locked --workspace -- --include-ignored",
+      "exit_code": 101,
+      "result": "Apple LLVM 21 linker rejects static LLVM 22 bitcode in LLVM test targets."
+    },
+    "docs": {
+      "command": "cargo doc --locked --workspace --no-deps --document-private-items",
+      "exit_code": 0,
+      "result": "Generated with existing warnings."
+    }
+  },
+  "performance_claim": null
+}

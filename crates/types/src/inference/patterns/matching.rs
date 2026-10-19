@@ -425,7 +425,7 @@ fn duplicate_rests(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) {
                 };
                 let Some(start) = source.get(cursor..bound.max(cursor)).and_then(|s| s.find("...")).map(|k| cursor + k) else { continue };
                 let end = sub.map_or(start + 3, |x| a.pattern(x).span.end);
-                rests.push(Span { start: start, end: end });
+                rests.push(Span { start, end });
                 cursor = end;
             }
         }
@@ -772,11 +772,10 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
             record_pattern_type(inf, cx, p, c, inv);
             let sp = inf.program.unit(cx.unit).ast.ty(ty).span;
             never_matches(inf, cx, t, c, sp);
-            if !inv && !inf.table.is_invalid(c) && inf.sub(t, c) {
-                if let Some(keyword) = as_keyword(inf, cx, pattern, ty) {
+            if !inv && !inf.table.is_invalid(c) && inf.sub(t, c)
+                && let Some(keyword) = as_keyword(inf, cx, pattern, ty) {
                     inf.warning_with_code(w::UNNECESSARY_CAST_PATTERN, keyword, &[]);
                 }
-            }
             if inf.is_non_nullable(c) && classify(inf, t) == Class::Null {
                 inf.warning_with_code(w::CAST_FROM_NULL_ALWAYS_FAILS, pattern_span, &[]);
             }

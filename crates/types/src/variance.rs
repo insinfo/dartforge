@@ -363,20 +363,20 @@ pub fn variance(
 /// (`analyzer/lib/src/dart/element/non_covariant_type_parameter_position.dart`).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Position {
-    CovariantPos,
-    ContravariantPos,
-    InvariantPos,
+    Covariant,
+    Contravariant,
+    Invariant,
 }
 
 impl Position {
     /// `Variance.combine`.
     fn the_with(self, other: Position) -> Position {
-        if self == Position::InvariantPos || other == Position::InvariantPos {
-            Position::InvariantPos
+        if self == Position::Invariant || other == Position::Invariant {
+            Position::Invariant
         } else if self == other {
-            Position::CovariantPos
+            Position::Covariant
         } else {
-            Position::ContravariantPos
+            Position::Contravariant
         }
     }
 }
@@ -387,7 +387,7 @@ fn in_non_covariant_position(table: &TypeTable, x: TypeParamId, t: TypeId, v: Po
         return false;
     }
     match table.get(t) {
-        Type::TypeParameter { param, .. } => v != Position::CovariantPos && *param == x,
+        Type::TypeParameter { param, .. } => v != Position::Covariant && *param == x,
         Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.iter().any(|a| in_non_covariant_position(table, x, *a, v, prof + 1)),
         Type::FutureOr { arg, .. } => in_non_covariant_position(table, x, *arg, v, prof + 1),
         Type::Record { positional, named, .. } => {
@@ -401,11 +401,11 @@ fn in_non_covariant_position(table: &TypeTable, x: TypeParamId, t: TypeId, v: Po
             // The written bounds of the function's type parameters: invariant.
             for tp in type_params.iter() {
                 let d = table.param(*tp);
-                if d.explicit && in_non_covariant_position(table, x, d.bound, Position::InvariantPos, prof + 1) {
+                if d.explicit && in_non_covariant_position(table, x, d.bound, Position::Invariant, prof + 1) {
                     return true;
                 }
             }
-            let against = v.the_with(Position::ContravariantPos);
+            let against = v.the_with(Position::Contravariant);
             positional.iter().chain(optional.iter()).any(|a| in_non_covariant_position(table, x, *a, against, prof + 1))
                 || named.iter().any(|(_, a, _)| in_non_covariant_position(table, x, *a, against, prof + 1))
         }
@@ -429,9 +429,9 @@ pub fn non_covariant_positions_in_representation(program: &Program, table: &Type
         let a = &program.unit(d.unit).ast;
         let DeclKind::ExtensionType(x) = &a.decl(d.decl).kind else { continue };
         for (tp, &pid) in x.type_params.iter().zip(formals.iter()) {
-            if in_non_covariant_position(table, pid, t, Position::CovariantPos, 0) {
+            if in_non_covariant_position(table, pid, t, Position::Covariant, 0) {
                 let start = tp.metadata.first().map_or(tp.span.start, |m| m.span.start.min(tp.span.start));
-                let sp = Span { start: start, end: tp.span.end };
+                let sp = Span { start, end: tp.span.end };
                 output.push((d.unit, Diagnostic::with_code(c::NON_COVARIANT_TYPE_PARAMETER_POSITION_IN_REPRESENTATION_TYPE, sp, std::iter::empty::<&str>())));
             }
         }

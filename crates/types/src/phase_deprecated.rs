@@ -463,7 +463,8 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
             _ => None,
         };
         // (comment chain, names to leave out, enclosing type, documented item deprecated)
-        let mut docs: Vec<(Vec<Span>, Vec<dartforge_intern::SymbolId>, Option<dartforge_elements::model::ClassId>, bool)> = Vec::new();
+        type DocumentedScope = (Vec<Span>, Vec<dartforge_intern::SymbolId>, Option<dartforge_elements::model::ClassId>, bool);
+        let mut docs: Vec<DocumentedScope> = Vec::new();
         let mut owners: std::collections::HashMap<u32, (Option<dartforge_elements::model::ClassId>, Vec<dartforge_intern::SymbolId>)> = std::collections::HashMap::new();
         for decl in a.decls.iter() {
             let (extras, owner, members, tps): (Vec<dartforge_intern::SymbolId>, Option<dartforge_elements::model::ClassId>, &[ast::MemberId], &[ast::TypeParameter]) = match &decl.kind {
@@ -800,7 +801,7 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
                     // The `ConstructorName`: from the type to the constructor name.
                     let end = constructor.map_or(a.ty(*ty).span.end, |n| n.span.end);
                     if let Some(tgt) = function_target(*f) {
-                        report(Span { start: a.ty(*ty).span.start, end: end }, tgt);
+                        report(Span { start: a.ty(*ty).span.start, end }, tgt);
                     }
                     args_list(*f, arguments, expr.span, &mut report);
                 }
@@ -1147,7 +1148,7 @@ pub fn deprecated_optionals(program: &Program, interner: &Interner, body: Option
                 ExprKind::InstanceCreation { ty, constructor, arguments, .. } => {
                     if let Some(Resolved::Constructor(f)) = body.get_resolved(id) {
                         let end = constructor.map_or(a.ty(*ty).span.end, |n| n.span.end);
-                        omitted(&mut out, *f, arguments, Span { start: a.ty(*ty).span.start, end: end });
+                        omitted(&mut out, *f, arguments, Span { start: a.ty(*ty).span.start, end });
                     }
                 }
                 ExprKind::Call { target, arguments } => {
@@ -1218,7 +1219,7 @@ pub fn deprecated_optionals(program: &Program, interner: &Interner, body: Option
             _ => false,
         });
         let start = if primary && k.const_ { m.span.start.min(k.class_name.span.start) } else { k.class_name.span.start };
-        let error_range = Span { start: start, end: k.name.map_or(k.class_name.span.end, |n| n.span.end) };
+        let error_range = Span { start, end: k.name.map_or(k.class_name.span.end, |n| n.span.end) };
 
         // `this(…)`/`this.the_name(…)` in the initializer list: at the constructor
         // name, or at the `this`.

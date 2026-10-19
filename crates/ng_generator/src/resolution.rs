@@ -1282,49 +1282,6 @@ pub(crate) fn qualified_name(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The `CallbackComponent` case: the official compiler wrote
-    /// `'../../../../shared/services/oidc_service.dart'` and
-    /// `'package:ngrouter/src/router/router.dart'`.
-    #[test]
-    fn paths_as_in_official() {
-        let module =
-            "asset:new_sali_frontend/lib/src/modules/auth/pages/callback/callback_component.dart";
-        assert_eq!(
-            import_path(
-                module,
-                "asset:new_sali_frontend/lib/src/shared/services/oidc_service.dart"
-            )
-            .unwrap(),
-            "../../../../shared/services/oidc_service.dart"
-        );
-        assert_eq!(
-            import_path(module, "asset:ngrouter/lib/src/router/router.dart").unwrap(),
-            "package:ngrouter/src/router/router.dart"
-        );
-        assert_eq!(
-            import_path(module, module).unwrap(),
-            "callback_component.dart"
-        );
-    }
-
-    #[test]
-    fn package_asset() {
-        assert_eq!(
-            asset_of_uri(
-                "package:ngrouter/src/router/router.dart",
-                "x",
-                Path::new("/p")
-            )
-            .unwrap(),
-            "asset:ngrouter/lib/src/router/router.dart"
-        );
-    }
-}
-
 /// `Grupo<A, B<C>>` into `("Grupo", ["A", "B<C>"])`; without `<`, an empty
 /// list.
 pub(crate) fn split_arguments(ty: &str) -> (&str, Vec<String>) {
@@ -1410,4 +1367,47 @@ fn replace_words(text: &str, troca: &[(&str, String)]) -> String {
     }
     close(&mut word, &mut output);
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The `CallbackComponent` case: the official compiler wrote
+    /// `'../../../../shared/services/oidc_service.dart'` and
+    /// `'package:ngrouter/src/router/router.dart'`.
+    #[test]
+    fn paths_as_in_official() {
+        let module =
+            "asset:new_sali_frontend/lib/src/modules/auth/pages/callback/callback_component.dart";
+        assert_eq!(
+            import_path(
+                module,
+                "asset:new_sali_frontend/lib/src/shared/services/oidc_service.dart"
+            )
+            .unwrap(),
+            "../../../../shared/services/oidc_service.dart"
+        );
+        assert_eq!(
+            import_path(module, "asset:ngrouter/lib/src/router/router.dart").unwrap(),
+            "package:ngrouter/src/router/router.dart"
+        );
+        assert_eq!(
+            import_path(module, module).unwrap(),
+            "callback_component.dart"
+        );
+    }
+
+    #[test]
+    fn package_asset() {
+        assert_eq!(
+            asset_of_uri(
+                "package:ngrouter/src/router/router.dart",
+                "x",
+                Path::new("/p")
+            )
+            .unwrap(),
+            "asset:ngrouter/lib/src/router/router.dart"
+        );
+    }
 }

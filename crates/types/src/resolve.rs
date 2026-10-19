@@ -405,8 +405,6 @@ impl<'a> OutlineResolver<'a> {
         }
     }
 
-    /// Records a diagnostic reported in `the_unit`.
-
     /// `reportNullOrNonTypeElement` (named_type_resolver.dart:518-521): the
     /// synthetic name (empty, from parser recovery) is not reported.
     fn warn_type_name(&mut self, unit_id: UnitId, context: TypeContext, found: bool, text: &str, range: dartforge_diagnostics::Span) {
@@ -767,11 +765,10 @@ impl<'a> OutlineResolver<'a> {
             // implicitly extends `_Enum`, which implements `Enum`), even without a
             // written superclass: `Cor <: Enum` decides the bounds of
             // `extension EnumByName<T extends Enum> on Iterable<T>`.
-            if class.kind == dartforge_elements::model::ClassKind::Enum {
-                if let Some(e) = enum_type {
+            if class.kind == dartforge_elements::model::ClassKind::Enum
+                && let Some(e) = enum_type {
                     all_direct.push(e);
                 }
-            }
 
             hierarchy_inputs.push(Some((params.clone(), all_direct)));
 
@@ -830,11 +827,10 @@ impl<'a> OutlineResolver<'a> {
                 all.extend_from_slice(&d.mixins);
                 all.extend_from_slice(&d.interfaces);
                 all.extend_from_slice(&d.on);
-                if self.program.classes[i].kind == dartforge_elements::model::ClassKind::Enum {
-                    if let Some(e) = enum_type {
+                if self.program.classes[i].kind == dartforge_elements::model::ClassKind::Enum
+                    && let Some(e) = enum_type {
                         all.push(e);
                     }
-                }
                 hierarchy_inputs[i] = Some((d.type_params.clone(), all));
             }
             for i in 0..hierarchy_inputs.len() {

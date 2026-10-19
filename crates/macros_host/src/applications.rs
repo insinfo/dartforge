@@ -298,11 +298,10 @@ pub fn order(phase: Phase, apps: &[Application], v: &View<'_>) -> Vec<usize> {
     let library_classes = |lib: &str| -> Vec<Key> {
         let mut cs: Vec<Key> = Vec::new();
         for a in apps.iter().filter(|a| a.library == lib) {
-            if let Group::Member { owner: class, .. } | Group::Class(class) = &a.group {
-                if !cs.contains(class) {
+            if let Group::Member { owner: class, .. } | Group::Class(class) = &a.group
+                && !cs.contains(class) {
                     cs.push(class.clone());
                 }
-            }
         }
         cs
     };

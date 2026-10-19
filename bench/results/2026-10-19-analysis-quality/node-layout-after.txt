@@ -1,0 +1,7 @@
+     Locking 72 packages to latest Rust 1.98.1 compatible versions
+    Blocking waiting for file lock on build directory
+   Compiling dartforge-ng-generator v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/ng_generator)
+   Compiling analysis-layout-probe v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/target/analysis-layout-probe)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.10s
+     Running `target/debug/analysis-layout-probe`
+40

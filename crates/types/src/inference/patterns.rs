@@ -90,8 +90,8 @@ pub(crate) fn schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> Typ
             inf.table.intern(Type::Record { positional: pos.into_boxed_slice(), named: nm.into_boxed_slice(), nullable: false })
         }
         PatternKind::Object { ty, .. } => {
-            let t = inf.type_from_annotation(cx, *ty);
-            t
+
+            inf.type_from_annotation(cx, *ty)
         }
     }
 }
@@ -454,11 +454,10 @@ pub(crate) fn can_be_subtype(inf: &mut BodyInferrer<'_>, left: TypeId, right: Ty
         if let Some(subtypes) = all_subtypes(inf, rc) {
             for cand in std::iter::once(rc).chain(subtypes) {
                 let tc = if cand == rc { right } else { inf.class_this_type(cand) };
-                if let Some(args) = inf.as_instance_of(tc, Some(lc)) {
-                    if la.iter().zip(args.iter()).all(|(&a, &b)| can_be_subtype(inf, a, b, prof + 1)) {
+                if let Some(args) = inf.as_instance_of(tc, Some(lc))
+                    && la.iter().zip(args.iter()).all(|(&a, &b)| can_be_subtype(inf, a, b, prof + 1)) {
                         return true;
                     }
-                }
             }
             return false;
         }
@@ -534,8 +533,8 @@ fn all_subtypes(inf: &mut BodyInferrer<'_>, c: ClassId) -> Option<Vec<ClassId>> 
 fn object_pattern_type(inf: &mut BodyInferrer<'_>, cx: &Body, ty: ast::TypeId, matched: TypeId) -> TypeId {
     let a = &inf.program.unit(cx.unit).ast;
     let node = a.ty(ty);
-    if let ast::TypeKind::Named { name, args } = &node.kind {
-        if args.is_empty() {
+    if let ast::TypeKind::Named { name, args } = &node.kind
+        && args.is_empty() {
             let binding = if name.len() == 2 {
                 inf.program.lookup_prefixed_in_unit(cx.unit, name[0].sym, name[1].sym)
             } else {
@@ -556,7 +555,6 @@ fn object_pattern_type(inf: &mut BodyInferrer<'_>, cx: &Body, ty: ast::TypeId, m
                 }
             }
         }
-    }
     inf.type_from_annotation(cx, ty)
 }
 
@@ -786,7 +784,7 @@ pub(crate) fn switch_expression(inf: &mut BodyInferrer<'_>, cx: &mut Body, the_v
         cx.flow = yes;
         if new_ && !cx.flow.reachable && cx.dead_code.is_none() {
             let start = inf.span_expr(cx.unit, c.body).start;
-            inf.warning(crate::codes::DEAD_CODE.template.to_string(), dartforge_diagnostics::Span { start: start, end: c.span.end });
+            inf.warning(crate::codes::DEAD_CODE.template.to_string(), dartforge_diagnostics::Span { start, end: c.span.end });
             cx.dead_code = Some(cx.flow_ends.len());
         }
         let tc = infer(inf, cx, c.body, ctx);
@@ -842,16 +840,16 @@ pub(crate) fn relational_pattern(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: P
         && inf.requires_null_check(cx.lib, t, s, false)
     {
         let start = inf.program.unit(cx.unit).ast.pattern(p).span.start;
-        let token = dartforge_diagnostics::Span { start: start, end: start + lexeme.len() };
+        let token = dartforge_diagnostics::Span { start, end: start + lexeme.len() };
         inf.null_warning(t, dartforge_diagnostics::codes::compile_time_error::UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE, token, &[the_name]);
     }
     let operator = match inf.interner.lookup(the_name).map(|s| inf.lookup_member(cx.lib, t, s, false)) {
-        Some(Search::Finding(m)) => match {
+        Some(Search::Finding(m)) => {
             inf.body_types.units[cx.unit.0 as usize].relational_operators.insert(p, m.resolved.clone());
-            inf.table.get(m.ty).clone()
-        } {
-            Type::Function { positional, ret, .. } => positional.first().copied().map(|p| (p, ret)),
-            _ => None,
+            match inf.table.get(m.ty).clone() {
+                Type::Function { positional, ret, .. } => positional.first().copied().map(|p| (p, ret)),
+                _ => None,
+            }
         },
         _ => None,
     };
@@ -875,7 +873,7 @@ pub(crate) fn relational_pattern(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: P
         let bool_ = inf.core.bool_;
         if !inf.assignable(return_, bool_) {
             let start = inf.program.unit(cx.unit).ast.pattern(p).span.start;
-            let token = dartforge_diagnostics::Span { start: start, end: start + lexeme.len() };
+            let token = dartforge_diagnostics::Span { start, end: start + lexeme.len() };
             inf.warning_with_code(
                 dartforge_diagnostics::codes::compile_time_error::RELATIONAL_PATTERN_OPERATOR_RETURN_TYPE_NOT_ASSIGNABLE_TO_BOOL,
                 token,

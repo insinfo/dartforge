@@ -515,7 +515,7 @@ impl Body {
                     MemberName::Local(id) => {
                         let l = &self.locals[id.0 as usize];
                         let start = l.offset;
-                        m.insert(*n, (dartforge_diagnostics::Span { start: start, end: start + interner.resolve(*n).len() }, false));
+                        m.insert(*n, (dartforge_diagnostics::Span { start, end: start + interner.resolve(*n).len() }, false));
                     }
                     MemberName::Forward(s) => {
                         m.insert(*n, (*s, true));

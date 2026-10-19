@@ -769,7 +769,6 @@ fn resolve_with(
         i: usize,
         order: &mut Vec<usize>,
         seen: &mut Vec<usize>,
-        host: bool,
     ) -> Result<(), &'static str> {
         if order.contains(&i) {
             return Ok(());
@@ -783,7 +782,7 @@ fn resolve_with(
             .iter()
             .position(|r| r.token == *t && (is_private || !r.is_private))
         {
-            Some(j) => create(all, j, order, seen, host),
+            Some(j) => create(all, j, order, seen),
             None => Ok(()),
         };
         for f in &all[i].sources {
@@ -796,7 +795,7 @@ fn resolve_with(
                         .iter()
                         .position(|r| r.token == *t && (is_private || !r.is_private))
                     {
-                        create(all, j, order, seen, host)?;
+                        create(all, j, order, seen)?;
                     }
                 }
                 Source::Directive(d) => {
@@ -819,7 +818,7 @@ fn resolve_with(
     let mut seen = Vec::new();
     for i in 0..all.len() {
         if all[i].eager {
-            create(&all, i, &mut order, &mut seen, host)?;
+            create(&all, i, &mut order, &mut seen)?;
         }
     }
     // The eager ones so far; the following requests mark those they create.
@@ -832,7 +831,7 @@ fn resolve_with(
     for (t, eager) in requests {
         if let Some(i) = all.iter().position(|r| r.token == *t) {
             let before = order.len();
-            create(&all, i, &mut order, &mut seen, host)?;
+            create(&all, i, &mut order, &mut seen)?;
             if *eager {
                 eager_idx.extend_from_slice(&order[before..]);
             }
@@ -840,7 +839,7 @@ fn resolve_with(
     }
     // `afterElement`: what is left (the aliases, in general).
     for i in 0..all.len() {
-        create(&all, i, &mut order, &mut seen, host)?;
+        create(&all, i, &mut order, &mut seen)?;
     }
 
     // `addDirectiveProviders`: the `uniqueId` is the size of the table, which

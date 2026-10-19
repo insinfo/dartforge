@@ -199,11 +199,10 @@ pub fn compute(program: &Program, interner: &Interner, lib: LibraryId) -> Librar
             if c.kind != ClassKind::ExtensionType || c.decl.is_none_or(|d| d.unit != u) {
                 continue;
             }
-            if let Some(rep) = c.representation {
-                if private(program.variable(rep).name) {
+            if let Some(rep) = c.representation
+                && private(program.variable(rep).name) {
                     r.fields.insert(rep);
                 }
-            }
         }
     }
     // `computeNonPromotabilityInfo`: the concrete classes whose interface has

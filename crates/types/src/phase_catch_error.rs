@@ -153,7 +153,7 @@ impl Verifier<'_> {
             if let Some(st) = self.stack_trace
                 && !self.sub(st, second)
             {
-                return report(self);
+                report(self)
             }
         } else if total > 2 {
             report(self);

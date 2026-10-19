@@ -118,6 +118,9 @@ impl Type {
     }
 }
 
+/// Original formal parameters paired with their substituted bounds.
+type FormalSubstitution = (Box<[TypeParamId]>, Box<[TypeId]>);
+
 /// Hash-consed type table.
 ///
 /// Survives the whole compiler session and grows as the SDK and packages
@@ -147,7 +150,7 @@ pub struct TypeTable {
     /// substitution (`crate::ops::substitute`), keyed by the original formals
     /// and the substituted bounds: the same substitution gives the same
     /// formals.
-    pub(crate) fresh_formals: HashMap<(Box<[TypeParamId]>, Box<[TypeId]>), Box<[TypeParamId]>>,
+    pub(crate) fresh_formals: HashMap<FormalSubstitution, Box<[TypeParamId]>>,
     /// The type parameters without a `defaultType` in the analyzer: those of
     /// function literals and of function types written in the body
     /// (`DefaultTypesBuilder` only runs on declarations). The exhaustiveness

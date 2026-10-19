@@ -12,6 +12,9 @@ use dartforge_elements::model::{ClassId, ClassKind, Element, UnitId};
 use dartforge_frontend::ast;
 use std::collections::HashMap;
 
+/// Required, optional and named parameter types of a written signature.
+type ParameterTypes = (Vec<TypeId>, Vec<TypeId>, Vec<(dartforge_intern::SymbolId, TypeId, bool)>);
+
 impl<'a> BodyInferrer<'a> {
     pub(crate) fn env(&mut self) -> SubtypeEnv<'_> {
         SubtypeEnv::new(self.table, &self.outline.hierarchy, self.core)
@@ -229,19 +232,16 @@ impl<'a> BodyInferrer<'a> {
         }
         // `getImplicitCallMethod`: only a non-nullable interface type tears off
         // its `call` (`C?` is not assignable to a function type).
-        if matches!(self.table.get(of), Type::Interface { nullable: false, .. }) {
-            if let Some(call) = self.sym.call {
-                if let Some(m) = self.interface_member(of, call, false) {
-                    if m.method {
+        if matches!(self.table.get(of), Type::Interface { nullable: false, .. })
+            && let Some(call) = self.sym.call
+                && let Some(m) = self.interface_member(of, call, false)
+                    && m.method {
                         // The `ImplicitCallReference` and, the `call` being generic, the
                         // instantiation from the context (`insertGenericFunctionInstantiation`,
                         // INFERENCIA §8.4).
                         let t = self.instantiate_function_from_context(m.ty, for_);
                         return self.sub(t, for_);
                     }
-                }
-            }
-        }
         false
     }
 
@@ -508,11 +508,10 @@ impl<'a> BodyInferrer<'a> {
                     Some(Element::Typedef(tid)) => Some(self.outline.typedefs[tid.0 as usize].type_params.len()),
                     _ => None,
                 };
-                if let Some(n) = n_params {
-                    if !args.is_empty() && args.len() != n {
+                if let Some(n) = n_params
+                    && !args.is_empty() && args.len() != n {
                         self.report_type_arguments(&text, n, args.len(), span);
                     }
-                }
                 match binding.and_then(|b| b.getter) {
                     // `dart:core`'s `Null` is a class, but the type is the table's `Null`
                     // (as in the outline): otherwise `flatten(Future<Null>)` was not `Null`
@@ -680,7 +679,7 @@ impl<'a> BodyInferrer<'a> {
         lib: dartforge_elements::model::LibraryId,
         parameters: &[ast::Parameter],
         scope: &HashMap<dartforge_intern::SymbolId, TypeParamId>,
-    ) -> (Vec<TypeId>, Vec<TypeId>, Vec<(dartforge_intern::SymbolId, TypeId, bool)>) {
+    ) -> ParameterTypes {
         let mut pos = Vec::new();
         let mut opt = Vec::new();
         let mut named = Vec::new();

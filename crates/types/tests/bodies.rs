@@ -251,13 +251,13 @@ fn class_getter_without_setter_in_simple_assignment() {
     assert_eq!(readonly.len(), 4, "{diags:?}");
     for (d, target) in readonly.iter().zip(["a.x = 0", "a.x += 0", "++a.x", "a.x++"]) {
         let x = source.find(target).unwrap() + target.find("x").unwrap();
-        assert_eq!(d.span.start as usize, x, "{diags:?}");
-        assert_eq!(d.span.end as usize, x + 1, "{diags:?}");
+        assert_eq!(d.span.start, x, "{diags:?}");
+        assert_eq!(d.span.end, x + 1, "{diags:?}");
         assert!(d.message.contains("'x' in class 'A'"), "{diags:?}");
     }
     let missing: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_SETTER.template)).collect();
     assert_eq!(missing.len(), 1, "{diags:?}");
-    assert_eq!(missing[0].span.start as usize, source.find("a.y = 0").unwrap() + 2);
+    assert_eq!(missing[0].span.start, source.find("a.y = 0").unwrap() + 2);
 }
 
 #[test]
@@ -278,12 +278,12 @@ fn assign_to_types_and_top_level_function() {
     let types: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_TYPE.template)).collect();
     assert_eq!(types.len(), 5, "{diags:?}");
     for (d, snippet) in types.iter().zip(["T = null", "C = null", "E = null", "F = null", "dynamic = 1"]) {
-        assert_eq!(d.span.start as usize, source.find(snippet).unwrap(), "{diags:?}");
-        assert_eq!(d.span.end as usize, source.find(snippet).unwrap() + snippet.split(' ').next().unwrap().len(), "{diags:?}");
+        assert_eq!(d.span.start, source.find(snippet).unwrap(), "{diags:?}");
+        assert_eq!(d.span.end, source.find(snippet).unwrap() + snippet.split(' ').next().unwrap().len(), "{diags:?}");
     }
     let functions: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FUNCTION.template)).collect();
     assert_eq!(functions.len(), 1, "{diags:?}");
-    assert_eq!(functions[0].span.start as usize, source.find("f = null").unwrap(), "{diags:?}");
+    assert_eq!(functions[0].span.start, source.find("f = null").unwrap(), "{diags:?}");
 }
 
 #[test]
@@ -302,8 +302,8 @@ fn local_function_is_not_assignable_final_variable() {
 
     assert_eq!(diags.len(), 1, "{diags:?}");
     assert!(diags[0].message.starts_with(ASSIGNMENT_TO_FUNCTION.template), "{diags:?}");
-    assert_eq!(diags[0].span.start as usize, source.find("g = 0").unwrap(), "{diags:?}");
-    assert_eq!(diags[0].span.end as usize, source.find("g = 0").unwrap() + 1, "{diags:?}");
+    assert_eq!(diags[0].span.start, source.find("g = 0").unwrap(), "{diags:?}");
+    assert_eq!(diags[0].span.end, source.find("g = 0").unwrap() + 1, "{diags:?}");
 }
 
 #[test]
@@ -323,13 +323,13 @@ fn lexical_getter_without_setter_in_assignments_and_increments() {
     let readonly: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL_NO_SETTER.template)).collect();
     assert_eq!(readonly.len(), 9, "{diags:?}");
     for (d, target) in readonly.iter().zip(["x = 0", "x += 0", "++x", "x++", "s = 0", "s += 0", "++s", "s++"]) {
-        let index = source.find(target).unwrap() + target.find(|c| c == 'x' || c == 's').unwrap();
-        assert_eq!(d.span.start as usize, index, "{diags:?}");
-        assert_eq!(d.span.end as usize, index + 1, "{diags:?}");
+        let index = source.find(target).unwrap() + target.find(['x', 's']).unwrap();
+        assert_eq!(d.span.start, index, "{diags:?}");
+        assert_eq!(d.span.end, index + 1, "{diags:?}");
         assert!(d.message.contains("in class 'A'"), "{diags:?}");
     }
     let inherited = source.rfind("x = 0").unwrap();
-    assert_eq!(readonly[8].span.start as usize, inherited, "{diags:?}");
+    assert_eq!(readonly[8].span.start, inherited, "{diags:?}");
     assert!(readonly[8].message.contains("in class 'A'"), "{diags:?}");
 }
 
@@ -351,8 +351,8 @@ fn extension_getter_without_setter() {
     assert_eq!(readonly.len(), 4, "{diags:?}");
     for (d, target) in readonly.iter().zip(["0.x = 0", "0.x += 0", "++0.x", "0.x++"]) {
         let index = source.find(target).unwrap() + target.find('x').unwrap();
-        assert_eq!(d.span.start as usize, index, "{diags:?}");
-        assert_eq!(d.span.end as usize, index + 1, "{diags:?}");
+        assert_eq!(d.span.start, index, "{diags:?}");
+        assert_eq!(d.span.end, index + 1, "{diags:?}");
         assert!(d.message.contains("in class 'E'"), "{diags:?}");
     }
 }
@@ -374,7 +374,7 @@ fn explicit_extension_override_without_setter() {
     let the_missing: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_SETTER.template)).collect();
     assert_eq!(the_missing.len(), 2, "{diags:?}");
     for d in the_missing {
-        assert_eq!(&source[d.span.start as usize..d.span.end as usize], "foo", "{diags:?}");
+        assert_eq!(&source[d.span.start..d.span.end], "foo", "{diags:?}");
         assert!(d.message.contains("'foo' in 'E'"), "{diags:?}");
     }
     assert!(!diags.iter().any(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL_NO_SETTER.template)), "{diags:?}");
@@ -398,7 +398,7 @@ fn explicit_override_without_getter_uses_extension_code() {
     let the_missing: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_GETTER.template)).collect();
     assert_eq!(the_missing.len(), 2, "{diags:?}");
     for d in the_missing {
-        assert_eq!(&source[d.span.start as usize..d.span.end as usize], "foo");
+        assert_eq!(&source[d.span.start..d.span.end], "foo");
         assert!(d.message.contains("'foo' in 'E'"));
     }
     assert!(!diags.iter().any(|d| d.message.starts_with(UNDEFINED_GETTER.template)), "{diags:?}");
@@ -444,8 +444,8 @@ fn missing_static_setter_in_extension_per_oracle() {
     let the_found: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_SETTER.template)).collect();
     assert_eq!(the_found.len(), 1, "{diags:?}");
     let d = the_found[0];
-    assert_eq!(&source[d.span.start as usize..d.span.end as usize], "foo");
-    assert_eq!(d.span.start as usize, source.find("E.foo").unwrap() + 2);
+    assert_eq!(&source[d.span.start..d.span.end], "foo");
+    assert_eq!(d.span.start, source.find("E.foo").unwrap() + 2);
     assert!(d.message.contains("'foo' in 'E'"));
 }
 
@@ -469,8 +469,8 @@ fn static_access_to_extension_instance_members_per_oracle() {
         let the_found: Vec<_> = diags.iter().filter(|d| d.message.starts_with(STATIC_ACCESS_TO_INSTANCE_MEMBER.template)).collect();
         assert_eq!(the_found.len(), 1, "{the_name}: {diags:?}");
         let d = the_found[0];
-        assert_eq!(&source[d.span.start as usize..d.span.end as usize], the_name);
-        assert_eq!(d.span.start as usize, source.find(&format!("E.{the_name}")).unwrap() + 2);
+        assert_eq!(&source[d.span.start..d.span.end], the_name);
+        assert_eq!(d.span.start, source.find(&format!("E.{the_name}")).unwrap() + 2);
         assert!(!diags.iter().any(|d| d.message.starts_with(UNDEFINED_EXTENSION_GETTER.template)
             || d.message.starts_with(UNDEFINED_EXTENSION_METHOD.template)), "{diags:?}");
     }
@@ -500,8 +500,8 @@ fn static_access_to_class_instance_members_per_oracle() {
         let the_found: Vec<_> = diags.iter().filter(|d| d.message.starts_with(STATIC_ACCESS_TO_INSTANCE_MEMBER.template)).collect();
         assert_eq!(the_found.len(), 1, "{the_name}: {diags:?}");
         let d = the_found[0];
-        assert_eq!(&source[d.span.start as usize..d.span.end as usize], the_name);
-        assert_eq!(d.span.start as usize, source.rfind(&format!(".{the_name}")).unwrap() + 1);
+        assert_eq!(&source[d.span.start..d.span.end], the_name);
+        assert_eq!(d.span.start, source.rfind(&format!(".{the_name}")).unwrap() + 1);
         // The parity bridge translates this internal template into the oracle's
         // English message; the types test checks the code and the argument.
         assert_eq!(d.message, format!("{}: '{the_name}'", STATIC_ACCESS_TO_INSTANCE_MEMBER.template));
@@ -554,11 +554,11 @@ fn write_to_instance_method_via_type_and_undefined_setter() {
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
     let offset = source.find("Foo.m = 1").unwrap() + "Foo.".len();
-    let at_target: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
+    let at_target: Vec<_> = diags.iter().filter(|d| d.span.start == offset).collect();
     assert_eq!(at_target.len(), 1, "{diags:?}");
     assert!(at_target[0].message.starts_with(UNDEFINED_SETTER.template), "{diags:?}");
     assert!(at_target[0].message.contains("'m'"), "{diags:?}");
-    assert_eq!(at_target[0].span.end as usize, offset + 1);
+    assert_eq!(at_target[0].span.end, offset + 1);
 }
 
 #[test]
@@ -579,13 +579,13 @@ fn missing_new_after_instantiated_type_keeps_constructor_diagnostic() {
         ("NoUnnamed<int>.new();", NEW_WITH_UNDEFINED_CONSTRUCTOR),
     ] {
         let offset = source.find(expr).unwrap() + expr.find(".new").unwrap() + 1;
-        let at_target: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
+        let at_target: Vec<_> = diags.iter().filter(|d| d.span.start == offset).collect();
         assert_eq!(at_target.len(), 1, "{expr}: {diags:?}");
         // By the analyzer's code (the report carries its message, not the legacy
         // text of `codes.rs`); or, without a code, by the legacy text.
         let by_code = at_target[0].code.is_some_and(|c| c.info().name == code.name);
         assert!(by_code || at_target[0].message.starts_with(code.template), "{expr}: {diags:?}");
-        assert_eq!(at_target[0].span.end as usize, offset + 3);
+        assert_eq!(at_target[0].span.end, offset + 3);
     }
 }
 
@@ -607,10 +607,10 @@ fn enum_generative_constructor_reference_is_not_missing_constructor() {
         let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
         let offset = source.find(&format!("  {expr}{suffix}")).unwrap() + 2;
-        let target: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
+        let target: Vec<_> = diags.iter().filter(|d| d.span.start == offset).collect();
         assert_eq!(target.len(), 1, "{expr}: {diags:?}");
         assert!(target[0].message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template), "{expr}: {diags:?}");
-        assert_eq!(target[0].span.end as usize, offset + expr.len());
+        assert_eq!(target[0].span.end, offset + expr.len());
     }
     let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/invalid_reference_to_generative_enum_constructor/InvalidReferenceToGenerativeEnumConstru_4790a320.dart"));
     let mut interner = Interner::new();
@@ -645,10 +645,10 @@ fn enum_generative_constructor_invocation_with_new_const_and_unnamed() {
         let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
         let offset = source.find(snippet).unwrap() + shift;
-        let target: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
+        let target: Vec<_> = diags.iter().filter(|d| d.span.start == offset).collect();
         assert_eq!(target.len(), 1, "{file}: {diags:?}");
         assert!(target[0].message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template), "{file}: {diags:?}");
-        assert_eq!(target[0].span.end as usize, offset + comp, "{file}: {diags:?}");
+        assert_eq!(target[0].span.end, offset + comp, "{file}: {diags:?}");
     }
     // Negatives: a factory with the same name and redirections to the
     // generative one in an initializer (`: this(...)`) still do not report;
@@ -695,10 +695,10 @@ fn redirecting_factory_to_enum_generative_reports_at_target() {
         let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
         let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
         let offset = source.find(snippet).unwrap() + shift;
-        let target: Vec<_> = diags.iter().filter(|d| d.span.start as usize == offset).collect();
+        let target: Vec<_> = diags.iter().filter(|d| d.span.start == offset).collect();
         assert_eq!(target.len(), 1, "{file}: {diags:?}");
         assert!(target[0].message.starts_with(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template), "{file}: {diags:?}");
-        assert_eq!(target[0].span.end as usize, offset + comp, "{file}: {diags:?}");
+        assert_eq!(target[0].span.end, offset + comp, "{file}: {diags:?}");
     }
     // Negatives: factory to factory, a non-enum class and an undefined name
     // still do not report this code.
@@ -739,7 +739,7 @@ fn instance_member_in_explicit_instantiation_has_own_code_and_span() {
         assert_eq!(the_found.len(), 1, "{access}: {diags:?}");
         let d = the_found[0];
         assert_eq!(d.message, format!("{}: 'i'", CLASS_INSTANTIATION_ACCESS_TO_INSTANCE_MEMBER.template));
-        assert_eq!(&source[d.span.start as usize..d.span.end as usize], access);
+        assert_eq!(&source[d.span.start..d.span.end], access);
     }
 }
 
@@ -764,7 +764,7 @@ fn static_or_unknown_member_in_explicit_instantiation() {
         assert_eq!(the_found.len(), 1, "{diags:?}");
         let d = the_found[0];
         assert_eq!(d.message, format!("{}: {argument}", code.template));
-        assert_eq!(&source[d.span.start as usize..d.span.end as usize], "A<int>.i");
+        assert_eq!(&source[d.span.start..d.span.end], "A<int>.i");
     }
 }
 
@@ -784,7 +784,7 @@ fn explicit_override_without_method_uses_extension_code() {
 
     let the_missing: Vec<_> = diags.iter().filter(|d| d.message.starts_with(UNDEFINED_EXTENSION_METHOD.template)).collect();
     assert_eq!(the_missing.len(), 1, "{diags:?}");
-    assert_eq!(&source[the_missing[0].span.start as usize..the_missing[0].span.end as usize], "m");
+    assert_eq!(&source[the_missing[0].span.start..the_missing[0].span.end], "m");
     assert!(the_missing[0].message.contains("'m' in 'E'"));
 }
 
@@ -829,7 +829,7 @@ fn explicit_extension_override_rejects_static_members() {
     let statics: Vec<_> = diags.iter().filter(|d| d.message == EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template).collect();
     assert_eq!(statics.len(), 3, "{diags:?}");
     for d in statics {
-        assert_eq!(&source[d.span.start as usize..d.span.end as usize], "empty", "{diags:?}");
+        assert_eq!(&source[d.span.start..d.span.end], "empty", "{diags:?}");
     }
     assert!(!diags.iter().any(|d| d.message.starts_with(UNDEFINED_EXTENSION_SETTER.template)), "{diags:?}");
 }
@@ -851,7 +851,7 @@ fn static_method_in_extension_override() {
     let statics: Vec<_> = diags.iter().filter(|d| d.message == EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template).collect();
     assert_eq!(statics.len(), 1, "{diags:?}");
     assert_eq!(diags.len(), 1, "{diags:?}");
-    assert_eq!(&source[statics[0].span.start as usize..statics[0].span.end as usize], "empty");
+    assert_eq!(&source[statics[0].span.start..statics[0].span.end], "empty");
     assert!(!diags.iter().any(|d| d.message.contains("instance")), "{diags:?}");
 }
 
@@ -872,7 +872,7 @@ fn static_call_in_extension_override() {
     let statics: Vec<_> = diags.iter().filter(|d| d.message == EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template).collect();
     assert_eq!(statics.len(), 1, "{diags:?}");
     assert_eq!(diags.len(), 1, "{diags:?}");
-    assert_eq!(&source[statics[0].span.start as usize..statics[0].span.end as usize], "()");
+    assert_eq!(&source[statics[0].span.start..statics[0].span.end], "()");
 
     let instance_source = "library test; import 'dart:core'; extension F on int { void call() {} } void g() { F(0)(); }";
     fs::write(&main_dart, instance_source).unwrap();
@@ -899,7 +899,7 @@ fn override_without_call_per_oracle() {
     let (_, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
     let the_missing: Vec<_> = diags.iter().filter(|d| d.message.starts_with(INVOCATION_OF_EXTENSION_WITHOUT_CALL.template)).collect();
     assert_eq!(the_missing.len(), 1, "{diags:?}");
-    assert_eq!(&source[the_missing[0].span.start as usize..the_missing[0].span.end as usize], "E(0)");
+    assert_eq!(&source[the_missing[0].span.start..the_missing[0].span.end], "E(0)");
 }
 
 #[test]
@@ -1030,13 +1030,13 @@ fn final_field_without_setter_and_assignable_late_final() {
     let finals: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL.template)).collect();
     assert_eq!(finals.len(), 11, "{diags:?}");
     for d in finals {
-        let snippet = &source[d.span.start as usize..d.span.end as usize];
+        let snippet = &source[d.span.start..d.span.end];
         assert!(snippet == "x" || snippet == "s" || snippet == "z", "{diags:?}");
         assert!(d.message.contains(&format!("'{snippet}'")), "{diags:?}");
     }
     let constants: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_CONST.template)).collect();
     assert_eq!(constants.len(), 1, "{diags:?}");
-    assert_eq!(&source[constants[0].span.start as usize..constants[0].span.end as usize], "c");
+    assert_eq!(&source[constants[0].span.start..constants[0].span.end], "c");
     assert!(!diags.iter().any(|d| d.message.contains("'y'")), "{diags:?}");
 }
 
@@ -1061,13 +1061,13 @@ fn read_only_static_members_in_assignments() {
     assert_eq!(getters.len(), 4, "{diags:?}");
     assert_eq!(constants.len(), 1, "{diags:?}");
     for d in finals {
-        assert_eq!(&source[d.span.start as usize..d.span.end as usize], "x");
+        assert_eq!(&source[d.span.start..d.span.end], "x");
     }
     for d in getters {
-        assert_eq!(&source[d.span.start as usize..d.span.end as usize], "g");
+        assert_eq!(&source[d.span.start..d.span.end], "g");
         assert!(d.message.contains("in class 'A'"));
     }
-    assert_eq!(&source[constants[0].span.start as usize..constants[0].span.end as usize], "c");
+    assert_eq!(&source[constants[0].span.start..constants[0].span.end], "c");
     assert!(!diags.iter().any(|d| d.message.contains("'l'")), "{diags:?}");
 }
 
@@ -1089,8 +1089,8 @@ fn top_level_getter_without_setter_and_pair_with_setter() {
     assert_eq!(finals.len(), 4, "{diags:?}");
     for (d, target) in finals.iter().zip(["x = 0", "x += 0", "++x", "x++"]) {
         let index = source.find(target).unwrap() + target.find('x').unwrap();
-        assert_eq!(d.span.start as usize, index, "{diags:?}");
-        assert_eq!(d.span.end as usize, index + 1, "{diags:?}");
+        assert_eq!(d.span.start, index, "{diags:?}");
+        assert_eq!(d.span.end, index + 1, "{diags:?}");
         assert!(d.message.contains("'x'"), "{diags:?}");
     }
     assert!(!diags.iter().any(|d| d.message.contains("'y'")), "{diags:?}");
@@ -1113,7 +1113,7 @@ fn class_method_is_not_setter_even_with_extension() {
     let methods: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_METHOD.template)).collect();
     assert_eq!(methods.len(), 5, "{diags:?}");
     for d in methods {
-        assert_eq!(&source[d.span.start as usize..d.span.end as usize], "foo", "{diags:?}");
+        assert_eq!(&source[d.span.start..d.span.end], "foo", "{diags:?}");
     }
     assert!(!diags.iter().any(|d| d.message.contains("'bar'")), "{diags:?}");
 }
@@ -1135,7 +1135,7 @@ fn top_level_late_final_without_initializer_accepts_write() {
     let finals: Vec<_> = diags.iter().filter(|d| d.message.starts_with(ASSIGNMENT_TO_FINAL.template)).collect();
     assert_eq!(finals.len(), 4, "{diags:?}");
     for d in finals {
-        assert_eq!(&source[d.span.start as usize..d.span.end as usize], "y", "{diags:?}");
+        assert_eq!(&source[d.span.start..d.span.end], "y", "{diags:?}");
     }
     assert!(!diags.iter().any(|d| d.message.contains("'x'")), "{diags:?}");
 }

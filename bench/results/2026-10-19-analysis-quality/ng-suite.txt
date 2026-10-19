@@ -1,0 +1,118 @@
+   Compiling dartforge-ng-generator v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/ng_generator)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.55s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_ng_generator-70a43ea22d85ae36)
+
+running 62 tests
+test dialect::tests::packages_in_both_directions ... ok
+test directives::tests::form_with_ng_form ... ok
+test directives::tests::template_node_with_class_providers ... ok
+test directives::tests::input_with_ng_model_and_required ... ok
+test dom::tests::types_as_in_official ... ok
+test directives::tests::host_with_eager_and_lazy_providers ... ok
+test css::tests::simple_sheet_equal_to_official ... ok
+test css::tests::rich_sheet_equal_to_official ... ok
+test css::tests::b16_shapes_equal_to_official ... ok
+test expr::tests::direct_member_type ... ok
+test expr::tests::nullability_as_in_official ... ok
+test expr::tests::binary_and_conditional_with_parens ... ok
+test expr::tests::immutability_as_in_official ... ok
+test expr::tests::official_shapes ... ok
+test expr::tests::complex_handlers ... ok
+test expr::tests::pipe_becomes_mark ... ok
+test expr::tests::operators_outside_template_are_refused ... ok
+test css::tests::csslib_shapes_equal_to_official ... ok
+test expr::tests::pipe_is_refused_and_logical_or_passes ... ok
+test expr::tests::unknown_name_is_refused ... ok
+test expr::tests::simple_handlers_and_tear_off ... ok
+test html::tests::binding_shapes ... ok
+test html::tests::element_with_children_and_attributes ... ok
+test html::tests::empty_element_does_not_swallow_the_rest ... ok
+test html::tests::empty_template_and_comment ... ok
+test html::tests::interpolation_splits_the_text ... ok
+test html::tests::less_than_in_text_and_in_interpolation ... ok
+test html::tests::long_forms_and_annotations ... ok
+test html::tests::ng_content ... ok
+test html::tests::no_data_space_equal_to_official ... ok
+test html::tests::position_in_utf16_units ... ok
+test html::tests::space_between_blocks_disappears ... ok
+test injector::tests::call_with_two_arguments_breaks ... ok
+test injector::tests::revived_text_as_official ... ok
+test micro::tests::colon_in_bare_expression ... ok
+test micro::tests::ng_for_with_implicit_item ... ok
+test micro::tests::ng_for_with_index_and_track_by ... ok
+test micro::tests::ng_if_and_bare_expression ... ok
+test resolution::tests::package_asset ... ok
+test resolution::tests::paths_as_in_official ... ok
+test selector::tests::class_and_star ... ok
+test selector::tests::option_and_input_with_ng_model ... ok
+test selector::tests::parses_the_official_shapes ... ok
+test selector::tests::simple_form_matches_ng_form ... ok
+test css::tests::refuses_where_the_official_fails ... ok
+test tests::finds_component_with_and_without_prefix ... ok
+test tests::finds_directive_and_pipe ... ok
+test tests::finds_injector_in_top_level_variable ... ok
+test tests::path_next_to_source ... ok
+test tests::library_without_angular_is_trivial ... ok
+test tests::trivial_byte_for_byte ... ok
+test tests::incremental_index ... ok
+test view::tests::component_inside_template_not_generated_yet ... ok
+test view::tests::binding_not_generated_yet ... ok
+test view::tests::injected_parameter_not_generated_yet ... ok
+test view::tests::element_and_text_equal_to_official ... ok
+test view::tests::local_reference_only_at_root ... ok
+test view::tests::template_with_directive_becomes_star ... ok
+test view::tests::template_with_directive_outside_shape ... ok
+test view::tests::skeleton_equal_to_official ... ok
+test view::tests::injection_equal_to_official ... ok
+test tests::generate_sheet_gives_both_outputs ... ok
+
+test result: ok. 62 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/corpus.rs (target/debug/deps/corpus-f5b8ae2b30817ae4)
+
+running 3 tests
+test registered_dependency_must_have_a_directory ... ok
+test every_corpus_file_has_an_oracle ... ok
+ngdart corpus: 372 checked, 0 pending
+test what_we_generate_equals_the_official_output ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.57s
+
+     Running tests/incremental.rs (target/debug/deps/incremental-ed1cc8aca891c7bd)
+
+running 1 test
+test one_file_at_a_time_gives_the_same_as_the_package ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+
+     Running tests/sass_forms.rs (target/debug/deps/sass_forms-9679af347ef72da6)
+
+running 1 test
+compressed: 70 equal, 3 refused as in the official one, of 73 — refused: f32_modulo_ambiguo f50_variavel_privada_de_modulo f51_use_sem_as_variavel_solta
+expanded: 70 equal, 3 refused as in the official one, of 73 — refused: f32_modulo_ambiguo f50_variavel_privada_de_modulo f51_use_sem_as_variavel_solta
+test sass_shapes_equal_to_sass_builder ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/shim_check.rs (target/debug/deps/shim_check-b96eccbaa6c18d88)
+
+running 2 tests
+set DARTFORGE_SHIM_ORACLE
+set DARTFORGE_SHIM_GENERATED
+test shim_equal_to_dart_oracle ... ok
+test project_stylesheets_equal_to_official ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests dartforge_ng_generator
+
+running 5 tests
+test crates/ng_generator/src/sass.rs - sass::AssetOptions (line 36) ... ok
+test crates/ng_generator/src/sass.rs - sass::compile (line 70) ... ok
+test crates/ng_generator/src/sass.rs - sass::compile_with (line 115) ... ok
+test crates/ng_generator/src/sass.rs - sass::compile_in (line 91) ... ok
+test crates/ng_generator/src/sass.rs - sass::compile_asset (line 205) ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.57s; merged doctests compilation took 0.33s

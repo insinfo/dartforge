@@ -463,11 +463,10 @@ impl Verifier<'_, '_> {
                 for (i, var) in l.variables.iter().enumerate() {
                     if let Some(init) = var.initializer {
                         self.expr(a, init, l.const_);
-                        if l.const_ {
-                            if let Some(&v) = self.top.get(&(self.unit, d, i)) {
+                        if l.const_
+                            && let Some(&v) = self.top.get(&(self.unit, d, i)) {
                                 self.variable_result(v, true);
                             }
-                        }
                     }
                 }
             }
@@ -683,7 +682,7 @@ impl Verifier<'_, '_> {
                 None if start < k.class_name.span.start => start + "const".len(),
                 None => k.class_name.span.end,
             };
-            Span { start: start, end: end }
+            Span { start, end }
         } else {
             k.class_name.span
         };
@@ -704,8 +703,8 @@ impl Verifier<'_, '_> {
                 ast::Initializer::Super { span, constructor, .. } => Some((*span, constructor.map(|n| n.sym))),
                 _ => None,
             });
-            if let Some(sup) = super::cycles::declared_superclass(program, cls) {
-                if Some(sup) != self.m.core.object_class {
+            if let Some(sup) = super::cycles::declared_superclass(program, cls)
+                && Some(sup) != self.m.core.object_class {
                     let super_name = written.and_then(|(_, n)| n);
                     let the_key = super_name.or_else(|| interner.lookup(""));
                     let tgt = the_key.and_then(|ch| program.class(sup).constructors.get(&ch).copied());
@@ -730,7 +729,6 @@ impl Verifier<'_, '_> {
                         return;
                     }
                 }
-            }
         }
         // `hasNonFinalField`: the class, the mixins and the superclasses,
         // breadth-first: some instance field that is neither `final` nor
@@ -891,11 +889,10 @@ impl Verifier<'_, '_> {
     fn class_of(&self, _a: &ast::Ast, mid: ast::MemberId) -> Option<ClassId> {
         for (i, f) in self.m.program.functions.iter().enumerate() {
             let _ = i;
-            if let dartforge_elements::model::FunctionRef::Constructor { unit, member } = f.node {
-                if unit == self.unit && member == mid {
+            if let dartforge_elements::model::FunctionRef::Constructor { unit, member } = f.node
+                && unit == self.unit && member == mid {
                     return f.class;
                 }
-            }
         }
         None
     }
@@ -1290,11 +1287,9 @@ impl Verifier<'_, '_> {
                 let program = self.m.program;
                 if let Some(dartforge_elements::model::Element::Variable(v)) =
                     program.lookup_in_unit(self.unit, name.sym).and_then(|b| b.getter)
-                {
-                    if let Some(Constant::Value(val)) = self.m.variable_value(v) {
+                    && let Some(Constant::Value(val)) = self.m.variable_value(v) {
                         self.the_default_values.insert(p, val);
                     }
-                }
             }
             PatternKind::Relational { value, .. } => {
                 self.expr(a, *value, false);
@@ -1598,7 +1593,7 @@ impl Verifier<'_, '_> {
         let key_values = std::mem::take(&mut self.key_values);
         let entry = Entry {
             ast: a,
-            source: source,
+            source,
             pattern_types: &the_body.pattern_types,
             extension_fields: &the_body.extension_fields,
             invalid_patterns: &the_body.invalid_patterns,
@@ -1652,11 +1647,10 @@ impl Verifier<'_, '_> {
                 }
             }
             _ => {
-                if let Some(d) = default {
-                    if must {
+                if let Some(d) = default
+                    && must {
                         self.report(w::UNREACHABLE_SWITCH_DEFAULT, Span { start: pos[d], end: pos[d] + 7 }, Vec::new());
                     }
-                }
             }
         }
     }
@@ -1849,13 +1843,12 @@ impl Verifier<'_, '_> {
                     }
                     self.record_unique(lv, k, span);
                 }
-                if let Constant::Value(v) = v {
-                    if !self.m.matches_type(&v, tv) {
+                if let Constant::Value(v) = v
+                    && !self.m.matches_type(&v, tv) {
                         let span = self.m.span(u, *value);
                         let args = vec![self.m.format(v.ty), self.m.format(tv)];
                         self.report(c::MAP_VALUE_TYPE_NOT_ASSIGNABLE, span, args);
                     }
-                }
                 true
             }
             CollectionElement::Spread { value, null_aware } => {

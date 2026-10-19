@@ -2,8 +2,8 @@
 //! official compiler next to it, in `corpus/ngdart/oraculo/`.
 //!
 //! The contract is the same as the JS backend corpus: what we generate **must**
-//! come out byte for byte equal to the official output. A shape we cannot
-//! generate yet is not a failure; a shape we generate wrong is.
+//! come out byte for byte equal to the official output. Known refusals must
+//! be listed explicitly; every other official artifact must be generated.
 //!
 //! The oracle is regenerated with `scripts/corpus-ngdart.ps1` (runs the
 //! official `build_runner` once).
@@ -12,7 +12,7 @@ use dartforge_elements::load::load_lenient;
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_intern::Interner;
 use dartforge_ng_generator::resolution::Resolver;
-use dartforge_ng_generator::{Package, Scoreboard, template_path, generate_in};
+use dartforge_ng_generator::{Package, Scoreboard, generate_in, template_path};
 use std::path::{Path, PathBuf};
 
 /// The names under `dependencies:` in the corpus `pubspec.yaml` (the
@@ -50,6 +50,25 @@ fn corpus_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/ngdart")
 }
 
+/// A registered name is insufficient if its old machine's directory is gone.
+fn dependency_directory(config: &PackageConfig, name: &str) -> Result<PathBuf, String> {
+    let package = config
+        .packages
+        .get(name)
+        .ok_or_else(|| format!("missing package `{name}`"))?;
+    let directory = package
+        .package_uri
+        .to_file_path()
+        .map_err(|_| format!("package `{name}` has no local directory"))?;
+    if !directory.is_dir() {
+        return Err(format!(
+            "package `{name}` directory is missing: {}",
+            directory.display()
+        ));
+    }
+    Ok(directory)
+}
+
 /// Corpus cases that the generator must refuse, with the sub-shape of the
 /// refusal. (g02, `<select>` with `<option>`, left this list in round 3: the
 /// `NgSelectOption` is instantiated with the `@Host` of the `<select>`
@@ -74,12 +93,23 @@ const REFUSED: &[(&str, &str)] = &[];
 fn what_we_generate_equals_the_official_output() {
     let root = corpus_root();
     let oracle = root.join("oraculo");
-    if !oracle.is_dir() {
-        eprintln!(
-            "no oracle in {}; run scripts/corpus-ngdart.ps1",
-            oracle.display()
-        );
-        return;
+    assert!(
+        oracle.is_dir(),
+        "no oracle in {}; run scripts/corpus-ngdart.ps1",
+        oracle.display()
+    );
+    let mut required: std::collections::BTreeSet<_> = std::fs::read_dir(&oracle)
+        .expect("oracle directory")
+        .map(|entry| entry.expect("oracle entry").path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "dart")
+        })
+        .map(|path| path.file_name().unwrap().to_owned())
+        .collect();
+    assert!(!required.is_empty(), "empty oracle directory");
+    for (file, _) in REFUSED {
+        required.remove(template_path(Path::new(file)).file_name().unwrap());
     }
     let package = Package {
         name: "corpus_ngdart".into(),
@@ -104,18 +134,13 @@ fn what_we_generate_equals_the_official_output() {
         )
     });
     for dep in pubspec_dependencies(&root) {
-        assert!(
-            config.packages.contains_key(&dep),
-            "`{dep}` missing from {}: run `dart pub get` in corpus/ngdart",
-            cfg.display()
-        );
+        dependency_directory(&config, &dep)
+            .unwrap_or_else(|error| panic!("{error}: run `dart pub get` in corpus/ngdart"));
     }
     let sdk_dir =
         SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
-    let Ok(sdk) = SdkLayout::load(&sdk_dir, "dartdevc") else {
-        eprintln!("SDK unavailable; the corpus was not checked");
-        return;
-    };
+    let sdk = SdkLayout::load(&sdk_dir, "dartdevc")
+        .unwrap_or_else(|error| panic!("cannot load SDK {}: {error}", sdk_dir.display()));
     let mut names = Interner::new();
     let (program, _) = load_lenient(&entry, &sdk, Some(&cfg), &mut names);
     let resolver = Resolver::new(&program, &names);
@@ -133,6 +158,7 @@ fn what_we_generate_equals_the_official_output() {
     let ours = c.finish(1).expect("generation");
 
     let mut checked = 0usize;
+    let mut seen = std::collections::BTreeSet::new();
     let mut different = Vec::new();
     for (path, f) in ours.iter() {
         let name = path.file_name().unwrap_or_default();
@@ -141,6 +167,7 @@ fn what_we_generate_equals_the_official_output() {
             continue;
         };
         checked += 1;
+        seen.insert(name.to_owned());
         if expected.replace("\r\n", "\n") != f.content.as_ref() {
             different.push((
                 path.clone(),
@@ -197,11 +224,10 @@ fn what_we_generate_equals_the_official_output() {
             "{file} refused for another reason: {set:?}"
         );
     }
-    // Do not let the corpus become decoration: at least the shapes we already
-    // declared covered must be here.
+    let missing: Vec<_> = required.difference(&seen).collect();
     assert!(
-        checked >= 2,
-        "the corpus must check at least the covered shapes"
+        missing.is_empty(),
+        "official artifacts were not generated: {missing:?}"
     );
 }
 
@@ -212,12 +238,13 @@ fn every_corpus_file_has_an_oracle() {
     let root = corpus_root();
     let src = root.join("lib").join("src");
     let oracle = root.join("oraculo");
-    if !src.is_dir() || !oracle.is_dir() {
-        return;
-    }
+    assert!(
+        src.is_dir() && oracle.is_dir(),
+        "corpus sources or oracle are missing"
+    );
     let mut missing = Vec::new();
-    for e in std::fs::read_dir(&src).expect("lib/src").flatten() {
-        let p = e.path();
+    for entry in std::fs::read_dir(&src).expect("lib/src") {
+        let p = entry.expect("corpus source entry").path();
         let name = p
             .file_name()
             .unwrap_or_default()
@@ -235,4 +262,24 @@ fn every_corpus_file_has_an_oracle() {
         missing.is_empty(),
         "no oracle: {missing:?} — run scripts/corpus-ngdart.ps1"
     );
+}
+
+#[test]
+fn registered_dependency_must_have_a_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join("package_config.json");
+    std::fs::write(&file, r#"{"configVersion":2,"packages":[{"name":"missing","rootUri":"missing/","packageUri":"lib/"}]}"#).unwrap();
+    let config = PackageConfig::load(&file).unwrap();
+    assert!(
+        dependency_directory(&config, "unknown")
+            .unwrap_err()
+            .contains("unknown")
+    );
+    assert!(
+        dependency_directory(&config, "missing")
+            .unwrap_err()
+            .contains("directory is missing")
+    );
+    std::fs::create_dir_all(root.path().join("missing/lib")).unwrap();
+    assert!(dependency_directory(&config, "missing").unwrap().is_dir());
 }

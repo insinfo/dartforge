@@ -185,16 +185,14 @@ pub(crate) fn resolve_name(inf: &mut BodyInferrer<'_>, cx: &Body, the_name: Symb
                 return NameRef::LexicalMember(f, static_);
             }
         }
-        if let Some(c) = cx.class {
-            if let Some(&v) = inf.program.class(c).enum_constants.iter().find(|&&v| inf.program.variable(v).name == the_name) {
+        if let Some(c) = cx.class
+            && let Some(&v) = inf.program.class(c).enum_constants.iter().find(|&&v| inf.program.variable(v).name == the_name) {
                 return NameRef::ConstantEnum(v);
             }
-        }
-        if let Some(x) = cx.extension {
-            if let Some(&v) = inf.program.extension(x).fields.iter().find(|&&v| inf.program.variable(v).name == the_name) {
+        if let Some(x) = cx.extension
+            && let Some(&v) = inf.program.extension(x).fields.iter().find(|&&v| inf.program.variable(v).name == the_name) {
                 return NameRef::Element(Element::Variable(v));
             }
-        }
     }
     if let Some(b) = inf.program.lookup_in_unit(cx.unit, the_name) {
         let el = if setter { b.setter.or(b.getter) } else { b.getter.or(b.setter) };
@@ -800,11 +798,10 @@ fn record_type_ref(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId) {
     let tt = inf.core.type_;
     match &a.expr(e).kind {
         ExprKind::Identifier(n) => {
-            if let Some(b) = inf.program.lookup_in_unit(cx.unit, n.sym) {
-                if let Some(el) = b.getter {
+            if let Some(b) = inf.program.lookup_in_unit(cx.unit, n.sym)
+                && let Some(el) = b.getter {
                     resolver(inf, cx, e, Resolved::Element(el));
                 }
-            }
             record_type(inf, cx, e, tt);
         }
         ExprKind::Property { target, name, .. } => {
@@ -921,11 +918,10 @@ fn read_element(inf: &mut BodyInferrer<'_>, el: Element) -> TypeId {
 
 pub(crate) fn lexical_member_resolved(inf: &BodyInferrer<'_>, cx: &Body, f: dartforge_elements::model::FunctionElementId, static_: bool) -> Resolved {
     let fe = inf.program.function(f);
-    if let Some(x) = fe.extension.or(cx.extension) {
-        if fe.class.is_none() {
+    if let Some(x) = fe.extension.or(cx.extension)
+        && fe.class.is_none() {
             return Resolved::ExtensionMember { extension: x, member: f };
         }
-    }
     let class = fe.class.or(cx.class).unwrap_or(ClassId(0));
     let member = match (fe.kind, fe.variable) {
         (FunctionKind::ImplicitAccessor, Some(v)) if static_ => MemberRef::Variable(v),
@@ -1007,8 +1003,8 @@ fn identifier(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, n: ast::Name
             if !static_ && !of_extension {
                 // Instance member declared here: through the `this` type (the
                 // substitution is the identity).
-                if let Some(this) = cx.this_type {
-                    if let Search::Finding(m) = inf.lookup_member(cx.lib, this, n.sym, false) {
+                if let Some(this) = cx.this_type
+                    && let Search::Finding(m) = inf.lookup_member(cx.lib, this, n.sym, false) {
                         // Only the setter was found here, the read is `this.the_name`: the element
                         // read is the interface's (inherited) getter, not the setter (the
                         // backends invoke the node's `Resolved`).
@@ -1017,7 +1013,6 @@ fn identifier(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, n: ast::Name
                         }
                         return field_read(inf, cx, e, Base::This, m.ty);
                     }
-                }
             }
             if only_setter {
                 // Read of a name that only has a setter in the container: an instance
@@ -1454,7 +1449,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
     // the block's last statement).
     if !cx.flow.reachable && cx.dead_code.is_none() {
         let end = cx.flow_ends.last().copied().or(cx.block_ends.last().copied()).unwrap_or(span.end).max(span.end);
-        inf.warning(DEAD_CODE.template.to_string(), dartforge_diagnostics::Span { start: span.start, end: end });
+        inf.warning(DEAD_CODE.template.to_string(), dartforge_diagnostics::Span { start: span.start, end });
         cx.dead_code = Some(cx.flow_ends.len());
     }
     let mut short_circuit = false;
@@ -1547,7 +1542,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                 let tx = dynamic_cast_in_field(inf, tx, c);
                 if matches!(inf.table.get(tx), Type::Void) {
                     let end = inf.span_expr(cx.unit, *x).end;
-                    let sp = dartforge_diagnostics::Span { start: n.span.start, end: end };
+                    let sp = dartforge_diagnostics::Span { start: n.span.start, end };
                     inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::USE_OF_VOID_RESULT, sp, &[]);
                 }
                 nm.push((n.sym, tx));
@@ -1861,13 +1856,11 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
             // `c?..x` with `c` non-nullable: reported through the first section
             // (`ErrorVerifier`'s `visitPropertyAccess`/`visitMethodInvocation`/
             // `visitIndexExpression`).
-            if *null_aware {
-                if let Some(&first) = sections.first() {
-                    if first_section_without_rewrite(inf, cx, first, t) {
+            if *null_aware
+                && let Some(&first) = sections.first()
+                    && first_section_without_rewrite(inf, cx, first, t) {
                         unnecessary_null_operator(inf, cx, *target, t);
                     }
-                }
-            }
             // `promoteToNonNull`, as with `?.`: a type parameter with a nullable
             // bound becomes `T & NonNull(bnd)` (`nn?..toRadixString(16)`).
             let r = if *null_aware {
@@ -1922,7 +1915,7 @@ pub(crate) fn infer_at(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
                         sp.start
                     };
                     let end = cx.flow_ends.last().copied().or(cx.block_ends.last().copied()).unwrap_or(sp.end).max(sp.end);
-                    inf.warning(DEAD_CODE.template.to_string(), dartforge_diagnostics::Span { start: start, end: end });
+                    inf.warning(DEAD_CODE.template.to_string(), dartforge_diagnostics::Span { start, end });
                     cx.dead_code = Some(cx.flow_ends.len());
                 }
                 infer_free(inf, cx, s);
@@ -2210,7 +2203,7 @@ fn flow_operand<R>(
         // the node with the (new) `rightOperand`: the end is the operand's
         // either way.
         let end = if rewritten && start.is_none() { cx.flow_ends.last().copied().unwrap_or(sp.end).max(sp.end) } else { sp.end };
-        let span = dartforge_diagnostics::Span { start: start.unwrap_or(sp.start), end: end };
+        let span = dartforge_diagnostics::Span { start: start.unwrap_or(sp.start), end };
         inf.warning(DEAD_CODE.template.to_string(), span);
         if rewritten {
             cx.dead_code = Some(cx.flow_ends.len());
@@ -2520,8 +2513,8 @@ pub(crate) fn prefix_without_dot(inf: &mut BodyInferrer<'_>, n: ast::Name) {
 fn property(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, target: ExprId, name: ast::Name, null_aware: bool) -> (TypeId, bool) {
     let a = ast(inf, cx);
     // `p.the_name` with an import prefix.
-    if let ExprKind::Identifier(p) = &a.expr(target).kind {
-        if matches!(resolve_name(inf, cx, p.sym, false), NameRef::Prefix) {
+    if let ExprKind::Identifier(p) = &a.expr(target).kind
+        && matches!(resolve_name(inf, cx, p.sym, false), NameRef::Prefix) {
             // `p?.x` is a `PropertyAccess`, not a `PrefixedIdentifier`: the prefix
             // does not count there (`_isValidAsPrefix`).
             if null_aware {
@@ -2551,7 +2544,6 @@ fn property(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, target: ExprId
                 }
             }
         }
-    }
     // `Fn<int>.foo` with `Fn` a function type alias (3.6.2
     // `property_element_resolver.dart:459-477`): no resolution is possible,
     // `UNDEFINED_GETTER_ON_FUNCTION_TYPE` at the name.
@@ -2585,14 +2577,13 @@ fn property(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, target: ExprId
         inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::UNDEFINED_GETTER, name.span, &["new", &typ]);
         return (inf.table.invalid(inf.core.dynamic_), short_circuit);
     }
-    if let Some((x, args)) = cx.overlays.get(&target).cloned() {
-        if inf.explicit_extension_member(x, &args, name.sym, false).is_none()
+    if let Some((x, args)) = cx.overlays.get(&target).cloned()
+        && inf.explicit_extension_member(x, &args, name.sym, false).is_none()
             && inf.extension_static_member(x, name.sym, false).is_some()
         {
             inf.warning(EXTENSION_OVERRIDE_ACCESS_TO_STATIC_MEMBER.template.to_string(), name.span);
             return (inf.core.dynamic_, short_circuit);
         }
-    }
     let base = if null_aware { None } else { property_base(inf, cx, target) };
     // `void`: the value cannot be used (analyzer: `use_of_void_result`, at the name).
     // Not for an `E(x)` target: the member comes from the extension, and the
@@ -3076,11 +3067,10 @@ fn super_chain(inf: &BodyInferrer<'_>, c: ClassId) -> Vec<ClassId> {
             }
         }
         // Without `on`, the constraint is `Object`.
-        if let Some(o) = inf.core.object_class {
-            if !v.contains(&o) {
+        if let Some(o) = inf.core.object_class
+            && !v.contains(&o) {
                 v.push(o);
             }
-        }
         return v;
     }
     for &m in cls.mixin_classes.iter().rev() {
@@ -3101,11 +3091,10 @@ fn super_chain(inf: &BodyInferrer<'_>, c: ClassId) -> Vec<ClassId> {
     }
     // Every chain ends at `Object` (the model may not link an enum's
     // superclass).
-    if let Some(o) = inf.core.object_class {
-        if !v.contains(&o) && c != o {
+    if let Some(o) = inf.core.object_class
+        && !v.contains(&o) && c != o {
             v.push(o);
         }
-    }
     v
 }
 
@@ -3316,7 +3305,7 @@ fn read_index(
     let op = inf.sym.index;
     if let Some((x, args)) = cx.overlays.get(&target).cloned() {
         if let Some((s, m)) = op.and_then(|s| inf.explicit_extension_member(x, &args, s, false).map(|m| (s, m))) {
-            return (binary_operator_with_member(inf, cx, recv, s, index, ctx, Some(tgt), m).0, short_circuit);
+            return (binary_operator_with_member(inf, cx, recv, s, (index, ctx), Some(tgt), m).0, short_circuit);
         }
         infer_free(inf, cx, index);
         let span = index_span(inf, cx, tgt, target);
@@ -3351,7 +3340,7 @@ fn read_index(
     let token = dartforge_diagnostics::Span { start: undefined.start, end: undefined.start + 1 };
     let super_ = matches!(ast(inf, cx).expr(target).kind, ExprKind::Super);
     let positions = OperatorPositions { token, undefined, compound: false, super_, numeric_target: None };
-    (binary_operator(inf, cx, recv, op, index, ctx, positions, Some(tgt)).0, short_circuit)
+    (binary_operator(inf, cx, recv, op, (index, ctx), positions, Some(tgt)).0, short_circuit)
 }
 
 /// Where the analyzer reports an operator's errors: `token` for the use
@@ -3398,8 +3387,7 @@ pub(crate) fn binary_operator(
     cx: &mut Body,
     recv: TypeId,
     op: Option<SymbolId>,
-    arg: ExprId,
-    ctx: TypeId,
+    (arg, ctx): (ExprId, TypeId),
     positions: OperatorPositions,
     no: Option<ExprId>,
 ) -> (TypeId, Option<InterfaceMember>) {
@@ -3494,7 +3482,7 @@ pub(crate) fn binary_operator(
 
 fn binary_operator_with_member(
     inf: &mut BodyInferrer<'_>, cx: &mut Body, recv: TypeId, op: SymbolId,
-    arg: ExprId, ctx: TypeId, no: Option<ExprId>, m: InterfaceMember,
+    (arg, ctx): (ExprId, TypeId), no: Option<ExprId>, m: InterfaceMember,
 ) -> (TypeId, Option<InterfaceMember>) {
     binary_operator_with_target_member(inf, cx, recv, recv, op, arg, ctx, no, m)
 }
@@ -3658,7 +3646,7 @@ fn binary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: BinaryOp, le
                 && let Some(text) = operator_text(op)
             {
                 if let Some((s, m)) = sym.and_then(|s| inf.explicit_extension_member(x, &args, s, false).map(|m| (s, m))) {
-                    return binary_operator_with_member(inf, cx, l, s, right, ctx, Some(e), m).0;
+                    return binary_operator_with_member(inf, cx, l, s, (right, ctx), Some(e), m).0;
                 }
                 let start = inf.span_expr(cx.unit, left).end;
                 let end = inf.span_expr(cx.unit, right).start;
@@ -3677,7 +3665,7 @@ fn binary(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: BinaryOp, le
             let _ = span;
             let super_ = matches!(ast(inf, cx).expr(left).kind, ExprKind::Super);
             let positions = OperatorPositions { token, undefined: token, compound: false, super_, numeric_target: None };
-            let (t, _) = binary_operator(inf, cx, l, sym, right, ctx, positions, Some(e));
+            let (t, _) = binary_operator(inf, cx, l, sym, (right, ctx), positions, Some(e));
             t
         }
     }
@@ -3692,7 +3680,7 @@ fn dead_in_right_operand(inf: &mut BodyInferrer<'_>, cx: &mut Body, left: ExprId
     }
     let token = operator_token(inf, cx, inf.span_expr(cx.unit, left).end);
     let end = inf.span_expr(cx.unit, right).end;
-    inf.warning(DEAD_CODE.template.to_string(), dartforge_diagnostics::Span { start: token.start, end: end });
+    inf.warning(DEAD_CODE.template.to_string(), dartforge_diagnostics::Span { start: token.start, end });
     cx.dead_code = Some(cx.flow_ends.len());
 }
 
@@ -4016,7 +4004,7 @@ fn read_for_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, short_
                 (if null_aware { inf.non_null(t) } else { t }, short_circuit_read)
             });
             let mut short_circuit = false;
-            let write = property_write(inf, cx, tgt, target, name, null_aware, &mut short_circuit, recv_read);
+            let write = property_write(inf, cx, tgt, (target, name, null_aware), &mut short_circuit, recv_read);
             *short_circuit_out = short_circuit_read || short_circuit;
             record_type(inf, cx, tgt, read);
             (read, write, None)
@@ -4076,13 +4064,12 @@ fn read_for_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, short_
                 if matches!(inf.table.get(r), Type::Dynamic) && !inf.table.is_invalid(r) {
                     write = inf.core.dynamic_;
                 }
-                if !invalid {
-                    if let Search::Finding(m) = inf.lookup_member(cx.lib, r, op, false)
+                if !invalid
+                    && let Search::Finding(m) = inf.lookup_member(cx.lib, r, op, false)
                         && let Some(p1) = second(inf, m.ty)
                     {
                         write = p1;
                     }
-                }
                 if !invalid && !inf.requires_null_check(cx.lib, r, op, false) {
                     match inf.lookup_member(cx.lib, r, op, false) {
                         Search::Missing => {
@@ -4235,20 +4222,17 @@ fn name_write_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, n: as
                 let ve = inf.program.variable(v);
                 if (ve.final_ || ve.const_) && ve.setter.is_none() && follows_through_this {
                     // A final field without a setter: there may be an inherited setter.
-                    if let Some(this) = cx.this_type {
-                        if let Search::Finding(m) = inf.lookup_member(cx.lib, this, n.sym, true) {
+                    if let Some(this) = cx.this_type
+                        && let Search::Finding(m) = inf.lookup_member(cx.lib, this, n.sym, true) {
                             return m.ty;
                         }
-                    }
                 }
             }
-            if follows_through_this {
-                if let Some(this) = cx.this_type {
-                    if let Search::Finding(m) = inf.lookup_member(cx.lib, this, n.sym, true) {
+            if follows_through_this
+                && let Some(this) = cx.this_type
+                    && let Search::Finding(m) = inf.lookup_member(cx.lib, this, n.sym, true) {
                         return m.ty;
                     }
-                }
-            }
             warn_member_without_setter(inf, n, f);
             // Without a setter, the write element is the recovery one (the getter):
             // `InvalidType` (`setWriteElement`).
@@ -4280,14 +4264,12 @@ fn name_write_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, n: as
                     m.ty
                 }
                 Search::Missing => {
-                    if let Search::Finding(getter) = inf.lookup_member(cx.lib, this, n.sym, false) {
-                        if let Some(f) = getter.function {
-                            if warn_member_without_setter(inf, n, f) {
+                    if let Search::Finding(getter) = inf.lookup_member(cx.lib, this, n.sym, false)
+                        && let Some(f) = getter.function
+                            && warn_member_without_setter(inf, n, f) {
                                 resolver(inf, cx, tgt, getter.resolved);
                                 return getter.ty;
                             }
-                        }
-                    }
                     undefined_written_name(inf, cx, n);
                     inf.core.dynamic_
                 }
@@ -4400,7 +4382,7 @@ fn assignment(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: AssignOp
                 }
                 ExprKind::Property { target, name, null_aware } => {
                     let (target, name, null_aware) = (*target, *name, *null_aware);
-                    let t = property_write(inf, cx, tgt, target, name, null_aware, short_circuit, None);
+                    let t = property_write(inf, cx, tgt, (target, name, null_aware), short_circuit, None);
                     (t, t, None)
                 }
                 ExprKind::Index { target, index, null_aware } => {
@@ -4539,7 +4521,7 @@ fn assignment(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: AssignOp
             // The right side's context: `refineNumericInvocationContext` with the
             // write type as target and as context.
             let positions = OperatorPositions { token, undefined: token, compound: true, super_: false, numeric_target: Some(write) };
-            let (t, _) = binary_operator(inf, cx, read, sym, the_value, write, positions, Some(e));
+            let (t, _) = binary_operator(inf, cx, read, sym, (the_value, write), positions, Some(e));
             // `x op= e`: the operator's return against the write type, at the right
             // side (`_resolveTypes` + `_checkForInvalidAssignment`,
             // an611:src/dart/resolver/assignment_expression_resolver.dart:117-155, 272-290).
@@ -4563,7 +4545,7 @@ fn assignment(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: AssignOp
 }
 
 /// `r.x = …`: the setter's type.
-fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target: ExprId, name: ast::Name, null_aware: bool, short_circuit: &mut bool, recv_read: Option<(TypeId, bool)>) -> TypeId {
+fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, (target, name, null_aware): (ExprId, ast::Name, bool), short_circuit: &mut bool, recv_read: Option<(TypeId, bool)>) -> TypeId {
     // `Fn<int>.foo = 1`: a setter with no possible resolution; in a compound
     // one only the getter reports (`hasRead`), already at the read.
     if let ExprKind::TypeArguments { target: base, .. } = &ast(inf, cx).expr(target).kind
@@ -4575,8 +4557,8 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
         return inf.table.invalid(inf.core.dynamic_);
     }
     let a = ast(inf, cx);
-    if let ExprKind::Identifier(p) = &a.expr(target).kind {
-        if matches!(resolve_name(inf, cx, p.sym, false), NameRef::Prefix) {
+    if let ExprKind::Identifier(p) = &a.expr(target).kind
+        && matches!(resolve_name(inf, cx, p.sym, false), NameRef::Prefix) {
             if null_aware {
                 prefix_without_dot(inf, *p);
             }
@@ -4600,7 +4582,6 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
             }
             return inf.core.dynamic_;
         }
-    }
     if null_aware && type_reference(inf, cx, target).is_some() {
         null_operator_on_type(inf, cx, target);
     }
@@ -4610,8 +4591,8 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
             *short_circuit = true;
         }
         let explicit_instance = matches!(&ast(inf, cx).expr(target).kind, ExprKind::TypeArguments { .. });
-        if explicit_instance {
-            if let TypeRef::Class(c, _) | TypeRef::Alias(c, _, _) = &rt {
+        if explicit_instance
+            && let TypeRef::Class(c, _) | TypeRef::Alias(c, _, _) = &rt {
                 if inf.static_member(*c, name.sym, true).is_some()
                     || inf.static_member(*c, name.sym, false).is_some()
                 {
@@ -4622,7 +4603,6 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
                     return inf.core.dynamic_;
                 }
             }
-        }
         let m = match &rt {
             TypeRef::Class(c, _) | TypeRef::Alias(c, _, _) => inf.static_member(*c, name.sym, true),
             TypeRef::Extension(x) => inf.extension_static_member(*x, name.sym, true),
@@ -4643,8 +4623,8 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
                 m.ty
             }
             None => {
-                if let TypeRef::Class(c, _) | TypeRef::Alias(c, _, _) = &rt {
-                    if inf.static_member(*c, name.sym, false).is_none() {
+                if let TypeRef::Class(c, _) | TypeRef::Alias(c, _, _) = &rt
+                    && inf.static_member(*c, name.sym, false).is_none() {
                         // An instance method does not declare a setter. In `C.m = v`, the
                         // analyzer looks for the static setter and reports its absence, while
                         // `C.m` as a read is an improper static access to the instance method.
@@ -4669,27 +4649,23 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
                             return inf.core.dynamic_;
                         }
                     }
-                }
-                if let TypeRef::Extension(x) = rt {
-                    if inf.explicit_extension_member(x, &[], name.sym, true).is_some() {
+                if let TypeRef::Extension(x) = rt
+                    && inf.explicit_extension_member(x, &[], name.sym, true).is_some() {
                         let msg = format!("{}: '{}'", STATIC_ACCESS_TO_INSTANCE_MEMBER.template, inf.interner.resolve(name.sym));
                         inf.warning(msg, name.span);
                         return inf.core.dynamic_;
                     }
-                }
                 let getter = match rt {
                     TypeRef::Class(c, _) | TypeRef::Alias(c, _, _) => inf.static_member(c, name.sym, false),
                     TypeRef::Extension(x) => inf.extension_static_member(x, name.sym, false),
                 };
                 let missing_getter = getter.is_none();
-                if let Some(getter) = getter {
-                    if let Some(f) = getter.function {
-                        if warn_member_without_setter(inf, name, f) {
+                if let Some(getter) = getter
+                    && let Some(f) = getter.function
+                        && warn_member_without_setter(inf, name, f) {
                             resolver(inf, cx, tgt, getter.resolved);
                             return getter.ty;
                         }
-                    }
-                }
                 if missing_getter && let TypeRef::Extension(x) = rt {
                     let extension = inf.program.extension(x).name.map(|n| inf.interner.resolve(n)).unwrap_or("");
                     let msg = format!("{}: '{}' in '{}'", UNDEFINED_EXTENSION_SETTER.template, inf.interner.resolve(name.sym), extension);
@@ -4794,14 +4770,13 @@ fn property_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, target
         inf.attach_non_promotion(since, cx, Some(target), name.span);
     }
     // A method of the class's interface takes precedence over a same-named extension setter.
-    if let Some(m) = inf.interface_member(recv, name.sym, false) {
-        if m.method && m.function.is_some_and(|f| inf.program.function(f).kind == FunctionKind::Function) {
+    if let Some(m) = inf.interface_member(recv, name.sym, false)
+        && m.method && m.function.is_some_and(|f| inf.program.function(f).kind == FunctionKind::Function) {
             warn_write_to_method(inf, name);
             resolver(inf, cx, tgt, m.resolved);
             // `setWriteElement`: a write to a method has type `InvalidType`.
             return inf.table.invalid(inf.core.dynamic_);
         }
-    }
     let search = inf.lookup_member(cx.lib, recv, name.sym, true);
     inf.report_extension_ambiguity(name.span);
     match search {
@@ -4904,7 +4879,7 @@ fn index_write(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, recv: Typ
             && inf.requires_null_check(cx.lib, recv, op, false)
         {
             let start = index_span(inf, cx, tgt, t).start;
-            let sp = dartforge_diagnostics::Span { start: start, end: start + 1 };
+            let sp = dartforge_diagnostics::Span { start, end: start + 1 };
             let since = inf.diagnostics.len();
             inf.null_warning(recv, dartforge_diagnostics::codes::compile_time_error::UNCHECKED_METHOD_INVOCATION_OF_NULLABLE_VALUE, sp, &["[]"]);
             inf.attach_non_promotion(since, cx, Some(t), sp);
@@ -5413,8 +5388,8 @@ fn binary_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: Bi
                     }
                     resolver(inf, cx, e, m.resolved);
                 }
-            } else if let Some(eq) = inf.sym.equal {
-                if let Search::Finding(m) = inf.lookup_member(cx.lib, tl, eq, false) {
+            } else if let Some(eq) = inf.sym.equal
+                && let Search::Finding(m) = inf.lookup_member(cx.lib, tl, eq, false) {
                     // The right side against the parameter of `operator ==` made nullable
                     // (`binary_expression_resolver.dart:117-124`, `promoteParameterToNullable`),
                     // looked up on the left type promoted to non-null.
@@ -5441,7 +5416,6 @@ fn binary_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, op: Bi
                     }
                     resolver(inf, cx, e, m.resolved);
                 }
-            }
             let (the_equal, different) = equality_flows(inf, cx, left, right, tl, tr);
             if op == BinaryOp::Eq {
                 (the_equal, different)

@@ -2,6 +2,21 @@
 
 ## Atualização de 19/10/2026
 
+- Types, macros-host e ng-generator passam no Clippy com todos os alvos,
+  sem novas supressões. A refatoração nomeia estruturas de diagnóstico e
+  agrupa argumentos relacionados; `compile_asset` recebe `AssetOptions`.
+  `html::Node::Element` usa `Box`: o tamanho inline de `Node` no macOS ARM64
+  caiu de 344 para 40 bytes (não é uma medição do consumo total nem de tempo).
+  Passaram 119 testes de tipos, 74 do gerador e 21 de macros, incluindo os
+  ignorados e os quatro casos de executor nativo com compilador montado nesta
+  rodada. Os 372 artefatos oficiais do corpus Angular foram conferidos, sem
+  pendências. A configuração local antiga apontava para caches Windows;
+  `pub get --offline --enforce-lockfile` restaurou os caminhos. O teste agora
+  verifica os diretórios das dependências e exige todos os artefatos, em vez
+  de aceitar só dois. Suíte nativa: 777 passaram, zero falhas, nove ignorados;
+  integração Sass/build passou. Restam os diagnósticos de Clippy em build
+  (outros crates ainda podem ter mais), formatação geral e link Apple/LLVM 22.
+  Evidências: `bench/results/2026-10-19-analysis-quality/checks.json`.
 - Elements e formatter passam no Clippy com todos os alvos, sem supressões.
   A inserção mutável de nós foi renomeada de `Tree::new` para `Tree::push`, com
   exemplo executável e índice verificado antes de modificar a árvore. A

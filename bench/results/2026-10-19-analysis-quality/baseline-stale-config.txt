@@ -1,0 +1,179 @@
+Cargo baseline output; line-end whitespace trimmed for repository storage.
+
+   Compiling dartforge-diagnostics v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/diagnostics)
+   Compiling dartforge-intern v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/intern)
+   Compiling dartforge-sass v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/sass)
+   Compiling dartforge-frontend v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/frontend)
+   Compiling dartforge-elements v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/elements)
+   Compiling dartforge-ng-generator v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/target/analysis-ng-baseline/crates/ng_generator)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.55s
+     Running tests/corpus.rs (target/debug/deps/corpus-3d55d650623f45e6)
+
+running 2 tests
+test every_corpus_file_has_an_oracle ... ok
+test what_we_generate_equals_the_official_output ... FAILED
+
+failures:
+
+---- what_we_generate_equals_the_official_output stdout ----
+=== /Volumes/ssd_dock/MyRustProjects/dartforge/corpus/ngdart/lib/src/j57_reprojecao.template.dart ===
+line 56
+  official:   dynamic injectorGetInternal(dynamic token, int nodeIndex, dynamic notFoundResult) {
+  ours:       void detectChangesInternal() {
+line 57
+  official:     if ((identical(token, import3.J41Aba) && (0 == nodeIndex))) {
+  ours:         this._compView_0.detectChanges();
+line 58
+  official:       return this._J41Aba_0_5;
+  ours:         this._compView_1.detectChanges();
+line 59
+  official:     }
+  ours:       }
+line 60
+  official:     if ((identical(token, import3.J41Aba) && ((1 <= nodeIndex) && (nodeIndex <= 3)))) {
+  ours:
+line 61
+  official:       return this._J41Aba_1_5;
+  ours:       @override
+line 62
+  official:     }
+  ours:       void destroyInternal() {
+line 63
+  official:     return notFoundResult;
+  ours:         this._compView_0.destroyInternalState();
+line 64
+  official:   }
+  ours:         this._compView_1.destroyInternalState();
+line 65
+  official:
+  ours:       }
+line 66
+  official:   @override
+  ours:
+line 67
+  official:   void detectChangesInternal() {
+  ours:       static void _debugClearComponentStyles() {
+line 68
+  official:     this._compView_0.detectChanges();
+  ours:         _componentStyles = null;
+line 69
+  official:     this._compView_1.detectChanges();
+  ours:       }
+line 70
+  official:   }
+  ours:
+line 71
+  official:
+  ours:       void initComponentStyles() {
+line 72
+  official:   @override
+  ours:         var styles = _componentStyles;
+line 73
+  official:   void destroyInternal() {
+  ours:         if ((styles == null)) {
+line 74
+  official:     this._compView_0.destroyInternalState();
+  ours:           _componentStyles = (styles = import4.ComponentStyles.unscoped(styles$J57Reprojecao, _debugComponentUrl));
+line 75
+  official:     this._compView_1.destroyInternalState();
+  ours:           if (import7.isDevMode) {
+line 76
+  official:   }
+  ours:             import4.ComponentStyles.debugOnClear(_debugClearComponentStyles);
+line 77
+  official:
+  ours:           }
+line 78
+  official:   static void _debugClearComponentStyles() {
+  ours:         }
+line 79
+  official:     _componentStyles = null;
+  ours:         this.componentStyles = styles;
+line 81
+  official:
+  ours:     }
+line 82
+  official:   void initComponentStyles() {
+  ours:
+line 83
+  official:     var styles = _componentStyles;
+  ours:     const _J57ReprojecaoNgFactory = ComponentFactory<import1.J57Reprojecao>('j57-reprojecao', viewFactory_J57ReprojecaoHost0);
+line 84
+  official:     if ((styles == null)) {
+  ours:     ComponentFactory<import1.J57Reprojecao> get J57ReprojecaoNgFactory {
+line 85
+  official:       _componentStyles = (styles = import4.ComponentStyles.unscoped(styles$J57Reprojecao, _debugComponentUrl));
+  ours:       return _J57ReprojecaoNgFactory;
+line 86
+  official:       if (import7.isDevMode) {
+  ours:     }
+line 87
+  official:         import4.ComponentStyles.debugOnClear(_debugClearComponentStyles);
+  ours:
+line 88
+  official:       }
+  ours:     ComponentFactory<import1.J57Reprojecao> createJ57ReprojecaoFactory() {
+line 89
+  official:     }
+  ours:       return ComponentFactory('j57-reprojecao', viewFactory_J57ReprojecaoHost0);
+line 90
+  official:     this.componentStyles = styles;
+  ours:     }
+line 91
+  official:   }
+  ours:
+line 92
+  official: }
+  ours:     final List<Object> styles$J57ReprojecaoHost = const [];
+line 94
+  official: const _J57ReprojecaoNgFactory = ComponentFactory<import1.J57Reprojecao>('j57-reprojecao', viewFactory_J57ReprojecaoHost0);
+  ours:     class _ViewJ57ReprojecaoHost0 extends import11.HostView<import1.J57Reprojecao> {
+line 95
+  official: ComponentFactory<import1.J57Reprojecao> get J57ReprojecaoNgFactory {
+  ours:       @override
+line 96
+  official:   return _J57ReprojecaoNgFactory;
+  ours:       void build() {
+line 97
+  official: }
+  ours:         this.componentView = ViewJ57Reprojecao0(this, 0);
+line 98
+  official:
+  ours:         final _el_0 = this.componentView.rootElement;
+line 99
+  official: ComponentFactory<import1.J57Reprojecao> createJ57ReprojecaoFactory() {
+  ours:         this.component = import1.J57Reprojecao();
+line 100
+  official:   return ComponentFactory('j57-reprojecao', viewFactory_J57ReprojecaoHost0);
+  ours:         this.initRootNode(_el_0);
+line 101
+  official: }
+  ours:       }
+line 102
+  official:
+  ours:     }
+line 103
+  official: final List<Object> styles$J57ReprojecaoHost = const [];
+  ours:
+line 104
+  official:
+  ours:     import11.HostView<import1.J57Reprojecao> viewFactory_J57ReprojecaoHost0() {
+line 105
+  official: class _ViewJ57ReprojecaoHost0 extends import11.HostView<import1.J57Reprojecao> {
+  ours:       return _ViewJ57ReprojecaoHost0();
+line 106
+  official:   @override
+  ours:     }
+  lines: official 117, ours 106
+
+thread 'what_we_generate_equals_the_official_output' (1125815) panicked at crates/ng_generator/tests/corpus.rs:167:5:
+1 file(s) different from the official output
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    what_we_generate_equals_the_official_output
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.78s
+
+error: test failed, to rerun pass `--test corpus`

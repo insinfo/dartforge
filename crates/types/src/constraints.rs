@@ -124,11 +124,10 @@ impl GenericInferrer {
         let tq = env.table.get(q).clone();
         // Q is FutureOr<Q0>.
         if let Type::FutureOr { arg: q0, nullable: false } = tq {
-            if let Type::FutureOr { arg: p0, nullable: false } = tp {
-                if self.sub(p0, q0, left, env) {
+            if let Type::FutureOr { arg: p0, nullable: false } = tp
+                && self.sub(p0, q0, left, env) {
                     return true;
                 }
-            }
             if let Some(fq0) = future_of(q0, env) {
                 let mark = self.constraints.len();
                 if self.try_match(p, fq0, left, env) && self.constraints.len() > mark {
@@ -218,11 +217,10 @@ impl GenericInferrer {
             if param == env.core.unknown_param {
                 return true;
             }
-            if let Type::TypeParameter { param: pq, .. } = tq {
-                if pq == param {
+            if let Type::TypeParameter { param: pq, .. } = tq
+                && pq == param {
                     return true;
                 }
-            }
             let b = env.table.param(param).bound;
             if b == p {
                 return false;
@@ -230,49 +228,43 @@ impl GenericInferrer {
             return self.try_match(b, q, left, env);
         }
         // Interfaces (and extension types).
-        match (&tp, &tq) {
-            (
+        if let (
                 Type::Interface { class: c0, args: a0, .. } | Type::ExtensionType { decl: c0, args: a0, .. },
                 Type::Interface { class: c1, args: a1, .. } | Type::ExtensionType { decl: c1, args: a1, .. },
-            ) => {
-                if c0 == c1 && a0.len() == a1.len() {
-                    // `_interfaceTypeArguments` (`type_analyzer_operations.dart:1230-1261`):
-                    // by the declared variance of each parameter (contravariant swaps the sides
-                    // and the schema; invariant, both).
-                    let params: Vec<crate::table::TypeParamId> = env.hierarchy.get(*c0).map(|d| d.type_params.to_vec()).unwrap_or_default();
-                    let mark = self.constraints.len();
-                    for (i, (x, y)) in a0.iter().zip(a1.iter()).enumerate() {
-                        let variance = params.get(i).map(|&p| env.table.param(p).variance).unwrap_or_default();
-                        let co = !matches!(variance, crate::table::Variance::Contravariant);
-                        let against = matches!(variance, crate::table::Variance::Contravariant | crate::table::Variance::Invariant);
-                        if co && !self.try_match(*x, *y, left, env) {
-                            self.constraints.truncate(mark);
-                            return false;
-                        }
-                        if against && !self.try_match(*y, *x, !left, env) {
-                            self.constraints.truncate(mark);
-                            return false;
-                        }
+            ) = (&tp, &tq) {
+            if c0 == c1 && a0.len() == a1.len() {
+                // `_interfaceTypeArguments` (`type_analyzer_operations.dart:1230-1261`):
+                // by the declared variance of each parameter (contravariant swaps the sides
+                // and the schema; invariant, both).
+                let params: Vec<crate::table::TypeParamId> = env.hierarchy.get(*c0).map(|d| d.type_params.to_vec()).unwrap_or_default();
+                let mark = self.constraints.len();
+                for (i, (x, y)) in a0.iter().zip(a1.iter()).enumerate() {
+                    let variance = params.get(i).map(|&p| env.table.param(p).variance).unwrap_or_default();
+                    let co = !matches!(variance, crate::table::Variance::Contravariant);
+                    let against = matches!(variance, crate::table::Variance::Contravariant | crate::table::Variance::Invariant);
+                    if co && !self.try_match(*x, *y, left, env) {
+                        self.constraints.truncate(mark);
+                        return false;
                     }
-                    return true;
-                }
-                if let Some(sup) = env.hierarchy.supertype_of(p, *c1, env.table, env.core) {
-                    if sup != p {
-                        return self.try_match(sup, q, left, env);
+                    if against && !self.try_match(*y, *x, !left, env) {
+                        self.constraints.truncate(mark);
+                        return false;
                     }
                 }
-                return false;
+                return true;
             }
-            _ => {}
+            if let Some(sup) = env.hierarchy.supertype_of(p, *c1, env.table, env.core)
+                && sup != p {
+                    return self.try_match(sup, q, left, env);
+                }
+            return false;
         }
         // Function <: Function.
-        if matches!(tp, Type::Function { .. }) {
-            if let Type::Interface { class, .. } = tq {
-                if Some(class) == env.core.function_class {
+        if matches!(tp, Type::Function { .. })
+            && let Type::Interface { class, .. } = tq
+                && Some(class) == env.core.function_class {
                     return true;
                 }
-            }
-        }
         if let (
             Type::Function { type_params: tp0, ret: r0, positional: p0, optional: o0, named: n0, .. },
             Type::Function { type_params: tp1, ret: r1, positional: p1, optional: o1, named: n1, .. },
@@ -343,13 +335,11 @@ impl GenericInferrer {
             return ok;
         }
         // Records.
-        if matches!(tp, Type::Record { .. }) {
-            if let Type::Interface { class, .. } = tq {
-                if Some(class) == env.core.record_class {
+        if matches!(tp, Type::Record { .. })
+            && let Type::Interface { class, .. } = tq
+                && Some(class) == env.core.record_class {
                     return true;
                 }
-            }
-        }
         if let (Type::Record { positional: p0, named: n0, .. }, Type::Record { positional: p1, named: n1, .. }) = (&tp, &tq) {
             if p0.len() != p1.len() || n0.len() != n1.len() {
                 return false;
@@ -517,9 +507,9 @@ impl GenericInferrer {
             };
             types[i] = t;
         }
-        for i in 0..n {
-            if !has_unknown(types[i], env) {
-                self.the_fixed[i] = Some(types[i]);
+        for (i, &ty) in types.iter().enumerate() {
+            if !has_unknown(ty, env) {
+                self.the_fixed[i] = Some(ty);
             }
         }
         types
@@ -683,8 +673,8 @@ impl GenericInferrer {
         };
         let mut success = own.iter().all(|r| satisfies(r, env));
         let mut extends: Option<(String, String, bool)> = None;
-        if success {
-            if let Some(b) = self.written_bound(i, vector, env) {
+        if success
+            && let Some(b) = self.written_bound(i, vector, env) {
                 let raw = env.table.param(self.params[i]).bound;
                 // `isSatisfiedBy` (`type_constraint.dart:128-135`): the type against the
                 // greatest closure of the schema (`A<_>` counts as `A<Object?>`).
@@ -693,7 +683,6 @@ impl GenericInferrer {
                 extends = Some((fmt(env, raw), fmt(env, b), ok));
                 success = ok;
             }
-        }
         if success {
             return None;
         }

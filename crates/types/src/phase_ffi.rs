@@ -274,7 +274,7 @@ impl<'a> V<'a> {
 
     fn table(&mut self) -> &mut TypeTable {
         match &mut self.t {
-            Table::Free(t) => &mut **t,
+            Table::Free(t) => t,
             Table::Engine(m) => &mut *m.table,
             Table::Empty => unreachable!("tabela emprestada"),
         }
@@ -282,7 +282,7 @@ impl<'a> V<'a> {
 
     fn table_ref(&self) -> &TypeTable {
         match &self.t {
-            Table::Free(t) => &**t,
+            Table::Free(t) => t,
             Table::Engine(m) => &*m.table,
             Table::Empty => unreachable!("tabela emprestada"),
         }
@@ -295,7 +295,7 @@ impl<'a> V<'a> {
             self.t = Table::Engine(Box::new(Engine::new(self.program, self.interner, t, self.core, self.outline, self.bodies, self.the_inferred)));
         }
         match &mut self.t {
-            Table::Engine(m) => &mut **m,
+            Table::Engine(m) => m,
             _ => unreachable!("engine created above"),
         }
     }
@@ -1922,8 +1922,8 @@ impl<'a> V<'a> {
             self.report(cf::FFI_NATIVE_UNEXPECTED_NUMBER_OF_PARAMETERS, the_name, &[Arg::from(a), Arg::from(b)]);
             return;
         }
-        for i in 0..formals {
-            if !self.is_ffi_t(ffi_types[i], "Pointer") {
+        for (i, &ffi_type) in ffi_types.iter().enumerate().take(formals) {
+            if !self.is_ffi_t(ffi_type, "Pointer") {
                 continue;
             }
             let t = self.parameter_type(d, i, parameters);
@@ -2077,7 +2077,7 @@ impl<'a> V<'a> {
                     if let Some(Resolved::Constructor(f)) = self.body.get_resolved(id) {
                         let start = a.ty(*ty).span.start;
                         let end = constructor.map_or(a.ty(*ty).span.end, |n| n.span.end);
-                        self.creation(id, *f, Span { start: start, end: end }, arguments);
+                        self.creation(id, *f, Span { start, end }, arguments);
                     }
                 }
                 ExprKind::Index { target, .. } => {
@@ -2085,11 +2085,10 @@ impl<'a> V<'a> {
                         self.index(id, *target);
                     }
                 }
-                ExprKind::Property { target, name, .. } => {
-                    if !self.inside_index(e.span) {
+                ExprKind::Property { target, name, .. }
+                    if !self.inside_index(e.span) => {
                         self.property(id, *target, *name);
                     }
-                }
                 _ => {}
             }
         }
@@ -2493,13 +2492,12 @@ impl<'a> V<'a> {
                     self.report(cf::NON_CONSTANT_TYPE_ARGUMENT, s, &[Arg::from("ref")]);
                 }
             }
-        } else if self.ffi_extension(x, &COMPOUND_ADDRESS) || self.ffi_extension(x, &PRIMITIVE_ADDRESS) || self.ffi_extension(x, &TYPED_DATA_ADDRESS) {
-            if member_name == "address" {
+        } else if (self.ffi_extension(x, &COMPOUND_ADDRESS) || self.ffi_extension(x, &PRIMITIVE_ADDRESS) || self.ffi_extension(x, &TYPED_DATA_ADDRESS))
+            && member_name == "address" {
                 self.validate_address_position(id, the_name.span);
                 let the_extension = self.program.extension(x).name.map(|n| self.name(n)).unwrap_or("");
                 self.validate_address_receiver(target, the_extension, the_name.span);
             }
-        }
     }
 
     /// `_validateAddressPosition`: `.address` only as an argument of a call to a

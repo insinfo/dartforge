@@ -21,6 +21,9 @@ use crate::resolution::{Resolution, asset_of_uri, import_path};
 use std::fmt::Write;
 use std::path::Path;
 
+/// Provider token, field and optional declaring ancestor view.
+type AncestorProvider = (crate::directives::Token, String, Option<(String, u32)>);
+
 /// Import table of the generated file.
 #[derive(Default, Clone)]
 pub struct Imports {
@@ -726,10 +729,10 @@ fn referenced_in_embedded(
             // The element of the `*` and what is below it belong to the
             // embedded view.
             where_matches(
-                &[Node::Element(crate::html::Element {
+                &[Node::Element(Box::new(crate::html::Element {
                     star: None,
                     ..e.clone()
-                })],
+                }))],
                 &has_ref,
                 children,
                 false,
@@ -1480,7 +1483,7 @@ fn token_tree(
         let child = children.get(&x.name);
         let matched = child.is_some_and(|f| {
             (f.uri_dart == uri && f.class == class)
-                || f.metadata.as_deref().is_some_and(|m| provides(m))
+                || f.metadata.as_deref().is_some_and(&provides)
         }) || matched_directives(used, x).iter().any(|d| provides(d));
         if matched {
             let on_push = child.is_some_and(|f| f.on_push && f.uri_dart == uri && f.class == class);
@@ -1859,7 +1862,7 @@ fn template_as_container(nodes: &[Node]) -> Vec<Node> {
                 // `*dir` of another directive: the `<template>` that the
                 // microsyntax produces, with the element inside, through the
                 // path of the written `<template>`.
-                template_as_container(std::slice::from_ref(&Node::Element(star_template(e))))
+                template_as_container(std::slice::from_ref(&Node::Element(Box::new(star_template(e)))))
                     .remove(0)
             }
             Node::Element(e) => {
@@ -1971,7 +1974,7 @@ fn star_template(e: &crate::html::Element) -> crate::html::Element {
     let mut inside = e.clone();
     inside.star = None;
     inside.template_micro = None;
-    t.children = vec![Node::Element(inside)];
+    t.children = vec![Node::Element(Box::new(inside))];
     t
 }
 
@@ -3637,7 +3640,7 @@ struct ViewBody<'a> {
     /// The injectable providers of the elements above the node, the farthest
     /// first: (token, field, and the ancestor view that has it — class and how
     /// many `parentView` up to it — or nothing, if it is this one's).
-    above: Vec<(crate::directives::Token, String, Option<(String, u32)>)>,
+    above: Vec<AncestorProvider>,
     /// The fields of `above` that are lazy providers of the owner element
     /// (field, class of its view): a node below that requests them would
     /// transform them before the owner's `afterElement` (gap L1 of section
@@ -5150,7 +5153,7 @@ impl ViewBody<'_> {
                     .map(|t| (t.clone(), i.read.clone()))
             })
             .collect();
-        let creation = self.child_construction(e, child, n, &el, &vd, &view_field, &from_node)?;
+        let creation = self.child_construction(e, child, n, (&el, &vd, &view_field), &from_node)?;
         self.lines
             .push(format!("    this.{inst_field} = {creation};"));
         let mut above = self.stack.clone();
@@ -5579,9 +5582,7 @@ impl ViewBody<'_> {
         e: &crate::html::Element,
         child: &Child,
         n: u32,
-        el: &str,
-        vd: &str,
-        view_field: &str,
+        (el, vd, view_field): (&str, &str, &str),
         from_node: &[(crate::directives::Token, String)],
     ) -> Result<String, Refusal> {
         let refuse = |f: &str| refusal(Reason::BindingOnChild, f);
@@ -6670,7 +6671,7 @@ impl ViewBody<'_> {
         without_star.star = None;
         self.push_embedded(
             e,
-            vec![Node::Element(without_star)],
+            vec![Node::Element(Box::new(without_star))],
             n,
             index,
             factory_name,
@@ -7057,7 +7058,7 @@ impl ViewBody<'_> {
         for q in &mut self.dynamic_queries {
             let mut l = Vec::new();
             where_is(
-                std::slice::from_ref(&Node::Element(e.clone())),
+                std::slice::from_ref(&Node::Element(Box::new(e.clone()))),
                 &q.key,
                 self.children,
                 false,
@@ -7072,7 +7073,7 @@ impl ViewBody<'_> {
         for (r, field, levels) in &self.queries_in_transit {
             let mut l = Vec::new();
             where_is(
-                std::slice::from_ref(&Node::Element(e.clone())),
+                std::slice::from_ref(&Node::Element(Box::new(e.clone()))),
                 r,
                 self.children,
                 false,
@@ -9631,7 +9632,7 @@ struct EmbeddedSpec {
     /// The queries with a result further down ([`ViewBody::queries_in_transit`]).
     queries_in_transit: Vec<(String, String, u32)>,
     /// The providers above the anchor, seen from the new view.
-    above: Vec<(crate::directives::Token, String, Option<(String, u32)>)>,
+    above: Vec<AncestorProvider>,
     /// The fields of `above` that are lazy providers of the owning element
     /// (field, class of its view): a node below that asks for them would
     /// transform them before the owner's `afterElement` (gap L1 of section 05).
@@ -9964,8 +9965,7 @@ fn embedded_body(
         ctx.used,
         &ctx.asset,
         &ctx.pipes.field_imports(spec.index),
-        &promoted_nodes(&spec.nodes, &promoted),
-        &ctx.directive_types,
+        (&promoted_nodes(&spec.nodes, &promoted), &ctx.directive_types),
     ) {
         inside.record_refusal(r)?;
     }
@@ -10126,7 +10126,7 @@ fn embedded_body(
         .join("\n");
     // Same order as the top-level view: text bindings, child views and anchors,
     // previous values, elements (the query results before the bound ones).
-    let mut all = initialized_fields(&inside);
+    let mut all = initialized_fields(inside);
     all.extend(inside.fields.clone());
     all.extend(inside.child_fields.clone());
     all.extend(detection_fields(
@@ -10490,8 +10490,7 @@ fn allocate_field_imports(
     used: &[UsedDirective],
     asset: &str,
     pipes: &[String],
-    refs: &std::collections::HashSet<String>,
-    types: &[ResolvedDirectiveType],
+    (refs, types): (&std::collections::HashSet<String>, &[ResolvedDirectiveType]),
 ) -> Result<(), Refusal> {
     let without_path = || refusal(Reason::ComponentInTemplate, "child without an import path");
     // The `directiveTypes:` arguments come out in the field type, right after
@@ -10852,9 +10851,9 @@ fn instantiate_raw(text: &str, scope: &Path, r: &dyn Resolution) -> Option<Strin
             }
             output.push_str(&name);
             let followed_by_args = chars[i..].iter().find(|c| !c.is_whitespace()) == Some(&'<');
-            if !followed_by_args && !matches!(name.as_str(), "dynamic" | "void" | "Function") {
-                if let Some(bounds) = r.type_bounds(scope, &name) {
-                    if !bounds.is_empty() {
+            if !followed_by_args && !matches!(name.as_str(), "dynamic" | "void" | "Function")
+                && let Some(bounds) = r.type_bounds(scope, &name)
+                    && !bounds.is_empty() {
                         if bounds.iter().any(|&l| l) {
                             return None;
                         }
@@ -10862,8 +10861,6 @@ fn instantiate_raw(text: &str, scope: &Path, r: &dyn Resolution) -> Option<Strin
                         output.push_str(&vec!["dynamic"; bounds.len()].join(", "));
                         output.push('>');
                     }
-                }
-            }
             continue;
         }
         output.push(c);
@@ -11757,7 +11754,6 @@ fn component_bindings(
     Ok(output)
 }
 
-#[allow(clippy::too_many_arguments)]
 /// The emission of a component. The `text_binding.dart` import is allocated
 /// before the body, at the position of the class's first `TextBinding` field;
 /// when no interpolation of the root view is mutable (all in `build()`,
@@ -12049,8 +12045,7 @@ fn generate_component_with(
         used,
         &local.asset(),
         &table.field_imports(0),
-        &promoted_nodes(nodes, &promoted),
-        &directive_types,
+        (&promoted_nodes(nodes, &promoted), &directive_types),
     ) {
         record_refusal(collected, r)?;
     }
@@ -12199,7 +12194,8 @@ fn generate_component_with(
     // The "dirty" fields open the class, in the order the official compiler
     // allocates them ([`first_dynamic_result`]; on a tie, the order of
     // the queries).
-    let mut dirty: Vec<(Option<(usize, usize)>, usize, &str)> = body
+    type DirtyQueryOrder<'a> = (Option<(usize, usize)>, usize, &'a str);
+    let mut dirty: Vec<DirtyQueryOrder<'_>> = body
         .dynamic_queries
         .iter()
         .map(|d| {
@@ -13687,6 +13683,43 @@ fn missing_for_construction(
     None
 }
 
+/// Whether `path` (seen from `asset`) is the `.template.dart` of the file
+/// itself — that of a child declared next to it, whose view takes no prefix.
+/// The prefix of the `XNgCd` of a directive with `@HostBinding`: the import of
+/// its `.template.dart`, or nothing when the class is in this same file (case
+/// j45).
+fn ngcd_prefix(imp: &mut Imports, uri: &str, asset: &str) -> String {
+    let tpl = import_of(&uri.replace(".dart", ".template.dart"), asset);
+    if is_own_template(asset, &tpl) {
+        String::new()
+    } else {
+        imp.q(&tpl)
+    }
+}
+
+fn is_own_template(asset: &str, path: &str) -> bool {
+    let name = asset.rsplit('/').next().unwrap_or(asset);
+    name.strip_suffix(".dart")
+        .is_some_and(|base| path == format!("{base}.template.dart"))
+}
+
+/// How the file generated in `asset` imports library `uri`
+/// (`getImportModulePath`): relative in the same package and folder, `package:`
+/// outside; `dart:` as is.
+fn import_of(uri: &str, asset: &str) -> String {
+    asset_of_uri(uri, "", Path::new(""))
+        .and_then(|target| import_path(asset, &target))
+        .unwrap_or_else(|| uri.to_string())
+}
+
+/// Does some element of the content have the `#ref`?
+fn ref_in_content(nodes: &[Node], r: &str) -> bool {
+    nodes.iter().any(|n| {
+        let Node::Element(x) = n else { return false };
+        x.references.iter().any(|y| y.name == r) || ref_in_content(&x.children, r)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -13984,41 +14017,4 @@ mod tests {
         let expected = include_str!("../testdata/callback_with_injection.template.dart");
         assert_eq!(output, expected.replace("\r\n", "\n"));
     }
-}
-
-/// Whether `path` (seen from `asset`) is the `.template.dart` of the file
-/// itself — that of a child declared next to it, whose view takes no prefix.
-/// The prefix of the `XNgCd` of a directive with `@HostBinding`: the import of
-/// its `.template.dart`, or nothing when the class is in this same file (case
-/// j45).
-fn ngcd_prefix(imp: &mut Imports, uri: &str, asset: &str) -> String {
-    let tpl = import_of(&uri.replace(".dart", ".template.dart"), asset);
-    if is_own_template(asset, &tpl) {
-        String::new()
-    } else {
-        imp.q(&tpl)
-    }
-}
-
-fn is_own_template(asset: &str, path: &str) -> bool {
-    let name = asset.rsplit('/').next().unwrap_or(asset);
-    name.strip_suffix(".dart")
-        .is_some_and(|base| path == format!("{base}.template.dart"))
-}
-
-/// How the file generated in `asset` imports library `uri`
-/// (`getImportModulePath`): relative in the same package and folder, `package:`
-/// outside; `dart:` as is.
-fn import_of(uri: &str, asset: &str) -> String {
-    asset_of_uri(uri, "", Path::new(""))
-        .and_then(|target| import_path(asset, &target))
-        .unwrap_or_else(|| uri.to_string())
-}
-
-/// Does some element of the content have the `#ref`?
-fn ref_in_content(nodes: &[Node], r: &str) -> bool {
-    nodes.iter().any(|n| {
-        let Node::Element(x) = n else { return false };
-        x.references.iter().any(|y| y.name == r) || ref_in_content(&x.children, r)
-    })
 }
