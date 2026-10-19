@@ -2,6 +2,21 @@
 
 ## Atualização de 19/10/2026
 
+- World e emit-js passam no Clippy com todos os alvos, sem novas supressões.
+  Bounds genéricos reaproveitam o `Box`, a busca de extensões empresta o tipo
+  receptor, e estruturas complexas de parâmetros, atribuições e memos têm nomes.
+  Passaram 115 testes: 25 de emissão/world, dois do utilitário de corpus e 88
+  de produção, com os ignorados habilitados. Dos 208 programas de topo do corpus
+  JS, os 207 aceitos produziram texto idêntico ao da revisão anterior. A fixture
+  negativa restante foi recusada também pelo Dart oficial. O utilitário antigo
+  retornava sucesso mesmo nessa recusa; agora falha, remove saída antiga do
+  arquivo recusado e rejeita entradas ausentes, lista vazia e colisões de nomes.
+  Cinco invocações inválidas reais foram conferidas. Determinismo exige ambos
+  os arquivos do repositório e módulos não vazios. Isso não mede ganho de tempo
+  nem comprova execução diferencial dos 207 programas. Clippy global ainda falha
+  em analysis, dev, emit-js-production e emit-native; formatação geral e link
+  padrão Apple/LLVM 22 continuam pendentes. Documentação gerada com avisos.
+  Evidências: `bench/results/2026-10-19-js-quality/checks.json`.
 - Build passa no Clippy com todos os alvos, sem novas supressões. A busca de
   componentes do grafo move o cursor suspenso em vez de copiar a lista inteira
   de dependências ao visitar cada filho; contextos privados agrupam eventos de

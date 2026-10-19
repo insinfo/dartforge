@@ -1,0 +1,106 @@
+{
+  "baseline": "ec1c44c8",
+  "environment": {
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "dart": "Dart SDK version: 3.6.2 (stable) (Wed Jan 29 01:20:39 2025 -0800) on \"macos_arm64\"",
+    "node": "v24.21.0",
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64"
+  },
+  "source_sha256": {
+    "crates/emit_js/examples/emit_corpus.rs": "3e75a254d6d34920e62c857dcccb15e971c6a51824cc0d6dfa6bcebfe8645590",
+    "crates/emit_js/src/body.rs": "aa96834ca767d6343271946cc01c672e4da6a552810799e9cda461c433ac8a52",
+    "crates/emit_js/src/call.rs": "96a5ec7e2112846728722a43caf1af0bd90f2961609cb4fb35d9654e6a1be1ee",
+    "crates/emit_js/src/ctx.rs": "18df30f3292ecc6889883241ff553fe6d299751502ea0f73c0375a972feff526",
+    "crates/emit_js/src/expr.rs": "0c52aa809f0e1767977b1468983917552cfaf648dd1fbc94a77046d506b6c10e",
+    "crates/emit_js/src/module.rs": "fb3756c6bf10d5f6bdf8c95e682a20f66a312c674f52c3c84a364b6822c93a0f",
+    "crates/emit_js/src/own_sdk.rs": "1d8c969612d77890b075fd9d313a575a8c8a1a17b25332d6e35a2315033dcde8",
+    "crates/emit_js/src/pattern.rs": "54d7befeeb563606c9e2b46b664cc6833ebe366a3be528d42b5ad7c36ac0df18",
+    "crates/emit_js/src/ty.rs": "0556f4f67b4307e2687dc9cff89165e72e17df31ed3d740f31c8cf5226b7b535",
+    "crates/emit_js/src/typed_loops.rs": "3dcc98d7a39f041c03af895e334cdd550f1dbc78b7c7a3ac019c41714814d8f6",
+    "crates/emit_js/tests/determinism.rs": "810e4cbdbabdeffee85a0fa19a8e78ea71032152709bd1ef195cfcdd44ad6bfd",
+    "crates/world/src/constants.rs": "4fd83136876ca20c423bec94df77c649ae28437198df18ef90edabd3c8bcf408",
+    "crates/world/src/impact.rs": "076e60e202436a97397d43c19e0dfeedca18183f34d4d10b6eb1fbc97ccf7b86",
+    "crates/world/src/lib.rs": "c51784f8ac6fec151b49f2acadbd98889f6c7e87204cf7c3555b797afeae2051"
+  },
+  "runtime_ddc_sha256": "28dc6b642e1b3736dda5a7c46f5cbfab056f5b3560f31f802ef7ef94744218ea",
+  "directed_checks": {
+    "clippy": {
+      "command": "cargo clippy --locked -p dartforge-world -p dartforge-emit-js --all-targets -- -D warnings",
+      "exit_code": 0
+    },
+    "emitter_world_tests": {
+      "command": "cargo test --locked -p dartforge-world -p dartforge-emit-js -- --include-ignored",
+      "exit_code": 0,
+      "passed": 25
+    },
+    "example_regressions": {
+      "command": "cargo test --locked -p dartforge-emit-js --example emit_corpus -- --include-ignored",
+      "exit_code": 0,
+      "passed": 2
+    },
+    "production_tests": {
+      "command": "cargo test --locked -p dartforge-emit-js-production -- --include-ignored",
+      "exit_code": 0,
+      "passed": 88
+    },
+    "example_and_determinism_rustfmt": {
+      "command": "rustfmt --edition 2024 --check crates/emit_js/examples/emit_corpus.rs crates/emit_js/tests/determinism.rs",
+      "exit_code": 0
+    },
+    "negative_cli_invocations": {
+      "rejected": 5,
+      "stale_failed_output_removed": true,
+      "evidence": "negative-checks.json"
+    }
+  },
+  "corpus": {
+    "inputs": 208,
+    "byte_identical_accepted": 207,
+    "expected_rejections": 1,
+    "baseline_exit_code": 0,
+    "current_exit_code": 1,
+    "official_negative_dart_exit_code": 254,
+    "comparison": "emission-comparison.json",
+    "scope": "Text identity against prior emitter; execution against official Dart is covered by differential tests, not all 207 programs."
+  },
+  "binaries_sha256": {
+    "target/debug/examples/emit_corpus": "e1a2aecb2b12ed1fe97797377384bb77eedb83c5a740cb45f3d861449dc1edf4",
+    "target/js-quality-baseline-build/debug/examples/emit_corpus": "71c5817e3bd6497bf64a1901cb34829d5a19a9e7f41a34c1e9083e4a2a7a4dbc"
+  },
+  "workspace": {
+    "fmt_exit_code": 1,
+    "clippy_exit_code": 101,
+    "tests_exit_code": 101,
+    "doc_exit_code": 0,
+    "remaining_clippy": [
+      "analysis",
+      "dev",
+      "emit-js-production",
+      "emit-native"
+    ],
+    "test_failure": "Apple LLVM 21 linker cannot read LLVM 22 bitcode",
+    "documentation_has_existing_warnings": true
+  },
+  "artifacts_sha256": {
+    "baseline-build.txt": "50bc057a90c1417ee99ca2bfa50655e4877f1afb5918164174544e5d9968d898",
+    "corpus-after.txt": "63e917aabd01b8aeb8049b48ac675a110354a22d50880a62f277525efa1939bb",
+    "workspace-doc.txt": "375a35074e5415e50e4fb632fa2c16bc42e8e38cda44f72eabf1d7d3d91ae4c4",
+    "corpus-before.txt": "63e917aabd01b8aeb8049b48ac675a110354a22d50880a62f277525efa1939bb",
+    "README.md": "88804d7e9d26fb9a4b637a7b71991c026802f7a65d0ac8010a8effc03e51b1af",
+    "corpus-inputs.json": "77a253dab34b78ca13c43c7936c81828ab20a2e0daafd2a032024c1f761a0913",
+    "workspace-fmt-excerpt.txt": "b255b625f165a794183016e56ef15c1a7a35a47e3f5bc5df8f8293f9674fc324",
+    "suite.txt": "789f0fdda60f6c2b7f65a3b6fe5ea248ca64b526ba37acdbeeba3b0efdc42813",
+    "emission-comparison.json": "ee62656836f3e489ad6aaae2d3a53832661d6d02025b262bf0db8fc2b888e268",
+    "workspace-failures.json": "b96379b7b5f68b317ab3a2c3386aab98f0c8438ce9f69e83f2700402bdaf2656",
+    "workspace-tests-excerpt.txt": "429c2d292113f08f55b2162dd3939c9fbcd0ef24259b9dc5ea46e68eefb3732b",
+    "corpus-after-status.json": "23f975bdfa0c7f6c2bb5f91e8ccb4681beb47cc037d2cbfcee74bb9b90635553",
+    "example-tests.txt": "458727b973775ef9033b1d45e83a7903ab926ae2ddb0fc883cd6f27e320db66d",
+    "negative-oracle.txt": "83c506f071b51c8e0920919a28d330a041483386f022f65891fc20c906c7d4bf",
+    "clippy.txt": "a686e41248d591e11429b53f81b91d36e1668293e6b139ee7832c64c2c905c4d",
+    "corpus-before-status.json": "b20437ac2d532775103425b3bc6383058953c3b7d08a669113291964eb8911f9",
+    "negative-checks.json": "68ebeced4bf95dc69470bbf7167d053ca46a2ccf1f5b08d25c11f3d3c68a51ee",
+    "production-suite.txt": "033fc44db5bf707bfd5a72318d4f9107810fd5a74c17baf250e211c5c64a2fd5",
+    "workspace-clippy.txt": "099aa6d424d1758e9ed200da71402a780cfe741e7892f7b9984d7935c4526db2"
+  }
+}

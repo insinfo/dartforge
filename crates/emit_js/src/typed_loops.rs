@@ -53,7 +53,7 @@ impl FnEmitter<'_, '_> {
             ExprKind::Identifier(n) => self.lookup_local(n.sym).is_some_and(|l| self.ctx.is_num_like(&l.ty) && !l.ty.is_nullable() && l.lazy_init.is_none() && !l.late_check && !l.late_final),
             ExprKind::Parenthesized(v) => self.numeric_loop_value(*v, index, arrays, raw),
             ExprKind::Unary { op: UnaryOp::Neg | UnaryOp::BitNot, operand } => self.numeric_loop_value(*operand, index, arrays, raw),
-            ExprKind::Binary { op, left, right } if matches!(op, BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::TruncDiv | BinaryOp::Rem | BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor | BinaryOp::Shl | BinaryOp::Shr | BinaryOp::UShr) => {
+            ExprKind::Binary { op: BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::TruncDiv | BinaryOp::Rem | BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor | BinaryOp::Shl | BinaryOp::Shr | BinaryOp::UShr, left, right } => {
                 self.numeric_loop_value(*left, index, arrays, raw) && self.numeric_loop_value(*right, index, arrays, raw)
             }
             ExprKind::Index { target, index: i, null_aware: false } if self.loop_identifier(*i) == Some(index) => {
@@ -71,7 +71,7 @@ impl FnEmitter<'_, '_> {
         match &self.ast().stmt(s).kind {
             StmtKind::Block(stmts) => stmts.iter().all(|s| self.numeric_loop_body(*s, index, arrays, raw)),
             StmtKind::Expression(e) => match &self.expr(*e).kind {
-                ExprKind::Assign { op, target, value } if matches!(op, AssignOp::Assign | AssignOp::Compound(BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::TruncDiv | BinaryOp::Rem | BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor | BinaryOp::Shl | BinaryOp::Shr | BinaryOp::UShr)) => {
+                ExprKind::Assign { op: AssignOp::Assign | AssignOp::Compound(BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::TruncDiv | BinaryOp::Rem | BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor | BinaryOp::Shl | BinaryOp::Shr | BinaryOp::UShr), target, value } => {
                     let Some(s) = self.loop_identifier(*target) else { return false };
                     s != index && self.lookup_local(s).is_some_and(|l| self.ctx.is_num_like(&l.ty) && !l.ty.is_nullable() && l.lazy_init.is_none() && !l.late_check && !l.late_final)
                         && self.numeric_loop_value(*value, index, arrays, raw)

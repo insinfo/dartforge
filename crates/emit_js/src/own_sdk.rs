@@ -23,6 +23,11 @@ use dartforge_elements::model::{ClassId, Element, FunctionElementId, FunctionKin
 use dartforge_frontend::ast::{self, ExprId, ExprKind, StringPart};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+type FieldVirtuality = (
+    HashMap<ClassId, HashSet<dartforge_intern::SymbolId>>,
+    HashSet<ClassId>,
+);
+
 /// A call that DDC resolves at compile time, without calling any function.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Intrinsic {
@@ -89,7 +94,7 @@ pub struct SdkMode {
     /// Member names declared by descendants of each class (through the chain of
     /// superclasses and mixins) and the classes used as mixins:
     /// [`non_virtual_field`], computed on the first query.
-    pub virtuality: std::cell::OnceCell<(HashMap<ClassId, HashSet<dartforge_intern::SymbolId>>, HashSet<ClassId>)>,
+    pub virtuality: std::cell::OnceCell<FieldVirtuality>,
     /// Simple class names that repeat in the program ([`needs_library_uri`]).
     pub repeated_names: std::cell::OnceCell<HashSet<dartforge_intern::SymbolId>>,
     /// Complete SDK source certificate for confined fresh-list appends.
@@ -1279,7 +1284,7 @@ pub fn bootstrap(ctx: &Ctx, dartx: &BTreeSet<String>, late_fields: bool) -> Stri
     // One loop instead of a `dartx.n = Symbol("dartx.n");` line per name
     // (65 in the smallest program). The names stay *strings* of the runtime,
     // which the property renaming keeps (`minify::IdentifierStrings`).
-    let names: Vec<String> = dartx.into_iter().map(|n| js::string_literal(n)).collect();
+    let names: Vec<String> = dartx.iter().map(|n| js::string_literal(n)).collect();
     if !names.is_empty() {
         out.push_str(&format!("for (const n of [{}]) dartx[n] = Symbol(\"dartx.\" + n);\n", names.join(", ")));
     }

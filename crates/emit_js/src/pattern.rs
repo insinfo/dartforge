@@ -103,8 +103,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             PatternKind::Cast { pattern, ty } => {
                 let t = self.resolve_type(*ty);
                 let cast = self.as_cast(&v, &t);
-                let c = self.pattern_cond(*pattern, &cast.code, &t, binds, irrefutable);
-                c
+                self.pattern_cond(*pattern, &cast.code, &t, binds, irrefutable)
             }
             PatternKind::Parenthesized(inner) => self.pattern_cond(*inner, value_js, vty, binds, irrefutable),
             PatternKind::List { type_args, elements } => {

@@ -115,15 +115,14 @@ pub(crate) fn of_function(m: &mut Engine<'_>, f: FunctionElementId) {
         }
         FunctionRef::None => {
             // The synthetic `values` of an enum lists every constant.
-            if func.static_ && func.kind == FunctionKind::Getter {
-                if let Some(k) = func.class.filter(|k| p.class(*k).kind == ClassKind::Enum && e.interner.resolve(func.name) == "values") {
+            if func.static_ && func.kind == FunctionKind::Getter
+                && let Some(k) = func.class.filter(|k| p.class(*k).kind == ClassKind::Enum && e.interner.resolve(func.name) == "values") {
                     for &vid in &p.class(k).enum_constants {
                         m.use_variable(vid);
                     }
                 }
-            }
-            if func.kind == FunctionKind::SyntheticConstructor {
-                if let Some(k) = func.class {
+            if func.kind == FunctionKind::SyntheticConstructor
+                && let Some(k) = func.class {
                     // A synthetic mixin application forwards to the
                     // superclass constructor of the same name; a regular
                     // class, to the unnamed one.
@@ -132,7 +131,6 @@ pub(crate) fn of_function(m: &mut Engine<'_>, f: FunctionElementId) {
                         m.use_constructor_from_initializer(sc);
                     }
                 }
-            }
         }
     }
 }
@@ -144,11 +142,10 @@ pub(crate) fn of_variable(m: &mut Engine<'_>, v: VariableId) {
         enum_constant(m, v);
         return;
     }
-    if let Some(vt) = e.outline.variables.get(v.0 as usize) {
-        if let Some(t) = vt.declared_type.or(vt.inferred) {
+    if let Some(vt) = e.outline.variables.get(v.0 as usize)
+        && let Some(t) = vt.declared_type.or(vt.inferred) {
             m.visit_type(t);
         }
-    }
     if let Some((unit, Some(init))) = m.variable_node(v) {
         let ctx = Context { unit, library: var.library, class: var.class, extension: var.extension, no_this: var.static_ || var.class.is_none() };
         expr(m, &ctx, init);
@@ -167,11 +164,10 @@ pub(crate) fn of_fields(m: &mut Engine<'_>, c: ClassId) {
         if var.static_ {
             continue;
         }
-        if let Some(vt) = e.outline.variables.get(vid.0 as usize) {
-            if let Some(t) = vt.declared_type.or(vt.inferred) {
+        if let Some(vt) = e.outline.variables.get(vid.0 as usize)
+            && let Some(t) = vt.declared_type.or(vt.inferred) {
                 m.visit_type(t);
             }
-        }
         if let Some((unit, Some(init))) = m.variable_node(vid) {
             let ctx = Context { unit, library: var.library, class: Some(c), extension: None, no_this: false };
             expr(m, &ctx, init);
@@ -350,13 +346,11 @@ fn class_and_constructor<'n>(m: &Engine<'n>, ctx: &Context, t: ast::TypeId, cons
     let e = m.e;
     let p = e.program;
     let ctor_name = constructor.map(|n| e.interner.resolve(n.sym)).unwrap_or("");
-    if let TypeKind::Named { name, .. } = &p.unit(ctx.unit).ast.ty(t).kind {
-        if name.len() == 2 {
-            if let Some(Element::Class(c)) = p.lookup(ctx.library, name[0].sym).and_then(|b| b.getter) {
+    if let TypeKind::Named { name, .. } = &p.unit(ctx.unit).ast.ty(t).kind
+        && name.len() == 2
+            && let Some(Element::Class(c)) = p.lookup(ctx.library, name[0].sym).and_then(|b| b.getter) {
                 return Some((c, e.interner.resolve(name[1].sym)));
             }
-        }
-    }
     class_of_ast_type(m, ctx, t).map(|c| (c, ctor_name))
 }
 
@@ -371,11 +365,10 @@ fn ast_type(m: &mut Engine<'_>, ctx: &Context, t: ast::TypeId) {
                 2 => p.lookup_prefixed(ctx.library, name[0].sym, name[1].sym),
                 _ => None,
             };
-            if let Some(el) = b.and_then(|b| b.getter) {
-                if matches!(el, Element::Class(_) | Element::Typedef(_)) {
+            if let Some(el) = b.and_then(|b| b.getter)
+                && matches!(el, Element::Class(_) | Element::Typedef(_)) {
                     m.use_element(el);
                 }
-            }
             for a in args.iter() {
                 ast_type(m, ctx, *a);
             }
@@ -1191,8 +1184,8 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                 // unrestricted selector, of both kinds.
                 if m.include_sdk && callee.is_some_and(|s| m.e.interner.resolve(s) == "JS") {
                     compared_class_refs(m, ctx, arguments);
-                    if let Some(a) = arguments.args.get(1) {
-                        if let ExprKind::String(lit) = &ast.expr(a.value).kind {
+                    if let Some(a) = arguments.args.get(1)
+                        && let ExprKind::String(lit) = &ast.expr(a.value).kind {
                             let mut names: Vec<String> = Vec::new();
                             for part in lit.parts.iter() {
                                 if let StringPart::Text(t) = part {
@@ -1217,7 +1210,6 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                                 m.new_template_selector(&n);
                             }
                         }
-                    }
                 }
             }
             // `x.isA<T>()` from `dart:js_interop` is lowered by the emitter to
@@ -1228,11 +1220,10 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                     ExprKind::TypeArguments { target: t, .. } => *t,
                     _ => *target,
                 };
-                if let ExprKind::Property { name, .. } = &target_ast.expr(real_target).kind {
-                    if m.e.interner.resolve(name.sym) == "isA" {
+                if let ExprKind::Property { name, .. } = &target_ast.expr(real_target).kind
+                    && m.e.interner.resolve(name.sym) == "isA" {
                         m.new_external_selector("instanceOfString");
                     }
-                }
             }
             if m.e.program.library(ctx.library).is_sdk {
                 let ast = &m.e.program.unit(ctx.unit).ast;
@@ -1326,12 +1317,8 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                 AssignOp::Assign => {
                     // `(x.w) = v`: the real target is inside the parentheses.
                     let mut lhs = *target;
-                    loop {
-                        if let ExprKind::Parenthesized(x) = &e.program.unit(ctx.unit).ast.expr(lhs).kind {
-                            lhs = *x;
-                        } else {
-                            break;
-                        }
+                    while let ExprKind::Parenthesized(x) = &e.program.unit(ctx.unit).ast.expr(lhs).kind {
+                        lhs = *x;
                     }
                     m.write_target = Some(lhs);
                     expr(m, ctx, *target);

@@ -1,0 +1,20 @@
+{
+  "clippy": {
+    "exit_code": 101,
+    "full_log_bytes": 188203,
+    "full_log_sha256": "5abded6bd7811630e26f915a7fb72f662faf8ff6c0da74cf3154772834ee9a32",
+    "log": "workspace-clippy.txt"
+  },
+  "fmt": {
+    "exit_code": 1,
+    "full_log_bytes": 15792314,
+    "full_log_sha256": "298ac4932a63fe81e58ed576fe321e961d4175aa44b201b17385822de6e9ec97",
+    "log": "workspace-fmt-excerpt.txt"
+  },
+  "tests": {
+    "exit_code": 101,
+    "full_log_bytes": 1571854,
+    "full_log_sha256": "2497b3824956e099b292ac642ea9a491fa01ce9956bd2289e53b6c73b0f9e5e9",
+    "log": "workspace-tests-excerpt.txt"
+  }
+}

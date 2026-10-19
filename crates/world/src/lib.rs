@@ -396,11 +396,10 @@ pub fn const_alias(p: &Program, v: VariableId, a: &ast::Ast, x: ast::ExprId) -> 
         Element::Function(f) => p.function(f).variable,
         _ => None,
     };
-    if let Some(c) = var.class {
-        if let Some(f) = p.class(c).static_members.get(&n.sym) {
+    if let Some(c) = var.class
+        && let Some(f) = p.class(c).static_members.get(&n.sym) {
             return p.function(*f).variable;
         }
-    }
     let lib = p.library(var.library);
     lib.declared.get(&n.sym).or_else(|| lib.scope.get(&n.sym)).and_then(|b| b.getter).and_then(as_variable)
 }
@@ -464,12 +463,11 @@ pub fn native_tags(e: &WorldInput<'_>) -> Vec<(ClassId, Vec<String>)> {
                 if arg.name.is_some_and(|n| e.interner.resolve(n.sym) != "name") {
                     continue;
                 }
-                if let ast::ExprKind::String(lit) = &unit.ast.expr(arg.value).kind {
-                    if let Some(v) = lit.constant_value() {
+                if let ast::ExprKind::String(lit) = &unit.ast.expr(arg.value).kind
+                    && let Some(v) = lit.constant_value() {
                         let tags = v.to_string_lossy().split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty() && !s.starts_with('!')).collect();
                         out.push((ClassId(i as u32), tags));
                     }
-                }
             }
         }
     }
@@ -856,15 +854,13 @@ impl<'a> Engine<'a> {
         let mut universal: HashSet<String> = HashSet::new();
         universal.insert("call".into());
         // The `Object` members come from the element model, not from a list.
-        if let Some(core) = p.core {
-            if let Some(sym) = e.interner.lookup("Object") {
-                if let Some(Element::Class(obj)) = p.library(core).declared.get(&sym).and_then(|b| b.getter) {
+        if let Some(core) = p.core
+            && let Some(sym) = e.interner.lookup("Object")
+                && let Some(Element::Class(obj)) = p.library(core).declared.get(&sym).and_then(|b| b.getter) {
                     for f in p.class(obj).instance_members.values() {
                         universal.insert(e.interner.resolve(p.function(*f).name).to_string());
                     }
                 }
-            }
-        }
         Engine {
             e,
             classes: vec![ClassLevel::Dead; p.classes.len()],
@@ -1210,13 +1206,11 @@ impl<'a> Engine<'a> {
         if func.kind == FunctionKind::Setter {
             return format!("{name}_=");
         }
-        if func.kind == FunctionKind::ImplicitAccessor {
-            if let Some(v) = func.variable {
-                if self.e.program.variable(v).setter == Some(f) {
+        if func.kind == FunctionKind::ImplicitAccessor
+            && let Some(v) = func.variable
+                && self.e.program.variable(v).setter == Some(f) {
                     return format!("{name}_=");
                 }
-            }
-        }
         name.to_string()
     }
 
@@ -1241,12 +1235,11 @@ impl<'a> Engine<'a> {
                     let n = self.instance_member_key(f);
                     self.new_selector_with_receiver(&n, receiver);
                 } else {
-                    if let Some(v) = func.variable {
-                        if func.kind == FunctionKind::ImplicitAccessor {
+                    if let Some(v) = func.variable
+                        && func.kind == FunctionKind::ImplicitAccessor {
                             self.use_variable(v);
                             return;
                         }
-                    }
                     if func.extension.is_some() {
                         let n = self.instance_member_key(f);
                         self.new_selector(&n);
@@ -1389,19 +1382,16 @@ impl<'a> Engine<'a> {
             if p.variable(vid).static_ {
                 continue;
             }
-            if let Some(vt) = self.e.outline.variables.get(vid.0 as usize) {
-                if let Some(t) = vt.declared_type.or(vt.inferred) {
+            if let Some(vt) = self.e.outline.variables.get(vid.0 as usize)
+                && let Some(t) = vt.declared_type.or(vt.inferred) {
                     self.visit_type(t);
                 }
-            }
         }
-        if let Some(rep) = class.representation {
-            if let Some(vt) = self.e.outline.variables.get(rep.0 as usize) {
-                if let Some(t) = vt.declared_type.or(vt.inferred) {
+        if let Some(rep) = class.representation
+            && let Some(vt) = self.e.outline.variables.get(rep.0 as usize)
+                && let Some(t) = vt.declared_type.or(vt.inferred) {
                     self.visit_type(t);
                 }
-            }
-        }
     }
 
     /// Classes cited by a type of the `TypeTable`.

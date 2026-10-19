@@ -1,0 +1,305 @@
+warning: Unreachable code (dead code). at bytes 932..938
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: Unreachable code (dead code). at bytes 434..442
+warning: unnecessary_null_comparison: The operand must be 'null', so the condition is always 'true'. at bytes 1350..1354
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 1423..1433
+warning: Unreachable code (dead code). at bytes 1584..1590
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1795..1807
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1843..1858
+warning: Unreachable code (dead code). at bytes 2014..2022
+warning: Unreachable code (dead code). at bytes 2074..2079
+warning: Unreachable code (dead code). at bytes 2098..2102
+(9 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2467..2486
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1614..1629
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1640..1653
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1696..1716
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1758..1783
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2138..2152
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2343..2356
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2489..2502
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2598..2618
+(8 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 4190..4241
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 673..689
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 711..731
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 3685..3708
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 4276..4287
+warning: unnecessary_null_comparison: The operand must be 'null', so the condition is always 'true'. at bytes 4366..4373
+(3 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 3514..3522
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 3551..3567
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 3732..3733
+(3 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 5738..5760
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 5771..5785
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_nan_comparison: A double can't equal 'double.nan', so the condition is always 'false'. at bytes 682..695
+warning: unnecessary_nan_comparison: A double can't equal 'double.nan', so the condition is always 'true'. at bytes 717..730
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 372..380
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 391..404
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: body_might_complete_normally_nullable: This function has a nullable return type of 'Base?', but ends without returning a value. at bytes 367..374
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 631..638
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 400..408
+warning: Unreachable code (dead code). at bytes 452..470
+warning: Unreachable code (dead code). at bytes 486..504
+(3 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: Unreachable code (dead code). at bytes 1020..1721
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: Unreachable code (dead code). at bytes 303..313
+warning: Unreachable code (dead code). at bytes 329..339
+warning: Unreachable code (dead code). at bytes 378..403
+(3 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 598..605
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: Unreachable code (dead code). at bytes 842..857
+warning: Evaluation of the constant expression threw an exception: {0}.: IntegerDivisionByZeroException at bytes 836..857
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_non_null_assertion: The '!' will have no effect because the receiver can't be null. at bytes 1417..1418
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: body_might_complete_normally_nullable: This function has a nullable return type of 'int?', but ends without returning a value. at bytes 107..113
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 366..376
+warning: unnecessary_non_null_assertion: The '!' will have no effect because the receiver can't be null. at bytes 392..393
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 534..538
+(4 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: Unreachable code (dead code). at bytes 535..548
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 205..213
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 247..255
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 296..304
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 378..379
+(4 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: Unreachable code (dead code). at bytes 444..458
+warning: Unreachable code (dead code). at bytes 472..486
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_non_null_assertion: The '!' will have no effect because the receiver can't be null. at bytes 955..956
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_non_null_assertion: The '!' will have no effect because the receiver can't be null. at bytes 1389..1390
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: Unreachable code (dead code). at bytes 718..735
+warning: Unreachable code (dead code). at bytes 752..760
+warning: Unreachable code (dead code). at bytes 789..790
+warning: Unreachable code (dead code). at bytes 804..805
+warning: Unreachable code (dead code). at bytes 831..832
+warning: Unreachable code (dead code). at bytes 839..840
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 877..878
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 975..983
+(8 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 741..748
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 996..1014
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 183..192
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_null_comparison: The operand must be 'null', so the condition is always 'true'. at bytes 1873..1882
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 1980..1987
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 910..925
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1233..1255
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1733..1741
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1853..1882
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2019..2042
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2053..2093
+(4 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1024..1041
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1155..1178
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: Unreachable code (dead code). at bytes 1567..1571
+warning: Unreachable code (dead code). at bytes 1607..1622
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1689..1702
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 707..714
+warning: Unreachable code (dead code). at bytes 717..725
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: Nome indefinido '{0}'.: 'naoExiste' at bytes 259..268
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+/Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/229_nome_indefinido_e_local_duplicado_erro.dart: failed: language error: /Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/229_nome_indefinido_e_local_duplicado_erro.dart:232: 'bytes' is already declared in this scope. at bytes 232..237
+language error: /Volumes/ssd_dock/MyRustProjects/dartforge/corpus/js/229_nome_indefinido_e_local_duplicado_erro.dart:259: Undefined name 'naoExiste'. at bytes 259..268
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1677..1704
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2315..2347
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: Unreachable code (dead code). at bytes 617..2214
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 822..835
+warning: unnecessary_null_comparison: The operand must be 'null', so the condition is always 'true'. at bytes 970..977
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 1045..1049
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 1193..1197
+warning: unnecessary_null_comparison: The operand must be 'null', so the condition is always 'false'. at bytes 1317..1324
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 1353..1363
+(6 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 978..997
+warning: invalid_null_aware_operator: The receiver can't be null, so the null-aware operator '?.' is unnecessary. at bytes 1711..1713
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 2012..2048
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 3091..3109
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2930..2940
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2951..2967
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2978..3008
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 3063..3079
+(4 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_null_comparison: The operand must be 'null', so the condition is always 'true'. at bytes 2298..2303
+warning: invalid_null_aware_operator: The receiver can't be null, so the null-aware operator '?.' is unnecessary. at bytes 2342..2344
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2290..2313
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_null_comparison: The operand must be 'null', so the condition is always 'true'. at bytes 2007..2014
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2248..2261
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2272..2283
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2180..2194
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2303..2319
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2330..2345
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2356..2369
+(4 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1911..1920
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1931..1944
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1955..1965
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2157..2170
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2181..2194
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2292..2309
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2547..2563
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2604..2623
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2745..2754
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2758..2771
+(10 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2109..2137
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2838..2859
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2211..2227
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2238..2257
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2298..2309
+(3 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 874..885
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2297..2315
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2326..2347
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2378..2396
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2407..2424
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2435..2472
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2528..2549
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2787..2802
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2813..2825
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2836..2860
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2871..2906
+(11 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2550..2566
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1727..1745
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1887..1899
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2787..2800
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2811..2829
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: invalid_null_aware_operator: The receiver can't be null, so the null-aware operator '...?' is unnecessary. at bytes 309..313
+warning: Unreachable code (dead code). at bytes 556..557
+warning: Unreachable code (dead code). at bytes 597..603
+warning: Unreachable code (dead code). at bytes 630..635
+warning: Unreachable code (dead code). at bytes 719..728
+warning: Unreachable code (dead code). at bytes 755..762
+warning: Unreachable code (dead code). at bytes 1488..1491
+warning: Unreachable code (dead code). at bytes 1796..1805
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2112..2127
+warning: Unreachable code (dead code). at bytes 2190..2194
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2205..2223
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2300..2314
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2371..2393
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2432..2450
+warning: A const variable must be initialized with a constant value. at bytes 3050..3060
+(15 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 237..254
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 265..285
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 296..313
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 355..376
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 387..408
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 945..965
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1127..1147
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1158..1178
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1504..1525
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1572..1601
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1748..1769
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1873..1894
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1963..1984
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2081..2102
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2418..2439
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2600..2617
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2898..2930
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2941..2973
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2984..3013
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 3322..3336
+(26 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2214..2232
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: Unreachable code (dead code). at bytes 2139..2148
+warning: Unreachable code (dead code). at bytes 2233..2254
+warning: Unreachable code (dead code). at bytes 2342..2345
+warning: unnecessary_non_null_assertion: The '!' will have no effect because the receiver can't be null. at bytes 3070..3071
+(4 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: The type cast is unnecessary because the value already has this type. at bytes 1790..1803
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2514..2535
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2546..2576
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2776..2790
+warning: dead_code_on_catch_subtype: Dead code: This on-catch block won't be executed because 'NaoAutorizado' is a subtype of 'AppException' and hence will have been caught already. at bytes 3646..3698
+(5 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 384..400
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 532..551
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2433..2452
+(3 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 5112..5136
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 5147..5171
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 5182..5209
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 5220..5250
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 5301..5334
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 5345..5377
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 5388..5431
+(7 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 990..1013
+warning: Unreachable code (dead code). at bytes 2693..2710
+warning: Unreachable code (dead code). at bytes 2852..2861
+warning: Unreachable code (dead code). at bytes 2928..2932
+warning: Unreachable code (dead code). at bytes 3047..3062
+warning: Unreachable code (dead code). at bytes 3453..3462
+(6 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2186..2206
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 3186..3196
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1672..1683
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: Unreachable code (dead code). at bytes 2398..2403
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_null_comparison: The operand must be 'null', so the condition is always 'true'. at bytes 1802..1809
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 1636..1637
+warning: dead_null_aware_expression: The left operand can't be null, so the right operand is never executed. at bytes 1753..1764
+warning: unnecessary_non_null_assertion: The '!' will have no effect because the receiver can't be null. at bytes 2045..2046
+warning: unnecessary_non_null_assertion: The '!' will have no effect because the receiver can't be null. at bytes 2070..2071
+warning: invalid_null_aware_operator: The receiver can't be null, so the null-aware operator '?[' is unnecessary. at bytes 2350..2352
+warning: invalid_null_aware_operator: The receiver can't be null, so the null-aware operator '?.' is unnecessary. at bytes 2370..2372
+warning: invalid_null_aware_operator: The receiver can't be null, so the null-aware operator '...?' is unnecessary. at bytes 2447..2451
+warning: invalid_null_aware_operator: The receiver can't be null, so the null-aware operator '...?' is unnecessary. at bytes 2564..2568
+warning: invalid_null_aware_operator: The receiver can't be null, so the null-aware operator '?..' is unnecessary. at bytes 2688..2691
+(9 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 1146..1153
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 1294..1301
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'false'. at bytes 1344..1351
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 1431..1438
+warning: Unreachable code (dead code). at bytes 1451..1457
+warning: unnecessary_non_null_assertion: The '!' will have no effect because the receiver can't be null. at bytes 2604..2605
+(6 type warning(s); DARTFORGE_WARNINGS=N shows more)
+warning: Unreachable code (dead code). at bytes 1790..1805
+warning: Unreachable code (dead code). at bytes 1853..1858
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2266..2277
+(3 type warning(s); DARTFORGE_WARNINGS=N shows more)
+1 program(s) did not compile

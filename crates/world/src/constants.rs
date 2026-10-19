@@ -159,11 +159,10 @@ impl<'a> Constants<'a> {
         let p = self.e.program;
         let func = p.function(f);
         let r = (|| {
-            if let Some(v) = func.variable {
-                if func.kind == FunctionKind::ImplicitAccessor {
+            if let Some(v) = func.variable
+                && func.kind == FunctionKind::ImplicitAccessor {
                     return self.variable(v, depth);
                 }
-            }
             if func.kind != FunctionKind::Getter || func.external || (func.class.is_some() && !func.static_) || func.extension.is_some() {
                 return None;
             }

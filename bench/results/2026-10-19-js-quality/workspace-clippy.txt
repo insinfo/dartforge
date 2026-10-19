@@ -1,0 +1,3982 @@
+    Checking dartforge-analysis v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/analysis)
+    Checking dartforge-world v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/world)
+    Checking dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+    Checking dartforge-build v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/build)
+error: redundant field names in struct initialization
+   --> crates/analysis/src/lints/rules30.rs:142:60
+    |
+142 |             findings.push(Span { start: x.name.span.start, end: end });
+    |                                                            ^^^^^^^^ help: replace it with: `end`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+    = note: `-D clippy::redundant-field-names` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::redundant_field_names)]`
+
+    Checking dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/async_sm.rs:518:17
+    |
+518 |                 fields: fields,
+    |                 ^^^^^^^^^^^^^^ help: replace it with: `fields`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+    = note: `-D clippy::redundant-field-names` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::redundant_field_names)]`
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/async_sm.rs:650:21
+    |
+650 |                     fields: fields,
+    |                     ^^^^^^^^^^^^^^ help: replace it with: `fields`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/closures.rs:513:47
+    |
+513 |             self.emit(Instruction::AllocEnv { values: values }, Type::Ref)
+    |                                               ^^^^^^^^^^^^^^ help: replace it with: `values`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/closures.rs:757:21
+    |
+757 |                     index: index,
+    |                     ^^^^^^^^^^^^ help: replace it with: `index`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/closures.rs:975:66
+    |
+975 |         self.emit(Instruction::LoadIndexed { base: args.clone(), index: index }, Type::I64)
+    |                                                                  ^^^^^^^^^^^^ help: replace it with: `index`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/statements.rs:794:21
+    |
+794 |                     cases: cases,
+    |                     ^^^^^^^^^^^^ help: replace it with: `cases`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/enums.rs:327:53
+    |
+327 |             let l = b.emit(Instruction::AllocList { elements: elements }, Type::Ref);
+    |                                                     ^^^^^^^^^^^^^^^^^^ help: replace it with: `elements`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/fn_builder.rs:691:68
+    |
+691 |                 self.emit_call_with_check(Instruction::Unbox { op, to: to }, to)
+    |                                                                    ^^^^^^ help: replace it with: `to`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/fn_builder.rs:716:21
+    |
+716 |                     to: to,
+    |                     ^^^^^^ help: replace it with: `to`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/literals.rs:438:43
+    |
+438 |                 Instruction::CallStatic { symbol: symbol, args: vec![target.clone()], ret_ty: Type::Ref },
+    |                                           ^^^^^^^^^^^^^^ help: replace it with: `symbol`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/locals.rs:204:135
+    |
+204 | ...dartforge_diagnostics::Span { start: offset, end: end });
+    |                                                 ^^^^^^^^ help: replace it with: `end`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/locals.rs:344:75
+    |
+344 |             let state = self.emit(Instruction::EnvGet { env: env.clone(), index: index }, Type::Ref);
+    |                                                                           ^^^^^^^^^^^^ help: replace it with: `index`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/locals.rs:610:58
+    |
+610 |         let new_one = self.emit(Instruction::AllocCell { value: value }, Type::Ref);
+    |                                                          ^^^^^^^^^^^^ help: replace it with: `value`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/records.rs:192:13
+    |
+192 |             cases: cases,
+    |             ^^^^^^^^^^^^ help: replace it with: `cases`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/lower/records.rs:333:13
+    |
+333 |             cases: cases,
+    |             ^^^^^^^^^^^^ help: replace it with: `cases`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+    --> crates/emit_native/src/lower/sdk_source.rs:1642:96
+     |
+1642 |                     b.armed_tuple = Some(b.emit(Instruction::LoadIndexed { base: args.clone(), index: index }, Type::I64));
+     |                                                                                                ^^^^^^^^^^^^ help: replace it with: `index`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/optimize/arc/analysis/hir.rs:560:21
+    |
+560 |                     index: index,
+    |                     ^^^^^^^^^^^^ help: replace it with: `index`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/optimize/arc/analysis/hir.rs:576:21
+    |
+576 |                     index: index,
+    |                     ^^^^^^^^^^^^ help: replace it with: `index`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/optimize/arc/contracts.rs:103:68
+    |
+103 |             persistent_retention: true, invalidates_borrows: true, may_fail: may_fail, calls_dart: calls_dart }
+    |                                                                    ^^^^^^^^^^^^^^^^^^ help: replace it with: `may_fail`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/optimize/arc/contracts.rs:103:88
+    |
+103 |             persistent_retention: true, invalidates_borrows: true, may_fail: may_fail, calls_dart: calls_dart }
+    |                                                                                        ^^^^^^^^^^^^^^^^^^^^^^ help: replace it with: `calls_dart`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/optimize/arc/phis.rs:347:46
+    |
+347 |         f.blocks.push(BasicBlock { id: edge, instructions: instructions, terminator: Terminator::Branch(block) });
+    |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace it with: `instructions`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/optimize/arc/exits.rs:182:44
+    |
+182 |             f.blocks.push(BasicBlock { id, instructions: instructions, terminator: terminator });
+    |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace it with: `instructions`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/optimize/arc/exits.rs:182:72
+    |
+182 |             f.blocks.push(BasicBlock { id, instructions: instructions, terminator: terminator });
+    |                                                                        ^^^^^^^^^^^^^^^^^^^^^^ help: replace it with: `terminator`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/optimize/inline.rs:300:39
+    |
+300 |         new_set.push(BasicBlock { id, instructions: instructions, terminator: term });
+    |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace it with: `instructions`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/optimize/inline.rs:358:68
+    |
+358 |     let cont = BasicBlock { id: continuation, instructions: start, terminator: terminator };
+    |                                                                    ^^^^^^^^^^^^^^^^^^^^^^ help: replace it with: `terminator`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/optimize/tables.rs:390:74
+    |
+390 |                 f.blocks.push(BasicBlock { id: rest, instructions: tail, terminator: terminator });
+    |                                                                          ^^^^^^^^^^^^^^^^^^^^^^ help: replace it with: `terminator`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+    --> crates/emit_native/src/lower/async_sm.rs:1088:55
+     |
+1088 |             blocks: vec![BasicBlock { id: BlockId(0), instructions: instructions,
+     |                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace it with: `instructions`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/optimize/arc/natives.rs:649:80
+    |
+649 |                 blocks: vec![BasicBlock { id: BlockId(0), instructions: insts, terminator: terminator },
+    |                                                                                ^^^^^^^^^^^^^^^^^^^^^^ help: replace it with: `terminator`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/optimize/arc/derived_set.rs:277:55
+    |
+277 |             blocks: vec![BasicBlock { id: BlockId(0), instructions: instructions, terminator: Terminator::Return(None) }],
+    |                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace it with: `instructions`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+    --> crates/emit_native/src/optimize/arc/functions.rs:1208:21
+     |
+1208 |                     instructions: instructions,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace it with: `instructions`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+   --> crates/emit_native/src/optimize/arc/vectors.rs:243:84
+    |
+243 |                     (ValueId(5), Instruction::LoadIndexed { base: val(tuple_base), index: index }, Type::I64),
+    |                                                                                    ^^^^^^^^^^^^ help: replace it with: `index`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+    --> crates/emit_native/src/pruning.rs:1901:55
+     |
+1901 |             blocks: vec![BasicBlock { id: BlockId(0), instructions: instructions, terminator: Terminator::Return(None) }],
+     |                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace it with: `instructions`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+error: redundant field names in struct initialization
+    --> crates/emit_native/src/sdk_module.rs:1353:168
+     |
+1353 | ...s()), packages: None, timings: true, optimize: optimize, language_version: None, experiments: Vec::new(), debug: false, generat...
+     |                                         ^^^^^^^^^^^^^^^^^^ help: replace it with: `optimize`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_field_names
+
+    Checking dartforge-types v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/types)
+    Checking dartforge-dev v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/dev)
+    Checking dartforge-emit-js-production v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js_production)
+error: this `if` statement can be collapsed
+   --> crates/dev/src/hashes.rs:275:13
+    |
+275 | /             if list.const_ {
+276 | |                 if let Some(e) = v.initializer {
+277 | |                     let s = self.ast.expr(e).span;
+278 | |                     let t = self.slice(s.start, s.end).to_string();
+...   |
+282 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+275 ~             if list.const_
+276 ~                 && let Some(e) = v.initializer {
+277 |                     let s = self.ast.expr(e).span;
+...
+280 |                     self.f.sep();
+281 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/dev/src/server.rs:272:5
+    |
+272 | /     if !file.is_file() {
+273 | |         if let Some(w) = web {
+274 | |             let alternative = w.join(rel);
+275 | |             if alternative.is_file() {
+...   |
+279 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+272 ~     if !file.is_file()
+273 ~         && let Some(w) = web {
+274 |             let alternative = w.join(rel);
+...
+277 |             }
+278 ~         }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/dev/src/server.rs:283:9
+    |
+283 | /         if accepts_html && no_extension {
+284 | |             if let Some(html) = index_html(output, web) {
+285 | |                 let _ = respond(&mut stream, 200, "text/html; charset=utf-8", html.as_bytes());
+286 | |                 return;
+287 | |             }
+288 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+283 ~         if accepts_html && no_extension
+284 ~             && let Some(html) = index_html(output, web) {
+285 |                 let _ = respond(&mut stream, 200, "text/html; charset=utf-8", html.as_bytes());
+286 |                 return;
+287 ~             }
+    |
+
+error: using `chunks_exact` with a constant chunk size
+  --> crates/dev/src/ws.rs:76:20
+   |
+76 |     for block in m.chunks_exact(64) {
+   |                    ^^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<64>().0`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+   = note: `-D clippy::chunks-exact-to-as-chunks` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::chunks_exact_to_as_chunks)]`
+
+error: using `chunks_exact` with a constant chunk size
+  --> crates/dev/src/ws.rs:78:29
+   |
+78 |         for (i, p) in block.chunks_exact(4).enumerate() {
+   |                             ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<4>().0.iter()`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+
+error: this `if` statement can be collapsed
+   --> crates/dev/src/lib.rs:508:13
+    |
+508 | /             if !dirty {
+509 | |                 if let Some(&old) = self.hashes.get(&l.uri) {
+510 | |                     ids.insert(l.uri.clone(), lib);
+511 | |                     new_hashes.insert(l.uri.clone(), old);
+...   |
+514 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+508 ~             if !dirty
+509 ~                 && let Some(&old) = self.hashes.get(&l.uri) {
+510 |                     ids.insert(l.uri.clone(), lib);
+511 |                     new_hashes.insert(l.uri.clone(), old);
+512 |                     continue;
+513 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/dev/src/lib.rs:578:17
+    |
+578 | /                 if let Some(&id) = ids.get(uri) {
+579 | |                     if !libs.contains(&id) {
+580 | |                         libs.push(id);
+581 | |                     }
+582 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+578 ~                 if let Some(&id) = ids.get(uri)
+579 ~                     && !libs.contains(&id) {
+580 |                         libs.push(id);
+581 ~                     }
+    |
+
+error: could not compile `dartforge-dev` (lib) due to 7 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: called `.nth(0)` on a `std::iter::Iterator`, when `.next()` is equivalent
+   --> crates/emit_js_production/src/bundle.rs:173:16
+    |
+173 |     let path = line.rsplit("from './").nth(0)?.trim_end_matches("';");
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try calling `.next()` instead of `.nth(0)`: `line.rsplit("from './").next()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#iter_nth_zero
+    = note: `-D clippy::iter-nth-zero` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::iter_nth_zero)]`
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/inline.rs:401:9
+    |
+401 | /         if self.depth <= 2 {
+402 | |             if let Some(b) = &it.body {
+403 | |                 for s in b.statements.iter() {
+404 | |                     self.top_statements.insert(s.span().start);
+...   |
+407 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+401 ~         if self.depth <= 2
+402 ~             && let Some(b) = &it.body {
+403 |                 for s in b.statements.iter() {
+404 |                     self.top_statements.insert(s.span().start);
+405 |                 }
+406 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/inline.rs:516:9
+    |
+516 | /         if it.span.start >= self.covered {
+517 | |             if let Some(new) = self.inline(it) {
+518 | |                 self.edits.push((it.span.start, it.span.end, new));
+519 | |                 self.covered = it.span.end;
+...   |
+522 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+516 ~         if it.span.start >= self.covered
+517 ~             && let Some(new) = self.inline(it) {
+518 |                 self.edits.push((it.span.start, it.span.end, new));
+519 |                 self.covered = it.span.end;
+520 |                 return;
+521 ~             }
+    |
+
+error: deref on an immutable reference
+   --> crates/emit_js_production/src/minify.rs:644:35
+    |
+644 |                         l.value = (&*self.allocator.alloc_str(new)).into();
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: if you would like to reborrow, try removing `&*`: `self.allocator.alloc_str(new)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#borrow_deref_ref
+    = note: `-D clippy::borrow-deref-ref` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::borrow_deref_ref)]`
+
+error: this `if` statement can be collapsed
+  --> crates/emit_js_production/src/named_args.rs:54:5
+   |
+54 | /     if let (Some(core), Some(fsym), Some(asym)) = (p.core, i.lookup("Function"), i.lookup("apply")) {
+55 | |         if let Some(Element::Class(fc)) = p.library(core).declared.get(&fsym).and_then(|b| b.getter) {
+56 | |             if p.class(fc).static_members.get(&asym).is_some_and(|f| world.is_live_function(*f)) {
+...  |
+62 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+   |
+54 ~     if let (Some(core), Some(fsym), Some(asym)) = (p.core, i.lookup("Function"), i.lookup("apply"))
+55 ~         && let Some(Element::Class(fc)) = p.library(core).declared.get(&fsym).and_then(|b| b.getter) {
+56 |             if p.class(fc).static_members.get(&asym).is_some_and(|f| world.is_live_function(*f)) {
+...
+60 |             }
+61 ~         }
+   |
+
+error: this `if` statement can be collapsed
+  --> crates/emit_js_production/src/named_args.rs:55:9
+   |
+55 | /         if let Some(Element::Class(fc)) = p.library(core).declared.get(&fsym).and_then(|b| b.getter) {
+56 | |             if p.class(fc).static_members.get(&asym).is_some_and(|f| world.is_live_function(*f)) {
+...  |
+61 | |         }
+   | |_________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+   |
+55 ~         if let Some(Element::Class(fc)) = p.library(core).declared.get(&fsym).and_then(|b| b.getter)
+56 ~             && p.class(fc).static_members.get(&asym).is_some_and(|f| world.is_live_function(*f)) {
+57 |                 // `Function.apply` translates the names at run time
+58 |                 // (`dart.nomeadoJS`, emitted with the table).
+59 |                 table = true;
+60 ~             }
+   |
+
+error: this `if` statement can be collapsed
+  --> crates/emit_js_production/src/own_sdk.rs:29:5
+   |
+29 | /     if let (Some(lib), Some(sym)) = (a.program.entry, a.interner.lookup("main")) {
+30 | |         if let Some(Element::Function(f)) = a.program.library(lib).declared.get(&sym).and_then(|b| b.getter) {
+31 | |             r.functions.push(f);
+32 | |         }
+33 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+   |
+29 ~     if let (Some(lib), Some(sym)) = (a.program.entry, a.interner.lookup("main"))
+30 ~         && let Some(Element::Function(f)) = a.program.library(lib).declared.get(&sym).and_then(|b| b.getter) {
+31 |             r.functions.push(f);
+32 ~         }
+   |
+
+error: this `if` statement can be collapsed
+  --> crates/emit_js_production/src/own_sdk.rs:34:5
+   |
+34 | /     if let (Some(core), Some(sym)) = (a.program.core, a.interner.lookup("Object")) {
+35 | |         if let Some(Element::Class(c)) = a.program.library(core).declared.get(&sym).and_then(|b| b.getter) {
+36 | |             r.instantiated_classes.push(c);
+37 | |         }
+38 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+   |
+34 ~     if let (Some(core), Some(sym)) = (a.program.core, a.interner.lookup("Object"))
+35 ~         && let Some(Element::Class(c)) = a.program.library(core).declared.get(&sym).and_then(|b| b.getter) {
+36 |             r.instantiated_classes.push(c);
+37 ~         }
+   |
+
+error: this `let...else` may be rewritten with the `?` operator
+   --> crates/emit_js_production/src/reach.rs:182:9
+    |
+182 |         let Some(i) = unit_queue.pop_front() else { return None };
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace it with: `let i = unit_queue.pop_front()?;`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#question_mark
+    = note: `-D clippy::question-mark` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::question_mark)]`
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_js_production/src/rti_rules.rs:172:27
+    |
+172 | fn citations(js: &str) -> Option<(HashSet<String>, Found, Vec<(usize, usize)>)> {
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+    = note: `-D clippy::type-complexity` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::type_complexity)]`
+
+error: this `if` statement can be collapsed
+  --> crates/emit_js_production/src/scan.rs:71:9
+   |
+71 | /         if c == b'/' {
+72 | |             if let Some(j) = skip_comment(b, i) {
+73 | |                 i = j;
+74 | |                 continue;
+75 | |             }
+76 | |         }
+   | |_________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+   |
+71 ~         if c == b'/'
+72 ~             && let Some(j) = skip_comment(b, i) {
+73 |                 i = j;
+74 |                 continue;
+75 ~             }
+   |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/scan.rs:120:9
+    |
+120 | /         if c == b'/' {
+121 | |             if let Some(j) = skip_comment(b, i) {
+122 | |                 i = j;
+123 | |                 continue;
+124 | |             }
+125 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+120 ~         if c == b'/'
+121 ~             && let Some(j) = skip_comment(b, i) {
+122 |                 i = j;
+123 |                 continue;
+124 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/scan.rs:164:9
+    |
+164 | /         if c == b'/' {
+165 | |             if let Some(j) = skip_comment(b, i) {
+166 | |                 i = j;
+167 | |                 continue;
+168 | |             }
+169 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+164 ~         if c == b'/'
+165 ~             && let Some(j) = skip_comment(b, i) {
+166 |                 i = j;
+167 |                 continue;
+168 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/scan.rs:219:9
+    |
+219 | /         if c == b'/' {
+220 | |             if let Some(j) = skip_comment(b, i) {
+221 | |                 i = j;
+222 | |                 continue;
+223 | |             }
+224 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+219 ~         if c == b'/'
+220 ~             && let Some(j) = skip_comment(b, i) {
+221 |                 i = j;
+222 |                 continue;
+223 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/sdk.rs:434:9
+    |
+434 | /         if let Some(n) = member_name(txt) {
+435 | |             if is_selector_name(&n) {
+436 | |                 req.push(format!("sel:{n}"));
+437 | |             }
+438 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+434 ~         if let Some(n) = member_name(txt)
+435 ~             && is_selector_name(&n) {
+436 |                 req.push(format!("sel:{n}"));
+437 ~             }
+    |
+
+error: this function has too many arguments (8/7)
+   --> crates/emit_js_production/src/sdk.rs:448:1
+    |
+448 | / fn split_object(
+449 | |     src: &str,
+450 | |     start: usize,
+451 | |     end: usize,
+...   |
+456 | |     group: &mut u32,
+457 | | ) -> bool {
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+    = note: `-D clippy::too-many-arguments` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::too_many_arguments)]`
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/sdk.rs:574:9
+    |
+574 | /         if let Some(r) = tt.strip_prefix("dart.copyProperties(") {
+575 | |             if let Some((target, _)) = first_ident(r) {
+576 | |                 if is_lib(target) {
+577 | |                     if let Some(rel) = t.find('{') {
+...   |
+585 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+574 ~         if let Some(r) = tt.strip_prefix("dart.copyProperties(")
+575 ~             && let Some((target, _)) = first_ident(r) {
+576 |                 if is_lib(target) {
+...
+583 |                 }
+584 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/sdk.rs:575:13
+    |
+575 | /             if let Some((target, _)) = first_ident(r) {
+576 | |                 if is_lib(target) {
+577 | |                     if let Some(rel) = t.find('{') {
+578 | |                         let target = target.to_string();
+...   |
+584 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+575 ~             if let Some((target, _)) = first_ident(r)
+576 ~                 && is_lib(target) {
+577 |                     if let Some(rel) = t.find('{') {
+...
+582 |                     }
+583 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/sdk.rs:576:17
+    |
+576 | /                 if is_lib(target) {
+577 | |                     if let Some(rel) = t.find('{') {
+578 | |                         let target = target.to_string();
+579 | |                         if split_object(src, start, end, start + rel, &target, false, &mut slices, &mut group) {
+...   |
+583 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+576 ~                 if is_lib(target)
+577 ~                     && let Some(rel) = t.find('{') {
+578 |                         let target = target.to_string();
+...
+581 |                         }
+582 ~                     }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/sdk.rs:627:9
+    |
+627 | /         if (tt.starts_with("var S = {") || tt.starts_with("var S$")) && t.contains("Symbol(") {
+628 | |             if let Some(rel) = t.find('{') {
+629 | |                 let open = start + rel;
+630 | |                 if let Some(close) = scan::closing_brace(src, open) {
+...   |
+662 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+627 ~         if (tt.starts_with("var S = {") || tt.starts_with("var S$")) && t.contains("Symbol(")
+628 ~             && let Some(rel) = t.find('{') {
+629 |                 let open = start + rel;
+...
+660 |                 }
+661 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/sdk.rs:671:9
+    |
+671 | /         if tt.starts_with("dart.defineExtensionMethods(") || tt.starts_with("dart.defineExtensionAccessors(") {
+672 | |             if let Some(p) = tt.find('(') {
+673 | |                 if let Some(target) = qualified_target(&tt[p + 1..]) {
+674 | |                     if let Some(rel) = t.find('[') {
+...   |
+699 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+671 ~         if (tt.starts_with("dart.defineExtensionMethods(") || tt.starts_with("dart.defineExtensionAccessors(")) {
+672 ~             && let Some(p) = tt.find('(') {
+673 |                 if let Some(target) = qualified_target(&tt[p + 1..]) {
+...
+697 |                 }
+698 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/sdk.rs:672:13
+    |
+672 | /             if let Some(p) = tt.find('(') {
+673 | |                 if let Some(target) = qualified_target(&tt[p + 1..]) {
+674 | |                     if let Some(rel) = t.find('[') {
+675 | |                         let open = start + rel;
+...   |
+698 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+672 ~             if let Some(p) = tt.find('(')
+673 ~                 && let Some(target) = qualified_target(&tt[p + 1..]) {
+674 |                     if let Some(rel) = t.find('[') {
+...
+696 |                     continue;
+697 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/sdk.rs:702:9
+    |
+702 | /         if let Some(r) = tt.strip_prefix("dart.registerExtension(") {
+703 | |             if let Some((tag, rest)) = r.split_once(',') {
+704 | |                 if let Some(v) = qualified_target(rest) {
+705 | |                     let tag = tag.trim().trim_matches(['"', '\x27']);
+...   |
+713 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+702 ~         if let Some(r) = tt.strip_prefix("dart.registerExtension(")
+703 ~             && let Some((tag, rest)) = r.split_once(',') {
+704 |                 if let Some(v) = qualified_target(rest) {
+...
+711 |                 }
+712 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/sdk.rs:703:13
+    |
+703 | /             if let Some((tag, rest)) = r.split_once(',') {
+704 | |                 if let Some(v) = qualified_target(rest) {
+705 | |                     let tag = tag.trim().trim_matches(['"', '\x27']);
+706 | |                     if BUILTIN_TAGS.contains(&tag) {
+...   |
+712 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+703 ~             if let Some((tag, rest)) = r.split_once(',')
+704 ~                 && let Some(v) = qualified_target(rest) {
+705 |                     let tag = tag.trim().trim_matches(['"', '\x27']);
+...
+710 |                     continue;
+711 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/sdk.rs:727:9
+    |
+727 | /         if let Some((a, i)) = first_ident(tt) {
+728 | |             if is_lib(a) && tt.as_bytes().get(i) == Some(&b'[') {
+729 | |                 let b = tt.as_bytes();
+730 | |                 if matches!(b.get(i + 1), Some(b'\'') | Some(b'"')) {
+...   |
+743 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+727 ~         if let Some((a, i)) = first_ident(tt)
+728 ~             && is_lib(a) && tt.as_bytes().get(i) == Some(&b'[') {
+729 |                 let b = tt.as_bytes();
+...
+741 |                 }
+742 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/sdk.rs:750:13
+    |
+750 | /             if let Some((a, i)) = first_ident(r) {
+751 | |                 if matches!(r.as_bytes().get(i), Some(b'.') | Some(b'[')) {
+752 | |                     slices.push(simple(vec![a.to_string()]));
+753 | |                     continue;
+754 | |                 }
+755 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+750 ~             if let Some((a, i)) = first_ident(r)
+751 ~                 && matches!(r.as_bytes().get(i), Some(b'.') | Some(b'[')) {
+752 |                     slices.push(simple(vec![a.to_string()]));
+753 |                     continue;
+754 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/sdk.rs:758:9
+    |
+758 | /         if tt.starts_with("dart.") || tt.starts_with("dart_rti.") {
+759 | |             if let Some(p) = tt.find('(') {
+760 | |                 let arg = &tt[p + 1..];
+761 | |                 if let Some(v) = qualified_target(arg) {
+...   |
+772 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+758 ~         if (tt.starts_with("dart.") || tt.starts_with("dart_rti.")) {
+759 ~             && let Some(p) = tt.find('(') {
+760 |                 let arg = &tt[p + 1..];
+...
+770 |                 }
+771 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/sdk.rs:765:17
+    |
+765 | /                 if let Some((a, i)) = first_ident(arg) {
+766 | |                     if !is_lib(a) && matches!(arg.as_bytes().get(i), Some(b',') | Some(b')')) {
+767 | |                         slices.push(simple(vec![a.to_string()]));
+768 | |                         continue;
+769 | |                     }
+770 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+765 ~                 if let Some((a, i)) = first_ident(arg)
+766 ~                     && !is_lib(a) && matches!(arg.as_bytes().get(i), Some(b',') | Some(b')')) {
+767 |                         slices.push(simple(vec![a.to_string()]));
+768 |                         continue;
+769 ~                     }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/sdk.rs:775:13
+    |
+775 | /             if let Some(r) = tt.strip_prefix(pref) {
+776 | |                 if let Some((a, _)) = first_ident(r) {
+777 | |                     slices.push(simple(vec![a.to_string()]));
+778 | |                     break;
+779 | |                 }
+780 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+775 ~             if let Some(r) = tt.strip_prefix(pref)
+776 ~                 && let Some((a, _)) = first_ident(r) {
+777 |                     slices.push(simple(vec![a.to_string()]));
+778 |                     break;
+779 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/sdk.rs:790:13
+    |
+790 | /             if let Some((lib, _)) = g.split_once('.') {
+791 | |                 if ROOT_LIBS.contains(&lib) {
+792 | |                     roots.push(g.clone());
+793 | |                 }
+794 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+790 ~             if let Some((lib, _)) = g.split_once('.')
+791 ~                 && ROOT_LIBS.contains(&lib) {
+792 |                     roots.push(g.clone());
+793 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/shapes.rs:426:5
+    |
+426 | /     if let Some((g, n)) = by_callee.iter().max_by_key(|(g, n)| (**n, std::cmp::Reverse(**g))) {
+427 | |         if *n >= 4 {
+428 | |             let g = g.to_string();
+429 | |             helpers.push_str(&format!("var t$Q = function(o, t) {{ o.$ti = o.$ti || t || {g}(o); }};\n"));
+...   |
+436 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+426 ~     if let Some((g, n)) = by_callee.iter().max_by_key(|(g, n)| (**n, std::cmp::Reverse(**g)))
+427 ~         && *n >= 4 {
+428 |             let g = g.to_string();
+...
+434 |             }
+435 ~         }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/verify.rs:175:24
+    |
+175 |                   } else if b.get(f) == Some(&b'[') {
+    |  ________________________^
+176 | |                     if let Some((_, k)) = entry_key(&t2[f..]) {
+177 | |                         d.names.insert(format!("{ns}.{k}"));
+178 | |                     }
+179 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+175 ~                 } else if b.get(f) == Some(&b'[')
+176 ~                     && let Some((_, k)) = entry_key(&t2[f..]) {
+177 |                         d.names.insert(format!("{ns}.{k}"));
+178 ~                     }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/verify.rs:443:17
+    |
+443 | /                 if b.get(f + 1) == Some(&b']') {
+444 | |                     if let Some(n) = dartforge_emit_js::dart_name_of_private(&text[start..f]) {
+445 | |                         let e = access_after(b, f + 2);
+446 | |                         record(n, e, reads, writes);
+...   |
+449 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+443 ~                 if b.get(f + 1) == Some(&b']')
+444 ~                     && let Some(n) = dartforge_emit_js::dart_name_of_private(&text[start..f]) {
+445 |                         let e = access_after(b, f + 2);
+446 |                         record(n, e, reads, writes);
+447 |                         record(n, e, sym_reads, sym_writes);
+448 ~                     }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/verify.rs:646:9
+    |
+646 | /         if let Element::Class(c) = el {
+647 | |             if program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType {
+648 | |                 ok = true;
+649 | |                 continue;
+650 | |             }
+651 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+646 ~         if let Element::Class(c) = el
+647 ~             && program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType {
+648 |                 ok = true;
+649 |                 continue;
+650 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/verify.rs:667:21
+    |
+667 | /                     if let Some(s) = interner.lookup(cand) {
+668 | |                         if let Some(&x) = class.static_members.get(&s) {
+669 | |                             found = Some(x);
+670 | |                             break;
+671 | |                         }
+672 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+667 ~                     if let Some(s) = interner.lookup(cand)
+668 ~                         && let Some(&x) = class.static_members.get(&s) {
+669 |                             found = Some(x);
+670 |                             break;
+671 ~                         }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/verify.rs:676:25
+    |
+676 | /                         if let Some(s) = interner.lookup(cand) {
+677 | |                             if let Some(&x) = class.constructors.get(&s) {
+678 | |                                 found = Some(x);
+679 | |                                 break;
+680 | |                             }
+681 | |                         }
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+676 ~                         if let Some(s) = interner.lookup(cand)
+677 ~                             && let Some(&x) = class.constructors.get(&s) {
+678 |                                 found = Some(x);
+679 |                                 break;
+680 ~                             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_js_production/src/lib.rs:194:5
+    |
+194 | /     if let (Some(lib), Some(sym)) = (a.program.entry, a.interner.lookup("main")) {
+195 | |         if let Some(Element::Function(f)) = a.program.library(lib).declared.get(&sym).and_then(|b| b.getter) {
+196 | |             r.functions.push(f);
+197 | |         }
+198 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+194 ~     if let (Some(lib), Some(sym)) = (a.program.entry, a.interner.lookup("main"))
+195 ~         && let Some(Element::Function(f)) = a.program.library(lib).declared.get(&sym).and_then(|b| b.getter) {
+196 |             r.functions.push(f);
+197 ~         }
+    |
+
+error: could not compile `dartforge-emit-js-production` (lib) due to 37 previous errors
+error: this `if` statement can be collapsed
+   --> crates/analysis/src/a_context.rs:145:25
+    |
+145 | /                         if owner == Owner::ExtensionType && p.super_ {
+146 | |                             if let Some(n) = p.name {
+147 | |                                 // `super.x`: the word sits six bytes before the name.
+148 | |                                 let start = n.span.start.saturating_sub(6);
+...   |
+153 | |                         }
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+145 ~                         if owner == Owner::ExtensionType && p.super_
+146 ~                             && let Some(n) = p.name {
+147 |                                 // `super.x`: the word sits six bytes before the name.
+...
+151 |                                 }
+152 ~                             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/analysis/src/a_context.rs:447:21
+    |
+447 | /                     if !matches!(self.modifier, AsyncModifier::Async | AsyncModifier::AsyncStar) {
+448 | |                         if let Some(i) = fragment.rfind("await") {
+449 | |                             let start = collection_start + i;
+450 | |                             self.report(c::ASYNC_FOR_IN_WRONG_CONTEXT, Span { start, end: start + 5 }, &[]);
+451 | |                         }
+452 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+447 ~                     if !matches!(self.modifier, AsyncModifier::Async | AsyncModifier::AsyncStar)
+448 ~                         && let Some(i) = fragment.rfind("await") {
+449 |                             let start = collection_start + i;
+450 |                             self.report(c::ASYNC_FOR_IN_WRONG_CONTEXT, Span { start, end: start + 5 }, &[]);
+451 ~                         }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/analysis/src/a_context.rs:507:17
+    |
+507 | /                 if type_args.len() > 1 {
+508 | |                     if let Some(sp) = self.type_list(type_args) {
+509 | |                         let n = type_args.len().to_string();
+510 | |                         self.report(c::EXPECTED_ONE_LIST_TYPE_ARGUMENTS, sp, &[n.as_str()]);
+511 | |                     }
+512 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+507 ~                 if type_args.len() > 1
+508 ~                     && let Some(sp) = self.type_list(type_args) {
+509 |                         let n = type_args.len().to_string();
+510 |                         self.report(c::EXPECTED_ONE_LIST_TYPE_ARGUMENTS, sp, &[n.as_str()]);
+511 ~                     }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/analysis/src/a_context.rs:520:17
+    |
+520 | /                 if type_args.len() > 2 {
+521 | |                     if let Some(sp) = self.type_list(type_args) {
+522 | |                         let n = type_args.len().to_string();
+523 | |                         let has_entry = has_map_entry(elements);
+...   |
+528 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+520 ~                 if type_args.len() > 2
+521 ~                     && let Some(sp) = self.type_list(type_args) {
+522 |                         let n = type_args.len().to_string();
+...
+526 |                         self.report(code, sp, &[n.as_str()]);
+527 ~                     }
+    |
+
+error: this `if` can be collapsed into the outer `match`
+   --> crates/analysis/src/exit_detector.rs:434:29
+    |
+434 | / ...                   if self.exits(i)? {
+435 | | ...                       return Ok(true);
+436 | | ...                   }
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_match
+    = note: `-D clippy::collapsible-match` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_match)]`
+help: collapse nested if block
+    |
+433 ~                         "ForPartsWithExpression"
+434 ~                             if self.exits(i)? => {
+435 |                                 return Ok(true);
+436 ~                             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/analysis/src/c2_syntactic.rs:103:9
+    |
+103 | /         if let Some(uri) = uri {
+104 | |             if uri.parts.iter().any(|p| matches!(p, ast::StringPart::Interpolation(_))) {
+105 | |                 v.report(c::URI_WITH_INTERPOLATION, uri.span, &[]);
+106 | |             }
+107 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+103 ~         if let Some(uri) = uri
+104 ~             && uri.parts.iter().any(|p| matches!(p, ast::StringPart::Interpolation(_))) {
+105 |                 v.report(c::URI_WITH_INTERPOLATION, uri.span, &[]);
+106 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/analysis/src/c2_syntactic.rs:138:17
+    |
+138 | /                 if matches!(func.kind, FunctionKind::Getter | FunctionKind::Setter) {
+139 | |                     if let Some(sp) = func.name.and_then(not_function) {
+140 | |                         self.report(c::MAIN_IS_NOT_FUNCTION, sp, &[]);
+141 | |                     }
+142 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+138 ~                 if matches!(func.kind, FunctionKind::Getter | FunctionKind::Setter)
+139 ~                     && let Some(sp) = func.name.and_then(not_function) {
+140 |                         self.report(c::MAIN_IS_NOT_FUNCTION, sp, &[]);
+141 ~                     }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/analysis/src/c2_syntactic.rs:718:17
+    |
+718 | /                 if type_args.len() > 1 {
+719 | |                     if let Some(sp) = self.type_list(type_args) {
+720 | |                         let n = type_args.len().to_string();
+721 | |                         self.report(c::EXPECTED_ONE_LIST_PATTERN_TYPE_ARGUMENTS, sp, &[&n]);
+722 | |                     }
+723 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+718 ~                 if type_args.len() > 1
+719 ~                     && let Some(sp) = self.type_list(type_args) {
+720 |                         let n = type_args.len().to_string();
+721 |                         self.report(c::EXPECTED_ONE_LIST_PATTERN_TYPE_ARGUMENTS, sp, &[&n]);
+722 ~                     }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/analysis/src/c2_syntactic.rs:732:17
+    |
+732 | /                 if !type_args.is_empty() && type_args.len() != 2 {
+733 | |                     if let Some(sp) = self.type_list(type_args) {
+734 | |                         let n = type_args.len().to_string();
+735 | |                         self.report(c::EXPECTED_TWO_MAP_PATTERN_TYPE_ARGUMENTS, sp, &[&n]);
+736 | |                     }
+737 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+732 ~                 if !type_args.is_empty() && type_args.len() != 2
+733 ~                     && let Some(sp) = self.type_list(type_args) {
+734 |                         let n = type_args.len().to_string();
+735 |                         self.report(c::EXPECTED_TWO_MAP_PATTERN_TYPE_ARGUMENTS, sp, &[&n]);
+736 ~                     }
+    |
+
+error: this `match` expression can be replaced with `?`
+  --> crates/analysis/src/records.rs:37:13
+   |
+37 | /             match source[i + 2..].find("*/") {
+38 | |                 Some(k) => i = i + 2 + k + 2,
+39 | |                 None => return None,
+40 | |             }
+   | |_____________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#question_mark
+   = note: `-D clippy::question-mark` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::question_mark)]`
+help: try instead
+   |
+37 ~             {
+38 +                 let k = source[i + 2..].find("*/")?;
+39 +                 i = i + 2 + k + 2
+40 +             }
+   |
+
+error: this `if` statement can be collapsed
+   --> crates/analysis/src/duplicates.rs:112:9
+    |
+112 | /         if let Some(setters) = setters {
+113 | |             if e.kind == ElemKind::Setter {
+114 | |                 match setters.get(name).copied() {
+115 | |                     Some(previous) => {
+...   |
+124 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+112 ~         if let Some(setters) = setters
+113 ~             && e.kind == ElemKind::Setter {
+114 |                 match setters.get(name).copied() {
+...
+122 |                 }
+123 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/analysis/src/duplicates.rs:697:9
+    |
+697 | /         if let DeclKind::Enum(x) = &u.ast.decl(d).kind {
+698 | |             if ctx.name.as_deref() == Some("values") {
+699 | |                 rel.report(c::ENUM_WITH_NAME_VALUES, x.name.span, &[]);
+700 | |             }
+701 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+697 ~         if let DeclKind::Enum(x) = &u.ast.decl(d).kind
+698 ~             && ctx.name.as_deref() == Some("values") {
+699 |                 rel.report(c::ENUM_WITH_NAME_VALUES, x.name.span, &[]);
+700 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/analysis/src/duplicates.rs:724:17
+    |
+724 | /                 if let Some(n) = k.name {
+725 | |                     if !name.is_empty() {
+726 | |                         named.push((name.clone(), n.span));
+727 | |                     }
+728 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+724 ~                 if let Some(n) = k.name
+725 ~                     && !name.is_empty() {
+726 |                         named.push((name.clone(), n.span));
+727 ~                     }
+    |
+
+error: this `if` statement can be collapsed
+  --> crates/analysis/src/enums.rs:22:13
+   |
+22 | /             if let DeclKind::Enum(e) = &decl.kind {
+23 | |                 if decl.augment && !e.constants.is_empty() {
+24 | |                     augmented_with_constants.insert(e.name.sym);
+25 | |                 }
+26 | |             }
+   | |_____________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+   |
+22 ~             if let DeclKind::Enum(e) = &decl.kind
+23 ~                 && decl.augment && !e.constants.is_empty() {
+24 |                     augmented_with_constants.insert(e.name.sym);
+25 ~                 }
+   |
+
+error: this `if` statement can be collapsed
+  --> crates/analysis/src/enums.rs:34:13
+   |
+34 | /             if let DeclKind::Enum(e) = &decl.kind {
+35 | |                 if !decl.augment && e.constants.is_empty() && !augmented_with_constants.contains(&e.name.sym) {
+36 | |                     out.push((
+37 | |                         i,
+...  |
+45 | |             }
+   | |_____________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+   |
+34 ~             if let DeclKind::Enum(e) = &decl.kind
+35 ~                 && !decl.augment && e.constants.is_empty() && !augmented_with_constants.contains(&e.name.sym) {
+36 |                     out.push((
+...
+43 |                     ));
+44 ~                 }
+   |
+
+error: this `if` statement can be collapsed
+  --> crates/analysis/src/externals.rs:70:29
+   |
+70 | / ...                   if p.this_ {
+71 | | ...                       if let Some(name) = p.name {
+72 | | ...                           if external_fields.contains(&name.sym) {
+73 | | ...                               out.push(report(
+...  |
+85 | | ...                   }
+   | |_______________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+   |
+70 ~                             if p.this_
+71 ~                                 && let Some(name) = p.name {
+72 |                                     if external_fields.contains(&name.sym) {
+...
+83 |                                     }
+84 ~                                 }
+   |
+
+error: this function has too many arguments (8/7)
+  --> crates/analysis/src/initialization.rs:49:1
+   |
+49 | fn non_final_non_nullable_instance(v: &VariableList, ast: &Ast, names: &Interner, aliases: &HashSet<SymbolId>, out: &mut Vec<(usize, Diagnostic)>, unit: usize, enum_index: bool, non_nullable: &dyn Fn(usize, usize) -> Option<bool>) {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+   = note: `-D clippy::too-many-arguments` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::too_many_arguments)]`
+
+error: doc list item without indentation
+  --> crates/analysis/src/lints/rules6.rs:28:5
+   |
+28 | //! Written without compiling or running (2026-10-05).
+   |     ^
+   |
+   = help: if this is supposed to be its own paragraph, add a blank line
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+   = note: `-D clippy::doc-lazy-continuation` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::doc_lazy_continuation)]`
+help: indent this line
+   |
+28 | //!   Written without compiling or running (2026-10-05).
+   |     ++
+
+error: doc list item without indentation
+  --> crates/analysis/src/lints/rules8.rs:25:5
+   |
+25 | //! Written without compiling or running (2026-10-05).
+   |     ^
+   |
+   = help: if this is supposed to be its own paragraph, add a blank line
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+   |
+25 | //!   Written without compiling or running (2026-10-05).
+   |     ++
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/analysis/src/lints/rules8.rs:637:23
+    |
+637 |         let sections: [&dyn Fn(&&(Span, Kind, Option<String>)) -> bool; 3] = [&is_dart, &is_relative, &is_package];
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+    = note: `-D clippy::type-complexity` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::type_complexity)]`
+
+error: doc list item without indentation
+  --> crates/analysis/src/lints/rules10.rs:19:5
+   |
+19 | //! Written without compiling or running (2026-10-05).
+   |     ^
+   |
+   = help: if this is supposed to be its own paragraph, add a blank line
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+   |
+19 | //!   Written without compiling or running (2026-10-05).
+   |     ++
+
+error: doc list item without indentation
+  --> crates/analysis/src/lints/rules11.rs:27:5
+   |
+27 | //! Written without compiling or running (2026-10-05).
+   |     ^
+   |
+   = help: if this is supposed to be its own paragraph, add a blank line
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+   |
+27 | //!   Written without compiling or running (2026-10-05).
+   |     ++
+
+error: doc list item without indentation
+  --> crates/analysis/src/lints/rules12.rs:19:5
+   |
+19 | //! Written without compiling or running (2026-10-05).
+   |     ^
+   |
+   = help: if this is supposed to be its own paragraph, add a blank line
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+   |
+19 | //!   Written without compiling or running (2026-10-05).
+   |     ++
+
+error: parameter is only used in recursion
+   --> crates/analysis/src/lints/rules14.rs:982:5
+    |
+982 |     interner: &Interner,
+    |     ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_interner`
+    |
+note: parameter used here
+   --> crates/analysis/src/lints/rules14.rs:989:70
+    |
+989 |         ExprKind::Parenthesized(x) => constant_string_value(program, interner, u, a, *x),
+    |                                                                      ^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#only_used_in_recursion
+    = note: `-D clippy::only-used-in-recursion` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::only_used_in_recursion)]`
+
+error: this `let...else` may be rewritten with the `?` operator
+   --> crates/analysis/src/lints/rules15.rs:421:5
+    |
+421 |     let Some(parent_node) = parent_node else { return None };
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace it with: `let parent_node = parent_node?;`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#question_mark
+
+error: redundant pattern matching
+    --> crates/analysis/src/lints/rules16.rs:1029:17
+     |
+1029 | /                 match program.lookup_in_unit(s.unit, name.sym) {
+1030 | |                     // A top-level element (the requested one or the other
+1031 | |                     // accessor) is not the member, nor is it a class's.
+1032 | |                     None => true,
+1033 | |                     Some(_) => false,
+1034 | |                 }
+     | |_________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_pattern_matching
+     = note: `-D clippy::redundant-pattern-matching` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::redundant_pattern_matching)]`
+help: consider using `is_none()`
+     |
+1029 -                 match program.lookup_in_unit(s.unit, name.sym) {
+1030 -                     // A top-level element (the requested one or the other
+1031 -                     // accessor) is not the member, nor is it a class's.
+1032 -                     None => true,
+1033 -                     Some(_) => false,
+1034 -                 }
+1029 +                 program.lookup_in_unit(s.unit, name.sym).is_none()
+     |
+
+error: this `if` can be collapsed into the outer `match`
+   --> crates/analysis/src/lints/rules17.rs:832:17
+    |
+832 | / ...   if matches!(a.expr(*target).kind, ExprKind::Identifier(_)) && is_the_element(*target) && releases(interner.resolve(name.sym...
+833 | | ...       return true;
+834 | | ...   }
+    | |_______^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_match
+help: collapse nested if block
+    |
+831 ~             ExprKind::Property { target, name, .. }
+832 ~                 if matches!(a.expr(*target).kind, ExprKind::Identifier(_)) && is_the_element(*target) && releases(interner.resolve(name.sym)) => {
+833 |                     return true;
+834 ~                 }
+    |
+
+error: match expression looks like `matches!` macro
+   --> crates/analysis/src/lints/rules18.rs:371:28
+    |
+371 |               let reported = match (op, &a.expr(*right).kind) {
+    |  ____________________________^
+372 | |                 (BinaryOp::Eq, ExprKind::Bool(true)) => true,
+373 | |                 (BinaryOp::NotEq, ExprKind::Bool(false)) => true,
+374 | |                 _ => false,
+375 | |             };
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#match_like_matches_macro
+    = note: `-D clippy::match-like-matches-macro` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::match_like_matches_macro)]`
+help: use `matches!` directly
+    |
+371 -             let reported = match (op, &a.expr(*right).kind) {
+372 -                 (BinaryOp::Eq, ExprKind::Bool(true)) => true,
+373 -                 (BinaryOp::NotEq, ExprKind::Bool(false)) => true,
+374 -                 _ => false,
+375 -             };
+371 +             let reported = matches!((op, &a.expr(*right).kind), (BinaryOp::Eq, ExprKind::Bool(true)) | (BinaryOp::NotEq, ExprKind::Bool(false)));
+    |
+
+error: this `if` has identical blocks
+   --> crates/analysis/src/lints/rules21.rs:470:139
+    |
+470 |   ...   if is_class_named(s, interner, t, "String", "dart.core") && method == "toString" && is_non_nullable(table, t) {
+    |  _____________________________________________________________________________________________________________________^
+471 | | ...       report(&c::NOOP_PRIMITIVE_OPERATIONS, name.span, &[]);
+472 | | ...   } else if is_class_named(s, interner, t, "int", "dart.core") && matches!(method, "toInt" | "round" | "ceil" | "floor" | "tr...
+    | |_______^
+    |
+note: same as this
+   --> crates/analysis/src/lints/rules21.rs:472:161
+    |
+472 |                               } else if is_class_named(s, interner, t, "int", "dart.core") && matches!(method, "toInt" | "round" | "ceil" | "floor" | "truncate") {
+    |  _________________________________________________________________________________________________________________________________________________________________^
+473 | |                                 report(&c::NOOP_PRIMITIVE_OPERATIONS, name.span, &[]);
+474 | |                             } else if is_class_named(s, interner, t, "double", "dart.core") && method == "toDouble" {
+    | |_____________________________^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#if_same_then_else
+    = note: `-D clippy::if-same-then-else` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::if_same_then_else)]`
+
+error: this `if` has identical blocks
+   --> crates/analysis/src/lints/rules21.rs:472:161
+    |
+472 |                               } else if is_class_named(s, interner, t, "int", "dart.core") && matches!(method, "toInt" | "round" | "ceil" | "floor" | "truncate") {
+    |  _________________________________________________________________________________________________________________________________________________________________^
+473 | |                                 report(&c::NOOP_PRIMITIVE_OPERATIONS, name.span, &[]);
+474 | |                             } else if is_class_named(s, interner, t, "double", "dart.core") && method == "toDouble" {
+    | |_____________________________^
+    |
+note: same as this
+   --> crates/analysis/src/lints/rules21.rs:474:117
+    |
+474 |   ...                   } else if is_class_named(s, interner, t, "double", "dart.core") && method == "toDouble" {
+    |  _______________________________________________________________________________________________________________^
+475 | | ...                       report(&c::NOOP_PRIMITIVE_OPERATIONS, name.span, &[]);
+476 | | ...                   }
+    | |_______________________^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#if_same_then_else
+
+error: methods called `from_*` usually take no `self`
+   --> crates/analysis/src/lints/rules29.rs:204:22
+    |
+204 |     fn from_resolved(&self, u: UnitId, body: &UnitBodyTypes, e: ExprId, pos: usize) -> Option<Ref> {
+    |                      ^^^^^
+    |
+    = help: consider choosing a less ambiguous name
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#wrong_self_convention
+    = note: `-D clippy::wrong-self-convention` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::wrong_self_convention)]`
+
+error: this manual char comparison can be written more succinctly
+   --> crates/analysis/src/lints/pubspec.rs:172:22
+    |
+172 |     let end = t.find(|c: char| matches!(c, ':' | '/' | '?' | '#'))?;
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using an array of `char`: `[':', '/', '?', '#']`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#manual_pattern_char_comparison
+    = note: `-D clippy::manual-pattern-char-comparison` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::manual_pattern_char_comparison)]`
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/analysis/src/lints/pubspec.rs:252:23
+    |
+252 |         static CACHE: std::cell::RefCell<std::collections::HashMap<(String, bool), Option<Vec<String>>>> = Default::default();
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: doc list item without indentation
+  --> crates/analysis/src/lints/rules9.rs:19:5
+   |
+19 | //! Written without compiling or running (2026-10-05).
+   |     ^
+   |
+   = help: if this is supposed to be its own paragraph, add a blank line
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+   |
+19 | //!   Written without compiling or running (2026-10-05).
+   |     ++
+
+error: this `if` can be collapsed into the outer `match`
+   --> crates/analysis/src/lints/rules9.rs:491:21
+    |
+491 | / ...   if is_getter_element(id, element) && !in_const_literal(id, body) && !matches!(parent.map(|p| &a.expr(p).kind), Some(ExprKin...
+492 | | ...       findings.push((name.span, getter_name));
+493 | | ...   }
+    | |_______^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_match
+
+error: methods with the following characteristics: (`to_*` and `self` type is not `Copy`) usually take `self` by reference
+   --> crates/analysis/src/lints/regexp_vm.rs:133:18
+    |
+133 |     fn to_regexp(&mut self) -> Option<Term> {
+    |                  ^^^^^^^^^
+    |
+    = help: consider choosing a less ambiguous name
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#wrong_self_convention
+
+error: this `if` statement can be collapsed
+   --> crates/analysis/src/locals.rs:334:9
+    |
+334 | /         if let Some(region) = self.shared_region {
+335 | |             if let Some(i) = self.find(n.sym).filter(|&i| i >= region) {
+336 | |                 let root = self.root(i);
+337 | |                 if self.wildcard && self.interner.resolve(n.sym) == "_" {
+...   |
+343 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+334 ~         if let Some(region) = self.shared_region
+335 ~             && let Some(i) = self.find(n.sym).filter(|&i| i >= region) {
+336 |                 let root = self.root(i);
+...
+341 |                 return;
+342 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/analysis/src/locals.rs:346:9
+    |
+346 | /         if let Some(start) = self.pattern_start {
+347 | |             if self.find(n.sym).is_some_and(|i| i >= start) {
+348 | |                 return;
+349 | |             }
+350 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+346 ~         if let Some(start) = self.pattern_start
+347 ~             && self.find(n.sym).is_some_and(|i| i >= start) {
+348 |                 return;
+349 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/analysis/src/locals.rs:533:17
+    |
+533 | /                 if j > start {
+534 | |                     if let Some(sym) = self.interner.lookup(&fragment[start..j]) {
+535 | |                         let span = Span { start: from + start, end: from + j };
+536 | |                         self.refer(ast::Name { sym, span }, true);
+537 | |                     }
+538 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+533 ~                 if j > start
+534 ~                     && let Some(sym) = self.interner.lookup(&fragment[start..j]) {
+535 |                         let span = Span { start: from + start, end: from + j };
+536 |                         self.refer(ast::Name { sym, span }, true);
+537 ~                     }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/analysis/src/modifiers.rs:196:13
+    |
+196 | / ...   if let Some((t, Some(s))) = cl.extends {
+197 | | ...       if cx.is_final(s) && !cx.is_sealed(s) && cx.class_of(s).library != lib && !cx.may_ignore(cx.class_of(s).library, true) {
+198 | | ...           by(c::FINAL_CLASS_EXTENDED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.name_of(s)], None);
+199 | | ...       }
+200 | | ...   }
+    | |_______^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+196 ~             if let Some((t, Some(s))) = cl.extends
+197 ~                 && cx.is_final(s) && !cx.is_sealed(s) && cx.class_of(s).library != lib && !cx.may_ignore(cx.class_of(s).library, true) {
+198 |                     by(c::FINAL_CLASS_EXTENDED_OUTSIDE_OF_LIBRARY, span(t), &[&cx.name_of(s)], None);
+199 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/analysis/src/modifiers.rs:295:5
+    |
+295 | /     if let Some(sp) = implemented {
+296 | |         if cx.is_sealed(sup) && lib_bf != lib_el && cx.is_base(bf) {
+297 | |             let code = if cx.is_mixin(bf) { c::BASE_MIXIN_IMPLEMENTED_OUTSIDE_OF_LIBRARY } else { c::BASE_CLASS_IMPLEMENTED_OUTSI...
+298 | |             return Some((code, sp, vec![cx.name_of(bf)], context));
+299 | |         }
+300 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+295 ~     if let Some(sp) = implemented
+296 ~         && cx.is_sealed(sup) && lib_bf != lib_el && cx.is_base(bf) {
+297 |             let code = if cx.is_mixin(bf) { c::BASE_MIXIN_IMPLEMENTED_OUTSIDE_OF_LIBRARY } else { c::BASE_CLASS_IMPLEMENTED_OUTSIDE_OF_LIBRARY };
+298 |             return Some((code, sp, vec![cx.name_of(bf)], context));
+299 ~         }
+    |
+
+error: variant name starts with the enum's name
+   --> crates/analysis/src/non_dart/manifest.rs:111:5
+    |
+111 |     TagEnd,
+    |     ^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#enum_variant_names
+    = note: `-D clippy::enum-variant-names` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::enum_variant_names)]`
+
+error: expression can be simplified using `Option::unwrap_or()`
+   --> crates/analysis/src/non_dart/yaml.rs:181:21
+    |
+181 |                     line.find(" #").map_or(line.len(), |k| k).min(line.trim_end().len())
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#map_or_identity
+    = note: `-D clippy::map-or-identity` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::map_or_identity)]`
+help: consider using `unwrap_or`
+    |
+181 -                     line.find(" #").map_or(line.len(), |k| k).min(line.trim_end().len())
+181 +                     line.find(" #").unwrap_or(line.len()).min(line.trim_end().len())
+    |
+
+error: this loop could be written as a `while let` loop
+  --> crates/analysis/src/todos.rs:56:21
+   |
+56 | /                     loop {
+57 | |                         let Some(after_break) = lexeme[end..].strip_prefix('\n') else { break };
+58 | |                         let trimmed = after_break.trim_start();
+59 | |                         let Some(after_mark) = trimmed.strip_prefix("*  ") else { break };
+60 | |                         end = line_rest_end(lexeme, lexeme.len() - after_mark.len());
+61 | |                     }
+   | |_____________________^ help: try: `while let Some(after_break) = lexeme[end..].strip_prefix('\n') { .. }`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#while_let_loop
+   = note: `-D clippy::while-let-loop` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::while_let_loop)]`
+
+error: could not compile `dartforge-analysis` (lib) due to 45 previous errors
+error: items after a test module
+    --> crates/analysis/src/analyzer_tree.rs:2299:1
+     |
+2299 | mod tests {
+     | ^^^^^^^^^
+...
+2342 | pub const EXPRESSIONS: &[&str] = &[
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+2384 | pub const STATEMENTS: &[&str] = &[
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+2406 | pub fn is_statement(kind: &str) -> bool {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+2411 | pub fn is_expression(kind: &str) -> bool {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#items_after_test_module
+     = note: `-D clippy::items-after-test-module` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::items_after_test_module)]`
+     = help: move the items to before the test module was defined
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/analysis/src/initialization.rs:324:35
+    |
+324 |                 let name = source[d.span.start as usize..d.span.end as usize].to_string();
+    |                                   ^^^^^^^^^^^^^^^^^^^^^ help: try: `d.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+    = note: `-D clippy::unnecessary-cast` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unnecessary_cast)]`
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/analysis/src/initialization.rs:324:58
+    |
+324 |                 let name = source[d.span.start as usize..d.span.end as usize].to_string();
+    |                                                          ^^^^^^^^^^^^^^^^^^^ help: try: `d.span.end`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: variable does not need to be mutable
+   --> crates/emit_native/src/llvm/roots.rs:388:13
+    |
+388 |         let mut clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+    |             ----^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `-D unused-mut` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(unused_mut)]`
+
+error: could not compile `dartforge-analysis` (lib test) due to 48 previous errors
+error: method `identity` is never used
+   --> crates/emit_native/src/hir.rs:256:19
+    |
+254 | impl FieldDeclaration {
+    | --------------------- method in this implementation
+255 |     /// Semantic identity excludes flags and layout premises, which a proof must reconcile.
+256 |     pub(crate) fn identity(&self) -> (&str, &str, &str) {
+    |                   ^^^^^^^^
+    |
+    = note: `-D dead-code` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[expect(dead_code)]` or `#[allow(dead_code)]`
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/context.rs:113:9
+    |
+113 | ...   std::sync::RwLock<std::collections::HashMap<(dartforge_elements::model::ClassId, SymbolId), std::sync::Arc<Vec<crate::lower::sdk_source::Implementation>>>>,
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+    = note: `-D clippy::type-complexity` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::type_complexity)]`
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/context.rs:119:40
+    |
+119 |       pub implementations_by_class_memo: std::sync::RwLock<
+    |  ________________________________________^
+120 | |         std::collections::HashMap<
+121 | |             (dartforge_elements::model::ClassId, SymbolId),
+122 | |             Option<std::sync::Arc<Vec<(i64, crate::lower::sdk_source::Implementation)>>>,
+123 | |         >,
+124 | |     >,
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/context.rs:379:54
+    |
+379 | ...                   let text = &u.source[f.span.start as usize..f.span.end as usize];
+    |                                            ^^^^^^^^^^^^^^^^^^^^^ help: try: `f.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+    = note: `-D clippy::unnecessary-cast` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unnecessary_cast)]`
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/context.rs:379:77
+    |
+379 | ...                   let text = &u.source[f.span.start as usize..f.span.end as usize];
+    |                                                                   ^^^^^^^^^^^^^^^^^^^ help: try: `f.span.end`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/contracts/ssa.rs:339:25
+    |
+339 | /                         if let Some(previous) = repeated.insert(*predecessor, operand) {
+340 | |                             if !exact_operand(previous, operand) {
+341 | |                                 return Err(malformed(
+342 | |                                     Some(block.id),
+...   |
+347 | |                         }
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+339 ~                         if let Some(previous) = repeated.insert(*predecessor, operand)
+340 ~                             && !exact_operand(previous, operand) {
+341 |                                 return Err(malformed(
+...
+345 |                                 ));
+346 ~                             }
+    |
+
+error: manual implementation of `.is_multiple_of()`
+   --> crates/emit_native/src/gcmap.rs:199:20
+    |
+199 |                 if (n_locals - 3).saturating_sub(n_deopt) % 2 != 0 {
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with: `!(n_locals - 3).saturating_sub(n_deopt).is_multiple_of(2)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#manual_is_multiple_of
+    = note: `-D clippy::manual-is-multiple-of` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::manual_is_multiple_of)]`
+
+error: manual implementation of `.is_multiple_of()`
+   --> crates/emit_native/src/gcmap.rs:301:11
+    |
+301 |     while flow.len() % 4 != 0 {
+    |           ^^^^^^^^^^^^^^^^^^^ help: replace with: `!flow.len().is_multiple_of(4)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#manual_is_multiple_of
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/gcmap.rs:323:27
+    |
+323 | fn decode(blob: &[u8]) -> Result<Vec<(u64, Vec<(u32, Roots)>)>, String> {
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: manual implementation of `.is_multiple_of()`
+   --> crates/emit_native/src/gcmap.rs:518:49
+    |
+518 |     if u64_at(object, header(r) + 56)? != 24 || rel_size % 24 != 0 {
+    |                                                 ^^^^^^^^^^^^^^^^^^ help: replace with: `!rel_size.is_multiple_of(24)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#manual_is_multiple_of
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/compact_stack_trace.rs:135:27
+    |
+135 | fn decode(blob: &[u8]) -> Result<Vec<Vec<(u64, usize, u32, u32)>>, String> {
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: manual implementation of `.is_multiple_of()`
+   --> crates/emit_native/src/compact_stack_trace.rs:382:53
+    |
+382 |         if u64_at(object, header(r) + 56)? != 24 || rel_size % 24 != 0 {
+    |                                                     ^^^^^^^^^^^^^^^^^^ help: replace with: `!rel_size.is_multiple_of(24)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#manual_is_multiple_of
+
+error: very complex type used. Consider factoring parts into `type` definitions
+    --> crates/emit_native/src/hir.rs:1238:24
+     |
+1238 |     pub method_tables: Vec<(u32, String, Vec<(String, String)>)>,
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: accessing first element with `args.get(0)`
+    --> crates/emit_native/src/hir.rs:1330:24
+     |
+1330 |                     && args.get(0).is_some_and(|(_, ty)| *ty == Type::Ref)
+     |                        ^^^^^^^^^^^ help: try: `args.first()`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#get_first
+     = note: `-D clippy::get-first` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::get_first)]`
+
+error: methods called `new` usually take no `self`
+  --> crates/emit_native/src/llvm/debug_info.rs:58:12
+   |
+58 |     fn new(&mut self, text: String) -> u32 {
+   |            ^^^^^^^^^
+   |
+   = help: consider choosing a less ambiguous name
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#wrong_self_convention
+   = note: `-D clippy::wrong-self-convention` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::wrong_self_convention)]`
+
+error: methods called `new` usually return `Self`
+  --> crates/emit_native/src/llvm/debug_info.rs:58:5
+   |
+58 | /     fn new(&mut self, text: String) -> u32 {
+59 | |         self.metadata.push(text);
+60 | |         (self.metadata.len() - 1) as u32
+61 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#new_ret_no_self
+   = note: `-D clippy::new-ret-no-self` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::new_ret_no_self)]`
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/llvm/roots.rs:195:26
+    |
+195 |                   visit: &mut dyn FnMut(Option<&Instruction>, Option<ValueId>, Option<usize>, &Set, &Set)|
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: the loop variable `b` is used to index `phi_defs`
+   --> crates/emit_native/src/llvm/roots.rs:262:14
+    |
+262 |     for b in 0..nb {
+    |              ^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#needless_range_loop
+    = note: `-D clippy::needless-range-loop` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::needless_range_loop)]`
+help: consider using an iterator and enumerate()
+    |
+262 -     for b in 0..nb {
+262 +     for (b, <item>) in phi_defs.iter().enumerate().take(nb) {
+    |
+
+error: redundant closure
+   --> crates/emit_native/src/llvm/roots.rs:265:46
+    |
+265 |             let collection = inst.is_none_or(|i| may_collect(i));
+    |                                              ^^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `may_collect`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#redundant_closure
+    = note: `-D clippy::redundant-closure` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::redundant_closure)]`
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+    --> crates/emit_native/src/llvm/mod.rs:1569:71
+     |
+1569 | ...   Instruction::SetField { object, index, value } if (*index as usize) < INLINE_FIELDS && !self.module.arc_memory => {
+     |                                                         ^^^^^^^^^^^^^^^^^ help: try: `*index`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: needless call to `as_bytes`
+    --> crates/emit_native/src/llvm/mod.rs:3155:23
+     |
+3155 |             let len = class.name.as_bytes().len();
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: `len()` can be called directly on strings: `class.name.len()`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#needless_as_bytes
+     = note: `-D clippy::needless-as-bytes` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::needless_as_bytes)]`
+
+error: this function has too many arguments (8/7)
+    --> crates/emit_native/src/llvm/mod.rs:3967:5
+     |
+3967 |     fn emit_field_write(&mut self, v: u32, suffix: &str, idx: usize, sv: &str, is_ref: &str, known: Option<u32>, fresh: bool) {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+     = note: `-D clippy::too-many-arguments` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::too_many_arguments)]`
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+    --> crates/emit_native/src/llvm/mod.rs:4340:52
+     |
+4340 |             Instruction::GetField { index, .. } => (*index as usize) >= INLINE_FIELDS,
+     |                                                    ^^^^^^^^^^^^^^^^^ help: try: `*index`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+    --> crates/emit_native/src/llvm/mod.rs:4342:17
+     |
+4342 |                 (*index as usize) >= INLINE_FIELDS
+     |                 ^^^^^^^^^^^^^^^^^ help: try: `*index`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5054:5
+     |
+5054 | /// `@df.body(h, ctx)`: the start of the body of an object (the header; the
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+     = note: `-D clippy::doc-lazy-continuation` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::doc_lazy_continuation)]`
+help: indent this line
+     |
+5054 | ///   `@df.body(h, ctx)`: the start of the body of an object (the header; the
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5055:5
+     |
+5055 | /// fields 16 bytes later), the same computation as `emit_field_addresses`
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5055 | ///   fields 16 bytes later), the same computation as `emit_field_addresses`
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5056:5
+     |
+5056 | /// inline — a value that is not an object reads the reserve object of the context
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5056 | ///   inline — a value that is not an object reads the reserve object of the context
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5057:5
+     |
+5057 | /// (`ctx + 40`), and a body outside the block (attached, `flags & 1`) is followed through the
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5057 | ///   (`ctx + 40`), and a body outside the block (attached, `flags & 1`) is followed through the
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5058:5
+     |
+5058 | /// pointer at `+16`. `alwaysinline` when the emitter is inline (so that the
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5058 | ///   pointer at `+16`. `alwaysinline` when the emitter is inline (so that the
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5059:5
+     |
+5059 | /// optimizer sees the same); without the attribute in development, a call.
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5059 | ///   optimizer sees the same); without the attribute in development, a call.
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5060:5
+     |
+5060 | /// `without_outside`: no object has an outside body (`body_without_outside`,
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5060 | ///   `without_outside`: no object has an outside body (`body_without_outside`,
+     |     ++
+
+error: doc list item without indentation
+    --> crates/emit_native/src/llvm/mod.rs:5061:5
+     |
+5061 | /// see `emit_field_addresses`): the body is the first select.
+     |     ^
+     |
+     = help: if this is supposed to be its own paragraph, add a blank line
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#doc_lazy_continuation
+help: indent this line
+     |
+5061 | ///   see `emit_field_addresses`): the body is the first select.
+     |     ++
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/lower/async_sm.rs:203:30
+    |
+203 |     fn stub_locals(&self) -> (Vec<(SymbolId, Local)>, Vec<(SymbolId, Local)>) {
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: very complex type used. Consider factoring parts into `type` definitions
+    --> crates/emit_native/src/lower/async_sm.rs:1644:23
+     |
+1644 |     let mut on_edges: Vec<(BlockId, BlockId, Vec<(ValueId, Instruction, Type)>)> = Vec::new();
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: the variable `next_block` is used as a loop counter
+    --> crates/emit_native/src/lower/async_sm.rs:1706:5
+     |
+1706 |     for (origin, success, writes) in on_edges {
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using: `for (next_block, (origin, success, writes)) in (func.blocks.iter().map(|b| b.id.0).max().map_or(0, |m| m + 1)..).zip(on_edges.into_iter())`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_counter_loop
+     = note: `-D clippy::explicit-counter-loop` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::explicit_counter_loop)]`
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/capture.rs:126:21
+    |
+126 |             offset: name.span.start as usize,
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `name.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/capture.rs:245:35
+    |
+245 |                 self.lates.insert(v.name.span.start as usize);
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `v.name.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/capture.rs:250:38
+    |
+250 |                 self.assigned.insert(v.name.span.start as usize);
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `v.name.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/capture.rs:277:49
+    |
+277 |                     self.local_functions.insert(n.span.start as usize, *fid);
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^ help: try: `n.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/capture.rs:280:46
+    |
+280 |                         self.assigned.insert(n.span.start as usize);
+    |                                              ^^^^^^^^^^^^^^^^^^^^^ help: try: `n.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/closures.rs:369:43
+    |
+369 |                 b.declare_variable(n.sym, n.span.start as usize, ty, Operand::Val(vid));
+    |                                           ^^^^^^^^^^^^^^^^^^^^^ help: try: `n.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/closures.rs:602:13
+    |
+602 |             name.span.start as usize,
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `name.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+  --> crates/emit_native/src/lower/statements.rs:96:54
+   |
+96 | ...                   || !self.cells.contains(&(var.name.span.start as usize)));
+   |                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `{ var.name.span.start }`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/statements.rs:131:48
+    |
+131 |                     self.declare_variable(sym, var.name.span.start as usize, ty, init_op);
+    |                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `var.name.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/statements.rs:280:66
+    |
+280 | ...                   || !self.cells.contains(&(var.name.span.start as usize)));
+    |                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `{ var.name.span.start }`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/statements.rs:288:60
+    |
+288 | ...                   self.declare_variable(sym, var.name.span.start as usize, ty, init_op);
+    |                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `var.name.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/statements.rs:644:56
+    |
+644 |                     self.declare_variable(ex_name.sym, ex_name.span.start as usize, Type::Ref, ex_bits.clone());
+    |                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `ex_name.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/statements.rs:647:56
+    |
+647 |                     self.declare_variable(st_name.sym, st_name.span.start as usize, Type::Ref, st_val);
+    |                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `st_name.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/statements.rs:867:74
+    |
+867 |                         && self.scalar(self.ctx.local_type(self.unit_id, v.name.span.start as usize));
+    |                                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `v.name.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+    --> crates/emit_native/src/lower/statements.rs:1040:46
+     |
+1040 |         if self.ctx.local_type(self.unit_id, var.name.span.start as usize) != Some(int) {
+     |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `{ var.name.span.start }`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: this `let...else` may be rewritten with the `?` operator
+    --> crates/emit_native/src/lower/statements.rs:1043:9
+     |
+1043 |         let Some(cond) = condition else { return None };
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace it with: `let cond = condition?;`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#question_mark
+     = note: `-D clippy::question-mark` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::question_mark)]`
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+    --> crates/emit_native/src/lower/statements.rs:1062:47
+     |
+1062 |             ExprKind::Int(span) => source.get(span.start as usize..span.end as usize).and_then(|t| {
+     |                                               ^^^^^^^^^^^^^^^^^^^ help: try: `span.start`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+    --> crates/emit_native/src/lower/statements.rs:1062:68
+     |
+1062 |             ExprKind::Int(span) => source.get(span.start as usize..span.end as usize).and_then(|t| {
+     |                                                                    ^^^^^^^^^^^^^^^^^ help: try: `span.end`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+  --> crates/emit_native/src/lower/primitive_const.rs:79:34
+   |
+79 |                 let t = u.source[s.start as usize..s.end as usize].replace('_', "");
+   |                                  ^^^^^^^^^^^^^^^^ help: try: `s.start`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+  --> crates/emit_native/src/lower/primitive_const.rs:79:52
+   |
+79 |                 let t = u.source[s.start as usize..s.end as usize].replace('_', "");
+   |                                                    ^^^^^^^^^^^^^^ help: try: `s.end`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+  --> crates/emit_native/src/lower/primitive_const.rs:88:34
+   |
+88 |                 let t = u.source[s.start as usize..s.end as usize].replace('_', "");
+   |                                  ^^^^^^^^^^^^^^^^ help: try: `s.start`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+  --> crates/emit_native/src/lower/primitive_const.rs:88:52
+   |
+88 |                 let t = u.source[s.start as usize..s.end as usize].replace('_', "");
+   |                                                    ^^^^^^^^^^^^^^ help: try: `s.end`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+  --> crates/emit_native/src/lower/constants.rs:42:39
+   |
+42 |                 let t = self.source()[s.start as usize..s.end as usize].replace('_', "");
+   |                                       ^^^^^^^^^^^^^^^^ help: try: `s.start`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+  --> crates/emit_native/src/lower/constants.rs:42:57
+   |
+42 |                 let t = self.source()[s.start as usize..s.end as usize].replace('_', "");
+   |                                                         ^^^^^^^^^^^^^^ help: try: `s.end`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+  --> crates/emit_native/src/lower/constants.rs:52:39
+   |
+52 |                 let t = self.source()[s.start as usize..s.end as usize].replace('_', "");
+   |                                       ^^^^^^^^^^^^^^^^ help: try: `s.start`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+  --> crates/emit_native/src/lower/constants.rs:52:57
+   |
+52 |                 let t = self.source()[s.start as usize..s.end as usize].replace('_', "");
+   |                                                         ^^^^^^^^^^^^^^ help: try: `s.end`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/lower/constants.rs:111:17
+    |
+111 | /                 if var.const_ && self.ctx.get_type(self.unit_id, e) == Some(self.ctx.core.string) {
+112 | |                     if let Some(init) = self.variable_initializer_in(vid) {
+113 | |                         let unit = match var.node {
+114 | |                             dartforge_elements::model::VariableRef::Field { unit, .. }
+...   |
+125 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+111 ~                 if var.const_ && self.ctx.get_type(self.unit_id, e) == Some(self.ctx.core.string)
+112 ~                     && let Some(init) = self.variable_initializer_in(vid) {
+113 |                         let unit = match var.node {
+...
+123 |                         }
+124 ~                     }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/lower/constants.rs:120:29
+    |
+120 | / ...                   if let Some(key) = other.constant_key(&self.ctx.program.unit(unit).ast, init, true) {
+121 | | ...                       if key.starts_with("s:") { return Some(key); }
+122 | | ...                   }
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+120 ~                             if let Some(key) = other.constant_key(&self.ctx.program.unit(unit).ast, init, true)
+121 ~                                 && key.starts_with("s:") { return Some(key); }
+    |
+
+error: this block may be rewritten with the `?` operator
+  --> crates/emit_native/src/lower/environment.rs:62:34
+   |
+62 |   ...   else if let Some(value) = self.environment_boolean(unit, *value, depth + 1) { text.push_str(if value { "true" } else { "fals...
+   |  ____________^
+63 | | ...   else { return None; }
+   | |___________________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#question_mark
+help: replace it with
+   |
+62 ~                             else {
+63 +                                 let value = self.environment_boolean(unit, *value, depth + 1)?; text.push_str(if value { "true" } else { "false" }); }
+   |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/lower/expressions.rs:308:9
+    |
+308 | /         if let Some(t) = self.ctx.get_type(self.unit_id, expr_id) {
+309 | |             if t != self.ctx.core.dynamic_ && !self.ctx.is_void(t) && !self.is_terminated() {
+310 | |                 let r = self.ctx.to_hir_type(t);
+311 | |                 if !matches!(r, Type::Void)
+...   |
+318 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+308 ~         if let Some(t) = self.ctx.get_type(self.unit_id, expr_id)
+309 ~             && t != self.ctx.core.dynamic_ && !self.ctx.is_void(t) && !self.is_terminated() {
+310 |                 let r = self.ctx.to_hir_type(t);
+...
+316 |                 }
+317 ~             }
+    |
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/expressions.rs:346:42
+    |
+346 |                 let raw = &self.source()[span.start as usize..span.end as usize];
+    |                                          ^^^^^^^^^^^^^^^^^^^ help: try: `span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/expressions.rs:346:63
+    |
+346 |                 let raw = &self.source()[span.start as usize..span.end as usize];
+    |                                                               ^^^^^^^^^^^^^^^^^ help: try: `span.end`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/expressions.rs:361:42
+    |
+361 |                 let raw = &self.source()[span.start as usize..span.end as usize];
+    |                                          ^^^^^^^^^^^^^^^^^^^ help: try: `span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/expressions.rs:361:63
+    |
+361 |                 let raw = &self.source()[span.start as usize..span.end as usize];
+    |                                                               ^^^^^^^^^^^^^^^^^ help: try: `span.end`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/ffi.rs:897:27
+    |
+897 |     let text = source.get(span.start as usize..span.end as usize)?.replace('_', "");
+    |                           ^^^^^^^^^^^^^^^^^^^ help: try: `span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/ffi.rs:897:48
+    |
+897 |     let text = source.get(span.start as usize..span.end as usize)?.replace('_', "");
+    |                                                ^^^^^^^^^^^^^^^^^ help: try: `span.end`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/fn_builder.rs:539:52
+    |
+539 |                         self.declare_variable(sym, n.span.start as usize, p_ty, Operand::Val(vid))
+    |                                                    ^^^^^^^^^^^^^^^^^^^^^ help: try: `n.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: using `clone` on type `Type` which implements the `Copy` trait
+   --> crates/emit_native/src/lower/fn_builder.rs:880:38
+    |
+880 |         self.value_types.insert(vid, ty.clone());
+    |                                      ^^^^^^^^^^ help: try removing the `clone` call: `ty`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#clone_on_copy
+    = note: `-D clippy::clone-on-copy` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::clone_on_copy)]`
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/direct_functions.rs:116:41
+    |
+116 |         self.declare_variable(name.sym, name.span.start as usize, Type::Ref, Operand::Constant(Constant::Null));
+    |                                         ^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `name.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/direct_functions.rs:126:68
+    |
+126 |                 && (self.direct_functions.contains_key(&o) || o == name.span.start as usize)
+    |                                                                    ^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `name.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/direct_functions.rs:170:38
+    |
+170 |         self.direct_functions.insert(name.span.start as usize, direct.clone());
+    |                                      ^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `name.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/direct_functions.rs:244:43
+    |
+244 |                 b.declare_variable(n.sym, n.span.start as usize, direct.reprs[i], Operand::Val(v));
+    |                                           ^^^^^^^^^^^^^^^^^^^^^ help: try: `n.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/literals.rs:630:57
+    |
+630 | ...                   let ty = self.local_repr_of(var.name.span.start as usize);
+    |                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `var.name.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/literals.rs:635:65
+    |
+635 | ...                   self.declare_variable(var.name.sym, var.name.span.start as usize, ty, v);
+    |                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `var.name.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: this `if` statement can be collapsed
+    --> crates/emit_native/src/lower/members.rs:1693:9
+     |
+1693 | /         if Some(cid) == self.ctx.sdk_class("core", "Symbol") {
+1694 | |             if let Some(concrete) = self.ctx.sdk_class("_internal", "Symbol")
+1695 | |                 && let Some(empty) = self.ctx.interner.lookup("")
+1696 | |                 && let Some(&constructor) = self.ctx.program.classes[concrete.0 as usize].constructors.get(&empty)
+...    |
+1700 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+1693 ~         if Some(cid) == self.ctx.sdk_class("core", "Symbol")
+1694 ~             && let Some(concrete) = self.ctx.sdk_class("_internal", "Symbol")
+1695 |                 && let Some(empty) = self.ctx.interner.lookup("")
+ ...
+1698 |                 return self.instantiate_evaluated_with_rti(constructor, evaluated, span, explicit_rti, explicit_tuple);
+1699 ~             }
+     |
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+  --> crates/emit_native/src/lower/patterns.rs:93:37
+   |
+93 |         let ty = self.local_repr_of(name_str.span.start as usize);
+   |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `name_str.span.start`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+  --> crates/emit_native/src/lower/patterns.rs:94:45
+   |
+94 |         self.declare_variable(name_str.sym, name_str.span.start as usize, ty, val_ref);
+   |                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `name_str.span.start`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: this function has too many arguments (8/7)
+   --> crates/emit_native/src/lower/patterns.rs:184:5
+    |
+184 | /     pub fn match_pattern(
+185 | |         &mut self,
+186 | |         ast: &ast::Ast,
+187 | |         p: PatternId,
+...   |
+192 | |         origin: ExprId,
+193 | |     ) {
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/patterns.rs:277:51
+    |
+277 |                         let text = &self.source()[s.start as usize..s.end as usize];
+    |                                                   ^^^^^^^^^^^^^^^^ help: try: `s.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/patterns.rs:277:69
+    |
+277 |                         let text = &self.source()[s.start as usize..s.end as usize];
+    |                                                                     ^^^^^^^^^^^^^^ help: try: `s.end`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/patterns.rs:508:31
+    |
+508 |                     let ini = f.span.start as usize;
+    |                               ^^^^^^^^^^^^^^^^^^^^^ help: try: `f.span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+    --> crates/emit_native/src/lower/rti.rs:1180:91
+     |
+1180 |             None => ast.function(fid).name.and_then(|n| self.ctx.local_type(self.unit_id, n.span.start as usize)),
+     |                                                                                           ^^^^^^^^^^^^^^^^^^^^^ help: try: `n.span.start`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: returning the result of a `let` binding from a block
+   --> crates/emit_native/src/lower/sdk_source.rs:788:9
+    |
+787 |         let r = self.call_by_selector(op, "c:toString".to_string(), &[]);
+    |         ----------------------------------------------------------------- unnecessary `let` binding
+788 |         r
+    |         ^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#let_and_return
+    = note: `-D clippy::let-and-return` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::let_and_return)]`
+help: return the expression directly
+    |
+787 ~
+788 ~         self.call_by_selector(op, "c:toString".to_string(), &[])
+    |
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+    --> crates/emit_native/src/lower/sdk_source.rs:2331:45
+     |
+2331 |                 let ty = self.local_repr_of(name.span.start as usize);
+     |                                             ^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `name.span.start`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+    --> crates/emit_native/src/lower/sdk_source.rs:2333:49
+     |
+2333 |                 self.declare_variable(name.sym, name.span.start as usize, ty, x);
+     |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `name.span.start`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/simd.rs:529:47
+    |
+529 |             ExprKind::Int(span) => source.get(span.start as usize..span.end as usize)?.replace('_', "").parse::<i64>().ok(),
+    |                                               ^^^^^^^^^^^^^^^^^^^ help: try: `span.start`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> crates/emit_native/src/lower/simd.rs:529:68
+    |
+529 |             ExprKind::Int(span) => source.get(span.start as usize..span.end as usize)?.replace('_', "").parse::<i64>().ok(),
+    |                                                                    ^^^^^^^^^^^^^^^^^ help: try: `span.end`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_cast
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/lower/verifier.rs:328:13
+    |
+328 | /             if let StrongSlot::Frame { frame, .. } = slot {
+329 | |                 if c.ty(frame) != Type::I64 || !matches!(frame, Operand::Val(_)) {
+330 | |                     c.error(format!("ARC slot requires an SSA I64 frame ID: {frame:?}"));
+331 | |                 }
+332 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+328 ~             if let StrongSlot::Frame { frame, .. } = slot
+329 ~                 && (c.ty(frame) != Type::I64 || !matches!(frame, Operand::Val(_))) {
+330 |                     c.error(format!("ARC slot requires an SSA I64 frame ID: {frame:?}"));
+331 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/lower/verifier.rs:333:13
+    |
+333 | /             if let Instruction::ArcStoreStrong { value, .. } = inst {
+334 | |                 if c.ty(value) != Type::Ref || !matches!(value, Operand::Val(_) | Operand::Constant(Constant::Null)) {
+335 | |                     c.error(format!("ARC store requires an already evaluated reference: {value:?}"));
+336 | |                 }
+337 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+333 ~             if let Instruction::ArcStoreStrong { value, .. } = inst
+334 ~                 && (c.ty(value) != Type::Ref || !matches!(value, Operand::Val(_) | Operand::Constant(Constant::Null))) {
+335 |                     c.error(format!("ARC store requires an already evaluated reference: {value:?}"));
+336 ~                 }
+    |
+
+error: usage of `contains_key` followed by `insert` on a `HashMap`
+   --> crates/emit_native/src/lower/mod.rs:360:13
+    |
+360 | /             if module.declared_field_layouts.contains_key(&class_id) {
+361 | |                 module.declared_field_layouts.remove(&class_id);
+362 | |                 module.pruning_ambiguous_class_ids.insert(class_id);
+363 | |             } else {
+364 | |                 module.declared_field_layouts.insert(class_id, slots);
+365 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#map_entry
+    = note: `-D clippy::map-entry` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::map_entry)]`
+help: try
+    |
+360 ~             if let std::collections::hash_map::Entry::Vacant(e) = module.declared_field_layouts.entry(class_id) {
+361 +                 e.insert(slots);
+362 +             } else {
+363 +                 module.declared_field_layouts.remove(&class_id);
+364 +                 module.pruning_ambiguous_class_ids.insert(class_id);
+365 +             }
+    |
+
+error: this `if` statement can be collapsed
+    --> crates/emit_native/src/lower/mod.rs:1167:17
+     |
+1167 | /                 if let Some(c_def) = module.classes.iter_mut().find(|c| c.id == class_id) {
+1168 | |                     if c_def.to_string_symbol.is_none() {
+1169 | |                         c_def.to_string_symbol = Some(ts);
+1170 | |                     }
+1171 | |                 }
+     | |_________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+1167 ~                 if let Some(c_def) = module.classes.iter_mut().find(|c| c.id == class_id)
+1168 ~                     && c_def.to_string_symbol.is_none() {
+1169 |                         c_def.to_string_symbol = Some(ts);
+1170 ~                     }
+     |
+
+error: returning the result of a `let` binding from a block
+   --> crates/emit_native/src/optimize/arc/analysis/summaries.rs:435:5
+    |
+402 | /     let covered_body = f.blocks.iter().all(|b| {
+403 | |         let exit = match &b.terminator {
+404 | |             Terminator::Return(Some(o)) => exact(o, f.return_ty),
+405 | |             Terminator::Return(None) => f.return_ty == Type::Void,
+...   |
+433 | |             })
+434 | |     });
+    | |_______- unnecessary `let` binding
+435 |       covered_body
+    |       ^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#let_and_return
+help: return the expression directly
+    |
+402 ~
+403 ~     f.blocks.iter().all(|b| {
+404 +         let exit = match &b.terminator {
+405 +             Terminator::Return(Some(o)) => exact(o, f.return_ty),
+406 +             Terminator::Return(None) => f.return_ty == Type::Void,
+407 +             Terminator::CondBranch { cond, .. } => exact(cond, Type::I1),
+408 +             Terminator::Switch { val, .. } => exact(val, Type::I64),
+409 +             Terminator::Branch(_) | Terminator::Unreachable => true,
+410 +             Terminator::Throw(_) => false,
+411 +         };
+412 +         exit
+413 +             && b.instructions.iter().all(|(_, i, t)| match i {
+414 +                 Instruction::Const(c) => exact(&Operand::Constant(c.clone()), *t),
+415 +                 Instruction::Phi { incoming, ty } => {
+416 +                     ty == t && incoming.iter().all(|(_, o)| exact(o, *t))
+417 +                 }
+418 +                 Instruction::CallStatic {
+419 +                     symbol,
+420 +                     args,
+421 +                     ret_ty,
+422 +                 } => call(symbol).is_some_and(|(callee, summary)| {
+423 +                     summary.fields == ArcHeapFields::Preserved
+424 +                         && summary.publications == ArcHeapPublications::ResultOnly
+425 +                         && *t == *ret_ty
+426 +                         && *ret_ty == callee.return_ty
+427 +                         && args.len() == callee.params.len()
+428 +                         && args
+429 +                             .iter()
+430 +                             .zip(&callee.params)
+431 +                             .all(|(o, (_, _, ty))| exact(o, *ty))
+432 +                 }),
+433 +                 i => super::hir::pure_scalar(i, *t, types),
+434 +             })
+435 +     })
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/optimize/arc/tokens.rs:476:17
+    |
+476 | /                 if let Instruction::ArcLoadStrong {
+477 | |                     slot:
+478 | |                         StrongSlot::Frame {
+479 | |                             frame: Operand::Val(q),
+...   |
+498 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+490 ~                 } = inst
+491 ~                     && classes[q] != Ownership::Trivial {
+492 |                         return Err(meta_error(format!(
+...
+495 |                         )));
+496 ~                     }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/optimize/arc/tokens.rs:529:13
+    |
+529 | /             if let Instruction::CallRuntime { name, .. } = call {
+530 | |                 if super::contract(name).is_ok() {
+531 | |                     let c = super::runtime_call_contract(call).map_err(meta_error)?;
+532 | |                     if classes[v] != c.result
+...   |
+544 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+529 ~             if let Instruction::CallRuntime { name, .. } = call
+530 ~                 && super::contract(name).is_ok() {
+531 |                     let c = super::runtime_call_contract(call).map_err(meta_error)?;
+...
+542 |                     }
+543 ~                 }
+    |
+
+error: using `clone` on type `Ownership` which implements the `Copy` trait
+   --> crates/emit_native/src/optimize/arc/contracts.rs:186:27
+    |
+186 |         classes.insert(v, expected.clone());
+    |                           ^^^^^^^^^^^^^^^^ help: try removing the `clone` call: `expected`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#clone_on_copy
+
+error: using `clone` on type `Ownership` which implements the `Copy` trait
+   --> crates/emit_native/src/optimize/arc/contracts.rs:746:57
+    |
+746 | ...                   origin = Some((*of, c.clone()));
+    |                                           ^^^^^^^^^ help: try dereferencing it: `*c`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#clone_on_copy
+
+error: using `clone` on type `Ownership` which implements the `Copy` trait
+   --> crates/emit_native/src/optimize/arc/contracts.rs:764:41
+    |
+764 |                 borrowed_set.insert(*v, class.clone());
+    |                                         ^^^^^^^^^^^^^ help: try removing the `clone` call: `class`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#clone_on_copy
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/optimize/arc/contracts.rs:872:9
+    |
+872 | /         if scalar_founded.insert(v) {
+873 | |             if let Some(dependents) = scalar_parents.get(&v) {
+874 | |                 scalar_queue.extend(dependents);
+875 | |             }
+876 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+872 ~         if scalar_founded.insert(v)
+873 ~             && let Some(dependents) = scalar_parents.get(&v) {
+874 |                 scalar_queue.extend(dependents);
+875 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/optimize/arc/contracts.rs:939:9
+    |
+939 | /         if founded.insert(v) {
+940 | |             if let Some(dependents) = parents.get(&v) {
+941 | |                 queue.extend(dependents);
+942 | |             }
+943 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+939 ~         if founded.insert(v)
+940 ~             && let Some(dependents) = parents.get(&v) {
+941 |                 queue.extend(dependents);
+942 ~             }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/optimize/arc/slot_lives.rs:281:29
+    |
+281 | / ...                   if let Operand::Val(q) = args[0].0
+282 | | ...                       && let Some(i) = pairs.get(&q)
+283 | | ...                   {
+284 | | ...                       if args.get(1).is_some_and(|a| a.0 == Operand::Val(*i)) {
+...   |
+287 | | ...                   }
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+282 ~                                 && let Some(i) = pairs.get(&q)
+283 ~                                 && args.get(1).is_some_and(|a| a.0 == Operand::Val(*i)) {
+284 |                                     allow(&args[1].0);
+285 ~                                 }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/optimize/arc/borrows.rs:195:21
+    |
+195 | /                     if cfg.idom[pi] != usize::MAX {
+196 | |                         if let Some(error) = check(
+197 | |                             op,
+198 | |                             &exits[pi],
+...   |
+203 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+195 ~                     if cfg.idom[pi] != usize::MAX
+196 ~                         && let Some(error) = check(
+197 |                             op,
+...
+201 |                             return Ok(Some(error));
+202 ~                         }
+    |
+
+error: the variable `block` is used as a loop counter
+  --> crates/emit_native/src/optimize/arc/edges.rs:63:9
+   |
+63 |         for ((origin, dest), dead_set) in plans {
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_counter_loop
+help: consider using
+   |
+63 ~         for (block, ((origin, dest), dead_set)) in (f
+64 +             .blocks
+65 +             .iter()
+66 +             .map(|b| b.id.0)
+67 +             .chain(p.tables.exits.keys().map(|b| b.0))
+68 +             .chain(p.tables.landing_pads.iter().map(|b| b.0))
+69 +             .chain(p.tables.invocations.values().map(|b| b.0))
+70 +             .chain(p.tokens.pendings.values().map(|b| b.0))
+71 +             .chain(p.scopes.exits.keys().map(|b| b.0))
+72 +             .chain(p.scopes.edges.keys().flat_map(|(a, b)| [a.0, b.0]))
+73 +             .max()
+74 ~             .map_or(0, |b| u64::from(b) + 1)..).zip(plans.into_iter()) {
+   |
+
+error: very complex type used. Consider factoring parts into `type` definitions
+  --> crates/emit_native/src/optimize/arc/phis.rs:27:15
+   |
+27 |     let phis: HashMap<ValueId, (BlockId, &Vec<(BlockId, Operand)>)> = f
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: very complex type used. Consider factoring parts into `type` definitions
+  --> crates/emit_native/src/optimize/arc/phis.rs:66:15
+   |
+66 |     let phis: HashMap<ValueId, (BlockId, &Vec<(BlockId, Operand)>)> = f
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: the variable `next_block` is used as a loop counter
+   --> crates/emit_native/src/optimize/arc/phis.rs:309:5
+    |
+309 |     for ((pred, block), entries) in edges {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#explicit_counter_loop
+help: consider using
+    |
+309 ~     for (next_block, ((pred, block), entries)) in (f
+310 +         .blocks
+311 +         .iter()
+312 +         .map(|b| b.id.0)
+313 +         .chain(p.tables.exits.keys().map(|b| b.0))
+314 +         .chain(p.tables.landing_pads.iter().map(|b| b.0))
+315 +         .chain(p.tables.invocations.values().map(|b| b.0))
+316 +         .chain(p.tokens.pendings.values().map(|b| b.0))
+317 +         .chain(p.scopes.exits.keys().map(|b| b.0))
+318 +         .chain(p.scopes.edges.keys().flat_map(|(a, b)| [a.0, b.0]))
+319 +         .max()
+320 ~         .map_or(0, |b| u64::from(b) + 1)..).zip(edges.into_iter()) {
+    |
+
+error: using `chunks_exact` with a constant chunk size
+   --> crates/emit_native/src/optimize/arc/fields.rs:356:19
+    |
+356 |         || values.chunks_exact(2).any(|p| i32::try_from(p[0]).is_err() || p[0] < 0
+    |                   ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+    = note: `-D clippy::chunks-exact-to-as-chunks` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::chunks_exact_to_as_chunks)]`
+
+error: using `chunks_exact` with a constant chunk size
+   --> crates/emit_native/src/optimize/arc/fields.rs:358:19
+    |
+358 |         || values.chunks_exact(2).map(|p| p[0]).collect::<Vec<_>>().windows(2).any(|p| p[0] >= p[1])
+    |                   ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+
+error: this function has too many arguments (10/7)
+   --> crates/emit_native/src/optimize/arc/functions.rs:295:1
+    |
+295 | / fn insert(
+296 | |     functions: &mut [Function],
+297 | |     plans: &mut HashMap<String, DartFunctionPlan>,
+298 | |     prepare_calls: bool,
+...   |
+305 | |     externals: bool,
+306 | | ) -> Result<(usize, usize), String> {
+    | |___________________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/optimize/arc/modules.rs:381:6
+    |
+381 |   ) -> (
+    |  ______^
+382 | |     Type,
+383 | |     TokenReturn,
+384 | |     Vec<(Type, bool, bool, Option<DartEntryVector>)>,
+385 | | ) {
+    | |_^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/optimize/arc/ssa.rs:123:13
+    |
+123 | /             if let Instruction::ArcLoadStrong { slot } | Instruction::ArcStoreStrong { slot, .. } =
+124 | |                 inst
+125 | |             {
+126 | |                 if let StrongSlot::Frame { frame, .. } = slot
+...   |
+131 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+124 ~                 inst
+125 ~                 && let StrongSlot::Frame { frame, .. } = slot
+126 |                     && !matches!(frame, Operand::Val(q) if types.get(q) == Some(&Type::I64))
+127 |                 {
+128 |                     return Err(error(format!("v{}: ARC frame requires SSA I64", v.0)));
+129 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/optimize/arc/frames.rs:145:25
+    |
+145 | /                         if name != "dartforge_arc_frame_close_v1" {
+146 | |                             if let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) {
+147 | |                                 index(q, *i)?;
+148 | |                             }
+149 | |                         }
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+145 ~                         if name != "dartforge_arc_frame_close_v1"
+146 ~                             && let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) {
+147 |                                 index(q, *i)?;
+148 ~                             }
+    |
+
+error: this binary expression can be simplified
+   --> crates/emit_native/src/optimize/scc.rs:107:16
+    |
+107 |             if owners[v] != owners[w] && owners[v] <= owners[w] {
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `owners[v] < owners[w]`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#double_comparisons
+    = note: `-D clippy::double-comparisons` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::double_comparisons)]`
+
+error: this function has too many arguments (8/7)
+   --> crates/emit_native/src/optimize/inline.rs:190:1
+    |
+190 | / fn copy(func: &mut Function, bi: usize, ii: usize, copies: &HashMap<String, (Function, bool)>,
+191 | |     sources: &HashMap<String, HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>>,
+192 | |     sites: &mut HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>,
+193 | |     frame_sources: &HashMap<String, HashMap<ValueId, (String, usize)>>,
+194 | |     frames: &mut HashMap<ValueId, (String, usize)>,
+195 | | ) {
+    | |_^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> crates/emit_native/src/optimize/tables.rs:273:5
+    |
+273 |     t.checks_stack = f.blocks.iter().any(|b| b.instructions.iter().any(|(_, inst, _)| is_site(inst, nl, uniforms)));
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `hir::FunctionTables { checks_stack: f.blocks.iter().any(|b| b.instructions.iter().any(|(_, inst, _)| is_site(inst, nl, uniforms))), ..Default::default() }` and removing relevant reassignments
+   --> crates/emit_native/src/optimize/tables.rs:272:5
+    |
+272 |     let mut t = FunctionTables::default();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+    = note: `-D clippy::field-reassign-with-default` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::field_reassign_with_default)]`
+
+error: use of `extend` instead of `append` for adding the full range of a second vector
+   --> crates/emit_native/src/optimize/constant_args.rs:303:9
+    |
+303 |         strings.extend(entry.drain(..));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `strings.append(entry)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#extend_with_drain
+    = note: `-D clippy::extend-with-drain` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::extend_with_drain)]`
+
+error: this `map_or` can be simplified
+   --> crates/emit_native/src/optimize/scalar_coalesce.rs:118:70
+    |
+118 |           Operand::Val(v) if types.get(v) == Some(&Some(Type::I64)) => definitions
+    |  ______________________________________________________________________^
+119 | |             .get(v)
+120 | |             .map_or(true, |&(db, di)| dominates(db, bi) && (db != bi || di < ii)),
+    | |_________________________________________________________________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_map_or
+    = note: `-D clippy::unnecessary-map-or` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unnecessary_map_or)]`
+help: use `is_none_or` instead
+    |
+120 -             .map_or(true, |&(db, di)| dominates(db, bi) && (db != bi || di < ii)),
+120 +             .is_none_or(|&(db, di)| dominates(db, bi) && (db != bi || di < ii)),
+    |
+
+error: this `if` statement can be collapsed
+  --> crates/emit_native/src/pruning/receiver_provenance/allocation_only_exports/rti.rs:84:17
+   |
+84 | /                 if let Terminator::Return(value) = &block.terminator {
+85 | |                     if value.as_ref().and_then(|value| shape.operand_type(value)) != Some(Type::I64) { return false; }
+86 | |                 }
+   | |_________________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+   |
+84 ~                 if let Terminator::Return(value) = &block.terminator
+85 ~                     && value.as_ref().and_then(|value| shape.operand_type(value)) != Some(Type::I64) { return false; }
+   |
+
+error: this function has too many arguments (8/7)
+  --> crates/emit_native/src/pruning/receiver_provenance/allocation_only_exports.rs:70:1
+   |
+70 | / fn audit<'a>(
+71 | |     body: &'a Function,
+72 | |     proof: &Provenance<'a>,
+73 | |     bodies: &HashMap<&'a str, &'a Function>,
+...  |
+78 | |     rti: &rti::Inventory,
+79 | | ) -> bool {
+   | |_________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#too_many_arguments
+
+error: found call to `str::trim` before `str::split_whitespace`
+   --> crates/emit_native/src/pruning/receiver_provenance/allocation_certificates.rs:135:50
+    |
+135 |                         .map(|argument| argument.trim().split_whitespace().next())
+    |                                                  ^^^^^^^ help: remove `trim()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#trim_split_whitespace
+    = note: `-D clippy::trim-split-whitespace` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::trim_split_whitespace)]`
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/pruning/allocation_inventory/closure.rs:174:13
+    |
+174 | /             if let Some((_, inline)) = structural_header.split_once('{') {
+175 | |                 if let Some((inline, _)) = inline.rsplit_once('}') { body.push(inline); complete = true; }
+176 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+174 ~             if let Some((_, inline)) = structural_header.split_once('{')
+175 ~                 && let Some((inline, _)) = inline.rsplit_once('}') { body.push(inline); complete = true; }
+    |
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/emit_native/src/sdk_module.rs:219:18
+    |
+219 |     static MEMO: OnceLock<Mutex<std::collections::HashMap<(PathBuf, String), Arc<IdTable>>>> = OnceLock::new();
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#type_complexity
+
+error: consider using `sort_by_key`
+   --> crates/emit_native/src/sdk_module.rs:928:5
+    |
+928 |     dirs.sort_by(|a, b| b.0.cmp(&a.0));
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_sort_by
+    = note: `-D clippy::unnecessary-sort-by` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unnecessary_sort_by)]`
+help: try
+    |
+928 -     dirs.sort_by(|a, b| b.0.cmp(&a.0));
+928 +     dirs.sort_by_key(|a| std::cmp::Reverse(a.0));
+    |
+
+error: could not compile `dartforge-emit-native` (lib) due to 154 previous errors
+error: items after a test module
+   --> crates/emit_native/src/context/layout_type_identity.rs:131:1
+    |
+131 | mod tests {
+    | ^^^^^^^^^
+...
+259 | impl super::Context<'_> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#items_after_test_module
+    = note: `-D clippy::items-after-test-module` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::items_after_test_module)]`
+    = help: move the items to before the test module was defined
+
+error: field assignment outside of initializer for an instance created with Default::default()
+    --> crates/emit_native/src/llvm/tests.rs:1018:5
+     |
+1018 |     plan.tables = t;
+     |     ^^^^^^^^^^^^^^^^
+     |
+note: consider initializing the variable with `optimize::arc::functions::DartFunctionPlan { tables: t, ..Default::default() }` and removing relevant reassignments
+    --> crates/emit_native/src/llvm/tests.rs:1017:5
+     |
+1017 |     let mut plan = crate::optimize::arc::DartFunctionPlan::default();
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+     = note: `-D clippy::field-reassign-with-default` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::field_reassign_with_default)]`
+
+error: this `if` statement can be collapsed
+  --> crates/emit_native/src/lower/double_identity/tests.rs:68:5
+   |
+68 | /     if selected_sdk::core_fingerprint(ctx).as_deref() != manifest["core_fingerprint"].as_str() {
+69 | |         if let Some(core) = ctx.program.core {
+70 | |             let library = ctx.program.library(core);
+71 | |             for (ordinal, id) in library.units.iter().enumerate() {
+...  |
+82 | |     }
+   | |_____^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+   |
+68 ~     if selected_sdk::core_fingerprint(ctx).as_deref() != manifest["core_fingerprint"].as_str()
+69 ~         && let Some(core) = ctx.program.core {
+70 |             let library = ctx.program.library(core);
+...
+80 |             }
+81 ~         }
+   |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/lower/sync_native_callable.rs:154:17
+    |
+154 | /                 if let Instruction::CallStatic { symbol, args, ret_ty } = instruction {
+155 | |                     if symbol.ends_with("._dartforgeCallableSync") { return Some((args, ret_ty)); }
+156 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+154 ~                 if let Instruction::CallStatic { symbol, args, ret_ty } = instruction
+155 ~                     && symbol.ends_with("._dartforgeCallableSync") { return Some((args, ret_ty)); }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/lower/runtime_policy.rs:187:21
+    |
+187 | /                     if let Instruction::CallRuntime { name: called, args, ret_ty } = instruction {
+188 | |                         if called == &format!("dartforge_native_DartForge_{native}") { return Some((args, ret_ty, ty)); }
+189 | |                     }
+    | |_____________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+187 ~                     if let Instruction::CallRuntime { name: called, args, ret_ty } = instruction
+188 ~                         && called == &format!("dartforge_native_DartForge_{native}") { return Some((args, ret_ty, ty)); }
+    |
+
+error: items after a test module
+  --> crates/emit_native/src/lower/lists.rs:30:1
+   |
+30 | mod arc_tests {
+   | ^^^^^^^^^^^^^
+...
+95 | const SHAPE_GENERAL: i64 = flags::REFS as i64;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+96 |
+97 | impl<'a, 'c> FnBuilder<'a, 'c> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#items_after_test_module
+   = help: move the items to before the test module was defined
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/lower/layouts_arc.rs:185:25
+    |
+185 | /                         if matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_object_new") {
+186 | |                             if let Some(nodes) = analysis.value(*v).and_then(|p| p.nodes()) {
+187 | |                                 assert_eq!(nodes.len(), 1);
+188 | |                                 let expected = &module.arc_sites[&main.symbol][v];
+...   |
+194 | |                         }
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+185 ~                         if matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_object_new")
+186 ~                             && let Some(nodes) = analysis.value(*v).and_then(|p| p.nodes()) {
+187 |                                 assert_eq!(nodes.len(), 1);
+...
+192 |                                 allocations += 1;
+193 ~                             }
+    |
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> crates/emit_native/src/lower/layouts_arc.rs:307:21
+    |
+307 |                     m.arc_memory = true;
+    |                     ^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `hir::Module { arc_memory: true, ..Default::default() }` and removing relevant reassignments
+   --> crates/emit_native/src/lower/layouts_arc.rs:306:21
+    |
+306 |                     let mut m = Module::default();
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> crates/emit_native/src/optimize/arc/classification/speed_tests.rs:485:5
+    |
+485 |     plan.pendings = pending;
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `optimize::arc::tokens::TokenPlan { pendings: pending, ..Default::default() }` and removing relevant reassignments
+   --> crates/emit_native/src/optimize/arc/classification/speed_tests.rs:484:5
+    |
+484 |     let mut plan = super::super::TokenPlan::default();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+
+error: the loop variable `v` is used to index `reachability`
+   --> crates/emit_native/src/optimize/arc/analysis/points_to.rs:896:22
+    |
+896 |             for v in 0..3 {
+    |                      ^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#needless_range_loop
+help: consider using an iterator and enumerate()
+    |
+896 -             for v in 0..3 {
+896 +             for (v, <item>) in reachability.iter_mut().enumerate() {
+    |
+
+error: the loop variable `w` is used to index `reachability`
+   --> crates/emit_native/src/optimize/arc/analysis/points_to.rs:902:26
+    |
+902 |                 for w in 0..3 {
+    |                          ^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#needless_range_loop
+help: consider using an iterator and enumerate()
+    |
+902 -                 for w in 0..3 {
+902 +                 for (w, <item>) in reachability.iter_mut().enumerate() {
+    |
+
+error: the loop variable `w` is used to index `reachability`
+   --> crates/emit_native/src/optimize/arc/analysis/points_to.rs:921:26
+    |
+921 |                 for w in 0..3 {
+    |                          ^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#needless_range_loop
+help: consider using an iterator and enumerate()
+    |
+921 -                 for w in 0..3 {
+921 +                 for (w, <item>) in reachability.iter().enumerate() {
+    |
+
+error: for loop over a single element
+    --> crates/emit_native/src/optimize/arc/contracts.rs:2510:9
+     |
+2510 | /         for name_str in ["dartforge_ffi_closure_address"] {
+2511 | |             let mut f = Function {
+2512 | |                 symbol: "consulta_record".into(),
+2513 | |                 name: "consulta_record".into(),
+...    |
+2602 | |             assert_eq!(plan.pendings, pendings);
+2603 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#single_element_loop
+     = note: `-D clippy::single-element-loop` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::single_element_loop)]`
+help: try
+     |
+2510 ~         {
+2511 +             let name_str = "dartforge_ffi_closure_address";
+2512 +             let mut f = Function {
+2513 +                 symbol: "consulta_record".into(),
+2514 +                 name: "consulta_record".into(),
+2515 +                 debug_info: None,
+2516 +                 params: vec![(ValueId(0), "record".into(), Type::Ref)],
+2517 +                 return_ty: Type::I64,
+2518 +                 blocks: vec![
+2519 +                     BasicBlock {
+2520 +                         id: BlockId(0),
+2521 +                         instructions: vec![
+2522 +                             (
+2523 +                                 ValueId(1),
+2524 +                                 Instruction::CallRuntime {
+2525 +                                     name: name_str.into(),
+2526 +                                     args: vec![(Operand::Val(ValueId(0)), Type::Ref)],
+2527 +                                     ret_ty: Type::I64,
+2528 +                                 },
+2529 +                                 Type::I64,
+2530 +                             ),
+2531 +                             (
+2532 +                                 ValueId(2),
+2533 +                                 Instruction::CallRuntime {
+2534 +                                     name: "dartforge_exception_pending".into(),
+2535 +                                     args: vec![],
+2536 +                                     ret_ty: Type::I8,
+2537 +                                 },
+2538 +                                 Type::I8,
+2539 +                             ),
+2540 +                             (
+2541 +                                 ValueId(3),
+2542 +                                 Instruction::ICmp(
+2543 +                                     ICmpOp::Ne,
+2544 +                                     Operand::Val(ValueId(2)),
+2545 +                                     Operand::Constant(Constant::Int(0)),
+2546 +                                 ),
+2547 +                                 Type::I1,
+2548 +                             ),
+2549 +                         ],
+2550 +                         terminator: Terminator::CondBranch {
+2551 +                             cond: Operand::Val(ValueId(3)),
+2552 +                             then_block: BlockId(1),
+2553 +                             else_block: BlockId(2),
+2554 +                         },
+2555 +                     },
+2556 +                     BasicBlock {
+2557 +                         id: BlockId(1),
+2558 +                         instructions: vec![],
+2559 +                         terminator: Terminator::Return(Some(Operand::Constant(Constant::Int(0)))),
+2560 +                     },
+2561 +                     BasicBlock {
+2562 +                         id: BlockId(2),
+2563 +                         instructions: vec![],
+2564 +                         terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+2565 +                     },
+2566 +                 ],
+2567 +             };
+2568 +             let mut classes = HashMap::from([(
+2569 +                 ValueId(0),
+2570 +                 Ownership::Borrowed {
+2571 +                     owner: OwnerOrigin::Caller,
+2572 +                     scope: 0,
+2573 +                 },
+2574 +             )]);
+2575 +             let mut plan = TokenPlan::default();
+2576 +             produce_and_verify_tokens(
+2577 +                 &f,
+2578 +                 &mut classes,
+2579 +                 &mut plan,
+2580 +                 &FunctionTables::default(),
+2581 +                 &ScopePlan::default(),
+2582 +             )
+2583 +             .unwrap();
+2584 +             assert_eq!(classes[&ValueId(1)], Ownership::Trivial);
+2585 +             assert_eq!(plan.pendings[&ValueId(1)], BlockId(1));
+2586 +             assert!(plan.instructions[&ValueId(1)].always.is_empty());
+2587 +             let before = classes.clone();
+2588 +             let effects = plan.instructions.clone();
+2589 +             let pendings = plan.pendings.clone();
+2590 +             f.blocks[1].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
+2591 +             assert!(
+2592 +                 produce_and_verify_tokens(
+2593 +                     &f,
+2594 +                     &mut classes,
+2595 +                     &mut plan,
+2596 +                     &FunctionTables::default(),
+2597 +                     &ScopePlan::default()
+2598 +                 )
+2599 +                 .is_err()
+2600 +             );
+2601 +             assert_eq!(classes, before);
+2602 +             assert_eq!(plan.instructions, effects);
+2603 +             assert_eq!(plan.pendings, pendings);
+2604 +         }
+     |
+
+error: field assignment outside of initializer for an instance created with Default::default()
+    --> crates/emit_native/src/optimize/arc/contracts.rs:2777:9
+     |
+2777 |         module.arc_memory = true;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+note: consider initializing the variable with `hir::Module { arc_memory: true, ..Default::default() }` and removing relevant reassignments
+    --> crates/emit_native/src/optimize/arc/contracts.rs:2776:9
+     |
+2776 |         let mut module = Module::default();
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+
+error: field assignment outside of initializer for an instance created with Default::default()
+    --> crates/emit_native/src/optimize/arc/contracts.rs:3047:9
+     |
+3047 |         module.arc_memory = true;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+note: consider initializing the variable with `hir::Module { arc_memory: true, ..Default::default() }` and removing relevant reassignments
+    --> crates/emit_native/src/optimize/arc/contracts.rs:3046:9
+     |
+3046 |         let mut module = Module::default();
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> crates/emit_native/src/optimize/arc/locals.rs:685:13
+    |
+685 |             module.arc_memory = true;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `hir::Module { arc_memory: true, ..Default::default() }` and removing relevant reassignments
+   --> crates/emit_native/src/optimize/arc/locals.rs:684:13
+    |
+684 |             let mut module = Module::default();
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> crates/emit_native/src/optimize/arc/locals.rs:706:13
+    |
+706 |             module.arc_memory = arc;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `hir::Module { arc_memory: arc, ..Default::default() }` and removing relevant reassignments
+   --> crates/emit_native/src/optimize/arc/locals.rs:705:13
+    |
+705 |             let mut module = Module::default();
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+
+error: field assignment outside of initializer for an instance created with Default::default()
+  --> crates/emit_native/src/optimize/arc/layouts.rs:44:13
+   |
+44 |             m.arc_memory = true;
+   |             ^^^^^^^^^^^^^^^^^^^^
+   |
+note: consider initializing the variable with `hir::Module { arc_memory: true, ..Default::default() }` and removing relevant reassignments
+  --> crates/emit_native/src/optimize/arc/layouts.rs:43:13
+   |
+43 |             let mut m = Module::default();
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/optimize/arc/objects.rs:450:13
+    |
+450 | /             if case == 13 {
+451 | |                 if let Instruction::AllocClosureTyped { abi, .. } = &mut m.functions[0].blocks[0].instructions[2].1 {
+452 | |                     *abi = 8;
+453 | |                 }
+454 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+450 ~             if case == 13
+451 ~                 && let Instruction::AllocClosureTyped { abi, .. } = &mut m.functions[0].blocks[0].instructions[2].1 {
+452 |                     *abi = 8;
+453 ~                 }
+    |
+
+error: using `chunks_exact` with a constant chunk size
+  --> crates/emit_native/src/optimize/arc/fields/class_cases/tests.rs:88:28
+   |
+88 |             assert!(fields.chunks_exact(2).any(|pair| pair == [i64::from(class_id), field_count as i64]),
+   |                            ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+   = note: `-D clippy::chunks-exact-to-as-chunks` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::chunks_exact_to_as_chunks)]`
+
+error: using `chunks_exact` with a constant chunk size
+   --> crates/emit_native/src/optimize/arc/fields.rs:356:19
+    |
+356 |         || values.chunks_exact(2).any(|p| i32::try_from(p[0]).is_err() || p[0] < 0
+    |                   ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+
+error: items after a test module
+   --> crates/emit_native/src/optimize/arc/globals.rs:163:1
+    |
+163 |   mod tests {
+    |   ^^^^^^^^^
+...
+332 | / pub(super) fn produce_scalars(
+333 | |     m: &Module,
+334 | |     plans: &mut HashMap<String, DartFunctionPlan>,
+335 | | ) -> Result<(), String> {
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#items_after_test_module
+    = help: move the items to before the test module was defined
+
+error: unnecessary use of `clone` to create a slice from a reference
+   --> crates/emit_native/src/optimize/arc/calls.rs:742:37
+    |
+742 |         produce_dart_calls(&caller, &[summary.clone()], &mut classes, &mut plan).unwrap();
+    |                                     ^^^^^^^^^^^^^^^^^^ help: try: `std::slice::from_ref(&summary)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#cloned_ref_to_slice_refs
+    = note: `-D clippy::cloned-ref-to-slice-refs` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::cloned_ref_to_slice_refs)]`
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> crates/emit_native/src/optimize/tables.rs:273:5
+    |
+273 |     t.checks_stack = f.blocks.iter().any(|b| b.instructions.iter().any(|(_, inst, _)| is_site(inst, nl, uniforms)));
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `hir::FunctionTables { checks_stack: f.blocks.iter().any(|b| b.instructions.iter().any(|(_, inst, _)| is_site(inst, nl, uniforms))), ..Default::default() }` and removing relevant reassignments
+   --> crates/emit_native/src/optimize/tables.rs:272:5
+    |
+272 |     let mut t = FunctionTables::default();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#field_reassign_with_default
+
+error: this `if` statement can be collapsed
+   --> crates/emit_native/src/pruning/receiver_provenance/field_provenance.rs:227:33
+    |
+227 | / ...                   if let Ok(cid) = u32::try_from(*cid) {
+228 | | ...                       if !accepted_sites.contains(&(f.symbol.clone(), *v)) {
+229 | | ...                           bad.insert(cid);
+230 | | ...                       }
+231 | | ...                   }
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+227 ~                                 if let Ok(cid) = u32::try_from(*cid)
+228 ~                                     && !accepted_sites.contains(&(f.symbol.clone(), *v)) {
+229 |                                         bad.insert(cid);
+230 ~                                     }
+    |
+
+error: this block may be rewritten with the `?` operator
+   --> crates/emit_native/src/pruning/receiver_provenance/field_provenance.rs:523:17
+    |
+523 | /                 if values.get(call_value).is_none() {
+524 | |                     return None;
+525 | |                 }
+    | |_________________^ help: replace it with: `values.get(call_value)?;`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#question_mark
+
+error: consider using `sort_by_key`
+    --> crates/emit_native/src/sdk_module.rs:1287:13
+     |
+1287 |             v.sort_by(|a, b| b.1.cmp(&a.1));
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_sort_by
+help: try
+     |
+1287 -             v.sort_by(|a, b| b.1.cmp(&a.1));
+1287 +             v.sort_by_key(|a| std::cmp::Reverse(a.1));
+     |
+
+error: consider using `sort_by_key`
+    --> crates/emit_native/src/sdk_module.rs:1322:9
+     |
+1322 |         v.sort_by(|a, b| b.1.cmp(&a.1));
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_sort_by
+help: try
+     |
+1322 -         v.sort_by(|a, b| b.1.cmp(&a.1));
+1322 +         v.sort_by_key(|a| std::cmp::Reverse(a.1));
+     |
+
+error: consider using `sort_by_key`
+    --> crates/emit_native/src/sdk_module.rs:1502:9
+     |
+1502 |         v.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_sort_by
+help: try
+     |
+1502 -         v.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+1502 +         v.sort_by_key(|a| std::cmp::Reverse(a.1.0));
+     |
+
+error: called `.err().expect()` on a `Result` value
+   --> crates/emit_native/src/lib.rs:871:55
+    |
+871 |                 let error = emit_ir(&entry, &options).err().expect("unsupported const name must reject IR emission");
+    |                                                       ^^^^^^^^^^^^ help: try: `expect_err`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#err_expect
+    = note: `-D clippy::err-expect` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::err_expect)]`
+
+error: called `.err().expect()` on a `Result` value
+   --> crates/emit_native/src/lib.rs:897:55
+    |
+897 |                 let error = emit_ir(&entry, &options).err().expect("invalid constant must reject IR emission");
+    |                                                       ^^^^^^^^^^^^ help: try: `expect_err`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#err_expect
+
+error: called `.err().expect()` on a `Result` value
+   --> crates/emit_native/src/lib.rs:904:51
+    |
+904 |             let error = emit_ir(&entry, &options).err().expect("SDK non-const constructor must reject IR emission");
+    |                                                   ^^^^^^^^^^^^ help: try: `expect_err`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#err_expect
+
+error: useless use of `vec!`
+   --> crates/emit_native/src/compact_stack_trace.rs:520:32
+    |
+520 |         assert_eq!(convert_elf(&mut vec![0u8; 8]), Ok(false));
+    |                                ^^^^^^^^^^^^^^^^^ help: you can use a slice directly: `&mut [0u8; 8]`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#useless_vec
+    = note: `-D clippy::useless-vec` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::useless_vec)]`
+
+error: useless use of `vec!`
+  --> crates/emit_native/src/pruning/receiver_provenance/selector_returns/source_tests.rs:43:23
+   |
+43 |         let modules = vec![module];
+   |                       ^^^^^^^^^^^^ help: you can use an array directly: `[module]`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#useless_vec
+
+error: could not compile `dartforge-emit-native` (lib test) due to 192 previous errors

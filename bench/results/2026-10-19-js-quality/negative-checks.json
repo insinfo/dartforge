@@ -1,0 +1,31 @@
+[
+  {
+    "case": "no_arguments",
+    "exit_code": 1,
+    "stderr": "usage: emit_corpus <out_dir> <file.dart>...\n"
+  },
+  {
+    "case": "empty_inputs",
+    "exit_code": 1,
+    "stderr": "usage: emit_corpus <out_dir> <file.dart>...\n"
+  },
+  {
+    "case": "missing_input",
+    "exit_code": 1,
+    "stderr": "input is not a file: /var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/tmpeysj1y_9/missing.dart\n"
+  },
+  {
+    "case": "duplicate_output",
+    "exit_code": 1,
+    "stderr": "multiple inputs produce same.js\n"
+  },
+  {
+    "case": "syntax_error",
+    "exit_code": 1,
+    "stderr": "error: expected_token: /private/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/tmpeysj1y_9/invalid.dart:13: Expected to find '}'. at bytes 13..14\nerror: expected_token: /private/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/tmpeysj1y_9/invalid.dart:13: Expected to find ')'. at bytes 13..14\nerror: missing_identifier: /private/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/tmpeysj1y_9/invalid.dart:13: Expected an identifier. at bytes 13..13\nerror: missing_function_body: /private/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/tmpeysj1y_9/invalid.dart:13: A function body must be provided. at bytes 13..13\n/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/tmpeysj1y_9/invalid.dart: failed: 4 error(s) loading the program\n1 program(s) did not compile\n"
+  },
+  {
+    "case": "stale_output_removed",
+    "passed": true
+  }
+]

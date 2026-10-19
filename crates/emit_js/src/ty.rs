@@ -4,6 +4,15 @@
 use dartforge_elements::model::ClassId;
 use std::collections::HashMap;
 
+/// Required positional, optional positional and sorted named parameter types.
+///
+/// ```
+/// use dartforge_emit_js::ty::ParameterTypes;
+/// let parameters: ParameterTypes = (vec![], vec![], vec![]);
+/// assert!(parameters.0.is_empty());
+/// ```
+pub type ParameterTypes = (Vec<Ty>, Vec<Ty>, Vec<(String, Ty, bool)>);
+
 /// Type parameter: a unique `id` (the `TypeTable` one for outline parameters;
 /// high ids for the ones the emitter creates in generic closures).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

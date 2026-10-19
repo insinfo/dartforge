@@ -9,6 +9,14 @@ use dartforge_frontend::ast::{self, AssignOp, BinaryOp, CollectionElement, ExprI
 use dartforge_types::resolved::{MemberRef, Resolved};
 use std::collections::HashMap;
 
+type ScoredExtensionMatch = (
+    dartforge_elements::model::ExtensionId,
+    dartforge_elements::model::FunctionElementId,
+    HashMap<u32, Ty>,
+    u32,
+);
+type AssignmentWriter<'m, 'a> = Box<dyn Fn(&mut FnEmitter<'m, 'a>, &Js) -> Js>;
+
 /// Null-shorting guard: `temp` receives `init`; if it is null, the chain evaluates to `null`.
 #[derive(Clone, Debug)]
 pub struct Guard {
@@ -877,8 +885,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             parts.push(js::string_literal_units(pending.drain(..)));
         }
         if parts.len() == 1 {
-            let is_lit = parts[0].starts_with('"');
-            return (Js::new(parts.remove(0), if is_lit { P_PRIMARY } else { P_PRIMARY }), self.ctx.t_string());
+            return (Js::new(parts.remove(0), P_PRIMARY), self.ctx.t_string());
         }
         // Make sure the concatenation starts with a string.
         if !parts[0].starts_with('"') {
@@ -1578,7 +1585,6 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let _ = &mut seen_named;
         }
         let mut prefix = String::new();
-        let mut pos_js = pos_js;
         let sorted_vals: Vec<String> = if (in_order && !interleaved) || (named_items.is_empty()) {
             sorted.iter().map(|x| x.1.clone()).collect()
         } else {
@@ -2133,8 +2139,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             self.match_type(&on, recv_ty, &params, &mut subst);
             return Some((forced, fid, subst));
         }
-        let recv_nn = if recv_ty.is_nullable() { recv_ty.clone() } else { recv_ty.clone() };
-        let mut best: Option<(dartforge_elements::model::ExtensionId, dartforge_elements::model::FunctionElementId, HashMap<u32, Ty>, u32)> = None;
+        let recv_nn = recv_ty;
+        let mut best: Option<ScoredExtensionMatch> = None;
         for ext in self.ctx.visible_extensions(self.lib) {
             let e = self.ctx.program.extension(ext);
             let Some(&fid) = e.instance_members.get(&sym) else { continue };
@@ -2143,17 +2149,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let mut subst = HashMap::new();
             // Bind the extension's parameters by matching against the receiver.
             let params: Vec<u32> = data.type_params.iter().map(|p| p.0).collect();
-            let ok = self.match_type(&on, &recv_nn, &params, &mut subst);
+            let ok = self.match_type(&on, recv_nn, &params, &mut subst);
             if !ok {
                 continue;
             }
             let on_s = on.subst(&subst);
-            if !self.ctx.is_subtype(&recv_nn, &on_s) && !recv_nn.is_dynamic() {
-                if !(recv_nn.is_nullable() && self.ctx.is_subtype(&recv_nn.non_null(), &on_s) && !on_s.is_nullable()) {
-                    continue;
-                } else {
-                    continue;
-                }
+            if !self.ctx.is_subtype(recv_nn, &on_s) && !recv_nn.is_dynamic() {
+                continue;
             }
             // Specificity: the more specific `on` wins; on a tie → the current library.
             let score = if e.library == self.lib { 1 } else { 0 };
@@ -3309,7 +3311,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     fn emit_compound(&mut self, target: ExprId, bop: BinaryOp, value: Option<ExprId>, literal: Option<i64>, prefix: bool, node: ExprId) -> (Js, Ty) {
         // Read the target once, with temps for receivers/indices.
         let t = self.expr(target);
-        let (read, read_ty, write): (Js, Ty, Box<dyn Fn(&mut Self, &Js) -> Js>) = match &t.kind {
+        let (read, read_ty, write): (Js, Ty, AssignmentWriter<'m, 'a>) = match &t.kind {
             ExprKind::Identifier(_) | ExprKind::Parenthesized(_) => {
                 let (r, rt) = self.emit_expr(target, None);
                 let tgt = target;

@@ -1,0 +1,9 @@
+corpus/js/229_nome_indefinido_e_local_duplicado_erro.dart:7:9: Error: 'bytes' is already declared in this scope.
+  final bytes = 2;
+        ^^^^^
+corpus/js/229_nome_indefinido_e_local_duplicado_erro.dart:5:9: Context: Previous declaration of 'bytes'.
+  final bytes = 1;
+        ^^^^^
+corpus/js/229_nome_indefinido_e_local_duplicado_erro.dart:8:17: Error: Undefined name 'naoExiste'.
+  print(bytes + naoExiste);
+                ^^^^^^^^^

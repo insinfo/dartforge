@@ -1,0 +1,9 @@
+   Compiling dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.08s
+     Running unittests examples/emit_corpus.rs (target/debug/examples/emit_corpus-dd5ee9b7e50da627)
+
+running 2 tests
+test tests::rejects_empty_missing_and_colliding_inputs_before_writing ... ok
+test tests::refused_compilation_fails_and_removes_stale_output ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s

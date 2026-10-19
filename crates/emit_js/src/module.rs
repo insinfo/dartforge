@@ -342,7 +342,7 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<FragmentCac
     // reusing the text of an untouched class yields the same module.
     for c in ordered {
         m.note_class(c);
-        if let Some(cache) = cache.as_deref() {
+        if let Some(cache) = cache {
             if let Some(f) = cache.borrow().map.get(&FragmentKey::Class(c.0)) {
                 f.apply_to(&m);
                 body.push_raw(&f.text);
@@ -357,14 +357,14 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<FragmentCac
         let text = w.out;
         m.merge(&mf);
         body.push_raw(&text);
-        if let Some(cache) = cache.as_deref() {
+        if let Some(cache) = cache {
             cache.borrow_mut().map.insert(FragmentKey::Class(c.0), Fragment::new(text, &mf));
         }
     }
     let t_cls = t1.elapsed();
     let t2 = std::time::Instant::now();
     for &glib in group {
-        if let Some(cache) = cache.as_deref() {
+        if let Some(cache) = cache {
             if let Some(f) = cache.borrow().map.get(&FragmentKey::Rest(glib.0)) {
                 f.apply_to(&m);
                 body.push_raw(&f.text);
@@ -378,7 +378,7 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<FragmentCac
         let text = w.out;
         m.merge(&mf);
         body.push_raw(&text);
-        if let Some(cache) = cache.as_deref() {
+        if let Some(cache) = cache {
             cache.borrow_mut().map.insert(FragmentKey::Rest(glib.0), Fragment::new(text, &mf));
         }
     }
@@ -1272,10 +1272,8 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let super_ref = superclass_js(ctx, m, c, w);
 
     // Class body.
-    let mut cw = Writer::default();
-    cw.indent = 1;
-    let mut mixin_statics = Writer::default();
-    mixin_statics.indent = 1;
+    let mut cw = Writer { indent: 1, ..Writer::default() };
+    let mut mixin_statics = Writer { indent: 1, ..Writer::default() };
     let mut ext_methods: Vec<String> = Vec::new();
     let mut ext_accessors: Vec<String> = Vec::new();
     // SDK mode: a native class declares its members through the `dartx` symbol
@@ -1452,7 +1450,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 let text = if name == "==" && !af.static_ {
                     has_equals = true;
                     // `_equals(other)`: checks for null first.
-                    text.replacen("{\n", "{\n  if (other == null) return false;\n", 1).replace("_equals(", "_equals(")
+                    text.replacen("{\n", "{\n  if (other == null) return false;\n", 1)
                 } else {
                     text
                 };
@@ -1828,8 +1826,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         // Synthetic constructor.
         let jsname = "new";
         ctor_names.push(jsname.into());
-        let mut body = Writer::default();
-        body.indent = 1;
+        let mut body = Writer { indent: 1, ..Writer::default() };
         if generic {
             body.line("this.$ti = this.$ti || _ti || dart.getReifiedType(this);");
         }
@@ -1861,8 +1858,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         crate::emit_line!(w, "({cref}.{jsname} = {text}).prototype = {cref}.prototype;");
     }
     if is_mixin || class.modifiers.mixin {
-        let mut body = Writer::default();
-        body.indent = 1;
+        let mut body = Writer { indent: 1, ..Writer::default() };
         emit_field_inits(ctx, m, c, &fields, &HashSet::new(), &mut body);
         crate::emit_line!(w, "({cref}[dart.mixinNew] = function() {{");
         w.push_raw(&body.out);
@@ -2163,8 +2159,7 @@ fn emit_js_interop_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     };
     let ast = &ctx.program.unit(unit).ast;
     let anonymous = ctx.js_classes.get(&c).is_some_and(|j| j.anonymous);
-    let mut cw = Writer::default();
-    cw.indent = 1;
+    let mut cw = Writer { indent: 1, ..Writer::default() };
     for &mid in &members {
         let mem = ast.member(mid);
         match &mem.kind {
@@ -2535,8 +2530,7 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
     if !pjs.is_empty() {
         params.push(pjs);
     }
-    let mut body = Writer::default();
-    body.indent = 1;
+    let mut body = Writer { indent: 1, ..Writer::default() };
     for line in prologue.lines() {
         body.line(line);
     }

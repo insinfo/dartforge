@@ -1,0 +1,69 @@
+   Compiling dartforge-emit-js v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_js)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.49s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_emit_js-b690f0a8d4c7d199)
+
+running 4 tests
+test sdk_patches::tests::every_patch_changes_its_text ... ok
+test module::const_record_cache_tests::derived_and_reused_fragments_preserve_per_library_const_record_uses ... ok
+test module::typed_read_guard_cache_tests::captured_guard_uses_survive_fragment_merge_and_reuse ... ok
+test sdk_patches::tests::inverse_requires_complete_exact_roundtrip ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/basic.rs (target/debug/deps/basic-0d7e557e2e576415)
+
+running 15 tests
+test p5_exceptions ... ok
+test p7_dynamic ... ok
+test p3_generics ... ok
+test p1_basic ... ok
+test p3_classes ... ok
+test p10_reified_types ... ok
+test indexed_assignment_order ... ok
+test p4_collections ... ok
+test p6_async ... ok
+test p2_functions ... ok
+test p7_patterns ... ok
+test p7_libraries ... ok
+test p9_lexical_scope ... ok
+test p8_nosuchmethod_order ... ok
+test property_assignment_order ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.03s
+
+     Running tests/determinism.rs (target/debug/deps/determinism-40d155c9522e0d42)
+
+running 2 tests
+test forwarders_come_out_in_cfe_order ... ok
+test emission_with_nosuchmethod_is_identical_byte_for_byte ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.26s
+
+     Running unittests src/lib.rs (target/debug/deps/dartforge_world-caadb931234ab2cb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/world.rs (target/debug/deps/world-cc76985a251fbc14)
+
+running 1 test
+test closed_world_cases ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+   Doc-tests dartforge_emit_js
+
+running 3 tests
+test crates/emit_js/src/lib.rs - id_number (line 104) ... ok
+test crates/emit_js/src/body.rs - body::ParameterDeclaration (line 14) ... ok
+test crates/emit_js/src/ty.rs - ty::ParameterTypes (line 9) ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.52s; merged doctests compilation took 0.35s
+   Doc-tests dartforge_world
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

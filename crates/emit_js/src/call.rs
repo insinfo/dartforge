@@ -4,7 +4,7 @@ use crate::body::{static_member_name, AsyncKind, FnEmitter};
 use crate::ctx::MemberKind;
 use crate::expr::{Guard, IdentTarget};
 use crate::js::{self, Js, P_ASSIGN, P_PRIMARY};
-use crate::ty::{Ty, TyParam};
+use crate::ty::{ParameterTypes, Ty, TyParam};
 use dartforge_elements::model::{ClassId, Element, FunctionKind};
 use dartforge_frontend::ast::{self, ExprId, ExprKind};
 use std::collections::HashMap;
@@ -860,7 +860,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             if let Some(b) = tp.bound {
                 let bt = self.resolve_type(b);
                 self.ctx.param_bounds.borrow_mut().insert(p.id, bt.clone());
-                p.bound = Box::new(bt);
+                *p.bound = bt;
             }
         }
         // Common signature, only for a non-generic function (a generic one
@@ -1011,7 +1011,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// Types of the parameters already declared in the current scope (after `declare_params`).
-    pub fn declared_param_tys(&self, params: &[ast::Parameter]) -> (Vec<Ty>, Vec<Ty>, Vec<(String, Ty, bool)>) {
+    pub fn declared_param_tys(&self, params: &[ast::Parameter]) -> ParameterTypes {
         let mut pos = Vec::new();
         let mut opt = Vec::new();
         let mut named = Vec::new();

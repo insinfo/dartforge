@@ -46,6 +46,9 @@ pub enum MemberKind {
     Field(VariableId),
 }
 
+type MemberLookup = (ClassId, SymbolId, bool);
+type MemberResolution = Option<(ClassId, MemberKind)>;
+
 pub struct Ctx<'a> {
     pub program: &'a Program,
     pub interner: &'a Interner,
@@ -123,7 +126,7 @@ pub struct Ctx<'a> {
     /// arguments — that is why it can be stored. Measured on `new_sali`:
     /// 316 thousand lookups cost 1.84 M allocations (queue, visited set and
     /// instantiated supertypes on every call).
-    member_memo: RefCell<HashMap<(ClassId, SymbolId, bool), Option<(ClassId, MemberKind)>>>,
+    member_memo: RefCell<HashMap<MemberLookup, MemberResolution>>,
     /// Memo of the rti of closed types (without `Ty::Param`): the recipe and
     /// the expression do not depend on the runtime environment. 132 thousand
     /// calls, 1.78 M allocations.
@@ -735,7 +738,7 @@ impl<'a> Ctx<'a> {
         let is_user = |i: usize, s: &Self| !s.libs[i].is_sdk && !s.program.libraries[i].units.is_empty();
         // 1. Initial module of each library.
         let mut key_of: Vec<Option<String>> = vec![None; n];
-        for i in 0..n {
+        for (i, module_key) in key_of.iter_mut().enumerate() {
             if !is_user(i, self) {
                 continue;
             }
@@ -757,7 +760,7 @@ impl<'a> Ctx<'a> {
                 _ => self.libs[i].module_path.clone(),
             };
             self.libs[i].module_path = key.clone();
-            key_of[i] = Some(key);
+            *module_key = Some(key);
         }
         // 2. Module graph.
         let mut keys: Vec<String> = Vec::new();
@@ -1233,10 +1236,7 @@ impl<'a> Ctx<'a> {
         if *class == target {
             return Some(ty.clone());
         }
-        let generic = match self.super_memo.borrow().get(&(*class, target)) {
-            Some(g) => Some(g.clone()),
-            None => None,
-        };
+        let generic = self.super_memo.borrow().get(&(*class, target)).cloned();
         let generic = match generic {
             Some(g) => g,
             None => {

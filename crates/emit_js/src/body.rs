@@ -3,11 +3,20 @@
 use crate::ctx::{Ctx, Member, MemberKind};
 use crate::js::{self, Js, Writer, P_ASSIGN, P_COND, P_UNARY};
 use crate::module::ModState;
-use crate::ty::Ty;
+use crate::ty::{ParameterTypes, Ty};
 use dartforge_elements::model::{ClassId, Element, FunctionKind, LibraryId, UnitId};
 use dartforge_frontend::ast::{self, Ast, ExprId, FunctionBody, StmtId, StmtKind};
 use dartforge_intern::SymbolId;
 use std::collections::{HashMap, HashSet};
+
+/// JS parameters, prologue and declaration-ordered (kind, Dart name, JS name).
+///
+/// ```
+/// use dartforge_emit_js::body::ParameterDeclaration;
+/// let declaration: ParameterDeclaration = (String::new(), String::new(), vec![]);
+/// assert!(declaration.2.is_empty());
+/// ```
+pub type ParameterDeclaration = (String, String, Vec<(ast::ParameterKind, String, String)>);
 
 /// Local variable in scope.
 #[derive(Clone, Debug)]
@@ -651,9 +660,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     if let Some(b) = tp.bound {
                         let bt = sub.resolve_type(b);
                         self.ctx.param_bounds.borrow_mut().insert(p.id, bt.clone());
-                        p.bound = Box::new(bt);
+                        *p.bound = bt;
                     } else {
-                        p.bound = Box::new(self.ctx.t_object_q());
+                        *p.bound = self.ctx.t_object_q();
                         self.ctx.param_bounds.borrow_mut().insert(p.id, self.ctx.t_object_q());
                     }
                 }
@@ -681,7 +690,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         e
     }
 
-    pub fn resolve_params(&self, params: &[ast::Parameter]) -> (Vec<Ty>, Vec<Ty>, Vec<(String, Ty, bool)>) {
+    pub fn resolve_params(&self, params: &[ast::Parameter]) -> ParameterTypes {
         let mut pos = Vec::new();
         let mut opt = Vec::new();
         let mut named = Vec::new();
@@ -976,12 +985,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Like [`Self::declare_params`], also returning, in declaration order,
     /// `(parameter kind, Dart name, JS name)` of each one — the `noSuchMethod`
     /// forwarder passes each parameter on to the `Invocation`.
-    pub fn declare_params_with_names(&mut self, params: &[ast::Parameter], tys: Option<&Ty>) -> (String, String, Vec<(ast::ParameterKind, String, String)>) {
+    pub fn declare_params_with_names(&mut self, params: &[ast::Parameter], tys: Option<&Ty>) -> ParameterDeclaration {
         let mut names: Vec<(ast::ParameterKind, String, String)> = Vec::new();
         let mut js_params: Vec<String> = Vec::new();
         let mut prologue = String::new();
         let mut has_named = false;
-        let (pos_expected, opt_expected, named_expected): (Vec<Ty>, Vec<Ty>, Vec<(String, Ty, bool)>) = match tys {
+        let (pos_expected, opt_expected, named_expected): ParameterTypes = match tys {
             Some(Ty::Fn { pos, opt, named, .. }) => (pos.clone(), opt.clone(), named.clone()),
             _ => (vec![], vec![], vec![]),
         };
@@ -1609,7 +1618,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             if let Some(b) = tp.bound {
                 let bt = self.resolve_type(b);
                 self.ctx.param_bounds.borrow_mut().insert(p.id, bt.clone());
-                p.bound = Box::new(bt);
+                *p.bound = bt;
             }
         }
         let ret = f.return_type.map(|r| self.resolve_type(r)).unwrap_or(Ty::Dynamic);
