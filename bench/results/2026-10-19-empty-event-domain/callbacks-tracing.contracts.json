@@ -1,0 +1,23 @@
+{
+  "artifact": {
+    "blake3": "5cbfaac0af79ae49d6780c28637f0879785ac335cf2a34173e4457e9bb4327b1",
+    "cpu": "None",
+    "debug": false,
+    "ir_blake3": "2fdad09ca4790a4487dfbc8039b6200b5046fc25ee9a77392ff7c96527c59784",
+    "optimized": true,
+    "path": "/tmp/forge-empty-events-live/callbacks-tracing"
+  },
+  "certified": false,
+  "diagnostics": [],
+  "manifest_schema": 1,
+  "mode": "verify",
+  "package": null,
+  "requests": [],
+  "sources": [
+    {
+      "blake3": "af6e6281dfb8957e145df21badafc9dd5222530e893faa96f287c3c8263e98af",
+      "uri": "file:///private/tmp/forge-empty-events-live/callbacks.dart"
+    }
+  ],
+  "verification_implemented": false
+}

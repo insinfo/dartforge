@@ -1,0 +1,10 @@
+{
+  "directed.log": {
+    "original_sha256": "5b7f8ff7884c2ec49a85d2d2787c7b1d7e6d2993ae0e6acdad42dc4a1917e1a9",
+    "stored_sha256": "9af464bdd1511fe07b69319529ae96a9c4945ff09f37cb0c3c5acedddf98e233"
+  },
+  "fmt-excerpt.log": {
+    "original_sha256": "2e9457f4b6980ab983804665a05e5e7a0af22ca645e1159ee599e35fc24f4e94",
+    "stored_sha256": "2e69de2bbe49721a18d9977e626c13b6ca838ab1d1cd091da7130666d951eedf"
+  }
+}

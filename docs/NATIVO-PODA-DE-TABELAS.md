@@ -519,7 +519,33 @@ certifica a ABI de um callback nativo específico.
 A rejeição não pode ser contornada reinterpretando um inteiro ou valor gerenciado
 como ponteiro. Casts de identidade `ptr` → `ptr` preservam um endereço existente;
 unboxing precisa partir de `Ref` e produzir uma representação escalar com tipo de
-resultado correspondente. Não há nova autorização para entradas do loop de
-eventos: o domínio do `Ref` de `df.call_dart0` continua sem prova e conserva o
-registro amplo. A análise de pacotes encaminhados e de callbacks permanece
-separada da cobertura de alocações.
+resultado correspondente. Domínios não vazios do `Ref` de `df.call_dart0`
+continuam exigindo prova própria. A análise de pacotes encaminhados e de
+callbacks permanece separada da cobertura de alocações.
+
+
+### Domínio vazio da entrada do loop
+
+Na imagem fixa AOT, a prova pode testar a hipótese de que o loop nunca receberá
+um callback. Para isso remove somente a aresta automática do emissor para a
+entrada do loop em um resumo temporário. Chamadas reais, endereços publicados,
+tabelas e referências do SDK continuam no grafo; se alcançarem a entrada por
+outro caminho, a hipótese é recusada. A assinatura do protocolo continua sendo
+`Ref (Ref)` e a rotina precisa existir localmente. Raízes controladas por código
+nativo e trampolines FFI impedem esse caso-base, mesmo quando suas assinaturas
+são escalares: a prova não cobre trabalho prévio ou ingresso externo nesse
+contexto.
+
+O conjunto de APIs nativas admitidas nessa prova não contém produtores de
+trabalho Dart adiado. Microtasks, timers, dispatchers de portas/eventos nativos
+e finalizadores não foram autorizados. Chamadas importadas precisam continuar
+sem exposição e com fechamento de alocações vazio verificado. Portanto só a
+cobertura completa da imagem, sem nenhuma dessas fronteiras abertas, demonstra
+que o domínio é vazio; a ausência de sintaxe async ou de um import não basta.
+
+Somente depois de todas as verificações a prova retira `call_dart`. A poda HIR
+remove a rotina não referenciada e o emissor deixa de chamar o loop. Uma prova
+que falha conserva a rotina e o loop originais. Isso não se aplica a imagens
+abertas/JIT, nas quais a premissa de ancestralidade fixa está ausente, nem prova
+um conjunto não vazio de callbacks. Admitir qualquer produtor de fila exige
+uma prova adicional do domínio e da vida útil dos handles registrados.

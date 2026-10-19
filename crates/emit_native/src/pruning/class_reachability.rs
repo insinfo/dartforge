@@ -196,6 +196,23 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
             ));
         }
     }
+    // The event entry is a deferred root: none of the native APIs admitted by
+    // this proof can enqueue callbacks, and imported calls must be exposure-free.
+    // Probe the other roots first; a nonempty or opaque event source must fail
+    // complete coverage before this entry can be removed from the fixed image.
+    let event_entry = module.call_dart.clone();
+    if let Some(symbol) = &event_entry {
+        // Native-controlled entrypoints may coexist with work not seeded by
+        // the ordinary program roots; the empty-domain case does not cover them.
+        if !module.source_roots.is_empty() || !module.ffi_trampolines.is_empty() {
+            return Err(format!("event entry {symbol} has unproved native ingress"));
+        }
+        let valid = functions.get(symbol.as_str()).is_some_and(|body|
+            body.return_ty == Type::Ref && body.params.len() == 1 && body.params[0].2 == Type::Ref);
+        if !valid {
+            return Err(format!("event entry {symbol} has an unproved protocol ABI"));
+        }
+    }
     // Managed references and raw argument-packet pointers from external entries
     // do not supply a closed class universe. Imported startup remains limited
     // to zero-argument void calls with a pure closure.
@@ -203,7 +220,6 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
         .entry_symbol
         .iter()
         .chain(&module.source_roots)
-        .chain(module.call_dart.iter())
         .chain(module.record.iter())
         .chain(module.start_rti.iter())
         .chain(&module.sdk_records)
@@ -226,13 +242,29 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
         .filter(|cid| tables.contains_key(cid))
         .collect();
     module.closed_class_tables = Some(runtime_classes.clone());
-    let summary = super::hir_summary(module);
-    // The tentative lazy roots are for constructing the graph only. Publish
-    // an active set only after every reachable definition has been checked.
+    let mut summary = super::hir_summary(module);
     module.closed_class_tables = None;
+    if let Some(symbol) = &event_entry {
+        let callback = summary.names.iter().position(|name| name == symbol)
+            .ok_or("event entry is missing from the HIR summary")? as u32;
+        let entry = summary.names.iter().position(|name| name == "dartforge_entry")
+            .ok_or("program entry is missing from the HIR summary")? as u32;
+        let definition = summary.definitions.iter_mut().find(|definition| definition.name == entry)
+            .ok_or("program entry has no HIR definition")?;
+        // Remove only the emitter's automatic loop edge. Actual calls, address
+        // exposure, table entries and SDK references stay in the probe graph.
+        definition.refs.retain(|node| *node != callback);
+    }
+    // The tentative lazy roots were used only to construct this probe summary.
+    // Publish an active set only after every reachable definition is checked.
     let mut all = sdk.to_vec();
     all.push(&summary);
     let reach = super::reach(&all, true);
+    if let Some(symbol) = &event_entry
+        && reach.names.iter().enumerate().any(|(node, name)| name == symbol && reach.live(node as u32))
+    {
+        return Err(format!("event entry {symbol} is exposed outside the loop"));
+    }
     for (node, symbol) in reach.names.iter().enumerate() {
         let covered = definitions.contains(symbol)
             || covered_runtime(symbol) && !imports.is_some_and(|i| i.contains_definition(symbol))
@@ -556,6 +588,10 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
         }
     }
     module.closed_class_tables = Some(active);
+    // Complete coverage above establishes an empty callback domain. Publish
+    // this transformation only now; failed probes preserve the original loop.
+    // prune_hir removes the unreferenced bridge body using the returned graph.
+    if event_entry.is_some() { module.call_dart = None; }
     Ok(reach)
 }
 
@@ -568,6 +604,8 @@ fn scalar_entry_type(ty: Type) -> bool {
 
 /// Explicit creation/field/pending APIs admitted by this closed-image proof.
 /// Allocation-neutral effects alone do not establish absence of native exposure.
+/// None may enqueue deferred Dart work: successful coverage also certifies the
+/// empty event-entry domain. Admitting a queue producer requires a new proof.
 fn covered_runtime(symbol: &str) -> bool {
     matches!(
         symbol,

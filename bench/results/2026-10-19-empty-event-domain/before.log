@@ -1,0 +1,19 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.28s
+     Running unittests src/lib.rs (target/impl-a/debug/deps/dartforge_emit_native-845e7f740af4002d)
+
+running 1 test
+
+thread 'pruning::class_reachability::tests::a_fully_covered_image_without_queue_producers_eliminates_its_event_bridge' (2125080) panicked at crates/emit_native/src/pruning/class_reachability/tests.rs:2031:5:
+assertion failed: apply(&mut module)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test pruning::class_reachability::tests::a_fully_covered_image_without_queue_producers_eliminates_its_event_bridge ... FAILED
+
+failures:
+
+failures:
+    pruning::class_reachability::tests::a_fully_covered_image_without_queue_producers_eliminates_its_event_bridge
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 844 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

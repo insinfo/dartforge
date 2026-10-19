@@ -1,0 +1,92 @@
+{
+  "compiler_sha256": "f8f47aec92f8257af71c5bea4b641dc5ebe813289826efd9b92639ed16f6d9f6",
+  "base_revision": "eef476c32fdcf090a281cb26af850ade86fd9166",
+  "cases": [
+    {
+      "name": "callbacks-dart",
+      "command": [
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+        "run",
+        "/tmp/forge-empty-events-live/callbacks.dart"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 0.416408333,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-tracing-build",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "compile-native",
+        "/tmp/forge-empty-events-live/callbacks.dart",
+        "-o",
+        "/tmp/forge-empty-events-live/callbacks-tracing",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--optimize",
+        "--memory=tracing"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 91.973567334,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "3dece3ba793e33370ff433f018414913133a45bdbdc6d833ab74964a0e303c83"
+    },
+    {
+      "name": "callbacks-tracing-aot",
+      "command": [
+        "/tmp/forge-empty-events-live/callbacks-tracing"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 0.3961621249999894,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-tracing-jit",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--memory=tracing",
+        "/tmp/forge-empty-events-live/callbacks.dart"
+      ],
+      "gc_stress": false,
+      "exit": 0,
+      "seconds": 51.86934050000001,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-tracing-aot-stress",
+      "command": [
+        "/tmp/forge-empty-events-live/callbacks-tracing"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "seconds": 0.006965708999985054,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "callbacks-tracing-jit-stress",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/impl-a/debug/dartforge",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--memory=tracing",
+        "/tmp/forge-empty-events-live/callbacks.dart"
+      ],
+      "gc_stress": true,
+      "exit": 0,
+      "seconds": 1.6507027499999936,
+      "stdout_sha256": "43a286cc2a4d358cc29deb0c62ee0965ea195b349d7af5812a8407c506446f8a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

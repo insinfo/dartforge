@@ -2009,3 +2009,177 @@ fn scalar_external_inputs_keep_their_closed_class_proof() {
         );
     }
 }
+
+fn unused_event_bridge(module: &mut Module) -> String {
+    let symbol = "df.test.event_bridge".to_string();
+    let mut bridge = function(
+        &symbol,
+        vec![(
+            ValueId(1),
+            Instruction::CallClosure {
+                closure: Operand::Val(ValueId(0)),
+                args: vec![],
+                names: vec![],
+                ret_ty: Type::Ref,
+                tuple_types: Operand::Constant(Constant::Int(0)),
+            },
+            Type::Ref,
+        )],
+    );
+    bridge.params = vec![(ValueId(0), "closure".into(), Type::Ref)];
+    bridge.return_ty = Type::Ref;
+    bridge.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
+    module.functions.push(bridge);
+    module.call_dart = Some(symbol.clone());
+    symbol
+}
+
+#[test]
+fn a_fully_covered_image_without_queue_producers_eliminates_its_event_bridge() {
+    let mut module = fixture();
+    let symbol = unused_event_bridge(&mut module);
+    assert!(apply(&mut module));
+    assert!(module.call_dart.is_none());
+    assert!(
+        !module
+            .functions
+            .iter()
+            .any(|function| function.symbol == symbol)
+    );
+    assert_eq!(
+        module.closed_class_tables.as_ref().unwrap(),
+        &HashSet::from([300])
+    );
+    let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
+    assert!(!ir.contains("call void @dartforge_event_loop("));
+    assert!(!ir.contains("define i64 @df.test.event_bridge("));
+}
+
+#[test]
+fn queue_producers_exposure_and_unproved_bodies_keep_the_event_bridge() {
+    for variant in 0..9 {
+        let mut module = fixture();
+        let symbol = unused_event_bridge(&mut module);
+        match variant {
+            0 => module.functions[0].blocks[0].instructions.push((
+                ValueId(20),
+                Instruction::CallRuntime {
+                    name: "dartforge_native_DartForge_scheduleImmediate".into(),
+                    args: vec![(Operand::Constant(Constant::Null), Type::Ref)],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            )),
+            1 => module.functions[0].blocks[0].instructions.push((
+                ValueId(20),
+                Instruction::CallStatic {
+                    symbol: symbol.clone(),
+                    args: vec![Operand::Constant(Constant::Null)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            )),
+            2 => module.source_roots.push(symbol.clone()),
+            3 => module.classes[0].to_string_symbol = Some(symbol.clone()),
+            4 => module.functions[0].blocks[0].instructions.push((
+                ValueId(20),
+                Instruction::Const(Constant::Function(symbol.clone())),
+                Type::I64,
+            )),
+            5 => module.functions[0].blocks[0].instructions.push((
+                ValueId(20),
+                Instruction::CallRuntime {
+                    name: "dartforge_native_DartForge_finalizer_attach".into(),
+                    args: vec![(Operand::Constant(Constant::Null), Type::Ref); 4],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            )),
+            6 => module.arc_fixed_ancestry = false,
+            7 => {
+                let entry = "df.native.noop";
+                module.functions.push(function(entry, vec![]));
+                module.source_roots.push(entry.into());
+            }
+            _ => module.functions[0].blocks[0].instructions.push((
+                ValueId(20),
+                Instruction::CallRuntime {
+                    name: "dartforge_unknown_event_source".into(),
+                    args: vec![],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            )),
+        }
+        assert!(audit(&mut module, &[]).is_err(), "variant {variant}");
+        assert_eq!(
+            module.call_dart.as_deref(),
+            Some(symbol.as_str()),
+            "variant {variant}"
+        );
+        assert!(module.closed_class_tables.is_none());
+    }
+}
+
+#[test]
+fn deferred_work_registrars_are_not_implicitly_allocation_only_boundaries() {
+    for symbol in [
+        "dartforge_native_DartForge_scheduleImmediate",
+        "dartforge_native_DartForge_Timer_new",
+        "dartforge_native_DartForge_ports_dispatcher",
+        "dartforge_native_DartForge_finalizer_attach",
+        "dartforge_native_DartForge_native_pump_set_dispatcher",
+    ] {
+        assert!(
+            !covered_runtime(symbol),
+            "{symbol} needs a callback domain proof"
+        );
+    }
+}
+
+#[test]
+fn an_imported_queue_source_keeps_the_original_event_entry() {
+    let ir = "declare void @dartforge_native_DartForge_scheduleImmediate(i64)\ndefine void @df.dart$3atest..queue_startup() {\n call void @dartforge_native_DartForge_scheduleImmediate(i64 0)\n ret void\n}\n";
+    let (_directory, summary, inventory) = checked_scalar_sdk(ir);
+    let mut module = fixture();
+    let symbol = unused_event_bridge(&mut module);
+    module
+        .sdk_records
+        .push("df.dart$3atest..queue_startup".into());
+    module.imported_allocation_inventory = Some(inventory);
+    assert!(audit(&mut module, &[&summary]).is_err());
+    assert_eq!(module.call_dart.as_deref(), Some(symbol.as_str()));
+    assert!(module.closed_class_tables.is_none());
+}
+
+#[test]
+#[ignore = "requires Clang and the native runtime"]
+fn compiled_empty_event_domain_matches_the_eager_loop_under_gc_stress() {
+    std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+        let directory = tempfile::tempdir().unwrap();
+        let mut source = fixture();
+        source.runtime_cids = dartforge_runtime::layout::cid::SDK_CLASSES.iter()
+            .map(|(cid, _, _)| i64::from(*cid)).collect();
+        let bridge = unused_event_bridge(&mut source);
+        for closed in [false, true] {
+            let mut module = source.clone();
+            if closed { assert!(apply(&mut module)); }
+            assert_eq!(module.call_dart.is_none(), closed);
+            let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
+            assert_eq!(ir.contains("call void @dartforge_event_loop("), !closed);
+            assert_eq!(ir.contains(&format!("define i64 @{bridge}(")), !closed);
+            let wrapper = "define i32 @main() {\n  %r = call i32 @dartforge_init(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}\n";
+            assert_eq!(ir.matches(wrapper).count(), 1);
+            let ir = ir.replacen(wrapper, "", 1);
+            let executable = directory.path().join(crate::target::executable_name(if closed { "closed" } else { "eager" }));
+            crate::driver::compile_and_link(&ir, &executable, &crate::driver::NativeDriverOptions::default()).unwrap();
+            for stress in [false, true] {
+                let mut command = std::process::Command::new(&executable);
+                if stress { command.env("DARTFORGE_GC_STRESS", "1"); }
+                let output = command.output().unwrap();
+                assert!(output.status.success(), "closed={closed}, stress={stress}: {}", String::from_utf8_lossy(&output.stderr));
+                assert!(output.stdout.is_empty() && output.stderr.is_empty());
+            }
+        }
+    }).unwrap().join().unwrap();
+}

@@ -3,6 +3,25 @@
 ## Atualização de 19/10/2026
 
 
+- A prova reconhece o domínio vazio da entrada do loop em imagens fixas sem
+  ingresso nativo aberto: retira somente a aresta automática em um resumo
+  temporário e exige cobertura completa das demais raízes. Produtores de
+  microtasks/timers/portas/finalizadores/eventos nativos continuam não admitidos;
+  raízes nativas e trampolines FFI também impedem esse caso-base. Exposição do
+  bridge por chamadas/endereço/tabelas conserva o comportamento amplo. Somente
+  após sucesso são removidos `call_dart` e o bridge não referenciado. Passaram
+  46 testes da prova, incluindo executáveis eager/closed normais e sob GC.
+  O compilador final passou seis comandos reais de microtask/timer com a opção
+  experimental ligada: referência VM, compilação AOT e quatro execuções AOT/JIT
+  normais/estresse, todas iguais à VM; as filas reais conservaram seu loop.
+  Clippy/docs estritos passam; fmt global continua pendente. A produção ainda
+  falha, agora no registro SDK `df.register.dart$3a_internal`, sem publicar
+  certificado. Domínios não vazios, certificados de registro SDK, poda completa,
+  aprovação global e nova matriz desktop permanecem pendentes. Sem redução
+  comprovada de tamanho ou medição de desempenho. Evidências:
+  `bench/results/2026-10-19-empty-event-domain/README.md`.
+
+
 - A investigação do callback encontrou uma lacuna separada na prova: raízes
   externas aceitavam `ptr` e podiam encaminhar pacotes sem domínio provado;
   casts de inteiros para ponteiros também eram aprovados. Dois testes HIR
